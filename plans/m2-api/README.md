@@ -49,7 +49,7 @@
 - [x] [Step 3 — Magic-link sign-in and sessions](step-3.md)
 - [x] [Step 4 — Profile](step-4.md)
 - [x] [Step 5 — Ingredient search and allergy/diet rules](step-5.md)
-- [ ] [Step 6 — Canon recipe sync and recipe endpoints](step-6.md)
+- [x] [Step 6 — Canon recipe sync and recipe endpoints](step-6.md)
 - [ ] [Step 7 — Export and delete account](step-7.md)
 - [ ] [Step 8 — End-to-end safety test](step-8.md)
 - [ ] [Step 9 — Compliance follow-ups](step-9.md)
