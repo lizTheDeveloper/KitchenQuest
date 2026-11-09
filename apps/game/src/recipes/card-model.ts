@@ -11,6 +11,8 @@ export interface CardFinding {
   ingredient: string;
   /** From core: a rule matched, the ingredient couldn't be identified, or it depends on a label. */
   kind: Finding['kind'];
+  /** True when a player rule produced this finding (core sets `ruleId`); false for a bare store-bought label flag. */
+  fromRule: boolean;
   status: Exclude<CheckStatus, 'ok'>;
   path: string | null; // names joined ' → '
   ruleNote: string | null; // the player's own words
@@ -78,6 +80,7 @@ export function buildRecipeCard(input: {
     findings = result.findings.map((f) => ({
       ingredient: f.ingredient,
       kind: f.kind,
+      fromRule: f.ruleId !== undefined,
       status: f.status,
       path: f.path ? f.path.map((id) => graph.get(id).name).join(' → ') : null,
       ruleNote: f.ruleId !== undefined ? (notes.get(f.ruleId) ?? null) : null,

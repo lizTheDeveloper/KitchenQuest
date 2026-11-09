@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 import type { Rule } from '@kitchenquest/core/engine';
 import { graph } from '../content';
 import { createStore, type PlayerState } from '../state/store';
-import { activeRules, localDate } from './rules';
+import { activeRules, localDate, watchLocalDate } from './rules';
 
 // vi.stubEnv sets process.env.TZ, which Node honours at runtime; unstubAllEnvs restores it.
 afterEach(() => { vi.unstubAllEnvs(); });
@@ -62,5 +62,59 @@ describe('activeRules', () => {
     expect(s.status).toBe('error');
     // Even with rules on file: some may have been lost or may conflict.
     expect(activeRules(player({ rulesUnreadable: true, localRules: [rule('d1', ['coconut'])] }), graph).status).toBe('error');
+  });
+});
+
+describe('watchLocalDate', () => {
+  afterEach(() => { vi.useRealTimers(); });
+  const fakeDoc = () => {
+    const ls = new Set<() => void>();
+    return {
+      visibilityState: 'visible' as DocumentVisibilityState,
+      addEventListener: (_t: string, fn: () => void) => { ls.add(fn); },
+      removeEventListener: (_t: string, fn: () => void) => { ls.delete(fn); },
+      fire() { for (const fn of [...ls]) fn(); },
+      count: () => ls.size,
+    };
+  };
+
+  test('redraws within a minute of local midnight, once', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 10, 9, 23, 59, 30)); // local time
+    const doc = fakeDoc();
+    const seen: string[] = [];
+    const stop = watchLocalDate(doc as unknown as Document, () => new Date(), (d) => seen.push(d));
+    vi.advanceTimersByTime(20_000);
+    expect(seen).toEqual([]);
+    vi.advanceTimersByTime(60_000);
+    expect(seen).toEqual(['2026-11-10']);
+    vi.advanceTimersByTime(5 * 60_000);
+    expect(seen).toEqual(['2026-11-10']);
+    stop();
+    expect(doc.count()).toBe(0);
+  });
+
+  test('does nothing while hidden; checks on becoming visible', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 10, 9, 23, 0, 0));
+    const doc = fakeDoc();
+    const seen: string[] = [];
+    watchLocalDate(doc as unknown as Document, () => new Date(), (d) => seen.push(d));
+    doc.visibilityState = 'hidden';
+    vi.advanceTimersByTime(3 * 3600_000);
+    expect(seen).toEqual([]);
+    doc.visibilityState = 'visible';
+    doc.fire();
+    expect(seen).toEqual(['2026-11-10']);
+  });
+
+  test('stops after the returned function is called', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 10, 9, 23, 59, 59));
+    const seen: string[] = [];
+    const stop = watchLocalDate(fakeDoc() as unknown as Document, () => new Date(), (d) => seen.push(d));
+    stop();
+    vi.advanceTimersByTime(5 * 60_000);
+    expect(seen).toEqual([]);
   });
 });

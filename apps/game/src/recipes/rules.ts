@@ -32,3 +32,24 @@ export function localDate(now: Date): string {
 export function cardInputsKey(state: PlayerState): string {
   return JSON.stringify([state.localRules, state.accountRules, state.rulesUnreadable, state.settings.showCalories]);
 }
+
+/**
+ * Calls `onChange(newDate)` when the player's local date has changed since the last look. Checked when the tab
+ * becomes visible and at most once a minute while it is visible, so a card or shelf left open across midnight
+ * (or a sleeping phone waking up) redraws with the right phases and freshness.
+ */
+export function watchLocalDate(
+  doc: Pick<Document, 'addEventListener' | 'removeEventListener' | 'visibilityState'>,
+  now: () => Date,
+  onChange: (today: string) => void,
+): () => void {
+  let last = localDate(now());
+  const check = () => {
+    if (doc.visibilityState !== 'visible') return;
+    const today = localDate(now());
+    if (today !== last) { last = today; onChange(today); }
+  };
+  doc.addEventListener('visibilitychange', check);
+  const timer = setInterval(check, 60_000);
+  return () => { doc.removeEventListener('visibilitychange', check); clearInterval(timer); };
+}

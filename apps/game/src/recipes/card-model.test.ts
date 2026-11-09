@@ -3,6 +3,7 @@ import { DISCLAIMER, type Rule } from '@kitchenquest/core/engine';
 import { content, graph } from '../content';
 import type { GameContent } from '../content/types';
 import { buildRecipeCard } from './card-model';
+import { findingText, LABEL_RULE_TEXT, LABEL_STORE_BOUGHT_TEXT } from './card-view';
 import type { RulesState } from './rules';
 
 const today = '2026-11-09';
@@ -116,5 +117,24 @@ describe('buildRecipeCard', () => {
 
   test('an unknown slug throws naming it', () => {
     expect(() => card(ready([]), { slug: 'nope/nope' })).toThrow(/nope\/nope/);
+  });
+});
+
+describe('label findings and their wording', () => {
+  const limitG: Rule = { id: 'r3', target: { kind: 'ingredient', ids: ['turmeric'] }, type: 'limit', severity: 'preference', limit: { amount: 1, unit: 'g', per: 'serving' } };
+
+  test('a store-bought flag has no rule behind it; an unmeasured limit does', () => {
+    const store = card(ready([gheeIntolerance])).findings.find((f) => f.ingredient === 'pappadam')!;
+    expect(store).toMatchObject({ kind: 'label', fromRule: false });
+    const limited = card(ready([limitG])).findings.find((f) => f.ingredient === 'turmeric')!;
+    expect(limited).toMatchObject({ kind: 'label', fromRule: true });
+  });
+
+  test('wording follows the cause: brand wording only for store-bought', () => {
+    const store = card(ready([gheeIntolerance])).findings.find((f) => f.ingredient === 'pappadam')!;
+    const limited = card(ready([limitG])).findings.find((f) => f.ingredient === 'turmeric')!;
+    expect(findingText(store)).toBe(LABEL_STORE_BOUGHT_TEXT);
+    expect(findingText(limited)).toBe(LABEL_RULE_TEXT);
+    expect(findingText(limited)).not.toMatch(/store-bought|brand/);
   });
 });

@@ -12,9 +12,17 @@ const SACRED_TEXT = 'Shared as a story only.';
 export const rulesCheckedText = (n: number): string =>
   n === 0 ? NO_RULES_TEXT : `Checked against your ${n} ${n === 1 ? 'rule' : 'rules'}.`;
 
-function findingText(f: CardFinding): string {
+export const LABEL_RULE_TEXT = "We can't be sure about this one — check what's in it and how much.";
+export const LABEL_STORE_BOUGHT_TEXT = 'store-bought: what it contains depends on the brand, so check the label';
+
+/**
+ * Core's `label` finding has three causes: a store-bought product (no rule attached), an ingredient that only reaches
+ * a rule through a kind or category, and an unmeasured quantity under a per-serving limit. Only the first is about a
+ * brand, so a rule-driven one gets neutral wording.
+ */
+export function findingText(f: CardFinding): string {
   if (f.kind === 'unresolved') return "we couldn't identify this ingredient, so it isn't checked";
-  if (f.kind === 'label') return 'store-bought: what it contains depends on the brand, so check the label';
+  if (f.kind === 'label') return f.fromRule ? LABEL_RULE_TEXT : LABEL_STORE_BOUGHT_TEXT;
   return f.swapLabel ?? 'not with your rules';
 }
 

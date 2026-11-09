@@ -5,7 +5,7 @@ import { statusChip } from '../ui/chips';
 import { contentText, h } from '../ui/dom';
 import { buildRecipeCard } from './card-model';
 import { NO_RULES_TEXT } from './card-view';
-import { activeRules, cardInputsKey, localDate } from './rules';
+import { activeRules, cardInputsKey, localDate, watchLocalDate } from './rules';
 
 const SHELF_ERROR_TEXT = "Couldn't check these dishes against your rules. Treat them as unchecked.";
 
@@ -37,17 +37,19 @@ function draw(el: HTMLElement, ctx: AppContext): void {
 
 function recipesScreen(): Screen {
   let unsubscribe: (() => void) | null = null;
+  let stopDate: (() => void) | null = null;
   return {
     title: 'Recipe shelf',
     mount(el, _route, ctx) {
       let key = cardInputsKey(ctx.store.get());
       draw(el, ctx);
+      stopDate = watchLocalDate(el.ownerDocument, ctx.now, () => draw(el, ctx));
       unsubscribe = ctx.store.subscribe((s) => {
         const next = cardInputsKey(s);
         if (next !== key) { key = next; draw(el, ctx); }
       });
     },
-    unmount() { unsubscribe?.(); unsubscribe = null; },
+    unmount() { unsubscribe?.(); unsubscribe = null; stopDate?.(); stopDate = null; },
   };
 }
 

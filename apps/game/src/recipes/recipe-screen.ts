@@ -4,7 +4,7 @@ import { routeHref } from '../shell/router';
 import { h } from '../ui/dom';
 import { buildRecipeCard } from './card-model';
 import { renderRecipeCard } from './card-view';
-import { activeRules, cardInputsKey, localDate } from './rules';
+import { activeRules, cardInputsKey, localDate, watchLocalDate } from './rules';
 
 function draw(el: HTMLElement, slug: string, ctx: AppContext): void {
   const state = ctx.store.get();
@@ -20,6 +20,7 @@ function draw(el: HTMLElement, slug: string, ctx: AppContext): void {
 
 function recipeScreen(): Screen {
   let unsubscribe: (() => void) | null = null;
+  let stopDate: (() => void) | null = null;
   return {
     title: 'Recipe',
     mount(el, route, ctx) {
@@ -27,12 +28,14 @@ function recipeScreen(): Screen {
       const { slug } = route;
       let key = cardInputsKey(ctx.store.get());
       draw(el, slug, ctx);
+      // `today` is read at draw time, so redraw when the local date rolls over.
+      stopDate = watchLocalDate(el.ownerDocument, ctx.now, () => draw(el, slug, ctx));
       unsubscribe = ctx.store.subscribe((s) => {
         const next = cardInputsKey(s);
         if (next !== key) { key = next; draw(el, slug, ctx); }
       });
     },
-    unmount() { unsubscribe?.(); unsubscribe = null; },
+    unmount() { unsubscribe?.(); unsubscribe = null; stopDate?.(); stopDate = null; },
   };
 }
 
