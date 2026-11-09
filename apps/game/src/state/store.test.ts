@@ -148,6 +148,88 @@ describe('createStore', () => {
   });
 });
 
+describe('rebasing and failures', () => {
+  const rule = (id: string, ids = ['kiwi']) => ({ id, target: { kind: 'ingredient' as const, ids }, type: 'avoid' as const, severity: 'allergy' as const });
+
+  it('a failed write goes memory-only with a notice, and the next update keeps the rule', () => {
+    const st = memStorage();
+    let fail = false;
+    const flaky: Storage = Object.assign(Object.create(st), {
+      getItem: (k: string) => st.getItem(k),
+      setItem: (k: string, v: string) => { if (fail) throw new Error('quota'); st.setItem(k, v); },
+    });
+    const s = createStore(flaky);
+    s.update((x) => ({ ...x, settings: { ...x.settings, showCalories: true } }));
+    fail = true;
+    s.update((x) => ({ ...x, localRules: [rule('r1')] }));
+    expect(s.notice).toBe('unsaved');
+    fail = false;
+    s.update((x) => ({ ...x, cookProgress: { slug: 'a/b', step: 2 } }));
+    expect(s.get().localRules.map((r) => r.id)).toEqual(['r1']);
+    expect(s.get().cookProgress).toEqual({ slug: 'a/b', step: 2 });
+    expect(JSON.parse(st.getItem(STORE_KEY)!).localRules).toEqual([]); // still memory-only: storage untouched
+  });
+
+  it('two stores adding different rules keep both', () => {
+    const st = memStorage();
+    const a = createStore(st), b = createStore(st);
+    a.update((x) => ({ ...x, localRules: [rule('r1')] }));
+    b.update((x) => ({ ...x, localRules: [...x.localRules, rule('r2', ['peanut'])] }));
+    const got = createStore(st).get();
+    expect(got.localRules.map((r) => r.id).sort()).toEqual(['r1', 'r2']);
+    expect(got.rulesUnreadable).toBe(false);
+  });
+
+  it('a conflicting edit to the same id keeps both versions and sets rulesUnreadable', () => {
+    const st = memStorage();
+    const a = createStore(st), b = createStore(st);
+    a.update((x) => ({ ...x, localRules: [rule('r1', ['kiwi'])] }));
+    b.update((x) => x); // b now holds r1 = kiwi
+    a.update((x) => ({ ...x, localRules: [rule('r1', ['kiwi', 'banana'])] }));
+    b.update((x) => ({ ...x, settings: { ...x.settings, showCalories: true } })); // b is stale
+    const got = createStore(st).get();
+    expect(got.localRules.filter((r) => r.id === 'r1')).toHaveLength(2);
+    expect(got.rulesUnreadable).toBe(true);
+  });
+
+  it('does not resurrect data another tab deleted: resets and reloads', () => {
+    const st = memStorage();
+    const wiped = vi.fn();
+    const a = createStore(st, undefined, wiped);
+    a.update((x) => ({ ...x, localRules: [rule('r1')] }));
+    deleteDeviceData(st);
+    a.update((x) => ({ ...x, settings: { ...x.settings, showCalories: true } }));
+    expect(wiped).toHaveBeenCalledTimes(1);
+    expect(a.get().localRules).toEqual([]);
+    expect(st.getItem(STORE_KEY)).toBeNull();
+  });
+
+  it('a storage event for a deleted key also resets and reloads', () => {
+    const st = memStorage();
+    const target = new EventTarget();
+    const wiped = vi.fn();
+    const a = createStore(st, target, wiped);
+    a.update((x) => x);
+    deleteDeviceData(st);
+    target.dispatchEvent(Object.assign(new Event('storage'), { key: STORE_KEY }));
+    expect(wiped).toHaveBeenCalledTimes(1);
+    expect(st.getItem(STORE_KEY)).toBeNull();
+  });
+
+  it.each([
+    ['bad tier', { tadka: { tier: 'master', firstAt: '2026-11-01', lastUsedAt: '2026-11-01', recipes: [] } }],
+    ['bad date', { tadka: { tier: 'seen', firstAt: 'yesterday', lastUsedAt: '2026-11-01', recipes: [] } }],
+    ['recipes not an array', { tadka: { tier: 'seen', firstAt: '2026-11-01', lastUsedAt: '2026-11-01', recipes: 'x' } }],
+    ['record is null', { tadka: null }],
+  ])('a malformed toolkit record takes the corrupt path (%s)', (_n, techniques) => {
+    const raw = JSON.stringify({ v: 1, toolkit: { techniques } });
+    const st = memStorage({ [STORE_KEY]: raw });
+    const s = createStore(st);
+    expect(s.notice).toBe('corrupt');
+    expect(st.getItem('kq.player.v1.corrupt')).toBe(raw);
+  });
+});
+
 describe('deleteDeviceData', () => {
   it('removes every kq.* key including rescue copies, and nothing else', () => {
     const st = memStorage({ [STORE_KEY]: '{}', 'kq.player.v1.corrupt': 'a', 'kq.player.v1.corrupt.1': 'b', other: 'keep' });

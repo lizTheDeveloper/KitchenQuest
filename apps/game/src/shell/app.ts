@@ -34,10 +34,19 @@ export function mountApp(doc: Document, base: Omit<AppContext, 'navigate'>): voi
   ctx.store.subscribe(applyMotion);
   mql.addEventListener('change', applyMotion);
 
-  if (ctx.store.notice === 'corrupt') {
-    screenEl.before(h('div', { class: 'notice', role: 'status', id: 'store-notice' },
-      "We couldn't read the progress saved on this device, so you're starting fresh. A copy of the old data has been kept."));
-  }
+  const NOTICES = {
+    corrupt: "We couldn't read the progress saved on this device, so you're starting fresh. A copy of the old data has been kept.",
+    unsaved: "This device wouldn't save your last change. It will be lost when you close the page, so please check your storage settings.",
+  } as const;
+  const showNotice = () => {
+    const n = ctx.store.notice;
+    let el = doc.getElementById('store-notice');
+    if (!n) { el?.remove(); return; }
+    if (!el) { el = h('div', { class: 'notice', role: 'status', id: 'store-notice' }); screenEl.before(el); }
+    el.textContent = NOTICES[n];
+  };
+  showNotice();
+  ctx.store.subscribe(showNotice);
 
   doc.querySelector('.skip-link')?.addEventListener('click', (ev) => {
     ev.preventDefault(); // a '#view' hash would be a route change

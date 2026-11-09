@@ -1,4 +1,4 @@
-import { EMPTY_TOOLKIT, type Rule, type Tier, type ToolkitState } from '@kitchenquest/core/engine';
+import { EMPTY_TOOLKIT, isValidDate, type Rule, type Tier, type ToolkitState } from '@kitchenquest/core/engine';
 
 export interface PlayerSettings { showCalories: boolean; reducedMotion: 'system' | 'on' | 'off'; familyTable: boolean; iosNoteDismissed: boolean }
 export interface PlayerState {
@@ -19,7 +19,8 @@ export interface PlayerStore {
   get(): PlayerState;
   update(fn: (s: PlayerState) => PlayerState): PlayerState;
   subscribe(fn: (s: PlayerState) => void): () => void;
-  readonly notice: 'corrupt' | null;
+  /** 'corrupt': stored data was unreadable. 'unsaved': a write failed, so changes live in memory only. */
+  readonly notice: 'corrupt' | 'unsaved' | null;
 }
 
 function freshState(): PlayerState {
@@ -34,6 +35,10 @@ function freshState(): PlayerState {
 
 const isObj = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x);
 const isStrOrNull = (x: unknown) => x === null || typeof x === 'string';
+const isTechniqueRecord = (r: unknown): boolean =>
+  isObj(r) && (r.tier === 'seen' || r.tier === 'tried' || r.tier === 'yours') &&
+  typeof r.firstAt === 'string' && isValidDate(r.firstAt) && typeof r.lastUsedAt === 'string' && isValidDate(r.lastUsedAt) &&
+  Array.isArray(r.recipes) && r.recipes.every((x) => typeof x === 'string');
 const isObjArray = (x: unknown) => Array.isArray(x) && x.every(isObj);
 
 /**
@@ -50,7 +55,7 @@ function merge(p: Record<string, unknown>): PlayerState | null {
   if (has('localRules') && !isObjArray(p.localRules)) return null;
   if (has('accountRules') && p.accountRules !== null && !isObjArray(p.accountRules)) return null;
   if (has('account') && p.account !== null && !(isObj(p.account) && typeof p.account.email === 'string')) return null;
-  if (has('toolkit') && !(isObj(p.toolkit) && isObj(p.toolkit.techniques))) return null;
+  if (has('toolkit') && !(isObj(p.toolkit) && isObj(p.toolkit.techniques) && Object.values(p.toolkit.techniques).every(isTechniqueRecord))) return null;
   if (has('cookProgress') && p.cookProgress !== null && !(isObj(p.cookProgress) && typeof p.cookProgress.slug === 'string' && typeof p.cookProgress.step === 'number')) return null;
   if (has('dialogueHistory') && !isObj(p.dialogueHistory)) return null;
   if (has('rulesUnreadable') && typeof p.rulesUnreadable !== 'boolean') return null;
@@ -98,6 +103,32 @@ export function mergeToolkit(a: ToolkitState, b: ToolkitState): ToolkitState {
   return { techniques: out };
 }
 
+/**
+ * Union two rule lists by id. Identical rules collapse. The same id with different contents keeps BOTH
+ * versions and reports a conflict: the caller then marks rules unreadable, so no one is told "safe".
+ */
+export function mergeRules(stored: Rule[], mine: Rule[]): { rules: Rule[]; conflict: boolean } {
+  const rules = [...stored];
+  let conflict = false;
+  for (const r of mine) {
+    const same = stored.filter((x) => x.id === r.id);
+    if (same.length === 0) rules.push(r);
+    else if (!same.some((x) => JSON.stringify(x) === JSON.stringify(r))) { rules.push(r); conflict = true; }
+  }
+  return { rules, conflict };
+}
+
+/** What is stored now, plus anything this tab holds that storage lacks. Nothing earned or declared is dropped. */
+function rebase(stored: PlayerState, mine: PlayerState): PlayerState {
+  const { rules, conflict } = mergeRules(stored.localRules, mine.localRules);
+  return {
+    ...stored,
+    localRules: rules,
+    toolkit: mergeToolkit(stored.toolkit, mine.toolkit),
+    rulesUnreadable: stored.rulesUnreadable || conflict,
+  };
+}
+
 type Stored = { kind: 'none' } | { kind: 'ok'; state: PlayerState } | { kind: 'bad'; raw: string } | { kind: 'error' };
 
 function readStored(storage: Storage): Stored {
@@ -117,8 +148,14 @@ function readStored(storage: Storage): Stored {
  * `storage` null or unusable means in-memory only. `events` (pass `window`) lets the store follow writes
  * from other tabs.
  */
-export function createStore(storage: Storage | null, events?: Pick<EventTarget, 'addEventListener'>): PlayerStore {
-  let notice: 'corrupt' | null = null;
+export function createStore(
+  storage: Storage | null,
+  events?: Pick<EventTarget, 'addEventListener'>,
+  /** Called when another tab deleted this device's data (pass a page reload). */
+  onWiped?: () => void,
+): PlayerStore {
+  let notice: 'corrupt' | 'unsaved' | null = null;
+  let persisted = false; // storage has held our data, so "gone" later means deleted
   let state = freshState();
   // True when we must never write to storage: it can't be read, or the original couldn't be backed up.
   let memoryOnly = storage === null;
@@ -144,7 +181,7 @@ export function createStore(storage: Storage | null, events?: Pick<EventTarget, 
 
   if (storage) {
     const r = readStored(storage);
-    if (r.kind === 'ok') state = r.state;
+    if (r.kind === 'ok') { state = r.state; persisted = true; }
     else if (r.kind === 'bad') {
       keepCorrupt(r.raw);
       state = { ...freshState(), rulesUnreadable: true };
@@ -154,13 +191,21 @@ export function createStore(storage: Storage | null, events?: Pick<EventTarget, 
     }
   }
 
+  const wipe = () => {
+    state = freshState();
+    persisted = false;
+    notify();
+    onWiped?.();
+  };
+
   events?.addEventListener('storage', (ev) => {
     if (memoryOnly || !storage) return;
     const key = (ev as Event & { key?: string | null }).key;
-    if (key !== STORE_KEY) return;
+    if (key !== STORE_KEY && key !== null) return;
     const r = readStored(storage);
+    if (r.kind === 'none' && persisted) { wipe(); return; }
     if (r.kind !== 'ok') return;
-    state = { ...r.state, toolkit: mergeToolkit(r.state.toolkit, state.toolkit) };
+    state = rebase(r.state, state);
     notify();
   });
 
@@ -171,14 +216,20 @@ export function createStore(storage: Storage | null, events?: Pick<EventTarget, 
       if (!memoryOnly && storage) {
         // Another tab may have written since we last looked: build on what is stored now.
         const r = readStored(storage);
-        if (r.kind === 'ok') base = { ...r.state, toolkit: mergeToolkit(r.state.toolkit, state.toolkit) };
+        if (r.kind === 'ok') base = rebase(r.state, state);
+        else if (r.kind === 'none' && persisted) { wipe(); return state; } // deleted elsewhere: do not resurrect
         else if (r.kind === 'bad') keepCorrupt(r.raw);
         else if (r.kind === 'error') memoryOnly = true;
       }
       const next = fn(base);
       state = { ...next, toolkit: mergeToolkit(base.toolkit, next.toolkit) }; // earned toolkit data never goes down
       if (!memoryOnly && storage) {
-        try { storage.setItem(STORE_KEY, JSON.stringify(state)); } catch { /* in-memory only for now */ }
+        try { storage.setItem(STORE_KEY, JSON.stringify(state)); persisted = true; }
+        catch {
+          // Memory is now ahead of storage; rebasing on the stale stored copy would drop changes.
+          memoryOnly = true;
+          notice = 'unsaved';
+        }
       }
       notify();
       return state;
