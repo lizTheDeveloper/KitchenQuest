@@ -462,7 +462,8 @@ KitchenQuest/
 8. **AI features:** photo reaction, ingestion, NPC Q&A, rule expansion, and evals.
 9. **Tracker:** targets, reminders (Web Push), weekly view, low-FODMAP journey.
 10. **Content and art:** 9 dishes and their quests, personas, voices, dialogue, PixelLab sprites, style guide.
-11. **Launch hardening:** privacy and export/delete, terms, offline, performance, and a playtest batch.
+11. **Neighborhood Pantry:** mutual-aid sharing of surplus food (§18).
+12. **Launch hardening:** privacy and export/delete, terms, offline, performance, and a playtest batch.
 
 ## 14. Out of scope for v1
 
@@ -521,3 +522,45 @@ Sources: `docs/business/2026-11-09-value-chain-monetization.md` (value chain ana
 - Machine-readable contributor ids in recipe front matter.
 - A stated license for `content/` and the art.
 - Paid plans are 18+, while the app remains 16+.
+
+## 17. Progression mechanics (adopted from the Octalysis audit)
+
+The mechanics below are adopted. Full designs with guardrails are in `docs/business/2026-11-09-octalysis-audit.md` §3. Each one ships in the milestone named.
+
+| Mechanic | What it is | Milestone |
+|---|---|---|
+| **Technique Toolkit** (knife roll) | Every technique has a tier: Seen (lesson) → Tried (cooked once) → Yours (used in a second dish or cuisine). Tiers are earned for good. | M5 (data model in M4) |
+| **Freshness** (fading skills) | Separately from the tier, each technique has a freshness: Sharp → Warm → Rusty. It fades with time since you last used it, as real muscle memory does. Using it again restores it, and refreshing a rusty technique earns XP. | M5 |
+| **One More Technique** | Each week the Pan offers at most one new technique related to what you already cook. Saying no costs nothing. | M5 |
+| **Same Hands, Different Kitchen** | Transfer quests use a technique you know in another cuisine. | M5 / M10 |
+| **Pantry Frames** | Technique-first templates for improvising from what's in the cupboard. Every ingredient goes through the rules engine. | M5 / M10 |
+| **Margin Notes** | Your own variations on a recipe, kept private and attached to the recipe card. | M5 |
+| **The Keeper's Offering** | At the top trust level with a cook, you may offer one Margin Note to the open canon. It's credited to you and reviewed like any contribution. | M10 |
+| **The Recipe Book** | Your book of everything learned, with your notes and photos. Exportable. | M5 |
+| **A Kitchen That Remembers** | Your kitchen scene shows your history: cookware you've used, souvenirs from cooks. | M3 / M10 |
+| **Cooked for Someone** (Shared Table) | A private record of who you fed. No ranking. | M5 |
+| **Household Kitchen** | Opt-in, small and private: shared plan and pantry for one household. | M9 |
+| **Recipe Postcard** | Send a recipe card to a friend outside the app, with credit to the cook. | M10 |
+| **The Season's Table** | Honest scarcity: produce and dishes follow real local seasons. | M6 |
+| **Travelling Cooks** | Surprise visiting cooks that bring a short quest. | M10 |
+| **Use-It-Up Rescue** | Shame-free rescue recipes for ingredients about to spoil. It leads into the Neighborhood Pantry (§18). | M5 / M11 |
+
+**Freshness guardrails** (reconciling fading skills with "never take back anything earned"):
+- Freshness never lowers a tier, level, XP, stamps or trust. "Yours" stays yours.
+- Fading is slow: a technique counts Warm after about 6 weeks unused and Rusty after about 4 months. Both are tunable data, not code.
+- A Rusty technique is shown as an invitation ("your tadka's gone a bit rusty; fancy a refresher?"), never as a warning or a red badge.
+- At most one refresher suggestion a week, and it shares the "One More Technique" slot, so the Pan never nags twice.
+- No notifications are sent about fading.
+
+## 18. Neighborhood Pantry (mutual aid)
+
+Leftovers and surplus ingredients go to neighbors instead of the bin. It supports the Community and Social Justice values, and Use-It-Up Rescue leads straight into it.
+
+- **The Pan suggests; the player approves.** When the pantry or a cooked batch has more than the player will eat before it spoils, the Pan offers: "Three portions of dal and they'll keep till Friday. Want to offer them to the neighborhood?" One tap posts it. **Nothing is ever posted automatically**, because a post reveals the player's area and what they eat.
+- **Each post** lists the item, portions, "made on / keeps until" date, pickup window, and an approximate area. The area is a neighborhood or a grid cell of about 1 km, never an address. The exact pickup spot is shared only after the poster accepts a request.
+- **Allergens are attached automatically.** A cooked dish posts with its ingredient list and allergen tags from the rules engine. Requesters see their own ✅/⛔/❓ status for the post using their own rules, computed on their side. The poster sees nothing about anyone's rules. The standard disclaimer applies.
+- **Food safety:** rules by food type cover what can be shared: cooked dishes within a set number of hours or days, no raw meat or fish, no home-canned goods, and labeled "keeps until" dates. A "check before you eat" note links to local food-safety guidance. Sharing rules vary by region; launch regions get a legal check (§9, milestone 12).
+- **Safety and moderation:** reporting and blocking, rate limits on posts and requests, and no free-text contact details in posts. In-app requests reveal a first name or handle only.
+- **Community fridges and food banks:** a map of local community fridges and food banks, as an alternative to person-to-person sharing. External groups (e.g. Buy Nothing, Olio) get a "share outside the app" text the player can copy. We don't post to other platforms on the player's behalf.
+- **Rewards (Octalysis):** sharing is recorded in Cooked for Someone and gives a small, capped amount of XP. There is no leaderboard and no "top sharer". It is always free.
+- **Data:** posts expire and are deleted after their pickup window. Location is stored only at grid-cell precision.
