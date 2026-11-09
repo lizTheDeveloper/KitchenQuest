@@ -5,7 +5,7 @@ export type RulesState =
   | { status: 'ready'; rules: Rule[]; source: 'device' | 'account' }
   | { status: 'error'; message: string };
 
-export const UNREADABLE_MESSAGE =
+const UNREADABLE_MESSAGE =
   "The rules saved on this device couldn't be read, so some may be missing. Tell the Bureau your rules again to clear this.";
 
 /**

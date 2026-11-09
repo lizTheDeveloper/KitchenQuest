@@ -17,7 +17,7 @@ function walk(dir: string, out: string[]): void {
 }
 
 /** Every file under art/ and prototype/art/, repo-relative with forward slashes. */
-export function assetFiles(repoRoot: string): string[] {
+function assetFiles(repoRoot: string): string[] {
   const out: string[] = [];
   for (const f of FOLDERS) walk(join(repoRoot, f), out);
   return out.map((p) => relative(repoRoot, p).split(sep).join('/'));

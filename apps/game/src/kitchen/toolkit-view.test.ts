@@ -21,7 +21,7 @@ describe('renderToolkit', () => {
     const el = renderToolkit([{ technique: 'tempering', tier: 'yours', freshness: 'rusty' }], opts);
     const row = el.querySelector('[data-technique="tempering"]')!;
     expect(row).not.toBeNull();
-    const text = row.textContent!;
+    const text = row.textContent;
     expect(text).toContain('Tempering');
     expect(text).toContain('Yours');
     expect(text).toContain('Rusty');
@@ -40,7 +40,7 @@ describe('renderToolkit', () => {
     expect(el.querySelector('.rusty-invite')).toBeNull();
     expect(el.querySelector('[data-technique="legumes"]')!.textContent).toContain('Warm');
     expect(el.querySelector('[data-technique="legumes"]')!.textContent).toContain('Tried');
-    const seen = el.querySelector('[data-technique="grains"]')!.textContent!;
+    const seen = el.querySelector('[data-technique="grains"]')!.textContent;
     expect(seen).toContain('Seen');
     expect(seen).not.toMatch(/Sharp|Warm|Rusty/);
     expect(usesChili(el)).toBe(false);

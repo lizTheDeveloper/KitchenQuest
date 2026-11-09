@@ -6,6 +6,6 @@ const sources = import.meta.glob<string>(['./**/*.ts', '!./**/*.test.ts'], { que
 test('the canvas never draws text: no scene adds or makes text or bitmapText', () => {
   const files = Object.keys(sources);
   expect(files).toContain('./KitchenScene.ts');
-  const offenders = files.filter((f) => /\.(add|make)\.(text|bitmapText)\(/.test(sources[f]!));
+  const offenders = files.filter((f) => /\.(add|make)\.(text|bitmapText)\(/.test(sources[f]));
   expect(offenders).toEqual([]);
 });

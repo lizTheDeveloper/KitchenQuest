@@ -5,7 +5,7 @@ import {
 import type { GameContent } from '../content/types';
 import type { RulesState } from './rules';
 
-export interface NutritionRow { nutrient: Nutrient; label: string; value: string } // value e.g. '12 g', '480 mg', '310 kcal'
+interface NutritionRow { nutrient: Nutrient; label: string; value: string } // value e.g. '12 g', '480 mg', '310 kcal'
 
 export interface CardFinding {
   ingredient: string;

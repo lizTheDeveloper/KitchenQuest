@@ -19,8 +19,8 @@ describe('buildAssetManifest', () => {
   test('the prototype art alone maps through the aliases', () => {
     const { entries } = buildAssetManifest(prototypeFiles);
     expect(entries['char.leela']).toEqual({ key: 'char.leela', file: 'prototype/art/cook_in.png', source: 'prototype' });
-    expect(entries['scene.map']!.file).toBe('prototype/art/bg_map.png');
-    expect(entries['item.rice']!.file).toBe('prototype/art/i_rice.png');
+    expect(entries['scene.map'].file).toBe('prototype/art/bg_map.png');
+    expect(entries['item.rice'].file).toBe('prototype/art/i_rice.png');
     for (const key of REQUIRED_ASSETS) expect(entries[key], key).toBeDefined();
   });
 
@@ -31,9 +31,9 @@ describe('buildAssetManifest', () => {
 
   test('art names are normalised: i_ and bg_ stripped, lower case, _ and spaces to -', () => {
     const { entries } = buildAssetManifest([...prototypeFiles, 'art/items/i_rice.png', 'art/scenes/BG_Big Kitchen.png', 'art/items/bell_pepper.png']);
-    expect(entries['item.rice']!.file).toBe('art/items/i_rice.png');
-    expect(entries['scene.big-kitchen']!.file).toBe('art/scenes/BG_Big Kitchen.png');
-    expect(entries['item.bell-pepper']!.source).toBe('art');
+    expect(entries['item.rice'].file).toBe('art/items/i_rice.png');
+    expect(entries['scene.big-kitchen'].file).toBe('art/scenes/BG_Big Kitchen.png');
+    expect(entries['item.bell-pepper'].source).toBe('art');
   });
 
   test('an unknown art/ subdirectory gives one warning and no entry', () => {
@@ -67,7 +67,7 @@ describe('buildAssetManifest', () => {
   test('the real repo (art/ + prototype/art/) builds with no missing keys', () => {
     const { entries } = buildAssetManifest([...artFiles, ...prototypeFiles]);
     for (const key of REQUIRED_ASSETS) expect(entries[key], key).toBeDefined();
-    expect(entries['scene.kitchen']!.source).toBe('art');
+    expect(entries['scene.kitchen'].source).toBe('art');
   });
 
   test('art aliases: the art agent\'s names resolve to the keys the game uses', () => {
@@ -78,17 +78,17 @@ describe('buildAssetManifest', () => {
     expect(cookIds.length).toBeGreaterThan(0);
     for (const id of cookIds) {
       expect(entries[`char.${id}`], id).toBeDefined();
-      expect(entries[`char.${id}`]!.source, id).toBe('art');
-      expect(entries[`char.${id}`]!.file, id).toBe(`art/characters/cook_${id}.png`);
+      expect(entries[`char.${id}`].source, id).toBe('art');
+      expect(entries[`char.${id}`].file, id).toBe(`art/characters/cook_${id}.png`);
     }
     // The other Pan expressions keep their own keys.
-    expect(entries['char.pan-concerned']!.file).toBe('art/characters/pan_concerned.png');
+    expect(entries['char.pan-concerned'].file).toBe('art/characters/pan_concerned.png');
   });
 
   test('a cook kitchen backdrop kitchen_<id>_* becomes the key kitchenBackdropKey looks for', () => {
     const { entries } = buildAssetManifest([...prototypeFiles, 'art/scenes/kitchen_leela_evening.png', 'art/scenes/kitchen_haruka.png']);
-    expect(entries['scene.kitchen-leela']!.file).toBe('art/scenes/kitchen_leela_evening.png');
-    expect(entries['scene.kitchen-haruka']!.file).toBe('art/scenes/kitchen_haruka.png');
+    expect(entries['scene.kitchen-leela'].file).toBe('art/scenes/kitchen_leela_evening.png');
+    expect(entries['scene.kitchen-haruka'].file).toBe('art/scenes/kitchen_haruka.png');
     const urls = Object.fromEntries(Object.keys(entries).map((k) => [k, k]));
     expect(kitchenBackdropKey(urls, 'leela')).toBe('scene.kitchen-leela');
     expect(kitchenBackdropKey(urls, 'marisol')).toBe('scene.kitchen');

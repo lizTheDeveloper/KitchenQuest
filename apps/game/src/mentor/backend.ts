@@ -1,6 +1,6 @@
 import type { Dialogue, Said } from './dialogue';
 
-export type MentorInput = { kind: 'text'; text: string } | { kind: 'voice' };
+type MentorInput = { kind: 'text'; text: string } | { kind: 'voice' };
 export interface MentorBackend { readonly kind: 'scripted' | 'ai'; reply(input: MentorInput): Promise<Said> }
 
 const THANKS = /\b(thanks|thank you|cheers|ta)\b/i;

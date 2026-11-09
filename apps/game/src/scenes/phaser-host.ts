@@ -2,11 +2,12 @@
  * The canvas behind the HTML. Phaser is imported the first time a screen asks for a scene; if that fails the
  * screens carry on without it. The canvas lives in `#stage` (aria-hidden), takes no focus and draws no text.
  */
+import type * as PhaserGame from './phaser-game';
 import type { GameHandle } from './phaser-game';
 
 export type SceneKey = 'Kitchen' | 'Map' | 'CookKitchen';
 
-let loading: Promise<typeof import('./phaser-game') | null> | null = null;
+let loading: Promise<typeof PhaserGame | null> | null = null;
 let game: GameHandle | null = null;
 /** The scene the current screen wants, so a load that finishes after the screen left shows nothing. */
 let wanted = 0;

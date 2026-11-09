@@ -10,7 +10,7 @@ import { activeRules, cardInputsKey, localDate, watchLocalDate } from './rules';
 const SHELF_ERROR_TEXT = "Couldn't check these dishes against your rules. Treat them as unchecked.";
 
 /** Canon recipes, by country then title. */
-export function shelfSlugs(): string[] {
+function shelfSlugs(): string[] {
   return Object.keys(content.recipes).sort((a, b) => {
     const ma = content.recipes[a].meta, mb = content.recipes[b].meta;
     return ma.country.localeCompare(mb.country) || ma.title.localeCompare(mb.title);

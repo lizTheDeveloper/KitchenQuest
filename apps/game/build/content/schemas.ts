@@ -5,14 +5,14 @@ const obj = <T extends z.core.$ZodLooseShape>(shape: T) => z.looseObject(shape);
 
 const TRIGGER_ID = /^[a-z0-9_]+(\.[a-z0-9_]+)*$/;
 
-export const lineTrigger = obj({
+const lineTrigger = obj({
   ai: z.enum(['never', 'allowed']),
   when: z.string(),
   lines: z.array(z.string()).min(1, 'needs at least one line'),
   vars: z.record(z.string(), z.string()).optional(),
   notes: z.string().optional(),
 });
-export const triggerMap = z.record(
+const triggerMap = z.record(
   z.string().regex(TRIGGER_ID, 'trigger id must be dotted lowercase (a-z, 0-9, _)'),
   lineTrigger,
 );
@@ -81,7 +81,7 @@ const stallQuestion = obj({
   explain: z.string(),
   contains: z.array(z.string()).optional(),
 });
-export const stallQuestions = z.array(stallQuestion);
+const stallQuestions = z.array(stallQuestion);
 
 export const stallFile = obj({
   id: z.string(),

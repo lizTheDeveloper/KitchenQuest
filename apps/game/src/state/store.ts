@@ -89,7 +89,7 @@ function merge(p: Record<string, unknown>): PlayerState | null {
 const RANK: Record<Tier, number> = { seen: 0, tried: 1, yours: 2 };
 
 /** Union of two toolkits where nothing earned can go down: max tier, earliest firstAt, latest lastUsedAt. */
-export function mergeToolkit(a: ToolkitState, b: ToolkitState): ToolkitState {
+function mergeToolkit(a: ToolkitState, b: ToolkitState): ToolkitState {
   const out: ToolkitState['techniques'] = { ...a.techniques };
   for (const [id, r] of Object.entries(b.techniques)) {
     const o = out[id];
@@ -107,7 +107,7 @@ export function mergeToolkit(a: ToolkitState, b: ToolkitState): ToolkitState {
  * Union two rule lists by id. Identical rules collapse. The same id with different contents keeps BOTH
  * versions and reports a conflict: the caller then marks rules unreadable, so no one is told "safe".
  */
-export function mergeRules(stored: Rule[], mine: Rule[]): { rules: Rule[]; conflict: boolean } {
+function mergeRules(stored: Rule[], mine: Rule[]): { rules: Rule[]; conflict: boolean } {
   const rules = [...stored];
   let conflict = false;
   for (const r of mine) {

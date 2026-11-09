@@ -4,7 +4,7 @@
  */
 export interface AssetEntry { key: string; file: string /* repo-relative */; source: 'art' | 'prototype' }
 
-export const ART_DIRS: Readonly<Record<string, string>> = Object.freeze({
+const ART_DIRS: Readonly<Record<string, string>> = Object.freeze({
   characters: 'char', items: 'item', scenes: 'scene', ui: 'ui',
 });
 
@@ -14,7 +14,7 @@ const PROTOTYPE_ITEMS = [
 ];
 
 /** Prototype file name (without `.png`) → key. Every `i_<x>` is also `item.<x>`, handled by rule below. */
-export const PROTOTYPE_ALIASES: Readonly<Record<string, string>> = Object.freeze({
+const PROTOTYPE_ALIASES: Readonly<Record<string, string>> = Object.freeze({
   pan: 'char.pan', player: 'char.player', cook_in: 'char.leela', cook_mx: 'char.marisol', cook_jp: 'char.haruka',
   butcher: 'char.bram', grocer: 'char.wen', tofu: 'char.okafor-sato',
   bg_kitchen: 'scene.kitchen', bg_map: 'scene.map', bg_market: 'scene.market',
@@ -25,7 +25,7 @@ export const PROTOTYPE_ALIASES: Readonly<Record<string, string>> = Object.freeze
  * The art agent's file names that mean a key the game already uses, per art folder (lower-cased name
  * without `.png`). Each match replaces the plain `norm` key; anything else keeps `norm`.
  */
-export type ArtAlias = readonly [RegExp, (m: RegExpExecArray) => string];
+type ArtAlias = readonly [RegExp, (m: RegExpExecArray) => string];
 const ALIASES: Record<string, readonly ArtAlias[]> = {
   characters: [
     [/^cook_([a-z0-9-]+)$/, (m) => `char.${m[1]}`], // cook_leela → char.leela
@@ -41,10 +41,10 @@ const ALIASES: Record<string, readonly ArtAlias[]> = {
     [/^(?:bg_)?kitchen_([a-z0-9-]+)(?:_.*)?$/, (m) => `scene.kitchen-${m[1]}`],
   ],
 };
-export const ART_ALIASES: Readonly<Record<string, readonly ArtAlias[]>> = Object.freeze(ALIASES);
+const ART_ALIASES: Readonly<Record<string, readonly ArtAlias[]>> = Object.freeze(ALIASES);
 
 /** The key for `art/<dir>/<name>.png`: an alias when one matches, else `${ART_DIRS[dir]}.${norm(name)}`. */
-export function artKey(dir: string, name: string): string {
+function artKey(dir: string, name: string): string {
   const lower = name.toLowerCase();
   for (const [re, key] of ART_ALIASES[dir] ?? []) {
     const m = re.exec(lower);
@@ -65,13 +65,13 @@ export class AssetError extends Error {
 }
 
 /** Lower case, drop a leading `bg_` or `i_`, and turn `_` and spaces into `-`. */
-export function norm(name: string): string {
+function norm(name: string): string {
   return name.toLowerCase().replace(/^(bg_|i_)/, '').replace(/[_ ]/g, '-');
 }
 
 /** Prototype file name → key: an alias, else `i_<x>` → `item.<x>`, else null. */
 function prototypeKey(name: string): string | null {
-  if (Object.hasOwn(PROTOTYPE_ALIASES, name)) return PROTOTYPE_ALIASES[name]!;
+  if (Object.hasOwn(PROTOTYPE_ALIASES, name)) return PROTOTYPE_ALIASES[name];
   if (name.startsWith('i_')) return `item.${norm(name)}`;
   return null;
 }
@@ -92,14 +92,14 @@ export function buildAssetManifest(files: string[]): { entries: Record<string, A
     if (parts[0] === 'art' && parts.length >= 3) {
       const [, dir, ...rest] = parts;
       const base = rest.join('/');
-      if (!Object.hasOwn(ART_DIRS, dir!) || rest.length !== 1) { warnings.push(`${file}: not in a known art folder (${Object.keys(ART_DIRS).join(', ')})`); continue; }
+      if (!Object.hasOwn(ART_DIRS, dir) || rest.length !== 1) { warnings.push(`${file}: not in a known art folder (${Object.keys(ART_DIRS).join(', ')})`); continue; }
       if (!base.toLowerCase().endsWith('.png')) { warnings.push(`${file}: not a PNG`); continue; }
-      const key = artKey(dir!, base.slice(0, -4));
+      const key = artKey(dir, base.slice(0, -4));
       const prior = art.get(key);
       if (prior) { problems.push(`${key}: both ${prior.file} and ${file}`); continue; }
       art.set(key, { key, file, source: 'art' });
     } else if (parts[0] === 'prototype' && parts[1] === 'art' && parts.length === 3) {
-      const base = parts[2]!;
+      const base = parts[2];
       if (!base.endsWith('.png')) { warnings.push(`${file}: not a PNG`); continue; }
       const key = prototypeKey(base.slice(0, -4));
       if (!key) { warnings.push(`${file}: no key for this prototype sprite`); continue; }

@@ -7,7 +7,7 @@ import { expectNoA11yViolations, expectNoHorizontalScroll, openApp, type OpenedA
 const pan = parse(readFileSync(fileURLToPath(new URL('../../../content/dialogue/pan.yaml', import.meta.url)), 'utf8')) as {
   triggers: Record<string, { lines: string[] }>;
 };
-const lines = (id: string) => pan.triggers[id]!.lines;
+const lines = (id: string) => pan.triggers[id].lines;
 const fill = (line: string, vars: Record<string, string>) => line.replace(/\{(\w+)\}/g, (_m, k: string) => vars[k] ?? `{${k}}`);
 const timeOfDay = ['greet.morning', 'greet.afternoon', 'greet.evening', 'greet.late_night']
   .flatMap((id) => lines(id).map((l) => fill(l, { name: 'apprentice' })));

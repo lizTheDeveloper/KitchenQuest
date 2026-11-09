@@ -5,9 +5,8 @@ import { createScriptedBackend } from './backend';
 import { createDialogue } from './dialogue';
 import { mountMentorPanel, type MentorPanel } from './panel';
 
-export { createScriptedBackend, type MentorBackend, type MentorInput } from './backend';
-export { createDialogue, DialogueError, type Dialogue, type Said, type Vars } from './dialogue';
-export type { MentorMode, MentorPanel } from './panel';
+export { createDialogue } from './dialogue';
+export type { MentorPanel } from './panel';
 
 let mentor: MentorPanel | null = null;
 

@@ -4,12 +4,12 @@ import { contentText, h } from '../ui/dom';
 import type { CardFinding, RecipeCard } from './card-model';
 
 export const NO_RULES_TEXT = "You haven't told the Bureau about any allergies or diet rules yet.";
-export const RULES_ERROR_TEXT = "Couldn't check this dish against your rules. Treat it as unchecked.";
+const RULES_ERROR_TEXT = "Couldn't check this dish against your rules. Treat it as unchecked.";
 const DRAFT_TEXT = 'Draft — awaiting review by cooks from this tradition';
 const BLOCKED_TEXT = "This dish isn't cookable with your rules. It stays on your map.";
 const SACRED_TEXT = 'Shared as a story only.';
 
-export const rulesCheckedText = (n: number): string =>
+const rulesCheckedText = (n: number): string =>
   n === 0 ? NO_RULES_TEXT : `Checked against your ${n} ${n === 1 ? 'rule' : 'rules'}.`;
 
 export const LABEL_RULE_TEXT = "We can't be sure about this one — check what's in it and how much.";

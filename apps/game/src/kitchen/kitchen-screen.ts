@@ -66,7 +66,7 @@ function openKnifeRoll(doc: Document, ctx: AppContext, onClose: () => void): () 
     if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); close(); return; }
     if (ev.key !== 'Tab') return;
     const items = [...dialog.querySelectorAll<HTMLElement>(FOCUSABLE)];
-    const first = items[0]!, last = items[items.length - 1]!;
+    const first = items[0], last = items[items.length - 1];
     const active = doc.activeElement;
     if (!dialog.contains(active)) { ev.preventDefault(); first.focus(); }
     else if (ev.shiftKey && active === first) { ev.preventDefault(); last.focus(); }
@@ -98,7 +98,7 @@ function kitchenScreen(): Screen {
 
       const showFallback = () => {
         if (!alive || backdropSlot.firstChild) return;
-        backdropSlot.append(h('img', { class: 'kitchen-backdrop-img', src: assets['scene.kitchen']!, alt: '' }));
+        backdropSlot.append(h('img', { class: 'kitchen-backdrop-img', src: assets['scene.kitchen'], alt: '' }));
       };
       if (stage) {
         void showScene(stage, 'Kitchen').then((ok) => { if (!ok) showFallback(); });

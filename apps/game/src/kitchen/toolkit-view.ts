@@ -8,7 +8,7 @@ const FRESH_WORD: Record<Freshness, string> = { sharp: 'Sharp', warm: 'Warm', ru
 
 function emptyFootnote(): string {
   const pool = content.bureau.footnotes.filter((f) => f.tag === 'empty');
-  return pool.length === 0 ? '' : pool[Math.floor(Math.random() * pool.length)]!.text;
+  return pool.length === 0 ? '' : pool[Math.floor(Math.random() * pool.length)].text;
 }
 
 /**
