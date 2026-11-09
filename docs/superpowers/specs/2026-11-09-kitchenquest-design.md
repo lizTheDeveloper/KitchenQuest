@@ -375,7 +375,8 @@ mic → VAD (in browser) → streaming STT (self-hosted open-source Whisper) →
   - Cooks' voices: competent, specific, warm
   - Hard rules: no jokes about cultures, accents, bodies, or weight
 - **Core narrative content is handwritten**: onboarding, cook introductions, dish stories, and Bureau forms.
-- **AI writes only the dynamic lines**: photo reactions, Q&A, and Pan reminders, prompted with the style guide plus persona.
+- **Scripted first.** Quests, cook stories, stall minigames, reminders, read-backs, and common cooking questions (per-cook FAQ banks) are written content in `content/`. The game uses a written line whenever one fits. Each trigger is marked `ai: never` (e.g. allergy read-backs) or `ai: allowed`.
+- **AI only where writing can't reach**: free-form questions, photo reactions, and turning what the player says into data entries. Prompts include the style guide plus the character's persona card. If the AI is unavailable, the written lines cover everything except free-form answers.
 - **Content as data.** Dialogue and lessons live in data files, not code, so writers and contributors can edit them.
 
 ## 9. Architecture
