@@ -1,0 +1,14 @@
+# Alternative to scripts/dev-db.sh: same databases and port.
+services:
+  db:
+    image: postgres:16
+    ports: ["54329:5432"]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_HOST_AUTH_METHOD: trust
+      POSTGRES_DB: kitchenquest
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./scripts/docker-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+volumes:
+  pgdata:

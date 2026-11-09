@@ -19,6 +19,17 @@ npm run dev        # dev server at http://localhost:5173
 | `npm run typecheck` | Run the TypeScript compiler, no output    |
 | `npm test`          | Run unit tests with Vitest                |
 
+## Running the API
+
+```bash
+scripts/dev-db.sh start            # private Postgres 16 on port 54329 (data in .data/pg); prints the URLs
+eval "$(scripts/dev-db.sh url)"; export TEST_DATABASE_URL   # needed by `npm test`
+export DATABASE_URL DATA_KEY=$(openssl rand -base64 32)
+npm run dev -w @kitchenquest/api   # http://localhost:3000/health
+```
+
+`scripts/dev-db.sh stop` stops the cluster. Without local Postgres binaries use `docker compose up -d db` (same port). See `.env.example` for all variables. API tests fail with a clear message when `TEST_DATABASE_URL` is unset.
+
 ## Layout
 
 npm workspaces monorepo.
@@ -30,6 +41,7 @@ apps/game/                # Phaser game (@kitchenquest/game)
   src/main.ts             # Phaser game config
   src/scenes/             # one file per Phaser scene
   src/util/               # pure game logic (unit-testable, no Phaser)
+apps/api/                 # Fastify API (@kitchenquest/api)
 packages/core/            # @kitchenquest/core: pure recipe/allergy logic, no I/O
 tsconfig.base.json        # shared compiler options, extended by each workspace
 ```
