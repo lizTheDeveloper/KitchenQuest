@@ -39,7 +39,7 @@
 - [x] [Step 3 — Ingredient graph](step-3.md)
 - [x] [Step 4 — Rule types, validation, and active phases](step-4.md)
 - [x] [Step 5 — Recipe check and swaps](step-5.md)
-- [ ] [Step 6 — Nutrition](step-6.md)
+- [x] [Step 6 — Nutrition](step-6.md)
 - [ ] [Step 7 — Seed data, canon recipes, canon validation](step-7.md)
 - [ ] [Step 8 — Safety property test](step-8.md)
 
