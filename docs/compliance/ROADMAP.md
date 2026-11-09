@@ -62,14 +62,16 @@ Tick each item when it lands. Full requirement text is in `2026-11-09-health-dat
 
 ## Additional requirements from the risk register (N-1–N-11, `risk-register.md` §6)
 
-- [ ] **N-1** Mail provider hygiene: no open or click tracking, no link rewriting, short log retention, SPF/DKIM/DMARC, suppression-list deletion — *M2 (mailer) / M12*
-- [ ] **N-2** Retention for access logs, IPs and rate-limit state (14–30 days), registered with C-6 — *M2 / M12*
+- [x] **N-1 (M2 part)** Mailer sends one plain-text part, exactly one URL (the verify link) and no health content, tested; provider settings (tracking and link rewriting off, log retention, SPF/DKIM/DMARC) written down in `mail-provider.md` — *M2 Step 9*
+- [ ] **N-1 (remainder)** Choose the provider and apply `mail-provider.md` there (tracking and rewriting off, retention, DNS records for SPF/DKIM/DMARC), suppression-list deletion call in the C-8 processor-deletion queue — *M12*
+- [x] **N-2 (M2 part)** Rate-limit state is in memory, IP/email/user-id keyed and swept within 1 h 1 min (timer sweep, tested); API request log is route patterns only (C-9); access-log retention (14 d, max 30) registered in `data-inventory.md` §3.14 — *M2 Step 9*
+- [ ] **N-2 (remainder)** Configure the reverse proxy's access log (no query strings, 14 d retention) and the log host's retention; state the periods in the privacy notice — *M12 (C-38, C-30)*
 - [ ] **N-3** Offline PWA store hygiene: cache the minimum, clear on sign-out — *M3 game shell / M9*
 - [ ] **N-4** The AI retry queue holds no content, or holds it sealed with a 24 h cap — *M3 mentor*
 - [ ] **N-5** Inactive-account policy: notify, then delete after about 24 months **[lawyer]** — *M12*
 - [ ] **N-6** Contributor ids are personal data: notice, contributor agreement, removal path — *M2 Step 6 / M10*
-- [ ] **N-7** Consent copy names religious dietary rules; meal-window names become a fixed set (breakfast/lunch/dinner/snack), not free text; free-text caps — *M2 Step 9*
-- [ ] **N-8** CI check that every `schema.ts` column appears in `data-inventory.md` — *M2 Step 9*
+- [x] **N-7** Consent copy names religious dietary rules; meal-window names become a fixed set (breakfast/lunch/dinner/snack), not free text; free-text caps — *M2 Step 9* (notice `notices/health_data-v1.md`; caps in `data-inventory.md` §3.13. "Cooked for Someone" labels are decided with M5)
+- [x] **N-8** CI check that every `schema.ts` column appears in `data-inventory.md` — *M2 Step 9* (`apps/api/test/inventory.test.ts`)
 - [ ] **N-9** `processors.json` validated in CI; no processor call merged while its DPA is unknown — *M3 / M12*
 - [ ] **N-10** Child-directedness review also covers the marketing site and store listings — *M12*
 - [ ] **N-11** DPIA re-review triggered by any new processor, AI feature, region, consent purpose, Pantry or family build — *process*

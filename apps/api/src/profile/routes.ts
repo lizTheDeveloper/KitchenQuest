@@ -7,9 +7,16 @@ import type { Db } from '../types.js';
 
 const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Expected HH:MM (24h)');
 
+/**
+ * N-7: a meal window's name is one of a fixed set. Free text here could name
+ * a fast or a medical routine ("Ramadan suhoor", "insulin snack"), which is
+ * special-category data in a plain column.
+ */
+const MEAL_WINDOW_NAMES = ['breakfast', 'lunch', 'dinner', 'snack', 'other'] as const;
+
 const MealWindow = z
   .object({
-    name: z.string().max(40),
+    name: z.enum(MEAL_WINDOW_NAMES),
     start: hhmm,
     end: hhmm,
   })
@@ -35,7 +42,7 @@ interface Profile {
   mealsPerWeek: number | null;
   country: string | null;
   region: string | null;
-  mealWindows: { name: string; start: string; end: string }[];
+  mealWindows: { name: (typeof MEAL_WINDOW_NAMES)[number]; start: string; end: string }[];
 }
 
 const cols = {

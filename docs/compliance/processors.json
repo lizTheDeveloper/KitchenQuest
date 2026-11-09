@@ -61,7 +61,7 @@
       "training_use": "none required",
       "deletion_api": "TBD; need suppression-list and recipient deletion (C-8)",
       "status": "planned M2 (SMTP mailer exists; provider not chosen) / M12",
-      "notes": "Spec says 'existing mailing infrastructure'; identify it and confirm it is a processor, not a joint controller [verify]. See requirement N-1 in risk-register.md."
+      "notes": "Spec says 'existing mailing infrastructure'; identify it and confirm it is a processor, not a joint controller [verify]. See requirement N-1 in risk-register.md; required provider settings are in mail-provider.md."
     },
     {
       "id": "glitchtip",

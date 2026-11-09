@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
@@ -168,6 +169,43 @@ describe('consent ledger (C-1)', () => {
     await grantConsent(db, userId, 'voice', 'v1', sha('a'), 'tap', clock);
     await sql`delete from users where id = ${userId}`;
     expect(await sql`select 1 from consents where user_id = ${userId}`).toHaveLength(0);
+  });
+});
+
+describe('health_data notice v1 (N-7)', () => {
+  const file = readFileSync(new URL('../../../docs/compliance/notices/health_data-v1.md', import.meta.url), 'utf8');
+  const notice = NOTICES.health_data!;
+
+  it('is the text of docs/compliance/notices/health_data-v1.md, version v1, with its sha256 declared there', () => {
+    expect(notice.version).toBe('v1');
+    const between = /<!-- notice-text:start -->\n\n([\s\S]*?)\n\n<!-- notice-text:end -->/.exec(file);
+    expect(between).not.toBeNull();
+    expect(notice.text).toBe(between![1]);
+    expect(file).toContain('Version: `v1`');
+    expect(file).toContain(`SHA-256 of the notice text: \`${sha(notice.text).toString('hex')}\``);
+  });
+
+  it('names religious and cultural dietary rules as covered (GDPR Art. 9)', () => {
+    expect(notice.text).toMatch(/religious/i);
+    expect(notice.text).toMatch(/cultural/i);
+    expect(notice.text).toMatch(/allerg/i);
+  });
+
+  it('a grant stores the notice version and sha256 in the ledger', async () => {
+    const cookie = await signIn(app, mailer, `notice${++seq}@example.com`);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/me/consents',
+      cookies: { kq_session: cookie },
+      payload: { purpose: 'health_data', noticeVersion: 'v1' },
+    });
+    expect(res.statusCode).toBe(201);
+    const userId = (await app.inject({ method: 'GET', url: '/me', cookies: { kq_session: cookie } })).json().id as string;
+    const rows = await sql<{ notice_version: string; notice_sha256: Buffer }[]>`
+      select notice_version, notice_sha256 from consents where user_id = ${userId} and purpose = 'health_data'`;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].notice_version).toBe('v1');
+    expect(Buffer.from(rows[0].notice_sha256).equals(sha(notice.text))).toBe(true);
   });
 });
 

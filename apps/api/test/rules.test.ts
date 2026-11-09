@@ -295,6 +295,28 @@ describe('/rules', () => {
     expect((await post(c, { rule: ok, confirmed: true })).statusCode).toBe(201);
   });
 
+  // N-7: every free-text field is capped at its documented max (data-inventory.md §3.13).
+  it('caps the free-text fields note (500), limit.unit (32) and phase.journeyId (64)', async () => {
+    const c = await player();
+    const uid = await userIdOf(c);
+    const limited = (unit: string) => ({ ...PEANUT, type: 'limit', limit: { amount: 1, unit, per: 'day' } });
+    const phased = (journeyId: string) => ({ ...PEANUT, phase: { start: '2026-11-01', journeyId } });
+    for (const [rule, path] of [
+      [{ ...PEANUT, note: 'x'.repeat(501) }, 'rule.note'],
+      [limited('g'.repeat(33)), 'rule.limit.unit'],
+      [phased('j'.repeat(65)), 'rule.phase.journeyId'],
+    ] as const) {
+      const res = await post(c, { rule, confirmed: true });
+      expect(res.statusCode, path).toBe(400);
+      expect(res.json().error.code).toBe('bad_request');
+      expect(res.json().error.details.map((d: { path: string }) => d.path)).toContain(path);
+    }
+    expect(await storedCount(uid)).toBe(0);
+    for (const rule of [{ ...PEANUT, note: 'x'.repeat(500) }, limited('g'.repeat(32)), phased('j'.repeat(64))]) {
+      expect((await post(c, { rule, confirmed: true })).statusCode).toBe(201);
+    }
+  });
+
   it('counts GET /rules per user and day, content-free, without audit events (C-5)', async () => {
     const a = await player();
     const b = await player();

@@ -62,7 +62,7 @@ describe('profile', () => {
       mealsPerWeek: 14,
       country: 'NZ',
       region: 'Wellington',
-      mealWindows: [{ name: 'Lunch', start: '12:00', end: '13:30' }],
+      mealWindows: [{ name: 'lunch', start: '12:00', end: '13:30' }],
     };
     const res = await put(c, full);
     expect(res.statusCode).toBe(200);
@@ -88,7 +88,7 @@ describe('profile', () => {
     expect((await get(a)).json()).toMatchObject({ country: 'NZ', marketDays: [1] });
   });
 
-  const w = (o: object = {}) => ({ name: 'Lunch', start: '12:00', end: '13:00', ...o });
+  const w = (o: object = {}) => ({ name: 'lunch', start: '12:00', end: '13:00', ...o });
   const invalid: [string, object, string][] = [
     ['marketDays duplicate', { marketDays: [1, 1] }, 'marketDays'],
     ['marketDays out of range', { marketDays: [7] }, 'marketDays.0'],
@@ -104,7 +104,12 @@ describe('profile', () => {
     ['time 24:00', { mealWindows: [w({ end: '24:00' })] }, 'mealWindows.0.end'],
     ['start equals end', { mealWindows: [w({ start: '12:00', end: '12:00' })] }, 'mealWindows.0.end'],
     ['start after end', { mealWindows: [w({ start: '14:00', end: '13:00' })] }, 'mealWindows.0.end'],
-    ['name too long', { mealWindows: [w({ name: 'x'.repeat(41) })] }, 'mealWindows.0.name'],
+    // N-7: a window name is one of a fixed set, never free text (it could reveal a fast or a condition).
+    ['free-text name', { mealWindows: [w({ name: 'Ramadan suhoor' })] }, 'mealWindows.0.name'],
+    ['name in another case', { mealWindows: [w({ name: 'Lunch' })] }, 'mealWindows.0.name'],
+    ['empty name', { mealWindows: [w({ name: '' })] }, 'mealWindows.0.name'],
+    ['non-string name', { mealWindows: [w({ name: 3 })] }, 'mealWindows.0.name'],
+    ['missing name', { mealWindows: [{ start: '12:00', end: '13:00' }] }, 'mealWindows.0.name'],
   ];
   it.each(invalid)('rejects %s with 400 naming the field', async (_n, body, path) => {
     const c = await user();
@@ -121,8 +126,16 @@ describe('profile', () => {
       marketDays: [0, 1, 2, 3, 4, 5, 6],
       mealsPerWeek: 42,
       country: 'x'.repeat(80),
-      mealWindows: Array.from({ length: 8 }, () => w({ name: 'x'.repeat(40), start: '00:00', end: '23:59' })),
+      mealWindows: Array.from({ length: 8 }, () => w({ name: 'other', start: '00:00', end: '23:59' })),
     };
     expect((await put(await user(), body)).statusCode).toBe(200);
+  });
+
+  it('accepts every meal-window name in the fixed set', async () => {
+    const names = ['breakfast', 'lunch', 'dinner', 'snack', 'other'];
+    const mealWindows = names.map((name) => w({ name }));
+    const res = await put(await user(), { mealWindows });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().mealWindows).toEqual(mealWindows);
   });
 });

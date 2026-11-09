@@ -2,6 +2,7 @@ import type { FastifyInstance, LightMyRequestResponse } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
+import { NOTICES } from '../src/consent/notices.js';
 import { CaptureMailer } from '../src/mail/mailer.js';
 import { testEnv } from './helpers/config.js';
 import { testDb, type Sql } from './helpers/db.js';
@@ -244,6 +245,38 @@ describe('magic-link sign-in', () => {
     expect(res.statusCode).toBe(400);
     expect(res.json().error.code).toBe('bad_request');
     expect(mailer.sent).toHaveLength(0);
+  });
+});
+
+describe('the magic-link email (N-1)', () => {
+  const URL_RE = /\b(?:https?:\/\/|www\.)[^\s<>"]+/gi;
+
+  it('is plain text with exactly one URL, the verify link, and no health content', async () => {
+    // A player with health data on file: rules, consent and a profile.
+    const { email, cookie } = await signIn();
+    const cookies = { kq_session: cookie };
+    const grant = await app.inject({
+      method: 'POST',
+      url: '/me/consents',
+      cookies,
+      payload: { purpose: 'health_data', noticeVersion: NOTICES.health_data!.version },
+    });
+    expect(grant.statusCode).toBe(201);
+    const rule = { target: { kind: 'ingredient', ids: ['peanut'] }, type: 'avoid', severity: 'anaphylactic', note: 'epipen' };
+    expect((await app.inject({ method: 'POST', url: '/rules', cookies, payload: { rule, confirmed: true } })).statusCode).toBe(201);
+    await app.inject({ method: 'PUT', url: '/profile', cookies, payload: { country: 'NZ', mealWindows: [{ name: 'dinner', start: '18:00', end: '19:00' }] } });
+
+    const token = await tokenFor(email);
+    const mail = mailer.sent.at(-1)!;
+    // Only these fields: no HTML body, attachments or extra headers.
+    expect(Object.keys(mail).sort()).toEqual(['subject', 'text', 'to']);
+    expect(mail.text.match(URL_RE)).toEqual([`${APP_ORIGIN}/auth/verify?token=${token}`]);
+    expect(mail.text).not.toMatch(/<[a-z!/]/i); // no markup, so nothing to wrap or track
+    // The token is random text, so look only at the words around it.
+    const all = `${mail.subject}\n${mail.text.replace(URL_RE, '')}`.toLowerCase();
+    for (const word of ['peanut', 'epipen', 'anaphyla', 'allerg', 'diet', 'rule', 'health', 'consent', 'dinner', 'nz', 'unsubscribe']) {
+      expect(all, word).not.toContain(word);
+    }
   });
 });
 
