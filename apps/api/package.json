@@ -1,0 +1,29 @@
+{
+  "name": "@kitchenquest/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --import tsx src/server.ts",
+    "test": "NODE_OPTIONS=--no-warnings=ExperimentalWarning vitest run",
+    "sync:recipes": "node --import tsx src/recipes/sync-cli.ts",
+    "grant": "node --import tsx scripts/grant.ts",
+    "rekey": "node --import tsx scripts/rekey.ts",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json"
+  },
+  "dependencies": {
+    "@fastify/cookie": "11.1.3",
+    "@kitchenquest/core": "*",
+    "drizzle-orm": "~0.45.0",
+    "fastify": "~5.12.0",
+    "nodemailer": "10.2.1",
+    "postgres": "^3.4.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "drizzle-kit": "~0.31.0",
+    "tsx": "^4.20.0",
+    "vitest": "^5.1.0"
+  }
+}

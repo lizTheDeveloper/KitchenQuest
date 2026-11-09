@@ -1,0 +1,152 @@
+import { CooklangParser, getFlatIngredients, getFlatTimers } from '@cooklang/cooklang';
+import type { CooklangRecipe } from '@cooklang/cooklang';
+import { RecipeError } from './types';
+import type { ParsedRecipe, RecipeMeta, RecipeStatus } from './types';
+
+export { RecipeError } from './types';
+
+const parser = new CooklangParser();
+
+type RawNumber =
+  | { type: 'regular'; value: number }
+  | { type: 'fraction'; value: { whole: number; num: number; den: number } };
+type RawValue =
+  | { type: 'number'; value: RawNumber }
+  | { type: 'range'; value: { start: RawNumber; end: RawNumber } }
+  | { type: 'text'; value: string };
+
+function rawNumber(n: RawNumber): number {
+  return n.type === 'fraction' ? n.value.whole + n.value.num / n.value.den : n.value;
+}
+
+/**
+ * The numeric amount of a Cooklang quantity: regular numbers, fractions ("3/4", "1 1/2"),
+ * and the end of a range (the conservative bound). Text amounts ("some") and missing
+ * quantities give null.
+ * The package's own getQuantityValue returns NaN for fractions, so it is not used.
+ */
+function quantityValue(quantity: { value: unknown } | null | undefined, what: string): number | null {
+  if (!quantity) return null;
+  const value = quantity.value as RawValue;
+  let n: number;
+  if (value.type === 'number') n = rawNumber(value.value);
+  else if (value.type === 'range') n = rawNumber(value.value.end);
+  else return null;
+  if (!Number.isFinite(n)) throw new RecipeError([`${what}: quantity is not a finite number`]);
+  return n;
+}
+
+const STRING_KEYS = ['title', 'country', 'region', 'credit', 'cook', 'license'] as const;
+
+function validateMeta(raw: Map<unknown, unknown>): { meta: RecipeMeta | null; problems: string[] } {
+  const problems: string[] = [];
+  const strings: Record<string, string> = {};
+
+  for (const key of STRING_KEYS) {
+    const v = raw.get(key);
+    if (v === undefined || v === null) problems.push(`missing required key: ${key}`);
+    else if (typeof v !== 'string' || v.trim() === '') problems.push(`${key} must be a non-empty string`);
+    else strings[key] = v;
+  }
+
+  const difficulty = raw.get('difficulty');
+  if (difficulty === undefined || difficulty === null) problems.push('missing required key: difficulty');
+  else if (!Number.isInteger(difficulty) || (difficulty as number) < 1 || (difficulty as number) > 5)
+    problems.push('difficulty must be an integer from 1 to 5');
+
+  const skills = raw.get('skills');
+  if (skills === undefined || skills === null) problems.push('missing required key: skills');
+  else if (!Array.isArray(skills) || !skills.every((s) => typeof s === 'string'))
+    problems.push('skills must be a list of strings');
+
+  const servings = raw.get('servings');
+  if (servings === undefined || servings === null) problems.push('missing required key: servings');
+  else if (typeof servings !== 'number' || !Number.isFinite(servings) || servings <= 0)
+    problems.push('servings must be a number greater than 0');
+
+  const status = raw.get('status');
+  if (status === undefined || status === null) problems.push('missing required key: status');
+  else if (status !== 'draft' && status !== 'reviewed') problems.push('status must be "draft" or "reviewed"');
+
+  const sacred = raw.get('sacred');
+  if (sacred !== undefined && sacred !== null && typeof sacred !== 'boolean')
+    problems.push('sacred must be true or false');
+
+  // Contributor ids are personal data: the problem message never repeats a value.
+  const contributors = raw.get('contributors');
+  if (contributors !== undefined && contributors !== null) {
+    if (!Array.isArray(contributors) || !contributors.every((c) => typeof c === 'string' && c.trim() !== ''))
+      problems.push('contributors must be a list of non-empty strings');
+  }
+
+  if (problems.length > 0) return { meta: null, problems };
+
+  return {
+    problems,
+    meta: {
+      title: strings.title,
+      country: strings.country,
+      region: strings.region,
+      credit: strings.credit,
+      cook: strings.cook,
+      difficulty: difficulty as RecipeMeta['difficulty'],
+      skills: skills as string[],
+      servings: servings as number,
+      license: strings.license,
+      status: status as RecipeStatus,
+      sacred: sacred === true,
+      contributors: Array.isArray(contributors) ? (contributors as string[]) : [],
+    },
+  };
+}
+
+function reportText(report: string): string {
+  return report
+    .replace(/<[^>]*>/g, '')
+    .replace(/&#39;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .split('\n')[0]
+    .trim();
+}
+
+export function parseRecipe(source: string): ParsedRecipe {
+  let recipe: CooklangRecipe;
+  let report: string;
+  try {
+    [recipe, report] = parser.parse(source);
+  } catch (e) {
+    // The WASM parser traps (RuntimeError) on some malformed input.
+    throw new RecipeError([`Cooklang parser failed: ${e instanceof Error ? e.message : String(e)}`]);
+  }
+  // The report is an HTML-ish string, empty for clean input. Both errors and warnings
+  // (e.g. invalid YAML front matter, which the parser silently ignores) are treated as problems.
+  if (report.trim() !== '') throw new RecipeError([`Cooklang parse problem: ${reportText(report)}`]);
+  const { meta, problems } = validateMeta(recipe.rawMetadata);
+  if (meta === null) throw new RecipeError(problems);
+
+  return {
+    meta,
+    // getFlatIngredients names an aliased ingredient by its display alias (`@peanut|nuts{}` gives
+    // "nuts"), so the name to resolve comes from the raw ingredient at the same index.
+    ingredients: getFlatIngredients(recipe).map((i, k) => {
+      const raw = recipe.ingredients[k];
+      if (!raw) throw new RecipeError([`ingredient ${k + 1} ("${i.name}") is missing from the parse`]);
+      return {
+        name: raw.name,
+        displayName: raw.alias || null,
+        quantity: quantityValue(raw.quantity, `ingredient "${raw.name}"`),
+        unit: i.unit || null,
+        note: i.note || null,
+      };
+    }),
+    timers: getFlatTimers(recipe).map((t, k) => ({
+      name: t.name || null,
+      quantity: quantityValue(recipe.timers[k]?.quantity, `timer ${k + 1}`),
+      unit: t.unit || null,
+    })),
+    source,
+  };
+}

@@ -1,0 +1,741 @@
+{
+  "ingredients": [
+    {
+      "id": "nut",
+      "name": "nut"
+    },
+    {
+      "id": "tree_nut",
+      "name": "tree nut",
+      "isA": [
+        "nut"
+      ]
+    },
+    {
+      "id": "peanut",
+      "name": "peanut",
+      "aliases": [
+        "groundnut"
+      ],
+      "isA": [
+        "nut"
+      ]
+    },
+    {
+      "id": "coconut",
+      "name": "coconut"
+    },
+    {
+      "id": "milk",
+      "name": "milk",
+      "aliases": [
+        "dairy"
+      ]
+    },
+    {
+      "id": "egg",
+      "name": "egg"
+    },
+    {
+      "id": "gluten",
+      "name": "gluten"
+    },
+    {
+      "id": "wheat",
+      "name": "wheat",
+      "contains": [
+        "gluten"
+      ]
+    },
+    {
+      "id": "soy",
+      "name": "soy",
+      "aliases": [
+        "soya",
+        "soybean"
+      ]
+    },
+    {
+      "id": "fish",
+      "name": "fish"
+    },
+    {
+      "id": "shellfish",
+      "name": "shellfish"
+    },
+    {
+      "id": "sesame",
+      "name": "sesame"
+    },
+    {
+      "id": "mustard",
+      "name": "mustard"
+    },
+    {
+      "id": "fodmap_fructan",
+      "name": "fructan",
+      "aliases": [
+        "fodmap fructan"
+      ]
+    },
+    {
+      "id": "allium",
+      "name": "allium"
+    },
+    {
+      "id": "corn",
+      "name": "corn",
+      "aliases": [
+        "maize"
+      ]
+    },
+    {
+      "id": "meat",
+      "name": "meat"
+    },
+    {
+      "id": "pork",
+      "name": "pork",
+      "isA": [
+        "meat"
+      ]
+    },
+    {
+      "id": "water",
+      "name": "water",
+      "per100g": {
+        "energy_kcal": 0,
+        "protein_g": 0,
+        "fat_g": 0,
+        "carb_g": 0,
+        "fiber_g": 0,
+        "sugars_g": 0,
+        "sodium_mg": 4
+      },
+      "densityGPerMl": 1.0,
+      "fdcId": 173647
+    },
+    {
+      "id": "salt",
+      "name": "salt",
+      "aliases": [
+        "table salt"
+      ],
+      "per100g": {
+        "energy_kcal": 0,
+        "protein_g": 0,
+        "fat_g": 0,
+        "carb_g": 0,
+        "fiber_g": 0,
+        "sugars_g": 0,
+        "sodium_mg": 38758
+      },
+      "densityGPerMl": 1.217,
+      "fdcId": 173468
+    },
+    {
+      "id": "garlic",
+      "name": "garlic",
+      "aliases": [
+        "garlic clove"
+      ],
+      "isA": [
+        "allium",
+        "fodmap_fructan"
+      ],
+      "per100g": {
+        "energy_kcal": 149,
+        "protein_g": 6.36,
+        "fat_g": 0.5,
+        "carb_g": 33.06,
+        "fiber_g": 2.1,
+        "sugars_g": 1.0,
+        "sodium_mg": 17
+      },
+      "gramsPerUnit": 3,
+      "fdcId": 169230
+    },
+    {
+      "id": "moong_dal",
+      "name": "split moong dal",
+      "aliases": [
+        "moong dal",
+        "mung dal",
+        "split mung beans"
+      ],
+      "per100g": {
+        "energy_kcal": 347,
+        "protein_g": 23.86,
+        "fat_g": 1.15,
+        "carb_g": 62.62,
+        "fiber_g": 16.3,
+        "sugars_g": 6.6,
+        "sodium_mg": 15
+      },
+      "fdcId": 174256,
+      "source": "FDC 174256 is whole mung beans; split, dehulled dal has somewhat less fiber."
+    },
+    {
+      "id": "turmeric",
+      "name": "ground turmeric",
+      "aliases": [
+        "turmeric",
+        "turmeric powder"
+      ],
+      "per100g": {
+        "energy_kcal": 312,
+        "protein_g": 9.68,
+        "fat_g": 3.25,
+        "carb_g": 67.14,
+        "fiber_g": 22.7,
+        "sugars_g": 3.21,
+        "sodium_mg": 27
+      },
+      "densityGPerMl": 0.609,
+      "fdcId": 172231
+    },
+    {
+      "id": "green_chili",
+      "name": "green chilli",
+      "aliases": [
+        "green chili",
+        "green chile"
+      ],
+      "per100g": {
+        "energy_kcal": 40,
+        "protein_g": 2.0,
+        "fat_g": 0.2,
+        "carb_g": 9.46,
+        "fiber_g": 1.5,
+        "sugars_g": 5.1,
+        "sodium_mg": 7
+      },
+      "gramsPerUnit": 5,
+      "fdcId": 170497,
+      "source": "Nutrients: FDC 170497. gramsPerUnit 5 g: editor estimate for a slender Indian green chilli (FDC portion of 45 g is for a large pepper)."
+    },
+    {
+      "id": "grated_coconut",
+      "name": "grated coconut",
+      "aliases": [
+        "fresh grated coconut",
+        "freshly grated coconut"
+      ],
+      "isA": [
+        "coconut"
+      ],
+      "per100g": {
+        "energy_kcal": 354,
+        "protein_g": 3.33,
+        "fat_g": 33.49,
+        "carb_g": 15.23,
+        "fiber_g": 9.0,
+        "sugars_g": 6.23,
+        "sodium_mg": 20
+      },
+      "fdcId": 170169
+    },
+    {
+      "id": "cumin_seed",
+      "name": "cumin seed",
+      "aliases": [
+        "cumin",
+        "jeera"
+      ],
+      "per100g": {
+        "energy_kcal": 375,
+        "protein_g": 17.81,
+        "fat_g": 22.27,
+        "carb_g": 44.24,
+        "fiber_g": 10.5,
+        "sugars_g": 2.25,
+        "sodium_mg": 168
+      },
+      "densityGPerMl": 0.426,
+      "fdcId": 170923
+    },
+    {
+      "id": "coconut_oil",
+      "name": "coconut oil",
+      "contains": [
+        "coconut"
+      ],
+      "per100g": {
+        "energy_kcal": 892,
+        "protein_g": 0,
+        "fat_g": 99.06,
+        "carb_g": 0,
+        "fiber_g": 0,
+        "sugars_g": 0,
+        "sodium_mg": 0
+      },
+      "densityGPerMl": 0.92,
+      "fdcId": 171412
+    },
+    {
+      "id": "mustard_seed",
+      "name": "mustard seed",
+      "aliases": [
+        "black mustard seed",
+        "brown mustard seed"
+      ],
+      "isA": [
+        "mustard"
+      ],
+      "per100g": {
+        "energy_kcal": 508,
+        "protein_g": 26.08,
+        "fat_g": 36.24,
+        "carb_g": 28.09,
+        "fiber_g": 12.2,
+        "sugars_g": 6.79,
+        "sodium_mg": 13
+      },
+      "densityGPerMl": 0.406,
+      "fdcId": 170929,
+      "source": "FDC 170929 is ground mustard seed, used for whole seed; its density (2 g/tsp) is for ground, whole seed is likely denser."
+    },
+    {
+      "id": "shallot",
+      "name": "shallot",
+      "isA": [
+        "allium",
+        "fodmap_fructan"
+      ],
+      "per100g": {
+        "energy_kcal": 72,
+        "protein_g": 2.5,
+        "fat_g": 0.1,
+        "carb_g": 16.8,
+        "fiber_g": 3.2,
+        "sugars_g": 7.87,
+        "sodium_mg": 12
+      },
+      "gramsPerUnit": 10,
+      "fdcId": 170499,
+      "source": "Nutrients: FDC 170499. gramsPerUnit 10 g: editor estimate for a small Kerala shallot (no FDC per-unit portion)."
+    },
+    {
+      "id": "dried_red_chili",
+      "name": "dried red chilli",
+      "aliases": [
+        "dried red chili",
+        "dried red chile"
+      ],
+      "per100g": {
+        "energy_kcal": 324,
+        "protein_g": 10.58,
+        "fat_g": 5.81,
+        "carb_g": 69.86,
+        "fiber_g": 28.7,
+        "sugars_g": 41.06,
+        "sodium_mg": 91
+      },
+      "gramsPerUnit": 0.5,
+      "fdcId": 168570
+    },
+    {
+      "id": "curry_leaf",
+      "name": "curry leaf",
+      "aliases": [
+        "curry leaves",
+        "kariveppila"
+      ],
+      "per100g": {
+        "energy_kcal": 108,
+        "protein_g": 6.1,
+        "fat_g": 1.0,
+        "carb_g": 25.1,
+        "fiber_g": 6.4,
+        "sugars_g": 0,
+        "sodium_mg": 0
+      },
+      "source": "India NIN, Nutritive Value of Indian Foods (Gopalan et al.), curry leaves; carb is by difference (available carb + fiber). Sugars and sodium not reported, set to 0. No FDC record."
+    },
+    {
+      "id": "curry_leaf_sprig",
+      "name": "curry leaf sprig",
+      "aliases": [
+        "sprig of curry leaves"
+      ],
+      "isA": [
+        "curry_leaf"
+      ],
+      "per100g": {
+        "energy_kcal": 108,
+        "protein_g": 6.1,
+        "fat_g": 1.0,
+        "carb_g": 25.1,
+        "fiber_g": 6.4,
+        "sugars_g": 0,
+        "sodium_mg": 0
+      },
+      "gramsPerUnit": 2,
+      "source": "India NIN, Nutritive Value of Indian Foods (Gopalan et al.), curry leaves; carb is by difference (available carb + fiber). Sugars and sodium not reported, set to 0. No FDC record. gramsPerUnit 2 g: editor estimate for one sprig."
+    },
+    {
+      "id": "ghee",
+      "name": "ghee",
+      "aliases": [
+        "clarified butter"
+      ],
+      "contains": [
+        "milk"
+      ],
+      "per100g": {
+        "energy_kcal": 900,
+        "protein_g": 0,
+        "fat_g": 100,
+        "carb_g": 0,
+        "fiber_g": 0,
+        "sugars_g": 0,
+        "sodium_mg": 0
+      },
+      "densityGPerMl": 0.866,
+      "fdcId": 171314,
+      "source": "Nutrients: FDC 171314, which has no portions; density from butter oil, anhydrous (FDC 173412, 12.8 g/tbsp)."
+    },
+    {
+      "id": "pappadam",
+      "name": "pappadam",
+      "aliases": [
+        "papad",
+        "papadum",
+        "poppadom",
+        "appalam"
+      ],
+      "labelDependent": true,
+      "per100g": {
+        "energy_kcal": 371,
+        "protein_g": 25.56,
+        "fat_g": 3.25,
+        "carb_g": 59.87,
+        "fiber_g": 18.6,
+        "sugars_g": 0,
+        "sodium_mg": 1745
+      },
+      "gramsPerUnit": 6,
+      "fdcId": 168106,
+      "source": "Nutrients: FDC 168106 (raw papad; frying oil not included). gramsPerUnit 6 g: editor estimate for a small Kerala pappadam."
+    },
+    {
+      "id": "black_bean",
+      "name": "dried black bean",
+      "aliases": [
+        "dried black turtle bean"
+      ],
+      "per100g": {
+        "energy_kcal": 341,
+        "protein_g": 21.6,
+        "fat_g": 1.42,
+        "carb_g": 62.36,
+        "fiber_g": 15.5,
+        "sugars_g": 2.12,
+        "sodium_mg": 5
+      },
+      "fdcId": 173734
+    },
+    {
+      "id": "onion",
+      "name": "onion",
+      "aliases": [
+        "white onion",
+        "yellow onion",
+        "brown onion"
+      ],
+      "isA": [
+        "allium",
+        "fodmap_fructan"
+      ],
+      "per100g": {
+        "energy_kcal": 40,
+        "protein_g": 1.1,
+        "fat_g": 0.1,
+        "carb_g": 9.34,
+        "fiber_g": 1.7,
+        "sugars_g": 4.24,
+        "sodium_mg": 4
+      },
+      "gramsPerUnit": 110,
+      "fdcId": 170000
+    },
+    {
+      "id": "lard",
+      "name": "lard",
+      "aliases": [
+        "manteca"
+      ],
+      "contains": [
+        "pork"
+      ],
+      "per100g": {
+        "energy_kcal": 902,
+        "protein_g": 0,
+        "fat_g": 100,
+        "carb_g": 0,
+        "fiber_g": 0,
+        "sugars_g": 0,
+        "sodium_mg": 0
+      },
+      "densityGPerMl": 0.866,
+      "fdcId": 171401
+    },
+    {
+      "id": "epazote",
+      "name": "epazote",
+      "aliases": [
+        "epazote sprig"
+      ],
+      "per100g": {
+        "energy_kcal": 32,
+        "protein_g": 0.33,
+        "fat_g": 0.52,
+        "carb_g": 7.44,
+        "fiber_g": 3.8,
+        "sugars_g": 0,
+        "sodium_mg": 43
+      },
+      "gramsPerUnit": 2,
+      "fdcId": 169398,
+      "source": "FDC 169398; the record has no sugars value, set to 0."
+    },
+    {
+      "id": "corn_tortilla",
+      "name": "corn tortilla",
+      "contains": [
+        "corn"
+      ],
+      "labelDependent": true,
+      "per100g": {
+        "energy_kcal": 218,
+        "protein_g": 5.7,
+        "fat_g": 2.85,
+        "carb_g": 44.64,
+        "fiber_g": 6.3,
+        "sugars_g": 0.88,
+        "sodium_mg": 45
+      },
+      "gramsPerUnit": 24,
+      "fdcId": 175036
+    },
+    {
+      "id": "rice",
+      "name": "short-grain white rice",
+      "aliases": [
+        "japanese short-grain rice",
+        "short-grain rice",
+        "sushi rice"
+      ],
+      "per100g": {
+        "energy_kcal": 358,
+        "protein_g": 6.5,
+        "fat_g": 0.52,
+        "carb_g": 79.15,
+        "fiber_g": 2.8,
+        "sugars_g": 0.12,
+        "sodium_mg": 1
+      },
+      "densityGPerMl": 0.845,
+      "fdcId": 168931,
+      "source": "FDC 168931; it has no fiber or sugars, so fiber is from 168881 (same rice, enriched) and sugars from 169756 (long-grain, raw)."
+    },
+    {
+      "id": "bonito_flakes",
+      "name": "bonito flakes",
+      "aliases": [
+        "katsuobushi",
+        "dried bonito flakes"
+      ],
+      "isA": [
+        "fish"
+      ],
+      "per100g": {
+        "energy_kcal": 332,
+        "protein_g": 77.1,
+        "fat_g": 2.9,
+        "carb_g": 0.8,
+        "fiber_g": 0,
+        "sugars_g": 0,
+        "sodium_mg": 130
+      },
+      "source": "MEXT Standard Tables of Food Composition in Japan (katsuobushi); edition not verified. Sugars not reported, set to 0. No FDC record."
+    },
+    {
+      "id": "soy_sauce",
+      "name": "soy sauce",
+      "aliases": [
+        "shoyu"
+      ],
+      "contains": [
+        "soy",
+        "wheat"
+      ],
+      "labelDependent": true,
+      "per100g": {
+        "energy_kcal": 53,
+        "protein_g": 8.14,
+        "fat_g": 0.57,
+        "carb_g": 4.93,
+        "fiber_g": 0.8,
+        "sugars_g": 0.4,
+        "sodium_mg": 5493
+      },
+      "densityGPerMl": 1.082,
+      "fdcId": 174277
+    },
+    {
+      "id": "umeboshi",
+      "name": "umeboshi",
+      "aliases": [
+        "pickled plum",
+        "japanese pickled plum"
+      ],
+      "labelDependent": true,
+      "per100g": {
+        "energy_kcal": 33,
+        "protein_g": 0.9,
+        "fat_g": 0.2,
+        "carb_g": 10.5,
+        "fiber_g": 3.6,
+        "sugars_g": 1.0,
+        "sodium_mg": 8700
+      },
+      "gramsPerUnit": 10,
+      "source": "MEXT Standard Tables of Food Composition in Japan, 2015 (7th ed.), umeboshi, salted. Sugars not reported: 1.0 g is an editor estimate. gramsPerUnit 10 g: editor estimate. No FDC record."
+    },
+    {
+      "id": "nori",
+      "name": "nori",
+      "aliases": [
+        "nori sheet",
+        "toasted nori",
+        "yaki nori"
+      ],
+      "labelDependent": true,
+      "per100g": {
+        "energy_kcal": 297,
+        "protein_g": 41.4,
+        "fat_g": 3.7,
+        "carb_g": 44.3,
+        "fiber_g": 36.0,
+        "sugars_g": 0,
+        "sodium_mg": 530
+      },
+      "gramsPerUnit": 3,
+      "source": "MEXT Standard Tables of Food Composition in Japan, 2020 (8th ed.), toasted nori (yakinori). Sugars not reported, set to 0. gramsPerUnit 3 g: one full sheet. No FDC record (SR Legacy 168458 is fresh laver)."
+    },
+    {
+      "id": "garlic_infused_oil",
+      "name": "garlic-infused oil",
+      "unsafeFor": [
+        "garlic",
+        "allium"
+      ],
+      "per100g": {
+        "energy_kcal": 884,
+        "protein_g": 0,
+        "fat_g": 100,
+        "carb_g": 0,
+        "fiber_g": 0,
+        "sugars_g": 0,
+        "sodium_mg": 0
+      },
+      "source": "Generic vegetable oil values (as FDC 171017). No FDC record for garlic-infused oil."
+    },
+    {
+      "id": "neutral_oil",
+      "name": "neutral oil",
+      "aliases": [
+        "sunflower oil"
+      ],
+      "per100g": {
+        "energy_kcal": 884,
+        "protein_g": 0,
+        "fat_g": 100,
+        "carb_g": 0,
+        "fiber_g": 0,
+        "sugars_g": 0,
+        "sodium_mg": 0
+      },
+      "fdcId": 171017
+    },
+    {
+      "id": "shio_kombu",
+      "name": "shio kombu",
+      "aliases": [
+        "salted kelp"
+      ],
+      "contains": [
+        "soy_sauce"
+      ],
+      "labelDependent": true,
+      "per100g": {
+        "energy_kcal": 110,
+        "protein_g": 16.9,
+        "fat_g": 0.4,
+        "carb_g": 37.0,
+        "fiber_g": 13.1,
+        "sugars_g": 10,
+        "sodium_mg": 7100
+      },
+      "source": "MEXT Standard Tables of Food Composition in Japan, 2015 (7th ed.), shio kombu. Sugars not reported: 10 g is an editor estimate. No FDC record."
+    },
+    {
+      "id": "tamari",
+      "name": "tamari",
+      "contains": [
+        "soy"
+      ],
+      "labelDependent": true,
+      "per100g": {
+        "energy_kcal": 60,
+        "protein_g": 10.51,
+        "fat_g": 0.1,
+        "carb_g": 5.57,
+        "fiber_g": 0.8,
+        "sugars_g": 1.7,
+        "sodium_mg": 5586
+      },
+      "fdcId": 174278
+    },
+    {
+      "id": "coconut_aminos",
+      "name": "coconut aminos",
+      "contains": [
+        "coconut"
+      ],
+      "per100g": {
+        "energy_kcal": 100,
+        "protein_g": 0,
+        "fat_g": 0,
+        "carb_g": 20,
+        "fiber_g": 0,
+        "sugars_g": 20,
+        "sodium_mg": 1800
+      },
+      "source": "Typical retail label (1 tsp: 5 kcal, 1 g carb, 1 g sugars, 90 mg sodium) scaled to 100 g; sodium varies by brand. No FDC record."
+    },
+    {
+      "id": "toasted_sesame_seeds",
+      "name": "toasted sesame seed",
+      "aliases": [
+        "roasted sesame seed",
+        "toasted sesame"
+      ],
+      "isA": [
+        "sesame"
+      ],
+      "per100g": {
+        "energy_kcal": 565,
+        "protein_g": 16.96,
+        "fat_g": 48.0,
+        "carb_g": 25.74,
+        "fiber_g": 14.0,
+        "sugars_g": 0.3,
+        "sodium_mg": 11
+      },
+      "fdcId": 170151,
+      "source": "FDC 170151; it has no sugars value, so sugars are from 170150 (whole, dried)."
+    }
+  ]
+}

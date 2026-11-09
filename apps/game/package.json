@@ -1,0 +1,21 @@
+{
+  "name": "@kitchenquest/game",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Kitchen Quest — a web game built with Phaser and TypeScript",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "phaser": "^3.90.0"
+  },
+  "devDependencies": {
+    "vite": "^8.3.7",
+    "vitest": "^5.1.0"
+  }
+}

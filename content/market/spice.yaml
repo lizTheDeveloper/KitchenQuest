@@ -1,0 +1,454 @@
+# The Spice Merchant: never seen, only heard from behind a wall of sacks.
+# Theatrical, kind, a little conspiratorial. Smell first, always.
+# Voice: docs/style/voice.md §5. The mystery is the merchant, never the spice.
+# No spice is "exotic", "mysterious" or "ancient secret". They are pantry staples somewhere.
+
+id: spice
+name: "The Spice Merchant"
+stall: spice
+art: null   # never seen: the stall art is a wall of sacks
+
+persona:
+  - "Never seen, only heard from behind a wall of sacks. Theatrical, kind, a little conspiratorial: 'Don't look for me. Smell for me.'"
+  - "Teaches by nose: rub a pinch, sniff, and the spice tells you its age. Dramatic pauses written as em-dashes."
+  - "Knows whole vs ground, freshness, toasting and blooming, substitutions, and which blends hide wheat or other allergens."
+  - "Treats every spice as a staple of some kitchen somewhere. Never 'exotic', never 'mysterious'. The only mystery is where the merchant is standing."
+  - "Fond of the cooks: keeps the best mustard seeds for Ammachi Leela, Mexican oregano for Doña Marisol, and good sesame for Haruka, and gossips (kindly) about all three."
+
+triggers:
+  greet:
+    ai: allowed
+    when: The player opens the spice stall.
+    lines:
+      - "A voice from behind a wall of sacks: 'Don't look for me. Smell for me.' The air is cumin, chilli, and a faint accusation about the jar in your pantry from 2024."
+      - "Welcome, welcome. Step closer. No — closer. Now breathe in. That's a market, that is."
+      - "Ah, footsteps. An apprentice. Tell me what you're cooking and I'll tell you what it needs. Then I'll tell you what it really needs."
+      - "Rub a pinch, sniff. Strong: good. Dusty and faint: stale. That's the whole lesson. The rest is gossip."
+      - "Buy whole, buy small, sniff often. If it smells of nothing, it will taste of nothing."
+      - "Leela's mustard seeds came in this morning. Don't tell her I said they're the best in the market. She already knows."
+  correct:
+    ai: allowed
+    when: Correct answer at the spice stall.
+    lines:
+      - "— Exactly. You have a nose. Not everyone does. Well, everyone does. Not everyone uses it."
+      - "Correct! A sack rustles approvingly."
+      - "Yes. I'd shake your hand, but you'd find out where I'm standing."
+      - "Right. That's a nose that will save you money."
+  wrong:
+    ai: allowed
+    when: Wrong answer at the spice stall.
+    lines:
+      - "— Ah. No. Sniff again."
+      - "A pause from behind the sacks. A long one. Then: 'Not quite, my dear.'"
+      - "No, but a lovely guess. Here's the thing —"
+      - "— Not that one. But your nose is warming up."
+  idle:
+    ai: allowed
+    when: The player lingers.
+    lines:
+      - "Take your time. Spices have waited centuries for people to notice them. A minute more won't hurt."
+      - "Still there? I can hear you thinking. It sounds like cardamom."
+      - "If in doubt, buy a small bag. Small bags are fresh bags."
+      - "A sack shifts somewhere to your left. Or your right. The merchant is not telling."
+  out_of_stock:
+    ai: never
+    when: A spice isn't available; a rules-checked substitute is offered.
+    vars:
+      item: "the missing spice"
+      swap: "the substitute"
+    lines:
+      - "No {item} today. {swap} is the closest in that dish. Checked against your rules, and labelled."
+      - "Out of {item}, alas. {swap} will stand in. Labelled, checked, and slightly offended to be second choice."
+      - "We're out of {item}. {swap} is your best stand-in. Labelled, and checked against your rules."
+      - "No {item}, I'm afraid. Try {swap}. It's been checked against your rules."
+  farewell:
+    ai: allowed
+    when: The player leaves the stall.
+    lines:
+      - "Keep them dark, dry and away from the stove. The stove is where spices go to retire."
+      - "Goodbye! Sniff your jars when you get home. Any that smell of nothing — forgive them, and replace them."
+      - "Off you go. Toast the seeds, bloom the ground, taste as you go."
+      - "Farewell! Buy small, sniff often, grind as you go."
+  allergen_note:
+    ai: never
+    when: The player has a severe rule and is shopping at the spice stall.
+    lines:
+      - "Spice blends can contain allergens that aren't obvious, like wheat in asafoetida, or mustard, celery or sesame in blends. Please check every label, and choose single spices where you can."
+
+games:
+  blind_sniff: "Blind-sniff riddles: the merchant describes a smell; the player names the spice."
+  freshness: "Whole vs ground, storage, staleness."
+  substitution: "What stands in when you're out?"
+
+questions:
+  - id: spice-sniff-cumin
+    game: blind_sniff
+    prompt: "Blind sniff. Warm, earthy, a bit musky — like the inside of a taco. Which spice?"
+    contains: [cumin]
+    options:
+      - text: "Cumin"
+        correct: true
+        reaction: "Cumin. Earthy, musky, unmistakable — and the backbone of the coconut paste in Leela's parippu."
+      - text: "Cinnamon"
+        correct: false
+        reaction: "Cinnamon is warm and sweet — a hug. This was earthy and musky — a slightly sweaty hug. Cumin."
+      - text: "Cardamom"
+        correct: false
+        reaction: "Cardamom is bright, floral, almost eucalyptus. You've just described cumin."
+      - text: "Clove"
+        correct: false
+        reaction: "Clove is sweet, sharp, and numbs your tongue a little. Earthy and musky is cumin."
+    explain: "Cumin has a warm, earthy, slightly musky aroma and is used across Indian, Mexican, Middle Eastern and North African cooking."
+
+  - id: spice-sniff-cardamom
+    game: blind_sniff
+    prompt: "Blind sniff. Bright, floral, almost minty-eucalyptus, with something citrusy. Little green pods rattle in the sack. Which?"
+    contains: [cardamom]
+    options:
+      - text: "Green cardamom"
+        correct: true
+        reaction: "Green cardamom. Crack a pod and smell the black seeds inside — that's where it lives. Lovely in chai, rice and sweets."
+      - text: "Black pepper"
+        correct: false
+        reaction: "Pepper is sharp and woody. Floral and eucalyptus is cardamom."
+      - text: "Coriander seed"
+        correct: false
+        reaction: "Coriander seed is citrusy too, but softer and nuttier, no eucalyptus. The pods give it away: cardamom."
+      - text: "Fennel seed"
+        correct: false
+        reaction: "Fennel is sweet and liquorice-like. This was floral and cool. Cardamom."
+    explain: "Green cardamom has a floral, citrusy, slightly eucalyptus aroma that comes mostly from the seeds inside the pod."
+
+  - id: spice-sniff-fennel
+    game: blind_sniff
+    prompt: "Blind sniff. Sweet, like liquorice, but gentle and green. Small, pale green-brown, ridged seeds. Which?"
+    contains: [fennel_seed]
+    options:
+      - text: "Fennel seed"
+        correct: true
+        reaction: "Fennel. Sweet, anise-like, gentle. Chew a few after dinner, as many households do — it freshens the breath."
+      - text: "Cumin"
+        correct: false
+        reaction: "They look alike, and many cooks have reached for the wrong jar. Cumin is earthy; fennel is sweet. Sniff before you pour."
+      - text: "Caraway"
+        correct: false
+        reaction: "Caraway is a cousin, sharper and more rye-bread. Sweet and liquorice is fennel."
+      - text: "Mustard seed"
+        correct: false
+        reaction: "Mustard seeds are tiny round balls and smell of almost nothing until they're cooked or crushed. Fennel."
+    explain: "Fennel seeds have a sweet, mild anise flavour; they look similar to cumin, so smelling the jar before using it avoids mix-ups."
+
+  - id: spice-whole-vs-ground
+    game: freshness
+    prompt: "Which keeps its flavour longer in the jar?"
+    options:
+      - text: "Whole seeds"
+        correct: true
+        reaction: "Whole. Grinding exposes the aromatic oils to air, so ground spices fade within months; whole seeds hold on for a few years. Buy whole, grind small."
+      - text: "Ground spice"
+        correct: false
+        reaction: "Ground spice has far more surface for the air to nibble. It fades first. Whole seeds keep years."
+      - text: "They're the same"
+        correct: false
+        reaction: "Spices are not immortal. Long-lived, at best. That jar from 2019 is a museum exhibit. Whole keeps longer."
+      - text: "Whichever has the later date"
+        correct: false
+        reaction: "Spice dates are best guesses about flavour, not safety. Your nose is the real date."
+    explain: "Whole spices keep their aromatic oils sealed in and stay flavourful for years, while ground spices lose flavour much faster."
+
+  - id: spice-toast-seeds
+    game: freshness
+    prompt: "You're toasting cumin seeds in a dry pan. When are they done?"
+    contains: [cumin]
+    options:
+      - text: "After 30–60 seconds: fragrant and a shade darker. Then off the heat."
+        correct: true
+        reaction: "Exactly. Fragrant and a shade darker, then off the heat and out of the pan — the pan keeps cooking them."
+      - text: "When they start to smoke"
+        correct: false
+        reaction: "Smoke means burnt, and burnt cumin is bitter. Start over. It's only cumin. This time."
+      - text: "After ten minutes, to be sure"
+        correct: false
+        reaction: "After ten minutes you are sure. Sure it's charcoal. 30–60 seconds, fragrant and a shade darker."
+      - text: "When they turn black"
+        correct: false
+        reaction: "Black is the colour of regret in a spice pan. Fragrant and a shade darker."
+    explain: "Toast whole seeds in a dry pan over medium heat for 30–60 seconds, until fragrant and slightly darker, then tip them out so they don't keep cooking."
+
+  - id: spice-cumin-sub
+    game: substitution
+    prompt: "Out of cumin for the dal. Closest stand-in?"
+    contains: [cumin]
+    options:
+      - text: "Caraway or ground coriander"
+        correct: true
+        reaction: "Good. Coriander is milder and citrusy; caraway is cumin's close cousin. Neither is cumin, but both stay in the family."
+      - text: "Cinnamon"
+        correct: false
+        reaction: "Cinnamon would make your dal taste like a festive biscuit. Coriander or caraway."
+      - text: "Paprika"
+        correct: false
+        reaction: "Paprika brings colour and sweetness, not cumin's earthiness. Coriander or caraway gets closer."
+      - text: "Leave it out and add more salt"
+        correct: false
+        reaction: "Salt can't impersonate a spice. Coriander or caraway does a better job — or leave it out and accept a slightly different dish."
+    explain: "Caraway (a close relative) or ground coriander are the nearest stand-ins for cumin, though the flavour will be a little different."
+
+  - id: spice-storage
+    game: freshness
+    prompt: "Where's the best place to keep your spice jars?"
+    options:
+      - text: "In a cool, dark cupboard, away from the stove."
+        correct: true
+        reaction: "Yes. Heat, light, steam and air are what fade a spice. A dark cupboard away from the stove keeps them talking."
+      - text: "On a shelf right above the stove, for convenience."
+        correct: false
+        reaction: "Convenient for you, a sauna for them. Heat and steam drain the flavour. Move them."
+      - text: "In clear jars on a sunny windowsill — they look lovely."
+        correct: false
+        reaction: "They do look lovely. For about a month. Then they look lovely and taste of dust. Dark cupboard."
+      - text: "In the fridge."
+        correct: false
+        reaction: "The fridge is damp, and every time you open a cold jar, condensation gets in. Cool, dry, dark cupboard."
+    explain: "Store spices airtight in a cool, dark, dry place away from the stove; heat, light, moisture and air make them lose flavour."
+
+  - id: spice-asafoetida
+    game: freshness
+    prompt: "Ground asafoetida (hing) is in many dal recipes. What should a gluten-free cook know about it?"
+    contains: [asafoetida, wheat]
+    options:
+      - text: "Most ground asafoetida is mixed with wheat flour; look for a labelled gluten-free version."
+        correct: true
+        reaction: "Exactly. Pure asafoetida resin is very strong, so it's usually cut with flour, often wheat. Gluten-free versions use rice flour. Read the label every time."
+      - text: "It's a plant resin, so it's always gluten-free."
+        correct: false
+        reaction: "The resin is; the powder in the jar usually isn't, because it's mixed with flour, often wheat. Check the label."
+      - text: "It only matters if you use a lot."
+        correct: false
+        reaction: "For coeliac disease or a wheat allergy, even a pinch matters. Choose one labelled gluten-free."
+      - text: "Toasting it removes the gluten."
+        correct: false
+        reaction: "Heat doesn't remove gluten. Choose a gluten-free labelled version instead."
+    explain: "Commercial ground asafoetida is usually compounded with flour, often wheat, so people avoiding gluten or wheat need a version labelled gluten-free."
+
+  - id: spice-cinnamon
+    game: blind_sniff
+    prompt: "Two cinnamon sticks. One is thin papery layers rolled like a cigar; one is a single thick, hard curl of bark. Which is Ceylon cinnamon?"
+    contains: [cinnamon]
+    options:
+      - text: "The thin, papery, many-layered one"
+        correct: true
+        reaction: "Right. Ceylon is delicate and gentler; the thick, hard one is cassia, stronger and spicier. Both are cinnamon to most shops."
+      - text: "The thick, hard one"
+        correct: false
+        reaction: "That's cassia — the most common 'cinnamon' in many shops. Bolder and spicier. Ceylon is the thin, papery one."
+      - text: "They're identical"
+        correct: false
+        reaction: "They're cousins, not twins. Ceylon is thin and layered; cassia is a thick single curl."
+      - text: "Neither; Ceylon is a type of tea"
+        correct: false
+        reaction: "It's also a type of tea, named for the same island. But in the spice sack, Ceylon cinnamon is the thin, papery one."
+    explain: "Ceylon cinnamon has thin, papery, many-layered quills and a milder flavour, while cassia forms a thick, hard single curl and tastes stronger."
+
+  - id: spice-chili-powder
+    game: substitution
+    prompt: "A US recipe calls for 'chili powder'. What is that, usually?"
+    contains: [chili]
+    options:
+      - text: "A blend: ground chillies plus cumin, oregano, garlic and more."
+        correct: true
+        reaction: "Right. American 'chili powder' is a seasoning blend. If you want pure ground chilli, look for 'ancho chile powder', 'cayenne' or 'Kashmiri chilli powder' — and check each blend's label."
+      - text: "Pure ground chillies, nothing else."
+        correct: false
+        reaction: "In the US, usually not — it's a blend. Pure versions say the chilli's name on the label."
+      - text: "Cayenne pepper."
+        correct: false
+        reaction: "Cayenne is one pure, quite hot chilli. 'Chili powder' is milder and blended. Swap one for the other and someone will notice."
+      - text: "Paprika."
+        correct: false
+        reaction: "Paprika is ground sweet or hot peppers, often milder still. 'Chili powder' is a blend with cumin and oregano."
+    explain: "In the US, 'chili powder' usually means a blend of ground chillies with cumin, oregano and garlic, while single-chilli powders are labelled by the chilli's name."
+
+  - id: spice-mexican-oregano
+    game: substitution
+    prompt: "Doña Marisol's recipe says 'Mexican oregano'. Is it the same as the oregano in your jar?"
+    contains: [oregano]
+    options:
+      - text: "No — it's a different plant, more citrusy and grassy; Mediterranean oregano will do, but it tastes different."
+        correct: true
+        reaction: "Exactly. Mexican oregano is from the verbena family; Mediterranean oregano is from the mint family. Both are called oregano. Both are delicious. They are not the same."
+      - text: "Yes, oregano is oregano."
+        correct: false
+        reaction: "Same name, different plant. Mexican oregano is brighter and more citrusy. Use the other if you must; just expect a different song."
+      - text: "It's just regular oregano grown in Mexico."
+        correct: false
+        reaction: "A tidy theory, but no — it's a different plant altogether, from the verbena family."
+      - text: "It's a type of epazote."
+        correct: false
+        reaction: "Epazote is its own herb, which Marisol grows like a weed. Mexican oregano is a different plant again."
+    explain: "Mexican oregano (Lippia graveolens, verbena family) is a different plant from Mediterranean oregano (Origanum, mint family), with a more citrusy flavour."
+
+  - id: spice-bloom-ground
+    game: freshness
+    prompt: "Your tempering calls for a pinch of ground chilli or turmeric. When does it go into the hot oil?"
+    contains: [chili, turmeric]
+    options:
+      - text: "Last, for just a few seconds, often with the heat lowered."
+        correct: true
+        reaction: "Right. Ground spices burn in seconds. Add them at the end, stir, and pour or add liquid straight away."
+      - text: "First, before anything else."
+        correct: false
+        reaction: "First in, first burnt. Whole seeds go first; ground spices go last."
+      - text: "Before the oil heats up."
+        correct: false
+        reaction: "Cold oil won't bloom anything; it'll just make spicy oil soup. Hot oil, ground spices last, seconds only."
+      - text: "It doesn't matter."
+        correct: false
+        reaction: "It matters a great deal to the turmeric. Burnt turmeric is bitter and brown. Last, briefly."
+    explain: "Ground spices have lots of surface area and scorch within seconds in hot oil, so add them last and briefly when blooming or tempering."
+
+  - id: spice-pepper
+    game: freshness
+    prompt: "Why grind black pepper fresh instead of buying it ground?"
+    contains: [black_pepper]
+    options:
+      - text: "Its aroma fades fast once ground; fresh-ground is far more fragrant."
+        correct: true
+        reaction: "Right. Pre-ground pepper is mostly heat with the perfume gone. A grinder costs little and changes everything you put it on."
+      - text: "Pre-ground pepper is unsafe."
+        correct: false
+        reaction: "Perfectly safe. Just tired. Fresh-ground has the aroma."
+      - text: "It's spicier when ground at the table."
+        correct: false
+        reaction: "The heat stays fairly steady; it's the fragrance that flies off. Fresh-ground for perfume."
+      - text: "There's no difference."
+        correct: false
+        reaction: "Sniff a jar of ground pepper, then crack a peppercorn. Now tell me there's no difference."
+    explain: "Black pepper's aromatic oils evaporate quickly after grinding, so freshly ground pepper is much more fragrant than pre-ground."
+
+  - id: spice-stale-test
+    game: freshness
+    prompt: "How do you tell if a jar of ground spice is past its best?"
+    options:
+      - text: "Rub a pinch between your fingers and sniff; faint, dusty or faded colour means stale."
+        correct: true
+        reaction: "Yes. Rub a pinch, sniff. Strong: good. Dusty and faint: stale. Buy small bags, grind as you go."
+      - text: "Taste a whole spoonful."
+        correct: false
+        reaction: "A dry spoonful of cumin is how people learn they can't speak for a while. Pinch, rub, sniff."
+      - text: "Check if it's still in the jar."
+        correct: false
+        reaction: "Being in the jar is a low bar. Pinch, rub, sniff."
+      - text: "Spices never go stale."
+        correct: false
+        reaction: "They don't spoil, usually, but they do fade. Your nose is the real date."
+    explain: "Rub a pinch of ground spice and smell it: a faint aroma or faded colour means it has lost flavour and should be replaced."
+
+  - id: spice-saffron
+    game: freshness
+    prompt: "Real saffron threads in a little warm water. What should you see?"
+    contains: [saffron]
+    options:
+      - text: "The water slowly turns golden-yellow while the threads stay red."
+        correct: true
+        reaction: "Right. Real saffron releases its colour slowly, and the threads keep theirs. If the water turns red instantly or the threads go pale, be suspicious."
+      - text: "The water turns bright red at once."
+        correct: false
+        reaction: "Instant red usually means dye. Real saffron gives a slow golden-yellow and keeps its threads red."
+      - text: "Nothing happens at all."
+        correct: false
+        reaction: "Then it's very old, or it isn't saffron. Real saffron colours the water golden within minutes."
+      - text: "The threads dissolve."
+        correct: false
+        reaction: "Saffron threads don't dissolve; they're the stigmas of a crocus flower. They soften and colour the water golden."
+    explain: "Genuine saffron threads slowly turn warm water golden-yellow while staying red themselves; instant red colour or pale threads suggest dye or adulteration."
+    # REVIEW: home saffron tests are indicative, not definitive. Fine as a shopping tip.
+
+item_tips:
+  cumin:
+    pick: "Whole seeds: greenish-brown, ridged, strongly earthy when crushed. Smell the jar before you pour; cumin and fennel look alike."
+    store: "Airtight, dark, cool. Whole for years; ground for months."
+  coriander_seed:
+    pick: "Round, pale brown, citrusy when crushed."
+    store: "Airtight, dark. Grind just before using."
+  mustard_seed:
+    pick: "Small, round, dark brown or black for Kerala-style tempering; they should rattle and look glossy."
+    store: "Airtight, dark, cool. Keeps a long time."
+  turmeric:
+    pick: "Ground: bright orange-yellow, earthy smell. Fresh root: firm, bright orange inside."
+    store: "Airtight, dark. It stains everything it touches, including your fingers and your good spoon."
+  cardamom:
+    pick: "Plump green pods; crack one and the seeds should be sticky and black, and smell floral."
+    store: "Whole pods keep far longer than ground. Airtight, dark."
+  cinnamon:
+    pick: "Ceylon: thin, papery, layered. Cassia: thick, hard, single curl, stronger."
+    store: "Sticks for years; ground for months."
+  clove:
+    pick: "Whole, oily, with the little round heads intact. A good clove leaves a trace of oil when pressed with a fingernail."
+    store: "Airtight, dark."
+  black_pepper:
+    pick: "Whole peppercorns, firm and fragrant. Grind as you go."
+    store: "Whole for years in a dark cupboard."
+  dried_chili:
+    pick: "Flexible, glossy, deep red, not brittle or dusty. Kashmiri chillies for colour; others for heat."
+    store: "Airtight, dark, cool; they last months to a year."
+  paprika:
+    pick: "Bright red, not brown. Sweet, hot or smoked (pimentón) are different spices."
+    store: "Fades fast once opened; buy small tins."
+  fennel_seed:
+    pick: "Pale green-brown, sweet anise smell."
+    store: "Airtight, dark."
+  star_anise:
+    pick: "Whole stars, mostly unbroken, strongly liquorice-scented."
+    store: "Airtight, dark; keeps for years."
+  nutmeg:
+    pick: "Whole nuts, heavy and unbroken. Grate as needed."
+    store: "Whole for years."
+  asafoetida:
+    pick: "A tiny pinch is enough. If you avoid gluten or wheat, buy one labelled gluten-free; most are cut with wheat flour."
+    store: "Tightly sealed, ideally in a second container. It is very loud."
+  saffron:
+    pick: "Deep red threads, slightly trumpet-shaped at one end. Buy from a trusted shop; cheap saffron usually isn't."
+    store: "Airtight, dark, cool."
+  bay_leaf:
+    pick: "Green, not grey or brown; fragrant when crumbled."
+    store: "Airtight; fish them out of the dish before serving."
+  oregano_mexican:
+    pick: "Whole dried leaves, grey-green, citrusy and grassy when rubbed."
+    store: "Airtight, dark. Rub between your palms as you add it."
+  curry_leaf:
+    pick: "Fresh: glossy, deep green, fragrant when crushed. Indian and South Asian grocers sell them."
+    store: "Strip from the stems and freeze flat; use straight from the freezer."
+  garam_masala:
+    pick: "A blend; recipes vary by region and family. Small bags; fresh is fragrant."
+    store: "Fades within months; make small batches if you can."
+  curry_powder:
+    pick: "A blend, and recipes vary widely. Check the label for the spices and any allergens."
+    store: "Airtight, dark; fades within months."
+  sesame_seed:
+    pick: "Even, unbroken seeds. Sesame is a major allergen in many countries; check your rules."
+    store: "Seeds are oily and can go rancid; keep sealed, cool, or in the fridge."
+  furikake:
+    pick: "A Japanese rice seasoning. Many contain sesame, fish (bonito) and soy; check the label against your rules."
+    store: "Airtight, cool, dry."
+
+faq:
+  - q: ["how long do spices last", "do spices expire", "are old spices safe"]
+    a: "Dry spices rarely become unsafe; they fade. Ground spices lose their best within months to a year or two; whole ones last a few years. If a jar smells of nothing, it will taste of nothing. If it's damp, clumped with moisture or mouldy, throw it out."
+  - q: ["how do i grind spices without a grinder", "no spice grinder", "grind spices"]
+    a: "A mortar and pestle, a heavy pan pressed over seeds on a board, or a rolling pin over seeds in a sealed bag. A cheap electric coffee grinder kept only for spices is the merchant's secret weapon. Not very secret now."
+  - q: ["how do i toast spices", "toast whole spices", "dry roast spices"]
+    a: "Dry pan, medium heat, keep them moving. Thirty to sixty seconds for small seeds, until fragrant and a shade darker. Tip them onto a plate straight away so they stop cooking."
+  - q: ["what is blooming spices", "what is tempering", "tadka", "bloom spices in oil"]
+    a: "Frying spices in hot oil or ghee so their flavours move into the fat, which then carries them through the whole dish. Whole seeds first, until they pop or sizzle; ground spices last, for seconds. Ammachi Leela's parippu ends with exactly this."
+  - q: ["what is garam masala", "garam masala vs curry powder"]
+    a: "Garam masala is a warm spice blend used in many Indian kitchens; its recipe changes from region to region and family to family. 'Curry powder' is a blend that grew up mostly outside India. Neither is one fixed thing. Smell the bag; use what tastes right."
+    # REVIEW: confirm phrasing on curry powder's history is fair and not reductive.
+  - q: ["spice blend allergens", "hidden allergens in spices", "are spice blends safe for allergies"]
+    a: "Blends can hide things. Asafoetida usually has wheat flour; some blends contain mustard, celery, sesame or nut flours. Labelling rules differ by country, and some don't require every spice to be named. If you have an allergy, choose single spices and check every label."
+    tags: [safety]
+    # REVIEW: country-specific labelling (US: major allergens incl. sesame must be declared, mustard/celery not; EU/UK: mustard, celery, sesame are declared allergens; Canada: mustard and sesame). Keep the line general unless region-aware.
+  - q: ["how do i get turmeric stains out", "turmeric stain"]
+    a: "Quickly, and with a little dish soap, then sunlight — sun fades turmeric stains on cloth and countertops remarkably well. Your fingers will forgive you in a day or two."
+  - q: ["whole or ground spices", "should i buy whole spices"]
+    a: "Whole for the ones you toast or temper with (cumin, mustard, coriander, fennel, pepper). Ground for things you use in pinches and replace often (turmeric, paprika, chilli). Always small bags."

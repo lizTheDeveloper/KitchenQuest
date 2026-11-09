@@ -1,0 +1,12 @@
+export const CORE_VERSION = '0.1.0';
+export * from './recipe/types';
+export { parseRecipe } from './recipe/parse';
+export * from './ingredients/types';
+export { IngredientGraph } from './ingredients/graph';
+export * from './rules/types';
+export { validateRules, isActive, isValidDate } from './rules/active';
+export { check, DISCLAIMER, validateSubstitutions } from './rules/check';
+export type { CheckStatus, Substitution, Finding, CheckResult } from './rules/check';
+export { toGrams } from './nutrition/units';
+export { nutritionPerServing } from './nutrition/compute';
+export type { NutritionResult } from './nutrition/compute';

@@ -1,0 +1,180 @@
+# Haruka: onigiri shop cook, Osaka, Japan. Dish: onigiri (rice balls).
+# Voice: docs/style/voice.md §4. Competent, specific, warm. Never the joke.
+# Recipe: recipes/japan/osaka/onigiri.cook (status: draft until reviewed by a cook from Japan/Kansai).
+# Address the apprentice by name or as "apprentice". No gendered terms.
+
+id: haruka
+name: "Haruka"
+place: "Osaka, Japan"
+dish: "Onigiri"
+recipe: japan/osaka/onigiri
+
+persona:
+  - "Runs a small onigiri shop in Osaka that opens at six and sells three hundred rice balls a morning. Younger than Leela and Marisol; stricter than both. Respects them enormously."
+  - "Brisk, exact and funny in a clipped way. Counts things: presses, rinses, minutes. 'Three or four presses. Any more and you are making a brick.'"
+  - "Obsessed with rice done properly: rinsed, measured, rested, shaped warm. Hands wet before every single one. Not most. Every."
+  - "Proud of Osaka as a city that loves to eat. Happy to argue about nori (crisp or soft) and fillings, and clear that every household and shop has its own way."
+  - "Kind under the briskness: always slips the apprentice an extra onigiri 'for the train'. Has a new helper who is learning, and defends the helper even while fixing the rice."
+
+intro:
+  - "Irasshai! Marisol's apprentice? Good. Wash your hands, then come and look at this disaster."
+  - "I'm Haruka. This is my shop. That is my rice cooker. It is older than my helper and better behaved."
+  - "We open at six. You are at six-oh-four. That's fine. Marisol said you would be late and kind. Kind is more useful."
+  - "Your pan can go on the shelf above the till. Customers will think it's decoration. Please ask it not to talk to customers."
+
+story:
+  - "Onigiri is hand food. Students, farmers, people on the early train. You can eat it walking, working, waiting. Nobody needs a plate, and nobody needs to be rich."
+  # REVIEW: Archaeologists have reported carbonised rice-ball remains from the Yayoi period (Ishikawa Prefecture); onigiri-like 'tonjiki' are mentioned in Heian-era writing. Confirm or keep the claim vague ("very old").
+  - "It is a very old food. People were pressing rice into balls to carry with them long before anyone wrote down a recipe. Soldiers, travellers, people in the fields. Rice and salt, and something sour or salty in the middle to keep it."
+  # REVIEW: Osaka was called 'Tenka no Daidokoro' (the nation's kitchen) in the Edo period, and the Dojima Rice Exchange (1730) is often cited as an early futures market. Confirm before using; also confirm 'kuidaore' as a fair, affectionate description of Osaka.
+  - "Osaka was called the nation's kitchen, once. All the rice in the country came through here to be traded. So we are serious about rice. We are also serious about eating — people say Osaka is where you eat until you fall over. I have seen it. I have sold them the onigiri."
+  # REVIEW: Claim that Kansai traditionally favours a tawara (cylindrical/barrel) shape and seasoned nori (ajitsuke nori), while Kanto favours triangles and plain nori. Widely repeated; confirm with a Kansai reviewer.
+  - "In Osaka, the old way is a little barrel shape, wrapped in seasoned nori. In Tokyo, triangles. In my shop, triangles, because they fit the hand and the box. My grandmother made barrels and thought triangles were showing off."
+  - "And people here will argue for an hour about whether the nori should be crisp or soft. Crisp: wrap it just before eating. Soft: wrap it early and let it relax. Both are correct. Neither side will admit it."
+
+quest:
+  id: haruka-gluey-rice
+  cook: haruka
+  title: "The Gluey Rice"
+  unlock: { requires: [marisol-salt-question], trust: 0 }
+  steps:
+    - type: talk
+      lines:
+        - "My shop makes three hundred a morning. Each one I press only three or four times. Any more and you are not making onigiri, you are making a brick."
+        - "Now: my new helper made this batch. The rice is gluey. It sticks to everything, including my patience. Why?"
+
+    - type: riddle
+      prompt: "The rice is gluey. What went wrong?"
+      options:
+        - text: "It wasn't rinsed, and there was too much water"
+          correct: true
+          reaction: "Yes! The loose starch on the grains turns to paste, and extra water finishes the job. Rinse until the water is only a little cloudy, and measure the water."
+        - text: "Not enough soy sauce"
+          correct: false
+          reaction: "Soy sauce fixes many things. Not this. Also, please never put soy sauce in my rice pot."
+        - text: "The rice was sad"
+          correct: false
+          reaction: "The rice is fine. It's my helper who is sad now. Think about what's on the surface of the grains."
+        - text: "It was pressed too gently"
+          correct: false
+          reaction: "Too gentle makes it fall apart. Too sticky is a different problem — it starts before the pot."
+      explain: "Unrinsed rice carries loose surface starch that turns to paste when cooked, and too much water makes it worse; rinse until the water is only slightly cloudy and measure the water."
+
+    - type: errand
+      stall: okafor-sato
+      item: rice
+      lines:
+        - "My helper is now very sorry and also out of rice. Go to Okafor-Sato and buy Japanese short-grain rice. Short, round grains. Not long-grain, not jasmine, not basmati. They are good rice. They are not this rice."
+        - "If there's no Japanese rice, a medium-grain like Calrose is fine. It's what many people outside Japan use. Don't buy 'sushi rice seasoning'. We are not making sushi. Nobody is vinegaring my onigiri."
+        - "Good. Short, round, shiny. Okafor-Sato gave you a nod? Then it is good rice. I don't argue with Okafor-Sato."
+
+    - type: drill
+      skill: shaping
+      prompt: "Wet your hands, rub a pinch of salt over your palms, take about 100 g of warm rice, make a dent, add a little filling, close the rice over it, then cup one hand into a V and turn the ball into a triangle with three or four gentle presses."
+      lines:
+        - "Water first, so the rice doesn't stick to you. Then salt on your hands, not in the rice. The salt goes on the outside, where your tongue meets it first."
+        - "Warm rice. Not hot — you will burn yourself and learn nothing. Not cold — cold rice won't hold. Warm, like a bath you could stay in."
+        - "One hand is the roof, one hand is the corner. Press, turn, press, turn. Three times. Four if you must. Stop."
+        - "Firm enough to hold, soft enough that the grains are still grains. If you squeeze the air out, it becomes a stone with a filling. Customers do not want a stone."
+        - "Again. Wet hands. Every single one. Not most. Every."
+
+    - type: cook
+      recipe: japan/osaka/onigiri
+
+  rewards: { xp: 50, trust: 1, skills: { grains: 10, shaping: 15, heat-control: 5 } }
+
+gift:
+  - "Good eye. Now I'll teach you properly, from the rinse to the last press. Watch my hands, not my face."
+  - "Rinse gently, three or four times, until the water is only slightly cloudy. Soak thirty minutes. Cook with the lid on and never lift it. Rest ten minutes. Then fluff with a wet paddle and let it cool until your hands are happy."
+  - "Wet hands, salt hands, a dent, a little filling, close it, three or four presses. Nori just before you eat it, if you like it crisp. Later, if you like it soft. Everyone is right."
+  - "This is not my secret. There is no secret. Every grandmother in Japan knows this, every konbini, every school lunch. I am passing on what everyone passed to me. Make some for someone on an early train."
+
+trust_lines:
+  1:
+    - "You came back. Good. Wash your hands. You know where the sink is."
+    - "Irasshai. Six-oh-two. Better."
+  2:
+    - "Your triangles are less round now. That is a compliment."
+    - "Show me your hands. Wet? Good. Salt? Good. You may touch my rice."
+    - "My helper asked about you. I said you made a gluey batch once too. You didn't. But it made them feel better."
+  3:
+    - "You can do the early batch with me. Five-thirty. Don't be late. Marisol said you would be, but she said it lovingly."
+    - "Try a new filling today. Something from your own kitchen. If it's good, I'll put it on the board for one day only."
+    - "You're quiet at the counter now. That means you're watching. Good."
+  4:
+    - "You have your own rice paddle here now. It's on the left. Nobody else uses it. That is a very big deal in this shop."
+    - "My helper is your apprentice for the morning. Teach them the presses. I'll pretend to be busy."
+    - "You came all this way for rice. That's the most Osaka thing a person can do."
+  5:
+    - "You can teach this now. When you do, wet their hands first. And tell them it came from the shops and kitchens of Osaka."
+    - "Here, take one for the train. You always get one for the train. That's the rule now."
+    - "If you ever open a shop, open at six. Then you'll understand me."
+
+reactions:
+  photo:
+    - "From here I can't count the presses, but I trust you stopped at four. Tip: keep a bowl of water beside you and wet your hands before every single one — the rice won't stick to you."
+    - "You made onigiri. Eat one now, while the nori still crackles. Tip: if they crumble, the rice was too cool when you shaped it — shape while it's still warm."
+    - "The grains look separate and shiny — that's well-rinsed rice. Good. If the outside tastes flat, rub a little more salt on your wet hands next time."
+    - "They're all different sizes. That's fine at home. If you want them even, weigh the first one — about 100 g — and then trust your hand for the rest."
+    - "The shape is good. Triangles that sit up on their own. Next time, put the filling a little deeper in the middle, so the first bite is rice and the third bite is the surprise."
+    - "Looks soft and well-cooked. If any feel dense, you pressed too long. Three or four presses, then stop, even if it looks a bit rough. Rough is fine. Brick is not."
+    - "Nice nori. If you're packing them for later, wrap the nori separately in a little paper and add it just before eating, or it will go soft — which some people prefer, so it's your call."
+    - "They look like lunch. That's the highest praise in my shop. Leftovers? Brush with soy sauce and toast them in a dry pan until crisp: yaki onigiri."
+  skip_photo:
+    - "No photo? Fine. Onigiri is for eating, not for posing."
+    - "You don't need to show me. Wet hands? Four presses? Then they're good."
+    - "Eat it while the nori is crisp. That's more important than a picture."
+
+introduction:
+  - "I'd introduce you to my friend in Lisbon, but the Bureau says that requires Form 12-C, and Form 12-C requires Form 12-B. Next season."
+  - "She cooks fish the way I cook rice: simply, and every day, and she will tell you so. She's very patient. More patient than me. Everyone is."
+  # REVIEW (teaser): the fourth cook (Lisbon, Portugal) is unwritten. Keep details minimal until a contributor from Portugal shapes the character and dish.
+  - "I'll write to her. It will take a while. The letters go by sea, because the Bureau says it's 'more traditional'. Be patient. You're good at that now."
+
+faq:
+  - q: ["how do i store onigiri", "storing onigiri", "how long do onigiri keep", "can i keep onigiri overnight"]
+    a: "Onigiri are best the same day. Wrap each one tightly in cling film as soon as it's cool. Don't leave them out on a warm counter for more than a couple of hours; for a packed lunch, use an ice pack. They can go in the fridge, but the rice goes hard and dry there, so freeze them instead if you want to keep them."
+    tags: [storage, safety]
+  - q: ["can i refrigerate onigiri", "onigiri fridge", "rice hard in fridge"]
+    a: "You can, and they're safe, but cold makes the rice hard and crumbly. Wrap them well, and warm them briefly in the microwave or toast them in a dry pan with a brush of soy sauce. That's yaki onigiri, and it's a reward, not a rescue."
+    tags: [storage]
+  - q: ["can i freeze onigiri", "freeze rice balls"]
+    a: "Yes. Make them without nori, wrap each tightly in cling film while still slightly warm, and freeze. Microwave from frozen, still wrapped and loosened a little, until hot all the way through, then let it cool to warm and add nori. Pickled plum and salted fillings freeze better than mayonnaise ones."
+    tags: [storage]
+  - q: ["can i use long grain rice", "jasmine rice onigiri", "basmati rice onigiri", "what rice do i use", "what rice"]
+    a: "Japanese short-grain rice. Medium-grain like Calrose works too. Long-grain rice, jasmine and basmati are excellent rice — but they're bred not to stick, and onigiri need rice that sticks to itself. They'll fall apart in your hand like a crowd leaving a station."
+    tags: [substitution]
+  - q: ["can i use sushi rice", "do i add vinegar", "sushi rice vinegar"]
+    a: "'Sushi rice' in the shop is usually just Japanese short-grain rice — that's fine, buy it. But don't season it with vinegar. Onigiri is plain rice with salt on the outside. Vinegared rice is sushi, and sushi is a different shop."
+    tags: [substitution]
+  - q: ["can i use a rice cooker", "rice cooker onigiri"]
+    a: "Yes. Rinse the rice, put it in, fill to the line for 'white rice' or 'short-grain', let it soak thirty minutes if your cooker doesn't do that itself, and press start. My rice cooker is the most reliable employee I have."
+    tags: [technique]
+  - q: ["why do you salt your hands", "salt on hands", "how much salt"]
+    a: "So the salt is on the outside, where you taste it first, and so the rice doesn't stick to you. A small pinch rubbed over wet palms for each one or two onigiri. Not a handful. You are seasoning rice, not curing a ham."
+    tags: [technique]
+  - q: ["my onigiri fall apart", "rice won't hold shape", "onigiri crumbling"]
+    a: "Three usual reasons: the rice was too cool when you shaped it, it's the wrong rice (long-grain), or you didn't press quite firmly enough. Shape while warm, use short-grain, and make the three or four presses count. Firm, not crushed."
+    tags: [technique]
+  - q: ["what fillings", "onigiri fillings", "what can i put in onigiri", "filling ideas"]
+    a: "The classics: umeboshi (salted pickled plum), okaka (bonito flakes with a little soy sauce), salted grilled salmon, kombu simmered in soy sauce, and tuna with mayonnaise, which is the most popular in convenience stores and nobody should be ashamed of it. Or no filling at all — just salt. Shio musubi. My favourite, if I'm honest."
+  - q: ["vegetarian onigiri", "vegan onigiri", "onigiri without fish", "no fish filling"]
+    a: "Umeboshi alone, or shio kombu (salted kelp), or sesame and salt, or pickled vegetables, or a little miso. Check your labels: shio kombu and many pickles contain soy sauce, which has wheat. Your rules will flag anything that doesn't fit."
+    tags: [substitution, safety]
+  - q: ["what is umeboshi", "what does umeboshi taste like", "pickled plum"]
+    a: "Ume — a Japanese apricot-plum — salted and dried and pickled, often with red shiso. Very sour and very salty. You use a little piece. The first one surprises everybody. The tenth one, you crave."
+  # REVIEW: Ume (Prunus mume) is botanically closer to apricot; 'Japanese apricot' or 'plum' are both common in English. Fine either way.
+  # REVIEW: sheet nori became widespread around the Edo period; "the oldest onigiri had no nori" is the claim below.
+  - q: ["what if i don't have nori", "no nori", "onigiri without seaweed", "seaweed allergy"]
+    a: "Then don't use it. Onigiri without nori are still onigiri. Roll them in toasted sesame seeds, or furikake, or just eat them plain and salty. Many of the oldest onigiri had no nori at all."
+    tags: [substitution]
+  - q: ["should the nori be crisp or soft", "crispy nori", "soft nori", "when do i wrap the nori"]
+    a: "Crisp: wrap just before eating. Soft: wrap right after shaping and let them sit. Osaka will argue for an hour about this. I say: crisp in the morning, soft for the train home."
+  - q: ["can i use brown rice", "brown rice onigiri"]
+    a: "Brown rice is less sticky, so it's harder. Mix half brown and half white short-grain, soak the brown longer, and press a little firmer. Or use a short-grain brown rice. It will be nuttier and more rustic. Rustic is fine."
+    tags: [substitution]
+  - q: ["can i use plastic wrap to shape", "cling film onigiri", "shape without touching rice"]
+    a: "Yes. Lay a piece of cling film in your palm, sprinkle a little salt, add the rice and filling, then gather and shape through the film. Cleaner, especially if you're making them for other people, and no rice on your hands. I use bare wet hands in the shop because I've had twenty years of practice."
+    tags: [technique]
+  - q: ["how big", "how much rice per onigiri", "how many does it make"]
+    a: "About 100 g of cooked rice each — a little less than a teacup's worth. Two rice-cooker cups of raw rice, 360 ml, make about six. Weigh the first one, then trust your hand."

@@ -1,0 +1,1 @@
+ALTER TABLE "canon_recipes" ADD COLUMN "contributors" text[] DEFAULT '{}' NOT NULL;

@@ -1,0 +1,804 @@
+# Big Bram: butcher stall. Becomes the Protein Counter (variants.protein_counter) when the
+# player's confirmed rules exclude meat (vegetarian, vegan, or a custom rule).
+# Big-hearted, precise, polishes his cleaver like a violin. Obsessed with cost per serving.
+# Voice: docs/style/voice.md §5. Eating meat or not is never a moral question here.
+#
+# Prices are EXAMPLE prices for the minigame (USD, 2026-ish, mid-range US supermarket) and
+# are shown with a footnote saying so. # REVIEW: localise prices per region before launch.
+# Food-safety numbers follow USDA FSIS guidance (safe minimum internal temperatures,
+# refrigerator storage times). # REVIEW: re-check against the current FSIS charts at launch,
+# and swap in the national agency's guidance for non-US regions.
+
+id: bram
+name: "Big Bram"
+stall: butcher
+art: butcher
+
+persona:
+  - "A big-hearted, precise butcher who polishes his cleaver like a violin and knows every cut by what it wants: time or heat."
+  - "Obsessed with cost per serving. Keeps a chalkboard and believes 'price per pound lies; price per serving tells the truth.'"
+  - "Gives cuts personalities ('the thigh is the friend who stays late to help clean') and is unshakeable on food safety: temperatures, dates, separate boards."
+  - "Equally happy running the Protein Counter for vegetarian and vegan shoppers; has repainted the sign himself and is proud of it. Never moralises about what anyone eats."
+  - "Sells food, not diagnoses; medical questions get a kind deflection. Respects religious and cultural rules (halal, kosher and others) and tells people to follow their own community's guidance on them."
+
+triggers:
+  greet:
+    ai: allowed
+    when: The player opens Bram's butcher stall.
+    lines:
+      - "Tell me the method first — sear, roast, or braise — and the cut picks itself. Tough cuts want time; tender cuts want heat."
+      - "Morning! Bram's the name, meat's the game, and the game has rules. Mostly about temperature."
+      - "Welcome. Cleaver's polished. Chalkboard's clean. Ask me anything; I'll answer in cost per serving."
+      - "Ah, a cook. What are we making? Don't say 'something with beef'. Say 'a stew' or 'a quick dinner'. Then I can help."
+      - "Price per pound lies; price per serving tells the truth. That's the first lesson. The second lesson is also that."
+      - "Big Bram. Butcher. Former apprentice of a man who could tell a cut by the sound it made on the block. I can't do that. I can do arithmetic."
+  correct:
+    ai: allowed
+    when: The player answers a Bram question correctly.
+    lines:
+      - "Right! Bram taps the chalkboard approvingly."
+      - "That's it. You'd make a decent butcher. Decent butcher's the highest compliment I've got."
+      - "Spot on. I'm writing that down. Not for you, for me. I like being right by proxy."
+      - "Correct. The cleaver gleams in approval. I polished it this morning, so it gleams in everything, but still."
+  wrong:
+    ai: allowed
+    when: The player answers a Bram question wrongly.
+    lines:
+      - "Bram stares at you for a long, long time. Then he smiles. Not quite, friend."
+      - "Ooh. No. But I respect the ambition."
+      - "Not that one. Here's the thing —"
+      - "Close-ish. In the way that Tuesday is close-ish to Friday."
+  idle:
+    ai: allowed
+    when: The player lingers at the stall.
+    lines:
+      - "Bram polishes his cleaver. It's how he relaxes."
+      - "Take your time. The chuck isn't going anywhere. It's had a very hard-working life and it's resting."
+      - "If you're not sure, ask. Asking is free. The chalkboard is free. The meat is not free, sadly."
+      - "Bram rewrites a number on the chalkboard. It was right before. It's more right now."
+  out_of_stock:
+    ai: never
+    when: An item on the list isn't available; Bram offers a rules-checked substitute.
+    vars:
+      item: "the missing item"
+      swap: "the substitute"
+    lines:
+      - "Out of {item}, sorry. {swap} does the same job in that dish. Labelled, and checked against your rules."
+      - "No {item} today. Take {swap}; same method, same time, near enough. The Bureau adores a label, so it's labelled."
+      - "Sold out of {item}. {swap} is the next best for that dish. Checked and labelled."
+      - "No {item} left. Have {swap} instead — checked against your rules, labelled on the recipe."
+  farewell:
+    ai: allowed
+    when: The player leaves Bram's stall.
+    lines:
+      - "Straight into the fridge when you get home. Bottom shelf, so nothing drips on anything."
+      - "Off you go. Separate board for raw meat, and wash your hands after. Bram's rule."
+      - "Cheerio! Ground meat within two days, remember. Or freeze it today."
+      - "Mind how you go. Thermometer in the thickest part, remember."
+  medical:
+    ai: never
+    when: The player asks Bram a medical or diet-therapy question.
+    lines:
+      - "That one's for a doctor or a dietitian — I sell food, not diagnoses. What I can tell you is how to pick a good one of whatever they tell you to eat."
+  religious_rules:
+    ai: never
+    when: The player asks about halal, kosher or other religious meat rules.
+    lines:
+      - "I can tell you what a label says and who certified it. What counts for you is your community's call, not mine. Look for the certification mark you trust, and ask your community if you're unsure."
+
+games:
+  cut_match: "The butcher's quiz: match a dish or method to the right cut."
+  value: "Chalkboard maths: best value per serving for a dish."
+  label: "Decode a label or a date."
+  safety: "Temperatures, thawing, storage."
+
+questions:
+  - id: bram-braise-cut
+    game: cut_match
+    prompt: "A three-hour braise — beef stew, low oven, lid on. Which cut?"
+    contains: [beef]
+    options:
+      - text: "Chuck"
+        correct: true
+        reaction: "Chuck. A hard-working shoulder full of connective tissue, and three slow hours melts it into gelatin — that's the silky part. Tough cut plus time equals tender. Tender cut plus time equals regret."
+      - text: "Tenderloin"
+        correct: false
+        reaction: "Tenderloin! The priciest thing in my case and you want to drown it for three hours. It has almost no connective tissue to melt — it goes dry and stringy. Chuck."
+      - text: "Strip steak"
+        correct: false
+        reaction: "Strip's a searing cut — lean and already tender. Braised for hours it tightens up like a nervous accountant. You want chuck."
+      - text: "Flank steak"
+        correct: false
+        reaction: "Flank's for hot-and-fast, then sliced thin against the grain. Three hours makes it shoe leather with ambitions. Chuck's your braise."
+    explain: "Low-and-slow cooking wants tough, collagen-rich cuts like chuck, shank or short ribs, because long cooking turns their connective tissue into gelatin; lean, tender cuts just dry out."
+
+  - id: bram-sear-cut
+    game: cut_match
+    prompt: "A screaming-hot pan, four minutes a side. Which cut?"
+    contains: [beef]
+    options:
+      - text: "Strip steak"
+        correct: true
+        reaction: "Strip: tender, nicely marbled, happy in a hot pan for a few minutes a side. Rest it five minutes before cutting, or the juice ends up on the board instead of in you."
+      - text: "Chuck roast"
+        correct: false
+        reaction: "A chuck roast seared for four minutes is chewing practice. (A chuck-eye steak can work; a chuck roast cannot.) Strip's your sear."
+      - text: "Brisket"
+        correct: false
+        reaction: "Brisket wants hours — smoke or braise. Four minutes in a pan and you've made a very tough apology."
+      - text: "Beef shank"
+        correct: false
+        reaction: "Shank is all sinew and marrow: braise heaven, sear purgatory. Strip steak for the hot pan."
+    explain: "For a hot, quick sear, choose a tender cut like strip, ribeye or sirloin; dry it, salt it, sear it, and rest it before slicing."
+
+  - id: bram-curry-chicken
+    game: cut_match
+    prompt: "A 45-minute chicken curry. Which part of the bird forgives you if you lose track of time?"
+    contains: [chicken]
+    options:
+      - text: "Thighs"
+        correct: true
+        reaction: "Thighs. More fat and connective tissue, so they stay juicy through a long simmer — and they're usually cheaper per pound. The thigh is the friend who stays late to help clean."
+      - text: "Breast"
+        correct: false
+        reaction: "Breast is lean; in a long simmer it dries out and goes chalky. Great for quick cooking — pull it at 74°C (165°F). For curry, thighs."
+      - text: "Wings"
+        correct: false
+        reaction: "Wings are mostly skin and bone — glorious for snacking or stock, a lot of nibbling in a curry. Thighs."
+      - text: "Whatever's on top of the pile"
+        correct: false
+        reaction: "A bold system. Not a good one. Thighs for simmering, breasts for quick cooking."
+    explain: "Chicken thighs have more fat and connective tissue than breasts, so they stay tender in long simmers; breasts suit quick cooking."
+
+  - id: bram-value-braise
+    game: value
+    prompt: "Best value for a three-hour braise for four. Bram slides the chalkboard over: chuck $22.50 for 6 servings; bone-in short ribs $38 for 4; bone-in shank $24 for 5; tenderloin $60 for 6."
+    contains: [beef]
+    options:
+      - text: "Chuck"
+        correct: true
+        reaction: "Chuck: $22.50 ÷ 6 = $3.75 a serving, and it's the right cut for the job. Bones look cheap per pound, but you can't eat them (you can make stock from them, which is a separate lecture)."
+      - text: "Short ribs"
+        correct: false
+        reaction: "Gorgeous braise, but half that weight is bone: $38 ÷ 4 = $9.50 a serving. A treat, not a value. Chuck is $3.75."
+      - text: "Shank"
+        correct: false
+        reaction: "Good thinking — shank braises beautifully. But with the bone it's $24 ÷ 5 = $4.80 a serving. Close second! Buy shank if the chuck's gone."
+      - text: "Tenderloin"
+        correct: false
+        reaction: "$10 a serving, and it's the wrong cut for a braise. That's paying more to get less. Bram looks physically pained."
+    explain: "Compare cost per serving, not per pound: count the bone and the shrinkage, divide by how many people it really feeds, and match the cut to the method."
+
+  - id: bram-air-chilled
+    game: label
+    prompt: "A chicken label says 'AIR-CHILLED'. What does that mean?"
+    contains: [chicken]
+    options:
+      - text: "It was cooled with cold air instead of in a chilled water bath."
+        correct: true
+        reaction: "Right. Most chicken is chilled in a cold water bath and soaks some up; air-chilled isn't, so you're not paying for water, and the skin crisps better."
+      - text: "The chicken lived outdoors in fresh air."
+        correct: false
+        reaction: "Lovely image, wrong label. That'd be 'pasture-raised'. Air-chilled is about how it was cooled after processing: cold air, not a water bath."
+      - text: "It was flown in."
+        correct: false
+        reaction: "Chickens do not fly business class. Air-chilled means it was cooled with cold air rather than in a chilled water bath."
+      - text: "It's been frozen."
+        correct: false
+        reaction: "Chilled isn't frozen. Air-chilled birds are cold, not icy. The label's about the cooling method."
+    explain: "Air-chilled chicken is cooled with cold air rather than an ice-water bath, so it absorbs less water and the skin browns better."
+
+  - id: bram-grass-finished
+    game: label
+    prompt: "Beef labelled 'GRASS-FINISHED'. What does 'finished' tell you?"
+    contains: [beef]
+    options:
+      - text: "The animal ate grass right through to the end, not grain in its last months."
+        correct: true
+        reaction: "Exactly. 'Grass-fed' alone can still mean grain in the last months; 'grass-finished' tells you about the end. Leaner, more mineral flavour, often pricier."
+      - text: "It's the same as 'grass-fed'."
+        correct: false
+        reaction: "Close! But 'grass-fed' alone can still mean a grain diet at the end. 'Finished' is the word that tells you about the last months."
+      - text: "The beef is fully cooked."
+        correct: false
+        reaction: "Bram stares at you for a long, long time. No. It's about what the animal ate at the end: grass, not grain."
+      - text: "It was aged on grass."
+        correct: false
+        reaction: "Beef is aged in a cold room, not on a lawn. 'Finished' is about the animal's diet in its final months."
+    explain: "'Grass-finished' means the animal ate grass through to slaughter, while 'grass-fed' alone may allow grain finishing; grass-finished beef is typically leaner."
+    # REVIEW: US labelling rules for 'grass-fed' changed over time (USDA withdrew its standard in 2016); keep the explanation general and check current rules.
+
+  - id: bram-use-by
+    game: label
+    prompt: "This ground beef says 'SELL BY: Nov 14'. You bought it on the 13th. When should you cook or freeze it?"
+    contains: [beef]
+    options:
+      - text: "Within one or two days of buying it."
+        correct: true
+        reaction: "Right. Dates are mostly about the shop's stock, and ground meat is the impatient one: 1–2 days in the fridge, or freeze it. Steaks and roasts give you 3–5."
+      - text: "Any time before the 14th, then it must go in the bin."
+        correct: false
+        reaction: "That's 'sell by' — a note for the shop's stock rotation. For you: ground meat gets cooked or frozen within 1–2 days of buying."
+      - text: "Whenever it starts to smell."
+        correct: false
+        reaction: "The nose is not a laboratory. The bacteria that make you ill often don't smell at all. Ground meat: cook or freeze within 1–2 days of buying."
+      - text: "Up to a week, if the fridge is cold."
+        correct: false
+        reaction: "A week is for hard cheese, not ground beef. Grinding spreads surface bacteria all through the meat, so it gets 1–2 days."
+    explain: "Raw ground meat should be cooked or frozen within 1–2 days of purchase, and steaks, chops and roasts within 3–5 days, kept at 4°C (40°F) or below."
+
+  - id: bram-chicken-temp
+    game: safety
+    prompt: "What internal temperature makes chicken safe to eat?"
+    contains: [chicken]
+    options:
+      - text: "74°C (165°F), measured in the thickest part."
+        correct: true
+        reaction: "Right. Thermometer in the thickest bit, not touching bone. A cheap probe thermometer is the best few dollars you'll spend in a kitchen."
+      - text: "When the juices run clear."
+        correct: false
+        reaction: "Clear juices are a hint, not proof. Some safe chicken has pinkish juice and some unsafe chicken doesn't. Thermometer: 74°C (165°F)."
+      - text: "63°C (145°F)."
+        correct: false
+        reaction: "That's for whole cuts of beef, pork and lamb with a rest. Poultry needs 74°C (165°F)."
+      - text: "When it's been in the oven for an hour."
+        correct: false
+        reaction: "Ovens lie, chickens vary. An hour might be raw or might be jerky. Thermometer, thickest part, 74°C (165°F)."
+    explain: "Poultry is safe at an internal temperature of 74°C (165°F), measured with a thermometer in the thickest part without touching bone."
+
+  - id: bram-whole-cut-temp
+    game: safety
+    prompt: "Pork chops and beef steaks (whole cuts, not ground). Minimum safe internal temperature?"
+    contains: [pork, beef]
+    options:
+      - text: "63°C (145°F), then rest for three minutes."
+        correct: true
+        reaction: "Right. Whole cuts are safe at 63°C (145°F) with a three-minute rest. A slightly pink pork chop at that temperature is safe and much juicier than the grey ones of history."
+      - text: "74°C (165°F)."
+        correct: false
+        reaction: "That's poultry. A pork chop at 74°C is safe and also a coaster. 63°C (145°F) with a rest."
+      - text: "71°C (160°F)."
+        correct: false
+        reaction: "That's for ground meat, where bacteria have been mixed through. Whole cuts: 63°C (145°F) and a rest."
+      - text: "Until there's no pink at all."
+        correct: false
+        reaction: "That rule was retired years ago for whole pork and beef cuts. A blush of pink at 63°C (145°F) is safe."
+    explain: "Whole cuts of beef, pork, veal and lamb are safe at 63°C (145°F) followed by a three-minute rest; ground meats need 71°C (160°F) and poultry 74°C (165°F)."
+
+  - id: bram-thaw
+    game: safety
+    prompt: "Frozen chicken thighs for tomorrow's dinner. How do you thaw them?"
+    contains: [chicken]
+    options:
+      - text: "In the fridge overnight, on a plate on the bottom shelf."
+        correct: true
+        reaction: "Right. Slow and cold. In a hurry: sealed bag in cold water, changing the water every 30 minutes. Or the microwave, then cook straight away."
+      - text: "On the counter all day."
+        correct: false
+        reaction: "The outside warms into the bacteria's favourite range while the middle's still frozen. Fridge, cold water, or microwave-then-cook."
+      - text: "In a bowl of hot water."
+        correct: false
+        reaction: "Hot water starts cooking the outside and warms it into the danger zone. Cold water, changed every half hour."
+      - text: "No need — cook from frozen in the slow cooker."
+        correct: false
+        reaction: "Slow cookers heat too gently for frozen meat; it lingers too long at unsafe temperatures. Thaw first."
+    explain: "Thaw meat in the fridge, in cold water changed every 30 minutes, or in the microwave followed by immediate cooking; never on the counter."
+
+  - id: bram-wash-chicken
+    game: safety
+    prompt: "Should you rinse raw chicken under the tap before cooking?"
+    contains: [chicken]
+    options:
+      - text: "No. Pat it dry with paper towels instead; cooking kills the bacteria."
+        correct: true
+        reaction: "Right. Rinsing splashes bacteria around your sink and counter, and it doesn't make the chicken safer. Pat dry, cook properly, wash your hands."
+      - text: "Yes, always, with cold water."
+        correct: false
+        reaction: "It feels clean. It isn't. The splashes travel further than you'd think. Pat dry instead; heat does the cleaning."
+      - text: "Yes, with soap."
+        correct: false
+        reaction: "Bram drops his cleaver. Please, never soap. Pat it dry and cook it to 74°C (165°F)."
+      - text: "Only if it looks slimy."
+        correct: false
+        reaction: "If it's genuinely slimy and smells off, it doesn't need a wash; it needs a bin. Otherwise, pat dry."
+    explain: "Food-safety agencies advise against washing raw poultry because splashing spreads bacteria; pat it dry and cook it to a safe temperature."
+
+  - id: bram-against-grain
+    game: cut_match
+    prompt: "You've seared a flank steak. How do you slice it?"
+    contains: [beef]
+    options:
+      - text: "Thinly, across the grain — perpendicular to the long muscle fibres."
+        correct: true
+        reaction: "Yes. Cutting across the grain makes the fibres short, so every slice is tender. Cut along it and you're chewing rope."
+      - text: "Along the grain, in long strips."
+        correct: false
+        reaction: "Long fibres, long chewing. Turn the steak ninety degrees and cut across."
+      - text: "In thick chunks, so it stays juicy."
+        correct: false
+        reaction: "Flank is lean and fibrous; thick chunks are tough. Thin slices across the grain."
+      - text: "Straight away, while it's hottest."
+        correct: false
+        reaction: "Rest it first, five minutes or so, or the juice runs onto the board. Then thin, across the grain."
+    explain: "Slice flank and other fibrous cuts thinly across the grain so the muscle fibres are short and tender."
+
+  - id: bram-pulled-pork
+    game: cut_match
+    prompt: "You want pulled pork that falls apart with a fork. Which cut?"
+    contains: [pork]
+    options:
+      - text: "Pork shoulder (sometimes sold as Boston butt)"
+        correct: true
+        reaction: "Shoulder. Fatty, full of connective tissue, built for long slow cooking. 'Butt' is the shoulder, despite the name. Nobody knows why. Well, historians do."
+      - text: "Pork tenderloin"
+        correct: false
+        reaction: "Tenderloin is lean and quick; cook it for hours and it goes dry and crumbly, not pull-apart. Shoulder."
+      - text: "Pork loin chops"
+        correct: false
+        reaction: "Loin chops want a hot pan and ten minutes. Slow-cooked, they turn to cardboard. Shoulder."
+      - text: "Bacon"
+        correct: false
+        reaction: "Pulled bacon is not a thing. Bram has tried. Shoulder."
+    explain: "Pork shoulder (Boston butt) has the fat and collagen to become tender and shreddable after long, slow cooking."
+    # REVIEW: 'Boston butt' naming (from the barrels — 'butts' — it was packed in) is a common story; kept vague.
+
+  - id: bram-no-hormones
+    game: label
+    prompt: "A chicken label says 'NO HORMONES ADDED'. What does that tell you?"
+    contains: [chicken]
+    options:
+      - text: "Nothing special: hormones aren't allowed in US poultry at all."
+        correct: true
+        reaction: "Right. US federal rules ban added hormones in poultry and pork, so every chicken qualifies. The label has to say so in small print. Bram enjoys small print."
+      - text: "This chicken is healthier than the others."
+        correct: false
+        reaction: "It's exactly as hormone-free as every other chicken in the case. It just has a louder label."
+      - text: "It's organic."
+        correct: false
+        reaction: "Organic is a separate certification with its own seal. 'No hormones added' is true of all US chicken."
+      - text: "It was raised without antibiotics."
+        correct: false
+        reaction: "Different claim, different label. Hormones and antibiotics aren't the same thing. Read each word."
+    explain: "In the US, hormones are not permitted in raising poultry or pork, so 'no hormones added' on chicken is true of all chicken and must carry a statement saying so."
+    # REVIEW: US-specific; replace for other regions.
+
+  - id: bram-dry-sear
+    game: safety
+    prompt: "Why pat a steak dry before searing it?"
+    contains: [beef]
+    options:
+      - text: "Surface water has to boil off before browning can start, so a dry steak browns faster and better."
+        correct: true
+        reaction: "Right. Wet meat steams; dry meat sears. Pat it dry, salt it, hot pan. That brown crust is flavour."
+      - text: "To remove bacteria."
+        correct: false
+        reaction: "Patting doesn't sterilise anything. It's about browning. Heat handles the bacteria."
+      - text: "So the salt doesn't stick."
+        correct: false
+        reaction: "You want the salt to stick. Dry first, then salt."
+      - text: "It doesn't matter."
+        correct: false
+        reaction: "It matters. A wet steak gives you a grey steak. Grey steaks have never made anyone happy."
+    explain: "Drying meat before searing lets the surface reach browning temperatures quickly instead of steaming, which builds a flavourful crust."
+
+# ----------------------------------------------------------------------------
+# Variant: the Protein Counter (vegetarian/vegan players)
+# Used when the player's confirmed rules exclude meat. Questions tagged with egg/milk/peanut
+# in `contains` are dropped for players whose rules exclude those (e.g. vegan, allergies).
+# ----------------------------------------------------------------------------
+variants:
+  protein_counter:
+    name: "Big Bram's Protein Counter"
+    persona:
+      - "Same Bram, new sign (repainted himself, slightly uneven, very proud). Runs a counter of legumes, tofu, tempeh, seitan, and eggs and dairy where allowed."
+      - "Still obsessed with cost per serving: 'Dried legumes are the quiet millionaires of the market.'"
+      - "Knows hidden animal ingredients (gelatin, anchovy in Worcestershire, animal rennet) and is matter-of-fact about them."
+      - "Never treats vegetarian or vegan food as a substitute for 'real' food. It is food."
+      - "Respects the rules engine: anything the player's rules block never appears as a correct answer."
+    triggers:
+      greet:
+        ai: allowed
+        when: The player opens the stall while their rules exclude meat.
+        lines:
+          - "Welcome to the Protein Counter! Legumes, tofu, tempeh, seitan, and eggs and dairy for those who want them. Bram's taken it well. He's repainted the sign himself."
+          - "Ah, a cook! Protein's protein. Today's chalkboard: lentils, beans, tofu, tempeh. The lentils are winning on price, as usual."
+          - "Morning. The tempeh's fresh, the chickpeas are dried, and the chalkboard has been recalculated."
+          - "Bram, Protein Counter. Same cleaver, mostly for cabbages now. It doesn't mind. It's a professional."
+          - "Price per serving tells the truth here too. And the truth is: lentils."
+      correct:
+        ai: allowed
+        when: Correct answer at the Protein Counter.
+        lines:
+          - "Right! That's chalkboard material."
+          - "Spot on. You know your beans. Literally."
+          - "Correct. Bram writes it on the sign. The sign is getting crowded."
+          - "Correct! The chalkboard grows another tick."
+      wrong:
+        ai: allowed
+        when: Wrong answer at the Protein Counter.
+        lines:
+          - "Not quite! Here's the thing —"
+          - "Ooh, no. But it's a common one."
+          - "Close-ish. Bram taps the chalkboard thoughtfully."
+          - "No, but good thinking. Here's the real story —"
+      farewell:
+        ai: allowed
+        when: The player leaves the Protein Counter.
+        lines:
+          - "Cheerio! Dried beans keep a year; cooked ones, four or five days in the fridge."
+          - "Off you go. Press the tofu. Okafor-Sato will ask."
+          - "Bye now! Rinse your lentils."
+          - "Cheerio. Cook a big pot. Future you will be very grateful."
+    questions:
+      - id: bram-pc-most-protein
+        game: value
+        prompt: "Which has the most protein per 100 g?"
+        options:
+          - text: "Tempeh"
+            correct: true
+            reaction: "Tempeh, about 19 g per 100 g. Then whole egg (about 13 g), cooked lentils (about 9 g), silken tofu (about 5 g). Firm tofu sits in the middle."
+          - text: "Eggs"
+            correct: false
+            contains: [egg]
+            reaction: "About 13 g per 100 g (6 g per large egg). Respectable! Tempeh's about 19 g."
+          - text: "Cooked lentils"
+            correct: false
+            reaction: "About 9 g per 100 g cooked — good, and cheap. But tempeh is about 19 g."
+          - text: "Silken tofu"
+            correct: false
+            reaction: "Silken is the softest and wettest — about 5 g per 100 g. Tempeh leads at about 19 g."
+        explain: "Tempeh has about 19 g of protein per 100 g, more than eggs (about 13 g), cooked lentils (about 9 g) or silken tofu (about 5 g)."
+
+      - id: bram-pc-cheapest
+        game: value
+        prompt: "Protein for four, cheapest per serving? Chalkboard: dried lentils $1.79 a bag (7 servings); firm tofu $2.79 a block (4 servings); a dozen eggs $4.20 (6 servings of 2); tempeh $3.49 a pack (2 servings)."
+        options:
+          - text: "Dried lentils"
+            correct: true
+            reaction: "Lentils: $1.79 ÷ 7 ≈ 26¢ a serving. Tofu ≈ 70¢, eggs = 70¢, tempeh ≈ $1.75. Dried legumes are the quiet millionaires of the market."
+          - text: "Tofu"
+            correct: false
+            reaction: "Good value at ≈ 70¢ a serving! But dried lentils are ≈ 26¢. Tofu is the fast option; lentils are the thrifty one."
+          - text: "Eggs"
+            correct: false
+            contains: [egg]
+            reaction: "70¢ a serving — fine value, and fast. But lentils are ≈ 26¢."
+          - text: "Tempeh"
+            correct: false
+            reaction: "Tempeh is the priciest here: ≈ $1.75 a serving. Delicious, worth it sometimes. Lentils win on value at ≈ 26¢."
+        explain: "Dried lentils and beans are almost always the cheapest protein per serving; divide the price by the servings, not the weight."
+
+      - id: bram-pc-complete-protein
+        game: label
+        prompt: "Do you have to eat rice and beans in the same meal to get 'complete' protein?"
+        options:
+          - text: "No — a mix of protein foods across the day is enough."
+            correct: true
+            reaction: "Right. The old 'combine at every meal' rule has been retired. A mix of grains, legumes, nuts and seeds over the day does the job. Rice and beans are still delicious together, which is reason enough."
+          - text: "Yes, at every meal, or it doesn't count."
+            correct: false
+            reaction: "Bram used to think this too. Turns out variety across the day is plenty. Same forkful is optional — though, frankly, recommended for flavour."
+          - text: "Plant protein never counts."
+            correct: false
+            reaction: "It counts. Plenty of people get all the protein they need from plants. Variety and enough is the trick."
+          - text: "Only if the beans are soaked."
+            correct: false
+            reaction: "Soaking is about cooking time, not protein. A mix of foods across the day is what matters."
+        explain: "You don't need to combine proteins at each meal; eating a variety of protein foods over the day provides all the essential amino acids."
+
+      - id: bram-pc-tempeh
+        game: label
+        prompt: "First things first. What is tempeh?"
+        options:
+          - text: "Whole soybeans, fermented into a firm cake."
+            correct: true
+            reaction: "Right — whole soybeans, cultured into a firm, nutty cake. It comes from Java, Indonesia. Slice it thin, steam it a few minutes to soften any bitterness, then fry."
+          - text: "A type of firm tofu."
+            correct: false
+            reaction: "Please don't let Okafor-Sato hear. Tofu is made from soy milk; tempeh is whole soybeans fermented into a firm cake — a different thing entirely."
+          - text: "Wheat gluten."
+            correct: false
+            reaction: "That's seitan — tempeh's chewier neighbour. Tempeh is fermented whole soybeans."
+          - text: "Pressed mushrooms."
+            correct: false
+            reaction: "Mushrooms are excellent and meaty, but no. Tempeh is fermented whole soybeans."
+        explain: "Tempeh is a traditional Indonesian food made by fermenting whole cooked soybeans into a firm cake; it's high in protein and has a nutty flavour."
+
+      - id: bram-pc-seitan
+        game: label
+        prompt: "Seitan: what's it made of?"
+        options:
+          - text: "Wheat gluten."
+            correct: true
+            reaction: "Wheat gluten — the stretchy protein in wheat, washed and cooked into something properly chewy. Which means: not for anyone avoiding gluten. The rules engine would flag it."
+          - text: "Soybeans."
+            correct: false
+            reaction: "That's tofu and tempeh. Seitan is wheat gluten — great chew, but off-limits for anyone avoiding gluten."
+          - text: "Chickpeas."
+            correct: false
+            reaction: "Chickpeas make hummus, falafel, and very good curries. Not seitan. Seitan is wheat gluten."
+          - text: "Rice flour."
+            correct: false
+            reaction: "Rice flour is gluten-free. Seitan is the opposite: it's almost pure wheat gluten."
+        explain: "Seitan is made from wheat gluten, so it's high in protein and chewy, but it is not suitable for anyone avoiding wheat or gluten."
+
+      - id: bram-pc-beans-yield
+        game: value
+        prompt: "Frijoles de olla for the week. One pound (450 g) of dried black beans cooks up to about…"
+        options:
+          - text: "About 6 cups — roughly triple."
+            correct: true
+            reaction: "About 6 cups — that's what you'd get from 4 cans. Here: $1.89 dried vs 4 × $1.29 = $5.16 canned. Canned saves time; dried saves money and lets you season the broth."
+          - text: "About 2 cups — the same as dry."
+            correct: false
+            reaction: "Underestimating the bean! They roughly triple: 1 lb dried ≈ 6 cups cooked ≈ 4 cans. Which is why dried is so cheap per cup."
+          - text: "About 12 cups."
+            correct: false
+            reaction: "Beans are ambitious, but not that ambitious. About 6 cups — roughly triple."
+          - text: "It depends on the moon."
+            correct: false
+            reaction: "Doña Marisol says it depends on the beans' age and her mood. The moon isn't involved. About 6 cups."
+        explain: "Dried beans roughly triple when cooked, so 450 g (1 lb) dried makes about 6 cups, roughly the same as four 15-oz cans."
+
+      - id: bram-pc-hidden-anchovy
+        game: label
+        prompt: "Which of these sauces usually is NOT vegetarian?"
+        options:
+          - text: "Worcestershire sauce"
+            correct: true
+            reaction: "Right. Classic Worcestershire contains anchovies. Vegetarian versions exist; check the label for 'anchovy' or 'fish'."
+          - text: "Soy sauce"
+            correct: false
+            reaction: "Soy sauce is soybeans, wheat, salt and patience. Vegetarian. (Not gluten-free, though — that's a different rule.)"
+          - text: "Ketchup"
+            correct: false
+            reaction: "Ketchup is tomatoes, vinegar, sugar and spices. Vegetarian. Worcestershire is the one with anchovies."
+          - text: "Mustard"
+            correct: false
+            reaction: "Mustard is seeds and vinegar. Vegetarian. The sneaky one is Worcestershire."
+        explain: "Traditional Worcestershire sauce contains anchovies, so vegetarians should look for a labelled vegetarian version."
+
+      - id: bram-pc-parmesan
+        game: label
+        prompt: "Is Parmigiano Reggiano vegetarian?"
+        contains: [milk]
+        options:
+          - text: "No — it's made with animal rennet, by rule."
+            correct: true
+            reaction: "Right. The rules for real Parmigiano Reggiano require calf rennet. Many other hard cheeses are made with microbial rennet; look for 'vegetarian' or 'microbial rennet' on the label."
+          - text: "Yes, cheese is always vegetarian."
+            correct: false
+            reaction: "Many cheeses use animal rennet, an enzyme from calves' stomachs. Check the label for 'vegetarian' or 'microbial rennet'."
+          - text: "Only the aged kind."
+            correct: false
+            reaction: "Ageing doesn't change the rennet. Parmigiano Reggiano is made with animal rennet at every age."
+          - text: "Only if it's grated."
+            correct: false
+            reaction: "Grating changes the size, not the rennet. Look for a vegetarian hard cheese instead."
+        explain: "Parmigiano Reggiano must be made with animal rennet under its protected-origin rules, so vegetarians often choose a hard cheese labelled vegetarian or made with microbial rennet."
+
+      - id: bram-pc-gelatin
+        game: label
+        prompt: "Which of these often contains gelatin (from animals)?"
+        options:
+          - text: "Gummy sweets and marshmallows"
+            correct: true
+            reaction: "Right. Gelatin comes from animal collagen. Look for 'pectin' or 'agar' versions, which set without it."
+          - text: "Dark chocolate"
+            correct: false
+            reaction: "Plain dark chocolate is usually cocoa, sugar and cocoa butter. No gelatin. Gummies are the ones to check."
+          - text: "Peanut brittle"
+            correct: false
+            reaction: "Sugar and peanuts and a lot of willpower to not eat the lot. No gelatin, usually. Gummies, though."
+          - text: "Popcorn"
+            correct: false
+            reaction: "Corn, heat, a bang. No gelatin. Check the gummies and marshmallows."
+        explain: "Gelatin is made from animal collagen and is common in gummy sweets, marshmallows and some desserts; agar and pectin are plant-based setting agents."
+
+      - id: bram-pc-greek-yogurt
+        game: value
+        prompt: "Plain Greek yogurt vs plain regular yogurt. Which has more protein per spoonful?"
+        contains: [milk]
+        options:
+          - text: "Greek — it's strained, so it's more concentrated."
+            correct: true
+            reaction: "Right. Straining removes whey and water, roughly doubling the protein. Great on breakfast, great in a sauce."
+          - text: "Regular — it's less processed."
+            correct: false
+            reaction: "Regular is lovely, but it has more water. Greek is strained, so there's more protein per spoon."
+          - text: "They're identical."
+            correct: false
+            reaction: "Same start, different finish. Straining concentrates the protein in Greek yogurt."
+          - text: "Neither has protein."
+            correct: false
+            reaction: "Yogurt has plenty. Greek has about twice as much per spoonful as regular."
+        explain: "Greek yogurt is strained to remove whey, so it's thicker and has roughly twice the protein of regular yogurt per serving."
+
+      - id: bram-pc-edamame
+        game: label
+        prompt: "What are edamame?"
+        options:
+          - text: "Young green soybeans, usually sold in or out of their pods."
+            correct: true
+            reaction: "Right. Young soybeans: about 11 g of protein per 100 g, cheap frozen, ready in five minutes. Bram keeps a bag in his freezer for emergencies."
+          - text: "A kind of pea."
+            correct: false
+            reaction: "They look like big peas, but they're soybeans, picked young. More protein than peas, too."
+          - text: "Unripe broad beans."
+            correct: false
+            reaction: "Close family, wrong beans. Edamame are young soybeans."
+          - text: "A Japanese seaweed."
+            correct: false
+            reaction: "Seaweed is nori, kombu, wakame. Edamame are young soybeans in a fuzzy pod."
+        explain: "Edamame are immature soybeans, high in protein and sold fresh or frozen, in or out of the pod."
+
+      - id: bram-pc-aquafaba
+        game: label
+        prompt: "You're vegan and a recipe needs egg whites whipped to peaks. What can do the job?"
+        options:
+          - text: "The liquid from a can of chickpeas, whipped."
+            correct: true
+            reaction: "Right — aquafaba. About three tablespoons per egg white. Whips into peaks. Sounds like a magic trick. Is a magic trick."
+          - text: "Tofu, blended."
+            correct: false
+            reaction: "Silken tofu is a good stand-in for whole eggs in some bakes, but it won't whip to peaks. Chickpea liquid will."
+          - text: "Water and baking soda."
+            correct: false
+            reaction: "That's a science-fair volcano, not a meringue. Chickpea liquid, whipped."
+          - text: "Coconut milk."
+            correct: false
+            reaction: "Chilled coconut cream can be whipped like cream, not like egg whites. Chickpea liquid for peaks."
+        explain: "Aquafaba, the liquid from cooked or canned chickpeas, can be whipped like egg whites and replaces about one egg white per three tablespoons."
+
+      - id: bram-pc-peanut-butter
+        game: value
+        prompt: "Two tablespoons of peanut butter: mostly protein or mostly fat?"
+        contains: [peanut]
+        options:
+          - text: "Mostly fat, with a useful amount of protein (about 7 g)."
+            correct: true
+            reaction: "Right. About 16 g of fat and 7 g of protein. Good food, good fat; just not a protein shortcut on its own. Pair it with something, like toast or lentils in a satay."
+          - text: "Mostly protein."
+            correct: false
+            reaction: "It's got protein, but fat leads by a long way. A great part of a meal, not the whole protein story."
+          - text: "No protein at all."
+            correct: false
+            reaction: "It has a fair bit, about 7 g in two tablespoons. Just more fat than protein."
+          - text: "Mostly sugar."
+            correct: false
+            reaction: "Some brands add sugar, but peanut butter is mostly fat, then protein. Check the label for added sugar if you care."
+        explain: "Two tablespoons of peanut butter have about 7 g of protein and 16 g of fat, so it's a protein-containing food, not primarily a protein source."
+
+      - id: bram-pc-paneer
+        game: cut_match
+        prompt: "You want cubes of cheese that brown in a hot pan without melting. Which?"
+        contains: [milk]
+        options:
+          - text: "Paneer or halloumi."
+            correct: true
+            reaction: "Right. Paneer is set with acid and halloumi is made to hold together, so both brown and stay in shape. Fry, then into a curry or onto a salad."
+          - text: "Cheddar."
+            correct: false
+            reaction: "Cheddar in a hot pan becomes a puddle, then a crisp, then a regret. Paneer or halloumi."
+          - text: "Mozzarella."
+            correct: false
+            reaction: "Mozzarella's job is to melt. It's very good at its job. Not this job."
+          - text: "Brie."
+            correct: false
+            reaction: "Brie in a hot pan is fondue with no plan. Paneer or halloumi hold their shape."
+        explain: "Paneer (acid-set) and halloumi resist melting, so they can be pan-fried or grilled until browned and still hold their shape."
+
+    item_tips:
+      lentils:
+        pick: "Bright, even colour, not dusty, no tiny holes. Buy from a shop that sells lots of them."
+        store: "Airtight jar, cool cupboard, up to a year. Cooked: fridge 4–5 days."
+      tofu:
+        pick: "Check the date and the type for the job: silken to blend, soft to simmer, firm for most things, extra-firm to fry."
+        store: "Opened: cover with fresh water in a container in the fridge, change it daily, use within 3–5 days."
+      tempeh:
+        pick: "Firm, tightly bound cake, white mycelium. A few grey or black spots are normal; slime or an ammonia smell aren't."
+        store: "Fridge, sealed, use by the date. Freezes well."
+      seitan:
+        pick: "Check the label: wheat gluten base. Not for anyone avoiding gluten."
+        store: "Fridge, in its liquid, about a week once opened."
+      eggs:
+        pick: "Open the carton: no cracks. Check the date."
+        store: "In the carton, in the fridge body, not the door — the door is the weather."
+      chickpeas:
+        pick: "Dried: even, cream-coloured, not wrinkled. Canned: no dents or bulges."
+        store: "Dried: airtight, up to a year. Soak overnight, then simmer 1–2 hours."
+      greek_yogurt:
+        pick: "Plain, check the date, and for added sugar if you care."
+        store: "Fridge. Once opened, use within about a week."
+      paneer:
+        pick: "Firm, fresh-smelling, check the date."
+        store: "Fridge, sealed. Soak cubes in warm water for ten minutes before cooking to soften them."
+      edamame:
+        pick: "Frozen is easiest and cheapest; bright green pods."
+        store: "Freezer for months."
+    faq:
+      - q: ["how much protein do i need", "enough protein"]
+        a: "Enough is the word, and it varies by person. A protein food at most meals — beans, lentils, tofu, eggs, dairy, whatever fits your rules — gets most people there. For a number that's right for you, ask a dietitian. Bram does chalkboards, not prescriptions."
+      - q: ["is soy safe", "is tofu bad for you", "soy hormones"]
+        a: "That's one for a doctor or dietitian if you've got a specific worry. What I can say: tofu, tempeh and edamame are everyday foods for a great many people. Unless soy's on your rules, they're excellent value."
+      - q: ["vegan b12", "b12", "nutritional yeast b12"]
+        a: "Some nutritional yeast and plant milks are fortified with B12 — check the label, because not all are. For whether you need a supplement, ask a doctor or dietitian. I sell food, not diagnoses."
+        # REVIEW: deliberately non-prescriptive; confirm wording with a dietitian.
+      - q: ["what's the cheapest protein", "cheap protein", "budget protein"]
+        a: "Dried lentils and beans, by a mile. Then eggs and tofu. Canned beans are next, and they're fast. Tempeh and fancy meat substitutes are the treats."
+
+item_tips:
+  chuck:
+    pick: "Look for good marbling and visible seams of connective tissue; that's what melts in a braise."
+    store: "Fridge, bottom shelf, 3–5 days; freezer for months."
+  short_rib:
+    pick: "Meaty on top of the bone, not mostly bone. Price it per serving."
+    store: "Fridge 3–5 days."
+  shank:
+    pick: "A thick, meaty cross-section with the marrow bone in the middle."
+    store: "Fridge 3–5 days."
+  strip_steak:
+    pick: "Fine, even marbling, bright red, about 2.5 cm (1 in) thick for a good sear."
+    store: "Fridge 3–5 days. Pat dry and salt before cooking."
+  ribeye:
+    pick: "Generous marbling and the fat-rich 'cap'. Thick cuts sear better than thin."
+    store: "Fridge 3–5 days."
+  flank_steak:
+    pick: "Even thickness, visible long grain. Slice across it after cooking."
+    store: "Fridge 3–5 days."
+  brisket:
+    pick: "A good layer of fat on top, flexible when you bend the package."
+    store: "Fridge 3–5 days."
+  ground_beef:
+    pick: "Check the lean-to-fat ratio: 80/20 for juicy burgers, leaner for sauces. Cold to the touch, no grey throughout."
+    store: "Cook or freeze within 1–2 days of buying. Cook to 71°C (160°F)."
+  chicken_thigh:
+    pick: "Plump, pink, no strong smell. Bone-in, skin-on is cheapest; boneless is fastest."
+    store: "Fridge 1–2 days; freezer for months. Cook to 74°C (165°F)."
+  chicken_breast:
+    pick: "Plump and evenly pink. Very large breasts can be tougher; split them for even cooking."
+    store: "Fridge 1–2 days. Cook to 74°C (165°F) — and no further, or it dries."
+  whole_chicken:
+    pick: "Usually the cheapest per serving of any chicken. Plump breast, no strong smell, cold."
+    store: "Fridge 1–2 days. Keep the carcass for stock."
+  pork_shoulder:
+    pick: "Good marbling and a fat cap; bone-in has extra flavour."
+    store: "Fridge 3–5 days."
+  pork_tenderloin:
+    pick: "Long, narrow, lean. Not the same as pork loin, which is wider and bigger."
+    store: "Fridge 3–5 days. Cook to 63°C (145°F) and rest."
+  pork_chop:
+    pick: "Thick chops (2.5 cm / 1 in or more) stay juicier. Some marbling helps."
+    store: "Fridge 3–5 days."
+  lamb_shoulder:
+    pick: "Marbled, with some fat; built for slow roasting or braising."
+    store: "Fridge 3–5 days."
+
+faq:
+  - q: ["how much meat per person", "how much meat do i need", "meat per serving"]
+    a: "For boneless meat, about 150–225 g (⅓–½ lb) raw per person, depending on appetite and what else is on the plate. Bone-in, buy more; bones are heavy and don't feed anyone. And make extra if you like leftovers."
+  - q: ["can i refreeze meat", "refreeze thawed meat"]
+    a: "If you thawed it in the fridge, yes, you can refreeze it raw (the texture suffers a bit). If you thawed it in cold water or the microwave, cook it first, then you can freeze the cooked dish."
+    tags: [safety]
+  - q: ["how long can i freeze meat", "freezer meat how long"]
+    a: "It stays safe indefinitely frozen solid, but quality drops. Roughly: steaks and roasts 4–12 months, ground meat 3–4 months, chicken pieces about 9 months. Wrap it tightly to stop freezer burn and label it with the date."
+    tags: [storage]
+    # REVIEW: FSIS freezer quality times (steaks 4-12 mo, ground 3-4 mo, poultry parts ~9 mo) — check current chart.
+  - q: ["how do i marinate safely", "marinate on counter", "reuse marinade"]
+    a: "Marinate in the fridge, never on the counter. Don't reuse marinade that touched raw meat as a sauce unless you boil it first. Better: set some aside before the meat goes in."
+    tags: [safety]
+  - q: ["is pink pork safe", "pork pink inside"]
+    a: "Whole cuts of pork are safe at 63°C (145°F) with a three-minute rest, and they can still be a little pink. Ground pork needs 71°C (160°F). Use a thermometer and stop worrying about colour."
+    tags: [safety]
+  - q: ["do i need a separate cutting board", "cross contamination", "cutting board for meat"]
+    a: "Yes, ideally: one board for raw meat, one for everything else. Wash it in hot soapy water after use, and wash your hands and the knife too. Never put cooked food back on a plate that held raw meat."
+    tags: [safety]
+  - q: ["what is marbling", "why marbling"]
+    a: "The thin streaks of fat inside the muscle. They melt as it cooks and keep the meat juicy and flavourful. More marbling usually means more tender and more expensive."
+  - q: ["what is the difference between pork loin and tenderloin", "loin vs tenderloin"]
+    a: "Tenderloin is a small, narrow, very lean muscle — quick to cook. Loin is a much bigger, wider cut from along the back, sold as roasts or chops. Different sizes, different cooking times. Don't swap one for the other without adjusting."
+  - q: ["what does sell by mean", "use by date", "best before meat"]
+    a: "'Sell by' is for the shop. 'Use by' is the maker's quality suggestion. For you: ground meat and poultry within 1–2 days of buying, steaks, chops and roasts within 3–5, or freeze."
+    tags: [safety, storage]
+  - q: ["halal", "kosher", "is this halal", "is this kosher"]
+    a: "I can tell you what the label says and who certified it. What counts for you is your community's call, not mine. Look for the certification mark you trust."

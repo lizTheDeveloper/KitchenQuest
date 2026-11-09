@@ -1,0 +1,1223 @@
+<title>Kitchen Quest Market Day</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+@import url("https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Pixelify+Sans:wght@400;600&family=VT323&display=swap");
+:root {
+  color-scheme: dark;
+  --iron: #1e1b1d;
+  --iron-2: #2b2629;
+  --iron-edge: #4a4044;
+  --parchment: #f2e3c2;
+  --parchment-ink: #2a1d14;
+  --ember: #e8743b;
+  --herb: #6fae4f;
+  --saffron: #f2c14e;
+  --chili: #c8423a;
+  --sky: #6aa6d8;
+  --fg: #efe6d8;
+  --muted: #a89a8e;
+  --display: "Pixelify Sans", "Courier New", monospace;
+  --body: "Atkinson Hyperlegible", system-ui, sans-serif;
+  --mono: "VT323", "Courier New", monospace;
+  --shade: rgb(0 0 0 / .6);
+  --parch-2: color-mix(in srgb, var(--parchment) 82%, var(--parchment-ink));
+  --ink-soft: color-mix(in srgb, var(--parchment-ink) 70%, var(--parchment));
+  --pix: 0 0 0 3px var(--iron-edge), 0 0 0 6px var(--iron);
+  --pix-sm: 0 0 0 2px var(--iron-edge), 0 0 0 4px var(--iron);
+  --sp: 1; /* sprite scale, set by JS */
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--iron); color: var(--fg); }
+body { font-family: var(--body); font-size: 16px; line-height: 1.45; overflow-x: hidden; }
+img { image-rendering: pixelated; image-rendering: crisp-edges; }
+button { font: inherit; color: inherit; cursor: pointer; }
+:focus-visible { outline: 3px solid var(--saffron); outline-offset: 3px; }
+.mono { font-family: var(--mono); }
+.wrap {
+  max-width: 1240px; margin: 0 auto; padding-top: 12px; padding-bottom: 40px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+
+/* ---------- buttons ---------- */
+.btn {
+  font-family: var(--display); font-size: 15px; line-height: 1.15;
+  border: 0; padding: 9px 13px; min-height: 40px;
+  background: var(--iron-2); color: var(--fg);
+  box-shadow: var(--pix-sm), inset 0 -3px 0 var(--shade);
+  margin: 4px; text-align: left;
+  transition: transform .05s;
+}
+.btn:hover { background: color-mix(in srgb, var(--iron-2) 80%, var(--fg)); }
+.btn:active { transform: translateY(2px); box-shadow: var(--pix-sm), inset 0 -1px 0 var(--shade); }
+.btn.primary { background: var(--ember); color: var(--parchment-ink); }
+.btn.primary:hover { background: color-mix(in srgb, var(--ember) 85%, var(--parchment)); }
+.btn.small { font-size: 13px; padding: 5px 8px; min-height: 32px; }
+.btn[disabled] { opacity: .5; cursor: default; }
+
+/* ---------- HUD ---------- */
+.hud {
+  display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; justify-content: space-between;
+  background: var(--iron-2); box-shadow: var(--pix); padding: 8px 12px; margin: 6px 6px 18px;
+}
+.hud-l, .hud-r { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; min-width: 0; }
+.lv { font-family: var(--display); font-size: 15px; }
+.lv b { color: var(--ember); }
+.xpbar { width: 120px; height: 12px; background: var(--iron); box-shadow: 0 0 0 2px var(--iron-edge); position: relative; }
+.xpbar i { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--ember); transition: width .4s steps(8); }
+.xptxt { font-size: 19px; color: var(--muted); }
+.stamps { font-family: var(--mono); font-size: 21px; color: var(--saffron); }
+.day { font-family: var(--display); font-size: 15px; }
+.region { font-size: 13px; color: var(--muted); }
+
+.controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin: 0 6px 18px; }
+.seg { display: inline-flex; box-shadow: var(--pix-sm); margin: 4px; }
+.seg button { font-family: var(--display); font-size: 14px; border: 0; padding: 8px 12px; min-height: 40px; background: var(--iron-2); color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--ember); color: var(--parchment-ink); }
+.toggle[aria-pressed="true"] { background: var(--herb); color: var(--parchment-ink); }
+.badge { font-family: var(--mono); font-size: 18px; color: var(--muted); padding: 2px 8px; box-shadow: 0 0 0 2px var(--iron-edge); }
+.badge.live { color: var(--herb); box-shadow: 0 0 0 2px var(--herb); }
+
+/* ---------- layout ---------- */
+.grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 22px; }
+@media (min-width: 900px) {
+  .grid { grid-template-columns: minmax(0, 1fr) 380px; align-items: start; }
+}
+.left { min-width: 0; display: flex; flex-direction: column; gap: 22px; }
+
+/* ---------- scene ---------- */
+.scene {
+  position: relative; width: calc(100% - 12px); margin: 6px; aspect-ratio: 320 / 180;
+  background: var(--iron) url("art/bg_market.png") center / 100% 100% no-repeat;
+  image-rendering: pixelated; box-shadow: var(--pix); overflow: hidden;
+}
+.npc {
+  position: absolute; bottom: 3%; border: 0; background: none; padding: 0;
+  display: flex; flex-direction: column; align-items: center;
+}
+.npc img.spr { width: calc(64px * var(--sp)); height: calc(64px * var(--sp)); display: block; filter: drop-shadow(0 3px 0 var(--shade)); transition: transform .1s; }
+.npc:hover img.spr, .npc:focus-visible img.spr { transform: translateY(-3px); }
+.npc .tag {
+  font-family: var(--display); font-size: calc(10px + 2px * var(--sp)); white-space: nowrap;
+  background: var(--iron); color: var(--fg); padding: 1px 5px; box-shadow: 0 0 0 2px var(--iron-edge); margin-top: 2px;
+}
+.npc .count {
+  position: absolute; top: 0; right: -4px; font-family: var(--mono); font-size: 18px; line-height: 1;
+  background: var(--ember); color: var(--parchment-ink); padding: 1px 5px; box-shadow: 0 0 0 2px var(--iron);
+}
+.npc .count:empty { display: none; }
+.npc.active .tag { background: var(--saffron); color: var(--parchment-ink); }
+#npc-wen { left: 2%; }
+#npc-bram { left: 25%; }
+#npc-tofu { left: 49%; }
+#npc-spice { right: 2%; }
+.vegsign {
+  display: none; font-family: var(--display); font-size: calc(8px + 2px * var(--sp)); line-height: 1.1;
+  background: var(--herb); color: var(--parchment-ink); padding: 2px 4px; box-shadow: 0 0 0 2px var(--iron); margin-bottom: 2px; white-space: nowrap;
+}
+body.veg .vegsign { display: block; }
+.spicestall .sign {
+  display: flex; gap: 2px; padding: 3px; background: var(--iron-2); box-shadow: 0 0 0 2px var(--saffron), 0 0 0 4px var(--iron);
+}
+.spicestall .sign img { width: calc(32px * var(--sp)); height: calc(32px * var(--sp)); }
+.sacks { display: flex; gap: 3px; margin-top: 5px; }
+.sacks span { width: calc(13px * var(--sp)); height: calc(15px * var(--sp)); box-shadow: 0 0 0 2px var(--iron); }
+.sacks span:nth-child(1) { background: var(--saffron); }
+.sacks span:nth-child(2) { background: var(--chili); }
+.sacks span:nth-child(3) { background: var(--ember); }
+.sacks span:nth-child(4) { background: var(--herb); }
+.panbox { position: absolute; top: 4px; right: 4px; display: flex; align-items: flex-start; gap: 4px; max-width: 70%; }
+.panbox button { border: 0; background: none; padding: 0; flex: none; }
+.panbox img { width: calc(64px * var(--sp)); height: calc(64px * var(--sp)); display: block; }
+.bubble {
+  background: var(--parchment); color: var(--parchment-ink); font-size: calc(11px + 2px * var(--sp)); line-height: 1.3;
+  padding: 5px 8px; box-shadow: var(--pix-sm); margin: 6px 4px 0 0; position: relative;
+}
+.bubble::after { content: ""; position: absolute; right: -8px; top: 12px; border: 4px solid transparent; border-left-color: var(--parchment); }
+.fly {
+  position: absolute; width: calc(32px * var(--sp)); height: calc(32px * var(--sp)); pointer-events: none; z-index: 5;
+  animation: fly 1s steps(10) forwards;
+}
+@keyframes fly {
+  0% { transform: translateY(0) scale(1); opacity: 1; }
+  40% { transform: translateY(-60%) scale(1.6); opacity: 1; }
+  100% { transform: translateY(-260%) scale(.6); opacity: 0; }
+}
+
+/* ---------- dialogue ---------- */
+.dialogue {
+  position: relative; background: var(--parchment); color: var(--parchment-ink);
+  box-shadow: var(--pix); margin: 18px 6px 6px; padding: 16px 14px 12px;
+}
+.nameplate {
+  position: absolute; top: -16px; left: 10px; font-family: var(--display); font-size: 15px;
+  background: var(--iron); color: var(--saffron); padding: 3px 10px; box-shadow: 0 0 0 3px var(--iron-edge);
+}
+.dlg-body { display: flex; gap: 12px; align-items: flex-start; }
+.portrait { width: 64px; height: 64px; flex: none; background: var(--parch-2); box-shadow: 0 0 0 2px var(--parchment-ink); }
+@media (min-width: 560px) { .portrait { width: 128px; height: 128px; } }
+.dlg-main { flex: 1; min-width: 0; }
+#dlgText { margin: 2px 0 8px; min-height: 3em; white-space: pre-line; cursor: pointer; }
+.prog { font-family: var(--mono); font-size: 19px; color: var(--ink-soft); display: flex; gap: 6px; align-items: center; }
+.prog:empty { display: none; }
+.pip { width: 10px; height: 10px; background: var(--parch-2); box-shadow: 0 0 0 2px var(--parchment-ink); display: inline-block; }
+.pip.ok { background: var(--herb); } .pip.no { background: var(--saffron); } .pip.cur { background: var(--ember); }
+.choices { display: flex; flex-wrap: wrap; margin: 6px -4px 0; }
+.choices .btn { flex: 1 1 auto; }
+.choices .btn.ok, .cards .card.ok { background: var(--herb); color: var(--parchment-ink); }
+.choices .btn.no, .cards .card.no { background: var(--saffron); color: var(--parchment-ink); }
+.stage-item { display: flex; align-items: center; gap: 12px; margin: 6px 0 10px; }
+.stage-item img { width: 96px; height: 96px; background: var(--parch-2); box-shadow: 0 0 0 2px var(--parchment-ink); }
+.stage-item b { font-family: var(--display); font-size: 20px; font-weight: 600; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 8px 0; }
+.card {
+  border: 0; text-align: left; font-family: var(--body); font-size: 14px; line-height: 1.35;
+  background: var(--iron-2); color: var(--fg); padding: 8px; box-shadow: var(--pix-sm); margin: 4px;
+  display: flex; gap: 8px; align-items: flex-start;
+}
+.card:active { transform: translateY(2px); }
+.card img { width: 64px; height: 64px; flex: none; background: var(--iron); }
+.card .lbl { font-family: var(--display); font-size: 15px; display: block; }
+.vtable { width: 100%; border-collapse: collapse; font-size: 13px; margin: 4px 0 10px; }
+.vtable th, .vtable td { text-align: left; padding: 3px 5px; border-bottom: 2px solid var(--parch-2); }
+.vtable td.n { font-family: var(--mono); font-size: 17px; white-space: nowrap; }
+.vtable-wrap { overflow-x: auto; }
+.ask { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.ask input {
+  flex: 1 1 180px; min-width: 0; font: inherit; background: var(--parchment); color: var(--parchment-ink);
+  border: 0; box-shadow: 0 0 0 2px var(--parchment-ink); padding: 8px 10px; margin: 4px;
+}
+.note { font-size: 12.5px; color: var(--ink-soft); margin: 6px 0 0; }
+.foot-note { font-size: 12.5px; color: var(--muted); }
+
+/* ---------- quest list ---------- */
+.quest { background: var(--iron-2); box-shadow: var(--pix); margin: 6px; padding: 12px; min-width: 0; }
+.quest h2 { font-family: var(--display); font-weight: 600; font-size: 20px; margin: 0 0 2px; color: var(--saffron); }
+.qsub { font-size: 13px; color: var(--muted); margin: 0 0 8px; }
+.qprog { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 20px; }
+.qprog .xpbar { flex: 1; }
+.qprog .xpbar i { background: var(--herb); }
+.rules { font-size: 13px; margin: 8px 0; padding: 6px 8px; box-shadow: 0 0 0 2px var(--iron-edge); }
+.group { margin-top: 14px; }
+.group h3 { font-family: var(--display); font-weight: 400; font-size: 15px; margin: 0 0 6px; display: flex; align-items: center; gap: 6px; color: var(--fg); }
+.group h3 img { width: 32px; height: 32px; }
+.items { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.item { background: var(--iron); box-shadow: 0 0 0 2px var(--iron-edge); }
+.item-row { display: flex; align-items: center; }
+.item-main {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; text-align: left;
+  background: none; border: 0; padding: 6px 8px; min-height: 48px;
+}
+.item-main img { width: 32px; height: 32px; flex: none; }
+.iname { flex: 1; min-width: 0; }
+.iname b { font-weight: 700; display: block; overflow-wrap: break-word; hyphens: auto; }
+.iname small { color: var(--muted); font-size: 12.5px; display: block; }
+.item.done .iname b { text-decoration: line-through; text-decoration-thickness: 2px; color: var(--muted); }
+.chip { font-family: var(--mono); font-size: 17px; line-height: 1; padding: 3px 6px; white-space: nowrap; box-shadow: 0 0 0 2px currentColor; }
+.chip.ok { color: var(--herb); } .chip.swap { color: var(--saffron); } .chip.blocked { color: var(--chili); } .chip.unk { color: var(--sky); } .chip.todo { color: var(--muted); }
+.item .oos { margin: 6px 8px 6px 0; flex: none; }
+.item.pop img { animation: pop .5s steps(5); }
+@keyframes pop { 0% { transform: scale(1); } 50% { transform: scale(1.8) rotate(-8deg); } 100% { transform: scale(1); } }
+.subpanel { padding: 8px 10px 10px; border-top: 2px dashed var(--iron-edge); background: var(--parchment); color: var(--parchment-ink); }
+.subpanel[hidden] { display: none; }
+.subpanel .who { display: flex; gap: 8px; align-items: flex-start; }
+.subpanel .who img { width: 64px; height: 64px; flex: none; background: var(--parch-2); }
+.cand { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0; }
+.cand .chip { background: var(--iron); }
+.cand.blockedc .cname { text-decoration: line-through; }
+.cname { font-weight: 700; }
+.store-strip { display: none; }
+
+/* ---------- store mode ---------- */
+body.store .left { display: none; }
+body.store .grid { grid-template-columns: minmax(0, 1fr); max-width: 760px; margin: 0 auto; }
+body.store .store-strip { display: block; margin-bottom: 10px; }
+body.store .item-main { min-height: 72px; padding: 10px 12px; }
+body.store .item-main img { width: 64px; height: 64px; }
+body.store .iname b { font-size: 20px; }
+body.store .iname small { font-size: 14px; }
+body.store .group h3 { font-size: 18px; }
+body.store .chip.todo { display: none; }
+@media (max-width: 520px) { body.store .item-main img { width: 32px; height: 32px; } body.store .item-main { gap: 10px; } }
+.check { width: 34px; height: 34px; flex: none; box-shadow: 0 0 0 3px var(--iron-edge); display: none; align-items: center; justify-content: center; font-family: var(--mono); font-size: 30px; color: var(--herb); }
+body.store .check { display: flex; }
+.strip { display: flex; gap: 10px; align-items: flex-start; }
+.strip img { width: 64px; height: 64px; flex: none; }
+.strip .bubble { margin: 4px 0 0 6px; font-size: 15px; }
+.strip .bubble::after { left: -8px; right: auto; border-left-color: transparent; border-right-color: var(--parchment); }
+.tell { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.tell input { flex: 1 1 200px; min-width: 0; font: inherit; background: var(--iron); color: var(--fg); border: 0; box-shadow: 0 0 0 2px var(--iron-edge); padding: 8px 10px; margin: 4px; }
+
+/* ---------- toasts ---------- */
+#toasts { position: fixed; top: 10px; right: max(10px, env(safe-area-inset-right, 0px)); z-index: 50; display: flex; flex-direction: column; gap: 10px; align-items: flex-end; pointer-events: none; }
+.toast {
+  font-family: var(--mono); font-size: 21px; background: var(--iron-2); color: var(--fg); padding: 4px 10px;
+  box-shadow: 0 0 0 3px var(--ember), 0 0 0 6px var(--iron); animation: toast 2.6s steps(12) forwards;
+}
+.toast b { color: var(--ember); font-weight: 400; } .toast .st { color: var(--saffron); }
+@keyframes toast { 0% { transform: translateX(120%); } 12% { transform: translateX(0); } 85% { transform: translateX(0); opacity: 1; } 100% { transform: translateX(120%); opacity: 0; } }
+
+/* ---------- modal / bureau form ---------- */
+.modal { position: fixed; inset: 0; z-index: 40; background: var(--shade); display: flex; align-items: center; justify-content: center; padding: 16px; overflow-y: auto; }
+.modal[hidden] { display: none; }
+.form {
+  position: relative; width: 100%; max-width: 480px; background: var(--parchment); color: var(--parchment-ink);
+  box-shadow: var(--pix); padding: 18px 18px 14px; margin: auto;
+}
+.form .hdr { font-family: var(--mono); font-size: 20px; letter-spacing: 1px; border-bottom: 3px double var(--parchment-ink); padding-bottom: 4px; margin-bottom: 10px; }
+.form h2 { font-family: var(--display); font-size: 22px; margin: 0 0 8px; }
+.form .field { display: flex; justify-content: space-between; gap: 10px; border-bottom: 1px dashed var(--ink-soft); padding: 5px 0; font-size: 15px; }
+.form .field span:first-child { font-family: var(--mono); font-size: 18px; color: var(--ink-soft); text-transform: uppercase; flex: none; }
+.form .field span:last-child { text-align: right; }
+.form .fn { font-size: 12.5px; color: var(--ink-soft); margin: 10px 0 4px; }
+.form .say { display: flex; gap: 10px; align-items: flex-start; margin: 8px 0; }
+.form .say img { width: 64px; height: 64px; flex: none; }
+.form .btns { display: flex; flex-wrap: wrap; margin: 10px -4px 0; }
+.stamp {
+  position: absolute; right: 16px; top: 38%; font-family: var(--mono); font-size: 40px; line-height: 1; color: var(--chili);
+  border: 4px solid var(--chili); padding: 4px 10px; transform: rotate(-14deg) scale(1); opacity: .9; pointer-events: none; text-align: center;
+  animation: stamp .35s steps(4);
+}
+.stamp small { display: block; font-size: 18px; }
+@keyframes stamp { 0% { transform: rotate(-14deg) scale(3); opacity: 0; } 100% { transform: rotate(-14deg) scale(1); opacity: .9; } }
+
+.foot { margin: 26px 6px 0; font-size: 12.5px; color: var(--muted); }
+.foot p { margin: 4px 0; }
+.linkish { background: none; border: 0; color: var(--sky); text-decoration: underline; padding: 0; font-size: inherit; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .001s !important; transition: none !important; }
+  .fly { display: none; }
+}
+</style>
+
+<div class="wrap">
+  <header class="hud" aria-label="Status">
+    <div class="hud-l">
+      <span class="lv">Lv <b id="lv">3</b> Apprentice</span>
+      <span class="xpbar" aria-hidden="true"><i id="xpfill"></i></span>
+      <span class="xptxt mono" id="xptxt">0/300 XP</span>
+      <span class="stamps" title="Bureau Stamps">✪ <span id="stamps">0</span></span>
+    </div>
+    <div class="hud-r">
+      <span class="day">Saturday · Market Day</span>
+      <span class="region">📍 Pacific Northwest, USA · November</span>
+    </div>
+  </header>
+
+  <div class="controls">
+    <div class="seg" role="group" aria-label="Shopping mode">
+      <button type="button" data-mode="game" aria-pressed="true">🎮 In-game</button>
+      <button type="button" data-mode="store" aria-pressed="false">🛒 In the store</button>
+    </div>
+    <button type="button" class="btn toggle" id="vegBtn" aria-pressed="false">🥕 Player is vegetarian: <b>Off</b></button>
+    <span class="badge" id="aiBadge">Pan &amp; stalls: scripted</span>
+  </div>
+
+  <main class="grid">
+    <section class="left" aria-label="Market street">
+      <div class="scene" id="scene">
+        <button type="button" class="npc" id="npc-wen" data-npc="wen" aria-label="Old Wen, produce">
+          <span class="count"></span><img class="spr" src="art/grocer.png" alt=""><span class="tag">Old Wen</span>
+        </button>
+        <button type="button" class="npc" id="npc-bram" data-npc="bram" aria-label="Big Bram, butcher">
+          <span class="vegsign">PROTEIN COUNTER</span>
+          <span class="count"></span><img class="spr" src="art/butcher.png" alt=""><span class="tag" id="bramTag">Big Bram</span>
+        </button>
+        <button type="button" class="npc" id="npc-tofu" data-npc="tofu" aria-label="Mr. Okafor-Sato, tofu and legumes">
+          <span class="count"></span><img class="spr" src="art/tofu.png" alt=""><span class="tag">Okafor-Sato</span>
+        </button>
+        <button type="button" class="npc spicestall" id="npc-spice" data-npc="spice" aria-label="Spice Merchant's stall">
+          <span class="count"></span>
+          <span class="sign"><img src="art/i_cumin.png" alt=""><img src="art/i_chili.png" alt=""></span>
+          <span class="sacks"><span></span><span></span><span></span><span></span></span>
+          <span class="tag">Spices</span>
+        </button>
+        <div class="panbox">
+          <div class="bubble" id="panBubble" aria-live="polite">Saturday. The market. Try not to buy a strawberry. It's November.</div>
+          <button type="button" id="panBtn" aria-label="Poke the Pan"><img src="art/pan.png" alt=""></button>
+        </div>
+      </div>
+
+      <div class="dialogue" id="dlg">
+        <div class="nameplate" id="dlgName">The Pan</div>
+        <div class="dlg-body">
+          <img class="portrait" id="dlgPortrait" src="art/pan.png" alt="">
+          <div class="dlg-main">
+            <div class="prog" id="dlgProg"></div>
+            <p id="dlgText" aria-live="polite"></p>
+            <div id="dlgStage"></div>
+          </div>
+        </div>
+        <div class="choices" id="dlgChoices"></div>
+      </div>
+    </section>
+
+    <aside class="quest" id="quest" aria-label="Quest list">
+      <div class="store-strip">
+        <div class="strip">
+          <img src="art/pan.png" alt="The Pan">
+          <div class="bubble" id="panBubble2" aria-live="polite">I'll wait in the bag. Tell me what you pick up.</div>
+        </div>
+        <form class="tell" id="tellForm">
+          <label for="tellIn" class="foot-note" style="flex-basis:100%">Tell the Pan what you got (e.g. "got the onions and eggs, no cilantro")</label>
+          <input id="tellIn" autocomplete="off" placeholder="got the onions…">
+          <button class="btn primary" type="submit">Tell</button>
+        </form>
+        <p class="foot-note">In the real app you'll talk out loud; here, type — or tap the list.</p>
+      </div>
+      <h2>Quest: The Weekly Shop</h2>
+      <p class="qsub">From this week's plan: Parippu · Onigiri · Frijoles de Olla · Emergency Eggs</p>
+      <div class="qprog"><span id="qcount">0/0</span><span class="xpbar"><i id="qfill"></i></span></div>
+      <div class="rules" id="rulesBox"></div>
+      <div id="groups"></div>
+      <p class="foot-note">Staples assumed present: salt, oil, water.* Pre-ticked items are already in your pantry — tap to un-tick.<br>*Form 3-S. Water is not technically an ingredient, but the Bureau has a sub-committee.</p>
+      <button type="button" class="btn small" id="resetBtn">Start a fresh run</button>
+    </aside>
+  </main>
+
+  <footer class="foot">
+    <p>Prices are examples (US, late 2026) for practice maths only. Seasonality: curated for the Pacific Northwest in November.</p>
+    <p>Kitchen Quest can't guarantee a dish is safe for your allergy. Always check labels.</p>
+    <p>*The Pantry Bureau reminds you that all market transactions must be witnessed by at least one vegetable.</p>
+  </footer>
+</div>
+
+<div id="toasts" aria-live="polite"></div>
+<div class="modal" id="modal" hidden></div>
+
+<script>
+(() => {
+"use strict";
+
+/* ================= data ================= */
+const ART = n => `art/${n}.png`;
+const NPCS = {
+  wen:   { name: "Old Wen", role: "produce grocer", img: ART("grocer"), game: "Seasonal or Smuggled?", skill: "Produce",
+           stallTitle: "Old Wen · Produce" },
+  bram:  { name: "Big Bram", role: "butcher", img: ART("butcher"), game: "Cut to the Chase", skill: "Butchery",
+           stallTitle: "Big Bram · Butcher & Eggs" },
+  tofu:  { name: "Mr. Okafor-Sato", role: "tofu & legume merchant", img: ART("tofu"), game: "The Firm Handshake", skill: "Tofu & Legumes",
+           stallTitle: "Mr. Okafor-Sato · Tofu, Legumes & Dry Goods" },
+  spice: { name: "The Spice Merchant", role: "spice merchant", img: ART("i_cumin"), game: "The Nose Knows", skill: "Spices",
+           stallTitle: "Spice Merchant" },
+};
+const VEG_BRAM = { name: "Big Bram", role: "Protein Counter keeper (formerly butcher)", game: "Pulse Check", skill: "Plant Protein",
+                   stallTitle: "Protein Counter (Big Bram)" };
+const PAN = { name: "The Pan", img: ART("pan") };
+
+const ITEMS = [
+  { id: "onion",   name: "Onions",            qty: "×3",         icon: "i_onion",    stall: "wen",   for: ["Parippu", "Frijoles"], alias: ["onion"],
+    tip: "Heavy, firm, dry papery skin. Skip soft necks and green sprouts." },
+  { id: "garlic",  name: "Garlic",            qty: "1 head",     icon: "i_garlic",   stall: "wen",   for: ["Parippu", "Frijoles"], alias: ["garlic"],
+    tip: "Tight, firm cloves and dry skin. No green shoots, no soft spots." },
+  { id: "chili",   name: "Green chilies",     qty: "×4",         icon: "i_chili",    stall: "wen",   for: ["Parippu"], alias: ["chili", "chilies", "chile", "chiles", "chilli", "pepper"],
+    tip: "Glossy, firm, green stem. Wrinkly means they've been waiting for you too long." },
+  { id: "cilantro",name: "Cilantro",          qty: "1 bunch",    icon: "i_cilantro", stall: "wen",   for: ["Frijoles"], alias: ["cilantro", "coriander leaf"],
+    tip: "Perky, bright, no slime. At home: stems in a jar of water, loosely bagged, in the fridge." },
+  { id: "tomato",  name: "Tomatoes",          qty: "×2",         icon: "i_tomato",   stall: "wen",   for: ["Emergency Eggs"], alias: ["tomato"],
+    tip: "Heavy for its size, smells like tomato at the stem. Keep on the counter, not the fridge, until cut." },
+  { id: "eggs",    name: "Eggs",              qty: "half dozen", icon: "i_egg",      stall: "bram",  for: ["Emergency Eggs"], alias: ["egg", "eggs"],
+    tip: "Open the carton: no cracks. Store them in the carton in the fridge body, not the door — the door is the weather." },
+  { id: "lentils", name: "Split moong dal (lentils)", qty: "1 lb", icon: "i_lentils", stall: "tofu", for: ["Parippu"], alias: ["lentil", "lentils", "dal", "moong"],
+    tip: "Bright, even colour, not dusty, no tiny holes. Rinse until the water runs clearer." },
+  { id: "beans",   name: "Dried black beans", qty: "1 lb",       icon: "i_lentils",  stall: "tofu",  for: ["Frijoles"], alias: ["bean", "beans", "black beans"], beanTint: true,
+    tip: "Glossy, even, few broken ones. Old beans take ages to soften — buy from a shop that sells lots of them." },
+  { id: "seaweed", name: "Nori sheets",       qty: "1 pack",     icon: "i_seaweed",  stall: "tofu",  for: ["Onigiri"], alias: ["nori", "seaweed"],
+    tip: "Dark, crisp, sealed. Keep it airtight — nori goes limp in damp air like a sad flag." },
+  { id: "tortillas",name:"Corn tortillas",    qty: "1 pack",     icon: "i_tortilla", stall: "tofu",  for: ["Emergency Eggs"], alias: ["tortilla", "tortillas"],
+    tip: "Check the date. Warm them on a dry hot pan until they flex and puff a little." },
+  { id: "rice",    name: "Short-grain rice",  qty: "",           icon: "i_rice",     stall: "tofu",  for: ["Onigiri"], alias: ["rice"], pantry: true,
+    tip: "Short-grain (or Calrose) sticks together — that's the point of onigiri." },
+  { id: "cumin",   name: "Cumin seeds",       qty: "small bag",  icon: "i_cumin",    stall: "spice", for: ["Parippu"], alias: ["cumin", "jeera"],
+    tip: "Whole seeds, small bag — buy what you'll use in a year. (Your pantry jar is from 2024. We'll talk.)" },
+];
+const SUBS = {
+  onion:    [{ n: "Shallots (2–3 per onion)", note: "Sweeter and milder. Lovely in dal.", tags: [] }],
+  garlic:   [{ n: "Jarred minced garlic", note: "½ tsp ≈ 1 clove. Milder — add it a little later so it doesn't scorch.", tags: [] }],
+  chili:    [{ n: "Serrano peppers", note: "Similar-ish heat to many Indian green chilies. Slit them lengthwise.", tags: [] }],
+  cilantro: [{ n: "Flat-leaf parsley", note: "Different flavour, same job: fresh and green at the end.", tags: [] }],
+  tomato:   [{ n: "Canned whole tomatoes", note: "Picked ripe, then canned — honestly better than November fresh ones.", tags: [] }],
+  eggs:     [{ n: "Chorizo & potato scramble", note: "Bram's personal favourite for tortillas.", tags: ["pork", "meat"] },
+             { n: "Firm tofu scramble", note: "Crumble it, a pinch of turmeric for colour, salt. Tortillas still welcome.", tags: ["soy"] }],
+  lentils:  [{ n: "Masoor dal (red lentils)", note: "Cooks in ~15–20 min and goes softer. Still a lovely parippu.", tags: [] }],
+  beans:    [{ n: "Canned black beans (about 4 × 15 oz)", note: "≈ the same cooked amount as 1 lb dried. Skip the long simmer.", tags: [] }],
+  seaweed:  [{ n: "Furikake", note: "Or skip the nori — onigiri without it are still onigiri. Salt your hands well.", tags: [] }],
+  tortillas:[{ n: "Flour tortillas", note: "Softer, different flavour; fine for eggs.", tags: ["wheat", "gluten"] }],
+  rice:     [{ n: "Calrose (medium-grain)", note: "The usual US onigiri rice; sticky enough to hold a shape.", tags: [] }],
+  cumin:    [{ n: "Ground cumin", note: "Add it after the mustard seeds pop and the heat drops — ground burns in seconds.", tags: [] }],
+};
+const DISHES = { "Parippu": "Ammachi Leela, Kochi, Kerala", "Onigiri": "Haruka, Osaka", "Frijoles": "Doña Marisol, Oaxaca", "Emergency Eggs": "the Pan" };
+
+/* Deterministic rules engine (tiny): tags → blocked by rule */
+const RULE_BLOCKS = { vegetarian: ["meat", "pork", "beef", "chicken", "fish", "seafood", "gelatin"] };
+function check(tags) {
+  const rules = state.veg ? ["vegetarian"] : [];
+  for (const r of rules) {
+    const hit = (tags || []).find(t => RULE_BLOCKS[r].includes(t));
+    if (hit) return { status: "blocked", text: `⛔ blocked · contains ${hit} (${r})` };
+  }
+  return { status: "ok", text: rules.length ? `✅ ok · ${rules.join(", ")}` : "✅ ok · no rules on file" };
+}
+
+/* ---------- minigames ---------- */
+const shuffle = a => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+const IN = "🌲 In season here", OUT = "🚚 Shipped from far";
+const SORT_POOL = [
+  { k: "squash", img: "i_squash", label: "Winter squash", ans: "in",
+    right: "Correct! Winter squash is harvested in early autumn and keeps for months. A Pacific Northwest November is basically squash's annual general meeting.",
+    wrong: "That squash has never been on a plane. It grew forty miles away and has the self-esteem to prove it. Winter squash is harvested Sept–Oct and stores for months." },
+  { k: "onion", img: "i_onion", label: "Storage onions", ans: "in",
+    right: "Yes. Storage onions are harvested late summer and cured to keep all winter — and Washington grows a big share of America's onions. Local, and smug about it.",
+    wrong: "Wen taps the sack. 'Grown two valleys over. Cured in August. Practically my cousin.' Storage onions are harvested late summer and keep all winter." },
+  { k: "strawberry", img: "i_strawberry", label: "Strawberries", ans: "out",
+    right: "Right. Local strawberries are a June–July affair here. A November strawberry has driven up from California or Mexico and is mostly a red promise.",
+    wrong: "Oh, the sign says 'fresh'. Signs say many things. Pacific NW strawberries finish by early autumn; this one commuted from California or Mexico. Taste it — it'll confess." },
+  { k: "tomato", img: "i_tomato", label: "Tomatoes", ans: "out",
+    right: "Correct. Field tomatoes here quit at the first frost, usually October. November ones come from greenhouses or far south. Pro move: canned tomatoes are picked ripe — better for November cooking.",
+    wrong: "Sadly not. Local field tomatoes give up at the first frost, usually October. November's are greenhouse or long-haul. For cooking, a can of whole tomatoes will outperform them." },
+  { k: "avocado", img: "i_avocado", label: "Avocados", ans: "out",
+    right: "Yes. Avocados don't grow in the Pacific Northwest at all — far too cold. These came from Mexico, California or Peru. Not a crime. Just a well-travelled fruit.",
+    wrong: "Wen squints. 'If you find an avocado orchard in Tacoma, bring me a cutting and the name of your lawyer.' They're all shipped in — Mexico, California, Peru." },
+  { k: "chili", img: "i_chili", label: "Fresh chili peppers", ans: "out",
+    right: "Right. Fresh peppers end with the frost; November's come up from California or Mexico. Dried chilies, on the other hand, are forever.",
+    wrong: "Peppers hate cold. Local ones finished with the frost; these are shipped up from the south. (Dried chilies: in season eternally.)" },
+  { k: "cilantro", img: "i_cilantro", label: "Cilantro", ans: "both",
+    right: "Trick question — a bit of both! Cilantro loves cool weather and shrugs off light frost, so some local growers have it under cover now. Most supermarket bunches are trucked from California or Mexico. Ask the farmer; farmers love being asked.",
+    wrong: "" },
+];
+function avocadoRound() {
+  return { q: "Now: pick the ripe avocado for Saturday's guacamole. Use your palm, not your fingertips — fingertips bruise it for the next person.", skill: "Ripeness", layout: "cards",
+    opts: shuffle([
+      { t: "A", img: "i_avocado", filter: "saturate(1.6) brightness(1.2)", desc: "Bright green, hard as a doorstop. The stem cap won't budge.", ok: false,
+        why: "That one's ready on Thursday. Lovely if your guacamole is a Thursday guacamole. Leave it on the counter 2–5 days (a paper bag with an apple speeds it up)." },
+      { t: "B", img: "i_avocado", filter: "brightness(.8) saturate(.9)", desc: "Dark green-purple. Gives gently to palm pressure. The stem cap flicks off — green underneath.", ok: true,
+        why: "That's the one. Gentle give, darkening skin, and green under the stem cap means ready today. Brown under the cap would mean you're a day late." },
+      { t: "C", img: "i_avocado", filter: "brightness(.45) sepia(.4)", desc: "Nearly black. Your press leaves a dent that stays. Brown under the stem.", ok: false,
+        why: "Overripe — the dent that stays and the brown under the stem give it away. It's had its moment. Possibly several." },
+      { t: "D", img: "i_avocado", filter: "brightness(.6) contrast(1.3) hue-rotate(-20deg)", desc: "Dark, with a sunken soft patch on one side and loose, wrinkly skin.", ok: false,
+        why: "Sunken soft spots and loose skin mean bruised or overripe inside. Squeeze-tested by forty shoppers before you, poor thing." },
+    ]) };
+}
+function squashRound() {
+  return { q: "Last one. Pick the best butternut squash for a week of soups.", skill: "Ripeness", layout: "cards",
+    opts: shuffle([
+      { t: "A", img: "i_squash", filter: "none", desc: "Heavy for its size. Matte tan skin your fingernail can't dent. Dry stem attached.", ok: true,
+        why: "Perfect. Heavy means dense flesh; matte, hard skin means fully mature; a dry stem keeps rot out. It'll keep on a cool shelf for weeks." },
+      { t: "B", img: "i_squash", filter: "saturate(1.7) brightness(1.2) hue-rotate(25deg)", desc: "Shiny, with green streaks. Feels light.", ok: false,
+        why: "Glossy skin and green streaks on a butternut mean it was picked young. Light means less flesh and more disappointment." },
+      { t: "C", img: "i_squash", filter: "sepia(.6) brightness(.7)", desc: "A soft, damp spot near the bottom.", ok: false,
+        why: "That's rot starting. This squash has begun its second career as compost." },
+      { t: "D", img: "i_squash", filter: "grayscale(.5)", desc: "No stem — just a hole where the stem used to be.", ok: false,
+        why: "Stemless squash spoil faster; the hole is a front door for mould. Keep looking." },
+    ]) };
+}
+function wenGame() {
+  const firm = shuffle(SORT_POOL.filter(s => s.ans === "in"))[0];
+  const rest = shuffle(SORT_POOL.filter(s => s !== firm)).slice(0, 2);
+  const sorts = shuffle([firm, ...rest]).map(s => ({
+    q: "November, Pacific Northwest. Grown nearby right now — or shipped in from far away?", item: s, skill: "Seasonality",
+    opts: [
+      { t: IN, ok: s.ans !== "out", why: s.ans === "out" ? s.wrong : s.right },
+      { t: OUT, ok: s.ans !== "in", why: s.ans === "in" ? s.wrong : s.right },
+    ] }));
+  return [...sorts, avocadoRound(), squashRound()];
+}
+function labelRound() {
+  const L = [
+    { q: "Decode the label on this chicken: “AIR-CHILLED.”", opts: [
+      { t: "Cooled with cold air instead of an ice-water bath — less absorbed water, crispier skin", ok: true,
+        why: "Right. Most chicken is chilled in a cold water bath and soaks some up; air-chilled isn't, so you're not paying for water, and the skin crisps better." },
+      { t: "It was flown in", ok: false, why: "Chickens do not fly business class. Air-chilled means it was cooled with cold air rather than in a chilled water bath — less water in the bird, better skin." },
+      { t: "It was raised outdoors in fresh air", ok: false, why: "Lovely image, wrong label. That'd be 'pasture-raised'. Air-chilled is about how it was cooled after processing: cold air, not a water bath." } ] },
+    { q: "Decode the label on this beef: “GRASS-FINISHED.”", opts: [
+      { t: "The animal ate grass and forage right to the end — not finished on grain", ok: true,
+        why: "Exactly. 'Grass-fed' alone can still mean grain in the last months; 'grass-finished' tells you about the end. Leaner, more mineral flavour, often pricier." },
+      { t: "Same as “grass-fed”", ok: false, why: "Close! But 'grass-fed' alone can still mean a grain diet at the end. 'Finished' is the word that tells you about the last months." },
+      { t: "It was rested on a bed of grass after cooking", ok: false, why: "Bram stares at you for a long, long time. No. It's about what the animal ate at the end: grass, not grain." } ] },
+    { q: "This ground beef says “USE BY: Nov 14.” What does that mean for you?", opts: [
+      { t: "The maker's last date for best quality — and raw ground meat should be cooked or frozen within 1–2 days of buying anyway", ok: true,
+        why: "Right. Dates are mostly about quality, and ground meat is the impatient one: 1–2 days in the fridge, or freeze it. Steaks and roasts give you 3–5." },
+      { t: "The date the store has to sell it by", ok: false, why: "That's 'sell by' — a note for the shop's stock rotation. For you: ground meat gets cooked or frozen within 1–2 days of buying." },
+      { t: "It's fine for a week after, if it smells OK", ok: false, why: "The nose is not a laboratory. Ground meat: cook or freeze within 1–2 days of buying. Bram's rule, and the USDA's." } ] },
+  ];
+  return { ...shuffle(L)[0], skill: "Labels" };
+}
+function bramGame() {
+  return [
+    { q: "A three-hour braise — beef stew, low oven, lid on. Which cut?", skill: "Cuts", opts: shuffle([
+      { t: "Chuck roast", ok: true, why: "Chuck. A hard-working shoulder full of connective tissue, and three slow hours melts it into gelatin — that's the silky part. Tough cut + time = tender. Tender cut + time = regret." },
+      { t: "Beef tenderloin", ok: false, why: "Tenderloin! The priciest thing in my case and you want to drown it for three hours. It has almost no connective tissue to melt — it goes dry and stringy. Chuck." },
+      { t: "NY strip steak", ok: false, why: "Strip's a searing cut — lean and already tender. Braised for hours it tightens up like a nervous accountant. You want chuck." },
+      { t: "Flank steak", ok: false, why: "Flank's for hot-and-fast, then sliced thin against the grain. Three hours makes it shoe leather with ambitions. Chuck's your braise." } ]) },
+    { q: "A screaming-hot pan, four minutes a side. Which cut?", skill: "Cuts", opts: shuffle([
+      { t: "NY strip steak", ok: true, why: "Strip: tender, nicely marbled, happy in a hot pan for a few minutes a side. Rest it five minutes before cutting, or the juice ends up on the board instead of in you." },
+      { t: "Chuck roast", ok: false, why: "A chuck roast seared for four minutes is chewing practice. (A chuck-eye steak can work; a chuck roast cannot.) Strip's your sear." },
+      { t: "Brisket", ok: false, why: "Brisket wants hours — smoke or braise. Four minutes in a pan and you've made a very tough apology." },
+      { t: "Beef shank", ok: false, why: "Shank is all sinew and marrow: braise heaven, sear purgatory. Strip steak for the hot pan." } ]) },
+    { q: "A 45-minute chicken curry. Which part of the bird forgives you if you lose track of time?", skill: "Cuts", opts: shuffle([
+      { t: "Bone-in thighs", ok: true, why: "Thighs. More fat and connective tissue, so they stay juicy through a long simmer — and they're usually cheaper per pound. The thigh is the friend who stays late to help clean." },
+      { t: "Boneless breast", ok: false, why: "Breast is lean; in a long simmer it dries out and goes chalky. Great for quick cooking — pull it at 165°F. For curry, thighs." },
+      { t: "Wings", ok: false, why: "Wings are mostly skin and bone — glorious for snacking or stock, a lot of nibbling in a curry. Thighs." } ]) },
+    { q: "Best value for a 3-hour braise for 4. Bram slides a chalkboard over: price per pound lies; price per serving tells the truth.", skill: "Cost per serving",
+      table: `<div class="vtable-wrap"><table class="vtable"><tr><th>Cut</th><th>Buy</th><th>Total</th><th>Bone</th><th>Servings*</th></tr>
+        <tr><td>Chuck roast</td><td class="n">3 lb @ $7.50</td><td class="n">$22.50</td><td>none</td><td class="n">6</td></tr>
+        <tr><td>Short ribs, bone-in</td><td class="n">4 lb @ $9.50</td><td class="n">$38.00</td><td>~half</td><td class="n">4</td></tr>
+        <tr><td>Beef shank, cross-cut</td><td class="n">4 lb @ $6.00</td><td class="n">$24.00</td><td>~⅓</td><td class="n">5</td></tr>
+        <tr><td>Tenderloin</td><td class="n">2 lb @ $28.00</td><td class="n">$56.00</td><td>none</td><td class="n">4</td></tr></table></div>
+        <p class="note">*About ½ lb of boneless raw meat per person. Example prices.</p>`,
+      opts: shuffle([
+        { t: "Chuck roast", ok: true, why: "Chuck: $22.50 ÷ 6 = $3.75 a serving, and it's the right cut for the job. Bones look cheap per pound, but you can't eat them (you can make stock from them, which is a separate lecture)." },
+        { t: "Short ribs", ok: false, why: "Gorgeous braise, but half that weight is bone: $38 ÷ 4 = $9.50 a serving. A treat, not a value. Chuck is $3.75." },
+        { t: "Beef shank", ok: false, why: "Good thinking — shank braises beautifully. But with the bone it's $24 ÷ 5 = $4.80 a serving. Close second! Chuck is $3.75. Buy shank if the chuck's gone." },
+        { t: "Tenderloin", ok: false, why: "$56 ÷ 4 = $14 a serving, and it'd go dry and stringy in a braise. Bram has to sit down. Chuck: $3.75." } ]) },
+    labelRound(),
+  ];
+}
+function proteinGame() {
+  return [
+    { q: "First things first. What is tempeh?", skill: "Plant Protein", opts: shuffle([
+      { t: "Fermented whole soybeans pressed into a cake", ok: true, why: "Right — whole soybeans, cultured into a firm, nutty cake. It comes from Java, Indonesia. Slice it thin, steam it a few minutes to soften the bitterness, then fry." },
+      { t: "Tofu that's been left out", ok: false, why: "Please don't leave tofu out. Tempeh is whole soybeans fermented into a firm cake — nutty, chewy, and a different thing entirely." },
+      { t: "Wheat gluten", ok: false, why: "That's seitan — tempeh's chewier neighbour. Tempeh is fermented whole soybeans." } ]) },
+    { q: "Seitan is made of…", skill: "Plant Protein", opts: shuffle([
+      { t: "Wheat gluten", ok: true, why: "Wheat gluten — the stretchy protein in wheat, washed and cooked into something properly chewy. Which means: not for anyone avoiding gluten. The rules engine would flag it." },
+      { t: "Soybeans", ok: false, why: "That's tofu and tempeh. Seitan is wheat gluten — great chew, but off-limits for anyone avoiding gluten." },
+      { t: "Mushrooms, mostly", ok: false, why: "Mushrooms are excellent and meaty, but seitan is wheat gluten." } ]) },
+    { q: "Protein for 4, cheapest per serving? Bram has repainted the chalkboard.", skill: "Cost per serving",
+      table: `<div class="vtable-wrap"><table class="vtable"><tr><th>Item</th><th>Price</th><th>Servings</th><th>Per serving</th></tr>
+        <tr><td>Dried lentils, 1 lb</td><td class="n">$1.79</td><td class="n">~7</td><td class="n">?</td></tr>
+        <tr><td>Extra-firm tofu, 14 oz</td><td class="n">$2.79</td><td class="n">~4</td><td class="n">?</td></tr>
+        <tr><td>Eggs, dozen</td><td class="n">$4.20</td><td class="n">6 (2 each)</td><td class="n">?</td></tr>
+        <tr><td>Tempeh, 8 oz</td><td class="n">$3.49</td><td class="n">2</td><td class="n">?</td></tr></table></div><p class="note">Example prices.</p>`,
+      opts: shuffle([
+        { t: "Dried lentils", ok: true, why: "Lentils: $1.79 ÷ 7 ≈ 26¢ a serving. Tofu ≈ 70¢, eggs = 70¢, tempeh ≈ $1.75. Dried legumes are the quiet millionaires of the market." },
+        { t: "Extra-firm tofu", ok: false, why: "Good value at ≈ 70¢ a serving! But dried lentils are ≈ 26¢. Tofu is the fast option; lentils are the thrifty one." },
+        { t: "Eggs", ok: false, why: "70¢ a serving — solid. But lentils are about 26¢. (Still buy the eggs; Emergency Eggs is on the plan.)" },
+        { t: "Tempeh", ok: false, why: "Tempeh is the priciest here: ≈ $1.75 a serving. Delicious, worth it sometimes. Lentils win on value at ≈ 26¢." } ]) },
+    { q: "Which has the most protein per 100 g?", skill: "Plant Protein", opts: shuffle([
+      { t: "Tempeh", ok: true, why: "Tempeh, about 19 g per 100 g. Then whole egg (~13 g), cooked lentils (~9 g), silken tofu (~5 g). Firm tofu sits in the middle." },
+      { t: "Silken tofu", ok: false, why: "Silken is the softest and wettest — about 5 g per 100 g. Tempeh leads at ~19 g." },
+      { t: "Cooked lentils", ok: false, why: "About 9 g per 100 g cooked — good, and cheap. But tempeh is ~19 g." },
+      { t: "Whole egg", ok: false, why: "About 13 g per 100 g (6 g per large egg). Respectable! Tempeh's ~19 g." } ]) },
+    { q: "Do you have to eat rice and beans in the same meal to get 'complete' protein?", skill: "Plant Protein", opts: shuffle([
+      { t: "No — eating a variety across the day covers it", ok: true, why: "Right. The old 'combine at every meal' rule has been retired. A mix of grains, legumes, nuts and seeds over the day does the job. Rice and beans are still delicious together, which is reason enough." },
+      { t: "Yes, same plate, same forkful", ok: false, why: "Bram used to think this too. Turns out variety across the day is plenty. Same forkful is optional — though, frankly, recommended for flavour." } ]) },
+  ];
+}
+function tofuGame() {
+  return [
+    { q: "Mapo tofu: cubes simmered gently in a fiery chili-bean sauce. Which tofu?", skill: "Tofu", opts: shuffle([
+      { t: "Soft or silken tofu", ok: true, why: "Soft tofu, cubed and simmered gently — that wobbly, custardy texture against the sauce is the whole point. Many cooks slide the cubes into hot salted water first so they hold together." },
+      { t: "Extra-firm tofu", ok: false, why: "It works the way a brick works as a pillow. Mapo wants soft tofu, silky against the sauce." },
+      { t: "Fried tofu puffs", ok: false, why: "Tofu puffs drink broth beautifully — hot pot, noodle soups. For mapo, soft tofu." },
+      { t: "Tempeh", ok: false, why: "Tempeh's a fine thing, but it isn't tofu at all — it's fermented whole soybeans. Mapo wants soft tofu." } ]) },
+    { q: "Crispy pan-fried tofu cubes. Which do you buy?", skill: "Tofu", opts: shuffle([
+      { t: "Extra-firm, pressed", ok: true, why: "Extra-firm, pressed 15–30 minutes under something heavy to squeeze out water, then cut and fried in a hot pan. A dusting of cornstarch gives extra crunch." },
+      { t: "Silken", ok: false, why: "Silken tofu in a frying pan is not a recipe. It is an incident report. Extra-firm, pressed." },
+      { t: "Soft", ok: false, why: "Soft tofu falls apart before it ever crisps. Extra-firm, pressed, is your friend." } ]) },
+    { q: "A creamy smoothie, or a dairy-free chocolate pudding. Which tofu?", skill: "Tofu", opts: shuffle([
+      { t: "Silken", ok: true, why: "Silken blends completely smooth — no curds, just cream. Bonus: silken in an aseptic box keeps unopened in the cupboard for months." },
+      { t: "Extra-firm", ok: false, why: "You'll get a gritty smoothie and a blender that files a complaint. Silken blends smooth." },
+      { t: "Smoked tofu", ok: false, why: "Smoked chocolate pudding is a choice. It is not this choice. Silken." } ]) },
+    { q: "Frijoles de olla for the week. One pound (450 g) of dried black beans cooks up to about…", skill: "Legumes", opts: shuffle([
+      { t: "~6 cups cooked", ok: true, why: "About 6 cups — dried beans roughly triple. That's what you'd get from 4 cans. Here: $1.89 dried vs 4 × $1.29 = $5.16 canned. Canned saves time; dried saves money and lets you season the broth." },
+      { t: "~2 cups cooked", ok: false, why: "Underestimating the bean! They roughly triple: 1 lb dried ≈ 6 cups cooked ≈ 4 cans. Which is why dried is so cheap per cup." },
+      { t: "~15 cups cooked", ok: false, why: "Beans are ambitious, but not that ambitious. About 6 cups — roughly triple." } ]) },
+    { q: "Your parippu uses split moong dal. Do you soak it?", skill: "Legumes", opts: shuffle([
+      { t: "No long soak — rinse, then simmer ~20–30 min", ok: true, why: "Split lentils are small and thin; they cook quickly without soaking. Whole dried beans are different: soak 8–12 hours, or quick-soak (boil 2 min, rest 1 hour). And red kidney beans must boil hard for 10 minutes — a slow cooker on low won't do it." },
+      { t: "Overnight, like big beans", ok: false, why: "Not harmful, just unnecessary — they'll go mushy fast. Split lentils cook in 20–30 minutes from dry. Save overnight soaks for whole beans." },
+      { t: "Three days, for maximum lentil", ok: false, why: "After three days you don't have lentils, you have a science fair. Rinse and simmer — 20–30 minutes." } ]) },
+  ];
+}
+function spiceGame() {
+  const all = [
+    { q: "Blind sniff. Warm, earthy, a bit musky — like the inside of a taco. Which spice?", skill: "Spices", opts: shuffle([
+      { t: "Cumin", ok: true, why: "Cumin. Earthy, musky, unmistakable — and the backbone of tempering for your parippu." },
+      { t: "Cinnamon", ok: false, why: "Cinnamon is warm and sweet — a hug. This was earthy and musky — a slightly sweaty hug. Cumin." },
+      { t: "Cardamom", ok: false, why: "Cardamom is bright, floral, almost eucalyptus. You've just described cumin." },
+      { t: "Clove", ok: false, why: "Clove is sweet, sharp, and numbs your tongue a little. Earthy and musky is cumin." } ]) },
+    { q: "Which keeps its flavour longer in the jar?", skill: "Spices", opts: shuffle([
+      { t: "Whole seeds", ok: true, why: "Whole. Grinding exposes the aromatic oils to air, so ground spices fade within months; whole seeds hold on for a few years. Buy whole, grind small." },
+      { t: "Ground", ok: false, why: "Ground spice has far more surface for the air to nibble. It fades first. Whole seeds keep years." },
+      { t: "Same — spices are immortal", ok: false, why: "Spices are not immortal. Long-lived, at best. That jar from 2019 is a museum exhibit." } ]) },
+    { q: "Your pantry ground cumin is from 2024. How do you check it?", skill: "Freshness", opts: shuffle([
+      { t: "Rub a pinch between your fingers and sniff", ok: true, why: "Yes. Strong and earthy: still good. Faint, dusty, or colour faded: stale. Old spice won't hurt you; it just won't do anything." },
+      { t: "Check the date — if it's not expired, it's perfect", ok: false, why: "Spice dates are best guesses about flavour, not safety. Your nose is the real date." },
+      { t: "Eat a spoonful", ok: false, why: "A dry spoonful of cumin is how people discover they can't speak for a while. Pinch, rub, sniff." } ]) },
+    { q: "You're toasting whole cumin in a dry pan. When do you stop?", skill: "Spices", opts: shuffle([
+      { t: "When it smells strong and goes a shade darker — about 30–60 seconds, keep it moving", ok: true, why: "Exactly. Fragrant and a shade darker, then off the heat — the pan keeps cooking it." },
+      { t: "When it starts smoking", ok: false, why: "Smoke means burnt, and burnt cumin is bitter. Start over. It's only cumin. This time." },
+      { t: "After ten minutes, to be sure", ok: false, why: "After ten minutes you are sure. Sure it's charcoal. 30–60 seconds, fragrant and a shade darker." } ]) },
+    { q: "Out of cumin for the dal. Closest stand-in?", skill: "Substitutions", opts: shuffle([
+      { t: "Ground coriander, or a pinch of caraway", ok: true, why: "Good. Coriander is milder and citrusy; caraway is cumin's close cousin. Neither is cumin, but both stay in the family." },
+      { t: "Cinnamon", ok: false, why: "Your dal is not a latte. Coriander or a pinch of caraway gets closer." },
+      { t: "Paprika", ok: false, why: "Paprika brings colour and sweetness, not cumin's earthiness. Coriander or caraway gets closer." } ]) },
+    { q: "Where does most of a fresh chili's heat live?", skill: "Spices", opts: shuffle([
+      { t: "The white ribs (pith) inside", ok: true, why: "The pale ribs hold most of the capsaicin; seeds get spicy mostly by sitting next to them. Scrape out the ribs for a milder chili — and wash your hands before you touch your eyes. Ask anyone. Ask everyone." },
+      { t: "The seeds", ok: false, why: "Popular belief, but the seeds are mostly guilty by association. The heat lives in the white ribs they're attached to." },
+      { t: "The skin", ok: false, why: "The skin is mostly innocent. The white ribs inside hold the heat." } ]) },
+  ];
+  return shuffle(all).slice(0, 5);
+}
+
+/* ---------- voices ---------- */
+const GREET = {
+  wen: "Old Wen isn't old. She's the third Wen; the title came with the stall. 'November,' she says. 'Squash, onions, apples, kale. Everything else got here on a truck. Ask me how I know.'",
+  bram: "Big Bram wipes a cleaver with the tenderness of a man polishing a violin. 'Tell me how you're cooking it and I'll tell you what to buy. Never the other way round.'",
+  bramVeg: "Big Bram has hung the cleaver on a nail and painted a new sign: PROTEIN COUNTER. The paint is still wet. 'Lentils, tofu, tempeh, eggs. Same rule as ever: tell me how you're cooking it.'",
+  tofu: "Mr. Okafor-Sato stands over a tray of tofu so fresh it's still warm. 'Silken, soft, firm, extra-firm. Each one has a job. Most people hire the wrong one.' A shelf of tortillas sits behind, because Doña Marisol asked nicely.",
+  spice: "A voice from behind a wall of sacks: 'Don't look for me. Smell for me.' The air is cumin, chili, and a faint accusation about the jar in your pantry from 2024.",
+};
+const PAN_QUIPS = {
+  idle: [
+    "I am a pan. I have been to this market four hundred times. The strawberries are still lying.",
+    "Wen's squash has more personality than most people I've cooked for.",
+    "If anyone asks, I am not in the bag. I am supervising from the bag.",
+    "Nothing green since Tuesday. I've noticed. The cilantro has noticed.",
+    "The Bureau requires one (1) vegetable to witness this transaction. Any volunteers?",
+  ],
+  fetch: ["Into the bag. I'll guard it. I'm good at sitting.", "That onion has made a wise career choice.", "Bag's filling up. I feel useful. It's unsettling.", "Received. Logged. Mildly approved."],
+  right: ["Correct. Don't let it go to your head; it's a small head.", "Right again. I'm almost impressed. Almost.", "Good. The Bureau will put that in a file. Several files."],
+  wrong: ["Wrong, but educationally wrong. The best kind.", "No penalty. I'm a pan, not a tax office.", "Everyone gets that one wrong once. I got it wrong in 1891."],
+  done: "A stamp! The Bureau will be insufferable about this.",
+  veg: "Bram's taken it well. He's repainting the sign himself.",
+  store: "I'll wait in the bag. Tell me what you pick up.",
+  game: "Back on the street. Tap a stall.",
+};
+const pick = a => a[Math.floor(Math.random() * a.length)];
+
+/* ================= state ================= */
+const KEY = "kq_market_v1";
+const XP_PER_LV = 300;
+function freshItems() { const o = {}; ITEMS.forEach(it => o[it.id] = { status: it.pantry ? "pantry" : "todo", sub: null }); return o; }
+let state = { xp: 140, lv: 3, stamps: 12, mode: "game", veg: false, items: freshItems(), games: {}, skills: [], runXp: 0, certified: false, fetched: 0 };
+try { const s = JSON.parse(localStorage.getItem(KEY) || "null"); if (s && s.items) state = Object.assign(state, s); } catch {}
+function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch {} }
+
+const $ = s => document.querySelector(s);
+const el = (tag, attrs = {}, kids = []) => {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") e.className = v; else if (k === "text") e.textContent = v; else if (k === "html") e.innerHTML = v;
+    else if (k.startsWith("on")) e.addEventListener(k.slice(2), v); else e.setAttribute(k, v);
+  }
+  for (const k of [].concat(kids)) if (k) e.append(k);
+  return e;
+};
+const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/* ================= HUD / rewards ================= */
+function renderHud() {
+  $("#lv").textContent = state.lv;
+  $("#xptxt").textContent = `${state.xp}/${XP_PER_LV} XP`;
+  $("#xpfill").style.width = Math.min(100, state.xp / XP_PER_LV * 100) + "%";
+  $("#stamps").textContent = state.stamps;
+}
+function toast(html) {
+  const t = el("div", { class: "toast", html });
+  const box = $("#toasts"); box.append(t);
+  while (box.children.length > 3) box.firstChild.remove();
+  setTimeout(() => t.remove(), 2700);
+}
+function addXp(n, label, stamps = 0) {
+  state.xp += n; state.runXp += n; state.stamps += stamps;
+  let lvUp = false;
+  while (state.xp >= XP_PER_LV) { state.xp -= XP_PER_LV; state.lv++; lvUp = true; }
+  toast(`<b>+${n} XP</b> · ${label}${stamps ? ` <span class="st">+${stamps} ✪ (${state.stamps})</span>` : ` <span class="st">✪ ${state.stamps}</span>`}`);
+  if (lvUp) setTimeout(() => toast(`<b>LEVEL UP!</b> Apprentice Lv ${state.lv}`), 400);
+  renderHud(); save();
+}
+function learn(skill) { if (!state.skills.includes(skill)) state.skills.push(skill); }
+
+/* ================= Pan commentary ================= */
+function panSay(text) { $("#panBubble").textContent = text; $("#panBubble2").textContent = text; }
+
+/* ================= dialogue ================= */
+let typing = null;
+function typeText(text) {
+  const p = $("#dlgText");
+  if (typing) { clearInterval(typing.t); typing = null; }
+  if (reduced) { p.textContent = text; return; }
+  let i = 0; p.textContent = "";
+  typing = { text, t: setInterval(() => {
+    i += 2; p.textContent = text.slice(0, i);
+    if (i >= text.length) { clearInterval(typing.t); typing = null; }
+  }, 14) };
+}
+$("#dlgText").addEventListener("click", () => { if (typing) { clearInterval(typing.t); $("#dlgText").textContent = typing.text; typing = null; } });
+
+let current = null; // current npc id
+function npcInfo(id) { return id === "bram" && state.veg ? Object.assign({}, NPCS.bram, VEG_BRAM) : NPCS[id]; }
+function speaker(name, img) { $("#dlgName").textContent = name; $("#dlgPortrait").src = img; }
+function choices(list) {
+  const c = $("#dlgChoices"); c.innerHTML = "";
+  list.forEach(o => c.append(el("button", { type: "button", class: "btn " + (o.cls || ""), onclick: o.on }, o.label)));
+}
+function clearStage() { $("#dlgStage").innerHTML = ""; $("#dlgProg").innerHTML = ""; }
+document.querySelectorAll(".npc").forEach(b => b.addEventListener("click", () => openStall(b.dataset.npc)));
+
+function home() {
+  current = null; askCtl?.abort(); clearStage(); markActive();
+  speaker(PAN.name, PAN.img);
+  const left = ITEMS.filter(it => state.items[it.id].status === "todo").length;
+  typeText(left
+    ? `Market Day. The Bureau has issued your list — Form 12-M, in triplicate; I ate two copies. ${left} thing${left === 1 ? "" : "s"} to fetch. Tap a stall to shop, or play their games and learn to choose well. Wrong answers cost nothing. I checked.`
+    : "List's done. You could still play the stall games for practice. I'll be in the bag, gloating quietly.");
+  choices(["wen", "bram", "tofu", "spice"].map(id => ({ label: "→ " + (id === "bram" && state.veg ? "Protein Counter" : npcInfo(id).name), on: () => openStall(id) })));
+}
+function markActive() { document.querySelectorAll(".npc").forEach(b => b.classList.toggle("active", b.dataset.npc === current)); }
+
+function stallTodo(id) { return ITEMS.filter(it => stallOf(it) === id && state.items[it.id].status === "todo"); }
+function stallOf(it) { return it.stall; }
+function openStall(id, line) {
+  if (state.mode === "store") return;
+  current = id; markActive(); clearStage(); askCtl?.abort();
+  const n = npcInfo(id);
+  speaker(n.name, n.img);
+  typeText(line || (id === "bram" && state.veg ? GREET.bramVeg : GREET[id]));
+  const todo = stallTodo(id);
+  const opts = [];
+  if (todo.length) opts.push({ label: `🧺 Fetch my list (${todo.length})`, cls: "primary", on: () => fetchAt(id) });
+  opts.push({ label: `🎮 Play: ${n.game}${state.games[gameKey(id)] ? " ✔" : ""}`, cls: todo.length ? "" : "primary", on: () => startGame(id) });
+  opts.push({ label: `💬 Ask ${n.name.replace("The ", "the ")}`, on: () => openAsk(id) });
+  opts.push({ label: "← Back to the street", on: home });
+  choices(opts);
+  if (matchMedia("(max-width: 899px)").matches) $("#dlg").scrollIntoView({ block: "nearest", behavior: reduced ? "auto" : "smooth" });
+}
+function gameKey(id) { return id === "bram" && state.veg ? "protein" : id; }
+
+/* ---------- fetching ---------- */
+function flyFrom(id, icon) {
+  if (reduced) return;
+  const scene = $("#scene"), npc = $("#npc-" + id);
+  const sr = scene.getBoundingClientRect(), nr = npc.getBoundingClientRect();
+  const f = el("img", { class: "fly", src: ART(icon), alt: "" });
+  f.style.left = (nr.left - sr.left + nr.width / 2 - 16 * spriteScale()) + "px";
+  f.style.top = (nr.top - sr.top + nr.height * 0.25) + "px";
+  scene.append(f); setTimeout(() => f.remove(), 1100);
+}
+function fetchItem(it, how) {
+  const s = state.items[it.id];
+  if (s.status !== "todo") return false;
+  s.status = how || "got"; state.fetched++;
+  addXp(5, "Market");
+  if (state.mode === "game") flyFrom(stallOf(it), it.icon);
+  renderList(); popRow(it.id); save();
+  setTimeout(checkComplete, 900);
+  return true;
+}
+function fetchAt(id) {
+  const todo = stallTodo(id);
+  const n = npcInfo(id);
+  todo.forEach((it, i) => setTimeout(() => fetchItem(it), reduced ? 0 : i * 260));
+  const lines = todo.map(it => `• ${it.name}: ${it.tip}`).join("\n");
+  typeText(`${n.name} bags it up and, unasked, tells you how to choose next time:\n${lines}`);
+  panSay(pick(PAN_QUIPS.fetch));
+  setTimeout(() => openStallMenuOnly(id), 50);
+}
+function openStallMenuOnly(id) {
+  const n = npcInfo(id);
+  choices([
+    { label: `🎮 Play: ${n.game}${state.games[gameKey(id)] ? " ✔" : ""}`, cls: "primary", on: () => startGame(id) },
+    { label: `💬 Ask ${n.name.replace("The ", "the ")}`, on: () => openAsk(id) },
+    { label: "← Back to the street", on: home },
+  ]);
+}
+
+/* ---------- minigame engine ---------- */
+function startGame(id) {
+  const key = gameKey(id);
+  const rounds = key === "wen" ? wenGame() : key === "bram" ? bramGame() : key === "protein" ? proteinGame() : key === "tofu" ? tofuGame() : spiceGame();
+  const g = { id, key, rounds, i: 0, results: [], n: npcInfo(id) };
+  showRound(g);
+}
+function progress(g) {
+  const p = $("#dlgProg"); p.innerHTML = "";
+  p.append(el("span", { text: `${g.n.game} · ${g.i + 1}/${g.rounds.length}` }));
+  g.rounds.forEach((_, k) => p.append(el("span", { class: "pip " + (g.results[k] === true ? "ok" : g.results[k] === false ? "no" : k === g.i ? "cur" : "") })));
+}
+function showRound(g) {
+  const r = g.rounds[g.i];
+  progress(g);
+  typeText(r.q);
+  const stage = $("#dlgStage"); stage.innerHTML = "";
+  if (r.item) stage.append(el("div", { class: "stage-item" }, [el("img", { src: ART(r.item.img), alt: "" }), el("b", { text: r.item.label })]));
+  if (r.table) stage.append(el("div", { html: r.table }));
+  const answer = (o, btn, all) => {
+    if (g.answered) return; g.answered = true;
+    g.results[g.i] = o.ok;
+    all.forEach(({ b, o: oo }) => { b.disabled = true; if (oo.ok) b.classList.add("ok"); });
+    if (!o.ok) btn.classList.add("no");
+    btn.disabled = false; btn.setAttribute("aria-pressed", "true");
+    const right = r.opts.filter(x => x.ok).map(x => x.t).join(" / ");
+    typeText((o.ok ? "✔ " : "✘ Not quite — but here's the thing. ") + o.why + (o.ok ? "" : `\n\nThe pick: ${right}.`));
+    if (o.ok) { addXp(10, `${r.skill}`); learn(r.skill); panSay(pick(PAN_QUIPS.right)); }
+    else { addXp(2, "Curiosity"); panSay(pick(PAN_QUIPS.wrong)); }
+    progress(g);
+    choices([{ label: g.i + 1 < g.rounds.length ? "Next ▶" : "Finish ▶", cls: "primary", on: () => { g.i++; g.answered = false; g.i < g.rounds.length ? showRound(g) : endGame(g); } }]);
+    $("#dlgChoices button").focus({ preventScroll: true });
+  };
+  if (r.layout === "cards") {
+    const wrap = el("div", { class: "cards" }); const all = [];
+    r.opts.forEach(o => {
+      const im = el("img", { src: ART(o.img), alt: "" }); im.style.filter = o.filter;
+      const b = el("button", { type: "button", class: "card" }, [im, el("span", {}, [el("span", { class: "lbl", text: o.t }), o.desc])]);
+      b.addEventListener("click", () => answer(o, b, all)); all.push({ b, o }); wrap.append(b);
+    });
+    stage.append(wrap); choices([{ label: "Quit game", on: () => openStall(g.id) }]);
+  } else {
+    const c = $("#dlgChoices"); c.innerHTML = ""; const all = [];
+    r.opts.forEach(o => { const b = el("button", { type: "button", class: "btn" }, o.t); b.addEventListener("click", () => answer(o, b, all)); all.push({ b, o }); c.append(b); });
+  }
+}
+function endGame(g) {
+  clearStage();
+  const ok = g.results.filter(Boolean).length;
+  const first = !state.games[g.key];
+  state.games[g.key] = true; learn(g.n.skill); save();
+  const lines = {
+    wen: "Old Wen nods. 'You'll do. Next week I'll teach you to weigh a cabbage with your eyes.'",
+    bram: "Big Bram shakes your hand, which is a full-arm experience. 'Cook it how it wants to be cooked.'",
+    protein: "Big Bram slaps the counter. 'Pulse Check passed. Legumes respect you now.'",
+    tofu: "Mr. Okafor-Sato gives a small, satisfied nod — which from a tofu master is a standing ovation.",
+    spice: "From behind the sacks: 'Your nose is waking up. Go home and sniff that 2024 jar. Then apologise to it.'",
+  }[g.key];
+  typeText(`${ok}/${g.rounds.length} right. ${lines}${first ? "\n\nBureau Stamp awarded: " + g.n.skill + " (practice log, Form 9-Q)." : "\n\n(Practice round — stamps are for first completions; XP still counts.)"}`);
+  if (first) { addXp(15, `${g.n.game} complete`, 1); panSay(PAN_QUIPS.done); }
+  else panSay("Again? Good. Repetition is how I got seasoned.");
+  choices([
+    { label: "🎮 Play again (new questions)", on: () => startGame(g.id) },
+    ...(stallTodo(g.id).length ? [{ label: `🧺 Fetch my list (${stallTodo(g.id).length})`, cls: "primary", on: () => fetchAt(g.id) }] : []),
+    { label: "← Back to the street", on: home },
+  ]);
+}
+
+/* ---------- Ask (AI with scripted fallback) ---------- */
+let sample = null, askCtl = null;
+const history = {};
+(async () => { try { sample = await window.claude?.use?.("sample"); } catch {} updateAiBadge(); })();
+function updateAiBadge() {
+  const b = $("#aiBadge"); b.textContent = sample ? "Pan & stalls: live AI" : "Pan & stalls: scripted"; b.classList.toggle("live", !!sample);
+}
+function personaRules(id) {
+  const n = npcInfo(id);
+  const persona = {
+    wen: "Old Wen: the third Wen to run the produce stall (the title came with the stall). Dry, sharp, warm; knows seasonality, ripeness (press, sniff, weigh, colour) and storage cold.",
+    bram: state.veg ? "Big Bram: a former butcher now cheerfully running the Protein Counter (legumes, tofu, tempeh, seitan, eggs, dairy). Big-hearted, precise, loves cost-per-serving maths." : "Big Bram: butcher. Big-hearted, precise; knows cuts vs cooking methods, marbling, labels and cost per serving. Polishes his cleaver like a violin.",
+    tofu: "Mr. Okafor-Sato: tofu and legume merchant. Calm, exacting, quietly funny; knows tofu types, beans, lentils, soaking and cooking times. Also keeps a shelf of tortillas.",
+    spice: "The Spice Merchant: never seen, only heard from behind a wall of sacks. Theatrical, kind; knows whole vs ground, freshness by smell and colour, toasting, substitutions.",
+  }[id];
+  return `You are ${n.name}, a stall keeper at the Saturday market in Kitchen Quest, a cozy 8-bit cooking RPG. Tone: dry, warm comedy in the spirit of Terry Pratchett and Douglas Adams (original, not pastiche). Persona: ${persona}
+The apprentice shops in the Pacific Northwest, USA, in November (use this for seasonality). This week they're buying for: Parippu (Kerala dal), Onigiri, Frijoles de Olla, Emergency Eggs.
+Apprentice's confirmed diet rules: ${state.veg ? "vegetarian — never suggest meat, poultry, fish, seafood, gelatin or meat stock; eggs and dairy are fine." : "none on file."}
+Answer cooking and shopping questions in character in 2–4 short sentences: accurate, practical, specific (seasonality, ripeness, cuts, labels, storage, substitutions, cost). If unsure, say so. If asked anything medical (conditions, symptoms, medication, pregnancy, weight loss, whether something is safe for an allergy), kindly say that's one for a doctor or dietitian and offer a shopping tip instead. Never joke about cultures, accents, bodies or weight; never praise eating less. Plain text, no markdown, no lists.`;
+}
+const SCRIPTED = [
+  [/diabet|pregnan|cholesterol|blood pressure|medic|disease|symptom|ibs|crohn|cancer|lose weight|weight loss|diet pill|calorie deficit|safe for my allerg/i,
+    "That one's for a doctor or a dietitian — I sell food, not diagnoses. What I can tell you is how to pick a good one of whatever they tell you to eat."],
+  [/avocado|ripe/i, "Palm, not fingertips. Gentle give, darkening skin, and green under the stem cap means today. Rock-hard? Counter for a few days, paper bag with an apple to hurry it."],
+  [/season|november|local|winter/i, "In a Pacific Northwest November: winter squash, apples, pears, kale, cabbage, leeks, Brussels sprouts, beets, carrots, potatoes, storage onions, cranberries. If it's red, juicy and summery, it rode a truck."],
+  [/store|keep|fridge|last|spoil/i, "Onions and garlic: cool, dark, dry, not the fridge, and not next to the potatoes. Tomatoes on the counter until cut. Herbs like cilantro: stems in water in the fridge, loosely bagged."],
+  [/steak|sear|grill/i, "For a hot, quick sear: strip, ribeye or sirloin. Dry it, salt it, screaming-hot pan, a few minutes a side, then rest five minutes."],
+  [/braise|stew|slow|chuck|shank/i, "Low and slow wants tough, collagen-rich cuts: chuck, shank, short ribs, chicken thighs. Time turns the connective tissue to gelatin. Lean cuts just dry out."],
+  [/chicken|thigh|breast/i, "Thighs for simmering and forgiveness; breasts for quick cooking — pull them at 165°F. Air-chilled birds hold less water and crisp better."],
+  [/ground|mince|burger/i, "Raw ground meat is the impatient one: cook or freeze within 1–2 days of buying. Steaks and roasts give you 3–5."],
+  [/tofu|press/i, "Silken for blending, soft for simmering, firm for most things, extra-firm for frying. Press firm and extra-firm 15–30 minutes. Never press silken; it will not forgive you."],
+  [/tempeh|seitan|protein|vegetarian|vegan/i, "Tempeh is fermented whole soybeans; seitan is wheat gluten (so not for anyone avoiding gluten). Dried lentils are the cheapest protein in the market by a mile."],
+  [/bean|soak|kidney/i, "Whole dried beans: soak 8–12 hours, or boil 2 minutes and rest an hour. Red kidney beans must boil hard for 10 minutes — a slow cooker on low won't. Lentils need no soak at all."],
+  [/lentil|dal/i, "Split lentils cook in 20–30 minutes from dry — rinse and simmer. Red lentils melt faster; whole green or brown ones hold their shape."],
+  [/cumin|spice|stale|old|fresh/i, "Rub a pinch, sniff. Strong: good. Dusty and faint: stale. Buy whole, small bags, and grind as you go — ground spices fade in months, whole ones last years."],
+  [/chili|chilli|hot|spicy|heat/i, "The heat lives in the white ribs, not the seeds. Scrape them out to calm a chili down. Then wash your hands. Then wash them again."],
+  [/price|cheap|budget|cost|value|money|afford/i, "Price per pound lies; price per serving tells the truth. Count the bone, count the shrink, then divide. Dried beans and lentils win almost every time."],
+];
+const SCRIPTED_DEFAULT = {
+  wen: "Squeeze gently, sniff the stem end, pick the heavy one. That's most of produce, honestly. The rest is knowing what month it is.",
+  bram: "Tell me the method first — sear, roast, or braise — and the cut picks itself. Tough cuts want time; tender cuts want heat.",
+  tofu: "Silken for blending, soft for simmering, firm for most things, extra-firm for frying. Ask me about beans; I've been waiting all day.",
+  spice: "Buy whole, buy small, sniff often. If it smells of nothing, it will taste of nothing.",
+};
+function scriptedAnswer(id, q) {
+  for (const [re, a] of SCRIPTED) if (re.test(q)) {
+    if (state.veg && /steak|sear|braise|chicken|ground/.test(re.source) && id === "bram")
+      return "Bram's rules engine (a sticky note on the till) says vegetarian. 'For a braise: chickpeas or whole lentils hold up beautifully. For a sear: pressed extra-firm tofu or sliced tempeh, very hot pan.'";
+    return a;
+  }
+  return SCRIPTED_DEFAULT[id];
+}
+function openAsk(id) {
+  const n = npcInfo(id);
+  clearStage();
+  typeText(`Ask ${n.name} anything about cooking or shopping.`);
+  const inp = el("input", { id: "askIn", autocomplete: "off", placeholder: id === "bram" ? "How do I pick a good steak?" : id === "wen" ? "What's in season?" : id === "tofu" ? "Do I soak black beans?" : "Is my 2024 cumin dead?", "aria-label": `Question for ${n.name}` });
+  const stop = el("button", { type: "button", class: "btn", hidden: "" }, "■ Stop");
+  const go = el("button", { type: "submit", class: "btn primary" }, "Ask");
+  const form = el("form", { class: "ask" }, [inp, go, stop]);
+  stop.addEventListener("click", () => askCtl?.abort());
+  form.addEventListener("submit", e => { e.preventDefault(); const q = inp.value.trim(); if (q) runAsk(id, q, inp, go, stop); });
+  $("#dlgStage").append(form, el("p", { class: "note", text: sample ? "Live answers by AI, in character. Not medical advice." : "Scripted answers (AI not connected). Not medical advice. In the real app you'll talk out loud; here, type." }));
+  choices([{ label: "← Back to the stall", on: () => openStall(id) }]);
+  inp.focus({ preventScroll: true });
+}
+async function runAsk(id, q, inp, go, stop) {
+  const n = npcInfo(id);
+  if (!sample) { typeText(`“${q}”\n\n${scriptedAnswer(id, q)}`); inp.value = ""; return; }
+  const h = history[id] || (history[id] = []);
+  const msgs = h.length ? [...h, { role: "user", content: q }] : [{ role: "user", content: personaRules(id) + "\n\nThe apprentice asks: " + q }];
+  askCtl = new AbortController(); const ctl = askCtl;
+  if (typing) { clearInterval(typing.t); typing = null; }
+  $("#dlgText").textContent = `${n.name} is thinking…`;
+  go.disabled = true; stop.hidden = false;
+  try {
+    const { text } = await sample(msgs, { cache: false, modelTier: "quick", signal: ctl.signal,
+      onText: ({ text }) => { $("#dlgText").textContent = text; } });
+    $("#dlgText").textContent = text;
+    msgs.push({ role: "assistant", content: text });
+    history[id] = msgs.length > 8 ? msgs.slice(0, 2).concat(msgs.slice(-6)) : msgs;
+    inp.value = "";
+  } catch (e) {
+    const code = e && e.code;
+    if (code === "cancelled" || ctl.signal.aborted) { $("#dlgText").textContent = "(You wave politely. The question can wait.)"; }
+    else if (code === "rate_limited") { $("#dlgText").textContent = `${n.name} holds up a hand. 'One moment — queue's long today.' (Try again shortly.)`; }
+    else {
+      if (["not_granted", "sampling_disabled", "tools_unavailable"].includes(code)) { sample = null; updateAiBadge(); }
+      $("#dlgText").textContent = `“${q}”\n\n${scriptedAnswer(id, q)}`; inp.value = "";
+    }
+  } finally { go.disabled = false; stop.hidden = true; if (askCtl === ctl) askCtl = null; }
+}
+
+/* ================= quest list ================= */
+function stallTitle(id) { return npcInfo(id).stallTitle; }
+function renderRules() {
+  const r = $("#rulesBox");
+  if (state.veg) {
+    const meat = ITEMS.filter(it => (it.tags || []).some(t => RULE_BLOCKS.vegetarian.includes(t))).length;
+    r.innerHTML = `<span class="chip ok">✅ vegetarian</span> Rules on file (Form 27-B, stamped). Meat items on list: ${meat}. Butcher → Protein Counter. Swaps re-checked before they're offered.`;
+  } else r.innerHTML = `<span class="chip todo">no rules on file</span> Diet rules shape the market — try the vegetarian toggle.`;
+}
+function renderList() {
+  const g = $("#groups"); g.innerHTML = "";
+  const order = ["wen", "bram", "tofu", "spice"];
+  const groupIcon = { wen: "art/grocer.png", bram: "art/butcher.png", tofu: "art/tofu.png", spice: "art/i_cumin.png" };
+  for (const sid of order) {
+    const its = ITEMS.filter(it => stallOf(it) === sid);
+    if (!its.length) continue;
+    const ul = el("ul", { class: "items" });
+    its.forEach(it => ul.append(itemRow(it)));
+    g.append(el("div", { class: "group" }, [el("h3", {}, [el("img", { src: groupIcon[sid], alt: "" }), stallTitle(sid)]), ul]));
+  }
+  const need = ITEMS.filter(it => !it.pantry);
+  const done = need.filter(it => state.items[it.id].status !== "todo").length;
+  $("#qcount").textContent = `${done}/${need.length}`;
+  $("#qfill").style.width = (done / need.length * 100) + "%";
+  ["wen", "bram", "tofu", "spice"].forEach(id => { const c = stallTodo(id).length; $(`#npc-${id} .count`).textContent = c ? c : ""; });
+  renderRules();
+}
+function itemRow(it) {
+  const s = state.items[it.id];
+  const done = s.status !== "todo";
+  const chip = { todo: ["todo", "to fetch"], got: ["ok", "✅ got"], pantry: ["ok", "✅ in pantry"], sub: ["swap", "🔁 swapped"], skip: ["unk", "skipped"] }[s.status];
+  const icon = el("img", { src: ART(it.icon), alt: "" });
+  if (it.beanTint) icon.style.filter = "brightness(.45) saturate(.6)";
+  const nm = s.status === "sub" ? `${s.sub} (for ${it.name.toLowerCase()})` : it.name;
+  const meta = s.status === "pantry" ? "rice — in pantry · " + it.for.join(", ") : `${it.qty ? it.qty + " · " : ""}for ${it.for.join(", ")}`;
+  const main = el("button", { type: "button", class: "item-main", "aria-label": `${nm}, ${chip[1]}` }, [
+    el("span", { class: "check", "aria-hidden": "true", text: done && s.status !== "skip" ? "✓" : "" }),
+    icon, el("span", { class: "iname" }, [el("b", { text: nm }), el("small", { text: meta })]),
+    el("span", { class: "chip " + chip[0], text: chip[1] }),
+  ]);
+  main.addEventListener("click", () => tapItem(it));
+  const li = el("li", { class: "item" + (done ? " done" : ""), "data-id": it.id }, [el("div", { class: "item-row" }, [main])]);
+  if (s.status === "todo") {
+    const oos = el("button", { type: "button", class: "btn small oos", "aria-label": `${it.name} is out of stock` }, "Out?");
+    oos.addEventListener("click", () => openSub(it, li));
+    li.firstChild.append(oos);
+  }
+  li.append(el("div", { class: "subpanel", hidden: "" }));
+  return li;
+}
+function popRow(id) { const r = document.querySelector(`.item[data-id="${id}"]`); if (r) { r.classList.add("pop"); } }
+function tapItem(it) {
+  const s = state.items[it.id];
+  if (state.mode === "store") {
+    if (s.status === "todo") { fetchItem(it); panSay(pick(PAN_QUIPS.fetch)); }
+    else { s.status = "todo"; s.sub = null; renderList(); save(); panSay("Un-ticked. I'll pretend I didn't see that."); }
+    return;
+  }
+  if (s.status === "pantry") { s.status = "todo"; renderList(); save(); panSay("Out of rice? Bold. Okafor-Sato has some."); return; }
+  if (s.status === "todo") { openStall(stallOf(it)); return; }
+  panSay(`${it.name}: already handled. I'm sitting on it. Metaphorically.`);
+}
+function openSub(it, li) {
+  const p = li.querySelector(".subpanel");
+  if (!p.hidden) { p.hidden = true; return; }
+  const sid = stallOf(it), n = npcInfo(sid);
+  const cands = (SUBS[it.id] || []).map(c => ({ ...c, chk: check(c.tags) }));
+  const firstOk = cands.find(c => c.chk.status === "ok");
+  const line = {
+    wen: `'Sold out of ${it.name.toLowerCase()}. It happens. Here's what I'd do.'`,
+    bram: state.veg ? "'Out of eggs! The hens are on a work-to-rule.' Bram checks the sticky note on the till." : "'Out of eggs! The hens are on a work-to-rule. I've an idea, though.'",
+    tofu: `'None left today. A substitute, then — labelled, as all things should be.'`,
+    spice: `From behind the sacks: 'Gone! But a cook with a nose adapts.'`,
+  }[sid];
+  p.innerHTML = "";
+  const body = el("div", {}, [el("b", { text: n.name }), el("div", { text: line.replace(/^'|'$/g, "'") })]);
+  p.append(el("div", { class: "who" }, [el("img", { src: n.img, alt: "" }), body]));
+  cands.forEach(c => p.append(el("div", { class: "cand" + (c.chk.status === "blocked" ? " blockedc" : "") }, [
+    el("span", { class: "chip swap", text: "🔁 swap" }), el("span", { class: "cname", text: c.n }),
+    el("span", { class: "chip " + (c.chk.status === "ok" ? "ok" : "blocked"), text: c.chk.text }),
+    el("div", { class: "note", style: "flex-basis:100%;margin:0", text: c.note }),
+  ])));
+  if (cands.some(c => c.chk.status === "blocked")) p.append(el("p", { class: "note", text: "The rules engine removed a swap that breaks your diet rules. Blocked items are never offered." }));
+  const btns = el("div", { class: "choices" });
+  if (firstOk) btns.append(el("button", { type: "button", class: "btn primary small", onclick: () => {
+    const s = state.items[it.id]; if (s.status !== "todo") return;
+    s.status = "sub"; s.sub = firstOk.n; state.fetched++;
+    addXp(5, "Market · swap"); learn("Substitutions");
+    if (state.mode === "game") flyFrom(sid, it.icon);
+    panSay("A labelled substitute. The Bureau adores a label."); renderList(); popRow(it.id); save(); setTimeout(checkComplete, 900);
+  } }, `Take: ${firstOk.n}`));
+  btns.append(el("button", { type: "button", class: "btn small", onclick: () => {
+    const s = state.items[it.id]; if (s.status !== "todo") return; s.status = "skip";
+    panSay(`No ${it.name.toLowerCase()} this week. The recipe will cope. So will I.`); renderList(); save(); setTimeout(checkComplete, 400);
+  } }, "Skip it this week"));
+  btns.append(el("button", { type: "button", class: "btn small", onclick: () => { p.hidden = true; } }, "Never mind"));
+  p.append(btns, el("p", { class: "note", text: "Kitchen Quest can't guarantee a dish is safe for your allergy. Always check labels." }));
+  p.hidden = false;
+}
+
+/* ---------- store mode: tell the Pan ---------- */
+$("#tellForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const inp = $("#tellIn"); const txt = inp.value.toLowerCase().trim(); if (!txt) return;
+  const got = [], missing = [];
+  const clauses = txt.split(/[,.;!]|\band\b|\bbut\b|\bplus\b/);
+  for (const cl of clauses) {
+    const neg = /\b(no|not|none|without|out of|didn'?t|couldn'?t|could not|did not|sold out)\b/.test(cl);
+    for (const it of ITEMS) {
+      if (got.includes(it) || missing.includes(it)) continue;
+      if (it.alias.some(a => new RegExp(`\\b${a}`).test(cl))) (neg ? missing : got).push(it);
+    }
+  }
+  const fetched = got.filter(it => fetchItem(it));
+  inp.value = "";
+  let msg = fetched.length ? `Got it: ${fetched.map(i => i.name.toLowerCase()).join(", ")}. Into the bag.` : "";
+  if (missing.length) {
+    msg += ` No ${missing.map(i => i.name.toLowerCase()).join(" or ")}? I've asked the stall for a swap — see the list.`;
+    missing.forEach(it => { const li = document.querySelector(`.item[data-id="${it.id}"]`); if (li && state.items[it.id].status === "todo") openSub(it, li); });
+  }
+  if (!msg) msg = got.length ? "Already in the bag. I checked twice. I'm a pan; I have time." : "I didn't catch an item from the list in that. Try 'got the onions'.";
+  panSay(msg.trim());
+});
+
+/* ================= modes / veg ================= */
+function setMode(m) {
+  state.mode = m; save();
+  document.body.classList.toggle("store", m === "store");
+  document.querySelectorAll(".seg button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.mode === m)));
+  panSay(m === "store" ? PAN_QUIPS.store : PAN_QUIPS.game);
+  if (m === "game") home();
+}
+document.querySelectorAll(".seg button").forEach(b => b.addEventListener("click", () => setMode(b.dataset.mode)));
+
+function applyVeg() {
+  document.body.classList.toggle("veg", state.veg);
+  const b = $("#vegBtn"); b.setAttribute("aria-pressed", String(state.veg)); b.querySelector("b").textContent = state.veg ? "On" : "Off";
+  $("#bramTag").textContent = state.veg ? "Protein Ctr" : "Big Bram";
+  $("#npc-bram").setAttribute("aria-label", state.veg ? "Protein Counter, run by Big Bram" : "Big Bram, butcher");
+  renderList();
+}
+$("#vegBtn").addEventListener("click", () => {
+  if (state.veg) {
+    state.veg = false; save(); applyVeg(); panSay("Rule rescinded. Form 27-B shredded, in triplicate. Bram is fetching his cleaver.");
+    if (state.mode === "game") (current ? openStall(current) : home());
+    return;
+  }
+  openForm({
+    hdr: "PANTRY BUREAU · FORM 27-B/DIET",
+    title: "Diet rule: vegetarian",
+    fields: [["Rule", "Vegetarian"], ["Blocks", "meat, poultry, fish, seafood, gelatin, meat stock"], ["Allows", "eggs, dairy, plants"], ["Applies to", "market, swaps, recipes, Q&A"]],
+    say: "Reading it back: vegetarian. No meat, poultry, fish, seafood, gelatin or meat stock. Eggs and dairy are allowed. Correct?",
+    fn: "*Form 27-B must be stamped by a qualified pan. The Pan is qualified, somewhat against its will.",
+    ok: "Stamp it ✔", no: "Not quite",
+    onOk: () => { state.veg = true; save(); applyVeg(); panSay(PAN_QUIPS.veg); if (state.mode === "game") openStall("bram"); },
+  });
+});
+
+/* ================= Bureau forms ================= */
+let lastFocus = null;
+function openForm(o) {
+  lastFocus = document.activeElement;
+  const m = $("#modal"); m.innerHTML = "";
+  const f = el("div", { class: "form", role: "dialog", "aria-modal": "true", "aria-label": o.title });
+  f.append(el("div", { class: "hdr", text: o.hdr }), el("h2", { text: o.title }));
+  o.fields.forEach(([k, v]) => f.append(el("div", { class: "field" }, [el("span", { text: k }), el("span", { text: v })])));
+  if (o.say) f.append(el("div", { class: "say" }, [el("img", { src: PAN.img, alt: "The Pan" }), el("div", { class: "bubble", text: o.say })]));
+  if (o.fn) f.append(el("p", { class: "fn", text: o.fn }));
+  const btns = el("div", { class: "btns" });
+  const ok = el("button", { type: "button", class: "btn primary" }, o.ok);
+  const no = el("button", { type: "button", class: "btn" }, o.no);
+  ok.addEventListener("click", () => {
+    ok.disabled = no.disabled = true;
+    f.append(el("div", { class: "stamp", html: (o.stampText || "APPROVED") + (o.stampSub ? `<small>${o.stampSub}</small>` : "") }));
+    o.onOk && o.onOk();
+    setTimeout(() => {
+      if (o.after) { btns.innerHTML = ""; btns.append(el("button", { type: "button", class: "btn primary", onclick: closeForm }, o.after)); btns.firstChild.focus(); }
+      else closeForm();
+    }, reduced ? 300 : 1100);
+  });
+  no.addEventListener("click", () => { o.onNo && o.onNo(); closeForm(); });
+  btns.append(ok, no); f.append(btns);
+  m.append(f); m.hidden = false; ok.focus();
+}
+function closeForm() { $("#modal").hidden = true; $("#modal").innerHTML = ""; lastFocus?.focus?.({ preventScroll: true }); }
+document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("#modal").hidden) closeForm(); });
+
+function checkComplete() {
+  if (state.certified) return;
+  const need = ITEMS.filter(it => !it.pantry || state.items[it.id].status !== "pantry");
+  if (need.some(it => state.items[it.id].status === "todo")) return;
+  if (!$("#modal").hidden) return;
+  const cnt = st => ITEMS.filter(it => state.items[it.id].status === st).length;
+  openForm({
+    hdr: "PANTRY BUREAU · FORM 12-M/MARKET-RUN",
+    title: "Market Run Complete",
+    fields: [
+      ["Date", "Saturday · Market Day"],
+      ["Region", "Pacific NW, USA · November"],
+      ["Fetched", `${cnt("got")} items`],
+      ["Swapped", `${cnt("sub")} (labelled, rules-checked)`],
+      ["Skipped", `${cnt("skip")}`],
+      ["From pantry", `${cnt("pantry")}`],
+      ["Skills learned", state.skills.length ? state.skills.join(", ") : "Shopping (basic)"],
+      ["XP this run", `${state.runXp} + 50 on stamping`],
+    ],
+    say: "Everything's in the bag. I'm sitting on the eggs. Carefully. I have done this before.",
+    fn: "*This certificate is valid in all kitchens recognised by the Bureau, and several it is still arguing with.",
+    ok: "Stamp it ✔", no: "Not quite", stampText: "APPROVED", stampSub: "MARKET RUN", after: "Home to the kitchen ▶",
+    onOk: () => { state.certified = true; addXp(50, "Market Run", 3); panSay("Certified. Now we cook. Well — you cook. I get hot."); save(); },
+  });
+}
+$("#resetBtn").addEventListener("click", () => {
+  state.items = freshItems(); state.runXp = 0; state.certified = false; state.fetched = 0; state.skills = []; save();
+  renderList(); panSay("Fresh list. Same pan."); if (state.mode === "game") home();
+});
+$("#panBtn").addEventListener("click", () => panSay(pick(PAN_QUIPS.idle)));
+
+/* ================= sprite scale ================= */
+function spriteScale() { return parseInt(getComputedStyle(document.documentElement).getPropertyValue("--sp")) || 1; }
+function sizeSprites() {
+  const w = $("#scene").getBoundingClientRect().width || 360;
+  document.documentElement.style.setProperty("--sp", w >= 600 ? 2 : 1);
+}
+new ResizeObserver(sizeSprites).observe($("#scene"));
+
+/* ================= boot ================= */
+renderHud(); applyVeg();
+document.body.classList.toggle("store", state.mode === "store");
+document.querySelectorAll(".seg button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.mode === state.mode)));
+sizeSprites();
+home();
+if (state.mode === "store") panSay(PAN_QUIPS.store);
+})();
+</script>

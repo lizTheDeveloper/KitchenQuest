@@ -1,0 +1,49 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "workspaces": {
+    ".": {
+      "entry": [
+        "eslint.config.js",
+        ".dependency-cruiser.cjs"
+      ],
+      "project": [
+        "*.{js,cjs,mjs,ts}",
+        "scripts/**"
+      ]
+    },
+    "packages/core": {
+      "entry": [
+        "src/**/*.test.ts",
+        "test/**/*.test.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "test/**/*.ts"
+      ]
+    },
+    "apps/api": {
+      "entry": [
+        "scripts/*.ts",
+        "src/**/*.test.ts",
+        "test/**/*.test.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "scripts/**/*.ts",
+        "test/**/*.ts",
+        "*.ts"
+      ]
+    },
+    "apps/game": {
+      "entry": [
+        "src/**/*.test.ts",
+        "e2e/**/*.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "e2e/**/*.ts",
+        "*.ts"
+      ]
+    }
+  }
+}

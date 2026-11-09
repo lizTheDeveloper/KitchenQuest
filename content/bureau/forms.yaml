@@ -1,0 +1,427 @@
+# The Pantry Bureau: forms, stamps and footnotes for UI copy.
+# Voice: docs/style/voice.md §2. Formal, footnoted, absurd about ITSELF, never about safety.
+# RULE: on any form that carries allergy/diet/health data, the field labels, values, helper
+# text and disclaimers are plain and sincere. Jokes live only in `footnotes` and `title_aside`.
+#
+# Structure
+#   forms.<id>:
+#     number:       the form number as displayed ("27-B/ALLERGEN")
+#     title:        the form's title
+#     title_aside:  optional italic sub-title (may be funny unless safety: true)
+#     purpose:      writer's note on when the UI shows it
+#     safety:       true if the form carries health/safety data (jokes only in footnotes)
+#     fields:       [{ key, label, hint? }]
+#     buttons:      { confirm, decline, ... }
+#     stamp:        the stamp text shown on confirm (see `stamps`)
+#     footnotes:    form-specific footnotes (leading "*")
+#   stamps:         stamp texts by id
+#   footnotes:      the general pool, tagged by where they can appear
+#   disclaimers:    plain, required text (ai: never)
+
+forms:
+
+  intake:
+    number: "1-A"
+    title: "Apprentice Intake"
+    title_aside: "Conducted orally, by a qualified pan."
+    purpose: "The onboarding checklist shown beside the Pan's intake interview. Each line ticks as the Pan stamps it."
+    safety: false
+    fields:
+      - { key: market_day, label: "Market day(s)", hint: "The day you usually shop for food." }
+      - { key: meals_per_week, label: "Meals cooked per week", hint: "Roughly. Leftovers count." }
+      - { key: region, label: "Country and region", hint: "For seasonal produce. No addresses." }
+      - { key: rules, label: "Allergies, intolerances and diet rules", hint: "Each one is read back and stamped separately on Form 27-B." }
+      - { key: pantry, label: "Pantry, as declared", hint: "What's in the cupboard right now." }
+    buttons: { confirm: "Stamp it ✔", decline: "Not now" }
+    stamp: approved
+    footnotes:
+      - "*Form 1-A may be completed in any order, in instalments, or not at all. The Bureau is very good at waiting."
+      - "*Box 7, 'Not now', is a legitimate answer to every question on this form."
+      - "*On completion the Bureau will send a letter of congratulation, which you must sign and return to receive it."
+
+  rule_allergen:
+    number: "27-B/ALLERGEN"
+    title: "Declaration of an Allergy"
+    purpose: "The confirmation card for a severe or allergy rule. Shown with the Pan's rule.readback. Nothing saves until the apprentice taps Stamp it."
+    safety: true
+    fields:
+      - { key: ingredient, label: "Ingredient or group", hint: "As you said it, and as the Bureau understood it." }
+      - { key: spelled, label: "Spelled", hint: "Please check every letter." }
+      - { key: severity, label: "How serious", hint: "Severe allergy · Allergy" }
+      - { key: covers, label: "This covers", hint: "Every ingredient and hidden source the rule will block." }
+      - { key: note, label: "In your words (optional)", hint: "Anything you'd like us to remember about it." }
+    buttons: { confirm: "Stamp it ✔", decline: "Not quite" }
+    stamp: confirmed_by_apprentice
+    footnotes:
+      - "*Form 27-B must be stamped by the apprentice in person. The Pan is not qualified to stamp. The Pan has appealed."
+      - "*Filed in triplicate. The third copy is eaten by the filing cabinet. This is normal."
+
+  rule_intolerance:
+    number: "27-B/INTOLERANCE"
+    title: "Declaration of an Intolerance"
+    purpose: "Confirmation card for an intolerance rule."
+    safety: true
+    fields:
+      - { key: ingredient, label: "Ingredient or group" }
+      - { key: severity, label: "How serious", hint: "Intolerance" }
+      - { key: covers, label: "This covers" }
+      - { key: limit, label: "Limit (optional)", hint: "None, or an amount per serving or per day." }
+      - { key: note, label: "In your words (optional)" }
+    buttons: { confirm: "Stamp it ✔", decline: "Not quite" }
+    stamp: confirmed_by_apprentice
+    footnotes:
+      - "*Different form, same stamp. The Bureau likes the stamp."
+
+  rule_diet:
+    number: "27-B/DIET"
+    title: "Declaration of a Diet Rule"
+    purpose: "Confirmation card for a diet or preference rule (vegetarian, vegan, halal, kosher, low-FODMAP phase, a personal rule)."
+    safety: true
+    fields:
+      - { key: name, label: "Rule", hint: "e.g. Vegetarian; No pork; Low-FODMAP (elimination phase)" }
+      - { key: covers, label: "This avoids", hint: "What the rule will keep out of dishes and shopping lists." }
+      - { key: allows, label: "This allows", hint: "Anything you've told us is fine (e.g. eggs and dairy)." }
+      - { key: phase, label: "Dates (optional)", hint: "For a time-limited phase, such as a diet journey." }
+      - { key: note, label: "In your words (optional)" }
+    buttons: { confirm: "Stamp it ✔", decline: "Not quite" }
+    stamp: confirmed_by_apprentice
+    footnotes:
+      - "*Diet journeys are tools to use with a clinician, not medical advice. The Bureau is not a clinician. The Bureau is a building."
+
+  rule_void:
+    number: "27-B/VOID"
+    title: "Removal of a Rule"
+    purpose: "Confirmation before removing a rule. Severe rules need an extra tap."
+    safety: true
+    fields:
+      - { key: ingredient, label: "Rule to remove" }
+      - { key: severity, label: "How serious it was marked" }
+      - { key: effect, label: "What changes", hint: "Dishes will no longer be checked for this." }
+    buttons: { confirm: "Remove", decline: "Keep it" }
+    stamp: void
+    footnotes:
+      - "*Removed rules can be restored at any time by telling the Pan. The shredder is reversible. The Bureau does not ask how."
+
+  meal_log:
+    number: "2-L"
+    title: "Ledger Entry: a Meal"
+    title_aside: "The most-stamped form in the Bureau."
+    purpose: "The '📒 Logged' card after a meal is confirmed. Tap to edit or undo."
+    safety: false
+    fields:
+      - { key: meal, label: "Meal", hint: "Breakfast · Lunch · Dinner · Snack · Second breakfast" }
+      - { key: summary, label: "What you had" }
+      - { key: servings, label: "How much", hint: "Roughly. The Bureau measures in 'roughly'." }
+      - { key: estimate, label: "Estimate?", hint: "Free-form meals are estimates." }
+    buttons: { confirm: "Log it", decline: "Not quite", undo: "Undo" }
+    stamp: logged
+    footnotes:
+      - "*Estimates. The Bureau measures in 'roughly'. Calories hidden by Bureau Order 12 (you can turn them on in settings, but the Pan will sigh)."
+      - "*Second breakfast is a recognised meal under Bureau Statute 4."
+
+  pantry:
+    number: "4-P"
+    title: "Pantry Declaration"
+    purpose: "The '🫙 Pantry' card when items are added or removed."
+    safety: false
+    fields:
+      - { key: added, label: "Added" }
+      - { key: removed, label: "Removed" }
+    buttons: { confirm: "Stamp it ✔", undo: "Undo" }
+    stamp: received
+    footnotes:
+      - "*Regret may be declared, and is filed under condiments."
+      - "*Items found at the back of the cupboard after more than one (1) year are reclassified as heirlooms."
+
+  schedule:
+    number: "6-R"
+    title: "Schedule of Reminders"
+    purpose: "The '🗓 Scheduled' card for market day, meal windows and reminders."
+    safety: false
+    fields:
+      - { key: market_days, label: "Market day(s)" }
+      - { key: meal_windows, label: "Meal times", hint: "When you'd like a nudge, if at all." }
+      - { key: market_reminder, label: "Market reminder", hint: "The evening before." }
+    buttons: { confirm: "Ink it ✔", decline: "Leave in pencil", undo: "Undo" }
+    stamp: inked
+    footnotes:
+      - "*Pencil is not a recognised Bureau medium. Confirm it with the Pan."
+      - "*Inking a market day is, in Bureau terms, roughly a wedding. No gifts are expected. Some vegetables may attend."
+      - "*Reminders can be switched off at any time. 'Never' is also a time."
+
+  plan:
+    number: "7-W"
+    title: "Weekly Plan"
+    purpose: "The plan card: dishes for the week with their allergy-check chips and the balance view."
+    safety: false
+    fields:
+      - { key: dishes, label: "Dishes this week" }
+      - { key: checks, label: "Checked against your rules", hint: "✅ ok · 🔁 swap · ⛔ blocked · ❓ can't verify" }
+      - { key: balance, label: "Balance", hint: "Protein, grains, fruit and veg across the week." }
+    buttons: { confirm: "Plan it ✔", decline: "Change something" }
+    stamp: approved
+    footnotes:
+      - "*A plan is a well-fed guess about the future. The Bureau accepts no liability for Wednesdays."
+
+  market_list:
+    number: "12-M"
+    title: "Market Requisition"
+    title_aside: "In triplicate; the Pan ate two copies."
+    purpose: "The market quest list, grouped by stall and pre-filtered against the pantry."
+    safety: false
+    fields:
+      - { key: stall, label: "Stall" }
+      - { key: item, label: "Item" }
+      - { key: quantity, label: "Quantity" }
+      - { key: status, label: "Status", hint: "To fetch · In the bag · Substituted (labelled)" }
+    buttons: { confirm: "Run complete", undo: "Un-tick" }
+    stamp: received
+    footnotes:
+      - "*The Pantry Bureau reminds you that all market transactions must be witnessed by at least one (1) vegetable."
+      - "*About ½ lb (225 g) of boneless raw meat per person. Example prices."
+      - "*Substitutes are labelled and re-checked against your rules. The Bureau adores a label."
+
+  practice_log:
+    number: "9-Q"
+    title: "Practice Log"
+    purpose: "Recorded when a stall minigame is completed; awards a stamp on first completion."
+    safety: false
+    fields:
+      - { key: stall, label: "Stall" }
+      - { key: skill, label: "Skill practised" }
+      - { key: score, label: "Correct answers" }
+    stamp: practice
+    footnotes:
+      - "*Practice rounds earn XP but not stamps. Stamps are for first completions. The Bureau has rationed the ink."
+      - "*Wrong answers carry no penalty. The Bureau is not a tax office, despite appearances."
+
+  travel:
+    number: "9-T/TRAVEL"
+    title: "Travel Permit"
+    purpose: "Stamped before travelling to a cook's kitchen."
+    safety: false
+    fields:
+      - { key: bearer, label: "Bearer", hint: "One (1) apprentice, plus pan" }
+      - { key: destination, label: "Destination" }
+      - { key: host, label: "Host" }
+      - { key: status, label: "Status", hint: "Guest. Invited." }
+      - { key: purpose, label: "Purpose", hint: "To learn, if taught" }
+    buttons: { confirm: "Stamp it ✔", decline: "Not quite" }
+    stamp: guest
+    footnotes:
+      - "*Permit void if the bearer calls anything “exotic”, leaves without washing up, or claims to have “discovered” a dish."
+      - "*The Bureau's travel permits are valid for one kitchen, one dish, and a reasonable amount of gratitude."
+      - "*Pans travel as hand luggage. The Pan objects to this classification."
+
+  introduction_request:
+    number: "12-B"
+    title: "Request for an Introduction Abroad"
+    purpose: "Teaser form: shown when a cook mentions a friend in a country not yet in the game."
+    safety: false
+    fields:
+      - { key: from, label: "Introduced by" }
+      - { key: to, label: "Introduced to" }
+      - { key: place, label: "Place" }
+    buttons: { confirm: "Submit", decline: "Later" }
+    stamp: pencilled
+    footnotes:
+      - "*Form 12-B must be accompanied by Form 12-C, which requires Form 12-B. Next season."
+      - "*Introductions are given, never requested. This form exists so the Bureau has something to do while you wait."
+
+  introduction_letter:
+    number: "12-C"
+    title: "Letter of Introduction"
+    purpose: "Shown when a cook introduces the player to another cook, opening a new country."
+    safety: false
+    fields:
+      - { key: from, label: "From" }
+      - { key: to, label: "To" }
+      - { key: place, label: "Place" }
+      - { key: says, label: "They write", hint: "The cook's introduction, in their words." }
+    buttons: { confirm: "Accept with thanks" }
+    stamp: taught
+    footnotes:
+      - "*In the Bureau's hierarchy of documents, a cook's letter outranks every stamp the Bureau has ever made."
+
+  certificate:
+    number: "51-D"
+    title: "Certificate of a Dish Cooked"
+    purpose: "The reward screen after cooking a dish."
+    safety: false
+    fields:
+      - { key: dish, label: "Dish" }
+      - { key: taught_by, label: "Taught by", hint: "On behalf of the home cooks of {place}." }
+      - { key: rewards, label: "Recorded" }
+    stamp: cooked
+    footnotes:
+      - "*Form 51-D (in triplicate; the other two copies are with the Pan)."
+      - "*This certificate is valid in all kitchens recognised by the Bureau, and several it is still arguing with."
+      - "*Certificate confers no rights, titles or kitchens. It does confer the right to make this again."
+
+  recipe_from_abroad:
+    number: "33-X"
+    title: "Recipe from Abroad"
+    title_aside: "A traveller left a note at the Bureau."
+    purpose: "The import review card (spec §7.1). Nothing is placed until the apprentice confirms."
+    safety: true
+    fields:
+      - { key: title, label: "Recipe" }
+      - { key: source, label: "Source", hint: "Always credited: link and author." }
+      - { key: origin, label: "Likely origin", hint: "A guess. Edit it if you know better." }
+      - { key: ingredients, label: "Ingredients", hint: "Each one checked against your rules." }
+      - { key: steps, label: "Steps" }
+      - { key: placement, label: "Hosted by", hint: "A guest cook from its place of origin, or the Lost & Found kitchen." }
+    buttons: { confirm: "Looks right ✔", decline: "Edit" }
+    stamp: received
+    footnotes:
+      - "*Imported recipes are visible only to you. The Bureau does not gossip. The Pan does, but only to the stove."
+      - "*Origin unknown? It goes to the Bureau's Lost & Found kitchen, which is staffed by a very patient colander."
+
+  undo:
+    number: "0-U"
+    title: "Retraction of Enthusiasm"
+    purpose: "Flavour text on the undo toast."
+    safety: false
+    fields: []
+    stamp: retracted
+    footnotes:
+      - "*Form 0-U is filed automatically on your behalf. The Bureau will want to know why. The Bureau will not be told."
+
+  export:
+    number: "50-E"
+    title: "Export of Your Records"
+    purpose: "Settings: one-click export (JSON plus .cook files)."
+    safety: true
+    fields:
+      - { key: includes, label: "Includes", hint: "Profile, rules, meal log, plans, pantry, imported recipes, photos." }
+      - { key: format, label: "Format", hint: "JSON and Cooklang (.cook) files." }
+    buttons: { confirm: "Export", decline: "Cancel" }
+    stamp: received
+    footnotes:
+      - "*Your records are yours. The Bureau keeps only what the game needs, and nothing it is not asked to."
+
+  delete:
+    number: "99-Z"
+    title: "Deletion of Your Account"
+    purpose: "Settings: one-click delete. Plain language only; no jokes in fields or buttons."
+    safety: true
+    fields:
+      - { key: effect, label: "What happens", hint: "Your account, rules, meal log, photos and imports are permanently deleted. This can't be undone." }
+    buttons: { confirm: "Delete everything", decline: "Keep my account" }
+    stamp: void
+    footnotes:
+      - "*The Pan will miss you, and has asked us to say so, once, and not to make a fuss about it."
+
+  voice_guide:
+    number: "8-V"
+    title: "Voice, Tone and Permitted Wit"
+    purpose: "The writers' style guide (docs/style/voice.md). Referenced in credits."
+    safety: false
+    fields: []
+    footnotes:
+      - "*One copy for the writers, one for the AI, and one for the filing cabinet, which will eat it."
+
+# ----------------------------------------------------------------------------
+# Stamp texts (the red rotated stamp in --mono)
+# ----------------------------------------------------------------------------
+stamps:
+  approved: "APPROVED"
+  confirmed_by_apprentice: "CONFIRMED BY APPRENTICE"
+  logged: "LOGGED"
+  received: "RECEIVED"
+  inked: "INKED"
+  pencilled: "PENCILLED (PROVISIONAL)"
+  practice: "PRACTISED"
+  guest: "GUEST · INVITED"
+  taught: "TAUGHT, WITH THANKS"
+  cooked: "COOKED"
+  fed: "FED"
+  void: "VOID"
+  retracted: "RETRACTED"
+  enough: "ENOUGH"
+
+# ----------------------------------------------------------------------------
+# Bureau Stamp names (the soft currency), by what earns them
+# ----------------------------------------------------------------------------
+stamp_names:
+  seasonal_sorting: "Seasonal Sorting (Produce)"
+  ripeness: "Ripeness by Hand (Produce)"
+  cut_match: "The Right Cut (Butcher)"
+  cost_per_serving: "Price per Serving (Butcher)"
+  protein_counter: "Protein Counter Proficiency"
+  tofu_match: "Hiring the Right Tofu"
+  legume_lore: "Legume Lore"
+  blind_sniff: "The Nose (Spices)"
+  substitutions: "Substitution Recall"
+  first_market_run: "First Market Run"
+  intake_complete: "Form 1-A, Complete"
+  first_dish: "First Dish Cooked"
+  enough_day: "A Well-Fed Day"
+  travel: "Travel Permit, Stamped"
+
+# ----------------------------------------------------------------------------
+# General footnote pool for UI copy. Tag = where it may appear.
+#   any       · anywhere
+#   empty     · empty states
+#   loading   · loading / waiting
+#   market    · market screens
+#   kitchen   · kitchen / cook mode
+#   map       · world map / travel
+#   ledger    · meal log / weekly view (never on low-intake screens)
+#   settings  · settings
+# Never on: rule cards, allergy findings, label warnings, low-intake check-ins, delete.
+# ----------------------------------------------------------------------------
+footnotes:
+  - { tag: any, text: "*The Pantry Bureau regrets any inconvenience caused by the Pantry Bureau." }
+  - { tag: any, text: "*The third copy is eaten by the filing cabinet. This is normal, and the filing cabinet is thriving." }
+  - { tag: any, text: "*Form 3-S. Water is not technically an ingredient, but the Bureau has a sub-committee." }
+  - { tag: any, text: "*The Bureau has a form for that. If it doesn't, it's drafting one; allow eleven to fourteen working centuries." }
+  - { tag: any, text: "*All Bureau forms are available in triplicate, duplicate, and, on request, cate." }
+  - { tag: any, text: "*The Bureau's motto, 'Fed, Then Filed', is under review by the Committee for Mottoes, which has not eaten since Tuesday." }
+  - { tag: any, text: "*Bureau Stamps have no cash value, no exchange rate and no expiry date. They do have a smell. It's ink." }
+  - { tag: any, text: "*This footnote is Bureau-approved. The approval is itself footnoted, elsewhere." }
+  - { tag: empty, text: "*Nothing here yet. The Bureau has prepared a very small, very clean drawer for it." }
+  - { tag: empty, text: "*Empty. The Pan is concerned. The Pan is always slightly concerned; it's part of the licence." }
+  - { tag: empty, text: "*No entries. This is not a failure. It is a fresh page, which the Bureau considers one of life's great pleasures." }
+  - { tag: loading, text: "*Waiting on a timer? The Bureau recommends staring at it. It doesn't help, but it's traditional." }
+  - { tag: loading, text: "*Please hold. The Bureau is locating the correct rubber stamp from among four hundred nearly identical rubber stamps." }
+  - { tag: loading, text: "*One moment. A clerk has been dispatched. The clerk is walking. The Bureau does not run; running is for sauces." }
+  - { tag: market, text: "*The Pantry Bureau reminds you that all market transactions must be witnessed by at least one (1) vegetable." }
+  - { tag: market, text: "*Prices shown are examples. Real prices are set by the market, the weather and, the Bureau suspects, the strawberries." }
+  - { tag: market, text: "*Wrong answers carry no penalty. The Bureau is not a tax office, despite the building." }
+  - { tag: market, text: "*Shopping bags are not provided. The Pan is not a shopping bag. The Pan has been asked to stop volunteering." }
+  - { tag: kitchen, text: "*Wipe your hands. The screen cannot be seasoned." }
+  - { tag: kitchen, text: "*Tasting is not cheating. Tasting is the entire point. See Bureau Statute 1." }
+  - { tag: kitchen, text: "*The screen will stay awake while you cook. So will the Pan. The Pan always is." }
+  - { tag: kitchen, text: "*Pans are licensed to mentor, not to stamp. The Pan has appealed this ruling every year since 1891." }
+  - { tag: kitchen, text: "*Recipes are suggestions written by people who weren't in your kitchen. Trust your eyes, then your nose, then the timer." }
+  - { tag: map, text: "*The map is to scale. The scale is 'large'." }
+  - { tag: map, text: "*Every kitchen on this map was cooking long before the Bureau existed. The Bureau is a guest too, and behaves accordingly, mostly." }
+  - { tag: map, text: "*Recipes are taught, gifted and passed on. They are never found, looted or discovered. The Bureau will confiscate the word 'exotic' at the border." }
+  - { tag: map, text: "*Nobody's food is exotic. It's somebody's Tuesday." }
+  - { tag: map, text: "*Travel times are approximate. The Pan travels as hand luggage, under protest." }
+  - { tag: ledger, text: "*Estimates. The Bureau measures in 'roughly'." }
+  - { tag: ledger, text: "*Missed days are not recorded as missed. They're recorded as days. Days are allowed." }
+  - { tag: ledger, text: "*'Enough' is a range, not a finish line. The Bureau has never awarded a prize for less." }
+  - { tag: ledger, text: "*Second breakfast is a recognised meal under Bureau Statute 4." }
+  - { tag: ledger, text: "*Every meal counts, including the ones eaten standing up over the sink." }
+  - { tag: settings, text: "*Calories hidden by Bureau Order 12. You may turn them on. The Pan will sigh, but only once." }
+  - { tag: settings, text: "*Reminders may be switched off at any time. 'Never' is also a time." }
+  - { tag: settings, text: "*Your records are yours. The Bureau keeps only what the game needs and sells nothing to anybody, which the accounts department finds baffling." }
+  - { tag: settings, text: "*Voice off. The Pan will continue to have opinions, silently." }
+
+# ----------------------------------------------------------------------------
+# Plain, required text. ai: never. No footnote jokes attached to these.
+# ----------------------------------------------------------------------------
+disclaimers:
+  allergy: "Kitchen Quest can't guarantee a dish is safe for your allergy. Always check labels."
+  allergy_checks: "Allergy checks are done by plain, tested rules over confirmed data, not by the AI."
+  unverified: "Store-bought or unknown: can't verify the ingredients. Check the label."
+  cross_contact: "For severe allergies, watch for cross-contact: shared boards, pans, oil and utensils, and 'may contain' warnings on labels."
+  photo_reaction: "Photo reactions are a cook's reaction, not a check of your food or its safety."
+  not_medical: "Kitchen Quest is a cooking game and food log, not medical advice. For symptoms, diagnoses or treatment, talk to a clinician."
+  journey: "Diet journeys are tools to use with a clinician, not medical advice."
+  ai_answers: "Live answers are written by AI, in character. Not medical advice."
+  scripted_answers: "Scripted answers (AI not connected). Not medical advice."
+  draft_recipe: "Draft recipe: not yet reviewed by a cook from this tradition."
+  emergency: "If you're having an allergic reaction now, call your local emergency number."

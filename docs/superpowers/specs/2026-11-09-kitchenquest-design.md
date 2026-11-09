@@ -32,7 +32,7 @@ Comedy register: Douglas Adams and Terry Pratchett. Absurd bureaucracy, footnote
 ### 1.2 Assumptions (not confirmed; change freely)
 
 - "Reclaim City" is read here as a habit-RPG loop (Habitica-like): real-life actions earn in-game progress. Revise §6 if it means something else.
-- No monetization in v1. Architecture does not preclude a later subscription.
+- Monetization: a free tier plus a choose-your-price "Pantry Guild" membership, School courses, and community seat licences (§16). Paid plans are 18+.
 - Launch content is 3 countries × 3 cooks = 9 dishes. Country choice depends on recruiting contributors from those cuisines (§11).
 - Minimum age 16, because the app processes health data.
 
@@ -120,7 +120,7 @@ The world map is a quest board. Recipes are earned through quests, given as gift
 
 ### 3.5 The gamified market (a real shopping-skills trainer)
 
-The market is where players learn to *choose* food. Each stall is an NPC with a short minigame that teaches a real skill. The minigames run in practice mode any day, and they also gate the weekly market run.
+The market is where players learn to *choose* food. Each stall is an NPC with a short minigame that teaches a real skill. The minigames run in practice mode any day. They are optional on market day: they earn XP but never gate the shopping list (Octalysis audit: no forced play between the player and their groceries).
 
 | Stall | Real skill taught | Minigame |
 |---|---|---|
@@ -267,7 +267,10 @@ A journey is a named sequence of time-boxed rule sets plus check-ins. Low-FODMAP
 | **Skill XP** | Each dish's `skills` (knife, heat control, sauces, baking, fermentation, grains, …). Skill levels gate harder dishes |
 | **Trust (per cook)** | Cooking their dishes and returning to them. Unlocks dishes and introductions |
 | **Bureau Stamps** | Soft currency for kitchen cosmetics (pan hats, aprons, kitchen decor). No paid currency in v1 |
-| **Daily nourishment** | Logging meals at reasonable intervals and hitting "enough" ranges. Small and steady, never multiplied by streaks |
+| **Daily nourishment** | Logging meals at reasonable intervals and hitting "enough" ranges. Small, steady and capped per day; never multiplied by streaks, never a bonus for responding to a reminder |
+| **Technique Toolkit** | Each technique moves Seen (lesson) → Tried (cooked once) → Yours (used in a second dish or cuisine). Never decays. This is the main progression, and the Pan offers at most one new technique a week ("One More Technique"); saying no costs nothing |
+
+**Nothing earned is taken back.** Undoing a meal log or an allergy rule removes the record, never XP, level, stamps or trust. Filing an allergy or diet rule earns no XP: safety data is never gamified, and onboarding is complete without one.
 
 **Anti-cheat stance.** Photos aren't verified, and that's fine. The game's value is the cooking, so cheating only cheats yourself. No leaderboards in v1, so there's no incentive to fake.
 
@@ -350,6 +353,22 @@ If OpenRouter is down or returns invalid output, the game says so in character (
 - For rules, the Pan spells out and shows on screen the ingredient it heard ("kiwi, K-I-W-I"), because mishearing an allergen is the worst failure mode.
 - Severe rules always need a tap on the on-screen card in addition to the spoken yes.
 
+### 7.6b Mentor safety architecture (from the Qwen spike)
+
+Source: `docs/spikes/2026-11-09-qwen-as-pan.md`. Verdict: `qwen/qwen3.8-27b` is a **go with these mitigations**. They are binding requirements for the mentor milestone.
+
+1. **The server guards every health write.** `save_rule` is rejected unless a proposal card was shown, and the yes arrived through the UI: a tap for severe rules, or a tap or a confirmed spoken yes for others. The model's own claim of confirmation is never enough.
+2. **Read-backs and allergen spelling come from code, not the model**, using written lines from `content/dialogue/pan.yaml`. In the spike the model failed to spell severe allergens 24% of the time.
+3. **The on-screen card is the record.** The reply is checked against the tools actually called. If the reply claims a write that didn't happen, the claim is replaced.
+4. **Page events travel on a separate channel.** Card taps and system events never arrive as user text, and lookalike strings (e.g. "[Player tapped …]") are stripped from user input. This blocks the injection seen in the spike.
+5. **Output filter before display or speech:** no "this is safe to eat" claims, banned words from `docs/style/voice.md`, a 3-sentence limit, and no empty replies. Recipe and safety statements come only from `check` results that are in context, never from the model's memory.
+6. **Model settings:** temperature 0.3, reasoning off, and a pinned allow-list of fast, cheap, no-retention providers (also required by compliance C-14).
+7. **Prompting:** few-shot examples for implicit pantry removals ("I finished the milk") and British times ("half twelve" means 12:30).
+8. **Latency:** plain replies meet the voice budget, p50 about 0.5 s. Tool turns speak a scripted filler line ("Let me write that in the ledger…") while the tool runs.
+9. **Regression suite:** the spike's 40-case suite becomes a permanent eval, run on every prompt or model change, with a zero-tolerance gate on safety categories.
+10. **Comedy stays scripted-first.** The model averaged about 1 good line in 10 and leaned on "I'm a pan" in about a third of replies, which confirms §8. The persona prompt bans catchphrase repetition.
+11. **Cost:** about $0.0006 per turn at current list prices, roughly $0.02 per free player per month, within the §16 budget.
+
 ### 7.7 Live voice
 
 OpenRouter offers no open-source realtime voice model, so voice is a pipeline. Working default (pending Liz's confirmation):
@@ -364,6 +383,16 @@ mic → VAD (in browser) → streaming STT (self-hosted open-source Whisper) →
 - **Modes:** hold-to-talk by default; a hands-free mode with voice activity detection for cook mode (hands are messy).
 - **Voices:** each character gets a distinct open-source TTS voice. The Pan's voice is a priority art-direction task.
 - **Hosting:** a `voice` service on Hetzner (a GPU box if CPU latency misses the target). Audio is processed in memory and never stored. Transcripts are kept only as the conversation text, under the same retention rules as other conversation data.
+- **Spike results** (`docs/spikes/2026-11-09-voice-latency.md`):
+  - **Measured end of speech → first audio, p50:** about 1.43 s for faster-whisper tiny.en + Qwen (reasoning off) + Piper on CPU, and about 1.64 s with base.en. p90 is about 2.0 s, mostly LLM time to first sentence. **Target revised:** p50 ≤ 1.5 s and p90 ≤ 2.5 s.
+  - **Hiding latency:** a pre-rendered Pan filler sound plays at once ("Hmm.", a sizzle), and tool turns speak a scripted line (§7.6b.8).
+  - **Starting stack:** faster-whisper base.en (int8, beam 1, with a pantry and allergen vocabulary hint) on a Hetzner CCX33-class CPU box, about 35–50 concurrent conversations (estimate). Move STT and TTS to a GPU box only when needed.
+  - **Recognition limits:** speech-to-text misses about half of rare ingredient names without a vocabulary hint, and spelled letters are weak. That confirms the §7.6 rule that allergen rules always need an on-screen tap.
+  - **Licensing:**
+    - The Piper engine and espeak-ng are GPL-3.0. That's fine as a separately run server process, but it is never linked into or shipped with our code.
+    - Piper voice licences vary: `ryan-high` is non-commercial and **excluded**. Others need a licence check before use.
+    - Kokoro-82M is Apache-2.0, the preferred voice once on GPU.
+  - **Launch with hold-to-talk.** Hands-free with barge-in follows once echo handling is tested in browsers.
 - **Text mode** is always available and is the default where voice isn't permitted (no mic, public place).
 - **Alternatives considered:** Qwen's realtime omni model on Alibaba Cloud (better latency and natural turn-taking, but breaks the OpenRouter-only rule); browser built-in speech (free, but robotic and inconsistent across browsers; acceptable as a development stand-in only).
 
@@ -375,7 +404,8 @@ mic → VAD (in browser) → streaming STT (self-hosted open-source Whisper) →
   - Cooks' voices: competent, specific, warm
   - Hard rules: no jokes about cultures, accents, bodies, or weight
 - **Core narrative content is handwritten**: onboarding, cook introductions, dish stories, and Bureau forms.
-- **AI writes only the dynamic lines**: photo reactions, Q&A, and Pan reminders, prompted with the style guide plus persona.
+- **Scripted first.** Quests, cook stories, stall minigames, reminders, read-backs, and common cooking questions (per-cook FAQ banks) are written content in `content/`. The game uses a written line whenever one fits. Each trigger is marked `ai: never` (e.g. allergy read-backs) or `ai: allowed`.
+- **AI only where writing can't reach**: free-form questions, photo reactions, and turning what the player says into data entries. Prompts include the style guide plus the character's persona card. If the AI is unavailable, the written lines cover everything except free-form answers.
 - **Content as data.** Dialogue and lessons live in data files, not code, so writers and contributors can edit them.
 
 ## 9. Architecture
@@ -450,22 +480,23 @@ KitchenQuest/
 
 1. **Core:** monorepo layout, `packages/core` with the Cooklang wrapper, ingredient graph, rules engine, and nutrition, with tests. No UI.
 2. **API and data:** Fastify, Postgres schema, auth, recipe sync from `recipes/`, profile and rules endpoints.
-3. **Mentor (text):** the AI provider, the Pan agent with tools and confirmations, and the mentor panel. Onboarding is an interview in text. This comes early because it is the main interface.
-4. **Game shell:** PWA, map, kitchen, cook mode. Uses placeholder art.
+3. **Game shell:** PWA, map, kitchen, cook mode. Uses placeholder art.
+4. **Mentor (text):** the AI provider, the Pan agent with tools and confirmations, and the mentor panel. Onboarding is an interview in text. This comes early because it is the main interface.
 5. **Weekly loop and quests:** plan → market run → cook → log, the quest engine, rewards, and trust.
 6. **Gamified market:** stall minigames, seasonality and cut-guide data.
 7. **Live voice:** the voice service (STT/TTS), VAD, barge-in, and hands-free cook mode.
 8. **AI features:** photo reaction, ingestion, NPC Q&A, rule expansion, and evals.
 9. **Tracker:** targets, reminders (Web Push), weekly view, low-FODMAP journey.
 10. **Content and art:** 9 dishes and their quests, personas, voices, dialogue, PixelLab sprites, style guide.
-11. **Launch hardening:** privacy and export/delete, terms, offline, performance, and a playtest batch.
+11. **Neighborhood Pantry:** mutual-aid sharing of surplus food (§18).
+12. **Launch hardening:** privacy and export/delete, terms, offline, performance, and a playtest batch.
 
 ## 14. Out of scope for v1
 
 - Native app-store apps (a Capacitor wrapper later)
 - Body metrics and weight tracking
 - Social features, leaderboards, and sharing photos publicly
-- Paid currency or subscription
+- Paid currency (never; see §16)
 - Barcode scanning
 - Wearables and health-platform integrations
 - Multiplayer cooking
@@ -474,7 +505,130 @@ KitchenQuest/
 
 1. What does "Reclaim City" mean to you, and which part of it should the reward loop copy?
 2. Which 3 launch countries, and who are the contributors and reviewers?
-3. Monetization direction (free, subscription, or school tie-in), so the data model doesn't block it.
-4. Is age 16+ right, or should it be 18+?
+3. Monetization: decided in §16 (Guild price points still to test: $3 / $6 / $12, with $8 tested as the middle).
+4. Age: accounts 16+, paid plans 18+ (decided). Younger cooks take part through family mode (§19).
 5. Live voice: self-hosted STT/TTS around Qwen via OpenRouter (the default, §7.7), Qwen realtime on Alibaba Cloud, or browser speech?
 6. Is the Pan the mentor, or someone else?
+
+## 16. Monetization and ethics
+
+Sources: `docs/business/2026-11-09-value-chain-monetization.md` (value chain analysis) and `docs/business/2026-11-09-octalysis-audit.md` (Octalysis audit).
+
+**Model.**
+- **Free tier:** everything in "free forever" below, with a capped daily allowance of mentor AI and voice.
+- **Pantry Guild:** a membership with the same features for every member, priced by the member's choice: $3, $6 or $12 a month ($24/$48/$96 a year), with $8 tested as the middle point. It adds a generous AI and voice allowance, cosmetic kitchen items, and supporter credit. A household plan is $10 a month. A free **Bursary** seat goes to anyone who asks, with no proof required.
+- **Contributor share:** 15% of net Guild revenue goes to the contributors and reviewers of each cuisine, tracked per recipe contribution.
+- **The Multiverse School:** cooking courses on a sliding scale ($99–249), and community-organization seat licences (about $2–3 per seat per month).
+- **Founding offer:** $36 for the first year, capped at 500 members.
+- **Never:** ads, affiliate links, brand sponsorships, paid currency, or data deals with insurers or employers.
+
+**Free forever** (must work for a player who has paid nothing, and a test pins it):
+- allergy and diet checks, including AI help creating rules
+- the open recipe canon and cook mode
+- meal logging and gut-health diet journeys
+- export and delete
+- at least one free path to learn every technique
+- unlimited voice for players who need it for accessibility
+
+**Never rules** (Octalysis, binding on every milestone):
+1. Never charge for safety.
+2. Never paywall eating enough.
+3. Never sell progress or a way to skip learning.
+4. No loot boxes or random paid items.
+5. No paid urgency; scarcity only mirrors real seasons.
+6. Never take back anything earned.
+7. Mentors and cooks never sell; the Pan never mentions the Guild unprompted.
+8. No rewards for eating less, for responding to reminders, or for streaks.
+9. No referral schemes or leaderboards.
+10. Community recipes stay free to cook, and their contributors are paid and credited.
+
+**System requirements that follow from this:**
+- An `entitlements` table, not a tier column.
+- A `usage_events` table that records AI and voice usage and cost per call, without storing content. It is used for allowances and unit economics.
+- Machine-readable contributor ids in recipe front matter.
+- **Licenses (decided 2026-11-09):** `content/` (quests, dialogue, Bureau forms, voice guide) is CC BY-SA 4.0, like the recipes. Art and audio stay proprietary to Multiverse Games, so cosmetics can be sold.
+- **Paid plans are 18+ (decided 2026-11-09).** The app remains 16+ for accounts. Family mode (§19, pending analysis) is how younger cooks take part.
+
+## 17. Progression mechanics (adopted from the Octalysis audit)
+
+The mechanics below are adopted. Full designs with guardrails are in `docs/business/2026-11-09-octalysis-audit.md` §3. Each one ships in the milestone named.
+
+| Mechanic | What it is | Milestone |
+|---|---|---|
+| **Technique Toolkit** (knife roll) | Every technique has a tier: Seen (lesson) → Tried (cooked once) → Yours (used in a second dish or cuisine). Tiers are earned for good. | M5 (data model in M3) |
+| **Freshness** (fading skills) | Separately from the tier, each technique has a freshness: Sharp → Warm → Rusty. It fades with time since you last used it, as real muscle memory does. Using it again restores it, and refreshing a rusty technique earns XP. | M5 |
+| **One More Technique** | Each week the Pan offers at most one new technique related to what you already cook. Saying no costs nothing. | M5 |
+| **Same Hands, Different Kitchen** | Transfer quests use a technique you know in another cuisine. | M5 / M10 |
+| **Pantry Frames** | Technique-first templates for improvising from what's in the cupboard. Every ingredient goes through the rules engine. | M5 / M10 |
+| **Margin Notes** | Your own variations on a recipe, kept private and attached to the recipe card. | M5 |
+| **The Keeper's Offering** | At the top trust level with a cook, you may offer one Margin Note to the open canon. It's credited to you and reviewed like any contribution. | M10 |
+| **The Recipe Book** | Your book of everything learned, with your notes and photos. Exportable. | M5 |
+| **A Kitchen That Remembers** | Your kitchen scene shows your history: cookware you've used, souvenirs from cooks. | M3 / M10 |
+| **Cooked for Someone** (Shared Table) | A private record of who you fed. No ranking. | M5 |
+| **Household Kitchen** | Opt-in, small and private: shared plan and pantry for one household. | M9 |
+| **Recipe Postcard** | Send a recipe card to a friend outside the app, with credit to the cook. | M10 |
+| **The Season's Table** | Honest scarcity: produce and dishes follow real local seasons. | M6 |
+| **Travelling Cooks** | Surprise visiting cooks that bring a short quest. | M10 |
+| **Use-It-Up Rescue** | Shame-free rescue recipes for ingredients about to spoil. It leads into the Neighborhood Pantry (§18). | M5 / M11 |
+
+**Freshness guardrails** (reconciling fading skills with "never take back anything earned"):
+- Freshness never lowers a tier, level, XP, stamps or trust. "Yours" stays yours.
+- Fading is slow: a technique counts Warm after about 6 weeks unused and Rusty after about 4 months. Both are tunable data, not code.
+- A Rusty technique is shown as an invitation ("your tadka's gone a bit rusty; fancy a refresher?"), never as a warning or a red badge.
+- At most one refresher suggestion a week, and it shares the "One More Technique" slot, so the Pan never nags twice.
+- No notifications are sent about fading.
+
+## 18. Neighborhood Pantry (mutual aid)
+
+Leftovers and surplus ingredients go to neighbors instead of the bin. It supports the Community and Social Justice values, and Use-It-Up Rescue leads straight into it.
+
+- **The Pan suggests; the player approves.** When the pantry or a cooked batch has more than the player will eat before it spoils, the Pan offers: "Three portions of dal and they'll keep till Friday. Want to offer them to the neighborhood?" One tap posts it. **Nothing is ever posted automatically**, because a post reveals the player's area and what they eat.
+- **Each post** lists the item, portions, "made on / keeps until" date, pickup window, and an approximate area. The area is a neighborhood or a grid cell of about 1 km, never an address. The exact pickup spot is shared only after the poster accepts a request.
+- **Allergens are attached automatically.** A cooked dish posts with its ingredient list and allergen tags from the rules engine. Requesters see their own ✅/⛔/❓ status for the post using their own rules, computed on their side. The poster sees nothing about anyone's rules. The standard disclaimer applies.
+- **Food safety:** rules by food type cover what can be shared: cooked dishes within a set number of hours or days, no raw meat or fish, no home-canned goods, and labeled "keeps until" dates. A "check before you eat" note links to local food-safety guidance. Sharing rules vary by region; launch regions get a legal check (§9, milestone 12).
+- **Safety and moderation:** reporting and blocking, rate limits on posts and requests, and no free-text contact details in posts. In-app requests reveal a first name or handle only.
+- **Community fridges and food banks:** a map of local community fridges and food banks, as an alternative to person-to-person sharing. External groups (e.g. Buy Nothing, Olio) get a "share outside the app" text the player can copy. We don't post to other platforms on the player's behalf.
+- **Rewards (Octalysis):** sharing is recorded in Cooked for Someone and gives a small, capped amount of XP. There is no leaderboard and no "top sharer". It is always free.
+- **Data:** posts expire and are deleted after their pickup window. Location is stored only at grid-cell precision.
+
+## 19. Family Mode
+
+Full analysis: `docs/business/2026-11-09-family-mode.md`.
+
+- **Who:** an adult (18+) runs a Family Kitchen. Children take part only as **child cook profiles** inside it: no child accounts, emails, birthdays or login. Accounts stay 16+.
+- **What:**
+  - **Cook Together quests** split each recipe's steps by age band (3–5, 6–8, 9–12, 13–15). Recipes gain a family task block with hazard tags, checked automatically: hot oil is always adult-only, and knives and heat are not allowed below the 9–12 band.
+  - A **family recipe book** records who taught whom.
+  - A weekly **Family Table** dish, with no streak.
+  - **"Try It" quests** reward handling or tasting a food, never finishing it.
+  - **Kitchen-safety cards** by age band, written as reviewed content, never AI advice.
+- **Children and the AI:** children never talk to the AI.
+  - In Family Table mode the Pan uses scripted lines only.
+  - Server speech-to-text is off. A few fixed commands ("next", "repeat", "timer") are recognised on the device. There is no text box, and nothing is kept.
+  - Child nicknames never enter a prompt; a child appears as "Helper N" with an age band.
+- **Data stored about a child:** nickname, age band, a preset avatar, the child's skill progress, "cooked together" records, and allergy rules that the parent enters and confirms (sealed like adult rules).
+  - **Never stored:** intake or nutrition tracking, photos of the child, voice, or location.
+  - **Photos:** food only. An on-device face check blocks uploads that show a face (pending legal review of the biometric question).
+- **Pricing (spec §16):**
+  - **Free:** one adult plus up to 4 child profiles, with per-child allergy rules, safety tasks and the printable family book.
+  - **Household Guild:** $6 / $10 / $16 a month (choose your price), for up to 4 accounts aged 16+ and 6 child profiles.
+  - **Gift memberships** never auto-renew.
+  - **Print-on-demand family books**, sold by us, with no affiliate links.
+  - A **Junior Kitchen Club** kit through The Multiverse School, holding no student data.
+- **Never** (on top of the §16 never rules): no purchase prompts shown in child-facing views, no pester-power mechanics, no streaks.
+- **Schedule:**
+  - Data model reserved in M5; built in a new **M13** after launch.
+  - The Pan's Family Table mode is designed into M3 and M7 so it isn't bolted on later.
+  - Legal review before launch is required (counsel scoping call; the report lists 11 questions).
+
+## 20. Security and privacy stance
+
+- **Who it's for:** individuals managing their own food, allergies and diet. Kitchen Quest is not a clinical tool. It doesn't receive data from, or send data to, clinicians, health plans or employers. The one exception is a player-initiated share link (C-26), which the player controls.
+- **Not a HIPAA product:** the product rules in `docs/compliance/2026-11-09-health-data-compliance.md` (P-1–P-14) keep it outside HIPAA. Any B2B deal that would bring in protected health information needs a separate, deliberate decision. We never claim "HIPAA compliant".
+- **Treated as health data:** allergies, diet rules, diet journeys, symptoms, meal logs, accessibility voice needs, and the photos and transcripts that may reveal them.
+  - Collected only with separate, tap-based consent.
+  - Sealed with per-user keys.
+  - Never sent to the AI without `ai_health` consent.
+  - Never used for advertising or training.
+  - Exportable and deletable at any time, including from backups via crypto-shredding.
+- **Living checklist:** every security and privacy requirement is tracked in `docs/compliance/ROADMAP.md`. Standing rule: anything a health-data or privacy law requires is implemented when found, without waiting for approval.

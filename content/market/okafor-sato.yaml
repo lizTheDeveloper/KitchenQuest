@@ -1,0 +1,473 @@
+# Mr. Okafor-Sato: tofu & legume merchant. Also keeps a shelf of tortillas, because Doña
+# Marisol asked nicely, and a sack of short-grain rice, because Haruka insisted.
+# Calm, exacting, quietly funny. A small nod is a standing ovation.
+# Voice: docs/style/voice.md §5.
+# PRONOUNS: never gendered. Write "Okafor-Sato" (or "the merchant"). Not he/she/his/her.
+# NOTE for the founder: the honorific "Mr." is itself gendered; consider whether the display
+# name should drop it (e.g. "Okafor-Sato" or a neutral title). Kept here as established.
+
+id: okafor-sato
+name: "Mr. Okafor-Sato"
+stall: tofu_legumes
+art: tofu
+
+persona:
+  - "Tofu and legume merchant. Stands over a tray of tofu so fresh it's still warm. Calm, exacting, quietly funny."
+  - "Thinks of every tofu and bean as an employee with a job: 'Silken, soft, firm, extra-firm. Each one has a job. Most people hire the wrong one.'"
+  - "Speaks in short, complete sentences, one fact at a time, then stops. Understatement is the joke. A small nod is a standing ovation."
+  - "Knows soaking and cooking times, which beans are dangerous undercooked, how to press, freeze and store tofu, and which rice holds an onigiri together."
+  - "Keeps a shelf of tortillas for Doña Marisol and a sack of short-grain rice for Haruka, and is fond of both cooks. Never referred to with gendered pronouns."
+
+triggers:
+  greet:
+    ai: allowed
+    when: The player opens the stall.
+    lines:
+      - "Okafor-Sato stands over a tray of tofu so fresh it's still warm. 'Silken, soft, firm, extra-firm. Each one has a job. Most people hire the wrong one.'"
+      - "Good morning. Tell me the dish. I will tell you the tofu."
+      - "Welcome. The lentils are excellent today. The lentils are excellent every day. That is their great virtue."
+      - "Beans on the left. Tofu in the middle. Tortillas on the shelf, because Doña Marisol asked nicely. Rice in the sack, because Haruka did not ask nicely."
+      - "Ask me about beans. I've been waiting all day."
+      - "Good. A shopper with a plan. Or without one. Both are welcome. One leaves with the right tofu."
+  correct:
+    ai: allowed
+    when: Correct answer at the stall.
+    lines:
+      - "Okafor-Sato gives a small, satisfied nod — which from a tofu master is a standing ovation."
+      - "Correct."
+      - "Yes. You may have a sample."
+      - "Good. That tofu will be very happy in your kitchen."
+  wrong:
+    ai: allowed
+    when: Wrong answer at the stall.
+    lines:
+      - "Okafor-Sato says nothing for a moment. Then, kindly: 'No.'"
+      - "A common hire. The wrong one."
+      - "Not that one. Let me explain."
+      - "Not that one. The tofu would have resigned."
+  idle:
+    ai: allowed
+    when: The player lingers.
+    lines:
+      - "Take your time. Tofu does not rush. Beans even less."
+      - "If you're unsure, tell me what you're cooking. The answer is in the dish."
+      - "Okafor-Sato straightens the tortillas. They were already straight."
+      - "Okafor-Sato waits. Okafor-Sato is excellent at waiting. So is tofu."
+  out_of_stock:
+    ai: never
+    when: An item isn't available; a rules-checked substitute is offered.
+    vars:
+      item: "the missing item"
+      swap: "the substitute"
+    lines:
+      - "No {item} today. {swap} will do that job. Checked against your rules, and labelled."
+      - "Out of {item}. Take {swap}. It is a good employee. Labelled, and checked."
+      - "We have no {item} today. {swap} will do the work. Checked and labelled."
+      - "Out of {item}. {swap} instead. A good substitute, checked against your rules."
+  farewell:
+    ai: allowed
+    when: The player leaves.
+    lines:
+      - "Press the firm tofu. Never press the silken. It will not forgive you."
+      - "Goodbye. Rinse the lentils. Respect the kidney beans."
+      - "Come back. Bring Doña Marisol's regards. Take some tortillas."
+      - "Goodbye. Change the tofu's water daily. It notices."
+  medical:
+    ai: never
+    when: Medical or diet-therapy question.
+    lines:
+      - "That one's for a doctor or a dietitian. I sell beans, not diagnoses. Once they've told you what suits you, I'll tell you which bean to buy."
+
+games:
+  tofu_match: "Match the tofu to the dish."
+  legume_lore: "Dried vs canned, soaking, cooking times, safety."
+  storage: "Keeping tofu, beans and grains."
+
+questions:
+  - id: os-mapo-tofu
+    game: tofu_match
+    prompt: "Mapo tofu: cubes simmered gently in a fiery chilli-bean sauce. Which tofu?"
+    contains: [tofu]
+    options:
+      - text: "Soft tofu"
+        correct: true
+        reaction: "Soft tofu, cubed and simmered gently — that wobbly, custardy texture against the sauce is the whole point. Many cooks slide the cubes into hot salted water first so they hold together."
+      - text: "Extra-firm tofu"
+        correct: false
+        reaction: "It works the way a brick works as a pillow. Mapo wants soft tofu, silky against the sauce."
+      - text: "Tofu puffs"
+        correct: false
+        reaction: "Tofu puffs drink broth beautifully — hot pot, noodle soups. For mapo, soft tofu."
+      - text: "Tempeh"
+        correct: false
+        reaction: "Tempeh's a fine thing, but it isn't tofu at all — it's fermented whole soybeans. Mapo wants soft tofu."
+    explain: "Mapo tofu is traditionally made with soft (or silken-soft) tofu, simmered gently so it stays custardy against the sauce."
+    # REVIEW: Sichuan cooks use soft tofu (嫩豆腐) for mapo; some prefer medium. Fine as written.
+
+  - id: os-crispy-tofu
+    game: tofu_match
+    prompt: "Crispy pan-fried tofu cubes. Which do you buy?"
+    contains: [tofu]
+    options:
+      - text: "Extra-firm, pressed"
+        correct: true
+        reaction: "Extra-firm, pressed 15–30 minutes under something heavy to squeeze out water, then cut and fried in a hot pan. A dusting of cornstarch gives extra crunch."
+      - text: "Silken"
+        correct: false
+        reaction: "Silken tofu in a frying pan is not a recipe. It is an incident report. Extra-firm, pressed."
+      - text: "Soft"
+        correct: false
+        reaction: "Soft tofu falls apart before it ever crisps. Extra-firm, pressed, is your friend."
+      - text: "Whichever is cheapest"
+        correct: false
+        reaction: "A sound principle for lentils. For crispy tofu, the job decides. Extra-firm, pressed."
+    explain: "Extra-firm tofu holds its shape and, once pressed to remove water, browns and crisps well in a hot pan."
+
+  - id: os-smoothie-tofu
+    game: tofu_match
+    prompt: "A creamy smoothie, or a dairy-free chocolate pudding. Which tofu?"
+    contains: [tofu]
+    options:
+      - text: "Silken"
+        correct: true
+        reaction: "Silken blends completely smooth — no curds, just cream. Bonus: silken in an aseptic box keeps unopened in the cupboard for months."
+      - text: "Extra-firm"
+        correct: false
+        reaction: "Extra-firm blends into something grainy, like a very determined hummus. Silken."
+      - text: "Smoked tofu"
+        correct: false
+        reaction: "Smoked chocolate pudding is a choice. It is not this choice. Silken."
+      - text: "Tofu puffs"
+        correct: false
+        reaction: "Tofu puffs are fried and hollow. In a blender they become a sad, oily foam. Silken."
+    explain: "Silken tofu is unpressed, with a smooth custard texture, so it blends into creamy smoothies, dressings and puddings."
+
+  - id: os-never-press
+    game: tofu_match
+    prompt: "Which tofu should you never press?"
+    contains: [tofu]
+    options:
+      - text: "Silken"
+        correct: true
+        reaction: "Never press silken; it will not forgive you. It's already as dense as it will ever be. Press firm and extra-firm."
+      - text: "Extra-firm"
+        correct: false
+        reaction: "Extra-firm is the one that most benefits from pressing. Silken is the one to leave alone."
+      - text: "Firm"
+        correct: false
+        reaction: "Firm likes a press before frying. It's silken that collapses into a puddle of disappointment."
+      - text: "All tofu must be pressed"
+        correct: false
+        reaction: "A popular rule. An incorrect one. Silken and soft are never pressed."
+    explain: "Silken tofu is too delicate to press and falls apart; press firm or extra-firm tofu to remove water before frying or baking."
+
+  - id: os-freeze-tofu
+    game: storage
+    prompt: "What happens if you freeze a block of firm tofu, then thaw it?"
+    contains: [tofu]
+    options:
+      - text: "It turns spongier and chewier, and soaks up marinade better."
+        correct: true
+        reaction: "Yes. The water inside freezes into ice crystals, which leave little pockets. Thaw, squeeze, marinate. Some people freeze tofu on purpose for exactly this."
+      - text: "It becomes unsafe to eat."
+        correct: false
+        reaction: "Frozen tofu is perfectly safe. It just changes texture: spongier, chewier, thirstier."
+      - text: "Nothing at all."
+        correct: false
+        reaction: "Quite a lot happens. Ice crystals leave pockets, so it goes spongy and chewy. Useful, not a problem."
+      - text: "It turns into silken tofu."
+        correct: false
+        reaction: "The opposite. It gets firmer and more porous. Tofu does not reverse its career."
+    explain: "Freezing firm tofu forms ice crystals that leave pockets when thawed, giving it a chewier, spongier texture that absorbs marinades well."
+
+  - id: os-opened-tofu
+    game: storage
+    prompt: "You've used half a block of tofu. How do you keep the rest?"
+    contains: [tofu]
+    options:
+      - text: "In a container, covered with fresh water, in the fridge; change the water daily and use within 3–5 days."
+        correct: true
+        reaction: "Correct. Fresh water keeps it moist and fresh. If it smells sour or feels slimy, it's finished its shift."
+      - text: "On a plate on the counter."
+        correct: false
+        reaction: "Please don't leave tofu out. It's a fresh protein, like milk. Fridge, covered in water."
+      - text: "Wrapped in paper in the cupboard."
+        correct: false
+        reaction: "Only unopened silken in an aseptic box lives in the cupboard. Opened tofu goes in the fridge, in water."
+      - text: "In its original water, unchanged, for two weeks."
+        correct: false
+        reaction: "Two weeks is a long time for tofu to sit in its own bathwater. Fresh water daily, use within 3–5 days."
+    explain: "Store leftover tofu submerged in fresh water in a covered container in the fridge, change the water daily, and use it within about 3–5 days."
+
+  - id: os-lentil-soak
+    game: legume_lore
+    prompt: "Split red lentils for a dal. Do they need soaking overnight?"
+    contains: [lentil]
+    options:
+      - text: "No — rinse and cook; they're done in 20–30 minutes."
+        correct: true
+        reaction: "Split lentils are small and thin; they cook quickly without soaking. Whole dried beans are different: soak 8–12 hours, or quick-soak."
+      - text: "Yes, at least overnight."
+        correct: false
+        reaction: "Not harmful, just unnecessary — they'll go mushy fast. Split lentils cook in 20–30 minutes from dry. Save overnight soaks for whole beans."
+      - text: "Yes, for three days."
+        correct: false
+        reaction: "After three days you don't have lentils, you have a science fair. Rinse and simmer — 20–30 minutes."
+      - text: "Only in hot water."
+        correct: false
+        reaction: "No soaking at all. Rinse until the water runs clearer, then cook."
+    explain: "Split lentils cook in about 20–30 minutes without soaking; red lentils soften fastest, while whole green or brown lentils hold their shape."
+
+  - id: os-kidney-beans
+    game: legume_lore
+    prompt: "Dried red kidney beans in a slow cooker on low, all day. Safe?"
+    contains: [kidney_bean]
+    options:
+      - text: "Only if you soak them and then boil them hard for at least 10 minutes first."
+        correct: true
+        reaction: "Correct. Raw kidney beans contain a natural toxin that a hard boil destroys; a low slow cooker may never get hot enough. Boil, then slow-cook."
+      - text: "Yes, low and slow is gentlest."
+        correct: false
+        reaction: "Gentle is the problem. A slow cooker on low can warm kidney beans without destroying their toxin, and undercooked kidney beans can make you quite ill. Boil hard for 10 minutes first."
+      - text: "Yes, if you add salt."
+        correct: false
+        reaction: "Salt seasons; it doesn't detoxify. A hard 10-minute boil does that."
+      - text: "Kidney beans are always unsafe."
+        correct: false
+        reaction: "Properly cooked, they're perfectly safe and delicious. Soak, boil hard 10 minutes, then cook until tender. Canned ones are already cooked."
+    explain: "Raw or undercooked red kidney beans contain phytohaemagglutinin, which is destroyed by boiling at 100°C for at least 10 minutes; slow cookers on low may not get hot enough."
+
+  - id: os-quick-soak
+    game: legume_lore
+    prompt: "You forgot to soak your chickpeas last night. Fastest proper fix?"
+    contains: [chickpea]
+    options:
+      - text: "Quick-soak: cover with water, boil 2 minutes, turn off, cover and leave 1 hour, then drain and cook."
+        correct: true
+        reaction: "Yes. Almost as good as overnight. Or use a pressure cooker and skip soaking entirely."
+      - text: "Soak them in the freezer."
+        correct: false
+        reaction: "Frozen water doesn't soak anything. It just makes chickpea ice. Quick-soak: boil 2 minutes, rest an hour."
+      - text: "Cook them for twenty minutes as they are."
+        correct: false
+        reaction: "Unsoaked chickpeas take hours on the stove. Twenty minutes gives you very hot gravel. Quick-soak first."
+      - text: "Use cold water and a lot of hope."
+        correct: false
+        reaction: "Hope has a poor soaking record. Boil two minutes, rest an hour."
+    explain: "To quick-soak whole beans, boil them in plenty of water for 2 minutes, then cover and let them stand for 1 hour before draining and cooking."
+
+  - id: os-salted-soak
+    game: legume_lore
+    prompt: "Why might you add salt to the water when soaking dried beans?"
+    contains: [bean]
+    options:
+      - text: "It helps soften the skins and season the beans, so they cook more evenly and burst less."
+        correct: true
+        reaction: "Yes. A salted soak — a brine, really — softens the skins. Rinse after soaking. Doña Marisol salts at the end of cooking; both can be true in one pot."
+      - text: "To kill the beans."
+        correct: false
+        reaction: "They're dried beans. They've accepted their situation. Salt softens the skins."
+      - text: "It makes them cook faster by boiling hotter."
+        correct: false
+        reaction: "A soaking pinch doesn't change boiling point noticeably. It's about the skins."
+      - text: "You must never salt beans before they're cooked."
+        correct: false
+        reaction: "A famous rule, mostly retired. Salting the soak softens skins rather than toughening them."
+    explain: "Soaking dried beans in lightly salted water (a brine) softens the skins and seasons the beans, helping them cook evenly with fewer burst skins."
+    # REVIEW: commonly cited ratio ~1 tbsp table salt per 1-1.5 L water (Cook's Illustrated-style brine). Add a ratio to item_tips if wanted.
+
+  - id: os-rinse-canned
+    game: legume_lore
+    prompt: "Why rinse canned beans before using them?"
+    contains: [bean]
+    options:
+      - text: "It washes off some of the salty, starchy liquid, lowering the sodium and giving a cleaner taste."
+        correct: true
+        reaction: "Right. Drain, rinse, done. Or keep the chickpea liquid for aquafaba, if you're the sort of person who keeps things."
+      - text: "To remove the tin flavour from the can."
+        correct: false
+        reaction: "Partly true in spirit. The real reason is the salty, starchy liquid. Rinse it off."
+      - text: "Canned beans are raw."
+        correct: false
+        reaction: "Canned beans are fully cooked. Rinsing is about the liquid, not safety."
+      - text: "You shouldn't; it removes the protein."
+        correct: false
+        reaction: "The protein's in the bean, not the liquid. Rinse freely."
+    explain: "Rinsing canned beans removes some of the salty canning liquid, noticeably reducing sodium; the beans themselves are already cooked."
+
+  - id: os-old-beans
+    game: legume_lore
+    prompt: "Your black beans have been simmering for four hours and are still hard. Most likely reason?"
+    contains: [bean]
+    options:
+      - text: "The beans are old."
+        correct: true
+        reaction: "Most likely. Dried beans keep drying out on the shelf, and very old ones may never fully soften. Buy from a busy shop. Hard water and altitude also slow them."
+      - text: "You didn't stir them enough."
+        correct: false
+        reaction: "Stirring doesn't soften beans. Time does, if they're young enough. These are probably old."
+      - text: "They needed more salt at the start."
+        correct: false
+        reaction: "Salt affects the skins, not the core. Hard cores usually mean old beans."
+      - text: "Beans are meant to be crunchy."
+        correct: false
+        reaction: "Not these. Frijoles de olla should be creamy inside. Old beans are the usual culprit."
+    explain: "Old dried beans lose moisture and can take far longer to soften or stay hard, as can beans cooked in hard water or at altitude."
+
+  - id: os-tofu-making
+    game: legume_lore
+    prompt: "How is tofu made?"
+    contains: [tofu]
+    options:
+      - text: "Soy milk is curdled with a coagulant (such as nigari or calcium sulfate), and the curds are pressed into blocks."
+        correct: true
+        reaction: "Correct. Much like cheese, but from soy milk. Less pressing makes silken and soft; more pressing makes firm and extra-firm."
+      - text: "Soybeans are mashed and baked."
+        correct: false
+        reaction: "That would be a soybean cake, and not a nice one. Tofu is soy milk, curdled and pressed."
+      - text: "Rice is fermented and pressed."
+        correct: false
+        reaction: "Rice has many careers; this isn't one of them. Tofu starts as soy milk."
+      - text: "Soybeans are fermented whole."
+        correct: false
+        reaction: "That's tempeh. Tofu is curdled soy milk."
+    explain: "Tofu is made by curdling soy milk with a coagulant such as nigari (magnesium chloride) or calcium sulfate, then pressing the curds; how much it's pressed sets the firmness."
+
+  - id: os-onigiri-rice
+    game: tofu_match
+    prompt: "Haruka's onigiri. Which rice from the sack?"
+    contains: [rice]
+    options:
+      - text: "Japanese short-grain (or a medium-grain like Calrose)"
+        correct: true
+        reaction: "Short-grain (or Calrose) sticks together — that's the point of onigiri. Haruka would nod. Haruka rarely nods."
+      - text: "Basmati"
+        correct: false
+        reaction: "Basmati is magnificent and long and bred to stay separate. In an onigiri, it falls apart in your hand. Short-grain."
+      - text: "Jasmine"
+        correct: false
+        reaction: "Fragrant, lovely, and not sticky enough. Short-grain for onigiri."
+      - text: "Parboiled long-grain"
+        correct: false
+        reaction: "Parboiled rice is designed never to stick to anything, including other rice. Short-grain."
+    explain: "Japanese short-grain and medium-grain rices are higher in amylopectin, the starch that makes cooked grains cling together, so they hold an onigiri's shape."
+
+  - id: os-yuba
+    game: legume_lore
+    prompt: "What is yuba?"
+    contains: [tofu]
+    options:
+      - text: "The thin skin that forms on top of heated soy milk, lifted off and used fresh or dried."
+        correct: true
+        reaction: "Yes. Tofu skin. Delicate, rich, wonderful in soups and rolls. A by-product of patience."
+      - text: "A Japanese bean."
+        correct: false
+        reaction: "Not a bean, a skin. It forms on heated soy milk, the way a skin forms on hot milk."
+      - text: "Seaweed."
+        correct: false
+        reaction: "That's nori, kombu, wakame. Yuba is the skin on heated soy milk."
+      - text: "Fried tofu."
+        correct: false
+        reaction: "Fried tofu is aburaage or tofu puffs. Yuba is a skin lifted from soy milk."
+    explain: "Yuba is the protein-rich film that forms on the surface of heated soy milk; it's lifted off and eaten fresh or dried."
+
+  - id: os-foam
+    game: legume_lore
+    prompt: "Foam rises on your pot of simmering beans. What is it, and what do you do?"
+    contains: [bean]
+    options:
+      - text: "Harmless proteins and starches; skim it if you like a clear broth, or leave it."
+        correct: true
+        reaction: "Correct. It's harmless. Skimming is about looks. A spoonful of oil also calms it."
+      - text: "Toxins; you must remove every bit."
+        correct: false
+        reaction: "It's mostly protein and starch from the beans. Harmless. Skim if you like the look."
+      - text: "A sign the beans are spoiled."
+        correct: false
+        reaction: "Fresh beans foam too. It's normal. Spoiled beans smell sour before they're cooked."
+      - text: "Soap from the colander."
+        correct: false
+        reaction: "Unless you washed the colander very badly, no. It's bean protein."
+    explain: "The foam on simmering beans is mainly protein and starch released from the beans; it's harmless and can be skimmed for appearance."
+
+item_tips:
+  silken_tofu:
+    pick: "For blending: smoothies, dressings, puddings. Aseptic boxes keep unopened in the cupboard for months."
+    store: "Once opened: fridge, covered, 2–3 days. Never press it."
+  soft_tofu:
+    pick: "For simmering gently: soups, mapo tofu. Handle with a spoon, not tongs."
+    store: "Opened: in fresh water in the fridge, change daily, 3–5 days."
+  firm_tofu:
+    pick: "The all-rounder: stir-fries, scrambles, baking. Press 15 minutes before frying."
+    store: "Opened: in fresh water in the fridge, change daily, 3–5 days. Freeze for a chewier texture."
+  extra_firm_tofu:
+    pick: "For frying and grilling. Press 15–30 minutes; dust with cornstarch for crunch."
+    store: "Opened: in fresh water in the fridge, change daily, 3–5 days."
+  tofu_puffs:
+    pick: "Light, golden, hollow. Drop into soups and hot pot; they drink the broth."
+    store: "Fridge, sealed; freeze for longer."
+  yuba:
+    pick: "Fresh: pale, pliable sheets. Dried: brittle sticks or sheets; soak before using."
+    store: "Fresh in the fridge for a few days; dried in a cool cupboard."
+  dried_beans:
+    pick: "Glossy, even, few broken ones. Old beans take ages to soften — buy from a shop that sells lots of them."
+    store: "Airtight, cool, dark. Best within a year. Soak 8–12 hours or quick-soak."
+  canned_beans:
+    pick: "No dents along the seams, no bulges. 'No salt added' if you'd like to season them yourself."
+    store: "Cupboard until the date. Opened: transfer to a container, fridge, 3–4 days."
+  black_bean:
+    pick: "Shiny, uniform, deep black. Cooks from dry in about 2 hours; faster if soaked."
+    store: "Dried: airtight, up to a year. Cooked: in their broth, fridge 4–5 days, freezer months."
+  kidney_bean:
+    pick: "Glossy, unbroken. Soak, then boil hard for at least 10 minutes before simmering."
+    store: "Dried: airtight. Cooked: fridge 4–5 days."
+  chickpea:
+    pick: "Dried: cream-coloured, even, not wrinkled. Soak overnight; simmer 1–2 hours."
+    store: "Keep canned liquid (aquafaba) in the fridge for 2–3 days if you want it."
+  lentils:
+    pick: "Bright, even colour, not dusty, no tiny holes. Rinse until the water runs clearer."
+    store: "Airtight jar, up to a year."
+  red_lentil:
+    pick: "Bright orange-pink split lentils. No soaking; 15–20 minutes. They collapse into a purée."
+    store: "Airtight jar."
+  moong_dal:
+    pick: "Small, pale yellow split mung beans. No soaking; about 20 minutes."
+    store: "Airtight jar."
+  toor_dal:
+    pick: "Yellow split pigeon peas. Rinse; 30–40 minutes on the stove, or the pressure cooker."
+    store: "Airtight jar. Some are coated in oil; rinse well."
+  rice:
+    pick: "For onigiri and sushi: Japanese short-grain or Calrose medium-grain. Short, round, shiny grains."
+    store: "Airtight container, cool and dry. Cooked rice: cool quickly, fridge within 2 hours, eat within a day or two."
+  nori:
+    pick: "Dark, crisp, sealed. Toasted (yaki nori) for onigiri."
+    store: "Keep it airtight — nori goes limp in damp air like a sad flag."
+  miso:
+    pick: "White (shiro) is mild and sweet; red (aka) is stronger and saltier."
+    store: "Fridge, sealed. Keeps for months."
+  corn_tortilla:
+    pick: "Check the date. Fresh ones from a tortillería are best."
+    store: "Fridge once opened; warm on a dry hot pan until they flex and puff a little."
+
+faq:
+  - q: ["how do i press tofu", "press tofu without a press", "tofu press"]
+    a: "Wrap the block in a clean towel, put it on a plate, and set something heavy on top — a pan, a few cans, a large book you've been meaning to read. Fifteen to thirty minutes. Never silken."
+  - q: ["can i eat tofu raw", "is tofu cooked", "raw tofu safe"]
+    a: "Yes. Packaged tofu has already been cooked during making. Eat it cold in salads or with soy sauce and ginger. Keep it in the fridge and respect the date."
+  - q: ["is tofu gluten free", "tofu gluten"]
+    a: "Plain tofu is soybeans, water and a coagulant, so yes. Flavoured, marinated or fried tofu may contain soy sauce or flour, which often means wheat. Check the label; your rules will flag it."
+    tags: [safety]
+  - q: ["what's the difference between silken and soft tofu", "silken vs soft"]
+    a: "Silken is never cut into curds or pressed: one smooth custard. Soft is curdled and pressed a little: delicate but with a slight curd. Silken for blending; soft for simmering."
+  - q: ["dried or canned beans", "canned vs dried beans", "are canned beans ok"]
+    a: "Both are good. Canned saves time and is already cooked; rinse it. Dried costs much less per serving and gives you a broth. Keep both. That is the merchant's answer and also the correct one."
+  - q: ["do i need to soak beans", "soak beans", "soaking"]
+    a: "Lentils and split peas: no. Whole beans: soaking shortens cooking and helps them cook evenly, but black beans and pinto beans can cook from dry if you have time. Red kidney beans: soak, then boil hard for 10 minutes. Always."
+    tags: [safety]
+  - q: ["can i freeze cooked beans", "freeze beans"]
+    a: "Yes. Cool them, then freeze in their cooking liquid in portions. They keep well for a few months. Thaw in the fridge or straight into a pot."
+    tags: [storage]
+  - q: ["why do beans make you gassy", "beans gas"]
+    a: "Beans contain fibres your gut bacteria enjoy enthusiastically. Eating beans regularly usually helps. Soaking and rinsing helps a little. Beyond that, a doctor, not a merchant."
+  - q: ["how do i warm tortillas", "tortillas", "heat tortillas"]
+    a: "A dry, hot pan or comal. About 30 seconds a side, until they flex and puff a little. Stack them in a clean towel to keep them warm and soft. Doña Marisol taught me that, and then watched me do it three times."
