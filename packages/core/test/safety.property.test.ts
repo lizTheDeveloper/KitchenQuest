@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import { DISCLAIMER, IngredientGraph, SEVERE, check, isActive, parseRecipe } from '../src/index';
+import { DISCLAIMER, IngredientGraph, SEVERE, check, parseRecipe } from '../src/index';
 import type { IngredientData, Rule, Severity, Substitution } from '../src/index';
 
 /**
@@ -21,6 +21,7 @@ const NUM_RUNS = 500;
 const ALL_IDS = data.ingredients.map((n) => n.id);
 const SEVERITIES: Severity[] = ['anaphylactic', 'allergy', 'intolerance', 'preference'];
 const SEVERE_SEVERITIES = SEVERITIES.filter((s) => SEVERE.has(s));
+const MILD_SEVERITIES = SEVERITIES.filter((s) => !SEVERE.has(s));
 
 /** Every id reachable from `id` over isA ∪ contains, including `id` itself (pathTo(x, x) is [x]). */
 function ancestors(id: string): string[] {
@@ -123,13 +124,16 @@ const anyRecipeArb = fc
 
 /**
  * Seed substitutions are few, so uniform picks rarely exercise them. Bias recipe ids toward
- * substitution sources and rule targets toward what substitution replacements reach, so swap
- * candidates are regularly offered and regularly rejected.
+ * substitution sources, and rule targets toward what substitution replacements reach, the
+ * `unsafeFor` ids, and wheat and fish (whose swaps, tamari and shio kombu, are label-dependent).
+ * That way swap candidates are regularly offered and regularly rejected for each reason.
  */
 const SUB_FROM = [...new Set(subs.map((s) => s.from))];
-const SUB_TO_REACH = [...new Set(subs.flatMap((s) => ancestors(s.to)))];
+const SUB_TARGET_BIAS = [
+  ...new Set([...subs.flatMap((s) => [...ancestors(s.to), ...(s.unsafeFor ?? [])]), 'wheat', 'fish']),
+];
 const recipeIdArb = fc.oneof(fc.constantFrom(...ALL_IDS), fc.constantFrom(...SUB_FROM));
-const targetIdArb = fc.oneof(fc.constantFrom(...ALL_IDS), fc.constantFrom(...SUB_TO_REACH));
+const targetIdArb = fc.oneof(fc.constantFrom(...ALL_IDS), fc.constantFrom(...SUB_TARGET_BIAS));
 const targetIdsArb = fc.uniqueArray(targetIdArb, { minLength: 1, maxLength: 3 });
 const kindArb = fc.constantFrom<Rule['target']['kind']>('ingredient', 'category', 'component');
 
@@ -150,9 +154,9 @@ const ruleBodyArb = (severityArb: fc.Arbitrary<Severity>): fc.Arbitrary<Omit<Rul
     );
   });
 
-const activeRulesArb = (day: number, maxLength: number): fc.Arbitrary<Rule[]> =>
+const activeRulesArb = (day: number, maxLength: number, severities = SEVERITIES): fc.Arbitrary<Rule[]> =>
   fc
-    .array(fc.record({ body: ruleBodyArb(fc.constantFrom(...SEVERITIES)), phase: activePhaseArb(day) }), {
+    .array(fc.record({ body: ruleBodyArb(fc.constantFrom(...severities)), phase: activePhaseArb(day) }), {
       maxLength,
     })
     .map((rs) => rs.map(({ body, phase }, i) => withPhase({ id: `rule-${i}`, ...body }, phase)));
@@ -199,17 +203,40 @@ describe('safety properties (seed graph)', () => {
         const result = check(recipe, rules, graph, subs, date);
 
         expect(result.status).not.toBe('ok');
+        // ...and the reason is the avoid rule itself, on an included ingredient that reaches it.
+        expect(
+          result.findings.some(
+            (f) =>
+              f.ruleId === rule.id &&
+              f.kind === 'match' &&
+              f.ingredientId !== null &&
+              ids.includes(f.ingredientId) &&
+              graph.pathTo(f.ingredientId, target) !== null,
+          ),
+        ).toBe(true);
 
         // The brief asks this when the status is `swap`; checking every offered swap, whatever the
         // overall status, is stronger (a swap can sit beside an unverified or blocked finding).
-        // Targets of every active restricting rule (prefer and per-day limits produce no findings).
-        const activeTargets = rules
-          .filter((r) => isActive(r, date))
+        // Every generated rule is active by construction. Prefer rules and per-day limits produce
+        // no findings, so only avoid and per-serving limit targets restrict a swap.
+        const byId = new Map(rules.map((r) => [r.id, r]));
+        const restrictingTargets = rules
           .filter((r) => r.type === 'avoid' || (r.type === 'limit' && r.limit?.per === 'serving'))
           .flatMap((r) => r.target.ids);
         for (const f of result.findings) {
           if (!f.swap) continue;
-          for (const t of activeTargets) expect(graph.pathTo(f.swap.toId, t)).toBeNull();
+          const toId = f.swap.toId;
+          // The replacement reaches no restricting target...
+          for (const t of restrictingTargets) expect(graph.pathTo(toId, t)).toBeNull();
+          // ...is not itself "check the label"...
+          expect(graph.get(toId).labelDependent).not.toBe(true);
+          // ...and is not marked unsafe for any target of a rule that hit this ingredient.
+          const sub = subs.find((s) => s.from === f.ingredientId && s.to === toId);
+          expect(sub).toBeDefined();
+          const hitTargets = result.findings
+            .filter((g) => g.ingredientId === f.ingredientId && g.ruleId !== undefined)
+            .flatMap((g) => byId.get(g.ruleId!)!.target.ids);
+          for (const unsafe of sub!.unsafeFor ?? []) expect(hitTargets).not.toContain(unsafe);
         }
       }),
       { numRuns: NUM_RUNS },
@@ -239,6 +266,29 @@ describe('safety properties (seed graph)', () => {
         const result = check(recipe, rules, graph, subs, iso(day));
         expect(result.severe).toBe(true);
         expect(result.disclaimer).toBe(DISCLAIMER);
+      }),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('no active severe rule means no disclaimer', () => {
+    const arb = dayArb.chain((day) =>
+      fc.record({
+        recipe: anyRecipeArb,
+        day: fc.constant(day),
+        mild: activeRulesArb(day, 4, MILD_SEVERITIES),
+        ended: fc.array(fc.record({ body: ruleBodyArb(fc.constantFrom(...SEVERITIES)), phase: endedPhaseArb(day) }), {
+          maxLength: 2,
+        }),
+      }),
+    );
+
+    fc.assert(
+      fc.property(arb, ({ recipe, day, mild, ended }) => {
+        const rules: Rule[] = [...mild, ...ended.map(({ body, phase }, i) => ({ id: `ended-${i}`, ...body, phase }))];
+        const result = check(recipe, rules, graph, subs, iso(day));
+        expect(result.severe).toBe(false);
+        expect(result.disclaimer).toBeNull();
       }),
       { numRuns: NUM_RUNS },
     );
