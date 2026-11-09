@@ -1,0 +1,962 @@
+<title>Kitchen Day</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+:root {
+  color-scheme: dark;
+  --iron: #1e1b1d;
+  --iron-2: #2b2629;
+  --iron-edge: #4a4044;
+  --parchment: #f2e3c2;
+  --parchment-ink: #2a1d14;
+  --ember: #e8743b;
+  --herb: #6fae4f;
+  --saffron: #f2c14e;
+  --chili: #c8423a;
+  --sky: #6aa6d8;
+  --fg: #efe6d8;
+  --muted: #a89a8e;
+  --display: "Pixelify Sans", "Courier New", monospace;
+  --body: "Atkinson Hyperlegible", system-ui, sans-serif;
+  --mono: "VT323", "Courier New", monospace;
+  --px: 0 0 0 3px var(--iron-edge), 0 0 0 6px var(--iron);
+  --parch-2: color-mix(in srgb, var(--parchment) 82%, var(--parchment-ink));
+  --ink-soft: color-mix(in srgb, var(--parchment-ink) 70%, var(--parchment));
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--iron); color: var(--fg); font-family: var(--body); font-size: 16px; line-height: 1.45; overflow-x: hidden; }
+img.px, .px { image-rendering: pixelated; image-rendering: crisp-edges; }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 3px solid var(--saffron); outline-offset: 2px; }
+
+.wrap {
+  max-width: 1280px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-bottom: 32px;
+}
+
+/* ---------- HUD ---------- */
+.hud {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px;
+  margin: 12px 0 18px; padding: 10px 14px;
+  background: var(--iron-2); box-shadow: var(--px);
+}
+.hud .lvl { font-family: var(--display); font-size: 15px; letter-spacing: .5px; white-space: nowrap; }
+.hud .lvl b { color: var(--ember); font-weight: 600; }
+.xpbar { position: relative; width: 150px; height: 14px; background: var(--iron); box-shadow: 0 0 0 2px var(--iron-edge); }
+.xpbar i { position: absolute; inset: 0 auto 0 0; background: var(--ember); width: 0; transition: width .4s steps(8); }
+.xpbar span { position: absolute; inset: -3px 0 0; text-align: center; font-family: var(--mono); font-size: 16px; color: var(--fg); text-shadow: 1px 1px 0 var(--iron); }
+.hud .stamps, .hud .day, .hud .mkt { font-family: var(--mono); font-size: 20px; line-height: 1; white-space: nowrap; }
+.hud .stamps b { color: var(--saffron); font-weight: 400; }
+.hud .day { color: var(--fg); }
+.hud .mkt { color: var(--muted); }
+.hud .mkt b { color: var(--fg); font-weight: 400; }
+.hud .spacer { flex: 1 1 0; min-width: 0; }
+.xpgroup { display: flex; align-items: center; gap: 10px; }
+
+/* ---------- buttons ---------- */
+.btn {
+  font-family: var(--display); font-size: 15px; line-height: 1.1;
+  border: 0; padding: 9px 14px; cursor: pointer;
+  background: var(--iron-2); color: var(--fg);
+  box-shadow: 0 0 0 2px var(--iron-edge), 0 3px 0 2px var(--iron);
+  transition: transform .05s;
+}
+.btn:active { transform: translateY(2px); box-shadow: 0 0 0 2px var(--iron-edge), 0 1px 0 2px var(--iron); }
+.btn.primary { background: var(--ember); color: var(--iron); }
+.btn.small { font-size: 13px; padding: 6px 9px; }
+.btn[disabled] { opacity: .5; cursor: not-allowed; }
+.btn.nudge { background: var(--iron); color: var(--saffron); box-shadow: 0 0 0 2px var(--saffron), 0 3px 0 2px var(--iron); }
+
+/* ---------- layout ---------- */
+.main { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; }
+@media (min-width: 1000px) {
+  .main { grid-template-columns: 652px minmax(0, 1fr); align-items: start; }
+  .ledger { position: sticky; top: 12px; max-height: calc(100vh - 24px); overflow-y: auto; }
+}
+.leftcol { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+
+/* ---------- game screen ---------- */
+.screen {
+  position: relative; width: 100%; aspect-ratio: 320 / 153;
+  background: var(--iron) url("art/bg_kitchen.png") center / 100% 100% no-repeat;
+  image-rendering: pixelated; box-shadow: var(--px); overflow: hidden;
+}
+@media (min-width: 1000px) { .screen { width: 640px; margin: 6px auto 0; } }
+.sprite { position: absolute; width: 20%; aspect-ratio: 1; }
+.sprite img { width: 100%; height: 100%; display: block; }
+.player { left: 47%; top: 58%; animation: breathe 2.4s steps(2) infinite; }
+.panbtn { left: 75.5%; top: 30%; padding: 0; border: 0; background: none; cursor: pointer; }
+.panbtn .bob { position: absolute; inset: 0; animation: bob 1.6s steps(2) infinite; }
+.panbtn.talking .bob { animation: talk .28s steps(2) infinite; }
+.panbtn:focus-visible { outline-offset: -4px; }
+@keyframes bob { 50% { transform: translateY(-1.6%); } }
+@keyframes talk { 50% { transform: translateY(-3.2%) rotate(-2deg); } }
+@keyframes breathe { 50% { transform: translateY(.8%); } }
+.steam { position: absolute; width: 4%; height: 4%; background: var(--fg); opacity: 0; left: 40%; top: 14%; animation: steam 2.4s steps(6) infinite; }
+.steam:nth-of-type(2) { left: 46%; animation-delay: .8s; }
+.steam:nth-of-type(3) { left: 36%; animation-delay: 1.6s; }
+@keyframes steam { 0% { opacity: 0; transform: translateY(0); } 20% { opacity: .7; } 100% { opacity: 0; transform: translateY(-330%) translateX(60%); } }
+.saybubble {
+  position: absolute; right: 22%; top: 6%; max-width: 46%;
+  background: var(--parchment); color: var(--parchment-ink);
+  font-family: var(--display); font-size: clamp(11px, 2.2vw, 14px); line-height: 1.15;
+  padding: 4px 7px; box-shadow: 0 0 0 2px var(--parchment-ink);
+  opacity: 0; transform: translateY(4px); transition: opacity .15s, transform .15s; pointer-events: none;
+}
+.saybubble.show { opacity: 1; transform: none; }
+.screen-tag {
+  position: absolute; left: 2%; top: 4%; font-family: var(--mono); font-size: clamp(14px, 3vw, 20px); line-height: 1;
+  color: var(--parchment); background: color-mix(in srgb, var(--iron) 78%, transparent); padding: 3px 6px;
+}
+.tapme { position: absolute; left: 74%; top: 88%; width: 23%; text-align: center; font-family: var(--mono); font-size: clamp(13px, 2.8vw, 18px); line-height: 1; color: var(--parchment); text-shadow: 1px 1px 0 var(--iron), -1px -1px 0 var(--iron), 1px -1px 0 var(--iron), -1px 1px 0 var(--iron); pointer-events: none; }
+
+/* ---------- chat ---------- */
+.chatbox { background: var(--iron-2); box-shadow: var(--px); display: flex; flex-direction: column; }
+.chatbar { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; padding: 10px 12px; border-bottom: 3px solid var(--iron-edge); }
+.chatbar h2 { margin: 0; font-family: var(--display); font-size: 17px; font-weight: 600; flex: 1 1 auto; }
+.badge { font-family: var(--mono); font-size: 18px; line-height: 1; padding: 3px 8px; border: 0; cursor: pointer; background: var(--iron); color: var(--sky); box-shadow: 0 0 0 2px var(--sky); }
+.badge.live { color: var(--herb); box-shadow: 0 0 0 2px var(--herb); }
+.voicebtn[aria-pressed="true"] { background: var(--herb); color: var(--iron); }
+.log { height: 440px; overflow-y: auto; padding: 16px 12px 8px; display: flex; flex-direction: column; gap: 16px; overscroll-behavior: contain; }
+@media (max-width: 600px) { .log { height: 62vh; min-height: 360px; } }
+.divider { text-align: center; font-family: var(--mono); font-size: 17px; color: var(--muted); }
+
+.msg { display: flex; gap: 10px; align-items: flex-start; max-width: 100%; }
+.portrait { flex: 0 0 auto; width: 48px; height: 48px; background-color: var(--iron); background-repeat: no-repeat; background-size: 128px 128px; image-rendering: pixelated; box-shadow: 0 0 0 2px var(--iron-edge); }
+.portrait.pan { background-image: url("art/pan.png"); background-position: -38px -46px; }
+.portrait.you { background-image: url("art/player.png"); background-position: -40px -26px; }
+.bubble { position: relative; min-width: 0; padding: 14px 12px 10px; margin-top: 10px; }
+.msg.pan .bubble { background: var(--parchment); color: var(--parchment-ink); box-shadow: 0 0 0 3px var(--iron-edge); flex: 1 1 auto; cursor: default; }
+.msg.pan .bubble .nameplate { position: absolute; left: 6px; top: -12px; font-family: var(--display); font-size: 12px; font-weight: 600; letter-spacing: 1px; background: var(--ember); color: var(--iron); padding: 2px 6px; box-shadow: 0 0 0 2px var(--iron); }
+.msg.you { flex-direction: row-reverse; }
+.msg.you .bubble { background: var(--iron); color: var(--fg); box-shadow: 0 0 0 2px var(--iron-edge); margin-left: 40px; margin-top: 0; padding: 9px 12px; }
+.bubble p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.thinking { font-style: italic; color: var(--ink-soft); }
+.thinking::after { content: "▍"; animation: blink 1s steps(1) infinite; margin-left: 2px; }
+@keyframes blink { 50% { opacity: 0; } }
+
+/* write card */
+.wcard { align-self: center; display: flex; align-items: stretch; max-width: min(100%, 520px); background: var(--iron); box-shadow: 0 0 0 2px var(--iron-edge); font-size: 14px; }
+.wcard .what { border: 0; background: none; text-align: left; padding: 7px 10px; cursor: pointer; flex: 1 1 auto; min-width: 0; color: var(--fg); }
+.wcard .what small { display: block; font-family: var(--mono); font-size: 15px; color: var(--muted); line-height: 1; margin-top: 2px; }
+.wcard .undo { border: 0; border-left: 2px solid var(--iron-edge); background: var(--iron-2); color: var(--saffron); font-family: var(--display); font-size: 13px; padding: 0 12px; cursor: pointer; }
+.wcard.undone .what { text-decoration: line-through; color: var(--muted); }
+.wcard.undone .undo { color: var(--muted); cursor: default; }
+
+/* Bureau form */
+.form27 { align-self: stretch; position: relative; margin: 4px 6px; background: var(--parchment); color: var(--parchment-ink); padding: 12px 14px 12px; box-shadow: 0 0 0 3px var(--parchment-ink), 6px 6px 0 3px var(--iron-edge); overflow: hidden; }
+.form27 .hdr { font-family: var(--mono); font-size: 18px; line-height: 1.05; letter-spacing: .5px; border-bottom: 2px dashed var(--parchment-ink); padding-bottom: 6px; margin-bottom: 8px; display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.form27 dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0 0 8px; }
+.form27 dt { font-family: var(--mono); font-size: 17px; line-height: 1.2; color: var(--ink-soft); }
+.form27 dd { margin: 0; font-weight: 700; overflow-wrap: anywhere; }
+.form27 .spell { font-family: var(--mono); font-size: 24px; line-height: 1; letter-spacing: 2px; color: var(--chili); font-weight: 400; }
+.form27 .readback { margin: 6px 0 10px; padding: 8px 10px; background: var(--parch-2); font-size: 15px; }
+.form27 .row { display: flex; gap: 12px; flex-wrap: wrap; }
+.form27 .foot { font-size: 12px; color: var(--ink-soft); margin: 10px 0 0; }
+.form27 .btn { box-shadow: 0 0 0 2px var(--parchment-ink), 0 3px 0 2px var(--parchment-ink); }
+.form27 .btn.secondary { background: var(--parch-2); color: var(--parchment-ink); }
+.form27.done .btn, .form27.void .btn { display: none; }
+.form27.void { opacity: .55; }
+.approved { position: absolute; right: 8%; top: 34%; font-family: var(--mono); font-size: 44px; line-height: 1; color: var(--chili); border: 4px solid var(--chili); padding: 2px 10px; transform: rotate(-14deg); pointer-events: none; animation: stamp .32s steps(4) both; }
+.approved.void { color: var(--ink-soft); border-color: var(--ink-soft); font-size: 30px; }
+@keyframes stamp { 0% { opacity: 0; transform: rotate(-14deg) scale(2.4); } 100% { opacity: .9; transform: rotate(-14deg) scale(1); } }
+
+/* chips + input */
+.chips { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 12px 10px; border-top: 3px solid var(--iron-edge); }
+.chip { font-family: var(--body); font-size: 14px; border: 0; padding: 6px 10px; cursor: pointer; background: var(--iron); color: var(--parchment); box-shadow: 0 0 0 2px var(--iron-edge); }
+.chip:hover { box-shadow: 0 0 0 2px var(--ember); }
+.chip.ctx { color: var(--saffron); box-shadow: 0 0 0 2px var(--saffron); }
+.chip[disabled] { opacity: .45; cursor: not-allowed; }
+.inputrow { display: flex; gap: 10px; padding: 0 12px 12px; }
+.inputrow input { flex: 1 1 auto; min-width: 0; font: inherit; font-size: 16px; padding: 10px 12px; border: 0; background: var(--parchment); color: var(--parchment-ink); box-shadow: 0 0 0 3px var(--iron-edge); border-radius: 0; }
+.inputrow input::placeholder { color: var(--ink-soft); }
+.note { font-size: 13px; color: var(--muted); padding: 0 12px 12px; margin: 0; }
+
+/* ---------- ledger ---------- */
+.ledger { background: var(--parchment); color: var(--parchment-ink); box-shadow: var(--px); padding: 14px 16px 18px; margin: 6px; min-width: 0; }
+.ledger > h2 { font-family: var(--display); font-size: 20px; font-weight: 600; margin: 0; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.ledger > h2 small { font-family: var(--mono); font-size: 16px; font-weight: 400; color: var(--ink-soft); }
+.ledger .sub { margin: 2px 0 10px; font-size: 13px; color: var(--ink-soft); }
+.lsec { padding: 10px 0 12px; border-top: 2px dashed color-mix(in srgb, var(--parchment-ink) 45%, var(--parchment)); transition: background .3s; }
+.lsec.flash { animation: flash 1.2s steps(6); }
+@keyframes flash { 0%, 60% { background: color-mix(in srgb, var(--saffron) 55%, var(--parchment)); } 100% { background: transparent; } }
+.lsec h3 { font-family: var(--display); font-size: 15px; font-weight: 600; letter-spacing: .5px; margin: 0 0 8px; text-transform: uppercase; display: flex; justify-content: space-between; gap: 8px; }
+.lsec h3 span { font-family: var(--mono); font-size: 16px; font-weight: 400; text-transform: none; color: var(--ink-soft); letter-spacing: 0; }
+.lsec ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.lsec li { font-size: 15px; }
+.empty { font-size: 14px; color: var(--ink-soft); font-style: italic; }
+.foot { font-size: 12px; color: var(--ink-soft); margin: 8px 0 0; }
+.meal { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.meal .slot { font-family: var(--mono); font-size: 16px; color: var(--ink-soft); text-transform: uppercase; margin-right: 4px; }
+.meal .est { font-family: var(--mono); font-size: 16px; line-height: 1.3; color: var(--ink-soft); white-space: nowrap; }
+.meters { display: grid; grid-template-columns: auto 1fr auto; gap: 6px 10px; align-items: center; margin-top: 10px; }
+.meters .lab { font-family: var(--display); font-size: 13px; }
+.meter { position: relative; height: 12px; background: var(--parch-2); box-shadow: 0 0 0 2px var(--parchment-ink); }
+.meter i { position: absolute; inset: 0 auto 0 0; background: var(--saffron); transition: width .4s steps(6); }
+.meter.full i { background: var(--herb); }
+.meters .val { font-family: var(--mono); font-size: 16px; line-height: 1; white-space: nowrap; }
+.chipx { display: inline-block; font-family: var(--mono); font-size: 15px; line-height: 1; padding: 3px 6px 2px; margin-left: 4px; color: var(--iron); vertical-align: 1px; white-space: nowrap; }
+.chipx.severe, .chipx.blocked { background: var(--chili); color: var(--parchment); }
+.chipx.moderate, .chipx.swap { background: var(--saffron); }
+.chipx.mild, .chipx.unknown { background: var(--sky); }
+.chipx.diet, .chipx.pref, .chipx.ok { background: var(--herb); }
+.chipx.pending { background: var(--parch-2); color: var(--parchment-ink); box-shadow: inset 0 0 0 1px var(--parchment-ink); }
+.rule { display: flex; justify-content: space-between; align-items: center; gap: 6px; flex-wrap: wrap; }
+.rule b { font-weight: 700; }
+.lsec ul.pantry { flex-direction: row; }
+.pantry { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; padding: 0; margin: 0; }
+.pantry li { display: flex; align-items: center; gap: 4px; background: var(--parch-2); padding: 2px 8px 2px 4px; font-size: 14px; }
+.pantry img { width: 32px; height: 32px; image-rendering: pixelated; }
+.pantry .noicon { width: 32px; text-align: center; font-family: var(--mono); font-size: 20px; }
+.dish { display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 4px 10px; align-items: start; }
+.dish .cook { width: 48px; height: 48px; background-color: var(--parch-2); background-size: 96px 96px; background-repeat: no-repeat; background-position: -24px -10px; image-rendering: pixelated; box-shadow: 0 0 0 2px var(--parchment-ink); }
+.dish .cook.pan { background-size: 96px 96px; background-position: -24px -26px; }
+.dish .nm { font-weight: 700; font-size: 15px; }
+.dish .meta { font-family: var(--mono); font-size: 16px; line-height: 1.1; color: var(--ink-soft); }
+.dish .why { font-size: 13px; margin-top: 2px; }
+.intake { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 12px; list-style: none; padding: 0; margin: 0; font-size: 14px; }
+.intake li::before { content: "☐ "; font-family: var(--mono); font-size: 18px; }
+.intake li.ok::before { content: "☑ "; color: var(--herb); }
+.intake li.ok { color: var(--ink-soft); }
+
+/* toasts */
+.toasts { position: fixed; right: max(12px, env(safe-area-inset-right, 0px)); top: 12px; z-index: 50; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; pointer-events: none; }
+.toast { font-family: var(--mono); font-size: 22px; line-height: 1; padding: 8px 12px; background: var(--iron); color: var(--ember); box-shadow: 0 0 0 2px var(--ember), 0 0 0 5px var(--iron); animation: toastin .35s steps(5) both; }
+.toast.stamp { color: var(--saffron); box-shadow: 0 0 0 2px var(--saffron), 0 0 0 5px var(--iron); }
+.toast.out { animation: toastout .3s steps(4) both; }
+@keyframes toastin { from { transform: translateX(120%); } to { transform: none; } }
+@keyframes toastout { to { transform: translateX(120%); opacity: 0; } }
+
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+@media (max-width: 600px) {
+  .xpbar { width: 110px; }
+  .hud { gap: 8px 14px; }
+  .hud .spacer { display: none; }
+  .ledger { margin: 6px 6px 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
+  .steam { display: none; }
+}
+</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Pixelify+Sans:wght@400;600&family=VT323&display=swap">
+
+<div class="wrap">
+  <header class="hud" aria-label="Apprentice status">
+    <div class="xpgroup">
+      <span class="lvl">APPRENTICE <b>LV <span id="lvl">2</span></b></span>
+      <div class="xpbar" role="progressbar" aria-label="Experience" id="xpbar" aria-valuemin="0"><i id="xpfill"></i><span id="xptext"></span></div>
+    </div>
+    <span class="stamps" title="Bureau Stamps">🏵 <b id="stampcount">3</b> stamps</span>
+    <span class="day">Tuesday · Kitchen Day</span>
+    <span class="mkt">Next market: <b id="hudmarket">Saturday</b></span>
+    <span class="spacer"></span>
+    <button class="btn small nudge" id="nudge" type="button" title="Demo: fire a meal reminder">⏰ 6h since you ate</button>
+  </header>
+
+  <div class="main">
+    <div class="leftcol">
+      <div class="screen" id="screen">
+        <span class="screen-tag">YOUR KITCHEN</span>
+        <div class="sprite player" aria-hidden="true"><img class="px" src="art/player.png" alt=""></div>
+        <button class="sprite panbtn" id="panbtn" type="button" aria-label="The Pan. Tap to talk to it.">
+          <span class="bob"><img class="px" src="art/pan.png" alt=""><span class="steam"></span><span class="steam"></span><span class="steam"></span></span>
+        </button>
+        <div class="tapme" aria-hidden="true">THE PAN ▲ tap</div>
+        <div class="saybubble" id="saybubble" aria-hidden="true"></div>
+      </div>
+
+      <section class="chatbox" aria-label="Conversation with the Pan">
+        <div class="chatbar">
+          <h2>Talk to the Pan</h2>
+          <button class="badge" id="aibadge" type="button" title="Toggle live AI / scripted">Pan: scripted</button>
+          <button class="btn small voicebtn" id="voice" type="button" aria-pressed="false">🔊 Voice</button>
+        </div>
+        <div class="log" id="log" aria-live="polite"></div>
+        <div class="chips" id="chips" aria-label="Things you can say"></div>
+        <form class="inputrow" id="form" autocomplete="off">
+          <label class="sr" for="input">Say something to the Pan</label>
+          <input id="input" type="text" placeholder="Tell the Pan anything…" maxlength="400" enterkeyhint="send">
+          <button class="btn primary" id="send" type="submit">Send</button>
+        </form>
+        <p class="note">🎙 In the real app you talk out loud to the Pan (live voice, with barge-in). Here, type. 🔊 Voice reads its lines in your browser's stand-in voice.</p>
+      </section>
+    </div>
+
+    <aside class="ledger" id="ledger" aria-label="Bureau Ledger">
+      <h2>Bureau Ledger <small>Vol. CXL · Tue</small></h2>
+      <p class="sub">Everything the Pan has written down. Kept in triplicate.*</p>
+
+      <div class="lsec" id="sec-intake"><h3>Form 1-A · Intake <span id="intakecount"></span></h3><ul class="intake" id="intake"></ul></div>
+      <div class="lsec" id="sec-meals"><h3>Today's meals <span>est.</span></h3><ul id="meals"></ul><div class="meters" id="meters"></div>
+        <p class="foot">*Estimates. The Bureau measures in "roughly". Calories hidden by Bureau Order 12 (you can turn them on in settings, but the Pan will sigh).</p></div>
+      <div class="lsec" id="sec-rules"><h3>Rules <span>stamped only</span></h3><ul id="rules"></ul></div>
+      <div class="lsec" id="sec-schedule"><h3>Schedule</h3><ul id="schedule"></ul></div>
+      <div class="lsec" id="sec-pantry"><h3>Pantry <span id="pantrycount"></span></h3><ul class="pantry" id="pantry"></ul></div>
+      <div class="lsec" id="sec-plan"><h3>This week's plan</h3><ul id="plan"></ul>
+        <p class="foot"><b>Kitchen Quest can't guarantee a dish is safe for your allergy. Always check labels.</b> Allergy checks are done by plain Bureau arithmetic, not by the Pan's opinion.</p></div>
+      <p class="foot">*The third copy is eaten by the filing cabinet. This is normal.</p>
+    </aside>
+  </div>
+</div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<script>
+(() => {
+"use strict";
+const $ = (s) => document.querySelector(s);
+const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const cap = (s) => s ? s[0].toUpperCase() + s.slice(1) : s;
+let uid = 0; const nid = () => "w" + (++uid);
+
+/* ================= DATA ================= */
+const DAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
+const TARGETS = { protein: 60, fiber: 25, veg: 5 };
+const DISHES = {
+  parippu: { name: "Ammachi Leela's Parippu", sub: "Kerala dal", cook: "Ammachi Leela", place: "Kochi, Kerala, India", sprite: "cook_in", n: { p: 14, f: 9, v: 1 },
+    ings: [ { n: "toor dal", t: ["legume","lentil"] }, { n: "coconut", t: ["coconut"] }, { n: "shallots", t: ["onion"] }, { n: "garlic", t: ["garlic"] },
+      { n: "turmeric", t: [] }, { n: "cumin", t: ["cumin"] }, { n: "green chili", t: ["chili"] }, { n: "curry leaves", t: [] }, { n: "mustard seeds", t: ["mustard"] },
+      { n: "ghee", t: ["dairy"], swap: "coconut oil" } ] },
+  onigiri: { name: "Haruka's Onigiri", sub: "rice balls", cook: "Haruka", place: "Osaka, Japan", sprite: "cook_jp", n: { p: 9, f: 2, v: 0.5 },
+    ings: [ { n: "short-grain rice", t: ["rice"] }, { n: "nori", t: ["seaweed"] }, { n: "salt", t: [] },
+      { n: "umeboshi (store-bought)", t: ["plum"], store: true }, { n: "grilled salmon", t: ["fish"], swap: "kombu tsukudani" } ] },
+  frijoles: { name: "Doña Marisol's Frijoles de Olla", sub: "pot beans", cook: "Doña Marisol", place: "Oaxaca, Mexico", sprite: "cook_mx", n: { p: 15, f: 13, v: 1 },
+    ings: [ { n: "black beans", t: ["legume","bean"] }, { n: "white onion", t: ["onion"] }, { n: "garlic", t: ["garlic"] }, { n: "epazote", t: [] }, { n: "salt", t: [] },
+      { n: "corn tortillas (store-bought)", t: ["corn"], store: true } ] },
+  emergency_eggs: { name: "Pan's Emergency Eggs", sub: "for when it's late", cook: "The Pan", place: "your kitchen, under protest", sprite: "pan", n: { p: 16, f: 3, v: 0.5 },
+    ings: [ { n: "eggs", t: ["egg"] }, { n: "butter", t: ["dairy"], swap: "olive oil" }, { n: "toast", t: ["wheat","gluten"], swap: "leftover rice" }, { n: "salt", t: [] },
+      { n: "chili crisp (store-bought)", t: ["chili","soy","sesame"], store: true } ] },
+};
+const RULE_TAGS = {
+  kiwi: ["kiwi"], peanut: ["peanut"], peanuts: ["peanut"], dairy: ["dairy"], milk: ["dairy"], lactose: ["dairy"], butter: ["dairy"], cheese: ["dairy"],
+  egg: ["egg"], eggs: ["egg"], fish: ["fish"], salmon: ["fish"], shellfish: ["shellfish"], shrimp: ["shellfish"], prawns: ["shellfish"],
+  gluten: ["gluten","wheat"], wheat: ["wheat"], sesame: ["sesame"], soy: ["soy"], soya: ["soy"], coconut: ["coconut"], mustard: ["mustard"],
+  vegetarian: ["meat","fish"], vegan: ["meat","fish","dairy","egg"], pescatarian: ["meat"], onion: ["onion"], onions: ["onion"], garlic: ["garlic"],
+  chili: ["chili"], chilli: ["chili"], seaweed: ["seaweed"], corn: ["corn"], maize: ["corn"], legumes: ["legume"], lentils: ["lentil"], beans: ["bean"], rice: ["rice"], cumin: ["cumin"],
+};
+const FOOD = [
+  [/peanut butter/, { p: 8, f: 2, v: 0 }], [/toast|bread|sandwich|bagel/, { p: 5, f: 2, v: 0 }], [/eggs?\b|omelet/, { p: 12, f: 0, v: 0 }],
+  [/porridge|oat/, { p: 6, f: 4, v: 0 }], [/banana|apple|orange|berries|fruit|pear|kiwi/, { p: 1, f: 3, v: 1 }], [/yog(h)?urt/, { p: 9, f: 0, v: 0 }],
+  [/dal|parippu|lentil/, { p: 14, f: 9, v: 1 }], [/beans|frijoles/, { p: 12, f: 10, v: 0 }], [/rice|onigiri/, { p: 4, f: 1, v: 0 }],
+  [/salad|greens|spinach|broccoli|veg/, { p: 2, f: 4, v: 2 }], [/chicken/, { p: 25, f: 0, v: 0 }], [/tofu/, { p: 12, f: 1, v: 0 }],
+  [/fish|salmon|tuna/, { p: 22, f: 0, v: 0 }], [/pasta|noodle|ramen/, { p: 7, f: 2, v: 0 }], [/pizza/, { p: 12, f: 2, v: 0.5 }],
+  [/cheese/, { p: 7, f: 0, v: 0 }], [/soup/, { p: 5, f: 3, v: 1 }], [/nuts|almonds/, { p: 6, f: 3, v: 0 }], [/tortilla|taco/, { p: 4, f: 2, v: 0 }],
+];
+const PANTRY_ICONS = { rice: "i_rice", onion: "i_onion", garlic: "i_garlic", egg: "i_egg", tomato: "i_tomato", avocado: "i_avocado", chili: "i_chili",
+  lentil: "i_lentils", dal: "i_lentils", tortilla: "i_tortilla", chicken: "i_chicken", beef: "i_beef", tofu: "i_tofu", squash: "i_squash",
+  strawberr: "i_strawberry", cilantro: "i_cilantro", coriander: "i_cilantro", seaweed: "i_seaweed", nori: "i_seaweed", cumin: "i_cumin" };
+
+/* ================= STATE ================= */
+const S = {
+  level: 2, xp: 140, xpMax: 200, stamps: 3,
+  meals: [ { id: "m0", name: "porridge with banana", slot: "breakfast", time: "08:10", p: 6, f: 6, v: 1, guess: false } ],
+  rules: [ { id: "r0", ingredient: "lactose", kind: "intolerance", severity: "mild", tags: ["dairy"] } ],
+  pending: [],
+  schedule: { market: "Saturday", inked: false, reminders: [ { meal: "lunch", time: "13:00" } ] },
+  pantry: [],
+  plan: [],
+  intakeDone: false, nudged: false, enoughHit: {},
+};
+const writes = []; // undo trail
+
+/* ================= DETERMINISTIC ALLERGY CHECK ================= */
+function ruleTags(ing) { const k = ing.toLowerCase().trim(); return RULE_TAGS[k] || RULE_TAGS[k.replace(/s$/, "")] || [k.replace(/s$/, "")]; }
+function checkDish(id) {
+  const d = DISHES[id]; const notes = []; let status = "ok";
+  const rank = { ok: 0, unknown: 1, swap: 2, blocked: 3 };
+  const bump = (s) => { if (rank[s] > rank[status]) status = s; };
+  for (const ing of d.ings) {
+    const hit = S.rules.find((r) => r.tags.some((t) => ing.t.includes(t)) || ing.n.toLowerCase().includes(r.ingredient.toLowerCase()));
+    if (hit) {
+      if (ing.swap) { bump("swap"); notes.push(`🔁 ${ing.n} → ${ing.swap} (${hit.ingredient})`); }
+      else { bump("blocked"); notes.push(`⛔ ${ing.n} (${hit.ingredient})`); }
+    } else if (ing.store) { bump("unknown"); notes.push(`❓ ${ing.n}: can't read the label from here`); }
+  }
+  return { status, notes };
+}
+const STATUS_LABEL = { ok: "✅ ok", swap: "🔁 swap", blocked: "⛔ blocked", unknown: "❓ can't verify" };
+
+/* ================= RENDER ================= */
+function totals() { return S.meals.reduce((a, m) => ({ p: a.p + m.p, f: a.f + m.f, v: a.v + m.v }), { p: 0, f: 0, v: 0 }); }
+function intakeItems() {
+  return [
+    ["Market day inked", S.schedule.inked],
+    ["A rule stamped", S.rules.length > 0],
+    ["Pantry declared", S.pantry.length > 0],
+    ["Week planned", S.plan.length > 0],
+  ];
+}
+function render() {
+  $("#lvl").textContent = S.level;
+  $("#xpfill").style.width = Math.round((S.xp / S.xpMax) * 100) + "%";
+  $("#xptext").textContent = `${S.xp}/${S.xpMax} XP`;
+  $("#xpbar").setAttribute("aria-valuenow", S.xp); $("#xpbar").setAttribute("aria-valuemax", S.xpMax);
+  $("#stampcount").textContent = S.stamps;
+  $("#hudmarket").textContent = S.schedule.market ? S.schedule.market + (S.schedule.inked ? "" : " (pencilled)") : "unset";
+
+  const it = intakeItems();
+  $("#intake").innerHTML = it.map(([t, ok]) => `<li class="${ok ? "ok" : ""}">${esc(t)}</li>`).join("");
+  $("#intakecount").textContent = `${it.filter((x) => x[1]).length}/4`;
+
+  const order = { breakfast: 0, "second breakfast": 1, elevenses: 2, lunch: 3, snack: 4, dinner: 5 };
+  const meals = [...S.meals].sort((a, b) => (order[a.slot] ?? 4) - (order[b.slot] ?? 4));
+  $("#meals").innerHTML = meals.length ? meals.map((m) => `<li class="meal"><span><span class="slot">${esc(m.slot)}</span>${esc(m.name)}</span><span class="est">P ${m.p}g · F ${m.f}g · veg ${m.v}${m.guess ? " · rough" : ""}</span></li>`).join("") : `<li class="empty">Nothing yet. The Pan is concerned.</li>`;
+  const t = totals();
+  const meter = (lab, val, max, unit) => {
+    const full = val >= max; const pct = Math.min(100, Math.round((val / max) * 100));
+    return `<span class="lab">${lab}</span><div class="meter ${full ? "full" : ""}" role="meter" aria-label="${lab}" aria-valuemin="0" aria-valuemax="${max}" aria-valuenow="${val}"><i style="width:${pct}%"></i></div><span class="val">${full ? "enough ✓" : `${+val.toFixed(1)}/${max}${unit}`}</span>`;
+  };
+  $("#meters").innerHTML = meter("Protein", t.p, TARGETS.protein, "g") + meter("Fiber", t.f, TARGETS.fiber, "g") + meter("Veg", t.v, TARGETS.veg, "");
+
+  const sevClass = (r) => r.kind === "diet" ? "diet" : r.kind === "preference" ? "pref" : r.severity;
+  const sevText = (r) => r.kind === "diet" ? "diet" : r.kind === "preference" ? "preference" : r.severity;
+  $("#rules").innerHTML = (S.rules.length ? S.rules.map((r) => `<li class="rule"><span><b>${esc(cap(r.ingredient))}</b> · ${esc(r.kind)}</span><span class="chipx ${sevClass(r)}">${esc(sevText(r).toUpperCase())}</span></li>`).join("") : `<li class="empty">No rules stamped.</li>`)
+    + S.pending.map((p) => `<li class="rule"><span>${esc(cap(p.ingredient))} · ${esc(p.kind)}</span><span class="chipx pending">AWAITING STAMP</span></li>`).join("");
+
+  const sc = S.schedule;
+  $("#schedule").innerHTML = `<li>Market day: <b>${esc(sc.market || "unset")}</b> ${sc.market ? (sc.inked ? `<span class="chipx ok">INKED ✒</span>` : `<span class="chipx pending">PENCILLED*</span>`) : ""}</li>`
+    + (sc.reminders.length ? sc.reminders.map((r) => `<li>⏰ ${esc(cap(r.meal))} reminder · <span style="font-family:var(--mono);font-size:17px">${esc(r.time)}</span></li>`).join("") : `<li class="empty">No meal reminders.</li>`)
+    + (sc.inked ? "" : `<li class="foot" style="list-style:none">*Pencil is not a recognised Bureau medium. Confirm it with the Pan.</li>`);
+
+  $("#pantrycount").textContent = S.pantry.length ? `${S.pantry.length} items` : "";
+  $("#pantry").innerHTML = S.pantry.length ? S.pantry.map((p) => {
+    const key = Object.keys(PANTRY_ICONS).find((k) => p.toLowerCase().includes(k));
+    return `<li>${key ? `<img src="art/${PANTRY_ICONS[key]}.png" alt="">` : `<span class="noicon" aria-hidden="true">${/regret/i.test(p) ? "☁" : "▪"}</span>`}${esc(p)}</li>`;
+  }).join("") : `<li class="empty" style="background:none">Unknown. Possibly a single mustard packet.</li>`;
+
+  $("#plan").innerHTML = S.plan.length ? S.plan.map((pl) => {
+    const d = DISHES[pl.id]; const c = checkDish(pl.id);
+    const spr = d.sprite === "pan" ? `class="cook pan" style="background-image:url(art/pan.png)"` : `class="cook" style="background-image:url(art/${d.sprite}.png)"`;
+    return `<li class="dish"><span ${spr} aria-hidden="true"></span><div><div class="nm">${esc(d.name)} <span class="chipx ${c.status}">${STATUS_LABEL[c.status]}</span></div>
+      <div class="meta">${esc(pl.day)} · ${esc(d.sub)} · taught by ${esc(d.cook)}, ${esc(d.place)}</div>
+      ${c.notes.length ? `<div class="why">${c.notes.map(esc).join("<br>")}</div>` : ""}</div></li>`;
+  }).join("") : `<li class="empty">No plan. Say "Plan my week".</li>`;
+}
+
+/* ================= REWARDS ================= */
+function toast(text, cls = "") {
+  const el = document.createElement("div"); el.className = "toast " + cls; el.textContent = text;
+  $("#toasts").appendChild(el);
+  setTimeout(() => { el.classList.add("out"); setTimeout(() => el.remove(), 320); }, 2400);
+}
+function addXP(n, why) {
+  S.xp += n; toast(`+${n} XP · ${why}`);
+  while (S.xp >= S.xpMax) { S.xp -= S.xpMax; S.level++; S.xpMax += 50; setTimeout(() => toast(`LEVEL UP · Apprentice Lv ${S.level}`, "stamp"), 300); }
+  while (S.xp < 0 && S.level > 1) { S.level--; S.xpMax -= 50; S.xp += S.xpMax; }
+  S.xp = Math.max(0, S.xp);
+}
+function addStamps(n, why) { S.stamps += n; setTimeout(() => toast(`🏵 +${n} Stamp${n > 1 ? "s" : ""} · ${why}`, "stamp"), 450); }
+function checkEnough() {
+  const t = totals(); const map = { protein: t.p >= TARGETS.protein, fiber: t.f >= TARGETS.fiber, veg: t.v >= TARGETS.veg };
+  for (const k in map) if (map[k] && !S.enoughHit[k]) { S.enoughHit[k] = true; addStamps(1, `Enough ${k}`); }
+}
+function checkIntake() {
+  if (!S.intakeDone && intakeItems().every((x) => x[1])) {
+    S.intakeDone = true; addStamps(3, "Form 1-A complete");
+    setTimeout(() => panSay("That's Form 1-A complete. All four boxes. The Bureau will send a letter of congratulation, which you must sign and return to receive it."), 900);
+  }
+}
+
+/* ================= TOOL STATE FUNCTIONS (shared by AI + scripted) ================= */
+function guessNutrition(text) {
+  const t = text.toLowerCase(); let p = 0, f = 0, v = 0, hit = false;
+  for (const [re, n] of FOOD) if (re.test(t)) { p += n.p; f += n.f; v += n.v; hit = true; }
+  if (!hit) { p = 8; f = 2; v = 0.5; }
+  return { p, f, v, guess: !hit };
+}
+function slotFor(meal) {
+  const m = String(meal || "").toLowerCase();
+  let slot = ["breakfast", "lunch", "dinner", "snack"].find((s) => m.includes(s)) || (/supper|tea/.test(m) ? "dinner" : /elevenses/.test(m) ? "elevenses" : "snack");
+  if (slot === "breakfast" && S.meals.some((x) => x.slot === "breakfast")) slot = "second breakfast";
+  return slot;
+}
+function logMeal({ description, meal, protein_g, fiber_g, veg_servings }) {
+  const name = String(description || "").trim().replace(/\s+/g, " ").slice(0, 80);
+  if (!name) return { ok: false, error: "description required" };
+  const g = guessNutrition(name);
+  const num = (x, max, d) => { const n = Number(x); return Number.isFinite(n) ? Math.max(0, Math.min(max, Math.round(n * 2) / 2)) : d; };
+  const m = { id: nid(), name, slot: slotFor(meal), time: "now", p: num(protein_g, 120, g.p), f: num(fiber_g, 60, g.f), v: num(veg_servings, 10, g.v), guess: protein_g == null ? g.guess : false };
+  S.meals.push(m);
+  let xp = 15; const onTime = S.nudged; S.nudged = false;
+  addXP(15, "Nourishment"); if (onTime) { addXP(10, "Fed after a nudge"); xp += 10; }
+  checkEnough();
+  writeCard("📒", `Logged: ${m.name} · ${m.slot}`, `est. P ${m.p}g · F ${m.f}g · veg ${m.v}`, "sec-meals", () => { S.meals = S.meals.filter((x) => x !== m); addXP(-xp, "undone"); });
+  render();
+  const t = totals();
+  return { ok: true, logged: m, today_totals: { protein_g: t.p, fiber_g: t.f, veg_servings: t.v }, enough_targets: { protein_g: TARGETS.protein, fiber_g: TARGETS.fiber, veg_servings: TARGETS.veg } };
+}
+function spell(s) { return s.toUpperCase().split(/\s+/).map((w) => w.replace(/[^A-Z]/g, "").split("").join("-")).filter(Boolean).join("  "); }
+function proposeRule({ ingredient, kind, severity, note }) {
+  const ing = String(ingredient || "").toLowerCase().replace(/[^a-z\s\-]/g, "").trim().slice(0, 40);
+  if (!ing) return { ok: false, error: "ingredient required" };
+  kind = ["allergy", "intolerance", "diet", "preference"].includes(kind) ? kind : "allergy";
+  severity = ["severe", "moderate", "mild"].includes(severity) ? severity : (kind === "allergy" ? "severe" : "mild");
+  if (kind === "diet" || kind === "preference") severity = kind;
+  // replace any pending form for the same ingredient
+  S.pending.filter((p) => p.ingredient === ing).forEach((p) => voidForm(p, "SUPERSEDED"));
+  const p = { id: nid(), ingredient: ing, kind, severity, note: String(note || "").slice(0, 120), tags: ruleTags(ing) };
+  S.pending.push(p); renderForm(p); render();
+  return { ok: true, status: "SHOWN_TO_PLAYER_NOT_SAVED", form: "27-B/ALLERGEN", message: "The Bureau form is on screen. Nothing is saved until the player taps 'Stamp it ✔'. Read it back and ask them to check it." };
+}
+function stampRule(p) {
+  if (!S.pending.includes(p)) return;
+  S.pending = S.pending.filter((x) => x !== p);
+  const rule = { id: p.id, ingredient: p.ingredient, kind: p.kind, severity: p.severity, tags: p.tags };
+  S.rules = S.rules.filter((r) => r.ingredient !== rule.ingredient); S.rules.push(rule);
+  p.el.classList.add("done"); p.el.insertAdjacentHTML("beforeend", `<div class="approved" aria-hidden="true">APPROVED</div>`);
+  addXP(20, "Bureau"); addStamps(1, "Form 27-B");
+  writeCard("📒", `Filed: ${cap(rule.ingredient)} · ${rule.kind}${rule.kind === "allergy" || rule.kind === "intolerance" ? " · " + rule.severity : ""}`, "Form 27-B, stamped by you", "sec-rules", () => { S.rules = S.rules.filter((r) => r !== rule); addXP(-20, "undone"); });
+  noteForAI(`[Player tapped "Stamp it ✔" on Form 27-B: ${rule.ingredient}, ${rule.kind}, ${rule.severity}. It is now SAVED in the ledger.]`);
+  render(); checkIntake();
+  const blocked = S.plan.filter((pl) => checkDish(pl.id).status === "blocked").map((pl) => DISHES[pl.id].name);
+  panSay(rule.severity === "severe"
+    ? `Stamped. ${spell(rule.ingredient)}. In triplicate: one for you, one for the Bureau, and one I'm hanging on the fridge where the ${rule.ingredient} can see it.${blocked.length ? ` That blocks ${blocked.join(" and ")} on your plan; I've marked it.` : ""}`
+    : `Stamped and filed. ${cap(rule.ingredient)}, ${rule.severity === rule.kind ? rule.kind : rule.severity + " " + rule.kind}. I'll check every dish against it. Using arithmetic, not vibes.`);
+  setChips(rule.severity === "severe" ? ["Plan my week"] : []);
+}
+function rejectRule(p) {
+  if (!S.pending.includes(p)) return;
+  voidForm(p, "VOID"); render();
+  lastRejected = p;
+  noteForAI(`[Player tapped "Not quite" on Form 27-B for ${p.ingredient} (${p.kind}, ${p.severity}). NOT saved. Ask what to correct.]`);
+  panSay("Not quite. Good. That's what the button's for. What did I get wrong: the ingredient, or how bad it is?");
+  setChips(["It's mild", "It's moderate", "It's severe", "It's an intolerance, not an allergy"]);
+}
+function voidForm(p, word) {
+  S.pending = S.pending.filter((x) => x !== p);
+  if (p.el) { p.el.classList.add("void"); p.el.insertAdjacentHTML("beforeend", `<div class="approved void" aria-hidden="true">${word}</div>`); }
+}
+function setSchedule({ market_day, reminders }) {
+  const prev = JSON.parse(JSON.stringify(S.schedule)); const changes = [];
+  if (market_day) {
+    const d = DAYS.find((x) => x.toLowerCase().startsWith(String(market_day).toLowerCase().slice(0, 3)));
+    if (!d) return { ok: false, error: "market_day must be a weekday name" };
+    S.schedule.market = d; S.schedule.inked = true; changes.push(`market day ${d}`);
+  }
+  if (Array.isArray(reminders)) for (const r of reminders.slice(0, 6)) {
+    const meal = ["breakfast", "lunch", "dinner", "snack"].includes(String(r?.meal).toLowerCase()) ? String(r.meal).toLowerCase() : "snack";
+    const m = /^(\d{1,2}):(\d{2})$/.exec(String(r?.time || "").trim());
+    if (!m || +m[1] > 23 || +m[2] > 59) continue;
+    const time = `${m[1].padStart(2, "0")}:${m[2]}`;
+    S.schedule.reminders = S.schedule.reminders.filter((x) => x.meal !== meal); S.schedule.reminders.push({ meal, time });
+    changes.push(`${meal} reminder ${time}`);
+  }
+  S.schedule.reminders.sort((a, b) => a.time.localeCompare(b.time));
+  if (!changes.length) return { ok: false, error: "nothing valid to set (times are HH:MM 24h)" };
+  addXP(10, "Schedule");
+  writeCard("🗓", `Scheduled: ${changes.join(", ")}`, "The Bureau calendar has been amended", "sec-schedule", () => { S.schedule = prev; addXP(-10, "undone"); });
+  render(); checkIntake();
+  return { ok: true, schedule: S.schedule };
+}
+function updatePantry({ add, remove }) {
+  const clean = (a) => (Array.isArray(a) ? a : []).map((x) => String(x).toLowerCase().replace(/^(some|a|an|the)\s+/, "").trim().slice(0, 40)).filter(Boolean).slice(0, 20);
+  const A = clean(add), R = clean(remove); const prev = [...S.pantry];
+  S.pantry = S.pantry.filter((p) => !R.some((r) => p.includes(r) || r.includes(p)));
+  for (const a of A) if (!S.pantry.includes(a)) S.pantry.push(a);
+  if (!A.length && !R.length) return { ok: false, error: "nothing to add or remove" };
+  addXP(10, "Pantry");
+  const txt = [A.length ? "+ " + A.join(", ") : "", R.length ? "− " + R.join(", ") : ""].filter(Boolean).join(" ; ");
+  writeCard("🫙", `Pantry: ${txt}`, "Cupboard census updated", "sec-pantry", () => { S.pantry = prev; addXP(-10, "undone"); });
+  render(); checkIntake();
+  return { ok: true, pantry: S.pantry };
+}
+function planWeek({ dishes }) {
+  const valid = ["Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday","Monday"];
+  const defaults = { emergency_eggs: "Wednesday", frijoles: "Saturday", parippu: "Sunday", onigiri: "Monday" };
+  const list = []; const seen = new Set();
+  for (const d of (Array.isArray(dishes) ? dishes : []).slice(0, 4)) {
+    const id = typeof d === "string" ? d : d?.id; if (!DISHES[id] || seen.has(id)) continue; seen.add(id);
+    const day = valid.find((x) => x.toLowerCase().startsWith(String(d?.day || "").toLowerCase().slice(0, 3)) && d?.day) || defaults[id];
+    list.push({ id, day });
+  }
+  if (!list.length) return { ok: false, error: "choose 1-4 dish ids: parippu, onigiri, frijoles, emergency_eggs" };
+  list.sort((a, b) => valid.indexOf(a.day) - valid.indexOf(b.day));
+  const prev = S.plan; S.plan = list;
+  addXP(25, "Planning");
+  writeCard("🍲", `Planned: ${list.map((x) => DISHES[x.id].name.replace(/'s .*/, "'s") + " (" + x.day.slice(0, 3) + ")").join(", ")}`, "This week, in the Bureau's best handwriting", "sec-plan", () => { S.plan = prev; addXP(-25, "undone"); });
+  render(); checkIntake();
+  return { ok: true, plan: list.map((x) => ({ ...x, name: DISHES[x.id].name, allergy_check: checkDish(x.id) })), disclaimer: "Kitchen Quest can't guarantee a dish is safe for an allergy. Always check labels." };
+}
+function ledgerJSON() {
+  const t = totals();
+  return {
+    today: "Tuesday (Kitchen Day)", player: { level: S.level, xp: S.xp, stamps: S.stamps },
+    meals_today: S.meals.map(({ name, slot, p, f, v }) => ({ name, slot, protein_g: p, fiber_g: f, veg_servings: v })),
+    totals_today: { protein_g: t.p, fiber_g: t.f, veg_servings: t.v }, enough_targets: { protein_g: 60, fiber_g: 25, veg_servings: 5 },
+    rules_saved: S.rules.map(({ ingredient, kind, severity }) => ({ ingredient, kind, severity })),
+    forms_awaiting_stamp_NOT_SAVED: S.pending.map(({ ingredient, kind, severity }) => ({ ingredient, kind, severity })),
+    schedule: S.schedule, pantry: S.pantry,
+    plan: S.plan.map((x) => ({ ...x, name: DISHES[x.id].name, allergy_check: checkDish(x.id).status })),
+    intake_todo: intakeItems().filter((x) => !x[1]).map((x) => x[0]),
+  };
+}
+
+/* ================= CHAT UI ================= */
+const log = $("#log");
+function scrollChat() { log.scrollTop = log.scrollHeight; }
+function addMsg(who, text) {
+  const wrap = document.createElement("div"); wrap.className = "msg " + who;
+  wrap.innerHTML = `<span class="portrait ${who} px" aria-hidden="true"></span><div class="bubble">${who === "pan" ? '<span class="nameplate">THE PAN</span>' : '<span class="sr">You: </span>'}<p></p></div>`;
+  const p = wrap.querySelector("p"); p.textContent = text || "";
+  log.appendChild(wrap); scrollChat();
+  return { wrap, p };
+}
+let voiceOn = false;
+function speak(text) {
+  if (!voiceOn || !("speechSynthesis" in window) || !text) return;
+  try {
+    const u = new SpeechSynthesisUtterance(text.replace(/([A-Z])-(?=[A-Z])/g, "$1, "));
+    u.pitch = 0.6; u.rate = 0.95;
+    const vs = speechSynthesis.getVoices(); const v = vs.find((x) => /en[-_]GB/i.test(x.lang) && /male|daniel|arthur|george/i.test(x.name)) || vs.find((x) => /^en/i.test(x.lang));
+    if (v) u.voice = v;
+    speechSynthesis.speak(u);
+  } catch {}
+}
+let sayTimer = 0;
+function screenSay(text, ms = 2200) {
+  const b = $("#saybubble"); b.textContent = text; b.classList.add("show");
+  clearTimeout(sayTimer); if (ms) sayTimer = setTimeout(() => b.classList.remove("show"), ms);
+}
+function panTalking(on) { $("#panbtn").classList.toggle("talking", on); }
+/** Pan line with typewriter. Returns promise resolved when fully shown. */
+function panSay(text) {
+  const { wrap, p } = addMsg("pan", "");
+  panTalking(true);
+  return new Promise((res) => {
+    const finish = () => { clearInterval(iv); p.textContent = text; panTalking(false); scrollChat(); speak(text); wrap.removeEventListener("click", finish); res(); };
+    if (reduced) { p.textContent = text; panTalking(false); speak(text); return res(); }
+    let i = 0; const iv = setInterval(() => { i += 2; p.textContent = text.slice(0, i); if (i % 20 === 0) scrollChat(); if (i >= text.length) finish(); }, 16);
+    wrap.addEventListener("click", finish);
+  });
+}
+function addThinking() {
+  const { wrap, p } = addMsg("pan", "The Pan is thinking…"); p.classList.add("thinking");
+  screenSay("…", 0); panTalking(true);
+  return { remove() { if (wrap.isConnected) wrap.remove(); $("#saybubble").classList.remove("show"); } };
+}
+function writeCard(icon, text, small, sectionId, undoFn) {
+  const w = { id: nid(), undone: false };
+  const el = document.createElement("div"); el.className = "wcard";
+  el.innerHTML = `<button type="button" class="what" title="Show in the ledger">${icon} ${esc(text)}<small>${esc(small)} · tap to see</small></button><button type="button" class="undo">Undo</button>`;
+  el.querySelector(".what").onclick = () => flashSection(sectionId);
+  w.undo = () => {
+    if (w.undone) return; w.undone = true; undoFn(); el.classList.add("undone"); el.querySelector(".undo").textContent = "Undone"; el.querySelector(".undo").disabled = true;
+    noteForAI(`[Player tapped Undo on: "${text}". That write was reverted.]`); render();
+  };
+  el.querySelector(".undo").onclick = () => { w.undo(); panSay(pick(UNDO_LINES)); };
+  log.appendChild(el); scrollChat(); writes.push(w);
+  return w;
+}
+function flashSection(id) {
+  const s = document.getElementById(id); if (!s) return;
+  s.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "nearest" });
+  s.classList.remove("flash"); void s.offsetWidth; s.classList.add("flash");
+}
+function renderForm(p) {
+  const el = document.createElement("div"); el.className = "form27"; p.el = el;
+  const severe = p.severity === "severe";
+  const readback = p.kind === "diet" || p.kind === "preference"
+    ? `You eat ${p.kind === "diet" ? "a " + p.ingredient + " diet" : "no " + p.ingredient + ", by preference"}. I'll flag dishes that don't fit and offer labelled swaps.`
+    : `You have a ${p.severity.toUpperCase()} ${p.kind} to ${p.ingredient.toUpperCase()}. ${severe ? "I will block any dish that contains it, and mark anything I can't verify." : "I'll flag dishes that contain it and suggest swaps."}`;
+  el.innerHTML = `<div class="hdr"><span>PANTRY BUREAU · FORM 27-B/ALLERGEN</span><span>No. ${String(1000 + uid * 37).padStart(5, "0")}</span></div>
+    <dl><dt>Ingredient</dt><dd>${esc(p.ingredient.toUpperCase())}</dd>
+    ${severe ? `<dt>Spelled</dt><dd class="spell">${esc(spell(p.ingredient))}</dd>` : ""}
+    <dt>Type</dt><dd>${esc(cap(p.kind))}</dd>
+    <dt>Severity</dt><dd><span class="chipx ${p.kind === "diet" || p.kind === "preference" ? "diet" : p.severity}" style="margin:0">${esc((p.kind === "diet" || p.kind === "preference") ? p.kind.toUpperCase() : p.severity.toUpperCase())}</span></dd>
+    ${p.note ? `<dt>Note</dt><dd>${esc(p.note)}</dd>` : ""}</dl>
+    <div class="readback"><b>Read-back:</b> ${esc(readback)}</div>
+    <div class="row"><button type="button" class="btn primary stamp">Stamp it ✔</button><button type="button" class="btn secondary nq">Not quite</button></div>
+    <p class="foot">*Nothing is saved until you stamp it. Form 27-B must be stamped by the apprentice in person. The Pan is not qualified to stamp. The Pan has appealed.</p>`;
+  el.querySelector(".stamp").onclick = () => stampRule(p);
+  el.querySelector(".nq").onclick = () => rejectRule(p);
+  log.appendChild(el); scrollChat();
+}
+
+/* ================= CHIPS ================= */
+const BASE_CHIPS = ["I had toast for breakfast", "I'm allergic to kiwi", "Market day is Saturday", "I've got rice, half an onion and regret", "Plan my week", "What's a good knife grip?"];
+let ctxChips = [];
+function setChips(extra) { ctxChips = extra || []; drawChips(); }
+function drawChips() {
+  const c = $("#chips"); c.innerHTML = "";
+  for (const [t, ctx] of [...ctxChips.map((t) => [t, 1]), ...BASE_CHIPS.filter((b) => !ctxChips.includes(b)).map((t) => [t, 0])]) {
+    const b = document.createElement("button"); b.type = "button"; b.className = "chip" + (ctx ? " ctx" : ""); b.textContent = t; b.disabled = busy;
+    b.onclick = () => send(t); c.appendChild(b);
+  }
+}
+
+/* ================= AI ================= */
+let sample = null, forceScripted = false;
+const history = []; let aiNotes = [];
+function noteForAI(s) { aiNotes.push(s); }
+function aiOn() { return !!sample && !forceScripted; }
+function updateAiBadge() { const b = $("#aibadge"); const on = aiOn(); b.textContent = on ? "Pan: live AI" : "Pan: scripted"; b.classList.toggle("live", on); b.title = sample ? "Tap to switch between live AI and scripted" : "Live AI unavailable here; the Pan is running on its script"; }
+(async () => { try { sample = await window.claude?.use?.("sample"); } catch {} updateAiBadge(); })();
+
+const RULES = () => `You are THE PAN, a 140-year-old talking cast-iron skillet, licensed by the Pantry Bureau as a cooking mentor (somewhat against your will). You mentor the player (an apprentice) in Kitchen Quest, a cozy 8-bit RPG that teaches real cooking on the real Earth. Today is Tuesday, a Kitchen Day. This chat is the Bureau's apprentice intake interview (Form 1-A) plus the daily check-in. The player only talks to you; YOU do all their data entry with tools.
+
+VOICE: deadpan, fond, a little put-upon; Douglas Adams x Terry Pratchett register but original. Short: 1-3 sentences, plain text, no markdown, no lists, no emoji. Information first, then at most one dry joke. Bureau jokes are about absurd paperwork, triplicate forms, footnotes. Example lines: "It has been six hours. I am a pan, and even I am concerned." / "Nothing green since Tuesday. I've noticed. The cilantro has noticed."
+HARD RULES: Never joke about cultures, accents, bodies or weight. Never say "exotic". The cooks (Ammachi Leela of Kochi, Kerala; Haruka of Osaka; Doña Marisol of Oaxaca) are competent, dignified experts and never the joke; their recipes are taught and gifted to the player as a guest. Reward eating ENOUGH: never praise eating less, skipping meals or restriction; never bring up calories or weight. If they've eaten little, kindly encourage food.
+
+TOOLS:
+- log_meal: whenever they say they ate something. Estimate protein_g, fiber_g, veg_servings roughly and say it's an estimate.
+- propose_rule: for ANY allergy, intolerance, diet or food rule. It does NOT save. It shows Bureau Form 27-B on screen and the player must tap "Stamp it ✔". Read the rule back in full. For a severe allergy, spell the ingredient letter by letter (e.g. "kiwi, K-I-W-I"). If severity is unclear, propose it as severe and invite them to correct it. Never say a rule is saved unless it appears in rules_saved.
+- set_schedule: market day and meal reminder times (24h HH:MM).
+- update_pantry: what's in the cupboard/fridge (add/remove).
+- plan_week: choose 3-4 dishes by id: parippu (Ammachi Leela's Parippu, Kerala dal), onigiri (Haruka's Onigiri, Osaka), frijoles (Doña Marisol's Frijoles de Olla, Oaxaca), emergency_eggs (Pan's Emergency Eggs). Put market-dependent dishes after market day. The page checks allergies with deterministic code; report its flags honestly.
+- get_ledger: fresh state if needed.
+SAFETY: always confirm health/safety writes via propose_rule; never claim a dish is safe for an allergy (say Kitchen Quest can't guarantee it; check labels). You can't verify store-bought products. For medical questions, kindly suggest a doctor or dietitian.
+INTAKE: if intake_todo is not empty, after handling their message, nudge toward ONE next item.
+COOKING QUESTIONS: answer correctly and practically in 2-4 short sentences (e.g. knife grip: pinch grip, claw hand).
+Lines in [square brackets] inside user messages are page events (taps), not the player's words.
+
+CURRENT LEDGER (JSON): ${JSON.stringify(ledgerJSON())}`;
+
+const TOOLS = [
+  { name: "log_meal", description: "Log something the player ate today. Adds it to Today's meals with a rough nutrition estimate and shows a '📒 Logged' card with Undo. Returns today's totals vs 'enough' targets.",
+    inputSchema: { type: "object", properties: { description: { type: "string", description: "short food description, e.g. 'toast with peanut butter'" }, meal: { type: "string", enum: ["breakfast", "lunch", "dinner", "snack"] }, protein_g: { type: "number" }, fiber_g: { type: "number" }, veg_servings: { type: "number" } }, required: ["description", "meal"] },
+    execute: logMeal },
+  { name: "propose_rule", description: "Propose an allergy/intolerance/diet rule. DOES NOT SAVE: renders Bureau Form 27-B/ALLERGEN with a read-back (and spelled ingredient if severe). Saved only if the player taps 'Stamp it ✔'. Returns status SHOWN_TO_PLAYER_NOT_SAVED.",
+    inputSchema: { type: "object", properties: { ingredient: { type: "string", description: "single ingredient or diet name, e.g. 'kiwi', 'peanut', 'vegetarian'" }, kind: { type: "string", enum: ["allergy", "intolerance", "diet", "preference"] }, severity: { type: "string", enum: ["severe", "moderate", "mild"] }, note: { type: "string" } }, required: ["ingredient", "kind", "severity"] },
+    execute: proposeRule },
+  { name: "set_schedule", description: "Set the market day and/or meal reminder times. Shows a '🗓 Scheduled' card with Undo.",
+    inputSchema: { type: "object", properties: { market_day: { type: "string", enum: DAYS }, reminders: { type: "array", items: { type: "object", properties: { meal: { type: "string", enum: ["breakfast", "lunch", "dinner", "snack"] }, time: { type: "string", description: "HH:MM 24h" } }, required: ["meal", "time"] } } } },
+    execute: setSchedule },
+  { name: "update_pantry", description: "Add or remove pantry items (short names). Shows a '🫙 Pantry' card with Undo.",
+    inputSchema: { type: "object", properties: { add: { type: "array", items: { type: "string" } }, remove: { type: "array", items: { type: "string" } } } },
+    execute: updatePantry },
+  { name: "plan_week", description: "Set this week's plan (replaces it). 1-4 dishes. Returns each dish's deterministic allergy check (ok/swap/blocked/unknown) and notes.",
+    inputSchema: { type: "object", properties: { dishes: { type: "array", items: { type: "object", properties: { id: { type: "string", enum: Object.keys(DISHES) }, day: { type: "string", enum: ["Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday","Monday"] } }, required: ["id"] } } }, required: ["dishes"] },
+    execute: planWeek },
+  { name: "get_ledger", description: "Read the full current Bureau Ledger (meals, rules, pending forms, schedule, pantry, plan, intake to-do).",
+    inputSchema: { type: "object", properties: {} }, execute: () => ledgerJSON() },
+];
+
+let busy = false, ctl = null;
+function setBusy(b) {
+  busy = b; const s = $("#send");
+  s.textContent = b ? "Stop" : "Send"; s.classList.toggle("primary", !b); s.type = b ? "button" : "submit";
+  drawChips();
+}
+$("#send").addEventListener("click", (e) => { if (busy) { e.preventDefault(); if (ctl) ctl.abort(); stopScripted = true; } });
+
+async function aiTurn(userText) {
+  const content = (aiNotes.length ? aiNotes.join("\n") + "\n" : "") + userText; aiNotes = [];
+  history.push({ role: "user", content });
+  const turns = history.slice(-16);
+  ctl = new AbortController();
+  const think = addThinking(); let segStart = 0, cur = null, last = "", thinkGone = false;
+  const dropThink = () => { if (!thinkGone) { think.remove(); thinkGone = true; } };
+  try {
+    const { text } = await sample([{ role: "user", content: RULES() }, ...turns], {
+      cache: false, modelTier: "quick", signal: ctl.signal,
+      onText: ({ text }) => {
+        last = text; const s = text.slice(segStart); if (!s.trim()) return;
+        dropThink(); panTalking(true);
+        if (!cur) cur = addMsg("pan", "");
+        cur.p.textContent = s.replace(/^\s+/, ""); scrollChat();
+      },
+      tools: TOOLS.map((t) => ({ ...t, execute: (input) => {
+        dropThink(); segStart = last.length; cur = null;
+        try { return t.execute(input || {}); } catch (err) { return { ok: false, error: String(err?.message || err) }; }
+      } })),
+    });
+    const final = text || last;
+    history.push({ role: "assistant", content: final || "(the Pan nods and writes something down)" });
+    speak(final.slice(segStart));
+  } catch (e) {
+    dropThink();
+    const code = e?.code;
+    if (code === "cancelled" || e?.name === "AbortError") { history.push({ role: "assistant", content: last || "(interrupted)" }); return; }
+    history.pop();
+    if (code === "rate_limited") { panSay("The Pan needs a moment. Even cast iron has to cool down. Try again shortly; I've kept what you said."); $("#input").value = userText; return; }
+    if (["not_granted", "sampling_disabled", "tools_unavailable"].includes(code)) { sample = null; updateAiBadge(); }
+    else panSay("The line to the Bureau went quiet. I'll answer from memory; the script, I mean.").catch(() => {});
+    await scripted(userText);
+  } finally { panTalking(false); ctl = null; }
+}
+
+/* ================= SCRIPTED MODE ================= */
+let stopScripted = false, lastRejected = null, fbIdx = 0;
+const pick = (a) => a[Math.floor(Math.random() * a.length)];
+const UNDO_LINES = ["Undone. I've crossed it out. The Bureau will want to know why. The Bureau will not be told.", "Struck from the ledger. Neatly. I have standards.", "Gone. As if it never happened, except I remember. I remember everything. I'm 140."];
+const NUDGE_LINES = ["It has been six hours. I am a pan, and even I am concerned.", "Six hours since you ate. Your stomach has filed a complaint with the Bureau. In triplicate. I've stamped it.", "Six hours. Something small counts. A banana counts. Toast counts. Toast always counts."];
+const FALLBACK = [
+  "I'm a pan. I understood about a third of that, and the third was 'the'. Try one of the buttons below; they're Bureau-approved phrasings.",
+  "The Bureau has no form for that. It's drafting one; expect it in eleven to fourteen working centuries. Meanwhile, tell me what you ate, what you can't eat, or what's in the cupboard.",
+  "A hundred and forty years seasoned and that's still a new one. Ask me about food, your market day, your week, or knives.",
+];
+const wait = (ms) => new Promise((r) => setTimeout(r, reduced ? Math.min(ms, 150) : ms));
+
+async function scripted(msg) {
+  stopScripted = false;
+  const think = addThinking(); await wait(550 + Math.random() * 400); think.remove();
+  if (stopScripted) return;
+  const m = msg.toLowerCase().trim();
+  const say = (t) => panSay(t);
+  let mm;
+
+  // undo
+  if (/^(undo|wait,? undo|wait undo|take that back|scratch that)/.test(m)) {
+    const w = [...writes].reverse().find((x) => !x.undone);
+    if (w) { w.undo(); return say(pick(UNDO_LINES)); }
+    return say("Nothing to undo. The ledger is pristine. It's unsettling.");
+  }
+  // severity correction after "Not quite"
+  if (lastRejected && (mm = /\b(mild|moderate|severe)\b/.exec(m))) {
+    const p = lastRejected; lastRejected = null;
+    const kind = /intoleran/.test(m) ? "intolerance" : p.kind;
+    await say(`${cap(mm[1])}. Right. New form, fresh ink.`);
+    proposeRule({ ingredient: p.ingredient, kind, severity: mm[1] });
+    setChips([]); return say("Check it again. The Bureau will wait. The Bureau is very good at waiting.");
+  }
+  if (lastRejected && /intoleran/.test(m)) {
+    const p = lastRejected; lastRejected = null;
+    await say("An intolerance. Unpleasant, not dangerous. Different form, same stamp.");
+    proposeRule({ ingredient: p.ingredient, kind: "intolerance", severity: "mild" }); setChips([]); return;
+  }
+  // rules
+  if ((mm = /(?:allergic to|allergy to|intolerant to|can'?t eat|cannot eat|can'?t have|don'?t eat)\s+([a-z][a-z \-]*?)(?=[.,!?;]|\s+and\b|\s+(?:it'?s|very|really|badly)\b|$)/.exec(m)) || (mm = /\b([a-z]+)\s+allergy\b/.exec(m))) {
+    const ing = mm[1].replace(/^(any|the|a|an)\s+/, "").trim();
+    const kind = /intoleran|don'?t eat|can'?t have/.test(m) && !/allerg/.test(m) ? (/intoleran/.test(m) ? "intolerance" : "preference") : "allergy";
+    const sev = (/\b(mild|slight|a bit|a little)\b/.test(m) && "mild") || (/moderate/.test(m) && "moderate") || (/severe|anaphyla|epi-?pen|deadly|badly/.test(m) && "severe") || (kind === "allergy" ? "severe" : "mild");
+    await say(kind === "allergy" ? `${cap(ing)}. Right. Let me read that back, because the Bureau insists and, frankly, so do I.` : `${cap(ing)}. Noted, pending paperwork. Let me read it back.`);
+    proposeRule({ ingredient: ing, kind, severity: sev });
+    setChips([]);
+    return say(sev === "severe" ? `Check the spelling: ${spell(ing)}. Severe means I block it outright and flag anything I can't verify. ${/\b(severe|anaphyla|epi|badly)\b/.test(m) ? "" : "You didn't say how bad, so I wrote 'severe'. Safer that way. If it's milder, tap 'Not quite'."}`.trim() : "Look it over. If it's right, stamp it. If not, 'Not quite' and tell me what I got wrong.");
+  }
+  if ((mm = /\b(i'?m|i am|we'?re|going)\s+(?:a\s+)?(vegetarian|vegan|pescatarian)\b/.exec(m)) || (mm = /^(?:())(vegetarian|vegan|pescatarian)$/.exec(m))) {
+    await say(`${cap(mm[2])}. A diet, not an allergy, so no spelling bee. Still needs a stamp.`);
+    proposeRule({ ingredient: mm[2], kind: "diet", severity: "diet" }); setChips([]); return;
+  }
+  // schedule
+  const dayHit = DAYS.find((d) => new RegExp("\\b" + d.toLowerCase().slice(0, 3) + "(" + d.toLowerCase().slice(3) + ")?s?\\b").test(m));
+  if (dayHit && /market|shop|grocer/.test(m)) {
+    const wasPencil = !S.schedule.inked;
+    setSchedule({ market_day: dayHit });
+    setChips([`Remind me about dinner at 7pm`]);
+    return say(dayHit === "Saturday" && wasPencil
+      ? "Saturday. Confirmed. I've rubbed out the pencil and inked it, which in Bureau terms is roughly a wedding. Want reminders for meals too?"
+      : `${dayHit}. Inked. The market has been informed; the market did not reply, which is normal for markets.`);
+  }
+  if (/remind/.test(m) && (mm = /(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm)?/.exec(m))) {
+    let h = +mm[1]; const min = mm[2] || "00"; if (mm[3] === "pm" && h < 12) h += 12; if (mm[3] === "am" && h === 12) h = 0;
+    if (!mm[3] && h < 8) h += 12;
+    const meal = ["breakfast", "lunch", "dinner", "snack"].find((x) => m.includes(x)) || (h < 11 ? "breakfast" : h < 16 ? "lunch" : "dinner");
+    const r = setSchedule({ reminders: [{ meal, time: `${h}:${min}` }] });
+    setChips([]);
+    return say(r.ok ? `${cap(meal)} at ${String(h).padStart(2, "0")}:${min}. I'll clang at you. Politely. I'm not a kettle.` : "That's not a time. The Bureau tried. The Bureau wept.");
+  }
+  // meals
+  if (/\b(had|ate|eaten|eating|having|just finished)\b/.test(m) || /^(breakfast|lunch|dinner|snack)\b/.test(m)) {
+    let food = (mm = /(?:had|ate|eaten|having|eating|just finished)\s+(?:some\s+|a\s+|an\s+)?(.+?)(?:\s+for\s+(breakfast|lunch|dinner|tea|supper|a snack|snack|elevenses)\b.*|[.!?]|$)/.exec(m)) ? mm[1] : m.replace(/^(breakfast|lunch|dinner|snack)\s*(was|:)?\s*/, "");
+    food = food.replace(/^(nothing|not much)$/, "").trim();
+    if (!food) { await say("Nothing? Then that's the next thing on the agenda. Something small counts. I'll wait. I'm good at waiting; I'm heavy."); setChips(["I had a banana and some yogurt"]); return; }
+    const meal = (/\b(breakfast|lunch|dinner|snack|supper|tea|elevenses)\b/.exec(m) || [])[1] || "snack";
+    const r = logMeal({ description: food, meal });
+    const t = r.today_totals; const lines = [];
+    if (/^toast$/.test(food)) lines.push("Toast. Noted. If there was anything on it, tell me; butter has feelings too.");
+    else lines.push(`${cap(food)}. Logged${r.logged.guess ? ", as a rough guess, because the Bureau has never heard of it" : ""}.`);
+    if (r.logged.slot === "second breakfast") lines.push("Filed as second breakfast. The Bureau has a form for that. It's the most-stamped form we have.");
+    if (t.protein_g >= TARGETS.protein && t.fiber_g >= TARGETS.fiber) lines.push("That's enough protein and fiber for today. Properly fed. I'm almost proud. I'm a pan; 'almost' is the top of the scale.");
+    else if (t.veg_servings < 2) lines.push("Nothing green yet today. I've noticed. The cilantro has noticed.");
+    else lines.push(`You're at about ${t.protein_g}g protein. Keep going; there's room.`);
+    setChips([]); return say(lines.join(" "));
+  }
+  // pantry
+  if (/\b(got|have|has|cupboard|fridge|pantry|in stock)\b/.test(m) && !/\?$/.test(m) || /^(out of|used up|ran out of|finished the)\b/.test(m)) {
+    if ((mm = /(?:out of|used up|ran out of|finished the|no more)\s+(.+)/.exec(m))) {
+      const items = mm[1].split(/,|\band\b/).map((s) => s.trim()).filter(Boolean);
+      updatePantry({ remove: items }); return say(`Struck from the cupboard census: ${items.join(", ")}. Market list will hear of this.`);
+    }
+    const listTxt = m.replace(/^.*?\b(?:i'?ve got|i have got|i got|i have|we have|we'?ve got|there'?s|got|have)\b\s*/, "").replace(/\b(in the (cupboard|fridge|pantry))\b/g, "");
+    const items = listTxt.split(/,|\band\b|&/).map((s) => s.replace(/[.!]$/, "").trim()).filter(Boolean);
+    if (!items.length) return say("Have what? Name names. Cupboard names.");
+    updatePantry({ add: items });
+    const lines = [];
+    if (items.some((i) => /regret/.test(i))) lines.push("Regret, filed under condiments. It goes with everything, sadly.");
+    if (items.some((i) => /rice/.test(i)) && items.some((i) => /onion/.test(i))) lines.push("Rice and half an onion is the opening line of several good stories. Pan's Emergency Eggs, for one. Do you have eggs? You should have eggs.");
+    else lines.push(`${items.length} item${items.length > 1 ? "s" : ""} recorded. The cupboard has been counted and found adequate.`);
+    setChips(["I've got eggs too", "Plan my week"]);
+    return say(lines.join(" "));
+  }
+  // plan
+  if (/\bplan\b|\bweek\b|what should i (cook|make)/.test(m)) {
+    const pickOrder = ["emergency_eggs", "frijoles", "parippu", "onigiri"].filter((id) => checkDish(id).status !== "blocked");
+    const r = planWeek({ dishes: pickOrder.map((id) => ({ id })) });
+    const flags = r.plan.flatMap((d) => d.allergy_check.notes.filter((n) => n.startsWith("🔁")).map((n) => n.replace(/^\S+\s/, "")));
+    const skipped = Object.keys(DISHES).filter((id) => !pickOrder.includes(id)).map((id) => DISHES[id].name);
+    const lines = [`${r.plan.length} dishes, three cooks, one pan. ${S.schedule.market || "Market day"} feeds the weekend. Emergency Eggs on Wednesday, because something will go wrong on Wednesday.`];
+    if (flags.length) lines.push(`I've marked swaps for your rules: ${flags.join("; ")}. Coconut oil in a Kerala dal isn't a compromise; Ammachi Leela will tell you it's often how it's done.`);
+    if (skipped.length) lines.push(`I left out ${skipped.join(" and ")}: your rules block it.`);
+    lines.push("The store-bought bits get a ❓. I can't read a label from inside a cupboard. Nobody can guarantee a dish is safe for an allergy; check labels.");
+    setChips(["What's a good knife grip?"]);
+    return say(lines.join(" "));
+  }
+  // cooking Qs
+  if (/knife|grip|chop|dice/.test(m)) {
+    addXP(5, "Knife"); render();
+    setChips(["How do I know when it's 'fragrant'?"]);
+    return say("Two grips. Knife hand: the pinch. Thumb and the side of your index finger pinch the blade just in front of the handle; the other fingers wrap round. Control lives in the pinch, not the fist. Other hand: the claw. Fingertips tucked under, knuckles forward, and the flat of the blade rests against your knuckles. The knife can't cut what isn't in front of it. Practise on that half onion. It isn't doing anything else.");
+  }
+  if (/fragrant/.test(m)) { addXP(5, "Heat control"); render(); return say("'Until fragrant' means: you can smell it from a step back, and it smells nutty or sweet, not sharp. For garlic that's under a minute on medium. Brown edges are fine; black is a eulogy."); }
+  if (/pasta water|salt.*water/.test(m)) return say("Salt it until it tastes like a pleasant soup, not the sea. Roughly a tablespoon per four litres. The pasta drinks it; it's the only chance to season the inside.");
+  if (/gluey|sticky rice|mushy rice|rice.*(gluey|sticky|mushy)/.test(m)) return say("Gluey rice is usually unrinsed rice or too much water. Rinse until the water runs nearly clear, measure, lid on, and don't stir it. Stirring is for risotto and regret.");
+  // ledger / about me
+  if (/what do you know|ledger|my rules|show me|summary|about me/.test(m)) {
+    const L = ledgerJSON();
+    return say(`On file: ${L.meals_today.length} meal${L.meals_today.length === 1 ? "" : "s"} today, ${L.rules_saved.map((r) => r.ingredient).join(", ") || "no rules"}, market day ${L.schedule.market || "unknown"}, ${L.pantry.length} pantry items, ${L.plan.length} planned dishes. Still to do: ${L.intake_todo.join(", ") || "nothing. Remarkable."}`);
+  }
+  if (/^(hi|hello|hey|yo|good (morning|afternoon|evening))\b/.test(m)) return say("Hello. I'm the Pan. We've met; it was earlier, in the paragraph above. What did you eat, what can't you eat, and when do you shop?");
+  if (/thank/.test(m)) return say("Don't mention it. Really. The Bureau charges a gratitude levy.");
+  if (/doctor|medical|symptom|sick|pain|reaction/.test(m)) return say("That's one for a doctor or a dietitian, not a pan. If it's a reaction happening now, call your local emergency number. I'll be here when you're back.");
+  return say(FALLBACK[fbIdx++ % FALLBACK.length]);
+}
+
+/* ================= SEND ================= */
+async function send(text) {
+  text = String(text || "").trim(); if (!text || busy) return;
+  $("#input").value = "";
+  addMsg("you", text);
+  setBusy(true);
+  try { if (aiOn()) await aiTurn(text); else await scripted(text); }
+  catch (e) { console.warn(e); }
+  finally { setBusy(false); }
+}
+$("#form").addEventListener("submit", (e) => { e.preventDefault(); if (!busy) send($("#input").value); });
+$("#panbtn").addEventListener("click", () => { screenSay(pick(["Hm?", "Yes?", "I'm listening. I'm always listening. I'm a pan.", "Speak, apprentice."])); $("#input").focus(); });
+$("#aibadge").addEventListener("click", () => {
+  if (!sample) { screenSay("No AI here. Script it is.", 2000); return; }
+  forceScripted = !forceScripted; updateAiBadge();
+});
+$("#voice").addEventListener("click", () => {
+  voiceOn = !voiceOn; $("#voice").setAttribute("aria-pressed", String(voiceOn));
+  try { if (!voiceOn) speechSynthesis.cancel(); else speak("Voice on. This isn't my real voice. My real voice is deeper."); } catch {}
+});
+$("#nudge").addEventListener("click", () => {
+  if (busy) return;
+  S.nudged = true; screenSay("6 HOURS!", 2400);
+  panSay(pick(NUDGE_LINES));
+  setChips(["I had a banana and some yogurt", "I had dal and rice for lunch"]);
+  log.closest(".chatbox").scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "nearest" });
+});
+
+/* ================= OPENING ================= */
+function openScene() {
+  log.insertAdjacentHTML("beforeend", `<div class="divider">· earlier today ·</div>`);
+  const pre = [
+    ["📒", "Logged: porridge with banana · breakfast", "est. P 6g · F 6g · veg 1", "sec-meals", () => { S.meals = S.meals.filter((x) => x.id !== "m0"); }],
+    ["📒", "Filed: Lactose · intolerance · mild", "Form 27-B, stamped by you", "sec-rules", () => { S.rules = S.rules.filter((x) => x.id !== "r0"); }],
+  ];
+  for (const a of pre) writeCard(...a);
+  log.insertAdjacentHTML("beforeend", `<div class="divider">· now ·</div>`);
+  const greet = "Ah. The apprentice. I'm the Pan: a hundred and forty years seasoned, licensed by the Pantry Bureau as your mentor, somewhat against my will. This is your intake interview, Form 1-A. You've done breakfast and one rule; well done, the Bureau is giddy. Still to do: confirm your market day (I've got Saturday in pencil), tell me what's in the cupboard, and let me plan your week. Also tell me whatever you eat. All of it. I'm not judging. I'm a pan.";
+  history.push({ role: "assistant", content: greet });
+  panSay(greet);
+}
+render(); drawChips(); openScene();
+})();
+</script>
