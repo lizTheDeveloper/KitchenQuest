@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,7 +9,8 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { buildApp } from '../src/app.js';
 import { loadCatalog } from '../src/catalog.js';
 import { NOTICES } from '../src/consent/notices.js';
-import { auditEvents, rules } from '../src/db/schema.js';
+import { sealFor } from '../src/crypto/userkeys.js';
+import { auditEvents, rules, selfReadCounts } from '../src/db/schema.js';
 import { CaptureMailer } from '../src/mail/mailer.js';
 import type { Db } from '../src/types.js';
 import { signIn } from './helpers/auth.js';
@@ -226,10 +228,9 @@ describe('/rules', () => {
   it('stores no plaintext: the sealed column and the row hold no ingredient id', async () => {
     const c = await player();
     const id = (await post(c, { rule: { ...PEANUT, note: 'peanut butter too' }, confirmed: true })).json().rule.id;
-    const [row] = await sql<{ sealed: Buffer; whole: string }[]>`select sealed, r::text as whole from rules r where id = ${id}`;
+    const [row] = await sql<{ sealed: Buffer }[]>`select sealed from rules where id = ${id}`;
     expect(row!.sealed.includes(Buffer.from('peanut'))).toBe(false);
     expect(row!.sealed.toString('latin1')).not.toMatch(/peanut|anaphylactic|avoid/i);
-    expect(row!.whole).not.toMatch(/peanut|anaphylactic/i);
   });
 
   it("another user's rule id → 404 on PUT and DELETE and absent from their list", async () => {
@@ -251,15 +252,61 @@ describe('/rules', () => {
     expect((await del(a, 'peanut')).statusCode).toBe(404);
   });
 
-  it('validates against the other rules of the user only', async () => {
+  it("validates against the caller's own rules only: problems name only their rule ids", async () => {
     const a = await player();
     const b = await player();
-    await post(b, { rule: PEANUT, confirmed: true });
-    // Two rules of the same user each validate with the others present.
-    const first = (await post(a, { rule: PEANUT, confirmed: true })).json().rule;
-    const second = await post(a, { rule: PEANUT, confirmed: true });
-    expect(second.statusCode).toBe(201);
-    expect((await put(a, first.id, { rule: DAIRY, confirmed: true })).statusCode).toBe(200);
+    const aId = await userIdOf(a);
+    const bRule = (await post(b, { rule: PEANUT, confirmed: true })).json().rule.id;
+    // A stored rule of A's that core now rejects (as if its ingredient left the data).
+    const badId = randomUUID();
+    const bad = { ...PEANUT, target: { kind: 'ingredient', ids: ['retired_ingredient'] } };
+    await db.insert(rules).values({ id: badId, userId: aId, sealed: await sealFor(db, config.keyring, { table: 'rules', userId: aId, rowId: badId }, bad) });
+
+    const res = await post(a, { rule: DAIRY, confirmed: true });
+    expect(res.statusCode).toBe(400);
+    const problems: string[] = res.json().error.details.problems;
+    expect(problems).toEqual([`Rule "${badId}": target id "retired_ingredient" is not in the ingredient graph`]);
+    expect(JSON.stringify(problems)).not.toContain(bRule);
+
+    // B's rules never see A's bad rule.
+    expect((await post(b, { rule: DAIRY, confirmed: true })).statusCode).toBe(201);
+  });
+
+  it('rejects unknown keys inside target, limit and phase; values stay core\'s', async () => {
+    const c = await player();
+    const uid = await userIdOf(c);
+    for (const rule of [
+      { ...PEANUT, target: { kind: 'ingredient', ids: ['peanut'], diagnosis: 'x' } },
+      { ...PEANUT, type: 'limit', limit: { amount: 1, unit: 'g', per: 'day', extra: 'x' } },
+      { ...PEANUT, phase: { start: '2026-11-01', clinic: 'x' } },
+    ]) {
+      const res = await post(c, { rule, confirmed: true });
+      expect(res.statusCode, JSON.stringify(rule)).toBe(400);
+      expect(res.json().error.code).toBe('bad_request');
+      expect(res.json().error.details).not.toHaveProperty('problems');
+    }
+    // A non-object target is not a shape error: core reports it.
+    const core = await post(c, { rule: { ...PEANUT, target: 'peanut' }, confirmed: true });
+    expect(core.statusCode).toBe(400);
+    expect(core.json().error.details.problems[0]).toMatch(/target must be an object/);
+    expect(await storedCount(uid)).toBe(0);
+    // The known keys still pass.
+    const ok = { ...PEANUT, type: 'limit', limit: { amount: 1, unit: 'g', per: 'serving' }, phase: { start: '2026-11-01', end: '2026-12-01', journeyId: 'j1' } };
+    expect((await post(c, { rule: ok, confirmed: true })).statusCode).toBe(201);
+  });
+
+  it('counts GET /rules per user and day, content-free, without audit events (C-5)', async () => {
+    const a = await player();
+    const b = await player();
+    const aId = await userIdOf(a);
+    await post(a, { rule: PEANUT, confirmed: true });
+    for (let i = 0; i < 3; i++) expect((await list(a)).statusCode).toBe(200);
+    await list(b);
+    const rows = await db.select().from(selfReadCounts).where(eq(selfReadCounts.userId, aId));
+    expect(rows).toEqual([{ userId: aId, resource: 'rules', day: '2026-11-09', count: 3 }]);
+    const reads = await db.select().from(auditEvents).where(eq(auditEvents.subjectUserId, aId));
+    expect(reads.filter((e) => !e.action.startsWith('rules.') && !e.action.startsWith('consent.') && !e.action.startsWith('auth.'))).toEqual([]);
+    expect(reads.some((e) => e.action.startsWith('rules.read'))).toBe(false);
   });
 });
 
@@ -275,6 +322,38 @@ describe('/rules consent gate (C-11)', () => {
     expect(await storedCount(uid)).toBe(0);
     // Reading needs no consent: an empty list.
     expect((await list(c)).json()).toEqual({ rules: [] });
+  });
+
+  it('a withdraw-with-delete racing an in-flight POST leaves no rule stored', async () => {
+    const c = await player();
+    const uid = await userIdOf(c);
+    const lockWaiters = async () =>
+      (await sql<{ n: number }[]>`select count(*)::int as n from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'`)[0]!.n;
+    const until = async (n: number) => {
+      for (let i = 0; i < 500; i++) {
+        if ((await lockWaiters()) >= n) return;
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      throw new Error(`never saw ${n} lock waiters`);
+    };
+    // Hold the POST at its INSERT, after it has passed the consent checks.
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const blocker = sql.begin(async (tx) => {
+      await tx`lock table rules in share mode`;
+      await gate;
+    });
+    const posting = post(c, { rule: PEANUT, confirmed: true });
+    await until(1);
+    const withdrawing = call(c, { method: 'DELETE', url: '/me/consents/health_data', payload: { healthData: 'delete' } });
+    await until(2);
+    release();
+    await blocker;
+    const [p, w] = await Promise.all([posting, withdrawing]);
+    expect(p.statusCode).toBe(201);
+    expect(w.statusCode).toBe(204);
+    expect(await storedCount(uid)).toBe(0);
+    expect((await post(c, { rule: PEANUT, confirmed: true })).statusCode).toBe(403);
   });
 
   it('withdrawing consent (keep) stops writes; the rules stay readable and deletable', async () => {

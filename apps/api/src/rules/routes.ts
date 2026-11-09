@@ -4,9 +4,10 @@ import { and, asc, eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { audit } from '../audit/audit.js';
+import { countSelfRead } from '../audit/self-reads.js';
 import { requireUser } from '../auth/session.js';
 import type { Catalog } from '../catalog.js';
-import { requireConsent, type Tx } from '../consent/ledger.js';
+import { lockConsentIn, requireConsent, type Tx } from '../consent/ledger.js';
 import type { Keyring } from '../crypto/keyring.js';
 import { openFor, sealFor } from '../crypto/userkeys.js';
 import { rules } from '../db/schema.js';
@@ -20,13 +21,24 @@ const SearchQuery = z.object({ q: z.string().max(100).default('') }).strict();
  * Only the keys are fixed here; whether the values are a valid rule is core's
  * decision (`validateRules`), so they pass through as unknown.
  */
+/**
+ * When `value` is an object, it may hold only `keys`, so nothing beyond the
+ * rule itself is sealed into health data. Its values, and whether it is an
+ * object at all, are left to core.
+ */
+const keysOnly = (keys: readonly string[]) =>
+  z.unknown().refine(
+    (v) => typeof v !== 'object' || v === null || Object.keys(v).every((k) => keys.includes(k)),
+    { message: `Only these keys are allowed: ${keys.join(', ')}` },
+  );
+
 const RuleBody = z
   .object({
-    target: z.unknown(),
+    target: keysOnly(['kind', 'ids']),
     type: z.unknown(),
     severity: z.unknown(),
-    limit: z.unknown().optional(),
-    phase: z.unknown().optional(),
+    limit: keysOnly(['amount', 'unit', 'per']).optional(),
+    phase: keysOnly(['start', 'end', 'journeyId']).optional(),
     note: z.string().max(500).optional(),
   })
   .strict();
@@ -57,7 +69,9 @@ async function loadRules(db: Pick<Db, 'select'>, keyring: Keyring, userId: strin
 
 /**
  * Health writes need `health_data` consent (C-11), then an explicit yes for
- * this rule (spec §7.0), then a body of the rule's shape.
+ * this rule (spec §7.0), then a body of the rule's shape. This consent check
+ * is the fast 403; the write's transaction checks again under a row lock
+ * (`lockConsentIn`), which is what makes it atomic with a withdrawal.
  */
 async function parseWrite(req: FastifyRequest, at: Date): Promise<StoredRule> {
   await requireConsent(req.server.deps.db, req.user.id, 'health_data', at);
@@ -88,7 +102,7 @@ function ruleIdParam(req: FastifyRequest<{ Params: { id: string } }>): string {
  * health data: sealed per user and row (C-3/C-4), written only with consent
  * (C-11) and `confirmed: true`, and validated by core, never by the API.
  * Writes are audited by action and rule id only (C-5); the player's own reads
- * are not logged per row.
+ * are counted per day, not logged per read (`countSelfRead`).
  */
 export async function rulesRoutes(app: FastifyInstance, catalog: Catalog): Promise<void> {
   const { db, config, now } = app.deps;
@@ -101,7 +115,11 @@ export async function rulesRoutes(app: FastifyInstance, catalog: Catalog): Promi
   });
 
   // Reading needs no consent: after a "keep" withdrawal the rules stay readable.
-  app.get('/rules', { preHandler: requireUser }, async (req) => ({ rules: await loadRules(db, keyring, req.user.id) }));
+  app.get('/rules', { preHandler: requireUser }, async (req) => {
+    const list = await loadRules(db, keyring, req.user.id);
+    await countSelfRead(db, req.user.id, 'rules', now());
+    return { rules: list };
+  });
 
   app.post('/rules', { preHandler: requireUser }, async (req, reply) => {
     const at = now();
@@ -110,6 +128,7 @@ export async function rulesRoutes(app: FastifyInstance, catalog: Catalog): Promi
     // Generated before insert: the seal is bound to it (C-3).
     const rowId = randomUUID();
     await db.transaction(async (tx: Tx) => {
+      await lockConsentIn(tx, userId, 'health_data', at);
       assertValid({ ...value, id: rowId }, await loadRules(tx, keyring, userId), catalog);
       const sealed = await sealFor(tx, keyring, sealContext(userId, rowId), value);
       await tx.insert(rules).values({ id: rowId, userId, sealed });
@@ -124,6 +143,7 @@ export async function rulesRoutes(app: FastifyInstance, catalog: Catalog): Promi
     const userId = req.user.id;
     const rowId = ruleIdParam(req);
     await db.transaction(async (tx: Tx) => {
+      await lockConsentIn(tx, userId, 'health_data', at);
       const [row] = await tx
         .select({ id: rules.id })
         .from(rules)

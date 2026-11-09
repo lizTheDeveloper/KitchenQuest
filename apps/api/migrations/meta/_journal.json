@@ -50,6 +50,13 @@
       "when": 1794261839657,
       "tag": "0006_audit_pseudonymize_hardening",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1794263304281,
+      "tag": "0007_self_read_counts",
+      "breakpoints": true
     }
   ]
 }

@@ -112,6 +112,22 @@ export async function requireConsent(db: Pick<Db, 'select'>, userId: string, pur
   }
 }
 
+/**
+ * For health writes, inside the write's transaction: share-locks the active
+ * grant for `purpose` or throws 403 `consent_required`. A concurrent
+ * withdrawal (an UPDATE of that row) then waits until the write commits, so a
+ * withdraw-with-delete also removes what the write stored; a withdrawal that
+ * committed first leaves no active row, and the write is refused.
+ */
+export async function lockConsentIn(tx: Tx, userId: string, purpose: ConsentPurpose, now: Date): Promise<void> {
+  const [row] = await tx
+    .select({ id: consents.id })
+    .from(consents)
+    .where(and(active(userId, purpose), lte(consents.grantedAt, now)))
+    .for('share');
+  if (!row) throw new ApiError(403, 'consent_required', `This needs your consent for ${purpose}`, { purpose });
+}
+
 export interface ConsentRecord {
   purpose: ConsentPurpose;
   noticeVersion: string;

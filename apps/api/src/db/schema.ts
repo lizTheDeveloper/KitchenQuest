@@ -3,6 +3,7 @@ import {
   bigserial,
   check,
   customType,
+  date,
   index,
   integer,
   jsonb,
@@ -230,5 +231,30 @@ export const auditEvents = pgTable(
     index("audit_events_actor_idx").on(t.actorId),
     index("audit_events_at_idx").on(t.at),
     check("audit_events_actor_kind_check", sql`${t.actorKind} in (${inList(AUDIT_ACTOR_KINDS)})`),
+  ],
+);
+
+export const SELF_READ_RESOURCES = ["rules"] as const;
+
+/**
+ * C-5: the player's routine reads of their own health data, counted per user,
+ * resource and UTC day rather than logged one event per read, so no
+ * behavioural log (when they looked) is built. Holds no content. Deleted with
+ * the account; exported with it (Step 7).
+ */
+export const selfReadCounts = pgTable(
+  "self_read_counts",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    resource: text("resource").notNull(),
+    day: date("day", { mode: "string" }).notNull(),
+    count: integer("count").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.resource, t.day] }),
+    check("self_read_counts_resource_check", sql`${t.resource} in (${inList(SELF_READ_RESOURCES)})`),
+    check("self_read_counts_count_check", sql`${t.count} > 0`),
   ],
 );
