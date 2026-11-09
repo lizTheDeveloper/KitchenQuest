@@ -4,7 +4,7 @@ import { ZodError } from 'zod';
 import { authRoutes } from './auth/routes.js';
 import { requireUser } from './auth/session.js';
 import type { Config } from './config.js';
-import { ApiError } from './errors.js';
+import { ApiError, loggableError } from './errors.js';
 import type { Db, Mailer } from './types.js';
 
 export interface Deps {
@@ -21,7 +21,13 @@ function body(code: string, message: string, details?: unknown) {
 }
 
 export async function buildApp(deps: Deps): Promise<FastifyInstance> {
-  const app = Fastify({ logger: deps.logger });
+  const tp = deps.config.trustProxy;
+  // A hop count works at runtime but is missing from Fastify's types; this is the function it builds.
+  const trustProxy = typeof tp === 'number' ? (_addr: string, hop: number) => hop < tp : tp;
+  const app = Fastify({ logger: deps.logger, trustProxy });
+  // JSON bodies only. Fastify's default text/plain parser would let a cross-site
+  // form or no-cors fetch (no preflight) reach the POST routes.
+  app.removeContentTypeParser('text/plain');
   app.decorate('deps', deps);
 
   app.setNotFoundHandler((_req, reply) => {
@@ -41,7 +47,8 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
     if (status && status >= 400 && status < 500) {
       return reply.status(status).send(body('bad_request', (err as Error).message));
     }
-    req.log.error(err);
+    // Not under `err`: pino's err serializer would copy every property back in.
+    req.log.error({ error: loggableError(err) }, 'request failed');
     return reply.status(500).send(body('internal', 'Internal server error'));
   });
 

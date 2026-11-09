@@ -8,8 +8,9 @@ import { hashToken, isTokenShaped, newToken, SESSION_TTL_MS } from './tokens.js'
 
 export const SESSION_COOKIE = 'kq_session';
 
-/** Exactly `HttpOnly; Secure; SameSite=Lax; Path=/`; the server-side expiry is the session row's. */
+/** `Max-Age=2592000; HttpOnly; Secure; SameSite=Lax; Path=/`: lives as long as the session row. */
 export const SESSION_COOKIE_OPTIONS: CookieSerializeOptions = {
+  maxAge: SESSION_TTL_MS / 1000,
   httpOnly: true,
   secure: true,
   sameSite: 'lax',

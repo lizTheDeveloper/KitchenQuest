@@ -7,11 +7,12 @@ import { testDb, type Sql } from './helpers/db.js';
 import type { Db } from '../src/types.js';
 
 const APP_ORIGIN = 'https://play.kitchenquest.test';
-const config = loadConfig({
+const env = {
   DATABASE_URL: 'postgres://x@localhost/x',
   DATA_KEY: Buffer.alloc(32, 7).toString('base64'),
   APP_ORIGIN,
-});
+};
+const config = loadConfig(env);
 
 const MIN = 60_000;
 const DAY = 24 * 60 * MIN;
@@ -110,7 +111,7 @@ describe('magic-link sign-in', () => {
     expect(header).toHaveLength(1);
     const [pair, ...attrs] = header[0]!.split('; ');
     expect(pair).toMatch(/^kq_session=[A-Za-z0-9_-]{43}$/);
-    expect(attrs.sort()).toEqual(['HttpOnly', 'Path=/', 'SameSite=Lax', 'Secure']);
+    expect(attrs.sort()).toEqual(['HttpOnly', 'Max-Age=2592000', 'Path=/', 'SameSite=Lax', 'Secure']);
 
     const who = await me(sessionCookie(res));
     expect(who.statusCode).toBe(200);
@@ -218,6 +219,26 @@ describe('magic-link sign-in', () => {
     expect(mailer.sent.slice(-2).map((m) => m.to)).toEqual([known, unknown]);
   });
 
+  it('accepts only JSON: a text/plain or form POST to /auth/verify is 415 and consumes nothing (CSRF)', async () => {
+    const token = await tokenFor(freshEmail());
+    const plain = await app.inject({
+      method: 'POST',
+      url: '/auth/verify',
+      headers: { 'content-type': 'text/plain' },
+      payload: JSON.stringify({ token, ageConfirmed: true }),
+    });
+    expect(plain.statusCode).toBe(415);
+    expect(plain.headers['set-cookie']).toBeUndefined();
+    const form = await app.inject({
+      method: 'POST',
+      url: '/auth/verify',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      payload: `token=${token}&ageConfirmed=true`,
+    });
+    expect(form.statusCode).toBe(415);
+    expect((await verify(token, true)).statusCode).toBe(200);
+  });
+
   it('rejects a malformed email with 400 bad_request', async () => {
     const res = await requestLink('not-an-email');
     expect(res.statusCode).toBe(400);
@@ -241,6 +262,7 @@ describe('sessions', () => {
     const cleared = out.cookies.find((c) => c.name === 'kq_session');
     expect(cleared?.value).toBe('');
     expect(cleared?.path).toBe('/');
+    expect(cleared?.maxAge).toBe(0);
     expect((await me(cookie)).statusCode).toBe(401);
   });
 
@@ -282,5 +304,60 @@ describe('rate limits on /auth/request', () => {
     expect(res.statusCode).toBe(429);
     expect(res.json().error.code).toBe('rate_limited');
     expect((await requestLink(freshEmail(), '10.2.0.2')).statusCode).toBe(202);
+  });
+
+  it('a request refused by the email limit does not use up the IP budget', async () => {
+    const ip = '10.3.0.1';
+    const email = freshEmail();
+    for (let i = 0; i < 5; i++) expect((await requestLink(email, ip)).statusCode).toBe(202);
+    for (let i = 0; i < 10; i++) expect((await requestLink(email, ip)).statusCode).toBe(429);
+    // 5 of the IP's 20 are used; 15 more for other emails pass, then the IP is full.
+    for (let i = 0; i < 15; i++) expect((await requestLink(freshEmail(), ip)).statusCode).toBe(202);
+    expect((await requestLink(freshEmail(), ip)).statusCode).toBe(429);
+  });
+
+  it('limits IPv6 clients by /64', async () => {
+    for (let i = 1; i <= 20; i++) {
+      expect((await requestLink(freshEmail(), `2001:db8:1:2::${i.toString(16)}`)).statusCode).toBe(202);
+    }
+    expect((await requestLink(freshEmail(), '2001:0db8:0001:0002:ffff:1:2:3')).statusCode).toBe(429);
+    expect((await requestLink(freshEmail(), '2001:db8:1:3::1')).statusCode).toBe(202);
+  });
+
+  describe('X-Forwarded-For', () => {
+    async function flood(trustProxy: string | undefined) {
+      const proxied = await buildApp({
+        config: loadConfig({ ...env, ...(trustProxy === undefined ? {} : { TRUST_PROXY: trustProxy }) }),
+        db,
+        mailer,
+        now: () => clock,
+        logger: false,
+      });
+      const send = (client: string) =>
+        proxied.inject({
+          method: 'POST',
+          url: '/auth/request',
+          payload: { email: freshEmail() },
+          remoteAddress: '10.9.9.9', // the proxy
+          headers: { 'x-forwarded-for': client },
+        });
+      try {
+        for (let i = 0; i < 20; i++) expect((await send('203.0.113.7')).statusCode).toBe(202);
+        expect((await send('203.0.113.7')).statusCode).toBe(429);
+        return (await send('203.0.113.8')).statusCode;
+      } finally {
+        await proxied.close();
+      }
+    }
+
+    it('is ignored by default: every client behind the proxy shares its address', async () => {
+      expect(await flood(undefined)).toBe(429);
+    });
+
+    it('sets the client address when TRUST_PROXY names the proxy', async () => {
+      expect(await flood('10.9.9.0/24')).toBe(202);
+      expect(await flood('true')).toBe(202);
+      expect(await flood('1')).toBe(202);
+    });
   });
 });

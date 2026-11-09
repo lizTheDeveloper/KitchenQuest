@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { loginTokens, users } from '../db/schema.js';
 import { activeEntitlements } from '../entitlements/entitlements.js';
 import { ApiError } from '../errors.js';
-import { SlidingWindowLimiter } from './rate-limit.js';
+import { ipKey, SlidingWindowLimiter } from './rate-limit.js';
 import {
   createSession,
   deleteSession,
@@ -42,12 +42,13 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     const at = now();
     const t = at.getTime();
     const emailKey = email.toLowerCase();
-    const wait = Math.max(perIp.waitMs(req.ip, t), perEmail.waitMs(emailKey, t));
+    const ip = ipKey(req.ip);
+    const wait = Math.max(perIp.waitMs(ip, t), perEmail.waitMs(emailKey, t));
     if (wait > 0) {
       reply.header('retry-after', String(Math.ceil(wait / 1000)));
       throw new ApiError(429, 'rate_limited', 'Too many sign-in requests; try again later');
     }
-    perIp.hit(req.ip, t);
+    perIp.hit(ip, t);
     perEmail.hit(emailKey, t);
 
     // Same work whether or not an account exists: the user is created at /auth/verify.

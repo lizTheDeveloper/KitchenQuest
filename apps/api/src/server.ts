@@ -7,11 +7,8 @@ import type { Mailer } from './types.js';
 
 const config = loadConfig(process.env);
 
-// loadConfig guarantees smtpUrl when MAILER=smtp.
-const mailer: Mailer =
-  config.mailer === 'smtp'
-    ? new SmtpMailer(config.smtpUrl!, `Kitchen Quest <no-reply@${new URL(config.appOrigin).hostname}>`)
-    : new LogMailer();
+// loadConfig guarantees smtpUrl and mailFrom when MAILER=smtp.
+const mailer: Mailer = config.mailer === 'smtp' ? new SmtpMailer(config.smtpUrl!, config.mailFrom!) : new LogMailer();
 
 const sql = postgres(config.databaseUrl);
 const app = await buildApp({

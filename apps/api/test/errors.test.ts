@@ -1,5 +1,6 @@
 import { Writable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
+import { DrizzleQueryError } from 'drizzle-orm';
 import { z } from 'zod';
 import { buildApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
@@ -34,6 +35,37 @@ describe('error handler', () => {
     expect(res.json()).toEqual({ error: { code: 'internal', message: 'Internal server error' } });
     expect(res.body).not.toContain('secret db detail');
     expect(lines.join('')).toContain('secret db detail');
+    await app.close();
+  });
+
+  it('500 logs no email address and no query parameters', async () => {
+    const lines: string[] = [];
+    const stream = new Writable({
+      write(chunk, _enc, cb) {
+        lines.push(String(chunk));
+        cb();
+      },
+    });
+    const app = await make({ level: 'error', stream });
+    const pgError = Object.assign(new Error('duplicate key value violates unique constraint "users_email_unique"'), {
+      code: '23505',
+      detail: 'Key (email)=(dup@example.com) already exists.',
+    });
+    app.get('/q', async () => {
+      throw new DrizzleQueryError('insert into "users" ("email") values ($1)', ['param@example.com'], pgError);
+    });
+    app.get('/m', async () => {
+      throw new Error('no account for Message.Person+tag@mail.example.org');
+    });
+    expect((await app.inject({ method: 'GET', url: '/q' })).statusCode).toBe(500);
+    expect((await app.inject({ method: 'GET', url: '/m' })).statusCode).toBe(500);
+    const log = lines.join('');
+    expect(log).not.toMatch(/@(example\.com|mail\.example\.org)/);
+    expect(log).toContain('[email]');
+    expect(log).toContain('DrizzleQueryError');
+    expect(log).toContain('23505'); // the cause's code survives
+    expect(log).toContain('insert into');
+    expect(log).toContain('params: [redacted]');
     await app.close();
   });
 

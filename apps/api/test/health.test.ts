@@ -34,6 +34,45 @@ describe('loadConfig', () => {
   it('requires SMTP_URL when the smtp mailer is chosen', () => {
     expect(() => loadConfig({ ...goodEnv, MAILER: 'smtp' })).toThrow(/SMTP_URL/);
   });
+
+  it('requires MAIL_FROM when the smtp mailer is chosen', () => {
+    const smtp = { ...goodEnv, MAILER: 'smtp', SMTP_URL: 'smtp://localhost:25' };
+    expect(() => loadConfig(smtp)).toThrow(/MAIL_FROM/);
+    expect(loadConfig({ ...smtp, MAIL_FROM: 'Kitchen Quest <hi@example.com>' }).mailFrom).toBe(
+      'Kitchen Quest <hi@example.com>',
+    );
+  });
+
+  it('refuses the log mailer in production, naming MAILER', () => {
+    expect(() => loadConfig({ ...goodEnv, NODE_ENV: 'production' })).toThrow(/MAILER/);
+    expect(() => loadConfig({ ...goodEnv, NODE_ENV: 'production', MAILER: 'log' })).toThrow(/MAILER/);
+    const prod = loadConfig({
+      ...goodEnv,
+      NODE_ENV: 'production',
+      MAILER: 'smtp',
+      SMTP_URL: 'smtp://localhost:25',
+      MAIL_FROM: 'hi@example.com',
+    });
+    expect(prod.mailer).toBe('smtp');
+  });
+
+  it('parses TRUST_PROXY: off by default, true, hop count, address/CIDR list', () => {
+    expect(loadConfig(goodEnv).trustProxy).toBe(false);
+    expect(loadConfig({ ...goodEnv, TRUST_PROXY: 'false' }).trustProxy).toBe(false);
+    expect(loadConfig({ ...goodEnv, TRUST_PROXY: 'true' }).trustProxy).toBe(true);
+    expect(loadConfig({ ...goodEnv, TRUST_PROXY: '2' }).trustProxy).toBe(2);
+    expect(loadConfig({ ...goodEnv, TRUST_PROXY: '10.0.0.0/8, 127.0.0.1,fd00::/8' }).trustProxy).toEqual([
+      '10.0.0.0/8',
+      '127.0.0.1',
+      'fd00::/8',
+    ]);
+  });
+
+  it('names TRUST_PROXY when it is not valid', () => {
+    for (const bad of ['yes', '10.0.0.0/33', '10.0.0.1,banana', '1.2.3.4/8/8', 'fd00::/129', '-1']) {
+      expect(() => loadConfig({ ...goodEnv, TRUST_PROXY: bad }), bad).toThrow(/TRUST_PROXY/);
+    }
+  });
 });
 
 describe('app', () => {
