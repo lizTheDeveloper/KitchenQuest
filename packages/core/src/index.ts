@@ -7,3 +7,6 @@ export * from './rules/types';
 export { validateRules, isActive } from './rules/active';
 export { check, DISCLAIMER } from './rules/check';
 export type { CheckStatus, Substitution, Finding, CheckResult } from './rules/check';
+export { toGrams } from './nutrition/units';
+export { nutritionPerServing } from './nutrition/compute';
+export type { NutritionResult } from './nutrition/compute';
