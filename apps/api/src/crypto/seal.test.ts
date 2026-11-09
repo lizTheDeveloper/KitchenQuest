@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { open, seal } from './seal.js';
+import { contextBytes, open, seal, sealedKeyId } from './seal.js';
 
 const key = randomBytes(32);
 const keys = { k1: key };
@@ -60,5 +60,29 @@ describe('seal/open', () => {
 
   it('rejects a key of the wrong length', () => {
     expect(() => seal({ a: 1 }, randomBytes(16), 'k1')).toThrow(/32/);
+  });
+});
+
+describe('seal/open with context', () => {
+  const ctx = contextBytes('rules', 'user-a', 'row-1');
+
+  it('round-trips with the same context', () => {
+    expect(open(seal({ a: 1 }, key, 'k1', ctx), keys, ctx)).toEqual({ a: 1 });
+  });
+
+  it('fails with a different context, or none', () => {
+    const sealed = seal({ a: 1 }, key, 'k1', ctx);
+    expect(() => open(sealed, keys, contextBytes('rules', 'user-b', 'row-1'))).toThrow();
+    expect(() => open(sealed, keys, contextBytes('journeys', 'user-a', 'row-1'))).toThrow();
+    expect(() => open(sealed, keys, contextBytes('rules', 'user-a', 'row-2'))).toThrow();
+    expect(() => open(sealed, keys)).toThrow();
+  });
+
+  it('encodes parts unambiguously', () => {
+    expect(contextBytes('ab', 'c').equals(contextBytes('a', 'bc'))).toBe(false);
+  });
+
+  it('reads the key id from the header', () => {
+    expect(sealedKeyId(seal({ a: 1 }, key, 'k7'))).toBe('k7');
   });
 });

@@ -45,9 +45,14 @@ async function sessionUser(db: Db, token: unknown, now: Date): Promise<SessionUs
   return row ?? null;
 }
 
-export async function deleteSession(db: Db, token: unknown): Promise<void> {
-  if (!isTokenShaped(token)) return;
-  await db.delete(sessions).where(eq(sessions.tokenHash, hashToken(token)));
+/** Deletes the session for `token`; returns its user id, or null if there was none. */
+export async function deleteSession(db: Pick<Db, 'delete'>, token: unknown): Promise<string | null> {
+  if (!isTokenShaped(token)) return null;
+  const [row] = await db
+    .delete(sessions)
+    .where(eq(sessions.tokenHash, hashToken(token)))
+    .returning({ userId: sessions.userId });
+  return row?.userId ?? null;
 }
 
 /** preHandler: sets `request.user` from a live session cookie, or fails with 401 `unauthorized`. */

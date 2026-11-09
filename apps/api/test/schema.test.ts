@@ -17,11 +17,11 @@ describe('schema', () => {
       select table_name from information_schema.tables
       where table_schema = 'public' order by table_name`;
     const names = tables.map((r) => r.table_name);
-    for (const n of ['users', 'login_tokens', 'sessions', 'profiles', 'rules', 'canon_recipes']) {
+    for (const n of ['users', 'login_tokens', 'sessions', 'profiles', 'rules', 'canon_recipes', 'user_keys', 'consents', 'audit_events']) {
       expect(names).toContain(n);
     }
     const applied = await t.sql`select count(*)::int as n from drizzle.__drizzle_migrations`;
-    expect(applied[0]!.n).toBe(3);
+    expect(applied[0]!.n).toBe(5);
   });
 
   it('cascades user deletion to sessions, profiles and rules', async () => {

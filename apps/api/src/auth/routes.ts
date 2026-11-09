@@ -1,6 +1,7 @@
 import { and, eq, gt, isNull } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { audit } from '../audit/audit.js';
 import { loginTokens, users } from '../db/schema.js';
 import { activeEntitlements } from '../entitlements/entitlements.js';
 import { ApiError } from '../errors.js';
@@ -106,7 +107,10 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         if (!user) [user] = await tx.select(cols).from(users).where(eq(users.email, consumed.email));
         if (!user) throw new Error('user vanished after insert conflict');
       }
-      return { user, sessionToken: await createSession(tx, user.id, at) };
+      const sessionToken = await createSession(tx, user.id, at);
+      // C-5: content-free; the email is never written to the audit log.
+      await audit(tx, { actorKind: 'user', actorId: user.id, subjectUserId: user.id, action: 'auth.sign_in', requestId: req.id }, at);
+      return { user, sessionToken };
     });
 
     reply.setCookie(SESSION_COOKIE, sessionToken, SESSION_COOKIE_OPTIONS);
@@ -114,7 +118,12 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.post('/auth/logout', async (req, reply) => {
-    await deleteSession(db, req.cookies[SESSION_COOKIE]);
+    await db.transaction(async (tx) => {
+      const userId = await deleteSession(tx, req.cookies[SESSION_COOKIE]);
+      if (userId) {
+        await audit(tx, { actorKind: 'user', actorId: userId, subjectUserId: userId, action: 'auth.sign_out', requestId: req.id }, now());
+      }
+    });
     reply.clearCookie(SESSION_COOKIE, SESSION_COOKIE_OPTIONS);
     return reply.status(204).send();
   });

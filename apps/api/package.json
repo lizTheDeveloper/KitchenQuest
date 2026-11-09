@@ -7,6 +7,7 @@
     "dev": "node --import tsx src/server.ts",
     "test": "NODE_OPTIONS=--no-warnings=ExperimentalWarning vitest run",
     "grant": "node --import tsx scripts/grant.ts",
+    "rekey": "node --import tsx scripts/rekey.ts",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json"
   },
   "dependencies": {

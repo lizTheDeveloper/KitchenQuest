@@ -5,11 +5,11 @@ import { loadConfig } from '../src/config.js';
 import { CaptureMailer } from '../src/mail/mailer.js';
 import type { Db } from '../src/types.js';
 import { signIn } from './helpers/auth.js';
+import { testEnv } from './helpers/config.js';
 import { testDb } from './helpers/db.js';
 
 const config = loadConfig({
-  DATABASE_URL: 'postgres://x@localhost/x',
-  DATA_KEY: Buffer.alloc(32, 7).toString('base64'),
+  ...testEnv,
   APP_ORIGIN: 'https://play.kitchenquest.test',
 });
 

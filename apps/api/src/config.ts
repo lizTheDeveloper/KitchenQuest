@@ -1,13 +1,14 @@
 import { isIP } from 'node:net';
 import { z } from 'zod';
+import { Keyring, parseDataKeys } from './crypto/keyring.js';
 
 /** Fastify `trustProxy`: off, all proxies, a hop count, or the proxies' addresses/CIDRs. */
 export type TrustProxy = boolean | number | string[];
 
 export interface Config {
   databaseUrl: string;
-  dataKey: Buffer;
-  dataKeyId: string;
+  /** DATA_KEYS with DATA_KEY_ID active (C-2). Wraps per-user data keys; see docs/compliance/key-management.md. */
+  keyring: Keyring;
   appOrigin: string;
   mailer: 'log' | 'smtp';
   smtpUrl?: string;
@@ -16,10 +17,15 @@ export interface Config {
   port: number;
 }
 
-const dataKey = z
-  .string({ error: 'DATA_KEY is required (32 bytes, base64)' })
-  .refine((v) => /^[A-Za-z0-9+/]+={0,2}$/.test(v) && Buffer.from(v, 'base64').length === 32, {
-    error: 'DATA_KEY must be 32 bytes, base64 encoded',
+const dataKeys = z
+  .string({ error: 'DATA_KEYS is required: id:base64 pairs, e.g. k1:$(openssl rand -base64 32)' })
+  .transform((v, ctx) => {
+    try {
+      return parseDataKeys(v);
+    } catch (e) {
+      ctx.addIssue({ code: 'custom', message: `DATA_KEYS ${(e as Error).message}` });
+      return z.NEVER;
+    }
   });
 
 function isAddressOrCidr(entry: string): boolean {
@@ -51,8 +57,13 @@ const trustProxy = z
 const Env = z
   .object({
     DATABASE_URL: z.string({ error: 'DATABASE_URL is required' }).min(1, 'DATABASE_URL is required'),
-    DATA_KEY: dataKey,
-    DATA_KEY_ID: z.string().min(1).default('k1'),
+    DATA_KEY: z
+      .undefined({ error: 'DATA_KEY is no longer read; put the key in DATA_KEYS (id:base64) and name it in DATA_KEY_ID' })
+      .optional(),
+    DATA_KEYS: dataKeys,
+    DATA_KEY_ID: z
+      .string({ error: 'DATA_KEY_ID is required: the id in DATA_KEYS that seals new data' })
+      .min(1, 'DATA_KEY_ID is required: the id in DATA_KEYS that seals new data'),
     APP_ORIGIN: z.url({ error: 'APP_ORIGIN must be a URL' }).default('http://localhost:5173'),
     MAILER: z.enum(['log', 'smtp'], { error: 'MAILER must be "log" or "smtp"' }).default('log'),
     SMTP_URL: z.string().min(1).optional(),
@@ -60,6 +71,10 @@ const Env = z
     TRUST_PROXY: trustProxy,
     NODE_ENV: z.string().optional(),
     PORT: z.coerce.number({ error: 'PORT must be a number' }).int().min(0).max(65535).default(3000),
+  })
+  .refine((e) => e.DATA_KEYS.has(e.DATA_KEY_ID), {
+    path: ['DATA_KEY_ID'],
+    error: 'DATA_KEY_ID must name a key in DATA_KEYS',
   })
   .refine((e) => e.MAILER !== 'smtp' || e.SMTP_URL, {
     path: ['SMTP_URL'],
@@ -84,8 +99,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
   const e = r.data;
   return {
     databaseUrl: e.DATABASE_URL,
-    dataKey: Buffer.from(e.DATA_KEY, 'base64'),
-    dataKeyId: e.DATA_KEY_ID,
+    keyring: new Keyring(e.DATA_KEYS, e.DATA_KEY_ID),
     appOrigin: e.APP_ORIGIN,
     mailer: e.MAILER,
     smtpUrl: e.SMTP_URL,

@@ -3,6 +3,7 @@ import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastif
 import { ZodError } from 'zod';
 import { authRoutes } from './auth/routes.js';
 import { requireUser } from './auth/session.js';
+import { consentRoutes } from './consent/routes.js';
 import { profileRoutes } from './profile/routes.js';
 import type { Config } from './config.js';
 import { ApiError, loggableError } from './errors.js';
@@ -60,6 +61,7 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
   app.get('/health', async () => ({ ok: true }));
   await authRoutes(app);
   await profileRoutes(app);
+  await consentRoutes(app);
 
   return app;
 }

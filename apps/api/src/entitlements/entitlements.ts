@@ -32,7 +32,7 @@ export async function activeEntitlements(db: Db, userId: string, now: Date): Pro
 }
 
 export async function grant(
-  db: Db,
+  db: Pick<Db, 'insert'>,
   userId: string,
   kind: EntitlementKind,
   source: EntitlementSource,

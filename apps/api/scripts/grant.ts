@@ -1,5 +1,7 @@
 // Admin script: npm run grant -w @kitchenquest/api -- <email> <kind> [days]
+import { userInfo } from 'node:os';
 import { eq } from 'drizzle-orm';
+import { audit } from '../src/audit/audit.js';
 import { createDb } from '../src/db/client.js';
 import { users } from '../src/db/schema.js';
 import { ENTITLEMENT_KINDS, grant, type EntitlementKind } from '../src/entitlements/entitlements.js';
@@ -17,7 +19,16 @@ try {
   const [u] = await db.select({ id: users.id }).from(users).where(eq(users.email, email));
   if (!u) throw new Error(`no user with email ${email}`);
   const now = new Date();
-  await grant(db, u.id, kind as EntitlementKind, 'manual', now, n === undefined ? undefined : new Date(now.getTime() + n * 86_400_000));
+  const endsAt = n === undefined ? undefined : new Date(now.getTime() + n * 86_400_000);
+  // C-5: an admin script that changes a user's data writes an audit event, in the same transaction.
+  await db.transaction(async (tx) => {
+    await grant(tx, u.id, kind as EntitlementKind, 'manual', now, endsAt);
+    await audit(
+      tx,
+      { actorKind: 'script', actorId: `grant:${userInfo().username}`, subjectUserId: u.id, action: 'entitlement.grant', target: kind },
+      now,
+    );
+  });
   console.log(`granted ${kind} to ${email}${n === undefined ? '' : ` for ${n} days`}`);
 } finally {
   await sql.end({ timeout: 5 });

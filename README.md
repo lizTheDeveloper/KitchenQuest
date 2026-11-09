@@ -24,7 +24,7 @@ npm run dev        # dev server at http://localhost:5173
 ```bash
 scripts/dev-db.sh start            # private Postgres 16 on port 54329 (data in .data/pg, or /var/lib/kitchenquest-pg as root); prints the URLs
 eval "$(scripts/dev-db.sh url)"; export TEST_DATABASE_URL   # needed by `npm test`
-export DATABASE_URL DATA_KEY=$(openssl rand -base64 32)
+export DATABASE_URL DATA_KEYS="k1:$(openssl rand -base64 32)" DATA_KEY_ID=k1
 npm run dev -w @kitchenquest/api   # http://localhost:3000/health
 ```
 

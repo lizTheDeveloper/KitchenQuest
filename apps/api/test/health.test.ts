@@ -5,30 +5,60 @@ import { loadConfig } from '../src/config.js';
 import type { Mailer } from '../src/types.js';
 import { testDb } from './helpers/db.js';
 
-const KEY = Buffer.alloc(32, 7).toString('base64');
-const goodEnv = { DATABASE_URL: 'postgres://x@localhost/x', DATA_KEY: KEY };
+import { TEST_DATA_KEY as KEY, testEnv as goodEnv } from './helpers/config.js';
+
+const KEY2 = Buffer.alloc(32, 9).toString('base64');
 
 describe('loadConfig', () => {
   it('parses a valid environment with defaults', () => {
     const c = loadConfig(goodEnv);
-    expect(c.dataKey.length).toBe(32);
+    expect(c.keyring.activeId).toBe('k1');
+    expect(c.keyring.active.length).toBe(32);
     expect(c.port).toBe(3000);
     expect(c.mailer).toBe('log');
-    expect(c.dataKeyId).toBe('k1');
   });
 
-  it('names DATA_KEY when missing', () => {
-    expect(() => loadConfig({ DATABASE_URL: 'postgres://x' })).toThrow(/DATA_KEY/);
+  it('loads a ring of keys with the active one chosen by DATA_KEY_ID', () => {
+    const c = loadConfig({ ...goodEnv, DATA_KEYS: `k1:${KEY},k2:${KEY2}`, DATA_KEY_ID: 'k2' });
+    expect(c.keyring.activeId).toBe('k2');
+    expect(Object.keys(c.keyring.all)).toEqual(['k1', 'k2']);
+    expect(c.keyring.active.equals(Buffer.from(KEY2, 'base64'))).toBe(true);
   });
 
-  it('names DATA_KEY when not 32 bytes of base64', () => {
+  it('names DATA_KEYS when missing or when any key is not 32 bytes of base64', () => {
+    const { DATA_KEYS: _, ...noKeys } = goodEnv;
+    expect(() => loadConfig(noKeys)).toThrow(/DATA_KEYS/);
     const short = Buffer.alloc(16).toString('base64');
-    expect(() => loadConfig({ ...goodEnv, DATA_KEY: short })).toThrow(/DATA_KEY/);
-    expect(() => loadConfig({ ...goodEnv, DATA_KEY: 'not base64!!' })).toThrow(/DATA_KEY/);
+    expect(() => loadConfig({ ...goodEnv, DATA_KEYS: `k1:${KEY},k0:${short}` })).toThrow(/DATA_KEYS/);
+    expect(() => loadConfig({ ...goodEnv, DATA_KEYS: 'k1:not base64!!' })).toThrow(/DATA_KEYS/);
+  });
+
+  it('never puts key material in the error', () => {
+    const short = Buffer.alloc(16, 3).toString('base64');
+    expect(() => loadConfig({ ...goodEnv, DATA_KEYS: `k1:${KEY},k0:${short}` })).toThrow(
+      expect.objectContaining({ message: expect.not.stringContaining(KEY) }),
+    );
+  });
+
+  it('names DATA_KEY_ID when missing or not in the ring', () => {
+    const { DATA_KEY_ID: _, ...noId } = goodEnv;
+    expect(() => loadConfig(noId)).toThrow(/DATA_KEY_ID/);
+    expect(() => loadConfig({ ...goodEnv, DATA_KEY_ID: 'k9' })).toThrow(/DATA_KEY_ID/);
+  });
+
+  it('refuses the retired DATA_KEY variable, naming it', () => {
+    expect(() => loadConfig({ ...goodEnv, DATA_KEY: KEY })).toThrow(/DATA_KEY: .*DATA_KEYS/);
+  });
+
+  it('does not reveal keys when the config is logged', () => {
+    const c = loadConfig(goodEnv);
+    expect(JSON.stringify(c)).not.toContain(KEY);
+    expect(JSON.stringify(c.keyring)).toBe('{"activeId":"k1","ids":["k1"]}');
   });
 
   it('names DATABASE_URL when missing', () => {
-    expect(() => loadConfig({ DATA_KEY: KEY })).toThrow(/DATABASE_URL/);
+    const { DATABASE_URL: _, ...noDb } = goodEnv;
+    expect(() => loadConfig(noDb)).toThrow(/DATABASE_URL/);
   });
 
   it('requires SMTP_URL when the smtp mailer is chosen', () => {

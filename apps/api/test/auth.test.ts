@@ -3,13 +3,13 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { buildApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
 import { CaptureMailer } from '../src/mail/mailer.js';
+import { testEnv } from './helpers/config.js';
 import { testDb, type Sql } from './helpers/db.js';
 import type { Db } from '../src/types.js';
 
 const APP_ORIGIN = 'https://play.kitchenquest.test';
 const env = {
-  DATABASE_URL: 'postgres://x@localhost/x',
-  DATA_KEY: Buffer.alloc(32, 7).toString('base64'),
+  ...testEnv,
   APP_ORIGIN,
 };
 const config = loadConfig(env);
@@ -359,5 +359,46 @@ describe('rate limits on /auth/request', () => {
       expect(await flood('true')).toBe(202);
       expect(await flood('1')).toBe(202);
     });
+  });
+});
+
+describe('audit events (C-5)', () => {
+  const eventsFor = (userId: string) =>
+    sql`select actor_kind, actor_id, subject_user_id, action, target, request_id, at
+        from audit_events where subject_user_id = ${userId} order by id`;
+
+  it('sign-in and sign-out each write a content-free event', async () => {
+    const { email, cookie } = await signIn();
+    const [u] = await sql`select id from users where email = ${email}`;
+    const userId = u!.id as string;
+    const [signedIn] = await eventsFor(userId);
+    expect(signedIn).toMatchObject({
+      actor_kind: 'user',
+      actor_id: userId,
+      subject_user_id: userId,
+      action: 'auth.sign_in',
+      target: null,
+      request_id: expect.any(String),
+    });
+    expect(new Date(signedIn!.at).getTime()).toBe(clock.getTime());
+    // No email anywhere in the audit log.
+    expect(await sql`select 1 from audit_events where row_to_json(audit_events)::text ilike ${'%' + email + '%'}`).toHaveLength(0);
+
+    advance(MIN);
+    await app.inject({ method: 'POST', url: '/auth/logout', cookies: { kq_session: cookie } });
+    expect((await eventsFor(userId)).map((e) => e.action)).toEqual(['auth.sign_in', 'auth.sign_out']);
+  });
+
+  it('a failed verify writes no sign-in event', async () => {
+    const before = await sql`select count(*)::int as n from audit_events`;
+    const res = await verify('A'.repeat(43), true);
+    expect(res.statusCode).toBe(401);
+    expect(await sql`select count(*)::int as n from audit_events`).toEqual(before);
+  });
+
+  it('a logout without a live session writes nothing', async () => {
+    const before = await sql`select count(*)::int as n from audit_events`;
+    await app.inject({ method: 'POST', url: '/auth/logout', cookies: { kq_session: 'B'.repeat(43) } });
+    expect(await sql`select count(*)::int as n from audit_events`).toEqual(before);
   });
 });

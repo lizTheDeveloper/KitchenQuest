@@ -13,23 +13,29 @@
 ## Global Constraints
 
 - The API never decides safety itself: rule validation is `validateRules` and recipe status is `check` from `@kitchenquest/core`.
-- Health data (rules now; meal logs and symptoms in later milestones) is encrypted at rest with AES-256-GCM in the application; the database never holds it in plaintext. Key from env `DATA_KEY` (32 bytes, base64); ciphertext stores a key id so keys can rotate.
+- Health data (rules now; meal logs and symptoms in later milestones) is encrypted at rest with AES-256-GCM in the application; the database never holds it in plaintext. Keys from env `DATA_KEYS` (`id:base64,...`, each 32 bytes) with `DATA_KEY_ID` active; each user's health data is sealed with that user's own data key (wrapped by the ring), bound to table, user and row, with `sealFor`/`openFor` (C-2, C-3, C-4; step 2c).
 - A rule is saved only with `confirmed: true` in the request body (spec §7.0: writes affecting health or safety need an explicit yes). Missing or false → 400 `confirmation_required`.
 - Sign-in: email magic link only. Login tokens: 32 random bytes, only the SHA-256 hash stored, single use, expire after 15 minutes. Sessions: 32 random bytes, hash stored, 30-day expiry, cookie `kq_session` with `HttpOnly; Secure; SameSite=Lax; Path=/`.
 - Age gate: creating an account requires `ageConfirmed: true` (16+, spec §1.2); store `age_confirmed_at`, never a birthday.
 - Data minimisation: no location beyond country/region, no names required, email is the only identifier.
-- Error body shape everywhere: `{ "error": { "code": string, "message": string, "details"?: unknown } }`. Codes used: `bad_request`, `confirmation_required`, `unauthorized`, `not_found`, `rate_limited`, `conflict`.
+- Error body shape everywhere: `{ "error": { "code": string, "message": string, "details"?: unknown } }`. Codes used: `bad_request`, `confirmation_required`, `consent_required` (403), `unauthorized`, `not_found`, `rate_limited`, `conflict`.
 - Dates in requests are ISO `YYYY-MM-DD`; the server's "today" comes from the injected clock.
 - Fail loudly: invalid config stops the server at boot with a message naming the variable.
 - Tests run against real Postgres 16 (`TEST_DATABASE_URL`); each test file gets its own schema. No mocked database.
 
 - Compliance (docs/compliance/2026-11-09-health-data-compliance.md): Kitchen Quest stays outside HIPAA by design (product rules P-1–P-14); never market it as "HIPAA compliant". Health data requires `health_data` consent (403 `consent_required`); org data is never joined to health data (C-10).
+- Consent: health-data writes call `requireConsent(db, userId, 'health_data', now)` → 403 `consent_required` (C-1, C-11). Declining consent never blocks play.
+- Org/health separation (C-10, business doc §D.8): org tables may exist later, but no endpoint or query joins org membership to health tables, and orgs see only seat counts. `test/architecture.test.ts` fails if anything under `src/org/` imports a health module or names a health table.
+- Never market or describe Kitchen Quest as "HIPAA compliant".
+- Health data is never sent to the AI without `ai_health` consent (enforced in M3, C-13).
+- Audit (C-5): operator/script decrypts, exports, deletes, consent changes, sign-in, session revoke and rekey runs write a content-free `audit(...)` event; `audit_events` is append-only (trigger).
+- Logs (C-9): route patterns only, never query strings, bodies, cookies or auth headers; test new routes with `captureLogs()` from `test/helpers/logs.ts`.
 
 ## Review Focus
 
 1. A request with another user's rule or recipe id must get 404, never their data. → Tasks 5, 6, 7 tests.
 2. A replayed, expired or tampered login token must fail, and a token must work exactly once even under two concurrent verifies. → Task 3.
-3. Rules stored in the database must be unreadable without `DATA_KEY` (no plaintext ingredient ids in the table). → Tasks 2, 5.
+3. Rules stored in the database must be unreadable without the key ring and the user's data key (no plaintext ingredient ids in the table). → Tasks 2, 5.
 4. A rule body that core rejects (unknown id, inverted phase, bad enum) must return 400 with core's problem messages, never be stored. → Task 5.
 5. A player with no entitlements must still get every "free forever" feature (spec §16): sign-in, rules, recipe checks, export, delete. → Task 8.
 6. Account deletion must leave no row anywhere referencing the user, and export must include every stored field decrypted. → Task 7.

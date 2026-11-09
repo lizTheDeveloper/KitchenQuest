@@ -6,10 +6,10 @@ import { buildApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
 import { ApiError } from '../src/errors.js';
 import type { Db } from '../src/types.js';
+import { testEnv } from './helpers/config.js';
 
 const config = loadConfig({
-  DATABASE_URL: 'postgres://x@localhost/x',
-  DATA_KEY: Buffer.alloc(32, 7).toString('base64'),
+  ...testEnv,
 });
 
 function make(logger: Parameters<typeof buildApp>[0]['logger'] = false) {

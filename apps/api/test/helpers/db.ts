@@ -9,7 +9,7 @@ export type { Sql };
  * Fresh, uniquely named database (migrated, `public` schema) per test file,
  * created from the server behind TEST_DATABASE_URL and dropped by close().
  */
-export async function testDb(): Promise<{ db: Db; sql: Sql; close(): Promise<void> }> {
+export async function testDb(): Promise<{ db: Db; sql: Sql; url: string; close(): Promise<void> }> {
   const url = process.env.TEST_DATABASE_URL;
   if (!url) {
     throw new Error(
@@ -38,6 +38,7 @@ export async function testDb(): Promise<{ db: Db; sql: Sql; close(): Promise<voi
   return {
     db,
     sql,
+    url: testUrl.toString(),
     async close() {
       await sql.end({ timeout: 5 });
       await dropDb();
