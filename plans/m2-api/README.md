@@ -36,7 +36,7 @@
 
 - [x] [Step 0 — Carry-over core safety fixes](step-0.md)
 - [x] [Step 1 — API skeleton, config, test harness, local Postgres, CI](step-1.md)
-- [ ] [Step 2 — Schema, migrations, encryption helper](step-2.md)
+- [x] [Step 2 — Schema, migrations, encryption helper](step-2.md)
 - [ ] [Step 2b — Entitlements and usage metering](step-2b.md)
 - [ ] [Step 3 — Magic-link sign-in and sessions](step-3.md)
 - [ ] [Step 4 — Profile](step-4.md)
