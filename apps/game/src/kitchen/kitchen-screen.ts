@@ -10,10 +10,9 @@ import type { PlayerStore } from '../state/store';
 import { renderActionBar } from '../ui/action-bar';
 import { showDialogue } from '../ui/dialogue-box';
 import { h } from '../ui/dom';
+import { openModal } from '../ui/modal';
 import { greetingTrigger } from '../world/greeting';
 import { renderToolkit } from './toolkit-view';
-
-const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
 /** The Pan greets once per page load, on the first kitchen visit. */
 let greeted = false;
@@ -26,7 +25,6 @@ function isReduced(store: PlayerStore, win: Window): boolean {
 
 /** The knife roll: a modal dialog over everything else. Returns a function that closes it. */
 function openKnifeRoll(doc: Document, ctx: AppContext, onClose: () => void): () => void {
-  const root = doc.getElementById('overlay-root') ?? doc.body;
   // Opened from a canvas hotspot, focus is on the body: return it to the knife roll's own button instead.
   const active = doc.activeElement instanceof HTMLElement && doc.activeElement !== doc.body ? doc.activeElement : null;
   const opener = active ?? doc.querySelector<HTMLElement>('[data-action="toolkit"]');
@@ -37,47 +35,7 @@ function openKnifeRoll(doc: Document, ctx: AppContext, onClose: () => void): () 
     rustyLine: (technique) => invites!.say('toolkit.rusty_invite', { technique }).text,
   });
 
-  const inerted: HTMLElement[] = [];
-  for (const el of Array.from(doc.body.children)) {
-    if (el instanceof HTMLElement && !el.contains(root) && !el.inert && el.tagName !== 'SCRIPT' && el.id !== 'announcer') {
-      el.inert = true;
-      inerted.push(el);
-    }
-  }
-  const closeBtn = h('button', { type: 'button', class: 'btn btn-secondary knife-roll-close' }, 'Close');
-  const dialog = h('div', { class: 'knife-roll', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'knife-roll-title' },
-    h('h2', { id: 'knife-roll-title', tabindex: -1 }, 'Your knife roll'),
-    body,
-    h('div', { class: 'knife-roll-buttons' }, closeBtn),
-  );
-  const backdrop = h('div', { class: 'overlay-backdrop' }, dialog);
-
-  let closed = false;
-  const close = () => {
-    if (closed) return;
-    closed = true;
-    doc.removeEventListener('keydown', onKey, true);
-    backdrop.remove();
-    for (const el of inerted) el.inert = false;
-    if (opener?.isConnected) opener.focus();
-    onClose();
-  };
-  function onKey(ev: KeyboardEvent) {
-    if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); close(); return; }
-    if (ev.key !== 'Tab') return;
-    const items = [...dialog.querySelectorAll<HTMLElement>(FOCUSABLE)];
-    const first = items[0], last = items[items.length - 1];
-    const active = doc.activeElement;
-    if (!dialog.contains(active)) { ev.preventDefault(); first.focus(); }
-    else if (ev.shiftKey && active === first) { ev.preventDefault(); last.focus(); }
-    else if (!ev.shiftKey && active === last) { ev.preventDefault(); first.focus(); }
-  }
-  closeBtn.addEventListener('click', close);
-  backdrop.addEventListener('click', (ev) => { if (ev.target === backdrop) close(); });
-  doc.addEventListener('keydown', onKey, true);
-  root.append(backdrop);
-  dialog.querySelector<HTMLElement>('#knife-roll-title')!.focus();
-  return close;
+  return openModal(doc, { className: 'knife-roll', title: h('h2', null, 'Your knife roll'), body, opener, onClose });
 }
 
 function kitchenScreen(): Screen {

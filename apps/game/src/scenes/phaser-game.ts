@@ -1,7 +1,9 @@
 /** Loaded lazily by phaser-host: everything that imports Phaser lives behind this module. */
 import Phaser from 'phaser';
 import { BootScene, type BootTarget } from './BootScene';
+import { CookKitchenScene } from './CookKitchenScene';
 import { KitchenScene } from './KitchenScene';
+import { MapScene } from './MapScene';
 
 export interface GameHandle {
   /** Start `key` with `data`; false when no such scene is registered. */
@@ -16,7 +18,7 @@ export interface GameHandle {
 
 const WIDTH = 320;
 const HEIGHT = 180;
-const SCENES = ['Kitchen'];
+const SCENES = ['Kitchen', 'Map', 'CookKitchen'];
 
 export function createGame(stage: HTMLElement): GameHandle {
   const zoom = Math.max(1, Math.min(4, Math.floor((stage.parentElement?.clientWidth ?? WIDTH) / WIDTH)));
@@ -38,7 +40,7 @@ export function createGame(stage: HTMLElement): GameHandle {
       touch: { capture: false },
       gamepad: false,
     },
-    scene: [BootScene, KitchenScene],
+    scene: [BootScene, KitchenScene, MapScene, CookKitchenScene],
   });
   const fixCanvas = () => { if (game.canvas) { game.canvas.tabIndex = -1; game.canvas.setAttribute('aria-hidden', 'true'); } };
   fixCanvas();
