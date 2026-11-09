@@ -564,3 +564,33 @@ Leftovers and surplus ingredients go to neighbors instead of the bin. It support
 - **Community fridges and food banks:** a map of local community fridges and food banks, as an alternative to person-to-person sharing. External groups (e.g. Buy Nothing, Olio) get a "share outside the app" text the player can copy. We don't post to other platforms on the player's behalf.
 - **Rewards (Octalysis):** sharing is recorded in Cooked for Someone and gives a small, capped amount of XP. There is no leaderboard and no "top sharer". It is always free.
 - **Data:** posts expire and are deleted after their pickup window. Location is stored only at grid-cell precision.
+
+## 19. Family Mode
+
+Full analysis: `docs/business/2026-11-09-family-mode.md`.
+
+- **Who:** an adult (18+) runs a Family Kitchen. Children take part only as **child cook profiles** inside it: no child accounts, emails, birthdays or login. Accounts stay 16+.
+- **What:**
+  - **Cook Together quests** split each recipe's steps by age band (3–5, 6–8, 9–12, 13–15). Recipes gain a family task block with hazard tags, checked automatically: hot oil is always adult-only, and knives and heat are not allowed below the 9–12 band.
+  - A **family recipe book** records who taught whom.
+  - A weekly **Family Table** dish, with no streak.
+  - **"Try It" quests** reward handling or tasting a food, never finishing it.
+  - **Kitchen-safety cards** by age band, written as reviewed content, never AI advice.
+- **Children and the AI:** children never talk to the AI.
+  - In Family Table mode the Pan uses scripted lines only.
+  - Server speech-to-text is off. A few fixed commands ("next", "repeat", "timer") are recognised on the device. There is no text box, and nothing is kept.
+  - Child nicknames never enter a prompt; a child appears as "Helper N" with an age band.
+- **Data stored about a child:** nickname, age band, a preset avatar, the child's skill progress, "cooked together" records, and allergy rules that the parent enters and confirms (sealed like adult rules).
+  - **Never stored:** intake or nutrition tracking, photos of the child, voice, or location.
+  - **Photos:** food only. An on-device face check blocks uploads that show a face (pending legal review of the biometric question).
+- **Pricing (spec §16):**
+  - **Free:** one adult plus up to 4 child profiles, with per-child allergy rules, safety tasks and the printable family book.
+  - **Household Guild:** $6 / $10 / $16 a month (choose your price), for up to 4 accounts aged 16+ and 6 child profiles.
+  - **Gift memberships** never auto-renew.
+  - **Print-on-demand family books**, sold by us, with no affiliate links.
+  - A **Junior Kitchen Club** kit through The Multiverse School, holding no student data.
+- **Never** (on top of the §16 never rules): no purchase prompts shown in child-facing views, no pester-power mechanics, no streaks.
+- **Schedule:**
+  - Data model reserved in M5; built in a new **M13** after launch.
+  - The Pan's Family Table mode is designed into M3 and M7 so it isn't bolted on later.
+  - Legal review before launch is required (counsel scoping call; the report lists 11 questions).
