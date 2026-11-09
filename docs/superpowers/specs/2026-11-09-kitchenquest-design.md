@@ -480,7 +480,7 @@ KitchenQuest/
 1. What does "Reclaim City" mean to you, and which part of it should the reward loop copy?
 2. Which 3 launch countries, and who are the contributors and reviewers?
 3. Monetization: decided in §16 (Guild price points still to test: $3 / $6 / $12, with $8 tested as the middle).
-4. Is age 16+ right, or should it be 18+?
+4. Age: accounts 16+, paid plans 18+ (decided). Younger cooks take part through family mode (§19).
 5. Live voice: self-hosted STT/TTS around Qwen via OpenRouter (the default, §7.7), Qwen realtime on Alibaba Cloud, or browser speech?
 6. Is the Pan the mentor, or someone else?
 
@@ -520,8 +520,8 @@ Sources: `docs/business/2026-11-09-value-chain-monetization.md` (value chain ana
 - An `entitlements` table, not a tier column.
 - A `usage_events` table that records AI and voice usage and cost per call, without storing content. It is used for allowances and unit economics.
 - Machine-readable contributor ids in recipe front matter.
-- A stated license for `content/` and the art.
-- Paid plans are 18+, while the app remains 16+.
+- **Licenses (decided 2026-11-09):** `content/` (quests, dialogue, Bureau forms, voice guide) is CC BY-SA 4.0, like the recipes. Art and audio stay proprietary to Multiverse Games, so cosmetics can be sold.
+- **Paid plans are 18+ (decided 2026-11-09).** The app remains 16+ for accounts. Family mode (§19, pending analysis) is how younger cooks take part.
 
 ## 17. Progression mechanics (adopted from the Octalysis audit)
 
