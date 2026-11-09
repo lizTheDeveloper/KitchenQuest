@@ -67,6 +67,12 @@ Tick each item when it lands. Full requirement text is in `2026-11-09-health-dat
 - [ ] **N-10** Child-directedness review also covers the marketing site and store listings — *M12*
 - [ ] **N-11** DPIA re-review triggered by any new processor, AI feature, region, consent purpose, Pantry or family build — *process*
 
+## Raised during implementation
+
+- [ ] **C-42** Separate DB roles: the app connects as a non-owner role with no UPDATE/DELETE on `audit_events`; migrations and SECURITY DEFINER maintenance run as owner — *M12 (deploy)*
+- [ ] **C-43** Backup-restore replays `account.delete` audit events so deleted users' wrapped keys aren't resurrected — *M2 Step 7 (write event) / M12 (restore runbook)*
+- [ ] **C-44** GlitchTip SDK added with `before_send` scrubbing (C-9 completion) — *M12*
+
 ## Founder / operator actions (not code)
 
 - [ ] C-36 Turn on MFA or passkeys for GitHub, Hetzner, DNS registrar, mail, OpenRouter, payments and GlitchTip.
