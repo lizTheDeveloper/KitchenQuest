@@ -10,3 +10,5 @@
 - [ ] **7.5 Commit** `feat(api): data export and account deletion`
 
 **Compliance amendments (C-7, C-8):** export adds `consents` (full history), `processors` (from `docs/compliance/processors.json`) and the user's `audit_events`; delete also removes `login_tokens` by email, revokes sessions, deletes `user_keys`, pseudonymizes `audit_events`, and writes audit events for export/delete. Delete order, all in one transaction: write the `account.delete` audit event (subject = the user's id) **first**, then delete the user, then `pseudonymizeAudit(tx, config.pseudonymKey, userId)`, so the delete event is pseudonymized along with the rest. The database refuses to pseudonymize while the user row exists. The 'no table contains the id or email' test includes `login_tokens`.
+
+**Carried from Task 5:** export includes `self_read_counts` (per-day counts); register `self_read_counts` with the retention job at 24 months.
