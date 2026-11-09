@@ -79,4 +79,19 @@ describe('parseRecipe', () => {
   it('reads sacred when present', () => {
     expect(parseRecipe(withFront(VALID_LINES + '\nsacred: true')).meta.sacred).toBe(true);
   });
+
+  it('rejects malformed Cooklang', () => {
+    const problems = problemsOf(withFront(VALID_LINES).replace('Stir @salt{}.', 'Simmer ~{abc%min}.'));
+    expect(problems[0]).toMatch(/Timer value is text/);
+  });
+
+  it('rejects malformed front matter YAML', () => {
+    const problems = problemsOf(withFront('title: [unclosed'));
+    expect(problems[0]).toMatch(/YAML/);
+  });
+
+  it('turns a parser crash into a RecipeError', () => {
+    const problems = problemsOf(withFront(VALID_LINES).replace('Stir @salt{}.', 'Add @water{1/0%ml}.'));
+    expect(problems[0]).toMatch(/parser failed/);
+  });
 });

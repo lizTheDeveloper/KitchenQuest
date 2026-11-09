@@ -1,4 +1,5 @@
 import { CooklangParser, getFlatIngredients, getFlatTimers } from '@cooklang/cooklang';
+import type { CooklangRecipe } from '@cooklang/cooklang';
 import { RecipeError } from './types';
 import type { ParsedRecipe, RecipeMeta, RecipeStatus } from './types';
 
@@ -62,8 +63,30 @@ function validateMeta(raw: Map<unknown, unknown>): { meta: RecipeMeta | null; pr
   };
 }
 
+function reportText(report: string): string {
+  return report
+    .replace(/<[^>]*>/g, '')
+    .replace(/&#39;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .split('\n')[0]
+    .trim();
+}
+
 export function parseRecipe(source: string): ParsedRecipe {
-  const [recipe] = parser.parse(source);
+  let recipe: CooklangRecipe;
+  let report: string;
+  try {
+    [recipe, report] = parser.parse(source);
+  } catch (e) {
+    // The WASM parser traps (RuntimeError) on some malformed input.
+    throw new RecipeError([`Cooklang parser failed: ${e instanceof Error ? e.message : String(e)}`]);
+  }
+  // The report is an HTML-ish string, empty for clean input. Both errors and warnings
+  // (e.g. invalid YAML front matter, which the parser silently ignores) are treated as problems.
+  if (report.trim() !== '') throw new RecipeError([`Cooklang parse problem: ${reportText(report)}`]);
   const { meta, problems } = validateMeta(recipe.rawMetadata);
   if (meta === null) throw new RecipeError(problems);
 
