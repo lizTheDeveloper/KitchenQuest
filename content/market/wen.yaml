@@ -67,6 +67,7 @@ triggers:
       - "Take your time. The cabbages aren't going anywhere. That's their whole appeal."
       - "If you're not sure, pick it up. Heavy for its size is usually right."
       - "The first Wen used to say: buy what's cheap and plentiful, and that's what's in season. The first Wen was usually right and never let anyone forget it."
+      - "Wen rearranges the leeks. They were fine. They're better now."
   out_of_stock:
     ai: never
     when: An item on the list isn't available and Wen offers a rules-checked substitute.
@@ -76,6 +77,8 @@ triggers:
     lines:
       - "No {item} today. {swap} does the same job. Labelled, and checked against your rules."
       - "Out of {item}. Take {swap}. It's been checked. Your pan will want to see the label; it loves a label."
+      - "Sold out of {item}. {swap} will do it. Labelled and checked, as the Bureau insists."
+      - "No {item} left today; take {swap} instead. Checked against your rules."
   farewell:
     ai: allowed
     when: The player leaves Wen's stall.
@@ -83,6 +86,7 @@ triggers:
       - "Store the onions somewhere dark. They're shy."
       - "Off you go. Use the soft things first and the hard things last."
       - "Come back next week. There'll be different vegetables. That's the point of weeks."
+      - "Eat the berries first. They're the impatient ones."
   medical:
     ai: never
     when: The player asks Wen a medical or diet-therapy question.

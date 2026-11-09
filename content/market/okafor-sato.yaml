@@ -44,6 +44,7 @@ triggers:
       - "Okafor-Sato says nothing for a moment. Then, kindly: 'No.'"
       - "A common hire. The wrong one."
       - "Not that one. Let me explain."
+      - "Not that one. The tofu would have resigned."
   idle:
     ai: allowed
     when: The player lingers.
@@ -51,6 +52,7 @@ triggers:
       - "Take your time. Tofu does not rush. Beans even less."
       - "If you're unsure, tell me what you're cooking. The answer is in the dish."
       - "Okafor-Sato straightens the tortillas. They were already straight."
+      - "Okafor-Sato waits. Okafor-Sato is excellent at waiting. So is tofu."
   out_of_stock:
     ai: never
     when: An item isn't available; a rules-checked substitute is offered.
@@ -60,6 +62,8 @@ triggers:
     lines:
       - "No {item} today. {swap} will do that job. Checked against your rules, and labelled."
       - "Out of {item}. Take {swap}. It is a good employee. Labelled, and checked."
+      - "We have no {item} today. {swap} will do the work. Checked and labelled."
+      - "Out of {item}. {swap} instead. A good substitute, checked against your rules."
   farewell:
     ai: allowed
     when: The player leaves.
@@ -67,6 +71,7 @@ triggers:
       - "Press the firm tofu. Never press the silken. It will not forgive you."
       - "Goodbye. Rinse the lentils. Respect the kidney beans."
       - "Come back. Bring Doña Marisol's regards. Take some tortillas."
+      - "Goodbye. Change the tofu's water daily. It notices."
   medical:
     ai: never
     when: Medical or diet-therapy question.

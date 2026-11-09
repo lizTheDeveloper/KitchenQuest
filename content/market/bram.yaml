@@ -55,6 +55,7 @@ triggers:
       - "Bram polishes his cleaver. It's how he relaxes."
       - "Take your time. The chuck isn't going anywhere. It's had a very hard-working life and it's resting."
       - "If you're not sure, ask. Asking is free. The chalkboard is free. The meat is not free, sadly."
+      - "Bram rewrites a number on the chalkboard. It was right before. It's more right now."
   out_of_stock:
     ai: never
     when: An item on the list isn't available; Bram offers a rules-checked substitute.
@@ -64,6 +65,8 @@ triggers:
     lines:
       - "Out of {item}, sorry. {swap} does the same job in that dish. Labelled, and checked against your rules."
       - "No {item} today. Take {swap}; same method, same time, near enough. The Bureau adores a label, so it's labelled."
+      - "Sold out of {item}. {swap} is the next best for that dish. Checked and labelled."
+      - "No {item} left. Have {swap} instead — checked against your rules, labelled on the recipe."
   farewell:
     ai: allowed
     when: The player leaves Bram's stall.
@@ -71,6 +74,7 @@ triggers:
       - "Straight into the fridge when you get home. Bottom shelf, so nothing drips on anything."
       - "Off you go. Separate board for raw meat, and wash your hands after. Bram's rule."
       - "Cheerio! Ground meat within two days, remember. Or freeze it today."
+      - "Mind how you go. Thermometer in the thickest part, remember."
   medical:
     ai: never
     when: The player asks Bram a medical or diet-therapy question.
@@ -408,6 +412,7 @@ variants:
           - "Right! That's chalkboard material."
           - "Spot on. You know your beans. Literally."
           - "Correct. Bram writes it on the sign. The sign is getting crowded."
+          - "Correct! The chalkboard grows another tick."
       wrong:
         ai: allowed
         when: Wrong answer at the Protein Counter.
@@ -415,12 +420,15 @@ variants:
           - "Not quite! Here's the thing —"
           - "Ooh, no. But it's a common one."
           - "Close-ish. Bram taps the chalkboard thoughtfully."
+          - "No, but good thinking. Here's the real story —"
       farewell:
         ai: allowed
         when: The player leaves the Protein Counter.
         lines:
           - "Cheerio! Dried beans keep a year; cooked ones, four or five days in the fridge."
           - "Off you go. Press the tofu. Okafor-Sato will ask."
+          - "Bye now! Rinse your lentils."
+          - "Cheerio. Cook a big pot. Future you will be very grateful."
     questions:
       - id: bram-pc-most-protein
         game: value

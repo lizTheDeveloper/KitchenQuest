@@ -55,6 +55,8 @@ Optional keys on a trigger:
 - `vars:` a map of variable name → what it holds and a safe default, e.g. `hours: "whole hours since last logged meal (default: several)"`.
 - `notes:` writer's notes for the engine or for reviewers.
 
+**Variant counts.** Most triggers have 4–10 lines so they don't repeat. `cook.step_quip` has more (it fires often). A few safety triggers (`rule.emergency`, each stall's `medical`, Bram's `religious_rules`, the Spice Merchant's `allergen_note`) have exactly one fixed line on purpose: safety text should read the same every time.
+
 **Trigger ids** are dotted, lowercase. A dotted suffix narrows a trigger: `reminder.hours_since_meal.h6` is the six-hour tier of `reminder.hours_since_meal`. The engine uses the most specific trigger that exists and falls back to the parent.
 
 ### Quest (`cooks/*.yaml` → `quest:`)

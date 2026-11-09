@@ -41,6 +41,7 @@ triggers:
       - "— Ah. No. Sniff again."
       - "A pause from behind the sacks. A long one. Then: 'Not quite, my dear.'"
       - "No, but a lovely guess. Here's the thing —"
+      - "— Not that one. But your nose is warming up."
   idle:
     ai: allowed
     when: The player lingers.
@@ -48,6 +49,7 @@ triggers:
       - "Take your time. Spices have waited centuries for people to notice them. A minute more won't hurt."
       - "Still there? I can hear you thinking. It sounds like cardamom."
       - "If in doubt, buy a small bag. Small bags are fresh bags."
+      - "A sack shifts somewhere to your left. Or your right. The merchant is not telling."
   out_of_stock:
     ai: never
     when: A spice isn't available; a rules-checked substitute is offered.
@@ -57,6 +59,8 @@ triggers:
     lines:
       - "No {item} today. {swap} is the closest in that dish. Checked against your rules, and labelled."
       - "Out of {item}, alas. {swap} will stand in. Labelled, checked, and slightly offended to be second choice."
+      - "We're out of {item}. {swap} is your best stand-in. Labelled, and checked against your rules."
+      - "No {item}, I'm afraid. Try {swap}. It's been checked against your rules."
   farewell:
     ai: allowed
     when: The player leaves the stall.
@@ -64,6 +68,7 @@ triggers:
       - "Keep them dark, dry and away from the stove. The stove is where spices go to retire."
       - "Goodbye! Sniff your jars when you get home. Any that smell of nothing — forgive them, and replace them."
       - "Off you go. Toast the seeds, bloom the ground, taste as you go."
+      - "Farewell! Buy small, sniff often, grind as you go."
   allergen_note:
     ai: never
     when: The player has a severe rule and is shopping at the spice stall.
