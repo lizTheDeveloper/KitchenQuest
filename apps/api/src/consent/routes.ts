@@ -29,10 +29,12 @@ const WithdrawBody = z
 export async function consentRoutes(app: FastifyInstance): Promise<void> {
   const { db, now } = app.deps;
 
-  app.get('/me/consents', { preHandler: requireUser }, async (req) => ({
-    consents: await consentHistory(db, req.user.id),
-    notices: NOTICES,
-  }));
+  app.get('/me/consents', { preHandler: requireUser }, async (req) => {
+    const consents = await consentHistory(db, req.user.id);
+    // Purposes whose active grant is under a notice version that no longer counts: show the current notice again.
+    const needsReconsent = consents.filter((c) => c.withdrawnAt === null && !c.current).map((c) => c.purpose);
+    return { consents, needsReconsent, notices: NOTICES };
+  });
 
   app.post('/me/consents', { preHandler: requireUser }, async (req, reply) => {
     const { purpose, noticeVersion, method } = GrantBody.parse(req.body);

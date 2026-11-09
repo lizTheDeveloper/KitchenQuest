@@ -6,7 +6,7 @@ import { loginTokens, users } from '../db/schema.js';
 import { activeEntitlements } from '../entitlements/entitlements.js';
 import { ApiError } from '../errors.js';
 import { lockSignInEmail } from './email-lock.js';
-import { ipKey, SlidingWindowLimiter } from './rate-limit.js';
+import { ipKey, SlidingWindowLimiter, sweepPeriodically } from './rate-limit.js';
 import {
   createSession,
   deleteSession,
@@ -37,6 +37,12 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
   // Per app instance, so each test's buildApp starts clean.
   const perEmail = new SlidingWindowLimiter(5, HOUR);
   const perIp = new SlidingWindowLimiter(20, HOUR);
+  // N-2: IPs and emails leave memory within a minute of leaving the window.
+  const stopSweeping = sweepPeriodically([perEmail, perIp], () => now().getTime());
+  app.addHook('onClose', (_app, done) => {
+    stopSweeping();
+    done();
+  });
   const origin = config.appOrigin.replace(/\/+$/, '');
 
   app.post('/auth/request', async (req, reply) => {

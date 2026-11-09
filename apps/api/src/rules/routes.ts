@@ -24,21 +24,32 @@ const SearchQuery = z.object({ q: z.string().max(100).default('') }).strict();
 /**
  * When `value` is an object, it may hold only `keys`, so nothing beyond the
  * rule itself is sealed into health data. Its values, and whether it is an
- * object at all, are left to core.
+ * object at all, are left to core, except that a string under a key in
+ * `caps` may be at most that many characters (N-7, data-inventory.md §3.13).
  */
-const keysOnly = (keys: readonly string[]) =>
-  z.unknown().refine(
-    (v) => typeof v !== 'object' || v === null || Object.keys(v).every((k) => keys.includes(k)),
-    { message: `Only these keys are allowed: ${keys.join(', ')}` },
-  );
+const keysOnly = (keys: readonly string[], caps: Readonly<Record<string, number>> = {}) =>
+  z.unknown().superRefine((v, ctx) => {
+    if (typeof v !== 'object' || v === null) return;
+    if (!Object.keys(v).every((k) => keys.includes(k))) {
+      ctx.addIssue({ code: 'custom', message: `Only these keys are allowed: ${keys.join(', ')}` });
+      return;
+    }
+    // N-7: free text sealed into health data is capped; a non-string is left to core.
+    for (const [k, max] of Object.entries(caps)) {
+      const s = (v as Record<string, unknown>)[k];
+      if (typeof s === 'string' && s.length > max) {
+        ctx.addIssue({ code: 'custom', path: [k], message: `At most ${max} characters` });
+      }
+    }
+  });
 
 const RuleBody = z
   .object({
     target: keysOnly(['kind', 'ids']),
     type: z.unknown(),
     severity: z.unknown(),
-    limit: keysOnly(['amount', 'unit', 'per']).optional(),
-    phase: keysOnly(['start', 'end', 'journeyId']).optional(),
+    limit: keysOnly(['amount', 'unit', 'per'], { unit: 32 }).optional(),
+    phase: keysOnly(['start', 'end', 'journeyId'], { journeyId: 64 }).optional(),
     note: z.string().max(500).optional(),
   })
   .strict();

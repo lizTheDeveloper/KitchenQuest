@@ -7,9 +7,16 @@ import type { Db } from '../types.js';
 
 const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Expected HH:MM (24h)');
 
+/**
+ * N-7: a meal window's name is one of a fixed set. Free text here could name
+ * a fast or a medical routine ("Ramadan suhoor", "insulin snack"), which is
+ * special-category data in a plain column.
+ */
+const MEAL_WINDOW_NAMES = ['breakfast', 'lunch', 'dinner', 'snack', 'other'] as const;
+
 const MealWindow = z
   .object({
-    name: z.string().max(40),
+    name: z.enum(MEAL_WINDOW_NAMES),
     start: hhmm,
     end: hhmm,
   })
@@ -30,12 +37,28 @@ const ProfileBody = z
   .partial()
   .strict();
 
+type MealWindowName = (typeof MEAL_WINDOW_NAMES)[number];
+type StoredMealWindow = { name: MealWindowName; start: string; end: string };
+
+/**
+ * Stored meal windows as served: a name outside the fixed set (a row written
+ * before N-7 made names an enum) reads as `other`, so free text is never
+ * shown back or exported. Used by GET /profile and the account export.
+ */
+export function knownMealWindows(stored: unknown): StoredMealWindow[] {
+  const list = Array.isArray(stored) ? (stored as { name?: unknown }[]) : [];
+  return list.map((w) => ({
+    ...(w as StoredMealWindow),
+    name: (MEAL_WINDOW_NAMES as readonly unknown[]).includes(w.name) ? (w.name as MealWindowName) : 'other',
+  }));
+}
+
 interface Profile {
   marketDays: number[];
   mealsPerWeek: number | null;
   country: string | null;
   region: string | null;
-  mealWindows: { name: string; start: string; end: string }[];
+  mealWindows: StoredMealWindow[];
 }
 
 const cols = {
@@ -51,7 +74,7 @@ async function loadProfile(db: Db, userId: string): Promise<Profile> {
   await db.insert(profiles).values({ userId }).onConflictDoNothing({ target: profiles.userId });
   const [row] = await db.select(cols).from(profiles).where(eq(profiles.userId, userId));
   if (!row) throw new Error('profile vanished after insert');
-  return row as Profile;
+  return { ...(row as Profile), mealWindows: knownMealWindows(row.mealWindows) };
 }
 
 export async function profileRoutes(app: FastifyInstance): Promise<void> {

@@ -4,7 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { audit, pseudonymizeAudit } from '../audit/audit.js';
 import { lockSignInEmail } from '../auth/email-lock.js';
-import { SlidingWindowLimiter } from '../auth/rate-limit.js';
+import { SlidingWindowLimiter, sweepPeriodically } from '../auth/rate-limit.js';
 import { requireUser, SESSION_COOKIE, SESSION_COOKIE_OPTIONS } from '../auth/session.js';
 import type { Config } from '../config.js';
 import { consentHistory, type Tx } from '../consent/ledger.js';
@@ -21,6 +21,7 @@ import {
   users,
 } from '../db/schema.js';
 import { ApiError } from '../errors.js';
+import { knownMealWindows } from '../profile/routes.js';
 import { loadRules } from '../rules/routes.js';
 
 /** The exact words the player types to delete their account. */
@@ -205,7 +206,9 @@ async function buildExport(tx: Tx, config: Config, userId: string, now: Date, pr
   return {
     exportedAt: now.toISOString(),
     user: { id: user.id, email: user.email, createdAt: iso(user.createdAt), ageConfirmedAt: iso(user.ageConfirmedAt) },
-    profile: profile ? { ...profile, updatedAt: iso(profile.updatedAt) } : null,
+    profile: profile
+      ? { ...profile, mealWindows: knownMealWindows(profile.mealWindows), updatedAt: iso(profile.updatedAt) }
+      : null,
     rules: decrypted,
     consents: await consentHistory(tx, userId),
     entitlements: ents.map((e) => ({
@@ -238,6 +241,11 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
   const processors = loadProcessors();
   // Per app instance; an export is heavy (every table, every rule decrypted).
   const exportLimiter = new SlidingWindowLimiter(5, HOUR);
+  const stopSweeping = sweepPeriodically([exportLimiter], () => now().getTime());
+  app.addHook('onClose', (_app, done) => {
+    stopSweeping();
+    done();
+  });
 
   app.get('/me/export', { preHandler: requireUser }, async (req, reply) => {
     const at = now();
