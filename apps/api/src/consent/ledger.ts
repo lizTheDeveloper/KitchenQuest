@@ -1,8 +1,9 @@
-import { and, asc, eq, gt, isNull, lte, or } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNull, lte, or, type SQL } from 'drizzle-orm';
 import { audit } from '../audit/audit.js';
 import { consents, CONSENT_PURPOSES } from '../db/schema.js';
 import { ApiError } from '../errors.js';
 import type { Db } from '../types.js';
+import { acceptedVersions } from './notices.js';
 
 /**
  * C-1 purposes: `health_data` (collect and store allergy, diet, journey,
@@ -18,6 +19,20 @@ export function isConsentPurpose(v: unknown): v is ConsentPurpose {
 
 const active = (userId: string, purpose: ConsentPurpose) =>
   and(eq(consents.userId, userId), eq(consents.purpose, purpose), isNull(consents.withdrawnAt));
+
+/** Whether a grant under `version` still counts for `purpose` (see `acceptedVersions`). */
+function isAcceptedVersion(purpose: ConsentPurpose, version: string): boolean {
+  const accepted = acceptedVersions(purpose);
+  return accepted === undefined || accepted.includes(version);
+}
+
+/** SQL for "the grant's notice version still counts", or undefined when any version does. */
+function acceptedVersion(purpose: ConsentPurpose): SQL | undefined {
+  const accepted = acceptedVersions(purpose);
+  if (accepted === undefined) return undefined;
+  if (accepted.length === 0) throw new Error(`no accepted notice version for ${purpose}`);
+  return inArray(consents.noticeVersion, [...accepted]);
+}
 
 /** A transaction handle, so callers can combine ledger changes with other writes. */
 export type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
@@ -88,7 +103,10 @@ export async function withdrawConsent(
   return db.transaction((tx) => withdrawConsentIn(tx, userId, purpose, now, requestId));
 }
 
-/** Whether a grant for `purpose` was in force at `now` (granted at or before it, not yet withdrawn). */
+/**
+ * Whether a grant for `purpose` was in force at `now`: granted at or before
+ * it, not yet withdrawn, and under a notice version that still counts.
+ */
 export async function hasConsent(db: Pick<Db, 'select'>, userId: string, purpose: ConsentPurpose, now: Date): Promise<boolean> {
   const [row] = await db
     .select({ id: consents.id })
@@ -99,6 +117,7 @@ export async function hasConsent(db: Pick<Db, 'select'>, userId: string, purpose
         eq(consents.purpose, purpose),
         lte(consents.grantedAt, now),
         or(isNull(consents.withdrawnAt), gt(consents.withdrawnAt, now)),
+        acceptedVersion(purpose),
       ),
     )
     .limit(1);
@@ -117,13 +136,14 @@ export async function requireConsent(db: Pick<Db, 'select'>, userId: string, pur
  * grant for `purpose` or throws 403 `consent_required`. A concurrent
  * withdrawal (an UPDATE of that row) then waits until the write commits, so a
  * withdraw-with-delete also removes what the write stored; a withdrawal that
- * committed first leaves no active row, and the write is refused.
+ * committed first leaves no active row, and the write is refused. A grant
+ * under a notice version that no longer counts is refused like no grant.
  */
 export async function lockConsentIn(tx: Tx, userId: string, purpose: ConsentPurpose, now: Date): Promise<void> {
   const [row] = await tx
     .select({ id: consents.id })
     .from(consents)
-    .where(and(active(userId, purpose), lte(consents.grantedAt, now)))
+    .where(and(active(userId, purpose), lte(consents.grantedAt, now), acceptedVersion(purpose)))
     .for('share');
   if (!row) throw new ApiError(403, 'consent_required', `This needs your consent for ${purpose}`, { purpose });
 }
@@ -136,6 +156,8 @@ export interface ConsentRecord {
   grantedAt: string;
   withdrawnAt: string | null;
   endedReason: 'withdrawn' | 'superseded' | null;
+  /** Whether a grant under this notice version still counts (an active grant with `current: false` needs re-consent). */
+  current: boolean;
 }
 
 /** The user's full consent history, oldest first (for GET /me/consents and export). */
@@ -149,5 +171,6 @@ export async function consentHistory(db: Pick<Db, 'select'>, userId: string): Pr
     grantedAt: r.grantedAt.toISOString(),
     withdrawnAt: r.withdrawnAt ? r.withdrawnAt.toISOString() : null,
     endedReason: (r.endedReason ?? null) as ConsentRecord['endedReason'],
+    current: isAcceptedVersion(r.purpose as ConsentPurpose, r.noticeVersion),
   }));
 }

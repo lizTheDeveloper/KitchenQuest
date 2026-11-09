@@ -28,6 +28,13 @@ export function ipKey(ip: string): string {
  * In-memory sliding-window limiter driven by the caller's clock, so tests can
  * advance time. State is per process: with several API instances each one
  * enforces the limit separately.
+ *
+ * N-2: the state is a map from key (an IP or /64, a lowercased email, or a
+ * user id) to hit times. It is never written to disk, the database or a log,
+ * and is lost on restart. A key is dropped once its last hit leaves the window,
+ * at the next sweep: on any hit at most once a minute, and from
+ * `sweepPeriodically` every minute without traffic. So with a one-hour window
+ * no key is held more than an hour and a minute after its last hit.
  */
 export class SlidingWindowLimiter {
   private readonly hits = new Map<string, number[]>();
@@ -44,6 +51,11 @@ export class SlidingWindowLimiter {
     return recent.length < this.limit ? 0 : recent[0] + this.windowMs - now;
   }
 
+  /** How many keys are held (for tests and metrics; never the keys themselves). */
+  get size(): number {
+    return this.hits.size;
+  }
+
   hit(key: string, now: number): void {
     if (now - this.lastSweep >= SWEEP_EVERY_MS) this.sweep(now);
     this.hits.set(key, [...this.recent(key, now), now]);
@@ -56,9 +68,26 @@ export class SlidingWindowLimiter {
     return kept;
   }
 
-  /** Drops keys whose hits have all left the window; runs at most once a minute. */
-  private sweep(now: number): void {
+  /** Drops keys whose hits have all left the window. */
+  sweep(now: number): void {
     this.lastSweep = now;
     for (const key of [...this.hits.keys()]) this.recent(key, now);
   }
+}
+
+/**
+ * Sweeps `limiters` every `everyMs` (a minute by default) on an unref'd timer,
+ * so stale keys go even when no further request comes. Returns a stop function.
+ */
+export function sweepPeriodically(
+  limiters: readonly SlidingWindowLimiter[],
+  now: () => number,
+  everyMs = SWEEP_EVERY_MS,
+): () => void {
+  const timer = setInterval(() => {
+    const t = now();
+    for (const l of limiters) l.sweep(t);
+  }, everyMs);
+  timer.unref();
+  return () => clearInterval(timer);
 }

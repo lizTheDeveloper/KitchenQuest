@@ -13,15 +13,27 @@ export class LogMailer implements Mailer {
   }
 }
 
-/** Sends through an SMTP server given as a URL, e.g. `smtps://user:pass@smtp.example.com`. */
+/** The part of a nodemailer transport the mailer uses; tests pass a stream transport. */
+interface Transport {
+  sendMail(message: { from: string; to: string; subject: string; text: string }): Promise<unknown>;
+}
+
+/**
+ * Sends through an SMTP server given as a URL, e.g. `smtps://user:pass@smtp.example.com`.
+ *
+ * N-1: the message is a single `text/plain` part: no HTML body, so there is
+ * no tracking pixel and no `<a href>` for the provider to wrap. Tracking and
+ * link rewriting must also be off at the provider (`docs/compliance/mail-provider.md`);
+ * provider-side rewriting of a plain-text link would hand it the token.
+ */
 export class SmtpMailer implements Mailer {
-  private readonly transport: ReturnType<typeof nodemailer.createTransport>;
+  private readonly transport: Transport;
 
   constructor(
-    smtpUrl: string,
+    smtp: string | Transport,
     private readonly from: string,
   ) {
-    this.transport = nodemailer.createTransport(smtpUrl);
+    this.transport = typeof smtp === 'string' ? nodemailer.createTransport(smtp) : smtp;
   }
 
   async send(msg: MailMessage): Promise<void> {

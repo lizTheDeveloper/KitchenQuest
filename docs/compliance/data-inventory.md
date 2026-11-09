@@ -2,7 +2,7 @@
 
 **Item:** C-33 (risk assessment and DPIA), first deliverable. Feeds the GDPR Art. 30 record of processing, the DPIA (`dpia.md`) and the risk register (`risk-register.md`).
 **Date:** 2026-11-09. **Status:** started at M2; the owner of each later milestone adds that milestone's rows in the same PR as its schema.
-**Sources:** `apps/api/src/db/schema.ts` and migrations `0000`–`0002` (built); uncommitted Step 2c work (consent, keys, audit, retention: in progress, listed as "planned M2"); spec §4, §5, §7, §9, §16–§20; `plans/m1-core`, `plans/m2-api`; compliance report §2–§6 (C-ids).
+**Sources:** `apps/api/src/db/schema.ts` and migrations `0000`–`0008` (built; §6 indexes every column, checked by `apps/api/test/inventory.test.ts`); some M2 rows still read "planned M2" where only part is built; spec §4, §5, §7, §9, §16–§20; `plans/m1-core`, `plans/m2-api`; compliance report §2–§6 (C-ids).
 **Caveat:** only M1 and M2 have plan files. Rows for M3 onwards come from the spec and the C-id table, so column names are proposed, not final. This is not legal advice; **[verify]** marks facts to confirm and **[lawyer]** marks questions for counsel.
 
 ## 1. How to read this
@@ -76,10 +76,12 @@ Trust boundaries: device to API, API to every third party. Everything left of Op
 | A-5 | Account creation time | `users.created_at` | usage | contract | no | life of account | Hetzner | E, D | built |
 | A-6 | Session token | `sessions.token_hash`, `user_id`, `expires_at`, `created_at` | technical | contract / legit. | hash | delete at expiry (30 d) (C-6) | Hetzner | D | built; retention planned M2 |
 | A-7 | Session cookie | browser cookie (`HttpOnly; Secure; SameSite=Lax`) | technical | contract | n/a | 30 d | none | n/a | built |
-| A-8 | IP address and user agent at sign-in and on requests | reverse-proxy/access logs; rate-limit counters (store **[verify]**); possibly `audit_events` | identifier (IP) / technical | legit. (abuse, security) | no | **unset, proposed 30 d** | Hetzner | not in E; D only if keyed (**gap**) | built (implicit); policy proposed |
+| A-8 | IP address (IPv4, or IPv6 cut to its /64) in the sign-in rate limiter | API process memory only (`SlidingWindowLimiter` in `apps/api/src/auth/rate-limit.ts`): never written to disk, the database or a log; lost on restart; per instance | identifier (IP) / technical | legit. (abuse, security) | no | each hit is dropped when it leaves the 1 h window; a key with no hits left goes at the next sweep (every minute, on a timer), so **at most 1 h 1 min after the last request** (N-2) | Hetzner (host memory) | not in E (not linked to an account); D by expiry | built (N-2). IPs and user agents in the reverse-proxy log: L-3 |
+| A-12 | Email address in the per-email sign-in rate limiter | API process memory only, keyed by the lowercased address, as A-8 | identifier | legit. (abuse) | no | as A-8: at most 1 h 1 min after the last request | Hetzner (host memory) | not in E; D by expiry (an account delete does not wait for it: the entry holds no account link) | built (N-2) |
+| A-13 | User id in the account-export limiter (5 exports per hour) | API process memory only, keyed by `users.id`, as A-8 | identifier (pseudonymous) | legit. (abuse; an export decrypts every rule) | no | as A-8: at most 1 h 1 min after the last export | Hetzner (host memory) | not in E; D by expiry | built (Step 7; N-2) |
 | A-9 | Session list / device label for "sign out everywhere" | `sessions` (extend) | technical | legit. | no | with A-6 | Hetzner | E, D | planned M2 (C-10b, optional) |
-| A-10 | Email as held by the mail provider (recipient, delivery logs, suppression list) | mail provider (TBD) | identifier | contract | provider-side | provider default **[verify]**; target <= 30 d | mail provider | D: processor-deletion queue (C-8) | planned M2/M12 (provider not chosen) |
-| A-11 | Magic-link token inside the email body | mail provider copy of the message | technical (credential) | contract | hash at rest in our DB only | provider-side **[verify]** | mail provider | n/a | built (`SmtpMailer`) |
+| A-10 | Email as held by the mail provider (recipient, delivery logs, suppression list) | mail provider (TBD) | identifier | contract | provider-side | target <= 30 d, set at the provider (`mail-provider.md`) | mail provider | D: processor-deletion queue (C-8) | planned M2/M12 (provider not chosen); settings required in `mail-provider.md` (N-1) |
+| A-11 | Magic-link token inside the email body | mail provider copy of the message | technical (credential) | contract | hash at rest in our DB only | provider-side; the link is dead after 15 min or one use | mail provider | n/a | built (`SmtpMailer`): one `text/plain` part, no HTML, exactly one URL and no health content, tested (`test/mailer.test.ts`, `test/auth.test.ts`); provider-side tracking and rewriting off per `mail-provider.md` (N-1) |
 
 ### 3.2 Profile and settings
 
@@ -87,7 +89,7 @@ Trust boundaries: device to API, API to every third party. Everything left of Op
 |---|---|---|---|---|---|---|---|---|---|
 | P-1 | Country, region | `profiles.country`, `profiles.region` | location (coarse) | contract; used for seasonality and region gating (C-44) | no | life of account | Hetzner | E, D | built |
 | P-2 | Market days, meals per week | `profiles.market_days`, `profiles.meals_per_week` | usage | contract | no | life of account | Hetzner | E, D | built |
-| P-3 | Meal windows (name, start, end) | `profiles.meal_windows` (jsonb) | usage; with free-text names could imply a condition or fast (e.g. "Ramadan suhoor") | contract; **[lawyer]** whether `health_data` | no | life of account | Hetzner | E, D | built. Decision needed: treat window names as sensitive free text (see risk R-17) |
+| P-3 | Meal windows (name, start, end) | `profiles.meal_windows` (jsonb) | usage. The name is one of `breakfast`, `lunch`, `dinner`, `snack`, `other` (N-7), so it cannot spell out a fast or a condition; a name stored before N-7 reads back and exports as `other`; times alone could still hint at a fast | contract; **[lawyer]** whether `health_data` | no | life of account | Hetzner | E, D | built. N-7 ruling: names are a fixed set, not free text (Step 9) |
 | P-4 | Reminder times, push preferences | `profiles` or `reminders` | usage | contract | no | life of account | Hetzner | E, D | planned M9 |
 | P-5 | Voice accessibility flag (`accessibility_voice`) | `profiles` column or sealed row | health (implies disability) | `health_data` (C-19) | **S-U required** | life of account | Hetzner | E, D | planned M2 (if added in Step 4) / M7; **not in the current schema** |
 | P-6 | Calorie display toggle and other UI settings | `profiles` (extend) | usage | contract | no | life of account | Hetzner | E, D | proposed. Hidden calorie toggle could imply a disordered-eating history; keep it out of AI prompts and analytics |
@@ -98,7 +100,7 @@ Trust boundaries: device to API, API to every third party. Everything left of Op
 | ID | Element | Where | Category | Basis / purpose | Sealed | Retention | Processors | E / D | Status |
 |---|---|---|---|---|---|---|---|---|---|
 | H-1 | Allergy and diet rules: target ids, type, severity, limit, phase, journey id | `rules.sealed` (blob; row id = rule id) | health (allergies, intolerances); religious diets are Art. 9 religion | `health_data` | **S-1 today**; S-U with AAD when Step 2c lands (C-3/C-4) | until user deletes the rule or account | Hetzner (ciphertext only) | E (decrypted), D | built |
-| H-2 | Rule free-text `note` ("the user's own words") | inside `rules.sealed` | health or any special category (religion, disability, third-party facts) | `health_data` | as H-1 | as H-1 | as H-1 | E, D | built. Free text is unbounded: see R-17 |
+| H-2 | Rule free-text `note` ("the user's own words"), and the short free strings `limit.unit` and `phase.journeyId` | inside `rules.sealed` | health or any special category (religion, disability, third-party facts) | `health_data` | as H-1 | as H-1 | as H-1 | E, D | built. Capped (N-7): `note` 500, `limit.unit` 32, `phase.journeyId` 64 characters (§3.13) |
 | H-3 | Rule metadata: owner, created and updated time | `rules.user_id`, `created_at`, `updated_at` | usage (reveals that the user has at least one rule and when it changed) | `health_data` | no | as H-1 | Hetzner | E, D | built. Row count is itself weakly sensitive |
 | H-4 | Ingredient and category targets resolved by AI during rule expansion | AI request (only the typed term); result saved in H-1 | health | `ai_health` | n/a in transit; then H-1 | not retained by us; provider ZDR | OpenRouter, model provider | covered via H-1 | planned M8 (C-22) |
 | H-5 | Diet journeys and enrollments (e.g. low-FODMAP, custom journeys: name, phases, rule sets) | `journeys`, `journey_enrollments` | health (journey implies condition) | `health_data` | S-U (C-23) | until deleted | Hetzner | E, D | planned M9 |
@@ -185,21 +187,22 @@ No child data is collected until counsel signs off (P-9). The rows are reserved 
 
 | ID | Element | Where | Category | Basis / purpose | Sealed | Retention | Processors | E / D | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| J-1 | Consent ledger: purpose, notice version, notice sha256, granted, withdrawn, method (and later subject) | `consents` | usage (legal evidence); the existence of a `health_data` consent is itself weakly sensitive | legal (proof of consent) | no | life of account, then delete or pseudonymize **[lawyer]** | Hetzner | E (full history), D | planned M2 (C-1) |
+| J-1 | Consent ledger: purpose, notice version, notice sha256, granted, withdrawn, why it ended, method (and later subject) | `consents` (`consents.purpose`, `consents.notice_version`, `consents.notice_sha256`, `consents.granted_at`, `consents.withdrawn_at`, `consents.ended_reason`, `consents.method`) | usage (legal evidence); the existence of a `health_data` consent is itself weakly sensitive | legal (proof of consent) | no | life of account (cascade on delete) **[lawyer]** whether to keep pseudonymized | Hetzner | E (full history), D | built (C-1). The `health_data` notice is `notices/health_data-v1.md` (version `v1`, its SHA-256 in each grant); it names religious and cultural diets (N-7) |
 | J-2 | Per-user wrapped data key | `user_keys(user_id, key_id, wrapped)` | technical | security | wrapped by the ring key | life of account; deletion = crypto-shred | Hetzner | not exported; D | planned M2 (C-4) |
 | J-3 | Master key ring | environment (`DATA_KEYS`, `DATA_KEY_ID`), kept out of the repo and the DB backup (C-2) | technical (secret) | security | n/a | rotated yearly and at offboarding | Hetzner host | n/a | planned M2; **today a single `DATA_KEY` in env** |
 | J-4 | Audit events: time, actor kind and id, subject, action, target, request id; never content | `audit_events` (append-only) | usage / technical | legit.; legal | no | 24 months; subject pseudonymized (HMAC) on account delete (C-5) | Hetzner | E (where subject), D = pseudonymize | planned M2 |
 | J-5 | Retention-job run records | logs or `job_runs` | technical | legit. | no | 90 d proposed | Hetzner | n/a | planned M2 |
 | J-6 | Data-rights request log | `audit_events` (action `dsr_*`) plus privacy mailbox | identifier | legal | no | 3 years **[lawyer]** | mail provider; Hetzner | E (own), partly retained | planned M12 (C-31) |
-| J-7 | Processor register | `docs/compliance/processors.json` (repo) | none | legal | n/a | n/a | none | E (list, C-7) | proposed; file added with this item |
+| J-7 | Processor register | `docs/compliance/processors.json` (repo) | none | legal | n/a | n/a | none | E (list, C-7) | built (in the export, Step 7) |
+| J-8 | Self-read counters: how many times a day the player read their own rules | `self_read_counts` (`self_read_counts.user_id`, `self_read_counts.resource`, `self_read_counts.day`, `self_read_counts.count`) | usage (content-free; stands in for per-read audit events so no "when they looked" log is built) | legit. (C-5 access accountability) | no | 24 months (C-6 retention job) | Hetzner | E, D (cascade) | built (Step 7) |
 
 ### 3.11 Logs, errors, client-side storage
 
 | ID | Element | Where | Category | Basis / purpose | Sealed | Retention | Processors | E / D | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| L-1 | API request log (route pattern, status, timing, request id); **no** query strings or bodies (C-9) | stdout, shipped to host logs | technical (IP possible) | legit. | no | **unset, proposed 30 d** | Hetzner | not in E; D n/a unless keyed | built (`level: info`; redaction planned M2). Until C-9 lands the log includes `req.url`: see R-02 |
+| L-1 | API request log: method, route **pattern** (`/rules/:id`, `(unmatched)` for unknown paths), status, timing, request id. **No** query string, body, headers, cookies or client address (C-9) | stdout, shipped to host logs | technical | legit. | no | **14 days**, at most 30 (§3.14) | Hetzner | not in E (holds no identifier); D by expiry | built (`apps/api/src/logging/redact.ts`, tested with `captureLogs()`); retention set at the log host (N-2) |
 | L-2 | Error reports (stack trace, route, request id; request data, breadcrumbs and email stripped) | GlitchTip | technical | legit. | n/a | **unset, proposed 30 d** | GlitchTip (self-hosted? **[verify]**) | not in E; D by expiry | planned M2 (`before_send`, C-9); 500-path logging already PII-free (commit 439f6d4) |
-| L-3 | Reverse-proxy access log | Hetzner host / proxy | technical (IP, URL, user agent) | legit. | no | **unset, proposed 14 to 30 d** | Hetzner | not in E | planned M12 (C-38); **retention not in any C-id** |
+| L-3 | Reverse-proxy access log | Hetzner host / proxy | technical (IP, URL, user agent) | legit. | no | **14 days**, at most 30 (§3.14) | Hetzner | not in E; D by expiry | planned M12 (C-38); retention registered here (N-2) |
 | L-4 | Database and object-storage backups | Hetzner / backup target | all of the above, ciphertext for health | legit. (availability) | health columns stay sealed; whole-backup encryption (C-35) | 30 days (C-35) | Hetzner | D via crypto-shred (C-4) | planned M12 |
 | L-5 | Service-worker cache and IndexedDB: recipes, offline log queue, pending meal and symptom logs | browser storage on the player's device | health (queued logs) | `health_data` | **no** today in design; proposed WebCrypto or clear-on-sign-out | until sync, until sign-out | none | E (server copy once synced), D (device: "sign out" wipes) | planned M4/M9; **new: not in any C-id** (see R-12) |
 | L-6 | Web Push subscription: endpoint URL, keys | `push_subscriptions` | technical, identifier (endpoint is a per-device id) | contract; consent via browser permission | no | until unsubscribe or account delete | Hetzner; FCM, Apple, Mozilla | E, D | planned M9 |
@@ -214,10 +217,39 @@ No child data is collected until counsel signs off (P-9). The rows are reserved 
 | W-2 | Recipe source URL and author credit | `canon_recipes.source`, recipe cards | identifier (third party, public) | legit. (credit) | no | as above | Hetzner | n/a | built |
 | W-3 | Canon recipe metadata | `canon_recipes` | none | n/a | n/a | n/a | n/a | n/a | built |
 
+### 3.13 Free-text fields and their caps (N-7)
+
+Every string the API accepts from a player, with its maximum. A field not listed here takes no free text. Enforced in the route's zod schema (anything longer is 400 `bad_request` naming the field) or, where a shape is required, by the shape check.
+
+| Field | Where it is stored | Max | Notes |
+|---|---|---|---|
+| `email` (`POST /auth/request`) | `login_tokens.email`, then `users.email` | 254 | must be an email address |
+| `token` (`POST /auth/verify`) | nowhere (hashed and compared) | 43 | must have the shape of an issued token; anything else is 401 like any bad link |
+| `country`, `region` (`PUT /profile`) | `profiles.country`, `profiles.region` | 80 each | coarse location only |
+| meal-window `name` (`PUT /profile`) | `profiles.meal_windows` | n/a | enum `breakfast`, `lunch`, `dinner`, `snack`, `other`; not free text |
+| meal-window `start`, `end` | `profiles.meal_windows` | 5 | `HH:MM` |
+| `rule.note` (`POST`/`PUT /rules`) | `rules.sealed` | 500 | sealed (S-U) |
+| `rule.limit.unit` | `rules.sealed` | 32 | sealed; core requires a non-empty string |
+| `rule.phase.journeyId` | `rules.sealed` | 64 | sealed |
+| `rule.phase.start`, `rule.phase.end` | `rules.sealed` | 10 | core requires `YYYY-MM-DD` |
+| `rule.target.ids[]` | `rules.sealed` | n/a | each must be an id in the ingredient graph (core) |
+| `q` (`GET /ingredients/search`) | nowhere; never logged | 100 | |
+| `date` (`GET /recipes`) | nowhere | 10 | `YYYY-MM-DD` within a day of today |
+| `noticeVersion` (`POST /me/consents`) | `consents.notice_version` | 64 | must equal the current notice's version |
+| `confirm` (`DELETE /me`) | nowhere | n/a | must equal `delete my account` |
+
+### 3.14 Logs and rate-limit state: retention (N-2, registered with C-6)
+
+- **Rate-limit state** is in API process memory only: the sign-in limiters keyed by IP (or IPv6 /64, A-8) and by lowercased email (A-12), and the export limiter keyed by user id (A-13). It is never written to disk, the database or a log, and a restart clears it. Each key is dropped at most one minute after its last hit leaves the one-hour window (`sweepPeriodically`, tested in `apps/api/test/rate-limit.test.ts`), so no address, email or id is held more than 1 h 1 min after the last request. With several API instances each holds its own state.
+- **API request log (L-1)** holds route patterns only (C-9), so it carries no identifier. Keep it **14 days** at the log host; 30 days is the ceiling. It is not in the export, because nothing in it links to a player.
+- **Reverse-proxy access log (L-3)** holds IPs, full URLs and user agents. Keep it **14 days**, at most 30. Configure the proxy (M12, C-38) to log the path without the query string, and not to log request bodies or cookies. It is not in the export; a data-rights request is answered by expiry.
+- **Error reports (L-2):** proposed **30 days** at GlitchTip, set when it is deployed (M2/M12).
+- The privacy notice (C-30, M12) states these periods. Any new log, proxy or limiter store adds a row here in the same PR.
+
 ## 4. Observations that drive the risk register
 
 1. **Built today, sealed with one env key:** only `rules.sealed`. Everything else built is account, profile, usage or entitlement data. No consent record, no audit trail, and no key ring exist yet, so today's health data is one DB-and-key compromise from exposure (R-04).
-2. **Plain columns that deserve a second look:** `profiles.meal_windows` (free-text names), the future `profiles.accessibility_voice`, `entitlements.kind` (bursary), row counts and timestamps of sealed tables.
+2. **Plain columns that deserve a second look:** `profiles.meal_windows` (names are now a fixed set, N-7, and older free-text names read as `other`; the times alone could still hint at a fast), the future `profiles.accessibility_voice`, `entitlements.kind` (bursary), row counts and timestamps of sealed tables.
 3. **Three places health data can leave without a sealed column:** logs and error reports (C-9), the AI request (C-13/C-14), and the offline browser store (new, L-5).
 4. **Data that is not about the user:** neighbours' handles and pick-up spots (M11), people fed ("Cooked for Someone"), children (M13), recipe contributors (W-1), and non-users who typed someone else's email (A-2).
 5. **Gaps with no C-id today:** log and access-log retention (L-1, L-3, A-8); inactive-account retention; the AI retry queue (I-7); the offline browser store (L-5); contributor ids (W-1); mail-provider handling of login links (A-11); and a check that this inventory stays in step with the schema. See the final section of `risk-register.md`.
@@ -225,5 +257,26 @@ No child data is collected until counsel signs off (P-9). The rows are reserved 
 ## 5. Keeping this file true
 
 - Every PR that adds or changes a table, column, object-storage path, outbound request or log field updates this file in the same PR.
-- Proposed check (not yet in ROADMAP): a CI test that lists every column in `apps/api/src/db/schema.ts` and fails if its `table.column` string is missing from this file.
+- `apps/api/test/inventory.test.ts` (N-8) migrates a fresh database, lists every `table.column` from `information_schema`, and fails if one is missing from this file. Add a new column to the row that covers it and to §6.
 - Review annually and on any new processor (P-11), new AI feature, new region or any change to a consent purpose.
+
+## 6. Column index (N-8)
+
+Every column the migrations create, as `table.column`, with the inventory row that covers it. `apps/api/test/inventory.test.ts` fails if a column is missing here or anywhere above.
+
+| Table | Columns | Rows |
+|---|---|---|
+| `users` | `users.id`, `users.email`, `users.age_confirmed_at`, `users.created_at` | A-1, A-4, A-5 (`users.id` is the internal account id; A-13 keys on it) |
+| `login_tokens` | `login_tokens.id`, `login_tokens.email`, `login_tokens.token_hash`, `login_tokens.expires_at`, `login_tokens.used_at`, `login_tokens.created_at` | A-2, A-3 |
+| `sessions` | `sessions.id`, `sessions.user_id`, `sessions.token_hash`, `sessions.expires_at`, `sessions.created_at` | A-6 |
+| `profiles` | `profiles.user_id`, `profiles.market_days`, `profiles.meals_per_week`, `profiles.country`, `profiles.region`, `profiles.meal_windows`, `profiles.updated_at` | P-1, P-2, P-3 |
+| `rules` | `rules.id`, `rules.user_id`, `rules.sealed`, `rules.created_at`, `rules.updated_at` | H-1, H-2, H-3 |
+| `canon_recipes` | `canon_recipes.path`, `canon_recipes.slug`, `canon_recipes.title`, `canon_recipes.country`, `canon_recipes.region`, `canon_recipes.status`, `canon_recipes.source`, `canon_recipes.content_hash`, `canon_recipes.contributors`, `canon_recipes.synced_at` | W-1 (`contributors`), W-2 (`source`), W-3 (the rest; no player data) |
+| `entitlements` | `entitlements.id`, `entitlements.user_id`, `entitlements.kind`, `entitlements.source`, `entitlements.starts_at`, `entitlements.ends_at`, `entitlements.created_at` | U-2 |
+| `usage_events` | `usage_events.id`, `usage_events.user_id`, `usage_events.feature`, `usage_events.units`, `usage_events.cost_microusd`, `usage_events.created_at` | U-1, V-4 |
+| `user_keys` | `user_keys.user_id`, `user_keys.key_id`, `user_keys.wrapped`, `user_keys.created_at` | J-2 |
+| `consents` | `consents.id`, `consents.user_id`, `consents.purpose`, `consents.notice_version`, `consents.notice_sha256`, `consents.granted_at`, `consents.withdrawn_at`, `consents.ended_reason`, `consents.method` | J-1, P-7 |
+| `audit_events` | `audit_events.id`, `audit_events.at`, `audit_events.actor_kind`, `audit_events.actor_id`, `audit_events.subject_user_id`, `audit_events.action`, `audit_events.target`, `audit_events.request_id` | J-4 |
+| `self_read_counts` | `self_read_counts.user_id`, `self_read_counts.resource`, `self_read_counts.day`, `self_read_counts.count` | J-8 |
+
+Not in the database, so not in this index: the in-memory rate-limit state (A-8, A-12, A-13, §3.14) and the logs (L-1 to L-3).
