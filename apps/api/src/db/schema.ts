@@ -114,6 +114,11 @@ export const canonRecipes = pgTable("canon_recipes", {
   status: text("status").notNull(),
   source: text("source").notNull(),
   contentHash: text("content_hash").notNull(),
+  /** Contributor ids exactly as given in the front matter (personal data: never logged or normalised). */
+  contributors: text("contributors")
+    .array()
+    .notNull()
+    .default(sql`'{}'`),
   syncedAt: ts("synced_at").notNull().defaultNow(),
 });
 

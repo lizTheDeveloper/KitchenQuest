@@ -33,6 +33,7 @@ servings: 6                # more than 0
 license: CC-BY-SA-4.0      # always this value in the canon
 status: draft              # draft | reviewed
 sacred: false              # optional, defaults to false
+contributors: [your-github-handle]   # optional: stable ids of who wrote or reviewed it
 ---
 ```
 

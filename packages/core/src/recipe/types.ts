@@ -12,6 +12,8 @@ export interface RecipeMeta {
   license: string;
   status: RecipeStatus;
   sacred: boolean;
+  /** Stable contributor ids (e.g. GitHub handles), exactly as written in the front matter; empty when absent. */
+  contributors: string[];
 }
 
 export interface RecipeIngredient {

@@ -100,6 +100,16 @@ describe('parseRecipe', () => {
     expect(parseRecipe(withFront(VALID_LINES + '\nsacred: true')).meta.sacred).toBe(true);
   });
 
+  it('reads contributors as written, and defaults to none', () => {
+    expect(parseRecipe(withFront(VALID_LINES)).meta.contributors).toEqual([]);
+    expect(parseRecipe(withFront(VALID_LINES + '\ncontributors: [Ada-L, bob]')).meta.contributors).toEqual(['Ada-L', 'bob']);
+  });
+
+  it('rejects bad contributors without repeating the value', () => {
+    const problems = problemsOf(withFront(VALID_LINES + '\ncontributors: [secret-handle, 3]'));
+    expect(problems).toEqual(['contributors must be a list of non-empty strings']);
+  });
+
   it('rejects malformed Cooklang', () => {
     const problems = problemsOf(withFront(VALID_LINES).replace('Stir @salt{}.', 'Simmer ~{abc%min}.'));
     expect(problems[0]).toMatch(/Timer value is text/);

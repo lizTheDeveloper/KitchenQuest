@@ -53,7 +53,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const notFound = () => new ApiError(404, 'not_found', 'Rule not found');
 
 /** All of the user's rules, decrypted, oldest first, with `id` = row id. */
-async function loadRules(db: Pick<Db, 'select'>, keyring: Keyring, userId: string): Promise<Rule[]> {
+export async function loadRules(db: Pick<Db, 'select'>, keyring: Keyring, userId: string): Promise<Rule[]> {
   const rows = await db
     .select({ id: rules.id, sealed: rules.sealed })
     .from(rules)

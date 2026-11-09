@@ -6,6 +6,7 @@ import { requireUser } from './auth/session.js';
 import { defaultCatalog, type Catalog } from './catalog.js';
 import { consentRoutes } from './consent/routes.js';
 import { profileRoutes } from './profile/routes.js';
+import { recipeRoutes } from './recipes/routes.js';
 import { rulesRoutes } from './rules/routes.js';
 import type { Config } from './config.js';
 import { ApiError, loggableError } from './errors.js';
@@ -69,6 +70,7 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
   await profileRoutes(app);
   await consentRoutes(app);
   await rulesRoutes(app, catalog);
+  await recipeRoutes(app, catalog);
 
   return app;
 }

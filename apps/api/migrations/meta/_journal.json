@@ -57,6 +57,13 @@
       "when": 1794263304281,
       "tag": "0007_self_read_counts",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1794263660796,
+      "tag": "0008_canon_recipe_contributors",
+      "breakpoints": true
     }
   ]
 }
