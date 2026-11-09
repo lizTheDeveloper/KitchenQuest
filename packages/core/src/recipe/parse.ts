@@ -21,7 +21,8 @@ function rawNumber(n: RawNumber): number {
 
 /**
  * The numeric amount of a Cooklang quantity: regular numbers, fractions ("3/4", "1 1/2"),
- * and the start of a range. Text amounts ("some") and missing quantities give null.
+ * and the end of a range (the conservative bound). Text amounts ("some") and missing
+ * quantities give null.
  * The package's own getQuantityValue returns NaN for fractions, so it is not used.
  */
 function quantityValue(quantity: { value: unknown } | null | undefined, what: string): number | null {
@@ -29,7 +30,7 @@ function quantityValue(quantity: { value: unknown } | null | undefined, what: st
   const value = quantity.value as RawValue;
   let n: number;
   if (value.type === 'number') n = rawNumber(value.value);
-  else if (value.type === 'range') n = rawNumber(value.value.start);
+  else if (value.type === 'range') n = rawNumber(value.value.end);
   else return null;
   if (!Number.isFinite(n)) throw new RecipeError([`${what}: quantity is not a finite number`]);
   return n;

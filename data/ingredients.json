@@ -172,7 +172,8 @@
         "sugars_g": 6.6,
         "sodium_mg": 15
       },
-      "fdcId": 174256
+      "fdcId": 174256,
+      "source": "FDC 174256 is whole mung beans; split, dehulled dal has somewhat less fiber."
     },
     {
       "id": "turmeric",
@@ -210,7 +211,8 @@
         "sodium_mg": 7
       },
       "gramsPerUnit": 5,
-      "fdcId": 170497
+      "fdcId": 170497,
+      "source": "Nutrients: FDC 170497. gramsPerUnit 5 g: editor estimate for a slender Indian green chilli (FDC portion of 45 g is for a large pepper)."
     },
     {
       "id": "grated_coconut",
@@ -290,7 +292,8 @@
         "sodium_mg": 13
       },
       "densityGPerMl": 0.406,
-      "fdcId": 170929
+      "fdcId": 170929,
+      "source": "FDC 170929 is ground mustard seed, used for whole seed; its density (2 g/tsp) is for ground, whole seed is likely denser."
     },
     {
       "id": "shallot",
@@ -309,7 +312,8 @@
         "sodium_mg": 12
       },
       "gramsPerUnit": 10,
-      "fdcId": 170499
+      "fdcId": 170499,
+      "source": "Nutrients: FDC 170499. gramsPerUnit 10 g: editor estimate for a small Kerala shallot (no FDC per-unit portion)."
     },
     {
       "id": "dried_red_chili",
@@ -345,7 +349,8 @@
         "fiber_g": 6.4,
         "sugars_g": 0,
         "sodium_mg": 0
-      }
+      },
+      "source": "India NIN, Nutritive Value of Indian Foods (Gopalan et al.), curry leaves; carb is by difference (available carb + fiber). Sugars and sodium not reported, set to 0. No FDC record."
     },
     {
       "id": "curry_leaf_sprig",
@@ -365,7 +370,8 @@
         "sugars_g": 0,
         "sodium_mg": 0
       },
-      "gramsPerUnit": 2
+      "gramsPerUnit": 2,
+      "source": "India NIN, Nutritive Value of Indian Foods (Gopalan et al.), curry leaves; carb is by difference (available carb + fiber). Sugars and sodium not reported, set to 0. No FDC record. gramsPerUnit 2 g: editor estimate for one sprig."
     },
     {
       "id": "ghee",
@@ -386,7 +392,8 @@
         "sodium_mg": 0
       },
       "densityGPerMl": 0.866,
-      "fdcId": 171314
+      "fdcId": 171314,
+      "source": "Nutrients: FDC 171314, which has no portions; density from butter oil, anhydrous (FDC 173412, 12.8 g/tbsp)."
     },
     {
       "id": "pappadam",
@@ -408,7 +415,8 @@
         "sodium_mg": 1745
       },
       "gramsPerUnit": 6,
-      "fdcId": 168106
+      "fdcId": 168106,
+      "source": "Nutrients: FDC 168106 (raw papad; frying oil not included). gramsPerUnit 6 g: editor estimate for a small Kerala pappadam."
     },
     {
       "id": "black_bean",
@@ -488,7 +496,8 @@
         "sodium_mg": 43
       },
       "gramsPerUnit": 2,
-      "fdcId": 169398
+      "fdcId": 169398,
+      "source": "FDC 169398; the record has no sugars value, set to 0."
     },
     {
       "id": "corn_tortilla",
@@ -527,7 +536,8 @@
         "sodium_mg": 1
       },
       "densityGPerMl": 0.845,
-      "fdcId": 168931
+      "fdcId": 168931,
+      "source": "FDC 168931; it has no fiber or sugars, so fiber is from 168881 (same rice, enriched) and sugars from 169756 (long-grain, raw)."
     },
     {
       "id": "bonito_flakes",
@@ -547,7 +557,8 @@
         "fiber_g": 0,
         "sugars_g": 0,
         "sodium_mg": 130
-      }
+      },
+      "source": "MEXT Standard Tables of Food Composition in Japan (katsuobushi); edition not verified. Sugars not reported, set to 0. No FDC record."
     },
     {
       "id": "soy_sauce",
@@ -579,6 +590,7 @@
         "pickled plum",
         "japanese pickled plum"
       ],
+      "labelDependent": true,
       "per100g": {
         "energy_kcal": 33,
         "protein_g": 0.9,
@@ -588,7 +600,8 @@
         "sugars_g": 1.0,
         "sodium_mg": 8700
       },
-      "gramsPerUnit": 10
+      "gramsPerUnit": 10,
+      "source": "MEXT Standard Tables of Food Composition in Japan, 2015 (7th ed.), umeboshi, salted. Sugars not reported: 1.0 g is an editor estimate. gramsPerUnit 10 g: editor estimate. No FDC record."
     },
     {
       "id": "nori",
@@ -598,6 +611,7 @@
         "toasted nori",
         "yaki nori"
       ],
+      "labelDependent": true,
       "per100g": {
         "energy_kcal": 297,
         "protein_g": 41.4,
@@ -607,7 +621,8 @@
         "sugars_g": 0,
         "sodium_mg": 530
       },
-      "gramsPerUnit": 3
+      "gramsPerUnit": 3,
+      "source": "MEXT Standard Tables of Food Composition in Japan, 2020 (8th ed.), toasted nori (yakinori). Sugars not reported, set to 0. gramsPerUnit 3 g: one full sheet. No FDC record (SR Legacy 168458 is fresh laver)."
     },
     {
       "id": "garlic_infused_oil",
@@ -620,7 +635,8 @@
         "fiber_g": 0,
         "sugars_g": 0,
         "sodium_mg": 0
-      }
+      },
+      "source": "Generic vegetable oil values (as FDC 171017). No FDC record for garlic-infused oil."
     },
     {
       "id": "neutral_oil",
@@ -648,6 +664,7 @@
       "contains": [
         "soy_sauce"
       ],
+      "labelDependent": true,
       "per100g": {
         "energy_kcal": 110,
         "protein_g": 16.9,
@@ -656,7 +673,8 @@
         "fiber_g": 13.1,
         "sugars_g": 10,
         "sodium_mg": 7100
-      }
+      },
+      "source": "MEXT Standard Tables of Food Composition in Japan, 2015 (7th ed.), shio kombu. Sugars not reported: 10 g is an editor estimate. No FDC record."
     },
     {
       "id": "tamari",
@@ -690,7 +708,30 @@
         "fiber_g": 0,
         "sugars_g": 20,
         "sodium_mg": 1800
-      }
+      },
+      "source": "Typical retail label (1 tsp: 5 kcal, 1 g carb, 1 g sugars, 90 mg sodium) scaled to 100 g; sodium varies by brand. No FDC record."
+    },
+    {
+      "id": "toasted_sesame_seeds",
+      "name": "toasted sesame seed",
+      "aliases": [
+        "roasted sesame seed",
+        "toasted sesame"
+      ],
+      "isA": [
+        "sesame"
+      ],
+      "per100g": {
+        "energy_kcal": 565,
+        "protein_g": 16.96,
+        "fat_g": 48.0,
+        "carb_g": 25.74,
+        "fiber_g": 14.0,
+        "sugars_g": 0.3,
+        "sodium_mg": 11
+      },
+      "fdcId": 170151,
+      "source": "FDC 170151; it has no sugars value, so sugars are from 170150 (whole, dried)."
     }
   ]
 }

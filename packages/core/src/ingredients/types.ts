@@ -19,6 +19,7 @@ export interface IngredientNode {
   gramsPerUnit?: number; // for unitless counts ("2 eggs")
   defaultGrams?: number; // for "to taste" / no quantity
   fdcId?: number; // USDA FoodData Central id (provenance)
+  source?: string; // provenance for values not taken directly from the fdcId record
 }
 
 export interface IngredientData {

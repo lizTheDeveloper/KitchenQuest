@@ -25,7 +25,7 @@ Every file starts with YAML front matter. These keys are required:
 title: Frijoles de Olla
 country: Mexico
 region: Oaxaca
-credit: Home cooks of Oaxaca; taught in-game by Doña Marisol
+credit: Drafted by Kitchen Quest editors from the home cooking of Oaxaca — awaiting community review
 cook: dona-marisol         # the in-game cook who teaches it
 difficulty: 1              # 1 (easiest) to 5
 skills: [legumes, heat-control, patience]
@@ -47,7 +47,8 @@ able to understand each one:
   it needs (`isA`, `contains`). Mark store-bought products whose contents vary by brand
   (soy sauce, tortillas, pappadam) as `labelDependent`.
 - **Quantities** can be whole numbers, decimals or fractions (`@salt{3/4%tsp}`,
-  `@sugar{1 1/2%tsp}`). For a range (`@chillies{1-2}`), nutrition and limits use the first number.
+  `@sugar{1 1/2%tsp}`). For a range (`@chillies{1-2}`), nutrition and limits use the larger
+  number, to stay on the safe side.
 - **Units** are `g`, `kg`, `mg`, `oz`, `lb`, `ml`, `l`, `tsp`, `tbsp` or `cup`, or none for a
   count. Put other measures in the name: `@garlic cloves{2}`, `@epazote sprigs{2}`,
   `@nori sheets{2}`, not `@garlic{2%cloves}`.

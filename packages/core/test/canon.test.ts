@@ -90,21 +90,22 @@ describe('canon', () => {
     }
   });
 
-  it('vegetarian onigiri swaps bonito flakes for shio kombu', () => {
+  it('vegetarian onigiri swaps bonito flakes for toasted sesame, never label-dependent shio kombu', () => {
     const onigiri = 'japan/osaka/onigiri.cook';
     const vegetarian = avoid('vegetarian', ['meat', 'fish'], 'preference');
     const result = run(onigiri, [vegetarian]);
-    expect(result.status).not.toBe('blocked');
     expect(finding(onigiri, [vegetarian], 'bonito_flakes')).toMatchObject({
       status: 'swap',
-      swap: { toId: 'shio_kombu' },
+      swap: { toId: 'toasted_sesame_seeds' },
     });
-    // Soy sauce is label-dependent, so the dish as a whole is still "check the label".
+    // Soy sauce, nori and umeboshi are label-dependent, so the dish is still "check the label".
     expect(result.status).toBe('unverified');
-    // Shio kombu is simmered in soy sauce, so wheat or soy rules still reject it.
-    for (const target of ['wheat', 'soy']) {
-      const rules = [vegetarian, avoid(`no-${target}`, [target], 'allergy')];
-      expect(finding(onigiri, rules, 'bonito_flakes')).toMatchObject({ status: 'blocked' });
-    }
+
+    // With a sesame allergy too, no clean swap is left (shio kombu is label-dependent).
+    const sesame = [vegetarian, avoid('sesame-allergy', ['sesame'], 'allergy')];
+    const blocked = finding(onigiri, sesame, 'bonito_flakes');
+    expect(blocked).toMatchObject({ status: 'blocked' });
+    expect(blocked?.swap).toBeUndefined();
+    expect(run(onigiri, sesame).status).toBe('blocked');
   });
 });
