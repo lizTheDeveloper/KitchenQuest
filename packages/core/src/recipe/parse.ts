@@ -121,12 +121,19 @@ export function parseRecipe(source: string): ParsedRecipe {
 
   return {
     meta,
-    ingredients: getFlatIngredients(recipe).map((i, k) => ({
-      name: i.name,
-      quantity: quantityValue(recipe.ingredients[k]?.quantity, `ingredient "${i.name}"`),
-      unit: i.unit || null,
-      note: i.note || null,
-    })),
+    // getFlatIngredients names an aliased ingredient by its display alias (`@peanut|nuts{}` gives
+    // "nuts"), so the name to resolve comes from the raw ingredient at the same index.
+    ingredients: getFlatIngredients(recipe).map((i, k) => {
+      const raw = recipe.ingredients[k];
+      if (!raw) throw new RecipeError([`ingredient ${k + 1} ("${i.name}") is missing from the parse`]);
+      return {
+        name: raw.name,
+        displayName: raw.alias || null,
+        quantity: quantityValue(raw.quantity, `ingredient "${raw.name}"`),
+        unit: i.unit || null,
+        note: i.note || null,
+      };
+    }),
     timers: getFlatTimers(recipe).map((t, k) => ({
       name: t.name || null,
       quantity: quantityValue(recipe.timers[k]?.quantity, `timer ${k + 1}`),

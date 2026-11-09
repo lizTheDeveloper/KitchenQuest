@@ -15,7 +15,10 @@ export interface RecipeMeta {
 }
 
 export interface RecipeIngredient {
+  /** The ingredient as written before any `|alias`; this is what gets resolved and checked. */
   name: string;
+  /** The Cooklang display alias (`@peanut|nuts{}` gives "nuts"), or null when there is none. */
+  displayName: string | null;
   quantity: number | null;
   unit: string | null;
   note: string | null;

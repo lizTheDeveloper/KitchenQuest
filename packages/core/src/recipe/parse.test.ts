@@ -50,9 +50,9 @@ describe('parseRecipe', () => {
     expect(r.meta.skills).toEqual(['simmering', 'tempering']);
     expect(r.meta.sacred).toBe(false);
     expect(r.ingredients).toEqual([
-      { name: 'moong dal', quantity: 100, unit: 'g', note: null },
-      { name: 'water', quantity: 500, unit: 'ml', note: null },
-      { name: 'salt', quantity: null, unit: null, note: null },
+      { name: 'moong dal', displayName: null, quantity: 100, unit: 'g', note: null },
+      { name: 'water', displayName: null, quantity: 500, unit: 'ml', note: null },
+      { name: 'salt', displayName: null, quantity: null, unit: null, note: null },
     ]);
     expect(r.timers[0]).toEqual({ name: null, quantity: 20, unit: 'minutes' });
   });
@@ -82,6 +82,14 @@ describe('parseRecipe', () => {
     expect(q).toEqual({ salt: 0.75, onion: 0.5, sugar: 1.5, chilli: 2, stock: 0.75, herbs: null });
     expect(r.ingredients[0]!.unit).toBe('tsp');
     expect(r.timers[0]!.quantity).toBe(0.5);
+  });
+
+  it('names an aliased ingredient by what it is, keeping the alias for display', () => {
+    const r = parseRecipe(withFront(VALID_LINES).replace('Stir @salt{}.', 'Add @peanut|nuts{10%g} and @salt{1%g}.'));
+    expect(r.ingredients).toEqual([
+      { name: 'peanut', displayName: 'nuts', quantity: 10, unit: 'g', note: null },
+      { name: 'salt', displayName: null, quantity: 1, unit: 'g', note: null },
+    ]);
   });
 
   it('keeps the source', () => {

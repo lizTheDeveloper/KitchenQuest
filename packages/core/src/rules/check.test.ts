@@ -331,3 +331,17 @@ describe('check', () => {
     });
   });
 });
+
+describe('check: aliased ingredients', () => {
+  it('checks the ingredient itself, not its display alias', () => {
+    const g = IngredientGraph.fromData({
+      ingredients: [
+        { id: 'nut', name: 'nut' },
+        { id: 'peanut', name: 'peanut', isA: ['nut'] },
+      ],
+    });
+    const result = check(recipe('Add @peanut|nuts{10%g}.'), [avoid('no-peanut', ['peanut'])], g, [], DATE);
+    expect(result.status).toBe('blocked');
+    expect(result.findings[0]).toMatchObject({ ingredient: 'peanut', ingredientId: 'peanut', kind: 'match' });
+  });
+});
