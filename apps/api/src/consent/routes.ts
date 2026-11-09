@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { lockLiveUser } from '../auth/live-user.js';
 import { requireUser } from '../auth/session.js';
 import { CONSENT_PURPOSES } from '../db/schema.js';
 import { ApiError } from '../errors.js';
@@ -63,9 +64,11 @@ export async function consentRoutes(app: FastifyInstance): Promise<void> {
     }
     const at = now();
     // One transaction: consent is never withdrawn with a requested deletion left undone.
+    // The user row first (lock order as account delete): a delete that won leaves a 401 and no audit row.
     await db.transaction(async (tx) => {
-      await withdrawConsentIn(tx, req.user.id, purpose, at, req.id);
-      if (purpose === 'health_data' && healthData === 'delete') await deleteHealthDataIn(tx, req.user.id, at, req.id);
+      await lockLiveUser(tx, req.user.id);
+      const withdrew = await withdrawConsentIn(tx, req.user.id, purpose, at, req.id);
+      if (purpose === 'health_data' && healthData === 'delete') await deleteHealthDataIn(tx, req.user.id, at, withdrew, req.id);
     });
     return reply.status(204).send();
   });

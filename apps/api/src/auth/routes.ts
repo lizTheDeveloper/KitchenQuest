@@ -68,6 +68,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         email,
         tokenHash: hash,
         expiresAt: new Date(t + LOGIN_TOKEN_TTL_MS),
+        createdAt: at,
       });
     });
     const link = `${origin}/auth/verify?token=${token}`;
@@ -87,15 +88,21 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     if (!isTokenShaped(token)) throw unauthorized();
     const at = now();
 
+    const tokenHash = hashToken(token);
     // One transaction: the token is consumed only if the session is created.
-    // The conditional UPDATE row-locks the token, so of two concurrent verifies
-    // the second waits, then sees used_at set and matches nothing.
+    // The email's lock comes first, as in account delete (email lock, then
+    // users, then login_tokens), so a verify racing a delete cannot deadlock
+    // (M-1). The conditional UPDATE then row-locks the token, so of two
+    // concurrent verifies the second waits, then sees used_at set and matches nothing.
     const { user, sessionToken } = await db.transaction(async (tx) => {
+      const [pending] = await tx.select({ email: loginTokens.email }).from(loginTokens).where(eq(loginTokens.tokenHash, tokenHash));
+      if (!pending) throw unauthorized();
+      await lockSignInEmail(tx, pending.email);
       const [consumed] = await tx
         .update(loginTokens)
         .set({ usedAt: at })
         .where(
-          and(eq(loginTokens.tokenHash, hashToken(token)), isNull(loginTokens.usedAt), gt(loginTokens.expiresAt, at)),
+          and(eq(loginTokens.tokenHash, tokenHash), isNull(loginTokens.usedAt), gt(loginTokens.expiresAt, at)),
         )
         .returning({ email: loginTokens.email });
       if (!consumed) throw unauthorized();
@@ -111,7 +118,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         }
         [user] = await tx
           .insert(users)
-          .values({ email: consumed.email, ageConfirmedAt: at })
+          .values({ email: consumed.email, ageConfirmedAt: at, createdAt: at })
           .onConflictDoNothing({ target: users.email })
           .returning(cols);
         // A concurrent verify for another token of the same email created it first.

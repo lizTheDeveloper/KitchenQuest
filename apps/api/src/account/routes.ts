@@ -4,6 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { audit, pseudonymizeAudit } from '../audit/audit.js';
 import { lockSignInEmail } from '../auth/email-lock.js';
+import { lockLiveUser } from '../auth/live-user.js';
 import { SlidingWindowLimiter, sweepPeriodically } from '../auth/rate-limit.js';
 import { requireUser, SESSION_COOKIE, SESSION_COOKIE_OPTIONS } from '../auth/session.js';
 import type { Config } from '../config.js';
@@ -21,8 +22,8 @@ import {
   users,
 } from '../db/schema.js';
 import { ApiError } from '../errors.js';
-import { knownMealWindows } from '../profile/routes.js';
-import { loadRules } from '../rules/routes.js';
+import { knownMealWindows } from '../profile/store.js';
+import { loadRules } from '../rules/store.js';
 
 /** The exact words the player types to delete their account. */
 const DELETE_PHRASE = 'delete my account';
@@ -265,8 +266,7 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
           // delete then waits for this export, so its pseudonymize sees the export
           // event; a delete that got there first makes this fail (no row, or a
           // serialization failure), and the export is refused.
-          const held = await tx.execute(sql`select 1 from ${users} where ${users.id} = ${userId} for key share`);
-          if (held.length === 0) throw signedOut();
+          await lockLiveUser(tx, userId);
           await audit(
             tx,
             { actorKind: 'user', actorId: userId, subjectUserId: userId, action: 'account.export', requestId: req.id },

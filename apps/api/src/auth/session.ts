@@ -31,6 +31,7 @@ export async function createSession(db: Tx, userId: string, now: Date): Promise<
     userId,
     tokenHash: hash,
     expiresAt: new Date(now.getTime() + SESSION_TTL_MS),
+    createdAt: now,
   });
   return token;
 }

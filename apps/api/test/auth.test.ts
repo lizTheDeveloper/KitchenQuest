@@ -248,6 +248,35 @@ describe('magic-link sign-in', () => {
   });
 });
 
+describe('verify lock order (M-1)', () => {
+  it("takes the email's sign-in lock before locking the token, as account delete does", async () => {
+    const { email } = await signIn();
+    const token = await tokenFor(email.toUpperCase());
+    const blocker = await sql.reserve();
+    try {
+      // Stand in for an account delete holding the email lock.
+      await blocker`begin`;
+      await blocker`select pg_advisory_xact_lock(hashtext(lower(${email})))`;
+      const verifying = verify(token);
+      for (let i = 0; ; i++) {
+        const [w] = await sql<{ n: number }[]>`
+          select count(*)::int as n from pg_stat_activity
+          where datname = current_database() and wait_event_type = 'Lock' and wait_event = 'advisory'`;
+        if (w.n >= 1) break;
+        if (i > 300) throw new Error('verify never waited on the email lock');
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      // The token row is not locked yet, so the delete could still remove it without waiting.
+      expect(await blocker`select 1 from login_tokens where lower(email) = lower(${email}) for update nowait`).not.toHaveLength(0);
+      await blocker`commit`;
+      expect((await verifying).statusCode).toBe(200);
+    } finally {
+      await blocker`rollback`.catch(() => {});
+      blocker.release();
+    }
+  });
+});
+
 describe('the magic-link email (N-1)', () => {
   const URL_RE = /\b(?:https?:\/\/|www\.)[^\s<>"]+/gi;
 
