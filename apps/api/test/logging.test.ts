@@ -27,6 +27,17 @@ beforeAll(async () => {
     });
     throw err;
   });
+  // The `req.log.error(err)` form: an Error as the first argument.
+  app.get('/test/log-error', async (req) => {
+    const err = Object.assign(new Error('lookup failed', { cause: Object.assign(new Error('inner'), { detail: 'peanut' }) }), {
+      details: { target: 'peanut' },
+      params: ['peanut'],
+      input: 'peanut',
+    });
+    req.log.error(err);
+    req.log.error(err, 'with a message');
+    return { ok: true };
+  });
 });
 afterAll(async () => {
   await app?.close();
@@ -89,6 +100,19 @@ describe('log redaction (C-9)', () => {
     const added = logs.lines().slice(before).join('\n');
     expect(added).toContain('[redacted]');
     expect(added).not.toMatch(/peanut/);
+  });
+
+  it('req.log.error(err) is scrubbed by the err serializer', async () => {
+    const before = logs.lines().length;
+    expect((await app.inject({ method: 'GET', url: '/test/log-error' })).statusCode).toBe(200);
+    const added = logs.lines().slice(before).map((l) => JSON.parse(l) as Record<string, unknown>);
+    const errorLines = added.filter((l) => l.level === 50);
+    expect(errorLines).toHaveLength(2);
+    for (const l of errorLines) {
+      expect(l.err).toMatchObject({ name: 'Error', message: 'lookup failed', cause: { message: 'inner' } });
+      expect(Object.keys(l.err as object).sort()).toEqual(['cause', 'message', 'name', 'stack']);
+    }
+    expect(JSON.stringify(added)).not.toMatch(/peanut/);
   });
 
   it('loggableError drops zod input values', () => {

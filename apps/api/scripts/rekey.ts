@@ -13,12 +13,23 @@ const batchSize = Number(process.env.REKEY_BATCH_SIZE ?? 500);
 if (!Number.isInteger(batchSize) || batchSize <= 0) throw new Error('REKEY_BATCH_SIZE must be a positive integer');
 
 const { db, sql } = createDb(config.databaseUrl, { max: 1 });
+const started = new Date();
+let result: { rewrapped: number; remaining: number } | undefined;
 try {
-  const started = new Date();
-  const { rewrapped, remaining } = await rewrapUserKeys(db, config.keyring, { batchSize });
-  await audit(db, { actorKind: 'script', actorId: `rekey:${userInfo().username}`, action: 'keys.rekey', target: config.keyring.activeId }, started);
-  console.log(`rekey to ${config.keyring.activeId}: user_keys: ${rewrapped} re-wrapped, ${remaining} remaining`);
-  if (remaining > 0) process.exitCode = 1;
+  result = await rewrapUserKeys(db, config.keyring, { batchSize });
+  console.log(`rekey to ${config.keyring.activeId}: user_keys: ${result.rewrapped} re-wrapped, ${result.remaining} remaining`);
+  if (result.remaining > 0) process.exitCode = 1;
 } finally {
-  await sql.end({ timeout: 5 });
+  // C-5: every run is audited, failed ones included, with its outcome and counts (no key material).
+  const outcome = result === undefined ? 'failed' : result.remaining > 0 ? 'incomplete' : 'ok';
+  const counts = result === undefined ? '' : ` rewrapped=${result.rewrapped} remaining=${result.remaining}`;
+  try {
+    await audit(
+      db,
+      { actorKind: 'script', actorId: `rekey:${userInfo().username}`, action: 'keys.rekey', target: `active=${config.keyring.activeId} outcome=${outcome}${counts}` },
+      started,
+    );
+  } finally {
+    await sql.end({ timeout: 5 });
+  }
 }

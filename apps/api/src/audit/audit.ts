@@ -1,6 +1,6 @@
 import { createHmac } from 'node:crypto';
 import { sql } from 'drizzle-orm';
-import type { Keyring } from '../crypto/keyring.js';
+import type { SecretKey } from '../crypto/keyring.js';
 import { auditEvents } from '../db/schema.js';
 import type { Db } from '../types.js';
 
@@ -37,22 +37,25 @@ export async function audit(db: Writer, e: AuditEvent, now: Date): Promise<void>
 }
 
 /**
- * The stable stand-in for a deleted user's id: `p:` + HMAC-SHA256 under a key
- * derived from the active ring key, so the database alone cannot link it back
- * to the id.
+ * The stable stand-in for a deleted user's id: `p:` + HMAC-SHA256(user id)
+ * under PSEUDONYM_KEY. The key is not in the database, so the database alone
+ * cannot link a pseudonym back to an id, and it does not rotate with the key
+ * ring, so a pseudonym never changes. `audit_pseudonymize()` computes the
+ * same value in SQL; this is for lookups and tests.
  */
-export function pseudonymFor(keyring: Keyring, userId: string): string {
-  return `p:${createHmac('sha256', keyring.derive('audit-pseudonym')).update(userId, 'utf8').digest('hex')}`;
+export function pseudonymFor(pseudonymKey: SecretKey, userId: string): string {
+  return `p:${createHmac('sha256', pseudonymKey.bytes).update(userId.toLowerCase(), 'utf8').digest('hex')}`;
 }
 
 /**
  * Replaces `userId` with its pseudonym wherever it is the subject or actor
- * (account delete, C-5/C-8). Runs through `audit_pseudonymize()`, the only
- * update the append-only trigger lets through. Returns the rows changed.
+ * (account delete, C-5/C-8). The database computes the pseudonym and refuses
+ * while a users row with that id still exists, so call it after deleting the
+ * user, in the same transaction. Returns the rows changed.
  */
-export async function pseudonymizeAudit(db: Executor, keyring: Keyring, userId: string): Promise<number> {
+export async function pseudonymizeAudit(db: Executor, pseudonymKey: SecretKey, userId: string): Promise<number> {
   const rows = await db.execute<{ n: number }>(
-    sql`select audit_pseudonymize(${userId}::uuid, ${pseudonymFor(keyring, userId)}) as n`,
+    sql`select audit_pseudonymize(${userId}::uuid, ${pseudonymKey.bytes}::bytea) as n`,
   );
   return Number(rows[0]!.n);
 }

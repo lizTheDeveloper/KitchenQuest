@@ -1,7 +1,7 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { audit } from '../src/audit/audit.js';
 import { loginTokens, sessions, usageEvents, users } from '../src/db/schema.js';
-import { registerRetention, retentionPolicies, runRetention } from '../src/jobs/retention.js';
+import { registerRetention, retentionPolicies, runRetention, scheduleRetention } from '../src/jobs/retention.js';
 import type { Db } from '../src/types.js';
 import { testDb, type Sql } from './helpers/db.js';
 
@@ -76,5 +76,25 @@ describe('retention (C-6)', () => {
 
     // Running again deletes nothing.
     expect(await runRetention(db, now)).toMatchObject({ login_tokens: 0, sessions: 0, usage_events: 0, audit_events: 0 });
+  });
+
+  it('logs each failed table with a scrubbed error when a run fails', async () => {
+    const error = vi.fn();
+    const info = vi.fn();
+    // A database whose every call fails, with an email in the message that must be scrubbed.
+    const broken = new Proxy({}, { get: () => () => { throw new Error('boom for cook@example.com'); } }) as unknown as Db;
+    const stop = scheduleRetention(broken, () => new Date(), { info, error }, 60_000);
+    try {
+      await vi.waitFor(() => expect(error).toHaveBeenCalled());
+    } finally {
+      stop();
+    }
+    expect(info).not.toHaveBeenCalled();
+    const [payload, msg] = error.mock.calls[0]!;
+    expect(msg).toBe('retention run failed');
+    const failures = (payload as { failures: { table: string; error: { message: string } }[] }).failures;
+    expect(failures.map((f) => f.table).sort()).toEqual(['audit_events', 'login_tokens', 'sessions', 'usage_events']);
+    for (const f of failures) expect(f.error.message).toBe('boom for [email]');
+    expect(JSON.stringify(payload)).not.toContain('cook@example.com');
   });
 });

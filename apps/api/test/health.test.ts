@@ -50,9 +50,34 @@ describe('loadConfig', () => {
     expect(() => loadConfig({ ...goodEnv, DATA_KEY: KEY })).toThrow(/DATA_KEY: .*DATA_KEYS/);
   });
 
+  it('names PSEUDONYM_KEY when missing or not 32 bytes, without echoing it', () => {
+    const { PSEUDONYM_KEY: _, ...noP } = goodEnv;
+    expect(() => loadConfig(noP)).toThrow(/PSEUDONYM_KEY/);
+    const short = Buffer.alloc(16, 4).toString('base64');
+    expect(() => loadConfig({ ...goodEnv, PSEUDONYM_KEY: short })).toThrow(
+      expect.objectContaining({ message: expect.stringMatching(/PSEUDONYM_KEY/) }),
+    );
+    expect(() => loadConfig({ ...goodEnv, PSEUDONYM_KEY: short })).toThrow(
+      expect.objectContaining({ message: expect.not.stringContaining(short) }),
+    );
+  });
+
+  it('never echoes a bare key put in DATA_KEYS (the old DATA_KEY format)', () => {
+    expect(() => loadConfig({ ...goodEnv, DATA_KEYS: KEY })).toThrow(
+      expect.objectContaining({ message: expect.stringMatching(/DATA_KEYS entry 1/) }),
+    );
+    expect(() => loadConfig({ ...goodEnv, DATA_KEYS: KEY })).toThrow(
+      expect.objectContaining({ message: expect.not.stringContaining(KEY) }),
+    );
+  });
+
   it('does not reveal keys when the config is logged', () => {
     const c = loadConfig(goodEnv);
-    expect(JSON.stringify(c)).not.toContain(KEY);
+    const json = JSON.stringify(c);
+    expect(json).not.toContain(KEY);
+    expect(json).not.toContain(goodEnv.PSEUDONYM_KEY);
+    expect(json).not.toContain('"type":"Buffer"');
+    expect(c.pseudonymKey.bytes.length).toBe(32);
     expect(JSON.stringify(c.keyring)).toBe('{"activeId":"k1","ids":["k1"]}');
   });
 

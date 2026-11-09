@@ -1,6 +1,6 @@
 import { isIP } from 'node:net';
 import { z } from 'zod';
-import { Keyring, parseDataKeys } from './crypto/keyring.js';
+import { Keyring, parseDataKeys, parseKey, type SecretKey } from './crypto/keyring.js';
 
 /** Fastify `trustProxy`: off, all proxies, a hop count, or the proxies' addresses/CIDRs. */
 export type TrustProxy = boolean | number | string[];
@@ -9,6 +9,11 @@ export interface Config {
   databaseUrl: string;
   /** DATA_KEYS with DATA_KEY_ID active (C-2). Wraps per-user data keys; see docs/compliance/key-management.md. */
   keyring: Keyring;
+  /**
+   * PSEUDONYM_KEY: HMAC key for audit-log pseudonyms of deleted users (C-5).
+   * Separate from the ring and never rotated with it, so pseudonyms stay stable.
+   */
+  pseudonymKey: SecretKey;
   appOrigin: string;
   mailer: 'log' | 'smtp';
   smtpUrl?: string;
@@ -54,6 +59,17 @@ const trustProxy = z
     return z.NEVER;
   });
 
+const pseudonymKey = z
+  .string({ error: 'PSEUDONYM_KEY is required (32 bytes, base64: openssl rand -base64 32)' })
+  .transform((v, ctx) => {
+    try {
+      return parseKey(v);
+    } catch (e) {
+      ctx.addIssue({ code: 'custom', message: `PSEUDONYM_KEY ${(e as Error).message}` });
+      return z.NEVER;
+    }
+  });
+
 const Env = z
   .object({
     DATABASE_URL: z.string({ error: 'DATABASE_URL is required' }).min(1, 'DATABASE_URL is required'),
@@ -61,6 +77,7 @@ const Env = z
       .undefined({ error: 'DATA_KEY is no longer read; put the key in DATA_KEYS (id:base64) and name it in DATA_KEY_ID' })
       .optional(),
     DATA_KEYS: dataKeys,
+    PSEUDONYM_KEY: pseudonymKey,
     DATA_KEY_ID: z
       .string({ error: 'DATA_KEY_ID is required: the id in DATA_KEYS that seals new data' })
       .min(1, 'DATA_KEY_ID is required: the id in DATA_KEYS that seals new data'),
@@ -100,6 +117,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
   return {
     databaseUrl: e.DATABASE_URL,
     keyring: new Keyring(e.DATA_KEYS, e.DATA_KEY_ID),
+    pseudonymKey: e.PSEUDONYM_KEY,
     appOrigin: e.APP_ORIGIN,
     mailer: e.MAILER,
     smtpUrl: e.SMTP_URL,

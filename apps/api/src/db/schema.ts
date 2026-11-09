@@ -166,12 +166,14 @@ export const userKeys = pgTable("user_keys", {
 
 export const CONSENT_PURPOSES = ["health_data", "ai_health", "voice", "pantry_location", "research"] as const;
 export const CONSENT_METHODS = ["tap", "api"] as const;
+export const CONSENT_ENDED_REASONS = ["withdrawn", "superseded"] as const;
 const inList = (list: readonly string[]) => sql.raw(list.map((v) => `'${v}'`).join(", "));
 
 /**
- * C-1: the consent ledger. One row per grant; `withdrawn_at` ends it (by
- * withdrawal, or when a grant under a newer notice supersedes it). Rows are
- * never deleted while the account exists, so the history is complete.
+ * C-1: the consent ledger. One row per grant; `withdrawn_at` ends it and
+ * `ended_reason` says why: `withdrawn` by the player, or `superseded` by a
+ * grant under a newer notice. Rows are never deleted while the account
+ * exists, so the history is complete.
  */
 export const consents = pgTable(
   "consents",
@@ -185,6 +187,7 @@ export const consents = pgTable(
     noticeSha256: bytea("notice_sha256").notNull(),
     grantedAt: ts("granted_at").notNull(),
     withdrawnAt: ts("withdrawn_at"),
+    endedReason: text("ended_reason"),
     method: text("method").notNull(),
   },
   (t) => [
@@ -195,6 +198,8 @@ export const consents = pgTable(
     check("consents_purpose_check", sql`${t.purpose} in (${inList(CONSENT_PURPOSES)})`),
     check("consents_method_check", sql`${t.method} in (${inList(CONSENT_METHODS)})`),
     check("consents_sha256_check", sql`octet_length(${t.noticeSha256}) = 32`),
+    check("consents_ended_reason_check", sql`${t.endedReason} in (${inList(CONSENT_ENDED_REASONS)})`),
+    check("consents_ended_check", sql`(${t.withdrawnAt} is null) = (${t.endedReason} is null)`),
   ],
 );
 

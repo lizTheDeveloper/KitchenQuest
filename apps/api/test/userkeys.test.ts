@@ -51,7 +51,7 @@ describe('per-user sealing (C-3, C-4)', () => {
     const rows = await db.select().from(userKeys).where(eq(userKeys.userId, userId));
     expect(rows).toHaveLength(1);
     expect(rows[0]!.keyId).toBe('k1');
-    // The wrapped key is not the raw ring key, and different users get different data keys.
+    // The stored wrapped key does not contain the ring key's bytes.
     expect(rows[0]!.wrapped.includes(k1)).toBe(false);
   });
 

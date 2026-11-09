@@ -9,4 +9,4 @@
 - [ ] **7.2 Run** → FAIL. **7.3 Implement.** **7.4 Run** → PASS.
 - [ ] **7.5 Commit** `feat(api): data export and account deletion`
 
-**Compliance amendments (C-7, C-8):** export adds `consents` (full history), `processors` (from `docs/compliance/processors.json`) and the user's `audit_events`; delete also removes `login_tokens` by email, revokes sessions, deletes `user_keys`, pseudonymizes `audit_events`, and writes audit events for export/delete. The 'no table contains the id or email' test includes `login_tokens`.
+**Compliance amendments (C-7, C-8):** export adds `consents` (full history), `processors` (from `docs/compliance/processors.json`) and the user's `audit_events`; delete also removes `login_tokens` by email, revokes sessions, deletes `user_keys`, pseudonymizes `audit_events` (delete the user first, then `pseudonymizeAudit(tx, config.pseudonymKey, userId)` in the same transaction; the database refuses while the user row exists), and writes audit events for export/delete. The 'no table contains the id or email' test includes `login_tokens`.

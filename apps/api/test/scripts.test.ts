@@ -20,10 +20,10 @@ afterAll(async () => {
 });
 
 function script(name: string, args: string[], env: Record<string, string>) {
-  const { DATA_KEY: _, DATA_KEYS: __, DATA_KEY_ID: ___, ...base } = process.env;
+  const { DATA_KEY: _, DATA_KEYS: __, DATA_KEY_ID: ___, PSEUDONYM_KEY: ____, ...base } = process.env;
   return run(process.execPath, ['--import', 'tsx', `scripts/${name}.ts`, ...args], {
     cwd: API,
-    env: { ...base, NODE_OPTIONS: '--no-warnings', DATABASE_URL: t.url, ...env },
+    env: { ...base, NODE_OPTIONS: '--no-warnings', DATABASE_URL: t.url, PSEUDONYM_KEY: randomBytes(32).toString('base64'), ...env },
   });
 }
 
@@ -52,6 +52,17 @@ describe('admin scripts write audit events (C-5)', () => {
     expect(stdout).toMatch(/user_keys: 1 re-wrapped, 0 remaining/);
     expect(await openFor(t.db, new Keyring(new Map([['k2', k2]]), 'k2'), ctx, sealed)).toEqual({ a: 1 });
     const [ev] = await t.sql`select actor_kind, action, target from audit_events where action = 'keys.rekey'`;
-    expect(ev).toEqual({ actor_kind: 'script', action: 'keys.rekey', target: 'k2' });
+    expect(ev).toEqual({ actor_kind: 'script', action: 'keys.rekey', target: 'active=k2 outcome=ok rewrapped=1 remaining=0' });
+  }, 30_000);
+
+  it('rekey.ts audits a failed run too', async () => {
+    const lost = randomBytes(32);
+    const k3 = randomBytes(32);
+    const [u] = await t.db.insert(users).values({ email: 'rekey-fail@example.com', ageConfirmedAt: new Date() }).returning();
+    await sealFor(t.db, new Keyring(new Map([['lost', lost]]), 'lost'), { table: 'rules', userId: u!.id, rowId: 'r1' }, { a: 1 });
+    // The ring no longer has the key that wrapped this user's data key.
+    await expect(script('rekey', [], { DATA_KEYS: `k3:${k3.toString('base64')}`, DATA_KEY_ID: 'k3' })).rejects.toThrow();
+    const rows = await t.sql`select target from audit_events where action = 'keys.rekey' and target like 'active=k3%'`;
+    expect(rows).toEqual([{ target: 'active=k3 outcome=failed' }]);
   }, 30_000);
 });

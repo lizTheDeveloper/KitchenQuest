@@ -1,5 +1,6 @@
 import { and, isNotNull, lt, lte, or } from 'drizzle-orm';
 import { purgeAuditBefore } from '../audit/audit.js';
+import { loggableError } from '../errors.js';
 import { loginTokens, sessions, usageEvents } from '../db/schema.js';
 import type { Db } from '../types.js';
 
@@ -10,6 +11,17 @@ export interface RetentionPolicy {
 }
 
 const policies = new Map<string, RetentionPolicy>();
+
+/** One policy's failure; `runRetention` throws an AggregateError of these. */
+export class RetentionError extends Error {
+  constructor(
+    readonly table: string,
+    cause: unknown,
+  ) {
+    super(`retention failed for ${table}`, { cause });
+    this.name = 'RetentionError';
+  }
+}
 
 /** Each table declares its policy once; later milestones register theirs (transcripts, Pantry posts, photos). */
 export function registerRetention(policy: RetentionPolicy): void {
@@ -33,7 +45,7 @@ export async function runRetention(db: Db, now: Date): Promise<Record<string, nu
     try {
       counts[p.table] = await p.run(db, now);
     } catch (err) {
-      errors.push(err);
+      errors.push(new RetentionError(p.table, err));
     }
   }
   if (errors.length > 0) throw new AggregateError(errors, `retention failed for ${errors.length} table(s)`);
@@ -41,6 +53,16 @@ export async function runRetention(db: Db, now: Date): Promise<Record<string, nu
 }
 
 const HOUR = 60 * 60 * 1000;
+
+/** Loggable form of a retention failure: each failed table with its scrubbed error. */
+export function retentionFailures(err: unknown): { table: string; error: ReturnType<typeof loggableError> }[] {
+  const list = err instanceof AggregateError ? err.errors : [err];
+  return list.map((e) =>
+    e instanceof RetentionError
+      ? { table: e.table, error: loggableError(e.cause) }
+      : { table: '(unknown)', error: loggableError(e) },
+  );
+}
 
 function monthsBefore(now: Date, months: number): Date {
   const d = new Date(now);
@@ -100,7 +122,7 @@ export function scheduleRetention(
     try {
       log.info({ deleted: await runRetention(db, now()) }, 'retention run');
     } catch (err) {
-      log.error({ err }, 'retention run failed');
+      log.error({ failures: retentionFailures(err) }, 'retention run failed');
     } finally {
       running = false;
     }
