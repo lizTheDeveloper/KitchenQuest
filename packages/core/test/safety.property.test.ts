@@ -94,6 +94,24 @@ ${body}
 
 const servingsArb = fc.integer({ min: 1, max: 8 });
 
+/** Ways people write a name: as is, shouted, title case, or with a doubled space. */
+const SPELLINGS: ((name: string) => string)[] = [
+  (n) => n,
+  (n) => n.toUpperCase(),
+  (n) => n.replace(/(^|\s)(\S)/g, (_, gap: string, c: string) => gap + c.toUpperCase()),
+  (n) => n.replace(' ', '  '),
+];
+/** `name` as written, usually unchanged, sometimes respelled. */
+const spellingArb = (name: string): fc.Arbitrary<string> =>
+  fc.oneof({ weight: 3, arbitrary: fc.constant(name) }, { weight: 1, arbitrary: fc.constantFrom(...SPELLINGS).map((f) => f(name)) });
+/** A name for ingredient `id`: its name or one of its aliases, sometimes respelled. */
+const nameForArb = (id: string): fc.Arbitrary<string> => {
+  const node = graph.get(id);
+  return fc.constantFrom(node.name, ...(node.aliases ?? [])).chain(spellingArb);
+};
+/** Names for each of `ids`, in order. */
+const namesForArb = (ids: string[]): fc.Arbitrary<string[]> => fc.tuple(...ids.map(nameForArb));
+
 /** Names people might write: canonical names, aliases, and names the graph doesn't know. */
 const KNOWN_NAMES = data.ingredients.flatMap((n) => [n.name, ...(n.aliases ?? [])]);
 const UNKNOWN_NAMES = ['dragon fruit', 'mystery spice', 'unicorn tears'];
@@ -116,8 +134,10 @@ const anyRecipeArb = fc
     amounts: fc.array(amountArb, { minLength: 8, maxLength: 8 }),
     servings: servingsArb,
   })
-  .map(({ names, amounts, servings }) =>
-    parseRecipe(cook(names.map((name, i) => ({ name, amount: amounts[i]! })), servings)),
+  .chain(({ names, amounts, servings }) =>
+    fc.tuple(...names.map(spellingArb)).map((written) =>
+      parseRecipe(cook(written.map((name, i) => ({ name, amount: amounts[i]! })), servings)),
+    ),
   );
 
 // --- rules -----------------------------------------------------------------------------------
@@ -180,6 +200,7 @@ describe('safety properties (seed graph)', () => {
       .chain(({ ids, servings, day, severity, kind }) =>
         fc.record({
           ids: fc.constant(ids),
+          names: namesForArb(ids),
           servings: fc.constant(servings),
           day: fc.constant(day),
           // The avoid target: an ancestor (or the ingredient itself) of one included ingredient.
@@ -192,8 +213,8 @@ describe('safety properties (seed graph)', () => {
       );
 
     fc.assert(
-      fc.property(arb, ({ ids, servings, day, target, avoid, others }) => {
-        const recipe = parseRecipe(cook(ids.map((id) => ({ name: graph.get(id).name, amount: '1%g' })), servings));
+      fc.property(arb, ({ ids, names, servings, day, target, avoid, others }) => {
+        const recipe = parseRecipe(cook(names.map((name) => ({ name, amount: '1%g' })), servings));
         // Precondition: the recipe really contains the ingredients we generated.
         expect(recipe.ingredients.map((i) => graph.resolve(i.name))).toEqual(ids);
 
@@ -238,6 +259,66 @@ describe('safety properties (seed graph)', () => {
             .flatMap((g) => byId.get(g.ruleId!)!.target.ids);
           for (const unsafe of sub!.unsafeFor ?? []) expect(hitTargets).not.toContain(unsafe);
         }
+      }),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('a rule on a kind of an included ingredient is never ok', () => {
+    // A category line ("nuts") could be any of its isA descendants (peanuts), so a rule on one of
+    // them can't be verified safe. Recipes always include at least one ingredient that has kinds.
+    const withKinds = ALL_IDS.filter((id) => graph.descendants(id).length > 0);
+    const arb = fc
+      .record({
+        category: fc.constantFrom(...withKinds),
+        rest: fc.uniqueArray(recipeIdArb, { maxLength: 6 }),
+        servings: servingsArb,
+        day: dayArb,
+        severity: fc.constantFrom(...SEVERITIES),
+        kind: kindArb,
+      })
+      .chain(({ category, rest, servings, day, severity, kind }) => {
+        const ids = [category, ...rest.filter((id) => id !== category)];
+        return fc.record({
+          ids: fc.constant(ids),
+          names: namesForArb(ids),
+          amounts: fc.array(amountArb, { minLength: ids.length, maxLength: ids.length }),
+          servings: fc.constant(servings),
+          day: fc.constant(day),
+          // The target: an isA descendant (a kind) of the category ingredient.
+          target: fc.constantFrom(...graph.descendants(category)),
+          rule: fc.record({
+            phase: activePhaseArb(day),
+            limit: fc.option(
+              fc.record({
+                amount: fc.integer({ min: 0, max: 1000 }),
+                unit: fc.constantFrom('g', 'tsp'),
+                per: fc.constant<'serving'>('serving'),
+              }),
+              { nil: undefined },
+            ),
+          }),
+          others: activeRulesArb(day, 3),
+          kind: fc.constant(kind),
+          severity: fc.constant(severity),
+        });
+      });
+
+    fc.assert(
+      fc.property(arb, ({ ids, names, amounts, servings, day, target, rule: shape, others, kind, severity }) => {
+        const recipe = parseRecipe(cook(names.map((name, i) => ({ name, amount: amounts[i]! })), servings));
+        expect(recipe.ingredients.map((i) => graph.resolve(i.name))).toEqual(ids);
+
+        const base = { id: 'kind-under-test', target: { kind, ids: [target] }, severity };
+        const body: Rule =
+          shape.limit === undefined ? { ...base, type: 'avoid' } : { ...base, type: 'limit', limit: shape.limit };
+        const rule = withPhase(body, shape.phase);
+        const result = check(recipe, [rule, ...others], graph, subs, iso(day));
+
+        expect(result.status).not.toBe('ok');
+        expect(
+          result.findings.some((f) => f.ruleId === rule.id && f.ingredientId !== null && ids.includes(f.ingredientId)),
+        ).toBe(true);
       }),
       { numRuns: NUM_RUNS },
     );
