@@ -249,6 +249,12 @@ describe('check', () => {
     expect(() => check(r, [], graph, [{ from: 'ghost_sauce', to: 'tamari' }], DATE)).toThrow(/ghost_sauce/);
   });
 
+  it('throws on an invalid date', () => {
+    const r = recipe('Chop @tomato{1}.');
+    expect(() => check(r, [], graph, SUBS, '2026-11-09T12:00:00Z')).toThrow(/2026-11-09T12:00:00Z/);
+    expect(() => check(r, [], graph, SUBS, '6/1/2026')).toThrow(/6\/1\/2026/);
+  });
+
   it('ignores per-day limits in M1', () => {
     const rule: Rule = {
       id: 'daily-salt',

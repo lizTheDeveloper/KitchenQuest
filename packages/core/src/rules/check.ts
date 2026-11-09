@@ -1,6 +1,6 @@
 import type { IngredientGraph } from '../ingredients/graph';
 import type { ParsedRecipe, RecipeIngredient } from '../recipe/types';
-import { isActive, validateRules } from './active';
+import { assertValidDate, isActive, validateRules } from './active';
 import { SEVERE } from './types';
 import type { Rule, Severity } from './types';
 
@@ -104,6 +104,7 @@ export function check(
   subs: Substitution[],
   date: string,
 ): CheckResult {
+  assertValidDate(date);
   const problems = validateRules(rules, graph);
   if (problems.length > 0) throw new Error(`Invalid rules: ${problems.join('; ')}`);
 
