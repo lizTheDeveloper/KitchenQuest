@@ -1,0 +1,13 @@
+[
+  {
+    "from": "garlic",
+    "to": "garlic_infused_oil",
+    "note": "About 1 tsp of garlic-infused oil per clove: the flavour without the fructans, which don't dissolve into oil. Not for a garlic allergy."
+  },
+  { "from": "ghee", "to": "neutral_oil", "note": "Same amount." },
+  { "from": "lard", "to": "neutral_oil", "note": "Same amount, e.g. sunflower oil." },
+  { "from": "coconut_oil", "to": "neutral_oil", "note": "Same amount." },
+  { "from": "bonito_flakes", "to": "shio_kombu", "note": "A little shio kombu (salted kelp), or more umeboshi." },
+  { "from": "soy_sauce", "to": "tamari", "note": "Same amount. Check the label: some tamari contains wheat." },
+  { "from": "soy_sauce", "to": "coconut_aminos", "note": "Same amount; sweeter and less salty." }
+]
