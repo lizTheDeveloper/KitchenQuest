@@ -108,4 +108,47 @@ describe('canon', () => {
     expect(blocked?.swap).toBeUndefined();
     expect(run(onigiri, sesame).status).toBe('blocked');
   });
+
+  // The real seed graph, not a fixture: these depend on how data/ingredients.json models things.
+  const dish = (body: string) =>
+    parseRecipe(`---
+title: Seed Check
+country: Testland
+region: Test Region
+credit: Tester
+cook: Tester
+difficulty: 1
+skills: [stirring]
+servings: 1
+license: CC-BY-SA-4.0
+status: draft
+---
+
+${body}
+`);
+  const runOn = (body: string, rules: Rule[]) => check(dish(body), rules, graph, subs, '2026-11-09');
+
+  it('garlic-infused oil is unsafe for a garlic or allium allergy, fine for low-FODMAP', () => {
+    const oil = 'Fry in @garlic-infused oil{1%tbsp}.';
+    for (const target of ['garlic', 'allium']) {
+      expect(runOn(oil, [avoid('garlic-allergy', [target], 'anaphylactic')]).status).toBe('blocked');
+    }
+    expect(runOn(oil, [avoid('low-fodmap', ['fodmap_fructan'], 'intolerance')]).status).toBe('ok');
+  });
+
+  it('a category line is unverified for a rule on one of its kinds', () => {
+    expect(runOn('Add @nuts{50%g}.', [avoid('peanut', ['peanut'], 'anaphylactic')]).status).toBe('unverified');
+    expect(runOn('Add @meat{200%g}.', [avoid('no-pork', ['pork'], 'preference')]).status).toBe('unverified');
+    expect(runOn('Add @mustard{1%tsp}.', [avoid('seeds', ['mustard_seed'], 'allergy')]).status).toBe('unverified');
+  });
+
+  it('lard contains pork rather than being a kind of pork, so a pork line is fine for a lard rule', () => {
+    expect(runOn('Add @pork{200%g}.', [avoid('no-lard', ['lard'], 'preference')]).status).toBe('ok');
+    // ...while lard still reaches pork and meat.
+    for (const target of ['pork', 'meat']) {
+      const result = runOn('Fry in @lard{1%tbsp}.', [avoid('no-pork', [target], 'preference')]);
+      expect(result.findings[0]).toMatchObject({ ingredientId: 'lard', kind: 'match', status: 'swap' });
+      expect(result.findings[0]!.path!.at(-1)).toBe(target);
+    }
+  });
 });

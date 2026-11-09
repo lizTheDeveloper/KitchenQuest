@@ -465,7 +465,7 @@
       "aliases": [
         "manteca"
       ],
-      "isA": [
+      "contains": [
         "pork"
       ],
       "per100g": {
@@ -627,6 +627,10 @@
     {
       "id": "garlic_infused_oil",
       "name": "garlic-infused oil",
+      "unsafeFor": [
+        "garlic",
+        "allium"
+      ],
       "per100g": {
         "energy_kcal": 884,
         "protein_g": 0,
