@@ -81,4 +81,46 @@ describe('IngredientGraph', () => {
       ]),
     ).toThrow(/duplicate.*\ba\b/);
   });
+
+  it('lists isA descendants only, not things that contain an ingredient', () => {
+    expect(graph.descendants('nut').sort()).toEqual(['cashew', 'tree_nut']);
+    expect(graph.descendants('tree_nut')).toEqual(['cashew']);
+    expect(graph.descendants('cashew')).toEqual([]);
+    // worcestershire contains anchovy, which is a fish: contains edges are not followed backwards.
+    expect(graph.descendants('fish')).toEqual(['anchovy']);
+    expect(graph.descendants('soy')).toEqual([]);
+    expect(() => graph.descendants('nope')).toThrow(/nope/);
+  });
+
+  it('validates unsafeFor ids', () => {
+    expect(() =>
+      IngredientGraph.fromData({ ingredients: [{ id: 'oil', name: 'oil', unsafeFor: ['ghost'] }] }),
+    ).toThrow(/oil.*ghost/);
+    const g = IngredientGraph.fromData({
+      ingredients: [
+        { id: 'garlic', name: 'garlic' },
+        { id: 'oil', name: 'oil', unsafeFor: ['garlic'] },
+      ],
+    });
+    expect(g.get('oil').unsafeFor).toEqual(['garlic']);
+  });
+
+  it('cannot be changed after loading', () => {
+    const cashew = { id: 'cashew', name: 'cashew', isA: ['nut'] };
+    const data = { ingredients: [cashew, { id: 'nut', name: 'nut' }] };
+    const g = IngredientGraph.fromData(data);
+    // Changing the source data afterwards has no effect...
+    cashew.isA.push('nut');
+    cashew.name = 'changed';
+    expect(g.get('cashew').isA).toEqual(['nut']);
+    expect(g.get('cashew').name).toBe('cashew');
+    // ...and the nodes it hands out are frozen (test modules run in strict mode, so writes throw).
+    expect(() => {
+      (g.get('cashew').isA as string[]).push('x');
+    }).toThrow(TypeError);
+    expect(() => {
+      (g.get('cashew') as { labelDependent?: boolean }).labelDependent = true;
+    }).toThrow(TypeError);
+    expect(g.pathTo('cashew', 'nut')).toEqual(['cashew', 'nut']);
+  });
 });

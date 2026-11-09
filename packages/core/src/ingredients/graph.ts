@@ -8,21 +8,38 @@ function edgesOf(node: IngredientNode): string[] {
   return [...(node.isA ?? []), ...(node.contains ?? [])];
 }
 
+/**
+ * A frozen deep copy, so callers can't change safety data after it has been validated. Node
+ * fields are primitives, string arrays, or a flat record (per100g), so one level down is deep.
+ */
+function frozenCopy(node: IngredientNode): IngredientNode {
+  const copy: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(node)) {
+    copy[key] = Array.isArray(value)
+      ? Object.freeze([...value])
+      : typeof value === 'object' && value !== null
+        ? Object.freeze({ ...value })
+        : value;
+  }
+  return Object.freeze(copy) as unknown as IngredientNode;
+}
+
 export class IngredientGraph {
   private constructor(
     private readonly nodes: Map<string, IngredientNode>,
     private readonly names: Map<string, string>,
+    private readonly subkinds: Map<string, readonly string[]>,
   ) {}
 
   static fromData(data: IngredientData): IngredientGraph {
     const nodes = new Map<string, IngredientNode>();
     for (const node of data.ingredients) {
       if (nodes.has(node.id)) throw new Error(`Ingredient graph: duplicate id "${node.id}"`);
-      nodes.set(node.id, node);
+      nodes.set(node.id, frozenCopy(node));
     }
 
     for (const node of nodes.values()) {
-      for (const ref of edgesOf(node)) {
+      for (const ref of [...edgesOf(node), ...(node.unsafeFor ?? [])]) {
         if (!nodes.has(ref)) {
           throw new Error(`Ingredient graph: "${node.id}" references unknown ingredient "${ref}"`);
         }
@@ -55,7 +72,26 @@ export class IngredientGraph {
     }
 
     IngredientGraph.assertAcyclic(nodes);
-    return new IngredientGraph(nodes, names);
+    return new IngredientGraph(nodes, names, IngredientGraph.allDescendants(nodes));
+  }
+
+  /** For each id, every id that reaches it over isA edges alone (its kinds, transitively). */
+  private static allDescendants(nodes: Map<string, IngredientNode>): Map<string, readonly string[]> {
+    const children = new Map<string, string[]>([...nodes.keys()].map((id) => [id, []]));
+    for (const node of nodes.values()) for (const parent of node.isA ?? []) children.get(parent)!.push(node.id);
+    const out = new Map<string, readonly string[]>();
+    for (const id of nodes.keys()) {
+      const seen = new Set<string>();
+      const queue = [...children.get(id)!];
+      for (let i = 0; i < queue.length; i++) {
+        const cur = queue[i]!;
+        if (seen.has(cur)) continue;
+        seen.add(cur);
+        queue.push(...children.get(cur)!);
+      }
+      out.set(id, Object.freeze([...seen]));
+    }
+    return out;
   }
 
   private static pluralStrips(key: string): string[] {
@@ -99,6 +135,16 @@ export class IngredientGraph {
     const node = this.nodes.get(id);
     if (!node) throw new Error(`Ingredient graph: unknown ingredient id "${id}"`);
     return node;
+  }
+
+  /**
+   * Every ingredient that is a kind of `id`, through isA edges only (reverse contains is not
+   * followed: worcestershire contains anchovy, but "anchovy" on a recipe can't be worcestershire).
+   * A recipe line naming a category ("nuts") could be any of these.
+   */
+  descendants(id: string): string[] {
+    this.get(id);
+    return [...this.subkinds.get(id)!];
   }
 
   has(id: string): boolean {

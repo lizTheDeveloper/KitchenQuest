@@ -14,6 +14,12 @@ export interface IngredientNode {
   isA?: string[]; // e.g. cashew -> ['tree_nut']
   contains?: string[]; // e.g. soy_sauce -> ['wheat', 'soy']
   labelDependent?: boolean; // store-bought compound; contents vary by brand
+  /**
+   * Rule target ids this ingredient counts as for checking, though no isA/contains edge reaches
+   * them: e.g. garlic-infused oil carries garlic flavour (unsafe for a garlic or allium allergy)
+   * but no fructans (fine for low-FODMAP). Matched against exact rule target ids, not ancestors.
+   */
+  unsafeFor?: string[];
   per100g?: Partial<Record<Nutrient, number>>;
   densityGPerMl?: number; // for volume units
   gramsPerUnit?: number; // for unitless counts ("2 eggs")
