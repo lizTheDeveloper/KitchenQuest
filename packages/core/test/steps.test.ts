@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
-import { parseRecipe, stepPlainText } from '../src/index';
+import { parseRecipe, RecipeError, stepPlainText } from '../src/index';
 
 const RECIPES = join(fileURLToPath(new URL('../../../', import.meta.url)), 'recipes');
 const CANON = ['india/kerala/parippu', 'japan/osaka/onigiri', 'mexico/oaxaca/frijoles-de-olla'];
@@ -63,5 +63,13 @@ Add $2%tsp of salt.
     expect(r.steps[0].items.some((i) => i.type === 'cookware' && i.name === 'big pot')).toBe(true);
     expect(stepPlainText(r, r.steps[0])).toBe('Heat a big pot with water for (boil: 10 minutes).');
     expect(r.steps[1].items.some((i) => i.type === 'text' && i.value.includes('tsp'))).toBe(true);
+  });
+
+  test('stepPlainText throws RecipeError for an out-of-range ingredient or timer index', () => {
+    const r = parse('india/kerala/parippu');
+    for (const type of ['ingredient', 'timer'] as const) {
+      const step = { section: null, items: [{ type, index: 99 }] };
+      expect(() => stepPlainText(r, step)).toThrow(RecipeError);
+    }
   });
 });

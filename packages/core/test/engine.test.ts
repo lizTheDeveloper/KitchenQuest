@@ -3,6 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
 import * as engine from '../src/engine';
+import * as index from '../src/index';
 
 const ENTRY = fileURLToPath(new URL('../src/engine.ts', import.meta.url));
 
@@ -24,6 +25,11 @@ describe('engine entry', () => {
     expect('parseRecipe' in engine).toBe(false);
     for (const name of ['check', 'nutritionPerServing', 'IngredientGraph', 'DISCLAIMER', 'validateRules', 'timerSeconds', 'stepPlainText'])
       expect(name in engine, name).toBe(true);
+  });
+
+  test('exports equal index.ts exports minus parseRecipe', () => {
+    const expected = Object.keys(index).filter((k) => k !== 'parseRecipe').sort();
+    expect(Object.keys(engine).sort()).toEqual(expected);
   });
 
   test('engine.ts and everything it imports never mention the Cooklang package', () => {
