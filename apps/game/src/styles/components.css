@@ -266,3 +266,5 @@ select {
 }
 .knife-roll-buttons { display: flex; justify-content: flex-end; margin-top: 1rem; }
 .toolkit-empty { font-style: italic; }
+/* Phaser sets the canvas size inline; let it shrink with the page (it keeps its aspect ratio). */
+#stage canvas { max-width: 100% !important; height: auto !important; }

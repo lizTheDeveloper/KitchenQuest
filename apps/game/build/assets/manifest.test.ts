@@ -1,6 +1,7 @@
 import { readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
+import { kitchenBackdropKey } from '../../src/scenes/phaser-host';
 import { AssetError, buildAssetManifest, REQUIRED_ASSETS } from './manifest';
 
 const repoRoot = fileURLToPath(new URL('../../../..', import.meta.url));
@@ -67,5 +68,34 @@ describe('buildAssetManifest', () => {
     const { entries } = buildAssetManifest([...artFiles, ...prototypeFiles]);
     for (const key of REQUIRED_ASSETS) expect(entries[key], key).toBeDefined();
     expect(entries['scene.kitchen']!.source).toBe('art');
+  });
+
+  test('art aliases: the art agent\'s names resolve to the keys the game uses', () => {
+    const { entries } = buildAssetManifest([...artFiles, ...prototypeFiles]);
+    expect(entries['char.pan']).toEqual({ key: 'char.pan', file: 'art/characters/pan_neutral.png', source: 'art' });
+    expect(entries['scene.map']).toEqual({ key: 'scene.map', file: 'art/scenes/bg_world_map.png', source: 'art' });
+    const cookIds = readdirSync(`${repoRoot}/content/cooks`).filter((f) => f.endsWith('.yaml')).map((f) => f.slice(0, -5));
+    expect(cookIds.length).toBeGreaterThan(0);
+    for (const id of cookIds) {
+      expect(entries[`char.${id}`], id).toBeDefined();
+      expect(entries[`char.${id}`]!.source, id).toBe('art');
+      expect(entries[`char.${id}`]!.file, id).toBe(`art/characters/cook_${id}.png`);
+    }
+    // The other Pan expressions keep their own keys.
+    expect(entries['char.pan-concerned']!.file).toBe('art/characters/pan_concerned.png');
+  });
+
+  test('a cook kitchen backdrop kitchen_<id>_* becomes the key kitchenBackdropKey looks for', () => {
+    const { entries } = buildAssetManifest([...prototypeFiles, 'art/scenes/kitchen_leela_evening.png', 'art/scenes/kitchen_haruka.png']);
+    expect(entries['scene.kitchen-leela']!.file).toBe('art/scenes/kitchen_leela_evening.png');
+    expect(entries['scene.kitchen-haruka']!.file).toBe('art/scenes/kitchen_haruka.png');
+    const urls = Object.fromEntries(Object.keys(entries).map((k) => [k, k]));
+    expect(kitchenBackdropKey(urls, 'leela')).toBe('scene.kitchen-leela');
+    expect(kitchenBackdropKey(urls, 'marisol')).toBe('scene.kitchen');
+  });
+
+  test('an art alias and a plain art name for the same key are an AssetError', () => {
+    const problems = problemsOf(() => buildAssetManifest([...prototypeFiles, 'art/characters/pan.png', 'art/characters/pan_neutral.png']));
+    expect(problems.join('\n')).toContain('char.pan');
   });
 });

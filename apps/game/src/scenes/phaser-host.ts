@@ -12,9 +12,18 @@ let game: GameHandle | null = null;
 let wanted = 0;
 
 declare global {
-  interface Window { __kqTweens?: () => number }
+  interface Window {
+    /** Test hooks. */
+    __kqTweens?: () => number;
+    __kqPhaser?: () => { keyboardQueue: number; touchCapture: boolean } | null;
+    __kqScene?: string | null;
+    __kqPlayer?: () => { x: number; y: number } | null;
+  }
 }
-if (typeof window !== 'undefined') window.__kqTweens = () => game?.tweens() ?? 0;
+if (typeof window !== 'undefined') {
+  window.__kqTweens = () => game?.tweens() ?? 0;
+  window.__kqPhaser = () => game?.probe() ?? null;
+}
 
 function loadPhaser() {
   loading ??= import('./phaser-game').catch((err: unknown) => {
@@ -46,11 +55,16 @@ export async function showScene(stage: HTMLElement, key: SceneKey, data: Record<
   }
 }
 
-/** Hide the canvas and pause the game loop. The game is kept for the next screen that wants it. */
+/**
+ * Hide the canvas and destroy the game, so none of Phaser's window listeners outlive the screen. The next
+ * showScene builds a fresh game (Phaser's module stays loaded, so that is quick).
+ */
 export function hideStage(stage: HTMLElement): void {
   wanted += 1;
   stage.hidden = true;
-  game?.hide();
+  game?.destroy();
+  game = null;
+  if (typeof window !== 'undefined') { window.__kqScene = null; window.__kqPlayer = () => null; }
 }
 
 /** A cook's kitchen backdrop: `scene.kitchen-<cookId>` when the art agent provides one, otherwise `scene.kitchen`. */

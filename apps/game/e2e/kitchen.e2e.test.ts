@@ -18,6 +18,25 @@ const daysAgo = (n: number) => {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 };
 
+interface Hooks {
+  __kqTweens?: () => number;
+  __kqScene?: string | null;
+  __kqPlayer?: () => { x: number; y: number } | null;
+  __kqPhaser?: () => { keyboardQueue: number; touchCapture: boolean } | null;
+}
+
+async function waitForKitchenScene(page: OpenedApp['page']): Promise<void> {
+  await page.waitForFunction(() => (window as unknown as Hooks).__kqScene === 'Kitchen');
+}
+/** Let the game run a few animation frames. */
+async function frames(page: OpenedApp['page'], n: number): Promise<void> {
+  await page.evaluate((count) => new Promise<void>((done) => {
+    let left = count;
+    const tick = () => { left -= 1; if (left <= 0) done(); else requestAnimationFrame(tick); };
+    requestAnimationFrame(tick);
+  }), n);
+}
+
 let app: OpenedApp | null = null;
 afterEach(async () => { await app?.close(); app = null; });
 
@@ -73,6 +92,10 @@ describe('home kitchen', () => {
     expect(text).toContain('Rusty');
     const invites = lines('toolkit.rusty_invite').map((l) => fill(l, { technique: 'Tempering' }));
     expect(invites).toContain(await row.locator('.rusty-invite').textContent());
+    for (const sel of ['.rusty-invite', '.fresh-rusty']) {
+      const color = await row.locator(sel).evaluate((e) => getComputedStyle(e).color);
+      expect(color, sel).not.toBe('rgb(200, 66, 58)'); // --chili
+    }
     expect(await dialog.textContent()).not.toMatch(/\d|%/);
     await expectNoA11yViolations(page, 'knife roll');
     await page.keyboard.press('Escape');
@@ -126,18 +149,86 @@ describe('home kitchen', () => {
     const canvas = page.locator('#stage[aria-hidden="true"] canvas');
     await canvas.waitFor();
     expect(await canvas.getAttribute('tabindex')).toBe('-1');
-    expect(await page.evaluate(() => (window as unknown as { __kqTweens?: () => number }).__kqTweens?.())).toBe(0);
-    // Leaving the kitchen hides the stage.
-    await page.getByRole('button', { name: 'Recipe shelf' }).click();
-    await page.waitForFunction(() => (document.getElementById('stage') as HTMLElement).hidden);
     expect(app.consoleErrors).toEqual([]);
   });
 
-  it('with full motion the Pan is animated on the canvas', async () => {
+  it('with reduced motion the running Kitchen scene has no tweens', async () => {
+    app = await openApp('/', { reducedMotion: true });
+    const { page } = app;
+    await waitForKitchenScene(page);
+    await frames(page, 10);
+    expect(await page.evaluate(() => (window as unknown as Hooks).__kqTweens!())).toBe(0);
+  });
+
+  it('with motion allowed the running Kitchen scene animates the Pan (so the tween hook is live)', async () => {
     app = await openApp('/');
     const { page } = app;
-    await page.locator('#stage canvas').waitFor();
-    await page.waitForFunction(() => ((window as unknown as { __kqTweens?: () => number }).__kqTweens?.() ?? 0) > 0);
+    await waitForKitchenScene(page);
+    await frames(page, 10);
+    expect(await page.evaluate(() => (window as unknown as Hooks).__kqTweens!())).toBeGreaterThan(0);
+  });
+
+  it('leaving the kitchen destroys the game: no canvas, no live Phaser keyboard, typing is untouched', async () => {
+    app = await openApp('/', { reducedMotion: true });
+    const { page } = app;
+    await waitForKitchenScene(page);
+    expect(await page.evaluate(() => (window as unknown as Hooks).__kqPhaser!())).not.toBeNull();
+    await page.getByRole('button', { name: 'Recipe shelf' }).click();
+    await page.waitForFunction(() => location.hash === '#/recipes');
+    await page.waitForFunction(() => document.querySelector('#stage canvas') === null);
+    expect(await page.evaluate(() => (window as unknown as Hooks).__kqPhaser!())).toBeNull();
+    expect(await page.evaluate(() => (window as unknown as Hooks).__kqScene ?? null)).toBeNull();
+    await page.locator('#pan-button').click();
+    await page.locator('#pan-text').pressSequentially('wasd and arrows');
+    for (let i = 0; i < 5; i++) await page.keyboard.press('ArrowLeft');
+    expect(await page.locator('#pan-text').inputValue()).toBe('wasd and arrows');
+    expect(await page.evaluate(() => (window as unknown as Hooks).__kqPhaser!())).toBeNull();
+    // And it comes back when the player returns.
+    await page.goto(new URL('/#/kitchen', page.url()).toString());
+    await waitForKitchenScene(page);
+    expect(await page.locator('#stage canvas').count()).toBe(1);
+    expect(app.consoleErrors).toEqual([]);
+  });
+
+  it('arrow keys move the player, but not while typing in the Pan\'s text box', async () => {
+    app = await openApp('/', { reducedMotion: true });
+    const { page } = app;
+    await waitForKitchenScene(page);
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    const x0 = await page.evaluate(() => (window as unknown as Hooks).__kqPlayer!()!.x);
+    await page.keyboard.down('ArrowRight');
+    await page.waitForTimeout(300);
+    await page.keyboard.up('ArrowRight');
+    const x1 = await page.evaluate(() => (window as unknown as Hooks).__kqPlayer!()!.x);
+    expect(x1).toBeGreaterThan(x0);
+
+    await page.getByRole('button', { name: 'Talk to the Pan' }).click();
+    await page.locator('#pan-text').focus();
+    await page.keyboard.down('ArrowRight');
+    await page.waitForTimeout(300);
+    await page.keyboard.up('ArrowRight');
+    expect(await page.evaluate(() => (window as unknown as Hooks).__kqPlayer!()!.x)).toBe(x1);
+  });
+
+  it('touch and mouse on the canvas do not block the page (no preventDefault)', async () => {
+    app = await openApp('/', { reducedMotion: true });
+    const { page } = app;
+    await waitForKitchenScene(page);
+    const touch = await page.evaluate(() => (window as unknown as Hooks).__kqPhaser!()!.touchCapture);
+    expect(touch).toBe(false);
+    // Mid-floor, away from every hotspot (a hotspot click would leave the kitchen).
+    const prevented = await page.evaluate(() => {
+      const canvas = document.querySelector('#stage canvas')!;
+      const r = canvas.getBoundingClientRect();
+      const out: Record<string, boolean> = {};
+      for (const type of ['mousedown', 'mousemove', 'mouseup']) {
+        const ev = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: r.left + r.width * 0.2, clientY: r.top + r.height * 0.95 });
+        canvas.dispatchEvent(ev);
+        out[type] = ev.defaultPrevented;
+      }
+      return out;
+    });
+    expect(prevented).toEqual({ mousedown: false, mousemove: false, mouseup: false });
   });
 
   it('with reduced motion the greeting is complete within 100 ms of appearing', async () => {
@@ -162,6 +253,28 @@ describe('home kitchen', () => {
     app = await openApp('/', { reducedMotion: true, width: 400 });
     const { page } = app;
     await page.locator('#stage canvas').waitFor();
+    await expectNoHorizontalScroll(page);
+  });
+
+  it('opened from a canvas hotspot, the knife roll returns focus to the Knife roll button', async () => {
+    app = await openApp('/', { reducedMotion: true });
+    const { page } = app;
+    await page.getByRole('button', { name: 'Knife roll' }).waitFor();
+    await page.evaluate(() => {
+      (document.activeElement as HTMLElement | null)?.blur();
+      window.dispatchEvent(new CustomEvent('kq:action', { detail: { id: 'toolkit' } }));
+    });
+    await page.getByRole('dialog', { name: 'Your knife roll' }).waitFor();
+    await page.keyboard.press('Escape');
+    expect(await page.evaluate(() => document.activeElement?.getAttribute('data-action'))).toBe('toolkit');
+  });
+
+  it('no horizontal scroll after shrinking from wide to 400px', async () => {
+    app = await openApp('/', { reducedMotion: true, width: 1280 });
+    const { page } = app;
+    await page.locator('#stage canvas').waitFor();
+    await page.setViewportSize({ width: 400, height: 800 });
+    await page.waitForTimeout(100);
     await expectNoHorizontalScroll(page);
   });
 });

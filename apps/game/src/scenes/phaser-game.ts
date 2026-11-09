@@ -6,9 +6,12 @@ import { KitchenScene } from './KitchenScene';
 export interface GameHandle {
   /** Start `key` with `data`; false when no such scene is registered. */
   show(key: string, data: Record<string, unknown>): boolean;
-  hide(): void;
+  /** Destroy the game: its window listeners go and its canvas is removed (on Phaser's next step). */
+  destroy(): void;
   /** Running tweens across every scene. */
   tweens(): number;
+  /** Test hook: the keyboard queue length and whether touch input captures (preventDefaults). */
+  probe(): { keyboardQueue: number; touchCapture: boolean };
 }
 
 const WIDTH = 320;
@@ -28,7 +31,13 @@ export function createGame(stage: HTMLElement): GameHandle {
     banner: false,
     autoFocus: false,
     audio: { noAudio: true },
-    input: { keyboard: true, mouse: true, touch: true, gamepad: false },
+    // Never preventDefault mouse or touch: the page must still scroll on a phone over the canvas.
+    input: {
+      keyboard: true,
+      mouse: { preventDefaultDown: false, preventDefaultUp: false, preventDefaultMove: false, preventDefaultWheel: false },
+      touch: { capture: false },
+      gamepad: false,
+    },
     scene: [BootScene, KitchenScene],
   });
   const fixCanvas = () => { if (game.canvas) { game.canvas.tabIndex = -1; game.canvas.setAttribute('aria-hidden', 'true'); } };
@@ -51,14 +60,15 @@ export function createGame(stage: HTMLElement): GameHandle {
     show(key, data) {
       if (!SCENES.includes(key)) return false;
       target = { key, data };
-      game.loop.wake();
       if (booted) { stopOthers(key); game.scene.start(key, data); }
       return true;
     },
-    hide() {
+    destroy() {
       target = null;
-      if (booted) stopOthers('');
-      game.loop.sleep();
+      game.destroy(true);
+    },
+    probe() {
+      return { keyboardQueue: (game.input.keyboard as unknown as { queue?: unknown[] } | null)?.queue?.length ?? 0, touchCapture: game.input.touch?.capture ?? false };
     },
     tweens() {
       let n = 0;

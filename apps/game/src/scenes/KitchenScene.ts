@@ -48,6 +48,12 @@ export class KitchenScene extends Phaser.Scene {
     }
     this.player = this.add.image(Math.round(width * 0.62), height - 32, 'char.player');
 
+    window.__kqScene = 'Kitchen';
+    window.__kqPlayer = () => (this.player.active ? { x: this.player.x, y: this.player.y } : null);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      if (window.__kqScene === 'Kitchen') { window.__kqScene = null; window.__kqPlayer = () => null; }
+    });
+
     const kb = this.input.keyboard;
     if (kb) {
       // Never preventDefault page keys: the HTML owns the keyboard.

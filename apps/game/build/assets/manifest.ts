@@ -21,6 +21,38 @@ export const PROTOTYPE_ALIASES: Readonly<Record<string, string>> = Object.freeze
   ...Object.fromEntries(PROTOTYPE_ITEMS.map((x) => [`i_${x}`, `item.${x}`])),
 });
 
+/**
+ * The art agent's file names that mean a key the game already uses, per art folder (lower-cased name
+ * without `.png`). Each match replaces the plain `norm` key; anything else keeps `norm`.
+ */
+export type ArtAlias = readonly [RegExp, (m: RegExpExecArray) => string];
+const ALIASES: Record<string, readonly ArtAlias[]> = {
+  characters: [
+    [/^cook_([a-z0-9-]+)$/, (m) => `char.${m[1]}`], // cook_leela → char.leela
+    [/^pan_neutral$/, () => 'char.pan'], // the Pan's resting face is the Pan
+    [/^butcher$/, () => 'char.bram'],
+    [/^grocer$/, () => 'char.wen'],
+    [/^tofu$/, () => 'char.okafor-sato'],
+    [/^spice_merchant$/, () => 'char.spice'],
+  ],
+  scenes: [
+    [/^bg_world_map$/, () => 'scene.map'],
+    // A cook's own kitchen: kitchen_<cookId>[_anything] → scene.kitchen-<cookId> (see kitchenBackdropKey).
+    [/^(?:bg_)?kitchen_([a-z0-9-]+)(?:_.*)?$/, (m) => `scene.kitchen-${m[1]}`],
+  ],
+};
+export const ART_ALIASES: Readonly<Record<string, readonly ArtAlias[]>> = Object.freeze(ALIASES);
+
+/** The key for `art/<dir>/<name>.png`: an alias when one matches, else `${ART_DIRS[dir]}.${norm(name)}`. */
+export function artKey(dir: string, name: string): string {
+  const lower = name.toLowerCase();
+  for (const [re, key] of ART_ALIASES[dir] ?? []) {
+    const m = re.exec(lower);
+    if (m) return key(m);
+  }
+  return `${ART_DIRS[dir]}.${norm(name)}`;
+}
+
 export const REQUIRED_ASSETS: readonly string[] = Object.freeze([
   'char.pan', 'char.player', 'char.leela', 'char.marisol', 'char.haruka', 'scene.kitchen', 'scene.map',
 ]);
@@ -62,7 +94,7 @@ export function buildAssetManifest(files: string[]): { entries: Record<string, A
       const base = rest.join('/');
       if (!Object.hasOwn(ART_DIRS, dir!) || rest.length !== 1) { warnings.push(`${file}: not in a known art folder (${Object.keys(ART_DIRS).join(', ')})`); continue; }
       if (!base.toLowerCase().endsWith('.png')) { warnings.push(`${file}: not a PNG`); continue; }
-      const key = `${ART_DIRS[dir!]}.${norm(base.slice(0, -4))}`;
+      const key = artKey(dir!, base.slice(0, -4));
       const prior = art.get(key);
       if (prior) { problems.push(`${key}: both ${prior.file} and ${file}`); continue; }
       art.set(key, { key, file, source: 'art' });

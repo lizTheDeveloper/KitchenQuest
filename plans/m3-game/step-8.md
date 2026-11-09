@@ -58,7 +58,7 @@ export function renderToolkit(rows: ToolkitRow[], opts: { name(id: string): stri
 - Greeting: `firstOpenedAt === null` → `greet.first_ever`. `now - lastOpenedAt ≥ 3 days` → `greet.return_after_gap`. Otherwise by local hour: [5, 11) → `greet.morning`, [11, 17) → `greet.afternoon`, [17, 22) → `greet.evening`, else `greet.late_night`.
 - Toolkit display (knife roll, a modal `role="dialog"`, h2 "Your knife roll"):
   - one row per technique **the player has**: name, three tier pips (Seen · Tried · Yours) with the current tier in text, and freshness in words (Sharp / Warm / Rusty)
-  - Rusty rows add `rustyLine(name)` (the Pan's `toolkit.rusty_invite`), styled with `--saffron` text on parchment, **never `--chili`**, with no warning icon
+  - Rusty rows add `rustyLine(name)` (the Pan's `toolkit.rusty_invite`), styled as saffron on an ink strip in the parchment dialog (`--saffron` text on `--parchment-ink`), **never `--chili`**, with no warning icon
   - no totals, percentages, counts of techniques not yet learned, or locked rows (Octalysis M-1 guardrail)
   - empty state: a footnote from `bureau.footnotes` with tag `empty`
   - rows come from `toolkitRows(store.get().toolkit, localDate(now), content.techniques.freshness)`

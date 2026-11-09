@@ -27,7 +27,9 @@ function isReduced(store: PlayerStore, win: Window): boolean {
 /** The knife roll: a modal dialog over everything else. Returns a function that closes it. */
 function openKnifeRoll(doc: Document, ctx: AppContext, onClose: () => void): () => void {
   const root = doc.getElementById('overlay-root') ?? doc.body;
-  const opener = doc.activeElement instanceof HTMLElement ? doc.activeElement : null;
+  // Opened from a canvas hotspot, focus is on the body: return it to the knife roll's own button instead.
+  const active = doc.activeElement instanceof HTMLElement && doc.activeElement !== doc.body ? doc.activeElement : null;
+  const opener = active ?? doc.querySelector<HTMLElement>('[data-action="toolkit"]');
   invites ??= createDialogue(content.pan);
   const rows = toolkitRows(ctx.store.get().toolkit, localDate(ctx.now()), content.techniques.freshness);
   const body = renderToolkit(rows, {
