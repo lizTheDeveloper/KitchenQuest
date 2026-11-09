@@ -1,0 +1,248 @@
+import { describe, expect, it } from 'vitest';
+import { IngredientGraph } from '../ingredients/graph';
+import type { IngredientNode } from '../ingredients/types';
+import { parseRecipe } from '../recipe/parse';
+import type { ParsedRecipe } from '../recipe/types';
+import { check, DISCLAIMER } from './check';
+import type { Substitution } from './check';
+import type { Rule } from './types';
+
+const fixture: IngredientNode[] = [
+  { id: 'green_onion', name: 'green onion', aliases: ['scallion', 'spring onion'] },
+  { id: 'tomato', name: 'tomato' },
+  { id: 'olive', name: 'olive' },
+  { id: 'cashew', name: 'cashew', isA: ['tree_nut'] },
+  { id: 'tree_nut', name: 'tree nut', isA: ['nut'] },
+  { id: 'nut', name: 'nut' },
+  { id: 'wheat', name: 'wheat' },
+  { id: 'soy', name: 'soy' },
+  { id: 'soy_sauce', name: 'soy sauce', contains: ['wheat', 'soy'], labelDependent: true },
+  { id: 'worcestershire', name: 'worcestershire sauce', contains: ['anchovy'] },
+  { id: 'anchovy', name: 'anchovy', isA: ['fish'] },
+  { id: 'fish', name: 'fish' },
+  { id: 'tamari', name: 'tamari', contains: ['soy'] },
+  { id: 'coconut', name: 'coconut' },
+  { id: 'coconut_milk', name: 'coconut milk', isA: ['coconut'] },
+  { id: 'coconut_aminos', name: 'coconut aminos' },
+  { id: 'curry_paste', name: 'curry paste', labelDependent: true },
+  { id: 'salt', name: 'salt' },
+];
+
+const graph = IngredientGraph.fromData({ ingredients: fixture });
+
+const SUBS: Substitution[] = [
+  { from: 'soy_sauce', to: 'tamari' },
+  { from: 'soy_sauce', to: 'coconut_aminos', note: 'a little sweeter' },
+];
+
+const DATE = '2026-11-09';
+
+function recipe(body: string, servings = 2): ParsedRecipe {
+  return parseRecipe(`---
+title: Test Dish
+country: Testland
+region: Test Region
+credit: Tester
+cook: Tester
+difficulty: 1
+skills: [stirring]
+servings: ${servings}
+license: CC-BY-SA-4.0
+status: draft
+---
+
+${body}
+`);
+}
+
+function avoid(id: string, ids: string[], severity: Rule['severity'] = 'allergy'): Rule {
+  return { id, target: { kind: 'ingredient', ids }, type: 'avoid', severity };
+}
+
+describe('check', () => {
+  it('ok with no rules', () => {
+    const result = check(recipe('Chop @tomato{2} and @spring onions{1}.'), [], graph, SUBS, DATE);
+    expect(result).toEqual({ status: 'ok', findings: [], severe: false, disclaimer: null });
+  });
+
+  it('blocks through hidden ingredients', () => {
+    const result = check(
+      recipe('Add @worcestershire sauce{1%tsp}.'),
+      [avoid('no-fish', ['fish'], 'anaphylactic')],
+      graph,
+      SUBS,
+      DATE,
+    );
+    expect(result.status).toBe('blocked');
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0]).toMatchObject({
+      ingredient: 'worcestershire sauce',
+      ingredientId: 'worcestershire',
+      kind: 'match',
+      status: 'blocked',
+      ruleId: 'no-fish',
+      severity: 'anaphylactic',
+      path: ['worcestershire', 'anchovy', 'fish'],
+    });
+    expect(result.findings[0]!.swap).toBeUndefined();
+    expect(result.severe).toBe(true);
+    expect(result.disclaimer).toBe(DISCLAIMER);
+  });
+
+  it('offers a passing swap', () => {
+    const result = check(
+      recipe('Add @soy sauce{2%tbsp}.'),
+      [avoid('no-wheat', ['wheat'], 'intolerance')],
+      graph,
+      SUBS,
+      DATE,
+    );
+    expect(result.status).toBe('swap');
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0]).toMatchObject({
+      ingredientId: 'soy_sauce',
+      kind: 'match',
+      status: 'swap',
+      path: ['soy_sauce', 'wheat'],
+      swap: { toId: 'tamari', toName: 'tamari' },
+    });
+    expect(result.severe).toBe(false);
+    expect(result.disclaimer).toBeNull();
+  });
+
+  it('never offers a swap that breaks another rule', () => {
+    const rules = [avoid('no-wheat', ['wheat']), avoid('no-soy', ['soy'])];
+    const r = recipe('Add @soy sauce{2%tbsp}.');
+
+    const result = check(r, rules, graph, SUBS, DATE);
+    expect(result.status).toBe('swap');
+    expect(result.findings.length).toBeGreaterThan(0);
+    for (const f of result.findings) {
+      expect(f.status).toBe('swap');
+      expect(f.swap).toEqual({ toId: 'coconut_aminos', toName: 'coconut aminos', note: 'a little sweeter' });
+    }
+    expect(result.findings.map((f) => f.ruleId).sort()).toEqual(['no-soy', 'no-wheat']);
+
+    const withoutAminos = SUBS.filter((s) => s.to !== 'coconut_aminos');
+    const blocked = check(r, rules, graph, withoutAminos, DATE);
+    expect(blocked.status).toBe('blocked');
+    for (const f of blocked.findings) {
+      expect(f.status).toBe('blocked');
+      expect(f.swap).toBeUndefined();
+    }
+  });
+
+  it('never offers a label-dependent swap while rules are active', () => {
+    const subs: Substitution[] = [{ from: 'soy_sauce', to: 'curry_paste' }];
+    const result = check(recipe('Add @soy sauce{1%tbsp}.'), [avoid('no-wheat', ['wheat'])], graph, subs, DATE);
+    expect(result.status).toBe('blocked');
+  });
+
+  it('unknown ingredient is never ok', () => {
+    const result = check(recipe('Slice @dragon fruit{1}.'), [], graph, SUBS, DATE);
+    expect(result.status).toBe('unverified');
+    expect(result.findings).toEqual([
+      { ingredient: 'dragon fruit', ingredientId: null, kind: 'unresolved', status: 'unverified' },
+    ]);
+  });
+
+  it('label-dependent only matters under rules', () => {
+    const r = recipe('Fry @curry paste{2%tbsp}.');
+    expect(check(r, [], graph, SUBS, DATE).status).toBe('ok');
+
+    const result = check(r, [avoid('no-fish', ['fish'])], graph, SUBS, DATE);
+    expect(result.status).toBe('unverified');
+    expect(result.findings).toEqual([
+      { ingredient: 'curry paste', ingredientId: 'curry_paste', kind: 'label', status: 'unverified' },
+    ]);
+  });
+
+  it('a prefer rule alone does not make label-dependent ingredients unverified', () => {
+    const prefer: Rule = { ...avoid('likes-fish', ['fish']), type: 'prefer', severity: 'preference' };
+    const result = check(recipe('Fry @curry paste{2%tbsp} with @anchovy{2}.'), [prefer], graph, SUBS, DATE);
+    expect(result.status).toBe('ok');
+    expect(result.findings).toEqual([]);
+  });
+
+  it('a matched label-dependent ingredient gets no extra label finding', () => {
+    const result = check(recipe('Add @soy sauce{1%tbsp}.'), [avoid('no-soy', ['soy'])], graph, [], DATE);
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0]!.kind).toBe('match');
+  });
+
+  it('inactive phase is ignored', () => {
+    const rule: Rule = {
+      ...avoid('no-fish', ['fish'], 'anaphylactic'),
+      phase: { start: '2026-10-01', end: '2026-11-08' },
+    };
+    const result = check(recipe('Add @worcestershire sauce{1%tsp}.'), [rule], graph, SUBS, DATE);
+    expect(result).toEqual({ status: 'ok', findings: [], severe: false, disclaimer: null });
+  });
+
+  it('precedence', () => {
+    const fishRule = [avoid('no-fish', ['fish'])];
+    const blocked = check(
+      recipe('Add @worcestershire sauce{1%tsp} and @dragon fruit{1}.'),
+      fishRule,
+      graph,
+      SUBS,
+      DATE,
+    );
+    expect(blocked.status).toBe('blocked');
+
+    const unverified = check(
+      recipe('Add @soy sauce{1%tbsp} and @dragon fruit{1}.'),
+      [avoid('no-wheat', ['wheat'])],
+      graph,
+      SUBS,
+      DATE,
+    );
+    expect(unverified.findings.map((f) => f.status).sort()).toEqual(['swap', 'unverified']);
+    expect(unverified.status).toBe('unverified');
+  });
+
+  it('limit per serving', () => {
+    const rule: Rule = {
+      id: 'low-salt',
+      target: { kind: 'ingredient', ids: ['salt'] },
+      type: 'limit',
+      severity: 'intolerance',
+      limit: { amount: 5, unit: 'g', per: 'serving' },
+    };
+    const under = check(recipe('Add @salt{8%g}.', 2), [rule], graph, SUBS, DATE);
+    expect(under.status).toBe('ok');
+    expect(under.findings).toEqual([]);
+
+    const over = check(recipe('Add @salt{12%g}.', 2), [rule], graph, SUBS, DATE);
+    expect(over.status).toBe('blocked');
+    expect(over.findings[0]).toMatchObject({ kind: 'match', status: 'blocked', ruleId: 'low-salt' });
+
+    const mismatch = check(recipe('Add @salt{1%tsp}.', 2), [rule], graph, SUBS, DATE);
+    expect(mismatch.status).toBe('unverified');
+    expect(mismatch.findings[0]).toMatchObject({ kind: 'label', status: 'unverified', ruleId: 'low-salt' });
+
+    const noQuantity = check(recipe('Add @salt{}.', 2), [rule], graph, SUBS, DATE);
+    expect(noQuantity.status).toBe('unverified');
+    expect(noQuantity.findings[0]).toMatchObject({ kind: 'label', status: 'unverified' });
+  });
+
+  it('sets severe and the disclaimer for any active severe rule, even when ok', () => {
+    const result = check(recipe('Chop @tomato{1}.'), [avoid('no-nuts', ['nut'], 'allergy')], graph, SUBS, DATE);
+    expect(result.status).toBe('ok');
+    expect(result.severe).toBe(true);
+    expect(result.disclaimer).toBe(DISCLAIMER);
+  });
+
+  it('throws on rules that target ids missing from the graph', () => {
+    expect(() =>
+      check(recipe('Chop @tomato{1}.'), [avoid('bad-rule', ['unicorn'])], graph, SUBS, DATE),
+    ).toThrow(/bad-rule.*unicorn/);
+  });
+
+  it('throws on a substitution to an unknown ingredient', () => {
+    const subs: Substitution[] = [{ from: 'soy_sauce', to: 'mystery_sauce' }];
+    expect(() =>
+      check(recipe('Add @soy sauce{1%tbsp}.'), [avoid('no-wheat', ['wheat'])], graph, subs, DATE),
+    ).toThrow(/mystery_sauce/);
+  });
+});
