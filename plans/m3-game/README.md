@@ -50,7 +50,7 @@ Quoted from the spec unless marked. Every task's requirements include this secti
 - [x] [Step 3 — App shell: router, design system, player store, Bureau form, e2e harness](step-3.md)
 - [x] [Step 4 — Content pipeline: build-time load and validation, techniques data](step-4.md)
 - [x] [Step 5 — Pan dialogue engine and mentor panel shell (with Family Table mode)](step-5.md)
-- [ ] [Step 6 — Recipe cards against the player's rules](step-6.md)
+- [x] [Step 6 — Recipe cards against the player's rules](step-6.md)
 - [ ] [Step 7 — Cook mode](step-7.md)
 - [ ] [Step 8 — Asset manifest, lazy Phaser, the player's kitchen and the Toolkit display](step-8.md)
 - [ ] [Step 9 — World map, travel permit, cook's kitchen](step-9.md)
