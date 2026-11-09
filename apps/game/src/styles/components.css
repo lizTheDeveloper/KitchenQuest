@@ -268,3 +268,32 @@ select {
 .toolkit-empty { font-style: italic; }
 /* Phaser sets the canvas size inline; let it shrink with the page (it keeps its aspect ratio). */
 #stage canvas { max-width: 100% !important; height: auto !important; }
+
+/* Scene backdrops the HTML sits on (world map, a cook's kitchen): the img sizes the frame, the canvas covers it. */
+.scene-frame { position: relative; max-width: 100%; margin: 1rem auto; }
+.scene-backdrop-img { display: block; width: 100%; height: auto; }
+.scene-frame #stage { position: absolute; inset: 0; margin: 0; }
+.scene-frame #stage canvas { width: 100% !important; height: 100% !important; max-width: none !important; }
+
+/* World map pins: HTML buttons over the backdrop, placed by MAP_PINS. */
+.map-pins { position: absolute; inset: 0; pointer-events: none; }
+.map-pin {
+  position: absolute; transform: translate(-50%, -50%); pointer-events: auto;
+  display: grid; place-items: center; padding: 2px; border: 0; border-radius: 0; cursor: pointer;
+  background: transparent; line-height: 0;
+}
+.map-pin img { width: 64px; height: 64px; image-rendering: pixelated; filter: drop-shadow(0 2px 0 var(--iron)); }
+.map-pin:hover img { filter: drop-shadow(0 0 0 var(--saffron)) drop-shadow(0 2px 0 var(--saffron)); }
+.map-pin:focus-visible { outline: 3px solid var(--saffron); outline-offset: 0; }
+.map-pin-dot { display: block; width: 16px; height: 16px; background: var(--saffron); box-shadow: 0 0 0 3px var(--iron); }
+@media (max-width: 22rem) { .map-pin img { width: 32px; height: 32px; } }
+.map-footnote { font-size: .95rem; font-style: italic; }
+
+/* A cook's kitchen */
+.visit-place { font-family: var(--display); margin: 0 0 .25rem; }
+.visit-teach { margin: 0; }
+.visit-dialogue { max-width: 60rem; margin: 0 auto; }
+.visit-card { width: 100%; max-width: 40rem; background: var(--iron); padding: .5rem; }
+.visit-card .recipe-card { margin-top: .5rem; }
+.visit-card .recipe-card h2:focus { outline: none; }
+.visit-card-buttons { display: flex; justify-content: flex-end; margin: .5rem 3px; }
