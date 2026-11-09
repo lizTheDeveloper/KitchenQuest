@@ -22,6 +22,10 @@ Comedy register: Douglas Adams and Terry Pratchett. Absurd bureaucracy, footnote
 | World | Real countries; everything else is fantasy |
 | Cultural stance | Respectful and decolonial: the player is a guest and apprentice, never an explorer or collector |
 | Core loop | Weekly rhythm: kitchen days (learn), market day (shop), cook days (cook + photo) |
+| Primary interface | Talk to your mentor by live voice or text. The mentor does all data entry. Forms exist only for editing and accessibility |
+| Data entry | Anything that isn't conversation is a game: the gamified market and the recipe quest |
+| Mentor | The Pan, a talking 140-year-old cast-iron pan (working default; pending confirmation) |
+| Live voice | Self-hosted open-source speech-to-text and text-to-speech around Qwen via OpenRouter (working default; pending confirmation, §7.7) |
 | Recipe format | Cooklang |
 | Open source | The canonical recipe library is open (CC BY-SA 4.0). User imports stay private |
 
@@ -40,6 +44,7 @@ Comedy register: Douglas Adams and Terry Pratchett. Absurd bureaucracy, footnote
 4. **Guest, not conqueror.** Recipes are taught and gifted, credited to communities, and reviewed by people from those cuisines before they are canon.
 5. **Comedy punches at the fantasy and the player, never at cultures.**
 6. **Health data is minimal, encrypted, exportable, and deletable.**
+7. **Talk, don't type.** If a player has to enter data, they either say it to the mentor or play a game that captures it. A plain form is a fallback, never the main path.
 
 ## 3. World and game loop
 
@@ -48,26 +53,29 @@ Comedy register: Douglas Adams and Terry Pratchett. Absurd bureaucracy, footnote
 Real Earth, but kitchens have small gods, markets have weather, and knives have opinions.
 
 - **The Pantry Bureau.** A fantastically over-bureaucratic guild that licenses apprentice cooks. It issues forms in triplicate, stamps, and footnotes. The Adams register lives here.
-- **The Pan.** A talking cast-iron pan: sidekick, critic, and meal reminder ("It has been six hours. I am a pan, and even I am concerned."). The Pratchett register lives here.
+- **The Pan, your mentor.** A talking cast-iron pan, seasoned for 140 years, licensed by the Bureau as a mentor (somewhat against its will). It is your guide, critic, and meal reminder ("It has been six hours. I am a pan, and even I am concerned."), and the one you talk to for everything (§7.0). The Pratchett register lives here.
 - **Cooks.** One NPC per kitchen (a restaurant, street stall, or home kitchen). They are competent, dignified experts from their cuisine and are never the butt of the joke.
 
 ### 3.2 Weekly loop
 
-**Setup (onboarding):**
-- The player tells the Bureau their real market day(s) and roughly how many meals a week they'll cook.
-- They enter allergies and diet rules (§4.4).
-- That's enough to start. Everything else can wait.
+**Setup (onboarding).** Onboarding is a conversation with the Pan, framed as the Bureau's apprentice intake interview (spoken, never a form). The Pan asks for:
+- the player's real market day(s) and roughly how many meals a week they'll cook
+- their country/region, which drives seasonal produce
+- allergies and diet rules, each read back for confirmation (§4.4, §7.0)
+
+That's enough to start. Everything else can wait.
 
 **Kitchen days (daily, 5–10 minutes).** In the 8-bit kitchen, the player does any of:
 - **Lesson:** learn an upcoming recipe step by step, including *why* each step exists.
 - **Drill:** a short technique lesson (dicing, heat control, "until fragrant," salting pasta water).
-- **Plan:** choose taught dishes for the week. The plan shows weekly nutrition balance, and the Pan flags gaps ("Nothing green since Tuesday.").
-- **Log:** record what they ate (§5), and answer a symptom check-in if a diet journey is active.
+- **Plan:** choose taught dishes for the week, by talking it through with the Pan ("something quick Tuesday, something cozy Sunday"). The plan shows weekly nutrition balance, and the Pan flags gaps ("Nothing green since Tuesday.").
+- **Log:** tell the Pan what they ate (§5), and answer a symptom check-in if a diet journey is active.
+- **Pantry:** tell the Pan what's in the cupboard ("I've got rice, half an onion, and regret").
 
-**Market day.**
-- The week's plan becomes an ingredient quest list, grouped by stall (produce, protein, dairy, pantry, spice merchant) and pre-filtered against the pantry the player says they already have.
-- Checking an item off in the real store "fetches" it in the market scene.
-- Out of something? The recipe offers a labeled substitute, re-checked by the rules engine.
+**Market day.** See §3.5 for the gamified market.
+- The week's plan becomes the market quest list, grouped by stall and pre-filtered against the pantry.
+- In the real store, the player tells the Pan what they picked up ("got the chicken thighs, no fennel"), which fetches it in the market scene. Tapping also works.
+- Out of something? The stall NPC offers a labeled substitute, re-checked by the rules engine.
 - Completing the run earns market XP.
 
 **Cook days.**
@@ -80,11 +88,21 @@ Real Earth, but kitchens have small gods, markets have weather, and knives have 
 - Bought ingredients but didn't cook? The Pan suggests a use-it-up recipe before they spoil.
 - Nothing is lost when a day is missed.
 
-### 3.3 Travel and progression
+### 3.3 The recipe quest (travel and progression)
 
-- Trust with a cook unlocks their next dish.
-- At high trust, the cook introduces the player to a friend in another country, which opens that country on the map.
-- Imported recipes (§7.1) appear as **Recipes from Abroad**: a guest cook in the recipe's country of origin, visible only to the importing player.
+The world map is a quest board. Recipes are earned through quests, given as gifts and never taken as loot.
+
+- **Quest shape.** A cook sends word through the Bureau. The player travels there and helps with a small problem in that kitchen, such as:
+  - an ingredient riddle
+  - fixing a technique mistake ("the rice is gluey; why?")
+  - a market errand for the cook
+  - learning the dish's story
+
+  Then the cook teaches the dish.
+- **Trust.** Trust with a cook unlocks their next dish.
+- **Introductions.** At high trust, the cook introduces the player to a friend in another country, which opens that country on the map.
+- **Imports as quests.** Imported recipes (§7.1) appear as **Recipes from Abroad**: "A traveler left a note at the Bureau…". A guest cook in the recipe's country of origin hosts a short quest, visible only to the importing player.
+- **Quest content.** Quests are data files (§8) so contributors can write them. The quest engine supports a small set of step types: talk, travel, riddle, drill, market errand, and cook.
 
 ### 3.4 Presentation
 
@@ -98,6 +116,24 @@ Real Earth, but kitchens have small gods, markets have weather, and knives have 
   - Cook mode (HTML-heavy)
   - Presentation (photo + reaction)
 - Phaser renders the scenes. HTML overlays handle forms, long text, and accessibility (screen readers, large text). Cook mode and logging must work fully without the canvas.
+- **Mentor panel.** A persistent mentor button on every scene opens the conversation: hold-to-talk, hands-free toggle, or a text box. The Pan's replies show as speech bubbles and are also spoken.
+
+### 3.5 The gamified market (a real shopping-skills trainer)
+
+The market is where players learn to *choose* food. Each stall is an NPC with a short minigame that teaches a real skill. The minigames run in practice mode any day, and they also gate the weekly market run.
+
+| Stall | Real skill taught | Minigame |
+|---|---|---|
+| **Produce** | What's in season in your region this month; picking ripe produce (press, sniff, weigh, color) | "Seasonal or smuggled?" sorting; a ripeness check-off (choose the ripe avocado from four, with tactile hints in text and pictures) |
+| **Butcher** | Which cut for which method (braise vs. sear vs. roast); marbling; reading labels; cost per serving | The butcher's quiz: match a dish to a cut, pick the best-value cut for a braise, decode a label |
+| **Fishmonger** | Freshness signs (eyes, gills, smell); sustainable choices | "Fresh or fibbing?" spot-the-signs |
+| **Tofu & legumes** | Silken vs. firm vs. pressed; dried vs. canned beans; soaking | Match the tofu to the dish |
+| **Spice merchant** | Whole vs. ground; freshness; substitutions | Blind-sniff riddles, with substitution recall |
+| **Dairy & eggs** | Egg sizes and dates; cheese types for melting vs. crumbling | Quick sort |
+
+- **Data.** Seasonality is a curated table by region and month. Cut guides, freshness signs, and substitutions are curated data files, reviewed like recipes.
+- **Diet-aware.** Stalls respect the rules engine. A vegetarian player's butcher stall becomes a "protein counter" with legumes, tofu, tempeh, seitan, and eggs/dairy where allowed. Blocked items never appear as correct answers.
+- **Rewards.** Correct choices earn market skill XP and Bureau Stamps. Wrong answers get a funny explanation from the stall NPC, never a penalty.
 
 ## 4. Recipes, Cooklang, and the allergy/diet engine
 
@@ -199,10 +235,11 @@ A journey is a named sequence of time-boxed rule sets plus check-ins. Low-FODMAP
 
 ## 5. Tracker (v1)
 
-**Logging a meal:**
-- **Game dish:** one tap. Nutrition comes from the recipe × servings eaten.
-- **Free-form:** text ("two slices of toast with peanut butter") or a photo. The AI estimates components; the user confirms. Everything is marked as an estimate.
+**Logging a meal.** The default is to tell the Pan, by voice or text.
+- **Game dish:** "I made the mapo tofu, ate half." Nutrition comes from the recipe × servings eaten.
+- **Free-form:** "two slices of toast with peanut butter," or a photo. The AI estimates components and the Pan reads back a short summary; the user confirms or corrects in conversation. Everything is marked as an estimate.
 - **Repeat:** "same as yesterday's breakfast."
+- **Fallback:** one-tap logging in the UI for game dishes, for when talking isn't convenient.
 
 **Targets are "enough" ranges, not limits:**
 - Protein, fiber, and fruit/veg servings: aim to reach at least the range.
@@ -237,6 +274,32 @@ A journey is a named sequence of time-boxed rule sets plus check-ins. Low-FODMAP
 ## 7. AI features
 
 All AI calls go through one `AiProvider` interface in `apps/api` that calls OpenRouter. The model is set by config (`AI_MODEL=qwen/qwen3.8-27b`). Each task has a versioned prompt template and a JSON-schema output, and responses are validated before use.
+
+### 7.0 The mentor agent
+
+The Pan is a tool-using agent and the primary interface to the whole app. The conversation runs on the server: the model gets the Pan's persona, the style guide, a compact player context, and a fixed set of tools.
+
+**Tools** (each is a thin wrapper over the same validated API endpoints the UI uses):
+
+| Tool | Effect | Confirmation |
+|---|---|---|
+| `log_meal` | Log a game dish or a free-form meal | Pan reads back a summary; saved on yes |
+| `log_symptoms` | Journey check-in | Saved on yes |
+| `propose_rule` / `save_rule` | Allergy or diet rule (§4.4) | **Always** read back in full; saved only on an explicit yes |
+| `set_schedule` | Market days, meal windows, reminder times | Read back; saved on yes |
+| `update_pantry` | Add or remove pantry items | Light confirmation |
+| `plan_week` / `edit_plan` | Choose dishes for the week | Shown on screen; saved on yes |
+| `check_off_item` | Market run check-off | None (undoable) |
+| `import_recipe` | Start an ingestion (§7.1) from a pasted link, text, or photo | Review step as in §7.1 |
+| `start_lesson` / `start_quest` / `open_scene` | Navigate the game | None |
+| `answer_question` | Cooking Q&A, grounded (§7.3) | None |
+
+**Rules for the agent:**
+- **The agent never writes the database directly.** Tools call the API, which validates input, and the rules engine still decides safety.
+- **Writes need a yes.** Any write affecting health or safety needs a spoken or tapped "yes" after a full read-back. A second short window lets the player say "wait, undo that."
+- **On-screen trail.** Every write shows as a small card in the conversation ("📒 Logged: toast with peanut butter, breakfast"), so the player can tap it to edit or undo.
+- **Memory.** Short-term conversation history, plus a structured profile summary rebuilt from the database each session. There is no free-form long-term memory of health details outside the encrypted tables.
+- **Other cooks.** Other NPCs (the cooks and stall keepers) are the same agent with a different persona and a narrower tool set (answers, lessons, quests; no health writes).
 
 ### 7.1 Recipe ingestion
 
@@ -279,7 +342,30 @@ See §4.4. The AI proposes and the user confirms.
 
 ### 7.5 Failure behavior
 
-If OpenRouter is down or returns invalid output, the game says so in character ("The cook has stepped out; your plate is on the pass and they'll get to it."), queues the request, and retries. Core play (lessons, market, cook mode, logging, rule checks) never depends on AI.
+If OpenRouter is down or returns invalid output, the game says so in character ("The cook has stepped out; your plate is on the pass and they'll get to it."), queues the request, and retries. Core play never depends on AI: lessons, market minigames, cook mode, one-tap logging, and rule checks all keep working. If the mentor is unavailable, the UI fallback forms appear.
+
+### 7.6 Voice-specific safety
+
+- Speech-to-text output is treated as untrusted user text.
+- For rules, the Pan spells out and shows on screen the ingredient it heard ("kiwi, K-I-W-I"), because mishearing an allergen is the worst failure mode.
+- Severe rules always need a tap on the on-screen card in addition to the spoken yes.
+
+### 7.7 Live voice
+
+OpenRouter offers no open-source realtime voice model, so voice is a pipeline. Working default (pending Liz's confirmation):
+
+```
+mic → VAD (in browser) → streaming STT (self-hosted open-source Whisper) → Qwen via OpenRouter (streamed tokens)
+    → sentence chunker → TTS (self-hosted open-source voice) → audio out
+```
+
+- **Latency target:** under 1.5 s from the end of the player's speech to the first spoken audio. Streaming LLM output and sentence-level TTS make this feasible.
+- **Barge-in:** the player can interrupt the Pan. Detected speech stops playback and cancels the in-flight turn.
+- **Modes:** hold-to-talk by default; a hands-free mode with voice activity detection for cook mode (hands are messy).
+- **Voices:** each character gets a distinct open-source TTS voice. The Pan's voice is a priority art-direction task.
+- **Hosting:** a `voice` service on Hetzner (a GPU box if CPU latency misses the target). Audio is processed in memory and never stored. Transcripts are kept only as the conversation text, under the same retention rules as other conversation data.
+- **Text mode** is always available and is the default where voice isn't permitted (no mic, public place).
+- **Alternatives considered:** Qwen's realtime omni model on Alibaba Cloud (better latency and natural turn-taking, but breaks the OpenRouter-only rule); browser built-in speech (free, but robotic and inconsistent across browsers; acceptable as a development stand-in only).
 
 ## 8. Comedy and writing
 
@@ -298,11 +384,12 @@ If OpenRouter is down or returns invalid output, the game says so in character (
 KitchenQuest/
   apps/
     game/        # Vite + Phaser + HTML overlays, PWA (manifest, service worker, Web Push, share target)
-    api/         # Node + Fastify, TypeScript; AI provider; auth; jobs
+    api/         # Node + Fastify, TypeScript; AI provider; mentor agent + tools; auth; jobs
+    voice/       # streaming STT + TTS service (WebSocket), self-hosted open-source models
   packages/
     core/        # pure TS: Cooklang wrapper, ingredient graph, rules engine, nutrition, rewards
   recipes/       # open canon .cook files + lesson sidecars, CC BY-SA 4.0
-  data/          # ingredient graph seeds, substitutions, USDA subset, personas, dialogue
+  data/          # ingredient graph seeds, substitutions, USDA subset, seasonality, cut guides, personas, dialogue, quests
   docs/
 ```
 
@@ -354,6 +441,8 @@ KitchenQuest/
   - Nutrition math, Cooklang round-trips, and reward math.
 - **API:** integration tests against a real Postgres in Docker.
 - **AI:** eval sets for ingestion (pages, captions, screenshots → expected structure), photo reactions (tone checks), and rule expansion (expected coverage). They run on prompt or model changes, never in the unit-test path.
+- **Mentor agent:** scripted conversation tests for each tool. Every health or safety write must be preceded by a read-back and a yes; the agent never writes without one; prompt-injection attempts in imported text or speech can't trigger tools.
+- **Voice:** latency benchmark (end of speech → first audio, p50/p95) on the target box; an allergen mishearing test set (similar-sounding foods) to verify spell-back.
 - **Game:** Playwright flows for onboarding, the weekly loop, cook mode, and import review, using the existing `game-playtesting` skill. Accessibility check on all HTML panels.
 - **Recipes:** CI validates every canon `.cook` file (parses, resolves all ingredients, has credit and license).
 
@@ -361,12 +450,15 @@ KitchenQuest/
 
 1. **Core:** monorepo layout, `packages/core` with the Cooklang wrapper, ingredient graph, rules engine, and nutrition, with tests. No UI.
 2. **API and data:** Fastify, Postgres schema, auth, recipe sync from `recipes/`, profile and rules endpoints.
-3. **Game shell:** PWA, map, kitchen, cook mode, onboarding (market day + rules). Uses placeholder art.
-4. **Weekly loop:** plan → market run → cook → log, plus rewards and trust.
-5. **AI:** provider interface, photo reaction, ingestion, NPC Q&A, rule expansion, and evals.
-6. **Tracker:** free-form logging, targets, reminders (Web Push), weekly view, low-FODMAP journey.
-7. **Content and art:** 9 dishes, personas, dialogue, PixelLab sprites, style guide.
-8. **Launch hardening:** privacy and export/delete, terms, offline, performance, and a playtest batch.
+3. **Mentor (text):** the AI provider, the Pan agent with tools and confirmations, and the mentor panel. Onboarding is an interview in text. This comes early because it is the main interface.
+4. **Game shell:** PWA, map, kitchen, cook mode. Uses placeholder art.
+5. **Weekly loop and quests:** plan → market run → cook → log, the quest engine, rewards, and trust.
+6. **Gamified market:** stall minigames, seasonality and cut-guide data.
+7. **Live voice:** the voice service (STT/TTS), VAD, barge-in, and hands-free cook mode.
+8. **AI features:** photo reaction, ingestion, NPC Q&A, rule expansion, and evals.
+9. **Tracker:** targets, reminders (Web Push), weekly view, low-FODMAP journey.
+10. **Content and art:** 9 dishes and their quests, personas, voices, dialogue, PixelLab sprites, style guide.
+11. **Launch hardening:** privacy and export/delete, terms, offline, performance, and a playtest batch.
 
 ## 14. Out of scope for v1
 
@@ -384,3 +476,5 @@ KitchenQuest/
 2. Which 3 launch countries, and who are the contributors and reviewers?
 3. Monetization direction (free, subscription, or school tie-in), so the data model doesn't block it.
 4. Is age 16+ right, or should it be 18+?
+5. Live voice: self-hosted STT/TTS around Qwen via OpenRouter (the default, §7.7), Qwen realtime on Alibaba Cloud, or browser speech?
+6. Is the Pan the mentor, or someone else?
