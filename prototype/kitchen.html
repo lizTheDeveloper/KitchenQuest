@@ -241,6 +241,37 @@ button { font: inherit; color: inherit; }
   *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
   .steam { display: none; }
 }
+
+/* ---------- app shell: one screen, chat input always visible ---------- */
+html, body { height: 100%; }
+body { overflow: hidden; }
+.wrap { height: 100%; display: flex; flex-direction: column; padding-bottom: 12px; box-sizing: border-box; }
+.hud { flex: none; margin: 10px 0 12px; }
+.main { flex: 1 1 auto; min-height: 0; }
+.leftcol { min-height: 0; height: 100%; gap: 12px; }
+.screen { flex: none; width: min(100%, 640px, 58.6vh); margin: 6px auto 0; }
+.chatbox { flex: 1 1 auto; min-height: 0; }
+.log { flex: 1 1 auto; height: auto; min-height: 96px; }
+.chatbar, .chips, .inputrow, .note { flex: none; }
+.ledgerbtn, .ledgerclose { display: none; }
+@media (min-width: 1000px) {
+  .main { grid-template-columns: minmax(0, 652px) minmax(0, 1fr); align-items: stretch; height: 100%; }
+  .screen { width: min(640px, 58.6vh); }
+  .ledger { position: static; max-height: none; height: calc(100% - 12px); overflow-y: auto; box-sizing: border-box; }
+}
+@media (max-width: 999px) {
+  .main { display: flex; flex-direction: column; }
+  .ledgerbtn, .ledgerclose { display: inline-flex; }
+  .ledger { display: none; position: fixed; inset: 0; margin: 0; z-index: 50; overflow-y: auto;
+    padding-top: calc(14px + env(safe-area-inset-top, 0px)); padding-bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+    padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  body.ledger-open .ledger { display: block; }
+  .chips { flex-wrap: nowrap; overflow-x: auto; }
+  .chips > * { flex: none; white-space: nowrap; }
+  .note { display: none; }
+  .hud { margin: 8px 0 8px; padding: 8px 10px; }
+}
+@media (max-width: 999px) and (max-height: 720px) { .screen { width: min(100%, 36vh); } }
 </style>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Pixelify+Sans:wght@400;600&family=VT323&display=swap">
 
@@ -274,6 +305,7 @@ button { font: inherit; color: inherit; }
           <h2>Talk to the Pan</h2>
           <button class="badge" id="aibadge" type="button" title="Toggle live AI / scripted">Pan: scripted</button>
           <button class="btn small voicebtn" id="voice" type="button" aria-pressed="false">🔊 Voice</button>
+          <button class="btn small ledgerbtn" id="ledgerbtn" type="button" aria-controls="ledger">📒 Ledger</button>
         </div>
         <div class="log" id="log" aria-live="polite"></div>
         <div class="chips" id="chips" aria-label="Things you can say"></div>
@@ -287,7 +319,7 @@ button { font: inherit; color: inherit; }
     </div>
 
     <aside class="ledger" id="ledger" aria-label="Bureau Ledger">
-      <h2>Bureau Ledger <small>Vol. CXL · Tue</small></h2>
+      <h2>Bureau Ledger <small>Vol. CXL · Tue</small> <button class="btn small ledgerclose" id="ledgerclose" type="button">Close ✕</button></h2>
       <p class="sub">Everything the Pan has written down. Kept in triplicate.*</p>
 
       <div class="lsec" id="sec-intake"><h3>Form 1-A · Intake <span id="intakecount"></span></h3><ul class="intake" id="intake"></ul></div>
@@ -651,8 +683,14 @@ function writeCard(icon, text, small, sectionId, undoFn) {
   log.appendChild(el); scrollChat(); writes.push(w);
   return w;
 }
+const narrow = matchMedia("(max-width: 999px)");
+function setLedger(open) { document.body.classList.toggle("ledger-open", open); }
+document.getElementById("ledgerbtn").onclick = () => setLedger(true);
+document.getElementById("ledgerclose").onclick = () => setLedger(false);
+document.addEventListener("keydown", e => { if (e.key === "Escape") setLedger(false); });
 function flashSection(id) {
   const s = document.getElementById(id); if (!s) return;
+  if (narrow.matches) setLedger(true);
   s.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "nearest" });
   s.classList.remove("flash"); void s.offsetWidth; s.classList.add("flash");
 }
