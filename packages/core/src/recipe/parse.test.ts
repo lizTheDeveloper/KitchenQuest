@@ -80,8 +80,8 @@ describe('parseRecipe', () => {
     const r = parseRecipe(src);
     const q = Object.fromEntries(r.ingredients.map((i) => [i.name, i.quantity]));
     expect(q).toEqual({ salt: 0.75, onion: 0.5, sugar: 1.5, chilli: 2, stock: 0.75, herbs: null });
-    expect(r.ingredients[0]!.unit).toBe('tsp');
-    expect(r.timers[0]!.quantity).toBe(0.5);
+    expect(r.ingredients[0].unit).toBe('tsp');
+    expect(r.timers[0].quantity).toBe(0.5);
   });
 
   it('names an aliased ingredient by what it is, keeping the alias for display', () => {

@@ -17,7 +17,7 @@ export async function deleteHealthDataIn(tx: Tx, userId: string, now: Date, requ
   await audit(tx, { actorKind: 'user', actorId: userId, subjectUserId: userId, action: 'health_data.delete', requestId }, now);
 }
 
-/** `deleteHealthDataIn` in its own transaction. */
+/** `deleteHealthDataIn` in its own transaction. Kept as the standalone erasure entry point for callers outside a transaction. @public */
 export async function deleteHealthData(db: Db, userId: string, now: Date, requestId?: string): Promise<void> {
   await db.transaction((tx) => deleteHealthDataIn(tx, userId, now, requestId));
 }

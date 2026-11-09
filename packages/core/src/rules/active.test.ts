@@ -70,7 +70,7 @@ describe('validateRules', () => {
 describe('validateRules: deep runtime checks', () => {
   /** Problems for one rule built from `base` with fields overridden as untyped data would be. */
   const problemsFor = (overrides: Record<string, unknown>): string[] =>
-    validateRules([{ ...base, ...overrides } as unknown as Rule], graph);
+    validateRules([{ ...base, ...overrides }], graph);
   const limitRule = (limit: Record<string, unknown>) =>
     problemsFor({ id: 'lim', type: 'limit', limit: { amount: 5, unit: 'g', per: 'serving', ...limit } });
 

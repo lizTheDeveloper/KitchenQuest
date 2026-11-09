@@ -16,7 +16,7 @@ function frozenCopy(node: IngredientNode): IngredientNode {
   const copy: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(node)) {
     copy[key] = Array.isArray(value)
-      ? Object.freeze([...value])
+      ? Object.freeze([...(value as unknown[])])
       : typeof value === 'object' && value !== null
         ? Object.freeze({ ...value })
         : value;
@@ -84,7 +84,7 @@ export class IngredientGraph {
       const seen = new Set<string>();
       const queue = [...children.get(id)!];
       for (let i = 0; i < queue.length; i++) {
-        const cur = queue[i]!;
+        const cur = queue[i];
         if (seen.has(cur)) continue;
         seen.add(cur);
         queue.push(...children.get(cur)!);
@@ -181,7 +181,7 @@ export class IngredientGraph {
     const prev = new Map<string, string | null>([[fromId, null]]);
     const queue = [fromId];
     for (let i = 0; i < queue.length; i++) {
-      const id = queue[i]!;
+      const id = queue[i];
       if (id === targetId) {
         const path: string[] = [];
         for (let cur: string | null = id; cur !== null; cur = prev.get(cur) ?? null) path.unshift(cur);

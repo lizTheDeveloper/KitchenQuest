@@ -2,7 +2,7 @@ import { and, eq, gte, sql } from 'drizzle-orm';
 import { usageEvents } from '../db/schema.js';
 import type { Db } from '../types.js';
 
-export const USAGE_FEATURES = ['mentor_text', 'voice_stt', 'voice_tts', 'photo_reaction', 'ingest'] as const;
+const USAGE_FEATURES = ['mentor_text', 'voice_stt', 'voice_tts', 'photo_reaction', 'ingest'] as const;
 export type UsageFeature = (typeof USAGE_FEATURES)[number];
 
 /** Records counts and cost only. Never pass prompt, transcript or response content. */

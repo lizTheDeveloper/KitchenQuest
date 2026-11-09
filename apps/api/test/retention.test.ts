@@ -36,7 +36,7 @@ describe('retention (C-6)', () => {
     const now = new Date(Math.floor(Date.now() / 1000) * 1000);
     const at = (ms: number) => new Date(now.getTime() + ms);
     const [u] = await db.insert(users).values({ email: 'ret@example.com', ageConfirmedAt: now }).returning();
-    const userId = u!.id;
+    const userId = u.id;
 
     await db.insert(loginTokens).values([
       { email: 'gone-expired@x.com', tokenHash: hash(), expiresAt: at(-25 * HOUR) },
@@ -90,7 +90,7 @@ describe('retention (C-6)', () => {
       stop();
     }
     expect(info).not.toHaveBeenCalled();
-    const [payload, msg] = error.mock.calls[0]!;
+    const [payload, msg] = error.mock.calls[0];
     expect(msg).toBe('retention run failed');
     const failures = (payload as { failures: { table: string; error: { message: string } }[] }).failures;
     expect(failures.map((f) => f.table).sort()).toEqual(['audit_events', 'login_tokens', 'sessions', 'usage_events']);

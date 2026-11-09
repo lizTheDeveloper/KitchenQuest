@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { Keyring, parseDataKeys, parseKey, type SecretKey } from './crypto/keyring.js';
 
 /** Fastify `trustProxy`: off, all proxies, a hop count, or the proxies' addresses/CIDRs. */
-export type TrustProxy = boolean | number | string[];
+type TrustProxy = boolean | number | string[];
 
 export interface Config {
   databaseUrl: string;

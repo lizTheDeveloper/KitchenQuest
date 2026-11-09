@@ -63,12 +63,12 @@ describe('audit log (C-5)', () => {
         await tx`update audit_events set subject_user_id = 'someone-else' where subject_user_id = ${U2}`;
       }),
     ).rejects.toThrow(/append-only/);
-    expect((await rowsFor(U2))[0]!.action).toBe('test.event');
+    expect((await rowsFor(U2))[0].action).toBe('test.event');
   });
 
   it('pseudonymizes a deleted user as subject and actor, leaving everything else', async () => {
     const [u] = await db.insert(users).values({ email: 'gone@example.com', ageConfirmedAt: new Date() }).returning();
-    const U3 = u!.id;
+    const U3 = u.id;
     const other = '00000000-0000-4000-8000-000000000004';
     const at = new Date();
     await audit(db, { actorKind: 'user', actorId: U3, subjectUserId: U3, action: 'auth.sign_in' }, at);
@@ -96,17 +96,17 @@ describe('audit log (C-5)', () => {
 
   it("refuses to pseudonymize a live user's id", async () => {
     const [u] = await db.insert(users).values({ email: 'alive@example.com', ageConfirmedAt: new Date() }).returning();
-    await audit(db, { actorKind: 'user', actorId: u!.id, subjectUserId: u!.id, action: 'auth.sign_in' }, new Date());
-    await expect(pseudonymizeAudit(db, pkey, u!.id)).rejects.toThrow(/still exists/);
+    await audit(db, { actorKind: 'user', actorId: u.id, subjectUserId: u.id, action: 'auth.sign_in' }, new Date());
+    await expect(pseudonymizeAudit(db, pkey, u.id)).rejects.toThrow(/still exists/);
     // Setting the flags by hand does not get past the trigger either.
     await expect(
       sql.begin(async (tx) => {
-        await tx`select set_config('kq.audit_pseudonymize', ${u!.id}, true)`;
-        await tx`select set_config('kq.audit_pseudonym', ${pseudonymFor(pkey, u!.id)}, true)`;
-        await tx`update audit_events set subject_user_id = ${pseudonymFor(pkey, u!.id)} where subject_user_id = ${u!.id}`;
+        await tx`select set_config('kq.audit_pseudonymize', ${u.id}, true)`;
+        await tx`select set_config('kq.audit_pseudonym', ${pseudonymFor(pkey, u.id)}, true)`;
+        await tx`update audit_events set subject_user_id = ${pseudonymFor(pkey, u.id)} where subject_user_id = ${u.id}`;
       }),
     ).rejects.toThrow(/append-only/);
-    expect(await rowsFor(u!.id)).toHaveLength(1);
+    expect(await rowsFor(u.id)).toHaveLength(1);
   });
 
   it('a failed pseudonymize call leaks no key bytes or hex into the error or the log', async () => {
@@ -118,7 +118,7 @@ describe('audit log (C-5)', () => {
 
     let thrown: unknown;
     try {
-      await pseudonymizeAudit(db, key, u!.id);
+      await pseudonymizeAudit(db, key, u.id);
     } catch (e) {
       thrown = e;
     }
@@ -155,7 +155,7 @@ describe('audit log (C-5)', () => {
     let thrown: unknown;
     try {
       // The unsafe form (raw bytes bound): fails because the user still exists.
-      await db.execute(dsql`select audit_pseudonymize(${u!.id}::uuid, ${raw}::bytea)`);
+      await db.execute(dsql`select audit_pseudonymize(${u.id}::uuid, ${raw}::bytea)`);
     } catch (e) {
       thrown = e;
     }
@@ -190,7 +190,7 @@ describe('audit log (C-5)', () => {
       }),
     ).rejects.toThrow(/append-only/);
     await expect(sql`select audit_pseudonymize('liz', ${randomBytes(32)})`).rejects.toThrow();
-    expect((await sql`select count(*)::int as n from audit_events where actor_id = 'liz'`)[0]!.n).toBeGreaterThan(0);
+    expect((await sql`select count(*)::int as n from audit_events where actor_id = 'liz'`)[0].n).toBeGreaterThan(0);
   });
 
   it('the pseudonym is computed by the database, not supplied by the caller', async () => {

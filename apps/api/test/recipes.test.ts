@@ -56,16 +56,16 @@ describe('syncCanon', () => {
     const r = await rows();
     expect(r.map((x) => x.slug)).toEqual(['testland/north/a', 'testland/north/b']);
     expect(r[0]).toMatchObject({ path: 'testland/north/a.cook', title: 'A', country: 'Testland', region: 'North', status: 'draft' });
-    expect(r[0]!.content_hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(r[0].content_hash).toMatch(/^[0-9a-f]{64}$/);
     // Stored exactly as written: case kept, order kept.
-    expect(r[0]!.contributors).toEqual(['Ada-L', 'bob']);
-    expect(r[1]!.contributors).toEqual([]);
+    expect(r[0].contributors).toEqual(['Ada-L', 'bob']);
+    expect(r[1].contributors).toEqual([]);
 
     expect(await syncCanon(db, dir, graph)).toEqual({ added: 0, updated: 0, removed: 0, unchanged: 2 });
 
     put('testland/north/b.cook', recipe('B2'));
     expect(await syncCanon(db, dir, graph)).toEqual({ added: 0, updated: 1, removed: 0, unchanged: 1 });
-    expect((await rows())[1]!.title).toBe('B2');
+    expect((await rows())[1].title).toBe('B2');
 
     rmSync(join(dir, 'testland/north/b.cook'));
     expect(await syncCanon(db, dir, graph)).toEqual({ added: 0, updated: 0, removed: 1, unchanged: 1 });
@@ -76,7 +76,7 @@ describe('syncCanon', () => {
     await syncCanon(db, dir, graph);
     await sql`update canon_recipes set contributors = '{}' where slug = 'testland/north/a'`;
     expect(await syncCanon(db, dir, graph)).toEqual({ added: 0, updated: 1, removed: 0, unchanged: 1 });
-    expect((await rows())[0]!.contributors).toEqual(['Ada-L', 'bob']);
+    expect((await rows())[0].contributors).toEqual(['Ada-L', 'bob']);
   });
 
   it('a malformed file aborts everything, names the path, and leaves the table unchanged', async () => {

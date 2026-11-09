@@ -43,7 +43,7 @@ async function newUser(): Promise<string> {
     .insert(users)
     .values({ email: `consent${++seq}@example.com`, ageConfirmedAt: clock })
     .returning({ id: users.id });
-  return u!.id;
+  return u.id;
 }
 
 const auditFor = (userId: string) =>
@@ -67,9 +67,9 @@ describe('consent ledger (C-1)', () => {
     const rows = await sql`select purpose, notice_version, notice_sha256, method, granted_at, withdrawn_at from consents where user_id = ${userId}`;
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ purpose: 'health_data', notice_version: 'v1', method: 'tap' });
-    expect(new Date(rows[0]!.granted_at).getTime()).toBe(t0.getTime());
-    expect(new Date(rows[0]!.withdrawn_at).getTime()).toBe(t1.getTime());
-    expect(Buffer.from(rows[0]!.notice_sha256).equals(sha('notice'))).toBe(true);
+    expect(new Date(rows[0].granted_at).getTime()).toBe(t0.getTime());
+    expect(new Date(rows[0].withdrawn_at).getTime()).toBe(t1.getTime());
+    expect(Buffer.from(rows[0].notice_sha256).equals(sha('notice'))).toBe(true);
   });
 
   it('a repeat grant of the same notice is a no-op; a new notice version supersedes the old', async () => {
@@ -235,7 +235,7 @@ describe('consent routes (C-1)', () => {
     const email = `route${++seq}@example.com`;
     const cookies = { kq_session: await signIn(app, mailer, email) };
     const [u] = await sql`select id from users where email = ${email}`;
-    const userId = u!.id as string;
+    const userId = u.id as string;
     await app.inject({ method: 'POST', url: '/me/consents', cookies, payload: { purpose: 'health_data', noticeVersion: current.version } });
     const rowId = randomUUID();
     await db.insert(rules).values({ id: rowId, userId, sealed: await sealFor(db, config.keyring, { table: 'rules', userId, rowId }, { t: 1 }) });
@@ -260,7 +260,7 @@ describe('consent routes (C-1)', () => {
     const email = `route${++seq}@example.com`;
     const cookies = { kq_session: await signIn(app, mailer, email) };
     const [u] = await sql`select id from users where email = ${email}`;
-    const userId = u!.id as string;
+    const userId = u.id as string;
     await app.inject({ method: 'POST', url: '/me/consents', cookies, payload: { purpose: 'health_data', noticeVersion: current.version } });
     await db.insert(rules).values({ userId, sealed: Buffer.from('x') });
     // Make the rules delete fail for this user only.
@@ -283,7 +283,7 @@ describe('consent routes (C-1)', () => {
     const email = `route${++seq}@example.com`;
     const cookies = { kq_session: await signIn(app, mailer, email) };
     const [u] = await sql`select id from users where email = ${email}`;
-    const userId = u!.id as string;
+    const userId = u.id as string;
     await app.inject({ method: 'POST', url: '/me/consents', cookies, payload: { purpose: 'health_data', noticeVersion: current.version } });
     await db.insert(rules).values({ userId, sealed: Buffer.from('x') });
     await app.inject({ method: 'DELETE', url: '/me/consents/health_data', cookies, payload: { healthData: 'keep' } });

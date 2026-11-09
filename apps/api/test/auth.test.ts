@@ -58,7 +58,7 @@ async function tokenFor(email: string): Promise<string> {
   expect(mail.to).toBe(email);
   const m = mail.text.match(/(https?:\/\/\S+\/auth\/verify\?token=([A-Za-z0-9_-]+))/);
   expect(m, mail.text).not.toBeNull();
-  return m![2]!;
+  return m![2];
 }
 
 function verify(token: string, ageConfirmed?: boolean) {
@@ -109,7 +109,7 @@ describe('magic-link sign-in', () => {
     const raw = res.headers['set-cookie'];
     const header = Array.isArray(raw) ? raw : [raw!];
     expect(header).toHaveLength(1);
-    const [pair, ...attrs] = header[0]!.split('; ');
+    const [pair, ...attrs] = header[0].split('; ');
     expect(pair).toMatch(/^kq_session=[A-Za-z0-9_-]{43}$/);
     expect(attrs.sort()).toEqual(['HttpOnly', 'Max-Age=2592000', 'Path=/', 'SameSite=Lax', 'Secure']);
 
@@ -137,7 +137,7 @@ describe('magic-link sign-in', () => {
       expect(text).not.toContain(Buffer.from(secret, 'base64url').toString('hex'));
     }
     const [row] = await sql`select token_hash from login_tokens where email = ${email}`;
-    expect((row!.token_hash as Buffer).length).toBe(32); // SHA-256
+    expect((row.token_hash as Buffer).length).toBe(32); // SHA-256
   });
 
   it('a token works once: replay is 401', async () => {
@@ -198,7 +198,7 @@ describe('magic-link sign-in', () => {
     const ok = await verify(token, true);
     expect(ok.statusCode).toBe(200);
     const [user] = await sql`select age_confirmed_at from users where email = ${email}`;
-    expect(new Date(user!.age_confirmed_at).toISOString()).toBe(clock.toISOString());
+    expect(new Date(user.age_confirmed_at).toISOString()).toBe(clock.toISOString());
   });
 
   it('an existing user signs in again without ageConfirmed, same id', async () => {
@@ -370,7 +370,7 @@ describe('audit events (C-5)', () => {
   it('sign-in and sign-out each write a content-free event', async () => {
     const { email, cookie } = await signIn();
     const [u] = await sql`select id from users where email = ${email}`;
-    const userId = u!.id as string;
+    const userId = u.id as string;
     const [signedIn] = await eventsFor(userId);
     expect(signedIn).toMatchObject({
       actor_kind: 'user',
@@ -380,7 +380,7 @@ describe('audit events (C-5)', () => {
       target: null,
       request_id: expect.any(String),
     });
-    expect(new Date(signedIn!.at).getTime()).toBe(clock.getTime());
+    expect(new Date(signedIn.at).getTime()).toBe(clock.getTime());
     // No email anywhere in the audit log.
     expect(await sql`select 1 from audit_events where row_to_json(audit_events)::text ilike ${'%' + email + '%'}`).toHaveLength(0);
 

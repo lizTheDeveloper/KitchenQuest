@@ -10,7 +10,7 @@ export interface Catalog {
 }
 
 /** The repository's `data/` directory. */
-export const DATA_DIR = fileURLToPath(new URL('../../../data/', import.meta.url));
+const DATA_DIR = fileURLToPath(new URL('../../../data/', import.meta.url));
 
 function readJson(dir: string, file: string): unknown {
   const path = join(dir, file);

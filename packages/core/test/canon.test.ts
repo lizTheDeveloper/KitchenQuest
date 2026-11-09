@@ -49,7 +49,7 @@ describe('canon', () => {
     expect(meta.credit.trim()).not.toBe('');
     const parts = file.split('/');
     expect(parts).toHaveLength(3); // <country>/<region>/<slug>.cook
-    expect(parts[0]!.replace(/-/g, ' ')).toBe(meta.country.toLowerCase());
+    expect(parts[0].replace(/-/g, ' ')).toBe(meta.country.toLowerCase());
   });
 
   it.each(files)('nutrition is complete: %s', (file) => {
@@ -148,7 +148,7 @@ ${body}
     for (const target of ['pork', 'meat']) {
       const result = runOn('Fry in @lard{1%tbsp}.', [avoid('no-pork', [target], 'preference')]);
       expect(result.findings[0]).toMatchObject({ ingredientId: 'lard', kind: 'match', status: 'swap' });
-      expect(result.findings[0]!.path!.at(-1)).toBe(target);
+      expect(result.findings[0].path!.at(-1)).toBe(target);
     }
   });
 });

@@ -4,7 +4,7 @@ import type { SecretKey } from '../crypto/keyring.js';
 import { auditEvents } from '../db/schema.js';
 import type { Db } from '../types.js';
 
-export type AuditActorKind = 'user' | 'system' | 'operator' | 'script';
+type AuditActorKind = 'user' | 'system' | 'operator' | 'script';
 
 /**
  * One content-free audit event (C-5). `action` is a dotted verb such as
@@ -60,7 +60,7 @@ export async function pseudonymizeAudit(db: Executor, pseudonymKey: SecretKey, u
     const rows = await db.execute<{ n: number }>(
       sql`select audit_pseudonymize(${userId}::uuid, decode(${keyHex}, 'hex')) as n`,
     );
-    return Number(rows[0]!.n);
+    return Number(rows[0].n);
   } catch (err) {
     // Drizzle's message quotes the bound parameters (the key), and the driver's
     // error keeps them as a property; rethrow only the database's own message and code.
@@ -88,5 +88,5 @@ export class PseudonymizeError extends Error {
  */
 export async function purgeAuditBefore(db: Executor, cutoff: Date): Promise<number> {
   const rows = await db.execute<{ n: number }>(sql`select audit_purge_before(${cutoff.toISOString()}::timestamptz) as n`);
-  return Number(rows[0]!.n);
+  return Number(rows[0].n);
 }

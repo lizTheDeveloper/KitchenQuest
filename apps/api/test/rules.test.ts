@@ -140,7 +140,7 @@ describe('/rules', () => {
     const rule = created.json().rule;
     expect(rule).toEqual({ ...PEANUT, id: expect.stringMatching(/^[0-9a-f-]{36}$/) });
     const [row] = await db.select().from(rules).where(eq(rules.id, rule.id));
-    expect(row!.userId).toBe(uid);
+    expect(row.userId).toBe(uid);
 
     const second = (await post(c, { rule: DAIRY, confirmed: true })).json().rule;
     expect((await list(c)).json()).toEqual({ rules: [rule, second] });
@@ -229,8 +229,8 @@ describe('/rules', () => {
     const c = await player();
     const id = (await post(c, { rule: { ...PEANUT, note: 'peanut butter too' }, confirmed: true })).json().rule.id;
     const [row] = await sql<{ sealed: Buffer }[]>`select sealed from rules where id = ${id}`;
-    expect(row!.sealed.includes(Buffer.from('peanut'))).toBe(false);
-    expect(row!.sealed.toString('latin1')).not.toMatch(/peanut|anaphylactic|avoid/i);
+    expect(row.sealed.includes(Buffer.from('peanut'))).toBe(false);
+    expect(row.sealed.toString('latin1')).not.toMatch(/peanut|anaphylactic|avoid/i);
   });
 
   it("another user's rule id → 404 on PUT and DELETE and absent from their list", async () => {
@@ -328,7 +328,7 @@ describe('/rules consent gate (C-11)', () => {
     const c = await player();
     const uid = await userIdOf(c);
     const lockWaiters = async () =>
-      (await sql<{ n: number }[]>`select count(*)::int as n from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'`)[0]!.n;
+      (await sql<{ n: number }[]>`select count(*)::int as n from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'`)[0].n;
     const until = async (n: number) => {
       for (let i = 0; i < 500; i++) {
         if ((await lockWaiters()) >= n) return;
@@ -391,8 +391,8 @@ describe('log redaction (C-9)', () => {
         logged.inject({ method: 'POST', url: '/rules', cookies, payload: { rule: PEANUT } }),
       ]);
       expect(res.map((r) => r.statusCode)).toEqual([200, 201, 400, 400]);
-      expect(res[0]!.json().results).toContainEqual({ id: 'peanut', name: 'peanut', matched: 'peanut' });
-      const id = res[1]!.json().rule.id;
+      expect(res[0].json().results).toContainEqual({ id: 'peanut', name: 'peanut', matched: 'peanut' });
+      const id = res[1].json().rule.id;
       expect((await logged.inject({ method: 'GET', url: '/rules', cookies })).statusCode).toBe(200);
       expect((await logged.inject({ method: 'PUT', url: `/rules/${id}`, cookies, payload: { rule: PEANUT, confirmed: true } })).statusCode).toBe(200);
       expect((await logged.inject({ method: 'DELETE', url: `/rules/${id}`, cookies })).statusCode).toBe(204);

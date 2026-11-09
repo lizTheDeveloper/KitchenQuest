@@ -53,7 +53,7 @@ export function seal(plain: unknown, key: Buffer, keyId: string, context: Buffer
  */
 export function open<T>(sealed: Buffer, keys: Readonly<Record<string, Buffer>>, context: Buffer = EMPTY): T {
   if (sealed.length < 1) throw new Error('open: sealed value is empty');
-  const idLen = sealed[0]!;
+  const idLen = sealed[0];
   const headerEnd = 1 + idLen;
   if (idLen === 0 || sealed.length < headerEnd + IV_LEN + TAG_LEN) {
     throw new Error('open: sealed value is malformed');

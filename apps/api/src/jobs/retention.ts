@@ -13,7 +13,7 @@ export interface RetentionPolicy {
 const policies = new Map<string, RetentionPolicy>();
 
 /** One policy's failure; `runRetention` throws an AggregateError of these. */
-export class RetentionError extends Error {
+class RetentionError extends Error {
   constructor(
     readonly table: string,
     cause: unknown,
@@ -55,7 +55,7 @@ export async function runRetention(db: Db, now: Date): Promise<Record<string, nu
 const HOUR = 60 * 60 * 1000;
 
 /** Loggable form of a retention failure: each failed table with its scrubbed error. */
-export function retentionFailures(err: unknown): { table: string; error: ReturnType<typeof loggableError> }[] {
+function retentionFailures(err: unknown): { table: string; error: ReturnType<typeof loggableError> }[] {
   const list = err instanceof AggregateError ? err.errors : [err];
   return list.map((e) =>
     e instanceof RetentionError

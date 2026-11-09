@@ -65,6 +65,7 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
   app.decorate('requireUser', requireUser);
   app.decorateRequest('user', null as never);
 
+  // eslint-disable-next-line @typescript-eslint/require-await -- Fastify handlers return a promise or call reply; async is the idiom
   app.get('/health', async () => ({ ok: true }));
   await authRoutes(app);
   await profileRoutes(app);

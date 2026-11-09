@@ -170,7 +170,7 @@ describe('IngredientGraph.search', () => {
       ingredients: Array.from({ length: 15 }, (_, i) => ({ id: `x${i}`, name: `x item ${String(i).padStart(2, '0')}` })),
     });
     expect(many.search('x')).toHaveLength(10);
-    expect(many.search('x')[0]!.id).toBe('x0');
+    expect(many.search('x')[0].id).toBe('x0');
   });
 
   it('finds nothing for an unmatched query', () => {

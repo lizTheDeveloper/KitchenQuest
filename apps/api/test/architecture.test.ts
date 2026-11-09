@@ -22,7 +22,7 @@ interface Violation {
 export function healthViolations(file: string, text: string): Violation[] {
   const out: Violation[] = [];
   const dir = join(SRC, file, '..');
-  const specifiers = [...text.matchAll(/(?:from|import)\s*\(?\s*['"]([^'"]+)['"]/g)].map((m) => m[1]!);
+  const specifiers = [...text.matchAll(/(?:from|import)\s*\(?\s*['"]([^'"]+)['"]/g)].map((m) => m[1]);
   for (const spec of specifiers) {
     if (!spec.startsWith('.')) continue;
     const target = relative(SRC, resolve(dir, spec)).replace(/\.(js|ts)$/, '');
@@ -31,8 +31,8 @@ export function healthViolations(file: string, text: string): Violation[] {
     }
   }
   for (const m of text.matchAll(/import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]/g)) {
-    if (!/db\/schema(\.js)?$/.test(m[2]!)) continue;
-    const names = m[1]!.split(',').map((n) => n.trim().split(/\s+as\s+/)[0]!.replace(/^type\s+/, ''));
+    if (!/db\/schema(\.js)?$/.test(m[2])) continue;
+    const names = m[1].split(',').map((n) => n.trim().split(/\s+as\s+/)[0].replace(/^type\s+/, ''));
     for (const n of names) if (HEALTH_SCHEMA_EXPORTS.includes(n)) out.push({ file, reason: `imports health table ${n}` });
   }
   if (/import\s*\*\s*as\s+\w+\s*from\s*['"][^'"]*db\/schema(\.js)?['"]/.test(text)) {

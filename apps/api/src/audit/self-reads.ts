@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { selfReadCounts, SELF_READ_RESOURCES } from '../db/schema.js';
+import { selfReadCounts, type SELF_READ_RESOURCES } from '../db/schema.js';
 import type { Db } from '../types.js';
 
 export type SelfReadResource = (typeof SELF_READ_RESOURCES)[number];
