@@ -353,6 +353,22 @@ If OpenRouter is down or returns invalid output, the game says so in character (
 - For rules, the Pan spells out and shows on screen the ingredient it heard ("kiwi, K-I-W-I"), because mishearing an allergen is the worst failure mode.
 - Severe rules always need a tap on the on-screen card in addition to the spoken yes.
 
+### 7.6b Mentor safety architecture (from the Qwen spike)
+
+Source: `docs/spikes/2026-11-09-qwen-as-pan.md`. Verdict: `qwen/qwen3.8-27b` is a **go with these mitigations**. They are binding requirements for the mentor milestone.
+
+1. **The server guards every health write.** `save_rule` is rejected unless a proposal card was shown, and the yes arrived through the UI: a tap for severe rules, or a tap or a confirmed spoken yes for others. The model's own claim of confirmation is never enough.
+2. **Read-backs and allergen spelling come from code, not the model**, using written lines from `content/dialogue/pan.yaml`. In the spike the model failed to spell severe allergens 24% of the time.
+3. **The on-screen card is the record.** The reply is checked against the tools actually called. If the reply claims a write that didn't happen, the claim is replaced.
+4. **Page events travel on a separate channel.** Card taps and system events never arrive as user text, and lookalike strings (e.g. "[Player tapped …]") are stripped from user input. This blocks the injection seen in the spike.
+5. **Output filter before display or speech:** no "this is safe to eat" claims, banned words from `docs/style/voice.md`, a 3-sentence limit, and no empty replies. Recipe and safety statements come only from `check` results that are in context, never from the model's memory.
+6. **Model settings:** temperature 0.3, reasoning off, and a pinned allow-list of fast, cheap, no-retention providers (also required by compliance C-14).
+7. **Prompting:** few-shot examples for implicit pantry removals ("I finished the milk") and British times ("half twelve" means 12:30).
+8. **Latency:** plain replies meet the voice budget, p50 about 0.5 s. Tool turns speak a scripted filler line ("Let me write that in the ledger…") while the tool runs.
+9. **Regression suite:** the spike's 40-case suite becomes a permanent eval, run on every prompt or model change, with a zero-tolerance gate on safety categories.
+10. **Comedy stays scripted-first.** The model averaged about 1 good line in 10 and leaned on "I'm a pan" in about a third of replies, which confirms §8. The persona prompt bans catchphrase repetition.
+11. **Cost:** about $0.0006 per turn at current list prices, roughly $0.02 per free player per month, within the §16 budget.
+
 ### 7.7 Live voice
 
 OpenRouter offers no open-source realtime voice model, so voice is a pipeline. Working default (pending Liz's confirmation):
