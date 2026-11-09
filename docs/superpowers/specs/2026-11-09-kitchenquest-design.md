@@ -32,7 +32,7 @@ Comedy register: Douglas Adams and Terry Pratchett. Absurd bureaucracy, footnote
 ### 1.2 Assumptions (not confirmed; change freely)
 
 - "Reclaim City" is read here as a habit-RPG loop (Habitica-like): real-life actions earn in-game progress. Revise §6 if it means something else.
-- No monetization in v1. Architecture does not preclude a later subscription.
+- Monetization: a free tier plus a choose-your-price "Pantry Guild" membership, School courses, and community seat licences (§16). Paid plans are 18+.
 - Launch content is 3 countries × 3 cooks = 9 dishes. Country choice depends on recruiting contributors from those cuisines (§11).
 - Minimum age 16, because the app processes health data.
 
@@ -120,7 +120,7 @@ The world map is a quest board. Recipes are earned through quests, given as gift
 
 ### 3.5 The gamified market (a real shopping-skills trainer)
 
-The market is where players learn to *choose* food. Each stall is an NPC with a short minigame that teaches a real skill. The minigames run in practice mode any day, and they also gate the weekly market run.
+The market is where players learn to *choose* food. Each stall is an NPC with a short minigame that teaches a real skill. The minigames run in practice mode any day. They are optional on market day: they earn XP but never gate the shopping list (Octalysis audit: no forced play between the player and their groceries).
 
 | Stall | Real skill taught | Minigame |
 |---|---|---|
@@ -267,7 +267,10 @@ A journey is a named sequence of time-boxed rule sets plus check-ins. Low-FODMAP
 | **Skill XP** | Each dish's `skills` (knife, heat control, sauces, baking, fermentation, grains, …). Skill levels gate harder dishes |
 | **Trust (per cook)** | Cooking their dishes and returning to them. Unlocks dishes and introductions |
 | **Bureau Stamps** | Soft currency for kitchen cosmetics (pan hats, aprons, kitchen decor). No paid currency in v1 |
-| **Daily nourishment** | Logging meals at reasonable intervals and hitting "enough" ranges. Small and steady, never multiplied by streaks |
+| **Daily nourishment** | Logging meals at reasonable intervals and hitting "enough" ranges. Small, steady and capped per day; never multiplied by streaks, never a bonus for responding to a reminder |
+| **Technique Toolkit** | Each technique moves Seen (lesson) → Tried (cooked once) → Yours (used in a second dish or cuisine). Never decays. This is the main progression, and the Pan offers at most one new technique a week ("One More Technique"); saying no costs nothing |
+
+**Nothing earned is taken back.** Undoing a meal log or an allergy rule removes the record, never XP, level, stamps or trust. Filing an allergy or diet rule earns no XP: safety data is never gamified, and onboarding is complete without one.
 
 **Anti-cheat stance.** Photos aren't verified, and that's fine. The game's value is the cooking, so cheating only cheats yourself. No leaderboards in v1, so there's no incentive to fake.
 
@@ -466,7 +469,7 @@ KitchenQuest/
 - Native app-store apps (a Capacitor wrapper later)
 - Body metrics and weight tracking
 - Social features, leaderboards, and sharing photos publicly
-- Paid currency or subscription
+- Paid currency (never; see §16)
 - Barcode scanning
 - Wearables and health-platform integrations
 - Multiplayer cooking
@@ -475,7 +478,46 @@ KitchenQuest/
 
 1. What does "Reclaim City" mean to you, and which part of it should the reward loop copy?
 2. Which 3 launch countries, and who are the contributors and reviewers?
-3. Monetization direction (free, subscription, or school tie-in), so the data model doesn't block it.
+3. Monetization: decided in §16 (Guild price points still to test: $3 / $6 / $12, with $8 tested as the middle).
 4. Is age 16+ right, or should it be 18+?
 5. Live voice: self-hosted STT/TTS around Qwen via OpenRouter (the default, §7.7), Qwen realtime on Alibaba Cloud, or browser speech?
 6. Is the Pan the mentor, or someone else?
+
+## 16. Monetization and ethics
+
+Sources: `docs/business/2026-11-09-value-chain-monetization.md` (value chain analysis) and `docs/business/2026-11-09-octalysis-audit.md` (Octalysis audit).
+
+**Model.**
+- **Free tier:** everything in "free forever" below, with a capped daily allowance of mentor AI and voice.
+- **Pantry Guild:** a membership with the same features for every member, priced by the member's choice: $3, $6 or $12 a month ($24/$48/$96 a year), with $8 tested as the middle point. It adds a generous AI and voice allowance, cosmetic kitchen items, and supporter credit. A household plan is $10 a month. A free **Bursary** seat goes to anyone who asks, with no proof required.
+- **Contributor share:** 15% of net Guild revenue goes to the contributors and reviewers of each cuisine, tracked per recipe contribution.
+- **The Multiverse School:** cooking courses on a sliding scale ($99–249), and community-organization seat licences (about $2–3 per seat per month).
+- **Founding offer:** $36 for the first year, capped at 500 members.
+- **Never:** ads, affiliate links, brand sponsorships, paid currency, or data deals with insurers or employers.
+
+**Free forever** (must work for a player who has paid nothing, and a test pins it):
+- allergy and diet checks, including AI help creating rules
+- the open recipe canon and cook mode
+- meal logging and gut-health diet journeys
+- export and delete
+- at least one free path to learn every technique
+- unlimited voice for players who need it for accessibility
+
+**Never rules** (Octalysis, binding on every milestone):
+1. Never charge for safety.
+2. Never paywall eating enough.
+3. Never sell progress or a way to skip learning.
+4. No loot boxes or random paid items.
+5. No paid urgency; scarcity only mirrors real seasons.
+6. Never take back anything earned.
+7. Mentors and cooks never sell; the Pan never mentions the Guild unprompted.
+8. No rewards for eating less, for responding to reminders, or for streaks.
+9. No referral schemes or leaderboards.
+10. Community recipes stay free to cook, and their contributors are paid and credited.
+
+**System requirements that follow from this:**
+- An `entitlements` table, not a tier column.
+- A `usage_events` table that records AI and voice usage and cost per call, without storing content. It is used for allowances and unit economics.
+- Machine-readable contributor ids in recipe front matter.
+- A stated license for `content/` and the art.
+- Paid plans are 18+, while the app remains 16+.
