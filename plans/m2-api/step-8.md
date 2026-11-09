@@ -15,3 +15,5 @@ One scripted journey through the real app with the real canon and seed data:
 - [ ] **8.1 Write it.** **8.2 Run** → PASS (it should, since Steps 3–7 exist; if not, fix the owning code and add a focused test there).
 - [ ] **8.3 Final verification:** root `npm test`, `npm run typecheck`, `npm run build -w @kitchenquest/game`.
 - [ ] **8.4 Commit** `test(api): end-to-end safety journey`
+
+**Compliance amendments (C-11):** `POST /rules` without `health_data` consent → 403 `consent_required`, nothing stored; with consent → 201; withdrawing stops further writes; declining consent never blocks play (canon recipes and checks still work with no stored rules).

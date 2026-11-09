@@ -15,3 +15,5 @@
 - [ ] **5.1 Tests:** search (`'scal'` finds green onion via alias; `''` → []); CRUD round trip; `confirmed` missing → 400 `confirmation_required` and nothing stored; unknown target id, inverted phase, bad enum → 400 with core problems (Review Focus 4); the `rules.sealed` column contains no plaintext target id (search the raw bytes for `"peanut"`) (Review Focus 3); another user's rule id → 404 on GET-by-list absence, PUT and DELETE (Review Focus 1).
 - [ ] **5.2 Run** → FAIL. **5.3 Implement.** **5.4 Run** → PASS (root).
 - [ ] **5.5 Commit** `feat: ingredient search; encrypted, confirmed allergy and diet rules`
+
+**Compliance amendments:** store rules with `sealFor` (context `{table:'rules', userId, rowId}`, row id generated before insert) (C-3/C-4); `POST/PUT /rules` require `hasConsent(health_data)` else 403 `consent_required` (C-11); add the C-9 'peanut' log test for search and rule POST.

@@ -23,6 +23,8 @@
 - Fail loudly: invalid config stops the server at boot with a message naming the variable.
 - Tests run against real Postgres 16 (`TEST_DATABASE_URL`); each test file gets its own schema. No mocked database.
 
+- Compliance (docs/compliance/2026-11-09-health-data-compliance.md): Kitchen Quest stays outside HIPAA by design (product rules P-1–P-14); never market it as "HIPAA compliant". Health data requires `health_data` consent (403 `consent_required`); org data is never joined to health data (C-10).
+
 ## Review Focus
 
 1. A request with another user's rule or recipe id must get 404, never their data. → Tasks 5, 6, 7 tests.
