@@ -2,19 +2,16 @@ import postgres from 'postgres';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
+import { LogMailer, SmtpMailer } from './mail/mailer.js';
 import type { Mailer } from './types.js';
 
 const config = loadConfig(process.env);
 
-if (config.mailer === 'smtp') {
-  // Task 3 adds a real SMTP mailer; fail loudly rather than silently logging.
-  throw new Error('MAILER=smtp is not implemented yet');
-}
-const mailer: Mailer = {
-  async send(msg) {
-    console.log(`[mail] to=${msg.to} subject=${msg.subject}\n${msg.text}`);
-  },
-};
+// loadConfig guarantees smtpUrl when MAILER=smtp.
+const mailer: Mailer =
+  config.mailer === 'smtp'
+    ? new SmtpMailer(config.smtpUrl!, `Kitchen Quest <no-reply@${new URL(config.appOrigin).hostname}>`)
+    : new LogMailer();
 
 const sql = postgres(config.databaseUrl);
 const app = await buildApp({

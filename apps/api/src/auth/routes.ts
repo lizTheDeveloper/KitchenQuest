@@ -1,0 +1,126 @@
+import { and, eq, gt, isNull } from 'drizzle-orm';
+import type { FastifyInstance } from 'fastify';
+import { z } from 'zod';
+import { loginTokens, users } from '../db/schema.js';
+import { activeEntitlements } from '../entitlements/entitlements.js';
+import { ApiError } from '../errors.js';
+import { SlidingWindowLimiter } from './rate-limit.js';
+import {
+  createSession,
+  deleteSession,
+  requireUser,
+  SESSION_COOKIE,
+  SESSION_COOKIE_OPTIONS,
+  type SessionUser,
+} from './session.js';
+import { hashToken, isTokenShaped, LOGIN_TOKEN_TTL_MS, newToken } from './tokens.js';
+
+const HOUR = 60 * 60 * 1000;
+
+const RequestBody = z.object({
+  email: z.string().trim().max(254).pipe(z.email()),
+  // Accepted for the client's convenience; the age gate is enforced at /auth/verify.
+  ageConfirmed: z.boolean().optional(),
+});
+
+const VerifyBody = z.object({
+  token: z.string(),
+  ageConfirmed: z.boolean().optional(),
+});
+
+const unauthorized = () => new ApiError(401, 'unauthorized', 'Invalid or expired sign-in link');
+
+export async function authRoutes(app: FastifyInstance): Promise<void> {
+  const { db, mailer, now, config } = app.deps;
+  // Per app instance, so each test's buildApp starts clean.
+  const perEmail = new SlidingWindowLimiter(5, HOUR);
+  const perIp = new SlidingWindowLimiter(20, HOUR);
+  const origin = config.appOrigin.replace(/\/+$/, '');
+
+  app.post('/auth/request', async (req, reply) => {
+    const { email } = RequestBody.parse(req.body);
+    const at = now();
+    const t = at.getTime();
+    const emailKey = email.toLowerCase();
+    const wait = Math.max(perIp.waitMs(req.ip, t), perEmail.waitMs(emailKey, t));
+    if (wait > 0) {
+      reply.header('retry-after', String(Math.ceil(wait / 1000)));
+      throw new ApiError(429, 'rate_limited', 'Too many sign-in requests; try again later');
+    }
+    perIp.hit(req.ip, t);
+    perEmail.hit(emailKey, t);
+
+    // Same work whether or not an account exists: the user is created at /auth/verify.
+    const { token, hash } = newToken();
+    await db.insert(loginTokens).values({
+      email,
+      tokenHash: hash,
+      expiresAt: new Date(t + LOGIN_TOKEN_TTL_MS),
+    });
+    const link = `${origin}/auth/verify?token=${token}`;
+    await mailer.send({
+      to: email,
+      subject: 'Your Kitchen Quest sign-in link',
+      text:
+        `Sign in to Kitchen Quest:\n\n${link}\n\n` +
+        `This link works once and expires in 15 minutes. ` +
+        `If you did not ask for it, you can ignore this email.\n`,
+    });
+    return reply.status(202).send({ ok: true });
+  });
+
+  app.post('/auth/verify', async (req, reply) => {
+    const { token, ageConfirmed } = VerifyBody.parse(req.body);
+    if (!isTokenShaped(token)) throw unauthorized();
+    const at = now();
+
+    // One transaction: the token is consumed only if the session is created.
+    // The conditional UPDATE row-locks the token, so of two concurrent verifies
+    // the second waits, then sees used_at set and matches nothing.
+    const { user, sessionToken } = await db.transaction(async (tx) => {
+      const [consumed] = await tx
+        .update(loginTokens)
+        .set({ usedAt: at })
+        .where(
+          and(eq(loginTokens.tokenHash, hashToken(token)), isNull(loginTokens.usedAt), gt(loginTokens.expiresAt, at)),
+        )
+        .returning({ email: loginTokens.email });
+      if (!consumed) throw unauthorized();
+
+      const cols = { id: users.id, email: users.email };
+      let [user]: SessionUser[] = await tx.select(cols).from(users).where(eq(users.email, consumed.email));
+      if (!user) {
+        if (ageConfirmed !== true) {
+          // Thrown inside the transaction, so the token stays unused.
+          throw new ApiError(400, 'bad_request', 'Confirm you are 16 or older to create an account', {
+            code: 'age_confirmation_required',
+          });
+        }
+        [user] = await tx
+          .insert(users)
+          .values({ email: consumed.email, ageConfirmedAt: at })
+          .onConflictDoNothing({ target: users.email })
+          .returning(cols);
+        // A concurrent verify for another token of the same email created it first.
+        if (!user) [user] = await tx.select(cols).from(users).where(eq(users.email, consumed.email));
+        if (!user) throw new Error('user vanished after insert conflict');
+      }
+      return { user, sessionToken: await createSession(tx, user.id, at) };
+    });
+
+    reply.setCookie(SESSION_COOKIE, sessionToken, SESSION_COOKIE_OPTIONS);
+    return { user: { id: user.id, email: user.email } };
+  });
+
+  app.post('/auth/logout', async (req, reply) => {
+    await deleteSession(db, req.cookies[SESSION_COOKIE]);
+    reply.clearCookie(SESSION_COOKIE, SESSION_COOKIE_OPTIONS);
+    return reply.status(204).send();
+  });
+
+  app.get('/me', { preHandler: requireUser }, async (req) => ({
+    id: req.user.id,
+    email: req.user.email,
+    entitlements: await activeEntitlements(db, req.user.id, now()),
+  }));
+}

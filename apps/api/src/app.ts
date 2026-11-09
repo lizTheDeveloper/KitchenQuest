@@ -1,5 +1,8 @@
+import cookie from '@fastify/cookie';
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 import { ZodError } from 'zod';
+import { authRoutes } from './auth/routes.js';
+import { requireUser } from './auth/session.js';
 import type { Config } from './config.js';
 import { ApiError } from './errors.js';
 import type { Db, Mailer } from './types.js';
@@ -42,7 +45,12 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
     return reply.status(500).send(body('internal', 'Internal server error'));
   });
 
+  await app.register(cookie);
+  app.decorate('requireUser', requireUser);
+  app.decorateRequest('user', null as never);
+
   app.get('/health', async () => ({ ok: true }));
+  await authRoutes(app);
 
   return app;
 }
