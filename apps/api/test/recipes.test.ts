@@ -1,6 +1,7 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { readFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { IngredientGraph, check, parseRecipe, DISCLAIMER } from '@kitchenquest/core';
 import type { FastifyInstance, InjectOptions } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
@@ -9,13 +10,16 @@ import { NOTICES } from '../src/consent/notices.js';
 import { CaptureMailer } from '../src/mail/mailer.js';
 import { RECIPES_DIR, syncCanon } from '../src/recipes/sync.js';
 import type { Db } from '../src/types.js';
+import { loggableError } from '../src/errors.js';
+import { captureLogs } from './helpers/logs.js';
 import { signIn } from './helpers/auth.js';
 import { testConfig } from './helpers/config.js';
 import { testDb, type Sql } from './helpers/db.js';
 
 const config = testConfig();
 const NOW = new Date('2026-11-09T12:00:00Z');
-const { graph } = defaultCatalog();
+const catalog = defaultCatalog();
+const { graph } = catalog;
 
 let db: Db;
 let sql: Sql;
@@ -92,6 +96,18 @@ describe('syncCanon', () => {
     expect(await rows()).toEqual([]);
   });
 
+  it('refuses a directory with no recipes and leaves the canon alone', async () => {
+    await syncCanon(db, dir, graph);
+    const before = await rows();
+    const empty = mkdtempSync(join(tmpdir(), 'kq-empty-'));
+    try {
+      await expect(syncCanon(db, empty, graph)).rejects.toThrow(/no \.cook files/);
+    } finally {
+      rmSync(empty, { recursive: true, force: true });
+    }
+    expect(await rows()).toEqual(before);
+  });
+
   it('a bad contributors list fails without echoing the ids', async () => {
     put('testland/north/c.cook', recipe('C', 'contributors: [secret-handle, 7]\n'));
     const err = await syncCanon(db, dir, graph).catch((e: Error) => e);
@@ -153,10 +169,11 @@ describe('recipe endpoints', () => {
     const parippu = list.find((r: { slug: string }) => r.slug === 'india/kerala/parippu');
     expect(parippu.check.status).toBe('blocked');
     expect(parippu.check.severe).toBe(true);
-    expect(parippu.check.disclaimer).toMatch(/can't guarantee/);
+    expect(parippu.check.disclaimer).toBe(DISCLAIMER);
     const detail = (await call(cookie, { method: 'GET', url: '/recipes/india/kerala/parippu' })).json();
     expect(detail.check.status).toBe('blocked');
     expect(detail.check.disclaimer).toBe(parippu.check.disclaimer);
+    expect(detail.check.disclaimer).toBe("Kitchen Quest can't guarantee a dish is safe for your allergy. Always check labels.");
     expect(detail.check.findings.length).toBeGreaterThan(0);
     const others = list.filter((r: { slug: string }) => r.slug !== 'india/kerala/parippu');
     for (const r of others) expect(r.check.status).not.toBe('blocked'); // core may still say unverified
@@ -191,12 +208,97 @@ describe('recipe endpoints', () => {
     const d = res.json();
     expect(d).toMatchObject({ slug: 'india/kerala/parippu', title: expect.stringContaining('Parippu') });
     expect(d.meta).toMatchObject({ country: 'India', servings: 3, status: 'draft' });
-    expect(d.meta).not.toHaveProperty('contributors');
     expect(d.source).toContain('split moong dal');
     expect(d.ingredients[0]).toMatchObject({ name: 'split moong dal' });
     expect(d.nutrition.perServing.energy_kcal).toBeGreaterThan(0);
     expect(d.nutrition.missing).toEqual([]);
     expect(Object.keys(d).sort()).toEqual(['check', 'ingredients', 'meta', 'nutrition', 'slug', 'source', 'title']);
+  });
+
+  it('detail check equals core check run directly with the same rules and date (parity)', async () => {
+    const cookie = await withConsent();
+    await addRule(cookie, COCONUT);
+    const api = (await call(cookie, { method: 'GET', url: '/recipes/india/kerala/parippu' })).json();
+    const rule = { ...COCONUT, id: (await call(cookie, { method: 'GET', url: '/rules' })).json().rules[0].id };
+    const source = readFileSync(join(RECIPES_DIR, 'india/kerala/parippu.cook'), 'utf8');
+    const direct = check(parseRecipe(source), [rule as never], graph, [...catalog.substitutions], '2026-11-09');
+    expect(api.check).toEqual(JSON.parse(JSON.stringify(direct)));
+  });
+
+  it('meta omits contributors while source keeps the file as written', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kq-contrib-'));
+    mkdirSync(join(dir, 't/n'), { recursive: true });
+    writeFileSync(join(dir, 't/n/c.cook'), recipe('C', 'contributors: [Ada-L]\n'));
+    try {
+      await syncCanon(db, dir, graph);
+      const d = (await call(await user(), { method: 'GET', url: '/recipes/t/n/c' })).json();
+      expect(d.meta).not.toHaveProperty('contributors');
+      expect(d.source).toContain('contributors: [Ada-L]');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      await syncCanon(db, RECIPES_DIR, graph);
+    }
+  });
+
+  it('stored rules that no longer validate give 409 rules_need_review, no check, nothing in the logs', async () => {
+    const cookie = await withConsent();
+    await addRule(cookie, COCONUT);
+    const logs = captureLogs();
+    const small = IngredientGraph.fromData({ ingredients: [{ id: 'salt', name: 'salt' }] });
+    const other = await buildApp({ config, db, mailer, now: () => NOW, logger: logs.logger, catalog: { graph: small, substitutions: [] } });
+    try {
+      for (const url of ['/recipes', '/recipes/india/kerala/parippu']) {
+        const res = await other.inject({ method: 'GET', url, cookies: { kq_session: cookie } });
+        expect(res.statusCode, url).toBe(409);
+        expect(res.json()).toEqual({ error: { code: 'rules_need_review', message: 'Some of your saved rules need review.' } });
+        expect(res.body).not.toMatch(/ok|coconut/);
+      }
+    } finally {
+      await other.close();
+    }
+    expect(logs.text()).not.toMatch(/coconut/);
+  });
+
+  it('core rule and substitution error messages never reach the log serializer output', () => {
+    for (const msg of ['Invalid rules: rule 1: unknown id "coconut"', 'Invalid substitutions: Substitution "a" -> "b"']) {
+      const out = loggableError(new Error(msg));
+      expect(JSON.stringify(out)).not.toMatch(/coconut|"a"/);
+      expect(out.message).toBe('Invalid rules or substitutions (details withheld)');
+    }
+  });
+
+  describe('?date= (the player\'s local date)', () => {
+    const LATE = new Date('2026-12-02T01:00:00Z');
+    const phased = { ...COCONUT, phase: { start: '2026-11-01', end: '2026-12-01' } };
+    const at = async (now: Date) => buildApp({ config, db, mailer, now: () => now, logger: false });
+
+    it('a rule ending 12-01 still applies on the player\'s date 12-01 when server UTC is 12-02', async () => {
+      const cookie = await withConsent();
+      await addRule(cookie, phased);
+      const late = await at(LATE);
+      try {
+        const get = (q: string) => late.inject({ method: 'GET', url: `/recipes/india/kerala/parippu${q}`, cookies: { kq_session: cookie } });
+        expect((await get('?date=2026-12-01')).json().check.status).toBe('blocked');
+        expect((await get('')).json().check.status).toBe('ok'); // default: server UTC date, after the phase
+        const list = await late.inject({ method: 'GET', url: '/recipes?date=2026-12-01', cookies: { kq_session: cookie } });
+        expect(list.json().recipes.find((r: { slug: string }) => r.slug === 'india/kerala/parippu').check.status).toBe('blocked');
+      } finally {
+        await late.close();
+      }
+    });
+
+    it('rejects dates outside one day of server UTC, and malformed ones, with 400', async () => {
+      const cookie = await user();
+      for (const q of ['2026-11-07', '2026-11-11', '2026-02-30', '11/09/2026', '']) {
+        for (const base of ['/recipes', '/recipes/india/kerala/parippu']) {
+          const res = await call(cookie, { method: 'GET', url: `${base}?date=${encodeURIComponent(q)}` });
+          expect(res.statusCode, `${base} ${q}`).toBe(400);
+        }
+      }
+      for (const q of ['2026-11-08', '2026-11-09', '2026-11-10']) {
+        expect((await call(cookie, { method: 'GET', url: `/recipes?date=${q}` })).statusCode, q).toBe(200);
+      }
+    });
   });
 
   it('an unknown slug is 404', async () => {

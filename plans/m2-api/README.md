@@ -18,7 +18,7 @@
 - Sign-in: email magic link only. Login tokens: 32 random bytes, only the SHA-256 hash stored, single use, expire after 15 minutes. Sessions: 32 random bytes, hash stored, 30-day expiry, cookie `kq_session` with `HttpOnly; Secure; SameSite=Lax; Path=/`.
 - Age gate: creating an account requires `ageConfirmed: true` (16+, spec §1.2); store `age_confirmed_at`, never a birthday.
 - Data minimisation: no location beyond country/region, no names required, email is the only identifier.
-- Error body shape everywhere: `{ "error": { "code": string, "message": string, "details"?: unknown } }`. Codes used: `bad_request`, `confirmation_required`, `consent_required` (403), `unauthorized`, `not_found`, `rate_limited`, `conflict`.
+- Error body shape everywhere: `{ "error": { "code": string, "message": string, "details"?: unknown } }`. Codes used: `bad_request`, `confirmation_required`, `consent_required` (403), `unauthorized`, `not_found`, `rate_limited`, `conflict`, `rules_need_review` (409).
 - Dates in requests are ISO `YYYY-MM-DD`; the server's "today" comes from the injected clock.
 - Fail loudly: invalid config stops the server at boot with a message naming the variable.
 - Tests run against real Postgres 16 (`TEST_DATABASE_URL`); each test file gets its own schema. No mocked database.

@@ -114,7 +114,7 @@ export const canonRecipes = pgTable("canon_recipes", {
   status: text("status").notNull(),
   source: text("source").notNull(),
   contentHash: text("content_hash").notNull(),
-  /** Contributor ids exactly as given in the front matter (personal data: never logged or normalised). */
+  /** Contributor ids exactly as given in the front matter (personal data: never logged or normalised; `source` also carries them, being the public file). */
   contributors: text("contributors")
     .array()
     .notNull()

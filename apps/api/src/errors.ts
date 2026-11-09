@@ -50,6 +50,10 @@ export function loggableError(err: unknown, depth = 0): LoggableError {
     const issues = err.issues.map((i) => `${i.code} at ${i.path.map((p) => (typeof p === 'number' ? '[n]' : String(p))).join('.') || '(root)'}`);
     return { name: 'ZodError', message: `${err.issues.length} validation issue(s): ${scrub(issues.join('; '))}` };
   }
+  // Core's rule and substitution errors list the offending ingredient ids, which can be health data.
+  if (/^Invalid (rules|substitutions):/.test(err.message)) {
+    return { name: err.name === 'Error' ? err.constructor.name : err.name, message: 'Invalid rules or substitutions (details withheld)' };
+  }
   const code = (err as { code?: unknown }).code;
   return {
     // Some classes (drizzle's DrizzleQueryError) leave `name` as plain "Error".

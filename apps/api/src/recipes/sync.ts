@@ -38,6 +38,7 @@ function readCanon(dir: string, graph: IngredientGraph): CanonFile[] {
     .map((f) => f.split(sep).join('/'))
     .filter((f) => f.endsWith('.cook'))
     .sort();
+  if (paths.length === 0) throw new Error(`Recipe sync: no .cook files under ${dir}; refusing to wipe the canon`);
   return paths.map((path) => {
     const source = readFileSync(join(dir, path), 'utf8');
     let recipe: ParsedRecipe;
