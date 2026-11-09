@@ -196,13 +196,35 @@ describe('GET /me/export', () => {
       requestId: expect.any(String),
     });
 
+    // Art. 15 recipients: only processors that receive user data, each labelled with where it stands.
     const register = JSON.parse(
       readFileSync(new URL('../../../docs/compliance/processors.json', import.meta.url), 'utf8'),
     ) as {
-      processors: { name: string; purpose: string; country: string; contact: string }[];
+      processors: {
+        id: string;
+        name: string;
+        purpose: string;
+        country: string;
+        contact: string;
+        status: string;
+        data_categories: string[];
+      }[];
     };
+    const receiving = register.processors.filter((r) => !r.data_categories.every((c) => /^none\b/i.test(c)));
+    expect(receiving.map((r) => r.id)).not.toContain('pixellab');
     expect(x.processors).toEqual(
-      register.processors.map(({ name, purpose, country, contact }) => ({ name, purpose, country, contact })),
+      receiving.map(({ name, purpose, country, contact, status }) => ({
+        name,
+        purpose,
+        country,
+        contact,
+        status,
+        inUse: !/^planned\b/i.test(status),
+        detailsConfirmed: !/\[verify|\bTBD\b/i.test(`${name} ${country} ${contact}`),
+      })),
+    );
+    expect(x.processors).toContainEqual(
+      expect.objectContaining({ name: 'OpenRouter', inUse: false, detailsConfirmed: false }),
     );
 
     // Secrets and ciphertext stay out: no token hashes, wrapped key or sealed blobs.
@@ -379,7 +401,10 @@ describe('DELETE /me', () => {
     expect(x.profile).toBeNull();
   });
 
-  it('is all or nothing: if pseudonymizing fails, nothing is deleted', async () => {
+  it('is all or nothing: if pseudonymizing fails, nothing is deleted, and the log names no one', async () => {
+    const logs = captureLogs();
+    await app.close();
+    app = await buildApp({ config, db, mailer, now: () => NOW, logger: logs.logger });
     const p = await fullPlayer();
     const before = await mentions(p.id);
     await sql`create function fail_audit_update() returns trigger language plpgsql as $$
@@ -394,5 +419,148 @@ describe('DELETE /me', () => {
     }
     expect(await mentions(p.id)).toEqual(before);
     expect((await call(p.cookie, { method: 'GET', url: '/me' })).statusCode).toBe(200);
+    expect(logs.text()).toContain('simulated failure');
+    expect(logs.text()).not.toContain(p.email);
+    expect(logs.text()).not.toContain(p.id);
+    expect(logs.text()).not.toContain(config.pseudonymKey.bytes.toString('hex'));
+  });
+
+  it('refuses a text/plain body with 415 and deletes nothing', async () => {
+    const p = await fullPlayer();
+    const res = await call(p.cookie, {
+      method: 'DELETE',
+      url: '/me',
+      headers: { 'content-type': 'text/plain' },
+      payload: JSON.stringify({ confirm: PHRASE }),
+    });
+    expect(res.statusCode).toBe(415);
+    expect((await call(p.cookie, { method: 'GET', url: '/me' })).statusCode).toBe(200);
+  });
+});
+
+/** Waits until `n` backends in this database are blocked on a lock (of `kind`, if given). */
+async function waitForLockWaiters(n: number, kind?: string): Promise<void> {
+  for (let i = 0; i < 200; i++) {
+    const [row] = await sql<{ n: number }[]>`
+      select count(*)::int as n from pg_stat_activity
+      where datname = current_database() and wait_event_type = 'Lock'
+        and (${kind ?? null}::text is null or wait_event = ${kind ?? null})`;
+    if (row.n >= n) return;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  throw new Error(`timed out waiting for ${n} lock waiter(s)`);
+}
+
+describe('export and delete under concurrency', () => {
+  it('an export racing a delete leaves no raw id in the audit trail', async () => {
+    const p = await fullPlayer();
+    // Pause the export after its audit insert: its next read (profiles) waits on this lock.
+    const blocker = await sql.reserve();
+    try {
+      await blocker`begin`;
+      await blocker`lock table profiles in access exclusive mode`;
+      const exporting = exportOf(p.cookie);
+      await waitForLockWaiters(1);
+      const deleting = deleteAccount(p.cookie, { confirm: PHRASE });
+      await waitForLockWaiters(2);
+      await blocker`commit`;
+      const [exp, del] = await Promise.all([exporting, deleting]);
+      expect(exp.statusCode).toBe(200);
+      expect(del.statusCode).toBe(204);
+    } finally {
+      await blocker`rollback`.catch(() => {});
+      blocker.release();
+    }
+    const byId = await mentions(p.id);
+    expect(byId).toEqual(nowhere(byId));
+    const pseudonym = pseudonymFor(config.pseudonymKey, p.id);
+    const actions = (await db.select().from(auditEvents).where(eq(auditEvents.subjectUserId, pseudonym))).map(
+      (e) => e.action,
+    );
+    expect(actions).toContain('account.export');
+    expect(actions.at(-1)).toBe('account.delete');
+  });
+
+  it('an export after the delete has committed is refused with 401', async () => {
+    const p = await fullPlayer();
+    const blocker = await sql.reserve();
+    try {
+      // Hold the user row so the export waits on its lock, then delete underneath it.
+      await blocker`begin`;
+      await blocker`select 1 from users where id = ${p.id} for update`;
+      const exporting = exportOf(p.cookie);
+      await waitForLockWaiters(1);
+      await blocker`delete from users where id = ${p.id}`;
+      await blocker`commit`;
+      expect((await exporting).statusCode).toBe(401);
+    } finally {
+      await blocker`rollback`.catch(() => {});
+      blocker.release();
+    }
+    expect(await db.select().from(auditEvents).where(eq(auditEvents.subjectUserId, p.id))).toEqual(
+      expect.not.arrayContaining([expect.objectContaining({ action: 'account.export' })]),
+    );
+  });
+
+  it('serializes sign-in link requests with the delete for the same email', async () => {
+    const p = await fullPlayer();
+    const blocker = await sql.reserve();
+    try {
+      await blocker`begin`;
+      await blocker`select pg_advisory_xact_lock(hashtext(lower(${p.email})))`;
+      const deleting = deleteAccount(p.cookie, { confirm: PHRASE });
+      await waitForLockWaiters(1, 'advisory');
+      const requesting = call(null, {
+        method: 'POST',
+        url: '/auth/request',
+        payload: { email: p.email.toUpperCase() },
+      });
+      await waitForLockWaiters(2, 'advisory');
+      await blocker`commit`;
+      expect((await deleting).statusCode).toBe(204);
+      expect((await requesting).statusCode).toBe(202);
+    } finally {
+      await blocker`rollback`.catch(() => {});
+      blocker.release();
+    }
+  });
+});
+
+describe('export limits and caching', () => {
+  it('sends Cache-Control: no-store on authenticated responses', async () => {
+    const p = await fullPlayer();
+    for (const url of ['/me/export', '/me', '/rules', '/profile', '/me/consents']) {
+      const res = await call(p.cookie, { method: 'GET', url });
+      expect(res.statusCode, url).toBe(200);
+      expect(res.headers['cache-control'], url).toBe('no-store');
+    }
+    expect((await call(null, { method: 'GET', url: '/me' })).headers['cache-control']).toBe('no-store');
+    // The sign-in response carries the email too.
+    await call(null, { method: 'POST', url: '/auth/request', payload: { email: 'nostore@example.com' } });
+    const token = /token=([A-Za-z0-9_-]+)/.exec(mailer.sent.at(-1)!.text)![1];
+    const verify = await call(null, { method: 'POST', url: '/auth/verify', payload: { token, ageConfirmed: true } });
+    expect(verify.statusCode).toBe(200);
+    expect(verify.headers['cache-control']).toBe('no-store');
+  });
+
+  it('limits exports to 5 an hour per player (429 rate_limited)', async () => {
+    const p = await fullPlayer();
+    const other = await fullPlayer();
+    for (let i = 0; i < 5; i++) expect((await exportOf(p.cookie)).statusCode).toBe(200);
+    const res = await exportOf(p.cookie);
+    expect(res.statusCode).toBe(429);
+    expect(res.json().error.code).toBe('rate_limited');
+    expect(Number(res.headers['retry-after'])).toBeGreaterThan(0);
+    expect((await exportOf(other.cookie)).statusCode).toBe(200);
+  });
+
+  it('totals usage beyond the 32-bit range', async () => {
+    const p = await fullPlayer();
+    await recordUsage(db, p.id, 'voice_tts', 2_000_000_000, 2_000_000_000);
+    await recordUsage(db, p.id, 'voice_tts', 2_000_000_000, 2_000_000_000);
+    const x = (await exportOf(p.cookie)).json();
+    expect(x.usage).toContainEqual(
+      expect.objectContaining({ feature: 'voice_tts', units: 4_000_000_000, costMicroUsd: 4_000_000_000 }),
+    );
   });
 });
