@@ -11,7 +11,7 @@ describe('processors.json', () => {
     expect(doc.processors.length).toBeGreaterThan(0);
     for (const p of doc.processors) {
       for (const f of ['id', 'name', 'purpose', 'country', 'contact']) {
-        expect(typeof p[f] === 'string' && (p[f]).length > 0, `${String(p.id)}.${f}`).toBe(true);
+        expect(typeof p[f] === 'string' && p[f].length > 0, `${String(p.id)}.${f}`).toBe(true);
       }
     }
   });

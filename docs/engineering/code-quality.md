@@ -32,8 +32,8 @@ entry, move the tools into the root `devDependencies`, and drop `lint:install`.
 
 - ESLint: `tools/lint/node_modules/.bin/eslint --fix <path>` fixes the auto-fixable ones.
   The config is `tools/lint/eslint.config.js` (re-exported by the root `eslint.config.js`).
-  Tests and scripts have looser overrides there. Warnings (`no-unnecessary-condition`) do not fail the
-  build, but do not add new ones.
+  Tests and scripts have looser overrides there. Warnings (`no-unnecessary-condition`, 30 at the time of writing) do not fail the
+  build, but do not add new ones. They are ticketed in `plans/tooling/step-2.md`.
 - Architecture: the error names the rule and the import chain. Move the code or the dependency; do
   not edit the rule to make it pass. A new boundary goes in `.dependency-cruiser.cjs`.
 - Dead code: delete it, or drop the `export` if it is only used in its own file. If it is
