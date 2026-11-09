@@ -1,7 +1,7 @@
 import { and, isNotNull, lt, lte, or } from 'drizzle-orm';
 import { purgeAuditBefore } from '../audit/audit.js';
 import { loggableError } from '../errors.js';
-import { loginTokens, sessions, usageEvents } from '../db/schema.js';
+import { loginTokens, selfReadCounts, sessions, usageEvents } from '../db/schema.js';
 import type { Db } from '../types.js';
 
 /** One table's retention rule (C-6): `run` deletes what has expired at `now` and returns how many rows. */
@@ -103,6 +103,19 @@ registerRetention({
 registerRetention({
   table: 'audit_events',
   run: (db, now) => purgeAuditBefore(db, monthsBefore(now, 24)),
+});
+
+// self_read_counts: 24 months, like the audit trail it stands in for; a day is
+// kept while any part of it is within the window.
+registerRetention({
+  table: 'self_read_counts',
+  run: (db, now) =>
+    deleted(
+      db
+        .delete(selfReadCounts)
+        .where(lt(selfReadCounts.day, monthsBefore(now, 24).toISOString().slice(0, 10)))
+        .returning({ day: selfReadCounts.day }),
+    ),
 });
 
 /**

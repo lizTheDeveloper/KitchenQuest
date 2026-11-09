@@ -1,6 +1,7 @@
 import cookie from '@fastify/cookie';
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 import { ZodError } from 'zod';
+import { accountRoutes } from './account/routes.js';
 import { authRoutes } from './auth/routes.js';
 import { requireUser } from './auth/session.js';
 import { defaultCatalog, type Catalog } from './catalog.js';
@@ -72,6 +73,7 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
   await consentRoutes(app);
   await rulesRoutes(app, catalog);
   await recipeRoutes(app, catalog);
+  await accountRoutes(app);
 
   return app;
 }
