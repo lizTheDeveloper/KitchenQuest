@@ -45,7 +45,7 @@ Quoted from the spec unless marked. Every task's requirements include this secti
 
 ## Tasks
 
-- [ ] [Step 1 — Core: recipe steps, timer durations, browser-safe entry](step-1.md)
+- [x] [Step 1 — Core: recipe steps, timer durations, browser-safe entry](step-1.md)
 - [ ] [Step 2 — Core: Technique Toolkit and Freshness](step-2.md)
 - [ ] [Step 3 — App shell: router, design system, player store, Bureau form, e2e harness](step-3.md)
 - [ ] [Step 4 — Content pipeline: build-time load and validation, techniques data](step-4.md)
@@ -54,9 +54,9 @@ Quoted from the spec unless marked. Every task's requirements include this secti
 - [ ] [Step 7 — Cook mode](step-7.md)
 - [ ] [Step 8 — Asset manifest, lazy Phaser, the player's kitchen and the Toolkit display](step-8.md)
 - [ ] [Step 9 — World map, travel permit, cook's kitchen](step-9.md)
-- [ ] [Step 10 — PWA: manifest, service worker, offline, install notes](step-10.md)
-- [ ] [Step 11 — API client, sign-in pages, account rules](step-11.md)
-- [ ] [Step 12 — Accessibility and never-rules sweep, CI, README](step-12.md)
+- [x] [Step 10 — PWA: manifest, service worker, offline, install notes](step-10.md)
+- [x] [Step 11 — API client, sign-in pages, account rules](step-11.md)
+- [x] [Step 12 — Accessibility and never-rules sweep, CI, README](step-12.md)
 
 Order: 1 → 2 → 3 → 4 → 5 → 6 → 7. Then 8 → 9. Then 10, 11 in either order, then 12. Steps 1 and 2 touch `packages/core`. Coordinate with whoever is finishing M2 (step 5 also edits core).
 
