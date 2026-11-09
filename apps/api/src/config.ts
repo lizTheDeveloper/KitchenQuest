@@ -21,7 +21,7 @@ const Env = z
     DATABASE_URL: z.string({ error: 'DATABASE_URL is required' }).min(1, 'DATABASE_URL is required'),
     DATA_KEY: dataKey,
     DATA_KEY_ID: z.string().min(1).default('k1'),
-    APP_ORIGIN: z.string().min(1).default('http://localhost:5173'),
+    APP_ORIGIN: z.url({ error: 'APP_ORIGIN must be a URL' }).default('http://localhost:5173'),
     MAILER: z.enum(['log', 'smtp'], { error: 'MAILER must be "log" or "smtp"' }).default('log'),
     SMTP_URL: z.string().min(1).optional(),
     PORT: z.coerce.number({ error: 'PORT must be a number' }).int().min(0).max(65535).default(3000),

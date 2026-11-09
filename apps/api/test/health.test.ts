@@ -49,6 +49,7 @@ describe('app', () => {
       db: t.db,
       mailer,
       now: () => new Date('2026-01-01T00:00:00Z'),
+      logger: false,
     });
   });
 

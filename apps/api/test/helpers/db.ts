@@ -23,18 +23,27 @@ export async function testDb(): Promise<{ db: Db; sql: Sql; close(): Promise<voi
   }
   const schema = `t_${randomBytes(6).toString('hex')}`;
   const admin = postgres(url, { max: 1, onnotice: () => {} });
-  await admin.unsafe(`create schema "${schema}"`);
-  const sql = postgres(url, {
-    max: 5,
-    onnotice: () => {},
-    connection: { search_path: schema },
-  });
-  await migrate(sql, schema);
+  let sql: Sql | undefined;
+  try {
+    await admin.unsafe(`create schema "${schema}"`);
+    sql = postgres(url, {
+      max: 5,
+      onnotice: () => {},
+      connection: { search_path: schema },
+    });
+    await migrate(sql, schema);
+  } catch (err) {
+    await sql?.end({ timeout: 5 }).catch(() => {});
+    await admin.unsafe(`drop schema if exists "${schema}" cascade`).catch(() => {});
+    await admin.end({ timeout: 5 }).catch(() => {});
+    throw err;
+  }
+  const conn = sql;
   return {
-    db: drizzle(sql),
-    sql,
+    db: drizzle(conn),
+    sql: conn,
     async close() {
-      await sql.end({ timeout: 5 });
+      await conn.end({ timeout: 5 });
       await admin.unsafe(`drop schema "${schema}" cascade`);
       await admin.end({ timeout: 5 });
     },

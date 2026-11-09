@@ -17,7 +17,13 @@ const mailer: Mailer = {
 };
 
 const sql = postgres(config.databaseUrl);
-const app = await buildApp({ config, db: drizzle(sql), mailer, now: () => new Date() });
+const app = await buildApp({
+  config,
+  db: drizzle(sql),
+  mailer,
+  now: () => new Date(),
+  logger: { level: process.env.LOG_LEVEL ?? 'info' },
+});
 
 const stop = async () => {
   await app.close();

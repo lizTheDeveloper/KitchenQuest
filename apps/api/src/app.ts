@@ -1,4 +1,4 @@
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 import { ZodError } from 'zod';
 import type { Config } from './config.js';
 import { ApiError } from './errors.js';
@@ -9,6 +9,8 @@ export interface Deps {
   db: Db;
   mailer: Mailer;
   now: () => Date;
+  /** Fastify logger option: `false` in tests, pino options/stream in the server. */
+  logger: FastifyServerOptions['logger'];
 }
 
 function body(code: string, message: string, details?: unknown) {
@@ -16,7 +18,7 @@ function body(code: string, message: string, details?: unknown) {
 }
 
 export async function buildApp(deps: Deps): Promise<FastifyInstance> {
-  const app = Fastify({ logger: false });
+  const app = Fastify({ logger: deps.logger });
   app.decorate('deps', deps);
 
   app.setNotFoundHandler((_req, reply) => {
@@ -31,10 +33,10 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
     if (err instanceof ApiError) {
       return reply.status(err.status).send(body(err.code, err.message, err.details));
     }
-    // Fastify's own 4xx (malformed JSON, payload too large, ...).
+    // Fastify's own 4xx (malformed JSON, payload too large, ...): keep its status.
     const status = (err as { statusCode?: number }).statusCode;
     if (status && status >= 400 && status < 500) {
-      return reply.status(400).send(body('bad_request', 'Malformed request'));
+      return reply.status(status).send(body('bad_request', (err as Error).message));
     }
     req.log.error(err);
     return reply.status(500).send(body('internal', 'Internal server error'));

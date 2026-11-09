@@ -1,34 +1,24 @@
 #!/usr/bin/env bash
 # Private Postgres 16 cluster for local development and tests.
 # Usage: scripts/dev-db.sh start|stop|url
-# Data lives in .data/pg (gitignored), port 54329. Works as root (runs as the
-# `postgres` OS user) or as a normal user.
+# Data: .data/pg (gitignored), or as root /var/lib/kitchenquest-pg (KQ_PGDATA) owned by postgres. Port 54329. Works as root (runs as the postgres user) or as a normal user.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DATA="$ROOT/.data/pg"
 PORT=54329
 BIN="${PG_BIN:-/usr/lib/postgresql/16/bin}"
-RUN_DIR="$ROOT/.data"
 
-if [ ! -x "$BIN/initdb" ]; then
-  echo "Postgres 16 binaries not found at $BIN." >&2
-  echo "Install Postgres 16, set PG_BIN, or use: docker compose up -d db" >&2
-  exit 1
-fi
-
-# initdb/pg_ctl refuse to run as root: drop to the postgres user.
+# initdb/pg_ctl refuse to run as root: as root the cluster lives outside the
+# repo, owned by the postgres user (override with KQ_PGDATA); otherwise .data/pg.
 if [ "$(id -u)" -eq 0 ]; then
+  DATA="${KQ_PGDATA:-/var/lib/kitchenquest-pg}"
   as_pg() { runuser -u postgres -- "$@"; }
-  mkdir -p "$RUN_DIR"
-  chown postgres "$RUN_DIR"
-  [ -d "$DATA" ] && chown -R postgres "$DATA"
-  # the postgres user must be able to traverse the repo path
-  d="$ROOT"; while [ "$d" != "/" ]; do chmod o+x "$d" 2>/dev/null || true; d="$(dirname "$d")"; done
 else
+  DATA="$ROOT/.data/pg"
   as_pg() { "$@"; }
-  mkdir -p "$RUN_DIR"
 fi
+LOG="$(dirname "$DATA")/kitchenquest-pg.log"
+[ "$(id -u)" -eq 0 ] || LOG="$ROOT/.data/pg.log"
 
 url() { echo "postgres://postgres@localhost:$PORT/$1"; }
 
@@ -36,11 +26,22 @@ psql_() { as_pg "$BIN/psql" -h localhost -p "$PORT" -U postgres -v ON_ERROR_STOP
 
 case "${1:-}" in
   start)
+    if [ ! -x "$BIN/initdb" ]; then
+      echo "Postgres 16 binaries not found at $BIN." >&2
+      echo "Install Postgres 16, set PG_BIN, or use: docker compose up -d db" >&2
+      exit 1
+    fi
+    if [ "$(id -u)" -eq 0 ]; then
+      install -d -o postgres -g postgres -m 700 "$DATA"
+      install -d -o postgres -g postgres "$(dirname "$LOG")"
+    else
+      mkdir -p "$ROOT/.data"
+    fi
     if [ ! -f "$DATA/PG_VERSION" ]; then
       as_pg "$BIN/initdb" -D "$DATA" -U postgres --auth=trust -E UTF8 >/dev/null
     fi
     if ! as_pg "$BIN/pg_ctl" -D "$DATA" status >/dev/null 2>&1; then
-      as_pg "$BIN/pg_ctl" -D "$DATA" -l "$RUN_DIR/pg.log" -w \
+      as_pg "$BIN/pg_ctl" -D "$DATA" -l "$LOG" -w \
         -o "-p $PORT -k /tmp -c listen_addresses=localhost" start >/dev/null
     fi
     for db in kitchenquest kitchenquest_test; do
