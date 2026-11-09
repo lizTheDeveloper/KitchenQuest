@@ -12,15 +12,16 @@ afterAll(async () => {
 });
 
 describe('schema', () => {
-  it('applies migrations to a fresh schema, bookkeeping included', async () => {
+  it('applies migrations unmodified to a fresh database', async () => {
     const tables = await t.sql<{ table_name: string }[]>`
       select table_name from information_schema.tables
-      where table_schema = current_schema() order by table_name`;
+      where table_schema = 'public' order by table_name`;
     const names = tables.map((r) => r.table_name);
     for (const n of ['users', 'login_tokens', 'sessions', 'profiles', 'rules', 'canon_recipes']) {
       expect(names).toContain(n);
     }
-    expect(names).toContain('__drizzle_migrations');
+    const applied = await t.sql`select count(*)::int as n from drizzle.__drizzle_migrations`;
+    expect(applied[0]!.n).toBe(2);
   });
 
   it('cascades user deletion to sessions, profiles and rules', async () => {

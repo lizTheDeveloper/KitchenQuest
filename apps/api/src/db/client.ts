@@ -7,40 +7,20 @@ import * as schema from './schema.js';
 
 export type { Sql };
 
+
 const MIGRATIONS_FOLDER = fileURLToPath(new URL('../../migrations', import.meta.url));
 
-/**
- * `opts.schema` puts every table in that Postgres schema (search_path is the
- * schema, then `public` so database-wide extensions such as citext resolve).
- */
-export function createDb(url: string, opts: { schema?: string } = {}): { db: Db; sql: Sql } {
-  const sql = postgres(url, {
-    onnotice: () => {},
-    ...(opts.schema ? { connection: { search_path: `"${opts.schema}",public` } } : {}),
-  });
+export function createDb(url: string, opts: { max?: number } = {}): { db: Db; sql: Sql } {
+  const sql = postgres(url, { onnotice: () => {}, ...(opts.max ? { max: opts.max } : {}) });
   return { db: drizzle(sql, { schema }), sql };
 }
 
 /**
- * Applies the generated migrations. The bookkeeping table lives in `schemaName`
- * (default `public`) beside the tables, so per-test schemas stay isolated.
- * Serialised with an advisory lock: concurrent runs (parallel test files, two
- * API instances booting) race on CREATE EXTENSION otherwise.
+ * Applies the generated migrations, unmodified, into the connection's default
+ * schema (`public`); drizzle keeps its bookkeeping in the `drizzle` schema. Run it from one process at a
+ * time: there is no cross-process lock, so two instances booting together can
+ * race on `CREATE EXTENSION`. Needs one pooled connection (runs in a transaction).
  */
-export async function migrate(db: Db, sql: Sql, schemaName = 'public'): Promise<void> {
-  const lock = await sql.reserve();
-  try {
-    await lock`select pg_advisory_lock(727001)`;
-    try {
-      await drizzleMigrate(db, {
-        migrationsFolder: MIGRATIONS_FOLDER,
-        migrationsSchema: schemaName,
-        migrationsTable: '__drizzle_migrations',
-      });
-    } finally {
-      await lock`select pg_advisory_unlock(727001)`;
-    }
-  } finally {
-    lock.release();
-  }
+export async function migrate(db: Db): Promise<void> {
+  await drizzleMigrate(db, { migrationsFolder: MIGRATIONS_FOLDER });
 }

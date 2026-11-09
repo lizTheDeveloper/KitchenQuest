@@ -1,13 +1,14 @@
 import { randomBytes } from 'node:crypto';
 import postgres from 'postgres';
-import { drizzle } from 'drizzle-orm/postgres-js';
-import * as schemaModule from '../../src/db/schema.js';
-import { migrate } from '../../src/db/client.js';
+import { createDb, migrate, type Sql } from '../../src/db/client.js';
 import type { Db } from '../../src/types.js';
 
-export type Sql = postgres.Sql;
+export type { Sql };
 
-/** Fresh, uniquely named schema in the test database; dropped by close(). */
+/**
+ * Fresh, uniquely named database (migrated, `public` schema) per test file,
+ * created from the server behind TEST_DATABASE_URL and dropped by close().
+ */
 export async function testDb(): Promise<{ db: Db; sql: Sql; close(): Promise<void> }> {
   const url = process.env.TEST_DATABASE_URL;
   if (!url) {
@@ -17,30 +18,29 @@ export async function testDb(): Promise<{ db: Db; sql: Sql; close(): Promise<voi
         '(or run `eval "$(scripts/dev-db.sh url)"`).',
     );
   }
-  const schema = `t_${randomBytes(6).toString('hex')}`;
+  const name = `t_${randomBytes(6).toString('hex')}`;
+  const testUrl = new URL(url);
+  testUrl.pathname = `/${name}`;
   const admin = postgres(url, { max: 1, onnotice: () => {} });
-  let sql: Sql | undefined;
+  const dropDb = () => admin.unsafe(`drop database if exists "${name}" with (force)`);
+  let conn: ReturnType<typeof createDb> | undefined;
   try {
-    await admin.unsafe(`create schema "${schema}"`);
-    sql = postgres(url, {
-      max: 5,
-      onnotice: () => {},
-      connection: { search_path: `"${schema}",public` },
-    });
-    await migrate(drizzle(sql, { schema: schemaModule }), sql, schema);
+    await admin.unsafe(`create database "${name}"`);
+    conn = createDb(testUrl.toString(), { max: 5 });
+    await migrate(conn.db);
   } catch (err) {
-    await sql?.end({ timeout: 5 }).catch(() => {});
-    await admin.unsafe(`drop schema if exists "${schema}" cascade`).catch(() => {});
+    await conn?.sql.end({ timeout: 5 }).catch(() => {});
+    await dropDb().catch(() => {});
     await admin.end({ timeout: 5 }).catch(() => {});
     throw err;
   }
-  const conn = sql;
+  const { db, sql } = conn;
   return {
-    db: drizzle(conn, { schema: schemaModule }),
-    sql: conn,
+    db,
+    sql,
     async close() {
-      await conn.end({ timeout: 5 });
-      await admin.unsafe(`drop schema "${schema}" cascade`);
+      await sql.end({ timeout: 5 });
+      await dropDb();
       await admin.end({ timeout: 5 });
     },
   };
