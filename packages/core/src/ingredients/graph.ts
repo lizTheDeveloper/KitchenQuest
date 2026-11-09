@@ -43,8 +43,26 @@ export class IngredientGraph {
       }
     }
 
+    for (const [key, id] of names) {
+      for (const stripped of IngredientGraph.pluralStrips(key)) {
+        const other = names.get(stripped);
+        if (other !== undefined && other !== id) {
+          throw new Error(
+            `Ingredient graph: "${key}" (${id}) would also resolve as "${stripped}" (${other}); ambiguous`,
+          );
+        }
+      }
+    }
+
     IngredientGraph.assertAcyclic(nodes);
     return new IngredientGraph(nodes, names);
+  }
+
+  private static pluralStrips(key: string): string[] {
+    const out: string[] = [];
+    if (key.endsWith('es')) out.push(key.slice(0, -2));
+    if (key.endsWith('s')) out.push(key.slice(0, -1));
+    return out;
   }
 
   private static assertAcyclic(nodes: Map<string, IngredientNode>): void {
@@ -70,10 +88,7 @@ export class IngredientGraph {
   resolve(name: string): string | null {
     const key = normalize(name);
     if (key === '') return null;
-    const candidates = [key];
-    if (key.endsWith('es')) candidates.push(key.slice(0, -2));
-    if (key.endsWith('s')) candidates.push(key.slice(0, -1));
-    for (const candidate of candidates) {
+    for (const candidate of [key, ...IngredientGraph.pluralStrips(key)]) {
       const id = this.names.get(candidate);
       if (id !== undefined) return id;
     }
@@ -92,6 +107,7 @@ export class IngredientGraph {
 
   pathTo(fromId: string, targetId: string): string[] | null {
     this.get(fromId);
+    this.get(targetId);
     const prev = new Map<string, string | null>([[fromId, null]]);
     const queue = [fromId];
     for (let i = 0; i < queue.length; i++) {

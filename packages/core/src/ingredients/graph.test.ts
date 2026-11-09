@@ -46,6 +46,11 @@ describe('IngredientGraph', () => {
     expect(graph.pathTo('soy_sauce', 'soy')).toEqual(['soy_sauce', 'soy']);
   });
 
+  it('throws on unknown ids instead of returning null', () => {
+    expect(() => graph.pathTo('cashew', 'nope')).toThrow(/nope/);
+    expect(() => graph.pathTo('nope', 'nut')).toThrow(/nope/);
+  });
+
   it('fails loudly on bad data', () => {
     const build = (ingredients: IngredientNode[]) => () => IngredientGraph.fromData({ ingredients });
     expect(
@@ -62,7 +67,13 @@ describe('IngredientGraph', () => {
         { id: 'a', name: 'a', aliases: ['shared'] },
         { id: 'b', name: 'b', aliases: ['Shared '] },
       ]),
-    ).toThrow(/shared/);
+    ).toThrow(/shared.*\ba\b.*\bb\b|shared.*\bb\b.*\ba\b/);
+    expect(
+      build([
+        { id: 'a', name: 'a', aliases: ['peas'] },
+        { id: 'b', name: 'pea' },
+      ]),
+    ).toThrow(/peas.*pea.*(a.*b|b.*a)/);
     expect(
       build([
         { id: 'a', name: 'a' },
