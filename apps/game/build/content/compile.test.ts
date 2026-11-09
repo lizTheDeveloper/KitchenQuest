@@ -1,4 +1,5 @@
 import { fileURLToPath } from 'node:url';
+import { parse as parseYaml } from 'yaml';
 import { describe, expect, it } from 'vitest';
 import { REQUIRED_PAN_TRIGGERS } from '../../src/content/required';
 import { compileContent, ContentError } from './compile';
@@ -186,11 +187,86 @@ describe('compileContent: each check fails with the path and the offending value
     ['a freshness threshold out of order', (f) => (f['data/techniques.yaml'] = techniques(200, 120)), ['data/techniques.yaml', 'rustyAfterDays']],
     ['a duplicate technique id', (f) => (f['data/techniques.yaml'] = techniques() + '  - { id: knife, name: "Again" }\n'), ['data/techniques.yaml', 'knife']],
     ['a missing file', (f) => delete f['data/techniques.yaml'], ['data/techniques.yaml', 'missing']],
+    ['a stall id that differs from its file name', (f) => (f['content/market/wen.yaml'] = stall().replace('id: wen', 'id: ben')), ['content/market/wen.yaml', 'ben']],
+    ['no cooks', (f) => delete f['content/cooks/ann.yaml'], ['cooks', 'no cooks']],
+    ['no stalls', (f) => delete f['content/market/wen.yaml'], ['market', 'no stalls']],
+    ['no recipes', (f) => delete f['recipes/x/y/z.cook'], ['recipes', 'no recipes']],
+    ['a .yml file in place of .yaml', (f) => (f['content/cooks/bob.yml'] = cook({ id: 'bob' })), ['content/cooks/bob.yml', 'not loaded']],
+    ['a recipe with the wrong extension', (f) => (f['recipes/x/y/w.cooklang'] = recipe()), ['recipes/x/y/w.cooklang', 'not loaded']],
+    ['an unexpected content subfolder', (f) => (f['content/extra/notes.yaml'] = 'a: 1'), ['content/extra/notes.yaml', 'not loaded']],
   ];
   it.each(cases)('%s', (_name, mutate, needles) => {
     const files = valid();
     mutate(files);
     expectProblem(files, ...needles);
+  });
+});
+
+describe('compileContent: unclaimed-file allowlist', () => {
+  it('accepts README.md and LICENSE', () => {
+    const files = valid();
+    files['content/README.md'] = '# hi';
+    files['content/LICENSE'] = 'CC';
+    files['recipes/README.md'] = '# hi';
+    expect(() => compileContent(files)).not.toThrow();
+  });
+});
+
+describe('compileContent: real repo fidelity', () => {
+  const files = readContentFiles(repoRoot);
+  const content = compileContent(files);
+  const src = (path: string): unknown => parseYaml(files[path]);
+
+  /** Every `ai` value in a tree, by path. */
+  function aiValues(node: unknown, path: string, out: Map<string, unknown>): Map<string, unknown> {
+    if (Array.isArray(node)) node.forEach((n, i) => aiValues(n, `${path}[${i}]`, out));
+    else if (node && typeof node === 'object') {
+      for (const [k, v] of Object.entries(node)) {
+        if (k === 'ai') out.set(`${path}.ai`, v);
+        else aiValues(v, `${path}.${k}`, out);
+      }
+    }
+    return out;
+  }
+  const compiledTrees: [string, unknown][] = [
+    ['content/dialogue/pan.yaml', content.pan],
+    ...Object.keys(content.stalls).map((id): [string, unknown] => [`content/market/${id}.yaml`, content.stalls[id]]),
+    ...Object.keys(content.cooks).map((id): [string, unknown] => [`content/cooks/${id}.yaml`, content.cooks[id]]),
+  ];
+
+  it.each(compiledTrees)('keeps every ai value from %s', (path, compiled) => {
+    const before = aiValues(src(path), '', new Map());
+    const after = aiValues(compiled, '', new Map());
+    expect(after).toEqual(before);
+  });
+
+  it('has ai values to compare in the Pan and every stall', () => {
+    expect(aiValues(content.pan, '', new Map()).size).toBeGreaterThan(50);
+    for (const id of Object.keys(content.stalls)) expect(aiValues(content.stalls[id], '', new Map()).size).toBeGreaterThan(0);
+  });
+
+  it('pins safety triggers to ai: never', () => {
+    const pinned = ['rule.readback', 'rule.readback.no_spelling', 'rule.void_confirm', 'rule.emergency', 'rule.medical_deflect', 'log.confirm_readback'];
+    const ids = [...pinned, ...Object.keys(content.pan.triggers).filter((t) => t.startsWith('intake.allergies.'))];
+    expect(ids.filter((t) => t.startsWith('intake.allergies.')).length).toBeGreaterThan(0);
+    for (const id of ids) {
+      if (id === 'rule.readback.no_spelling' && !content.pan.triggers[id]) continue;
+      expect(content.pan.triggers[id], id).toBeDefined();
+      expect(content.pan.triggers[id].ai, id).toBe('never');
+    }
+  });
+
+  it('drops writer-only keys from the client bundle', () => {
+    expect(Object.values(content.pan.triggers).some((t) => 'when' in t || 'notes' in t)).toBe(false);
+    for (const stall of Object.values(content.stalls))
+      expect(Object.values(stall.triggers).some((t) => 'when' in t || 'notes' in t)).toBe(false);
+    expect(Object.values(content.bureau.forms).some((f) => 'purpose' in f)).toBe(false);
+  });
+
+  it('stays within the 400 KB bundle budget', () => {
+    const bytes = Buffer.byteLength(`export default ${JSON.stringify(content)};`);
+    console.info(`compiled content module: ${(bytes / 1024).toFixed(1)} KB`);
+    expect(bytes).toBeLessThan(400 * 1024);
   });
 });
 

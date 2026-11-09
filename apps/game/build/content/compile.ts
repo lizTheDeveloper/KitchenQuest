@@ -14,6 +14,8 @@ import {
 import { REQUIRED_PAN_TRIGGERS } from '../../src/content/required';
 import type {
   BureauFile,
+  BureauForm,
+  LineTrigger,
   CookFile,
   GameContent,
   LineBank,
@@ -47,6 +49,8 @@ const TECHNIQUES = 'data/techniques.yaml';
 const INGREDIENTS = 'data/ingredients.json';
 const SUBSTITUTIONS = 'data/substitutions.json';
 
+const IGNORED_NAMES = new Set(['README.md', 'LICENSE', 'CONTRIBUTING.md']);
+
 const errorText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 function versionOf(files: Record<string, string>): string {
@@ -55,6 +59,26 @@ function versionOf(files: Record<string, string>): string {
     hash.update(`${path}\0${files[path]}\0`);
   }
   return hash.digest('hex').slice(0, 12);
+}
+
+type SourceTrigger = LineTrigger & { when?: unknown; notes?: unknown };
+
+/** Drop the writers' `when` and `notes`; the client never reads them. */
+function clientTriggers(triggers: Record<string, SourceTrigger>): Record<string, LineTrigger> {
+  return Object.fromEntries(
+    Object.entries(triggers).map(([id, { when: _when, notes: _notes, ...rest }]) => [id, rest as LineTrigger]),
+  );
+}
+
+function clientStall(stall: StallFile): StallFile {
+  const out: StallFile = { ...stall, triggers: clientTriggers(stall.triggers as Record<string, SourceTrigger>) };
+  const variants = stall.variants as Record<string, { triggers?: Record<string, SourceTrigger> }> | undefined;
+  if (variants) {
+    out.variants = Object.fromEntries(
+      Object.entries(variants).map(([name, v]) => [name, v.triggers ? { ...v, triggers: clientTriggers(v.triggers) } : v]),
+    );
+  }
+  return out;
 }
 
 /** Compile every game input into one validated bundle. Throws a ContentError listing every problem. */
@@ -131,6 +155,19 @@ export function compileContent(files: Record<string, string>): GameContent {
     }
   }
 
+  // Nothing under content/ or recipes/ may be silently ignored.
+  const claimed = (p: string): boolean =>
+    p === PAN ||
+    p === BUREAU ||
+    /^content\/cooks\/[^/]+\.yaml$/.test(p) ||
+    /^content\/market\/[^/]+\.yaml$/.test(p) ||
+    /^recipes\/.+\.cook$/.test(p);
+  for (const p of Object.keys(files).sort()) {
+    if (!p.startsWith('content/') && !p.startsWith('recipes/')) continue;
+    if (claimed(p) || IGNORED_NAMES.has(p.slice(p.lastIndexOf('/') + 1))) continue;
+    fail(p, 'file is not loaded by anything (expected content/dialogue/pan.yaml, content/bureau/forms.yaml, content/cooks/*.yaml, content/market/*.yaml or recipes/**/*.cook)');
+  }
+
   const cookPaths = Object.keys(files).filter((p) => /^content\/cooks\/[^/]+\.yaml$/.test(p)).sort();
   const stallPaths = Object.keys(files).filter((p) => /^content\/market\/[^/]+\.yaml$/.test(p)).sort();
   const recipePaths = Object.keys(files).filter((p) => /^recipes\/.+\.cook$/.test(p)).sort();
@@ -149,6 +186,8 @@ export function compileContent(files: Record<string, string>): GameContent {
   for (const path of stallPaths) {
     const stall = load<StallFile>(path, stallFile);
     if (!stall) continue;
+    const fileId = path.slice('content/market/'.length, -'.yaml'.length);
+    if (stall.id !== fileId) fail(path, `id "${stall.id}" must equal the file name "${fileId}"`);
     stalls[stall.id] = stall;
     checkStallQuestions(path, 'questions', stall.questions);
     const variants = (stall.variants ?? {}) as Record<string, { questions?: StallQuestion[] }>;
@@ -180,6 +219,14 @@ export function compileContent(files: Record<string, string>): GameContent {
       if (!(form.stamp in bureau.stamps))
         fail(BUREAU, `forms.${id}.stamp "${form.stamp}" is not a key of stamps`);
     }
+  }
+
+  for (const [name, count, where] of [
+    ['cooks', cookPaths.length, 'content/cooks/*.yaml'],
+    ['stalls', stallPaths.length, 'content/market/*.yaml'],
+    ['recipes', recipePaths.length, 'recipes/**/*.cook'],
+  ] as const) {
+    if (count === 0) fail(where, `no ${name} found; the game needs at least one`);
   }
 
   // ---- recipes -------------------------------------------------------------
@@ -256,10 +303,15 @@ export function compileContent(files: Record<string, string>): GameContent {
   }
   return {
     version: versionOf(files),
-    pan,
+    pan: { ...pan, triggers: clientTriggers(pan.triggers) },
     cooks,
-    stalls,
-    bureau,
+    stalls: Object.fromEntries(Object.entries(stalls).map(([id, s]) => [id, clientStall(s)])),
+    bureau: {
+      ...bureau,
+      forms: Object.fromEntries(
+        Object.entries(bureau.forms).map(([id, { purpose: _purpose, ...form }]: [string, BureauForm & { purpose?: unknown }]) => [id, form]),
+      ),
+    },
     recipes,
     ingredients,
     substitutions,

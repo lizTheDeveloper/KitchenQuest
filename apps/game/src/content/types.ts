@@ -21,12 +21,11 @@ export interface BureauForm {
   footnotes?: string[];
 }
 
+/** A trigger as shipped to the client: the writers' `when` and `notes` are dropped at build time. */
 export interface LineTrigger {
   ai: 'never' | 'allowed';
-  when: string;
   lines: string[];
   vars?: Record<string, string>;
-  notes?: string;
 }
 export interface LineBank {
   persona?: string[];
