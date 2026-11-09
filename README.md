@@ -21,12 +21,17 @@ npm run dev        # dev server at http://localhost:5173
 
 ## Layout
 
+npm workspaces monorepo.
+
 ```
-index.html            # page shell, mounts the game into #game
-public/assets/        # images, audio, tilemaps (served as-is)
-src/main.ts           # Phaser game config
-src/scenes/           # one file per Phaser scene
-src/util/             # pure game logic (unit-testable, no Phaser)
+apps/game/                # Phaser game (@kitchenquest/game)
+  index.html              # page shell, mounts the game into #game
+  public/assets/          # images, audio, tilemaps (served as-is)
+  src/main.ts             # Phaser game config
+  src/scenes/             # one file per Phaser scene
+  src/util/               # pure game logic (unit-testable, no Phaser)
+packages/core/            # @kitchenquest/core: pure recipe/allergy logic, no I/O
+tsconfig.base.json        # shared compiler options, extended by each workspace
 ```
 
-Keep game rules in plain TypeScript under `src/util/` (or similar) so they can be tested without a browser; scenes should mostly wire input and rendering to that logic.
+Keep game rules in plain TypeScript (`packages/core`, or `apps/game/src/util/`) so they can be tested without a browser; scenes should mostly wire input and rendering to that logic.

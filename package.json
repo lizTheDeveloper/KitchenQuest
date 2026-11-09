@@ -3,20 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Kitchen Quest — a web game built with Phaser and TypeScript",
+  "description": "Kitchen Quest — a cooking RPG built with Phaser and TypeScript",
+  "workspaces": ["apps/*", "packages/*"],
   "scripts": {
-    "dev": "vite",
-    "build": "tsc --noEmit && vite build",
-    "preview": "vite preview",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run"
-  },
-  "dependencies": {
-    "phaser": "^3.90.0"
+    "dev": "npm run dev -w @kitchenquest/game",
+    "build": "npm run build -w @kitchenquest/game",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm test --workspaces --if-present"
   },
   "devDependencies": {
-    "typescript": "^7.0.2",
-    "vite": "^8.3.7",
-    "vitest": "^5.1.0"
+    "typescript": "^7.0.2"
   }
 }
