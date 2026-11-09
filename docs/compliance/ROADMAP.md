@@ -4,6 +4,8 @@ Kitchen Quest is a **consumer** app for individuals, not a clinical tool. It sta
 
 Standing instruction from the founder (2026-11-09): anything a health-data or privacy law calls for is done without asking, and added here.
 
+Milestone numbering follows spec §13: M3 = game shell, **M4 = mentor/AI** (the compliance report's "M3 mentor" items land in M4).
+
 Tick each item when it lands. Full requirement text is in `2026-11-09-health-data-compliance.md` §6, matched by id.
 
 - [ ] **C-1** Consent ledger — *M2* — `plans/m2-api/step-2c.md` (new); README Global Constraints

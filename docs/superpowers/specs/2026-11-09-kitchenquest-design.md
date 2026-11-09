@@ -470,8 +470,8 @@ KitchenQuest/
 
 1. **Core:** monorepo layout, `packages/core` with the Cooklang wrapper, ingredient graph, rules engine, and nutrition, with tests. No UI.
 2. **API and data:** Fastify, Postgres schema, auth, recipe sync from `recipes/`, profile and rules endpoints.
-3. **Mentor (text):** the AI provider, the Pan agent with tools and confirmations, and the mentor panel. Onboarding is an interview in text. This comes early because it is the main interface.
-4. **Game shell:** PWA, map, kitchen, cook mode. Uses placeholder art.
+3. **Game shell:** PWA, map, kitchen, cook mode. Uses placeholder art.
+4. **Mentor (text):** the AI provider, the Pan agent with tools and confirmations, and the mentor panel. Onboarding is an interview in text. This comes early because it is the main interface.
 5. **Weekly loop and quests:** plan → market run → cook → log, the quest engine, rewards, and trust.
 6. **Gamified market:** stall minigames, seasonality and cut-guide data.
 7. **Live voice:** the voice service (STT/TTS), VAD, barge-in, and hands-free cook mode.
@@ -545,7 +545,7 @@ The mechanics below are adopted. Full designs with guardrails are in `docs/busin
 
 | Mechanic | What it is | Milestone |
 |---|---|---|
-| **Technique Toolkit** (knife roll) | Every technique has a tier: Seen (lesson) → Tried (cooked once) → Yours (used in a second dish or cuisine). Tiers are earned for good. | M5 (data model in M4) |
+| **Technique Toolkit** (knife roll) | Every technique has a tier: Seen (lesson) → Tried (cooked once) → Yours (used in a second dish or cuisine). Tiers are earned for good. | M5 (data model in M3) |
 | **Freshness** (fading skills) | Separately from the tier, each technique has a freshness: Sharp → Warm → Rusty. It fades with time since you last used it, as real muscle memory does. Using it again restores it, and refreshing a rusty technique earns XP. | M5 |
 | **One More Technique** | Each week the Pan offers at most one new technique related to what you already cook. Saying no costs nothing. | M5 |
 | **Same Hands, Different Kitchen** | Transfer quests use a technique you know in another cuisine. | M5 / M10 |
