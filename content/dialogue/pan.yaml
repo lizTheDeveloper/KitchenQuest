@@ -973,3 +973,26 @@ triggers:
       - "A new pin on the map: {place}. {friend} is expecting you, because {cook} vouched for you. Don't make {cook} regret it."
       - "{friend}, in {place}. An introduction from {cook}. In the Bureau's hierarchy of documents, this outranks a stamp."
       - "A letter of introduction: {cook} to {friend}, {place}. That's a door opened on your behalf. Walk through it politely."
+
+  # ------------------------------------------------------------------
+  # Game shell (Milestone 3)
+  # ------------------------------------------------------------------
+
+  voice.not_yet:
+    ai: never
+    when: The player uses hold-to-talk before live voice exists. Removed when the voice milestone ships.
+    lines:
+      - "I can't hear you yet. The Bureau is still fitting my ears. Type to me instead, or tap a button."
+      - "Nothing came through. Voice arrives in a later delivery. The text box works now."
+      - "Hold-to-talk is fitted but not yet connected. I'm a pan; I'm good at waiting. Type in the meantime."
+
+  toolkit.rusty_invite:
+    ai: allowed
+    when: Shown beside a Rusty technique on the knife roll. An invitation, never a warning (spec §17).
+    vars:
+      technique: "the technique's name, e.g. 'Tempering'"
+    notes: "No guilt, no urgency, no numbers. The technique is still the player's."
+    lines:
+      - "Your {technique}'s gone a bit rusty. Fancy a refresher?"
+      - "{technique} hasn't been out of the drawer in a while. Still yours. A refresher, some evening?"
+      - "{technique}: a little rusty, still yours. One dish would sharpen it right up."

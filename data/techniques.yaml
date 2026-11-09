@@ -1,0 +1,11 @@
+# Technique Toolkit data (spec §17). Thresholds are tunable here, not in code.
+# Licensed CC BY-SA 4.0, like content/.
+freshness: { warm_after_days: 42, rusty_after_days: 120 }
+techniques:
+  - { id: legumes, name: "Legumes" }
+  - { id: heat-control, name: "Heat control" }
+  - { id: tempering, name: "Tempering" }
+  - { id: grains, name: "Grains" }
+  - { id: shaping, name: "Shaping" }
+  - { id: patience, name: "Patience" }
+  - { id: knife, name: "Knife skills" }

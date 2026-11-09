@@ -190,6 +190,7 @@ forms:
       - { key: stall, label: "Stall" }
       - { key: skill, label: "Skill practised" }
       - { key: score, label: "Correct answers" }
+    buttons: { confirm: "Noted" }
     stamp: practice
     footnotes:
       - "*Practice rounds earn XP but not stamps. Stamps are for first completions. The Bureau has rationed the ink."
@@ -252,6 +253,7 @@ forms:
       - { key: dish, label: "Dish" }
       - { key: taught_by, label: "Taught by", hint: "On behalf of the home cooks of {place}." }
       - { key: rewards, label: "Recorded" }
+    buttons: { confirm: "Continue" }
     stamp: cooked
     footnotes:
       - "*Form 51-D (in triplicate; the other two copies are with the Pan)."
@@ -283,6 +285,7 @@ forms:
     purpose: "Flavour text on the undo toast."
     safety: false
     fields: []
+    buttons: { confirm: "Noted" }
     stamp: retracted
     footnotes:
       - "*Form 0-U is filed automatically on your behalf. The Bureau will want to know why. The Bureau will not be told."
@@ -318,6 +321,8 @@ forms:
     purpose: "The writers' style guide (docs/style/voice.md). Referenced in credits."
     safety: false
     fields: []
+    buttons: { confirm: "Noted" }
+    stamp: approved
     footnotes:
       - "*One copy for the writers, one for the AI, and one for the filing cabinet, which will eat it."
 
