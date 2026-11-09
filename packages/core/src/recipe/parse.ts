@@ -1,7 +1,7 @@
-import { CooklangParser, getFlatIngredients, getFlatTimers } from '@cooklang/cooklang';
+import { CooklangParser, getFlatIngredients, getFlatTimers, quantity_display } from '@cooklang/cooklang';
 import type { CooklangRecipe } from '@cooklang/cooklang';
 import { RecipeError } from './types';
-import type { ParsedRecipe, RecipeMeta, RecipeStatus } from './types';
+import type { ParsedRecipe, RecipeMeta, RecipeStatus, RecipeStep, StepItem } from './types';
 
 export { RecipeError } from './types';
 
@@ -104,6 +104,38 @@ function reportText(report: string): string {
     .trim();
 }
 
+/** The method as steps, in order. Text content blocks between steps are dropped. */
+function mapSteps(recipe: CooklangRecipe): RecipeStep[] {
+  const steps: RecipeStep[] = [];
+  for (const section of recipe.sections) {
+    for (const content of section.content) {
+      if (content.type !== 'step') continue;
+      const items: StepItem[] = content.value.items.map((item) => {
+        switch (item.type) {
+          case 'text':
+            return { type: 'text', value: item.value };
+          case 'ingredient':
+            return { type: 'ingredient', index: item.index };
+          case 'timer':
+            return { type: 'timer', index: item.index };
+          case 'cookware': {
+            const cookware = recipe.cookware[item.index];
+            if (!cookware) throw new RecipeError([`step refers to missing cookware ${item.index + 1}`]);
+            return { type: 'cookware', name: cookware.name };
+          }
+          case 'inlineQuantity': {
+            const quantity = recipe.inlineQuantities[item.index];
+            if (!quantity) throw new RecipeError([`step refers to missing quantity ${item.index + 1}`]);
+            return { type: 'text', value: quantity_display(quantity) };
+          }
+        }
+      });
+      steps.push({ section: section.name ?? null, items });
+    }
+  }
+  return steps;
+}
+
 export function parseRecipe(source: string): ParsedRecipe {
   let recipe: CooklangRecipe;
   let report: string;
@@ -139,6 +171,7 @@ export function parseRecipe(source: string): ParsedRecipe {
       quantity: quantityValue(recipe.timers[k]?.quantity, `timer ${k + 1}`),
       unit: t.unit || null,
     })),
+    steps: mapSteps(recipe),
     source,
   };
 }
