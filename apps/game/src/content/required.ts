@@ -19,3 +19,6 @@ export const REQUIRED_PAN_TRIGGERS: readonly string[] = [
   'voice.not_yet',
   'toolkit.rusty_invite',
 ];
+
+/** Bureau disclaimers the recipe card shows. The build fails if forms.yaml lacks any of them. */
+export const REQUIRED_DISCLAIMERS: readonly string[] = ['cross_contact', 'unverified'];

@@ -8,6 +8,9 @@ import { parseRoute, routeHref, type Route } from './router';
 export interface AppContext { store: PlayerStore; navigate(route: Route): void; now: () => Date }
 export interface Screen { title: string; mount(el: HTMLElement, route: Route, ctx: AppContext): void | Promise<void>; unmount?(): void }
 
+/** Thrown from a screen's `mount` when its route names something that doesn't exist: shows the not-found screen. */
+export class RouteNotFound extends Error {}
+
 const screens = new Map<Route['name'], () => Screen>();
 
 /** Later tasks replace the placeholder for a route by registering the same name again. */
@@ -76,10 +79,11 @@ export function mountApp(doc: Document, base: Omit<AppContext, 'navigate'>): voi
     try {
       await screen.mount(container, route, ctx);
     } catch (err) {
-      console.error(err);
+      const missing = err instanceof RouteNotFound;
+      if (!missing) console.error(err);
       if (my !== token) return;
       screen.unmount?.();
-      screen = errorScreen();
+      screen = missing ? notFoundScreen() : errorScreen();
       current = screen;
       doc.title = `${screen.title} · Kitchen Quest`;
       container.replaceChildren();

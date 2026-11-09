@@ -118,14 +118,20 @@ export function mergeRules(stored: Rule[], mine: Rule[]): { rules: Rule[]; confl
   return { rules, conflict };
 }
 
-/** What is stored now, plus anything this tab holds that storage lacks. Nothing earned or declared is dropped. */
-function rebase(stored: PlayerState, mine: PlayerState): PlayerState {
+/**
+ * What is stored now, plus anything this tab holds that storage lacks. Nothing earned or declared is dropped.
+ * `conflict` is true when this rebase itself found two versions of one rule.
+ */
+function rebase(stored: PlayerState, mine: PlayerState): { state: PlayerState; conflict: boolean } {
   const { rules, conflict } = mergeRules(stored.localRules, mine.localRules);
   return {
-    ...stored,
-    localRules: rules,
-    toolkit: mergeToolkit(stored.toolkit, mine.toolkit),
-    rulesUnreadable: stored.rulesUnreadable || conflict,
+    state: {
+      ...stored,
+      localRules: rules,
+      toolkit: mergeToolkit(stored.toolkit, mine.toolkit),
+      rulesUnreadable: stored.rulesUnreadable || conflict,
+    },
+    conflict,
   };
 }
 
@@ -205,7 +211,7 @@ export function createStore(
     const r = readStored(storage);
     if (r.kind === 'none' && persisted) { wipe(); return; }
     if (r.kind !== 'ok') return;
-    state = rebase(r.state, state);
+    state = rebase(r.state, state).state;
     notify();
   });
 
@@ -213,16 +219,28 @@ export function createStore(
     get: () => state,
     update(fn) {
       let base = state;
+      let conflict = false;
+      let wiped = false;
+      let next: PlayerState | null = null;
       if (!memoryOnly && storage) {
         // Another tab may have written since we last looked: build on what is stored now.
         const r = readStored(storage);
-        if (r.kind === 'ok') base = rebase(r.state, state);
-        else if (r.kind === 'none' && persisted) { wipe(); return state; } // deleted elsewhere: do not resurrect
+        if (r.kind === 'ok') ({ state: base, conflict } = rebase(r.state, state));
+        else if (r.kind === 'none' && persisted) {
+          // Deleted in another tab: never resurrect the old data. But a rule declared in this change must not
+          // vanish silently, so apply the change to a fresh state and keep it when it declares rules.
+          base = freshState();
+          next = fn(base);
+          if (next.localRules.length === 0) { wipe(); return state; }
+          wiped = true;
+        }
         else if (r.kind === 'bad') keepCorrupt(r.raw);
         else if (r.kind === 'error') memoryOnly = true;
       }
-      const next = fn(base);
+      next ??= fn(base);
       state = { ...next, toolkit: mergeToolkit(base.toolkit, next.toolkit) }; // earned toolkit data never goes down
+      // A conflict found by this very rebase was never seen by the caller, so this update cannot clear the flag.
+      if (conflict) state = { ...state, rulesUnreadable: true };
       if (!memoryOnly && storage) {
         try { storage.setItem(STORE_KEY, JSON.stringify(state)); persisted = true; }
         catch {
@@ -232,6 +250,7 @@ export function createStore(
         }
       }
       notify();
+      if (wiped && !memoryOnly) onWiped?.(); // reload onto what was just saved; if the write failed, stay put
       return state;
     },
     subscribe(fn) { subs.add(fn); return () => { subs.delete(fn); }; },

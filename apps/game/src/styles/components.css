@@ -184,3 +184,30 @@ select {
 }
 .pan-talk-row { margin-top: .75rem; }
 #pan-talk[aria-pressed="true"] { background: var(--ember); color: var(--iron); }
+
+/* Recipe shelf and cards */
+.shelf { list-style: none; padding: 0; margin: 1rem 0; display: grid; gap: .75rem; }
+.shelf-item a {
+  display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .75rem; padding: .75rem 1rem;
+  background: var(--iron-2); color: var(--fg); text-decoration: none; box-shadow: 0 0 0 3px var(--iron-edge);
+}
+.shelf-item a:hover .shelf-title, .shelf-item a:focus-visible .shelf-title { text-decoration: underline; }
+.shelf-title { font-family: var(--display); font-size: 1.125rem; color: var(--saffron); }
+.shelf-place { margin-right: auto; }
+.recipe-card h1, .recipe-card h2 { margin-top: 0; overflow-wrap: anywhere; }
+.recipe-place, .recipe-cook { margin: .25rem 0; }
+.recipe-credit { font-style: italic; margin: .25rem 0 .75rem; }
+.draft-label { display: inline-block; margin: 0 0 .75rem; padding: .125rem .5rem; box-shadow: 0 0 0 2px var(--saffron); }
+.recipe-status { margin: .5rem 0; }
+.findings { padding-left: 0; list-style: none; display: grid; gap: .5rem; }
+.finding { overflow-wrap: anywhere; }
+.finding-note { display: block; }
+.disclaimer { padding: .5rem .75rem; background: #3a1a1c; box-shadow: 0 0 0 2px var(--chili); }
+.disclaimer-unverified, .rules-error { padding: .5rem .75rem; background: var(--iron); box-shadow: 0 0 0 2px var(--sky); }
+.rules-error p { margin: .25rem 0; }
+.rules-error-detail { overflow-wrap: anywhere; }
+.nutrition { border-collapse: collapse; margin: 1rem 0 .25rem; min-width: min(100%, 16rem); }
+.nutrition caption { font-family: var(--display); text-align: left; padding-bottom: .25rem; }
+.nutrition th, .nutrition td { padding: .25rem .75rem .25rem 0; border-bottom: 1px solid var(--iron-edge); text-align: left; }
+.nutrition td { font-family: var(--mono); font-size: 1.25rem; }
+.nutrition-estimate, .nutrition-missing { margin: .25rem 0; }

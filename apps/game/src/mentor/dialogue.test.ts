@@ -80,6 +80,19 @@ describe('dialogue engine', () => {
     for (const id of REQUIRED_PAN_TRIGGERS) expect(createDialogue(content.pan).say(id, sample).text, id).not.toMatch(/[{}]/);
   });
 
+  test.each([['undefined', undefined], ['null', null], ['empty string', '']])('a %s var counts as missing', (_n, v) => {
+    expect(fillLine('Hi {name}.', { name: v })).toBeNull();
+    const d = createDialogue(bank({ g: { lines: ['Hi {name}.', 'Hello.'] } }));
+    for (let i = 0; i < 10; i++) expect(d.say('g', { name: v }).text).toBe('Hello.');
+    // Every line needs it: the default fills in, never "Hi ." or "Hi null."
+    expect(createDialogue(bank({ g: { lines: ['Hi {name}.'] } })).say('g', { name: v }).text).toBe('Hi apprentice.');
+    expect(() => createDialogue(bank({ c: { lines: ['Making {dish}.'] } })).say('c', { dish: v })).toThrow(/dish/);
+  });
+
+  test('zero is a real value, not missing', () => {
+    expect(fillLine('{n} left', { n: 0 })).toBe('0 left');
+  });
+
   test('fillLine and defaultFor helpers', () => {
     expect(fillLine('a {x} b', {})).toBeNull();
     expect(defaultFor({ ai: 'never', lines: [], vars: { h: 'x (default: "y")' } }, 'h')).toBe('y');

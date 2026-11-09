@@ -204,6 +204,54 @@ describe('rebasing and failures', () => {
     expect(st.getItem(STORE_KEY)).toBeNull();
   });
 
+  it('an update cannot clear rulesUnreadable when its own rebase finds a conflict', () => {
+    const st = memStorage();
+    const a = createStore(st), b = createStore(st);
+    a.update((x) => ({ ...x, localRules: [rule('r1', ['kiwi'])] }));
+    b.update((x) => x); // b now holds r1 = kiwi
+    a.update((x) => ({ ...x, localRules: [rule('r1', ['kiwi', 'banana'])] }));
+    // b, stale, "confirms" its rules: the conflict only appears inside this update's rebase.
+    const got = b.update((x) => ({ ...x, rulesUnreadable: false }));
+    expect(got.rulesUnreadable).toBe(true);
+    expect(createStore(st).get().rulesUnreadable).toBe(true);
+    // With no conflict in the rebase, clearing works.
+    const c = createStore(st);
+    c.update((x) => ({ ...x, localRules: [rule('r1', ['kiwi', 'banana'])], rulesUnreadable: false }));
+    expect(createStore(st).get().rulesUnreadable).toBe(false);
+  });
+
+  it('a rule added in a stale tab after another tab deleted the data is kept on a fresh state, then reloads', () => {
+    const st = memStorage();
+    const wiped = vi.fn();
+    const a = createStore(st, undefined, wiped);
+    a.update((x) => ({ ...x, localRules: [rule('r1')], settings: { ...x.settings, showCalories: true } }));
+    deleteDeviceData(st); // another tab
+    a.update((x) => ({ ...x, localRules: [...x.localRules, rule('r2', ['peanut'])] }));
+    expect(wiped).toHaveBeenCalledTimes(1);
+    const saved = createStore(st).get();
+    expect(saved.localRules.map((r) => r.id)).toEqual(['r2']); // the new rule survives; deleted r1 does not return
+    expect(saved.settings.showCalories).toBe(false); // nothing else is resurrected
+    expect(a.get().localRules.map((r) => r.id)).toEqual(['r2']);
+  });
+
+  it('a stale-tab rule whose save fails stays in memory with a notice rather than reloading', () => {
+    const st = memStorage();
+    let fail = false;
+    const failing: Storage = Object.assign(Object.create(st) as Storage, {
+      setItem: (k: string, v: string) => { if (fail) throw new Error('quota'); st.setItem(k, v); },
+      getItem: (k: string) => st.getItem(k),
+    });
+    const wiped = vi.fn();
+    const a = createStore(failing, undefined, wiped);
+    a.update((x) => ({ ...x, localRules: [rule('r1')] }));
+    deleteDeviceData(st);
+    fail = true;
+    a.update((x) => ({ ...x, localRules: [...x.localRules, rule('r2', ['peanut'])] }));
+    expect(wiped).not.toHaveBeenCalled();
+    expect(a.notice).toBe('unsaved');
+    expect(a.get().localRules.map((r) => r.id)).toEqual(['r2']);
+  });
+
   it('a storage event for a deleted key also resets and reloads', () => {
     const st = memStorage();
     const target = new EventTarget();

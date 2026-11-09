@@ -17,15 +17,22 @@ export function getMentor(): MentorPanel {
   return mentor;
 }
 
+/**
+ * Where the line history lives. Standard mode keeps it in the player store. Family Table mode keeps nothing
+ * (§19): history stays in this page's memory only and is never written.
+ */
+export function historyOptions(store: PlayerStore): { history: Record<string, number[]>; onHistory?: (h: Record<string, number[]>) => void } {
+  const { dialogueHistory, settings } = store.get();
+  if (settings.familyTable) return { history: dialogueHistory };
+  return { history: dialogueHistory, onHistory: (h) => { store.update((s) => ({ ...s, dialogueHistory: h })); } };
+}
+
 /** Mount the panel once, on the scripted backend, with its line history kept in the player store. */
 export function mountMentor(doc: Document, store: PlayerStore, bank: LineBank): MentorPanel {
   if (mentor) return mentor;
   const win = doc.defaultView!;
   const mql = win.matchMedia('(prefers-reduced-motion: reduce)');
-  const dialogue = createDialogue(bank, {
-    history: store.get().dialogueHistory,
-    onHistory: (h) => { store.update((s) => ({ ...s, dialogueHistory: h })); },
-  });
+  const dialogue = createDialogue(bank, historyOptions(store));
   const root = doc.createElement('div');
   root.id = 'pan-root';
   doc.body.append(root);

@@ -1,6 +1,7 @@
 import type { LineBank, LineTrigger } from '../content/types';
 
-export type Vars = Record<string, string | number>;
+/** `undefined`, `null` and `''` count as missing, so a line never reads "Hi ." or "Hi null.". */
+export type Vars = Record<string, string | number | null | undefined>;
 /** `trigger` is the resolved id actually used, which may be a parent of the one asked for. */
 export interface Said { trigger: string; text: string; ai: 'never' | 'allowed' }
 export class DialogueError extends Error {}
@@ -21,12 +22,20 @@ export function resolveTrigger(bank: LineBank, id: string): string | null {
   }
 }
 
+/** The value of `name` as text, or null when it is absent, `undefined`, `null` or `''`. */
+function varText(vars: Vars, name: string): string | null {
+  if (!Object.hasOwn(vars, name)) return null;
+  const v = vars[name];
+  return v === undefined || v === null || v === '' ? null : String(v);
+}
+
 /** The line with every {var} filled, or null when any is missing. */
 export function fillLine(line: string, vars: Vars): string | null {
   let missing = false;
   const out = line.replace(VAR, (_m, name: string) => {
-    if (!Object.hasOwn(vars, name)) { missing = true; return ''; }
-    return String(vars[name]);
+    const v = varText(vars, name);
+    if (v === null) { missing = true; return ''; }
+    return v;
   });
   return missing ? null : out;
 }
@@ -82,7 +91,8 @@ export function createDialogue(
       } else {
         index = 0;
         text = trigger.lines[0]!.replace(VAR, (_m, name: string) => {
-          if (Object.hasOwn(vars, name)) return String(vars[name]);
+          const v = varText(vars, name);
+          if (v !== null) return v;
           const d = defaultFor(trigger, name);
           if (d === null) throw new DialogueError(`Dialogue trigger "${resolved}" needs {${name}} and has no default for it`);
           return d;

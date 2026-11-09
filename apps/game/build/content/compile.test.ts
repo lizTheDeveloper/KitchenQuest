@@ -64,7 +64,7 @@ variants:
         explain: "E"
 `;
 
-const bureau = (over: { stamp?: string; noTravel?: boolean; tag?: string } = {}) => {
+const bureau = (over: { stamp?: string; noTravel?: boolean; tag?: string; noCrossContact?: boolean } = {}) => {
   const form = (stamp: string) =>
     `    number: "1"\n    title: "T"\n    fields: []\n    buttons: { confirm: "ok" }\n    stamp: ${stamp}\n`;
   return `forms:
@@ -76,6 +76,7 @@ footnotes:
   - { tag: ${over.tag ?? 'any'}, text: "*x" }
 disclaimers:
   allergy: "plain"
+${over.noCrossContact ? '' : '  cross_contact: "boards"\n'}  unverified: "label"
 `;
 };
 
@@ -181,6 +182,7 @@ describe('compileContent: each check fails with the path and the offending value
     ['a stall variant question with no correct option', (f) => (f['content/market/wen.yaml'] = stall().replace(`options: ${options(3)}\n        explain`, `options: ${options(3, 0)}\n        explain`)), ['content/market/wen.yaml', 'variants.alt.questions', 'q2']],
     ['a missing travel form', (f) => (f['content/bureau/forms.yaml'] = bureau({ noTravel: true })), ['content/bureau/forms.yaml', 'travel']],
     ['a form stamp that is not defined', (f) => (f['content/bureau/forms.yaml'] = bureau({ stamp: 'mystery' })), ['content/bureau/forms.yaml', 'mystery']],
+    ['a missing card disclaimer', (f) => (f['content/bureau/forms.yaml'] = bureau({ noCrossContact: true })), ['content/bureau/forms.yaml', 'cross_contact']],
     ['an unknown footnote tag', (f) => (f['content/bureau/forms.yaml'] = bureau({ tag: 'attic' })), ['content/bureau/forms.yaml', 'attic']],
     ['an ingredient graph with a dangling edge', (f) => (f['data/ingredients.json'] = JSON.stringify({ ingredients: [{ id: 'onion', name: 'onion', isA: ['ghost'] }] })), ['data/ingredients.json', 'ghost']],
     ['a substitution naming an unknown ingredient', (f) => (f['data/substitutions.json'] = JSON.stringify([{ from: 'onion', to: 'unobtainium' }])), ['data/substitutions.json', 'unobtainium']],

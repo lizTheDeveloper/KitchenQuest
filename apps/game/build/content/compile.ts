@@ -11,7 +11,7 @@ import {
   type ParsedRecipe,
   type Substitution,
 } from '@kitchenquest/core';
-import { REQUIRED_PAN_TRIGGERS } from '../../src/content/required';
+import { REQUIRED_DISCLAIMERS, REQUIRED_PAN_TRIGGERS } from '../../src/content/required';
 import type {
   BureauFile,
   BureauForm,
@@ -210,6 +210,9 @@ export function compileContent(files: Record<string, string>): GameContent {
   if (bureau) {
     for (const id of ['travel', 'certificate']) {
       if (!(id in bureau.forms)) fail(BUREAU, `forms.${id} is missing`);
+    }
+    for (const id of REQUIRED_DISCLAIMERS) {
+      if (!Object.hasOwn(bureau.disclaimers, id)) fail(BUREAU, `disclaimers.${id} is missing`);
     }
     for (const note of bureau.footnotes) {
       if (!(FOOTNOTE_TAGS as readonly string[]).includes(note.tag))
