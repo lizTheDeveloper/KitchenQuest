@@ -594,3 +594,15 @@ Full analysis: `docs/business/2026-11-09-family-mode.md`.
   - Data model reserved in M5; built in a new **M13** after launch.
   - The Pan's Family Table mode is designed into M3 and M7 so it isn't bolted on later.
   - Legal review before launch is required (counsel scoping call; the report lists 11 questions).
+
+## 20. Security and privacy stance
+
+- **Who it's for:** individuals managing their own food, allergies and diet. Kitchen Quest is not a clinical tool. It doesn't receive data from, or send data to, clinicians, health plans or employers. The one exception is a player-initiated share link (C-26), which the player controls.
+- **Not a HIPAA product:** the product rules in `docs/compliance/2026-11-09-health-data-compliance.md` (P-1–P-14) keep it outside HIPAA. Any B2B deal that would bring in protected health information needs a separate, deliberate decision. We never claim "HIPAA compliant".
+- **Treated as health data:** allergies, diet rules, diet journeys, symptoms, meal logs, accessibility voice needs, and the photos and transcripts that may reveal them.
+  - Collected only with separate, tap-based consent.
+  - Sealed with per-user keys.
+  - Never sent to the AI without `ai_health` consent.
+  - Never used for advertising or training.
+  - Exportable and deletable at any time, including from backups via crypto-shredding.
+- **Living checklist:** every security and privacy requirement is tracked in `docs/compliance/ROADMAP.md`. Standing rule: anything a health-data or privacy law requires is implemented when found, without waiting for approval.
