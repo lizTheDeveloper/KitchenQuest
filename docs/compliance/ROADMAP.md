@@ -39,7 +39,7 @@ Tick each item when it lands. Full requirement text is in `2026-11-09-health-dat
 - [ ] **C-30** Policies — *M12* — `plans/m12-launch/README.md`
 - [ ] **C-31** Data-rights workflow — *M12* — `plans/m12-launch/README.md`
 - [ ] **C-32** Breach and incident runbook — *M12* — `plans/m12-launch/README.md`; `docs/compliance/incident-runbook.md` (to write)
-- [ ] **C-33** Risk assessment and DPIA — *Start M2 (data inventory); finish M12* — `docs/compliance/`
+- [~] **C-33** Risk assessment and DPIA — *Start M2 (data inventory); finish M12* — `docs/compliance/` (inventory, risk register and DPIA skeleton started)
 - [ ] **C-34** Vendor reviews and DPAs — *M3 (OpenRouter), M12 (all)* — `plans/m3-mentor/README.md`; `plans/m12-launch/README.md`
 - [ ] **C-35** Backups — *M12* — `plans/m12-launch/README.md`
 - [ ] **C-36** Operator MFA — *Now (accounts); M12 (audit)* — `plans/m12-launch/README.md`
