@@ -1,15 +1,11 @@
 import { randomBytes } from 'node:crypto';
 import postgres from 'postgres';
 import { drizzle } from 'drizzle-orm/postgres-js';
+import * as schemaModule from '../../src/db/schema.js';
+import { migrate } from '../../src/db/client.js';
 import type { Db } from '../../src/types.js';
 
 export type Sql = postgres.Sql;
-
-/**
- * Migration hook. Stays a no-op until Task 2 wires real migrations into the
- * per-file schema (the connection's search_path already points at it).
- */
-async function migrate(_sql: Sql, _schema: string): Promise<void> {}
 
 /** Fresh, uniquely named schema in the test database; dropped by close(). */
 export async function testDb(): Promise<{ db: Db; sql: Sql; close(): Promise<void> }> {
@@ -29,9 +25,9 @@ export async function testDb(): Promise<{ db: Db; sql: Sql; close(): Promise<voi
     sql = postgres(url, {
       max: 5,
       onnotice: () => {},
-      connection: { search_path: schema },
+      connection: { search_path: `"${schema}",public` },
     });
-    await migrate(sql, schema);
+    await migrate(drizzle(sql, { schema: schemaModule }), sql, schema);
   } catch (err) {
     await sql?.end({ timeout: 5 }).catch(() => {});
     await admin.unsafe(`drop schema if exists "${schema}" cascade`).catch(() => {});
@@ -40,7 +36,7 @@ export async function testDb(): Promise<{ db: Db; sql: Sql; close(): Promise<voi
   }
   const conn = sql;
   return {
-    db: drizzle(conn),
+    db: drizzle(conn, { schema: schemaModule }),
     sql: conn,
     async close() {
       await conn.end({ timeout: 5 });

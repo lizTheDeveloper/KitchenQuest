@@ -1,7 +1,7 @@
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import type * as schema from './db/schema.js';
 
-/** Placeholder alias; Task 2 narrows this with the schema generic. */
-export type Db = PostgresJsDatabase;
+export type Db = PostgresJsDatabase<typeof schema>;
 
 export interface Mailer {
   send(msg: { to: string; subject: string; text: string }): Promise<void>;
