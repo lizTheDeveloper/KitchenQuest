@@ -40,7 +40,7 @@
 - [x] [Step 4 — Rule types, validation, and active phases](step-4.md)
 - [x] [Step 5 — Recipe check and swaps](step-5.md)
 - [x] [Step 6 — Nutrition](step-6.md)
-- [ ] [Step 7 — Seed data, canon recipes, canon validation](step-7.md)
+- [x] [Step 7 — Seed data, canon recipes, canon validation](step-7.md)
 - [ ] [Step 8 — Safety property test](step-8.md)
 
 **Deferred, on purpose:** importing FoodOn and the full USDA dataset (M1 uses a hand-curated seed with each ingredient's USDA FDC id recorded for provenance; an importer comes with milestone 2's sync job), diet journeys (milestone 9), and persistence (milestone 2).
