@@ -232,3 +232,37 @@ select {
 .cook-controls { margin: 1.5rem 0 1rem; }
 .cook-controls .btn { font-size: 1.25rem; }
 .cook-refusal h1 { overflow-wrap: anywhere; }
+
+/* Home kitchen */
+#stage[hidden] { display: none; }
+#stage canvas { display: block; margin: 0 auto; }
+.kitchen-backdrop-img { display: block; width: 640px; max-width: 100%; height: auto; margin: 1rem auto; }
+.action-bar { display: flex; flex-wrap: wrap; gap: .75rem; margin: 1rem 0; }
+
+/* Knife roll (Technique Toolkit) */
+.knife-roll {
+  position: relative; width: 100%; max-width: 32rem;
+  background: var(--parchment); color: var(--parchment-ink); padding: 1.25rem 1rem 1rem;
+  box-shadow: 0 0 0 3px var(--parchment-ink), 0 0 0 6px var(--iron);
+}
+.knife-roll h2 { color: var(--parchment-ink); }
+.knife-roll h2:focus { outline: none; }
+.toolkit { list-style: none; margin: 0; padding: 0; }
+.toolkit-row {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: .25rem 1rem;
+  padding: .625rem 0; border-bottom: 2px dashed var(--parchment-ink);
+}
+.toolkit-name { font-family: var(--display); font-size: 1.125rem; flex: 1 1 8rem; }
+.toolkit-tier { display: inline-flex; align-items: center; gap: .375rem; }
+.pips { display: inline-flex; gap: 3px; }
+.pip { width: 10px; height: 10px; box-shadow: inset 0 0 0 2px var(--parchment-ink); }
+.pip.is-on { background: var(--ember); }
+.toolkit-fresh { font-family: var(--display); }
+/* §17: Rusty is an invitation in saffron, never red, never a warning icon. Saffron text sits on a strip of
+   the parchment's own ink so it stays readable (saffron straight on parchment fails contrast). */
+.rusty-invite {
+  flex-basis: 100%; margin: .25rem 0 0; padding: .375rem .625rem;
+  color: var(--saffron); background: var(--parchment-ink);
+}
+.knife-roll-buttons { display: flex; justify-content: flex-end; margin-top: 1rem; }
+.toolkit-empty { font-style: italic; }

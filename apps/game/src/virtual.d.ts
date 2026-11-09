@@ -3,3 +3,9 @@ declare module 'virtual:kq-content' {
   const content: GameContent;
   export default content;
 }
+
+declare module 'virtual:kq-assets' {
+  /** Manifest key ('char.pan', 'scene.kitchen', 'item.rice', ...) → served URL. */
+  const assets: Readonly<Record<string, string>>;
+  export default assets;
+}

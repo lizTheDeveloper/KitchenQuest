@@ -32,7 +32,7 @@ describe('mentor panel', () => {
   });
 
   it('answers thanks and other text from the script, and makes no requests', async () => {
-    app = await openApp('/', { reducedMotion: true });
+    app = await openApp('/#/settings', { reducedMotion: true });
     const { page } = app;
     await page.locator('#pan-button').click();
     const before = app.requests.length;
@@ -72,7 +72,7 @@ describe('mentor panel', () => {
   });
 
   it('types bubbles in with motion on, and a click finishes them', async () => {
-    app = await openApp('/', { reducedMotion: false });
+    app = await openApp('/#/settings', { reducedMotion: false });
     const { page } = app;
     await page.locator('#pan-button').click();
     await page.locator('#pan-text').fill('hello');

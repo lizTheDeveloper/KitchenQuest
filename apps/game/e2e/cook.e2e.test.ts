@@ -140,7 +140,8 @@ describe('cook mode', () => {
   });
 
   it('works with Phaser blocked: all 7 steps, the certificate, techniques recorded, then the kitchen', async () => {
-    app = await openApp('/', { reducedMotion: true });
+    // Start away from the kitchen: the kitchen asks for Phaser, cook mode never does.
+    app = await openApp('/#/settings', { reducedMotion: true });
     const { page } = app;
     const phaser: string[] = [];
     await page.route('**/assets/phaser-*.js', (r) => { phaser.push(r.request().url()); return r.abort(); });
@@ -163,9 +164,11 @@ describe('cook mode', () => {
     expect(s.toolkit.techniques.tempering.tier).toBe('tried');
     expect(s.cookProgress).toBeNull();
     expect(lines('cook.done').some((l) => l.includes('{dish}'))).toBe(true);
+    expect(phaser).toEqual([]);
     await dialog.getByRole('button', { name: 'Continue' }).click();
     await page.waitForFunction(() => location.hash === '#/kitchen');
-    expect(phaser).toEqual([]);
+    // The kitchen asks for Phaser (blocked here) and carries on without it.
+    await page.locator('#view img.kitchen-backdrop-img').waitFor();
     expect(app.consoleErrors.filter((e) => !/phaser|ERR_FAILED/i.test(e))).toEqual([]);
   });
 

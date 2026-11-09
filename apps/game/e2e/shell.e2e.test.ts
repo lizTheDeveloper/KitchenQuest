@@ -8,8 +8,8 @@ describe('app shell', () => {
   it('shows the kitchen at / with the right title and no console errors', async () => {
     app = await openApp('/');
     const { page } = app;
-    expect(await page.locator('#view h1').textContent()).toBe('Kitchen');
-    expect(await page.title()).toBe('Kitchen · Kitchen Quest');
+    expect(await page.locator('#view h1').textContent()).toBe('Your kitchen');
+    expect(await page.title()).toBe('Your kitchen · Kitchen Quest');
     expect(app.consoleErrors).toEqual([]);
   });
 
@@ -18,8 +18,8 @@ describe('app shell', () => {
     const { page } = app;
     expect(await page.locator('#view h1').textContent()).toBe('Not found');
     await page.getByRole('link', { name: 'Back to the kitchen' }).click();
-    await page.waitForFunction(() => document.activeElement?.tagName === 'H1' && document.activeElement.textContent === 'Kitchen');
-    expect(await page.title()).toBe('Kitchen · Kitchen Quest');
+    await page.waitForFunction(() => document.activeElement?.tagName === 'H1' && document.activeElement.textContent === 'Your kitchen');
+    expect(await page.title()).toBe('Your kitchen · Kitchen Quest');
   });
 
   it('has no horizontal scroll at 400px', async () => {
@@ -92,6 +92,11 @@ describe('app shell', () => {
     await page.getByRole('button', { name: 'Delete Kitchen Quest data on this device' }).click();
     await Promise.all([page.waitForNavigation(), page.getByRole('button', { name: 'Delete everything' }).click()]);
     await page.locator('#view h1').waitFor();
-    expect(await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('kq.')))).toEqual([]);
+    // The fresh kitchen greets a first-time player and records only that first visit.
+    await page.locator('#view .dialogue').waitFor();
+    expect(await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('kq.')))).toEqual(['kq.player.v1']);
+    const fresh = await page.evaluate(() => JSON.parse(localStorage.getItem('kq.player.v1')!) as { settings: { showCalories: boolean }; firstOpenedAt: string | null });
+    expect(fresh.settings.showCalories).toBe(false);
+    expect(fresh.firstOpenedAt).not.toBeNull();
   });
 });

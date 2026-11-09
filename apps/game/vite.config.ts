@@ -1,12 +1,13 @@
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
+import { kqAssets } from './build/assets-plugin';
 import { kqContent } from './build/content-plugin';
 
 const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
 
 export default defineConfig({
   base: '/',
-  plugins: [kqContent({ repoRoot })],
+  plugins: [kqContent({ repoRoot }), kqAssets({ repoRoot })],
   server: { port: 5173, fs: { allow: [repoRoot] } },
   build: {
     outDir: 'dist',
