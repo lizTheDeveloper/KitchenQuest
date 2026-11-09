@@ -9,7 +9,7 @@
     "build": "tsc --noEmit && vite build --configLoader runner",
     "preview": "vite preview --configLoader runner",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.node.json",
-    "test": "NODE_OPTIONS=--no-warnings=ExperimentalWarning vitest run",
+    "test": "NODE_OPTIONS=--no-warnings=ExperimentalWarning vitest run --configLoader runner",
     "test:e2e": "vitest run -c vitest.e2e.config.ts"
   },
   "dependencies": {

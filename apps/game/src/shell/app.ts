@@ -1,3 +1,5 @@
+import { content } from '../content';
+import { mountMentor } from '../mentor';
 import type { PlayerStore } from '../state/store';
 import { h } from '../ui/dom';
 import { reducedMotion } from './motion';
@@ -53,6 +55,8 @@ export function mountApp(doc: Document, base: Omit<AppContext, 'navigate'>): voi
     view.tabIndex = -1;
     view.focus();
   });
+
+  mountMentor(doc, ctx.store, content.pan);
 
   let current: Screen | null = null;
   let token = 0;
