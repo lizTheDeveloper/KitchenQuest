@@ -1,0 +1,179 @@
+# Doña Marisol: home cook, Oaxaca, Mexico. Dish: frijoles de olla (pot beans, black beans with epazote).
+# Voice: docs/style/voice.md §4. Competent, specific, warm. Never the joke.
+# Recipe: recipes/mexico/oaxaca/frijoles-de-olla.cook (status: draft until reviewed by a cook from Oaxaca).
+# Address the apprentice as "corazón" or by name. Not "mijo/mija" unless pronouns are set.
+# (The prototype used "mijo" once; changed here for neutrality.)
+
+id: marisol
+name: "Doña Marisol"
+place: "Oaxaca, Mexico"
+dish: "Frijoles de olla"
+recipe: mexico/oaxaca/frijoles-de-olla
+
+persona:
+  - "A home cook in Oaxaca with a yard full of epazote and a clay olla older than most of her neighbours. Learned beans from her abuela, who learned them from hers."
+  - "Patient, wry, and unhurried; beans have taught her that most problems are solved by waiting and adding hot water. Says 'the beans will forgive you. Mostly.'"
+  - "Generous host: you will be fed, and you will take some home. Precise about the few things that matter: salt at the end, hot water never cold, the gentlest simmer."
+  - "Proud of Oaxaca's food and its many communities, and credits them; never treats her cooking as a secret or a performance. Practical about cooking abroad with whatever pot and beans you can find."
+  - "Addresses the apprentice as 'corazón'. Uses Spanish naturally and explains it. Writes letters to Leela in Kochi (they argue about which beans keep best) and to Haruka in Osaka."
+
+intro:
+  - "Pásale, pásale. Leela said you were coming. She also said you're slow with the shallots."
+  - "Come in, sit, have some coffee. There are beans on already. There are always beans on already."
+  - "I'm Marisol. Doña Marisol to the Bureau, Marisol to you, 'Abuela' to half the children on this street, and not all of them are mine."
+  - "Your pan can sit by the comal. It'll feel at home. Everything near the comal feels at home."
+  - "Did Leela send mustard seeds? She did. Ay, that woman. Put them on the shelf. No, the other shelf. The one where I keep things I'm pretending not to want."
+
+story:
+  - "Frijoles de olla — beans from the pot. Here we cook black beans in an olla de barro, a clay pot, with a little lard and epazote from the yard. Nothing else is needed. Time is the main ingredient, and it's free."
+  # REVIEW: The common bean was domesticated in Mesoamerica several thousand years ago (often cited ~7,000-8,000 years). Confirm phrasing; keep it vague if unsure.
+  - "Beans have been cooked in this part of the world for thousands of years, alongside corn and squash in the milpa. The people who first grew them are still here — in Oaxaca there are many Indigenous peoples, many languages — and they're still cooking beans. So am I."
+  # REVIEW: Oaxaca recognises around 16 Indigenous peoples (Zapotec, Mixtec, Mazatec, Mixe, Chinantec and others). Check whether Marisol should name her own community or keep it general; a reviewer from Oaxaca should decide.
+  - "My grandmother said the olla gives a taste you cannot buy. Use whatever heavy pot you have. The beans will forgive you. Mostly."
+  # REVIEW: Toasted avocado leaves (hoja de aguacate, from the Mexican avocado) are a characteristic Oaxacan seasoning for black beans. Confirm, and confirm Marisol would mention them as optional.
+  - "Some days I toast an avocado leaf on the comal and put it in. Some days hierba de conejo. Most days just epazote. Every family in Oaxaca has an opinion about this, and every opinion is right in its own kitchen."
+  - "A pot of beans on Monday is lunch on Tuesday, refritos on Wednesday, enfrijoladas on Thursday. By Friday you are a richer person, and the beans have only cost you a little money and a lot of patience."
+
+quest:
+  id: marisol-salt-question
+  cook: marisol
+  title: "The Salt Question"
+  unlock: { requires: [leela-tempering], trust: 0 }
+  steps:
+    - type: talk
+      lines:
+        - "Before we cook, we sort. Spread the beans on a tray and look. Little stones, broken beans, the shrivelled ones — out. Beans come from fields, and fields have opinions."
+        - "First, a question my neighbour's son got wrong for three years. Let's see about you."
+
+    - type: riddle
+      prompt: "When do you add the salt to a pot of beans?"
+      options:
+        - text: "At the end, once the beans are completely soft"
+          correct: true
+          reaction: "Exactly. Some say early salt toughens the skins — my abuela did, the scientists argue. But this I know for sure: the broth cooks down for hours. Salt at the start, and you've salted twice."
+        - text: "At the very start, all of it"
+          correct: false
+          reaction: "And then two hours later the broth has cooked down and it tastes like the sea. You can always add salt. You cannot un-add it."
+        - text: "Never — beans are naturally salty"
+          correct: false
+          reaction: "Beans are many things, corazón. Salty is not one of them. Try again."
+        - text: "Whenever the beans look like they want it"
+          correct: false
+          reaction: "Beans don't ask. They wait. Like a good guest. Think about the broth — what happens to it over two hours?"
+      # REVIEW: Food-science sources (e.g. Serious Eats, America's Test Kitchen) report early salting doesn't toughen beans and can soften skins. The riddle's "right" answer is about the broth reducing, which is true either way; Marisol's line already acknowledges the argument.
+      explain: "The broth reduces over a long simmer, so salt added at the start concentrates; salting once the beans are soft lets you season the finished broth exactly."
+
+    - type: errand
+      stall: okafor-sato
+      item: black_bean
+      lines:
+        - "I want you to see how to buy beans when you're far from here. Go to Okafor-Sato and bring me a bag of dried black beans."
+        - "Look for beans that are glossy and the same size, with few broken ones. Buy from a shop that sells a lot of them; old beans can take forever to soften, and some never do."
+        - "Good. These are young — well, young for a dried bean. Okafor-Sato chose well, or you did. Probably both."
+
+    - type: drill
+      skill: heat-control
+      prompt: "Bring the pot to a boil, then turn it down to the gentlest simmer: small bubbles lazily breaking the surface now and then, not a rolling boil. Keep it partly covered."
+      lines:
+        - "Look at the pot. If it's jumping, it's too hot; the beans will knock into each other and split, and the broth will cloud and run away."
+        - "A few slow bubbles. Like the pot is thinking. That's the speed of good beans."
+        - "When the water dips below the beans, add hot water from the kettle. Never cold. Cold stops everything and the beans take offence."
+        - "Now we wait. In this house, waiting is a skill. You'll get points for it from the Bureau. You'll get beans from me, which are better."
+
+    - type: cook
+      recipe: mexico/oaxaca/frijoles-de-olla
+
+  rewards: { xp: 45, trust: 1, skills: { legumes: 10, heat-control: 10, patience: 10 } }
+
+gift:
+  - "Good. Now I'll teach you the pot. Bring hot water when it runs low, never cold — cold stops everything and the beans take offence."
+  - "Sort, rinse, cover them well with water. A piece of onion, a clove or two of garlic, a spoon of lard. Boil, then the smallest simmer, lid half on, for as long as they need. Usually two hours. Sometimes more. The beans decide."
+  - "When you can squash one easily against the roof of your mouth, it's time for salt and epazote. Twenty minutes more, so the broth drinks them in."
+  - "This is my abuela's way, and her mother's, and half of Oaxaca's. Now you have it too. Cook a big pot. Feed someone. That's the whole recipe."
+
+trust_lines:
+  1:
+    - "You're back. Sit. There are beans. There are always beans."
+    - "Ah, the apprentice. Coffee? You'll have coffee."
+  2:
+    - "How was your pot? Did you wait? You waited. I can tell. Patient people stand differently."
+    - "You can stir the beans, gently, like you're waking someone who worked late."
+    - "Leela wrote. She says you're good with shallots now. I said, 'Let's see what you do with beans.'"
+  3:
+    - "Taste the broth and tell me what it needs. No — tell me. Then I'll tell you if you're right."
+    - "You're becoming one of those people who keeps a pot of beans in the fridge. Good. The world needs more of them."
+    - "Take some home. Don't argue. I always make too much on purpose."
+  4:
+    - "Corazón, you're family now. That means you wash up without being asked. That's the only rule."
+    - "My granddaughter asked who you were. I said, 'the one who knows when to salt the beans'. That's a good thing to be known for."
+    - "You can light the comal today. Carefully. It's older than both of us."
+  5:
+    - "You cooked this for someone else? Good. That's how it travels. That's how it came to me."
+    - "When you teach it, tell them it's from Oaxaca, from the women who cooked it before me. That's all I ask."
+    - "Come back whenever. The door's open. The beans are on. They are always on."
+
+reactions:
+  photo:
+    - "From here it looks like a proper pot of beans — and a pot of beans is a kind of patience you can eat. Tip: mash a spoonful against the side and stir it back; the broth gets silkier."
+    - "You waited two hours for beans. In this house that makes you family, or at least a cousin. Next time try a little crumbled queso fresco on top."
+    - "The broth looks dark and glossy. That's the beans giving up their colour, which is what you want. If it looks thin, simmer it uncovered for ten minutes before you salt the last time."
+    - "The beans look whole, not burst. Good — that means the simmer was gentle. Rolling boils split the skins."
+    - "Beautiful. Eat them in a bowl with the broth and a warm tortilla. Tomorrow, fry the leftovers in a little oil and mash them; refritos are the beans' second career."
+    - "I see onion still floating there. Fish it out before serving — it has given everything it had. Then squeeze a little lime over your bowl if you like."
+    - "That pot will feed you for days. Keep the beans in their broth in the fridge; the broth keeps them soft and is the best part."
+    - "They look creamy. When the beans are this soft, spoon some broth with a few beans over rice, with chopped onion and chile on top. Simple and very good."
+  skip_photo:
+    - "No photo? That's fine. Beans aren't very photogenic anyway. They're beautiful on the inside."
+    - "You don't have to show me. Did you wait for them to be soft? Then they're good."
+    - "Eat. Pictures are for the Bureau. Beans are for you."
+
+introduction:
+  - "Haruka in Osaka and I write each other letters about rice and beans, which are the two halves of half the world's dinners. I've told her about you."
+  - "She runs an onigiri shop. Small, very clean, very early. She is younger than me and stricter than me, which I respect."
+  - "Be on time; she opens at six. And bring her something. Not beans. She has beans. Bring her a good story about beans instead."
+
+faq:
+  - q: ["can i use canned beans", "canned beans ok", "tinned beans", "canned black beans"]
+    a: "For a quick lunch, yes: drain and rinse two cans, warm them gently with a little onion, garlic and a sprig of epazote in fresh water or stock for fifteen minutes. But it won't be frijoles de olla. The olla is about the broth, and the broth comes from the beans cooking slowly from dry. Canned saves time; dried saves money and gives you the broth."
+    tags: [substitution]
+  - q: ["do i need to soak the beans", "soak black beans", "should i soak", "overnight soak"]
+    a: "In this house, no. Black beans cook fine from dry; they just take a bit longer. If you like, soak them overnight and they'll be done sooner and a bit more evenly. Either way, throw out any that float, and keep the hot kettle ready."
+    tags: [technique]
+  - q: ["what if i don't have epazote", "epazote substitute", "where to buy epazote", "no epazote"]
+    a: "Mexican grocers sell it, fresh or dried. Dried works: about a teaspoon instead of two sprigs. If you can't find it, leave it out — the beans will still be good, just not quite Oaxacan. Some people use a little Mexican oregano instead; it's different, but it's not wrong in your kitchen."
+    tags: [substitution]
+  # REVIEW: Mexican oregano as an epazote stand-in is common advice in English-language recipes; confirm Marisol would say it.
+  - q: ["what is epazote", "what does epazote taste like"]
+    a: "An herb that grows like a weed — in my yard, it is a weed. Strong, a little like oregano and mint and something of its own. We put it in beans, in quesadillas, in soups. Use it in small amounts; it's bossy."
+  - q: ["can i use oil instead of lard", "vegetarian beans", "no lard", "vegan frijoles"]
+    a: "Yes. A spoon of neutral oil, or leave the fat out. The lard gives a little richness; the beans don't need it to be good. Without it, the whole pot is vegan."
+    a_if_blocked: "Use a spoon of neutral oil instead, or no fat at all. The beans will still be rich and good, and this version has been checked against your rules."
+    tags: [substitution]
+  - q: ["my beans are still hard", "beans won't soften", "beans taking forever", "why are my beans still hard"]
+    a: "Usually old beans — they dry out more each year on the shelf. Hard water slows them too, and so does cooking high up; here in Oaxaca City we're about one and a half kilometres up, so water boils cooler and beans take longer. Keep simmering, keep adding hot water. Next time buy from a busy shop, and a pinch of baking soda in the pot can help with hard water."
+    tags: [technique]
+  # REVIEW: Oaxaca City elevation ~1,550 m; check. Baking soda softens beans in hard water (alkaline breaks down pectin) — accurate, but too much tastes soapy; a pinch only.
+  - q: ["can i use a slow cooker", "crockpot beans"]
+    a: "You can. Bring the beans to a proper boil on the stove for ten minutes first, then move them to the slow cooker on high. Some beans, especially red kidney beans, must boil hard before slow cooking, so I always do it, for every bean. It's a good habit."
+    tags: [technique, safety]
+  - q: ["can i use a pressure cooker", "instant pot black beans"]
+    a: "Yes, and it's much faster: unsoaked black beans take about 30 to 40 minutes at high pressure, then let the pressure come down on its own. Salt and epazote after, simmering ten minutes with the lid off. Not quite the olla, but on a busy day, nobody's complaining."
+    tags: [technique]
+  # REVIEW: Electric pressure-cooker time for unsoaked black beans (common guidance 25-40 min high + natural release). Confirm a range.
+  - q: ["how do i store them", "how long do beans keep", "can i freeze beans", "leftover beans"]
+    a: "In their broth, in the fridge, for four or five days. They freeze very well too, in their broth, for a few months — freeze them in portions so you can take out just a lunch. Cool them quickly; don't leave a big warm pot on the stove overnight."
+    tags: [storage, safety]
+  - q: ["what do i do with leftovers", "refried beans", "refritos", "enfrijoladas"]
+    a: "Refritos: heat a little lard or oil, add beans with some broth, and mash as they fry until thick. Or blend beans with their broth and a little chile into a sauce, dip warm tortillas in it, fold them, and top with cheese and onion: enfrijoladas. Or just reheat a bowl with an egg on top. Beans are generous."
+  - q: ["which beans can i use", "pinto beans", "can i use other beans", "kidney beans"]
+    a: "Black beans for this dish. Pinto beans make a lovely pot too — that's how it's done in many other parts of Mexico. If you use red kidney beans, they must boil hard for ten minutes before you lower the heat; they're not safe undercooked."
+    tags: [substitution, safety]
+  - q: ["what is an olla de barro", "do i need a clay pot", "where to buy a clay pot", "is clay pot safe"]
+    a: "A clay bean pot. It heats slowly and evenly and gives the beans a taste you can't buy. You don't need one; any heavy pot works. If you do buy one, buy one that says lead-free — 'sin plomo' — because some old glazes contain lead. And season it before using it, the way your pan was seasoned."
+    tags: [safety]
+  # REVIEW: Lead in traditional glazed Mexican cookware is a documented concern; Mexico runs lead-free certification campaigns. Confirm the 'sin plomo' wording and suggest a reviewer adds how to season an olla (commonly: rub with garlic/water, or boil with lime water).
+  - q: ["why do beans give you gas", "beans gas", "skim the foam"]
+    a: "Beans are fibre, and fibre keeps the body busy. If you eat beans often, it gets easier. Epazote, people say, helps a little; I can't promise, but I'm not stopping. The foam on top at the start is harmless; skim it if you like the look of a clear broth."
+  # REVIEW: Epazote is traditionally said to reduce flatulence; evidence is limited. Kept as hearsay ("people say").
+  - q: ["how much water", "how much water for beans", "water ratio"]
+    a: "Cover the beans by about four fingers of water — for 500 g of beans, about two and a half litres. Then keep them covered by at least a finger as they cook. The broth is part of the dish, so don't let it get stingy."

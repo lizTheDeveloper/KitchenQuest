@@ -1,0 +1,194 @@
+# Ammachi Leela: home cook, Kochi, Kerala, India. Dish: parippu (Kerala dal with coconut).
+# Voice: docs/style/voice.md §4. Competent, specific, warm. Never the joke.
+# Recipe: recipes/india/kerala/parippu.cook (status: draft until reviewed by a cook from Kerala).
+# Address the apprentice as "child" or "kutty" (neutral), never gendered.
+
+id: leela
+name: "Ammachi Leela"
+# REVIEW: "Ammachi" is used in many Malayali families (notably Syrian Christian ones) for a
+# grandmother, and in some for a mother. Confirm it reads as a warm, respectful title for an
+# older home cook, and whether a Hindu or Muslim Malayali household would use a different word
+# (e.g. "Ammumma", "Umma") — Leela's family background should match the word.
+place: "Kochi, Kerala, India"
+dish: "Parippu"
+recipe: india/kerala/parippu
+
+persona:
+  - "An older home cook in Kochi who has made parippu most weeks of her life. Learned it from her mother's sister. Calls it 'ours', never 'mine'."
+  - "Calm, dry, precise about order and timing: seeds first, shallots, curry leaves last. Describes cooking by sound and smell ('until they crackle like a small applause')."
+  - "Warm hospitality with standards: you will sit, you will eat, and you will slice the shallots thinner. Has a cat that is not to be minded, only minded around."
+  - "Practical about substitutes in other countries, honest when there is no good one (curry leaves). Never calls any family's way wrong, except, affectionately, her neighbour's."
+  - "Addresses the apprentice as 'child' or 'kutty'. Uses Malayalam words for food and greetings naturally, then explains. Writes letters to friends in Oaxaca and elsewhere."
+
+intro:
+  - "Vaa, vaa — come in, sit. Mind the cat. She is not friendly, but she is fair."
+  - "So you are the apprentice the Bureau wrote about. Their letter was four pages. Yours will be shorter: wash your hands, and sit where you can see the stove."
+  - "Your pan can sit on the window ledge. Yes, I know it talks. My grandmother's kadai talked too. Mostly about my grandfather."
+  # REVIEW: "kadai/cheenachatti" — check the Malayalam word Leela would use for her wok-like pan (cheenachatti is common in Kerala).
+  - "I am Leela. Everyone calls me Ammachi, even people older than me. You may too. Now: are you hungry? Good. We will cook first and talk while it simmers."
+
+story:
+  - "This is parippu. Dal, the way we make it here: split moong, a little turmeric, ground coconut, and a tempering poured over at the end, hot enough to sing."
+  # REVIEW: Confirm that parippu (often with ghee) is served first on the rice at an Onam sadya, and that moong dal (cherupayar parippu) is the usual choice in Kochi homes (some use toor dal).
+  - "At an Onam sadya, it is the first thing served on the banana leaf — parippu, a little ghee, rice — before anything else. But mostly it is Tuesday food. Sick-day food. The food you make when there is nothing in the house but dal and a coconut."
+  - "Every house in Kochi makes it, and every house is quietly certain the others do it wrong. I learned it from my mother's sister. So it is not mine to give away. It is ours to pass on."
+  # REVIEW: Popular etymology says "Keralam" means land of coconut palms ("kera" = coconut palm). Many sources repeat it; scholars debate it. Keep, soften, or cut.
+  - "People say Keralam means the land of coconut palms. Whether or not the scholars agree, the coconut agrees. It is in the curry, in the oil, in the roof, in the broom."
+  - "We call the tempering kaduku varuthathu — the mustard, fried. My aunt said you could tell a good cook from the next room, by the sound of the seeds. I am still listening for mine."
+  # REVIEW: confirm "kaduku varuthathu" (or "kaduku varukkal" / "thalikkal") as the everyday name for tempering in a Kochi home.
+
+quest:
+  id: leela-tempering
+  cook: leela
+  title: "The Tempering Order"
+  unlock: { requires: [], trust: 0 }
+  steps:
+    - type: talk
+      lines:
+        - "Today you learn parippu. The dal is easy. The tempering is where people go wrong, and it is also where the flavour lives."
+        - "But first, help me with the tempering. My hands know the order. Let us see if yours can learn it."
+        - "We need shallots. I have three. That is enough for me, and not enough for me and you, because you will slice one badly."
+
+    - type: errand
+      stall: wen
+      item: shallot
+      lines:
+        - "Go to Old Wen's stall and bring back shallots. The small ones, firm, with dry papery skins. If they are soft at the neck or sprouting green, leave them for someone with less patience."
+        # REVIEW: Kerala cooks use small red/pink shallots (cheriya ulli). Confirm a red onion is the accepted fallback abroad.
+        - "If Wen has only big shallots, that is fine. If Wen has no shallots, a small red onion will do. Do not tell my aunt."
+        - "Ah. Good ones. Heavy, dry, tight. Wen likes you. Wen does not like everyone. Wen did not like my cousin."
+
+    - type: drill
+      skill: knife
+      prompt: "Slice the shallots thin and even: top and tail, peel, halve from root to tip, then slice across into half-moons about 2 mm thick, keeping your fingers curled into a claw."
+      lines:
+        - "Thin, and all the same. Not because I am fussy. Because they must turn golden together. If one is thick and one is thin, the thin one burns while the thick one is still thinking."
+        - "Fingertips tucked under, knuckles forward. The knife rests on your knuckles. It cannot cut what is not in front of it."
+        - "Slower is fine. Nobody is timing you except the cat, and she does not care."
+        - "Good. Those will brown like a family: together, and with only a little arguing."
+
+    - type: riddle
+      prompt: "The coconut oil is hot in the small pan. Which goes in FIRST?"
+      options:
+        - text: "Mustard seeds, and wait for them to pop"
+          correct: true
+          reaction: "Yes. Mustard seeds first, until they crackle like a small applause. Then shallots and chillies, then curry leaves last — they need only a moment."
+        - text: "Curry leaves"
+          correct: false
+          reaction: "Ah — then they are crisp and black before the seeds have even woken up. Curry leaves need seconds, not minutes. They go last. Try again."
+        - text: "The shallots"
+          correct: false
+          reaction: "The shallots would cool the oil, and the mustard seeds would never pop — they would sit there bitter and sulking. Seeds first, child."
+        - text: "A splash of water, for luck"
+          correct: false
+          reaction: "Water in hot oil? Luck is exactly what you would need. Your pan just flinched, and it is not even on the stove."
+      explain: "Mustard seeds need the hottest oil to pop and release their flavour; shallots go in next to turn golden, and curry leaves need only a few seconds, so they go last or they burn."
+
+    - type: cook
+      recipe: india/kerala/parippu
+
+  rewards: { xp: 40, trust: 1, skills: { tempering: 10, legumes: 10, knife: 5 } }
+
+gift:
+  - "Now you know where it starts. Come — I will show you the whole thing. Write it down; my memory is excellent, but it is mine."
+  - "Rinse the dal until the water runs mostly clear. Cook it soft with turmeric and green chilli. Grind the coconut with cumin and garlic. Stir it in, and never boil it hard after that, or it splits and sulks."
+  - "Then the tempering, and pour it over while it still sizzles. That sound, when it hits the dal — that is the dish saying it is finished."
+  - "This is not my recipe. It is my aunt's, and her mother's, and every kitchen on this street. Now it is a little bit yours. Cook it for someone. That is the only rule."
+
+trust_lines:
+  1:
+    - "You came back. Good. Sit. The cat has decided to tolerate you."
+    - "Again? Good. A dish is learned the third time you cook it, not the first."
+  2:
+    - "Ah, the apprentice. Did you slice the shallots thinner this time? Show me your hands. Hmm. Better."
+    - "You are getting the sound right, I think. You hold your head like you are listening for the seeds. That is how it starts."
+    - "Sit, sit. I made too much. I always make too much. That is not a mistake; that is planning for guests."
+  3:
+    - "You may stir. Not the tempering, not yet. The dal. Gently."
+    - "My neighbour asked who the new cook was. I said, 'an apprentice'. Then I said, 'a good one'. Do not let it go to your head."
+    - "Next time you come, bring me something you cooked from somewhere else. I want to taste what the world is teaching you."
+  4:
+    - "Kutty, you are almost family. You know where the spoons are. That is how it is measured in this house."
+    - "The cat sat on your bag. That is the highest honour in Kochi. I have waited four years for it."
+    - "Make the tempering today. I will sit and watch and say nothing. It will be very difficult for me."
+  5:
+    - "I heard the seeds from the next room and I knew it was you. That is what my aunt said to me, once. Now I am saying it to you."
+    - "You can teach this now. When you do, say where it came from. Say 'from Kochi, from Leela's aunt'. That is all I ask."
+    - "Come whenever you like. You do not need a Bureau letter for this kitchen any more."
+
+reactions:
+  photo:
+    - "I can't see it from here — Kochi is far — but I can hear that the mustard seeds popped. Next time, let the shallots go one shade darker; that is where the sweetness lives."
+    - "You made it, and you sat down to eat it. That is the whole recipe, really. Tip: if it thickens while it waits, loosen it with a little hot water, not cold."
+    - "A good colour — that turmeric yellow means the dal cooked soft and even. Next time, crush a little of it against the side of the pot before the coconut goes in; it makes the body creamier."
+    - "I see the tempering on top, glossy and dark. Good. If the curry leaves look black rather than dark green, add them a few seconds later next time, once the shallots are golden."
+    - "That is a proper bowl of parippu. Put it on hot rice with a spoon of ghee, mash it all together with your fingers if you are brave, and eat it before you take another picture."
+    - "It looks a little thick. That is no crime; dal thickens as it cools. Stir in hot water a spoon at a time until it falls off the ladle in a slow ribbon."
+    - "The coconut looks smooth — good grinding. If it had looked grainy, I would have said: a splash more water in the blender, and a little longer."
+    - "Beautiful. It looks like Tuesday in my house. That is the highest thing I can say about food."
+  skip_photo:
+    - "No picture? Fine. I trust your nose more than your camera."
+    - "You don't need to show me. Tell me: did the seeds pop? Then it was good."
+    - "Eat it while it is hot. Pictures are for later, and later is for washing up."
+
+introduction:
+  - "Before you go: my friend Marisol, in Oaxaca. We met at a seed-savers' gathering, years ago, arguing about which beans keep best. We are still arguing. By letter."
+  - "She knows beans the way I know dal. Patient food. Food that waits for you."
+  - "I have written to her. I told her you listen, you wash up, and you slice shallots slowly but properly. She is expecting you."
+  - "Take her some of my mustard seeds. She will pretend not to want them."
+
+faq:
+  - q: ["what if i don't have curry leaves", "curry leaves substitute", "no curry leaves", "can i skip curry leaves", "where do i get curry leaves"]
+    a: "Then leave them out, and it will still be good parippu — just not quite the one I make. There is no real substitute; bay leaf is a different plant with a different smell. Indian and South Asian grocers sell fresh curry leaves. Buy a bag, strip the leaves, and freeze them flat; they keep for months and go straight from the freezer into the hot oil."
+    tags: [substitution]
+  - q: ["can i use dried curry leaves", "dried curry leaves ok"]
+    a: "You can, but they are a whisper of the fresh ones. Use twice as many and fry them only for a moment. Frozen is much better than dried, if you can find fresh to freeze."
+    tags: [substitution]
+  - q: ["which dal do i use", "can i use red lentils", "can i use toor dal", "what lentils", "masoor dal", "yellow lentils"]
+    a: "I use split moong dal, the small yellow one. Toor dal works too — many houses use it — but it takes longer, about 30 to 40 minutes on the stove, so add water as it goes. Red lentils cook in about 15 to 20 minutes and go softer. Still a lovely parippu. Do not use whole lentils with the skin on for this; they hold their shape and you want it soft."
+    tags: [substitution]
+  # REVIEW: confirm toor dal (thuvara parippu) is a common alternative in Kerala homes.
+  - q: ["can i use canned lentils", "tinned lentils", "precooked lentils"]
+    a: "Canned lentils are whole and firm, and they taste of the can. Split moong dal cooks in twenty minutes from dry, without soaking — less time than it takes to find the can opener in some kitchens I have seen. If you must, rinse them well and simmer them soft with the turmeric before the coconut goes in."
+    tags: [substitution]
+  - q: ["do i need to soak the dal", "soak lentils", "should i soak moong dal"]
+    a: "No. Split dal is thin and cooks quickly. Rinse it two or three times until the water runs mostly clear, and cook. Soaking is for whole beans — Marisol will tell you all about it."
+  - q: ["can i make it without coconut", "coconut allergy", "no coconut", "i don't like coconut"]
+    a: "Yes. Leave out the coconut paste and you have a plain dal with tempering — many people make it this way every day. Fry the tempering in a neutral oil instead of coconut oil, and add a squeeze of lime at the end so it doesn't feel like something is missing. If it's an allergy, your rules will check every swap for you, and please check the labels on anything from a packet."
+    a_if_blocked: "Leave out the coconut paste and fry the tempering in a neutral oil like sunflower. You'll have a plain dal with tempering, which many families make every day. Your rules have checked this version. Please check the labels on anything store-bought."
+    tags: [substitution, safety]
+  # REVIEW: confirm "plain parippu without coconut, tempered" is a familiar everyday version in Kerala.
+  - q: ["can i use desiccated coconut", "no fresh coconut", "frozen coconut", "dried coconut", "where do i get grated coconut"]
+    a: "Frozen grated coconut from an Indian grocer is the best thing after fresh — thaw it and use it the same. Unsweetened desiccated coconut works too: soak it in a little warm water for ten minutes first, then grind. Never the sweetened kind; this is dal, not cake."
+    tags: [substitution]
+  - q: ["can i use coconut milk instead", "coconut milk"]
+    a: "A few spoons of thick coconut milk stirred in at the end will give you creaminess, though not the texture of ground coconut. Warm it gently; don't boil it hard."
+    tags: [substitution]
+  - q: ["how do i store it", "leftovers", "how long does dal keep", "can i freeze parippu", "store parippu"]
+    a: "Cool it, cover it, and keep it in the fridge for three or four days. It will thicken like it is sulking; warm it with a little hot water and stir. It freezes well for a couple of months, though the coconut can separate a little — stir hard when you warm it and it comes back."
+    tags: [storage]
+  - q: ["can i use a pressure cooker", "instant pot", "pressure cooker dal"]
+    a: "Of course. In most Kerala kitchens the dal goes in the pressure cooker — two or three whistles for moong, a few more for toor. In an electric pressure cooker, about 6 to 8 minutes on high for moong dal, then let the pressure come down by itself. Then mash, add coconut, and temper as usual."
+    tags: [technique]
+  # REVIEW: check electric pressure cooker time for split moong dal (6-8 min high + natural release is common guidance).
+  - q: ["my mustard seeds didn't pop", "mustard seeds not popping", "seeds won't crackle"]
+    a: "The oil was not hot enough, or there were too few seeds for the oil. Heat the oil until it shimmers and a single seed dropped in sizzles at once. Then add the rest and wait. Cover the pan with a lid if they jump — they will jump. That is their job."
+    tags: [technique]
+  - q: ["what mustard seeds", "black or yellow mustard seeds", "brown mustard seeds"]
+    a: "Black or brown mustard seeds — the small dark ones. Yellow mustard seeds are milder and pop less eagerly. Use them if they are what you have, but buy the dark ones next time."
+    tags: [substitution]
+  - q: ["is it spicy", "make it less spicy", "too hot", "can kids eat it"]
+    a: "Parippu is gentle. The green chillies are slit, not chopped, so they give flavour more than fire. Use one, or leave them out entirely, and break the dried chillies in the tempering only if you want heat. Children in Kerala eat parippu before they can say it."
+  - q: ["what do i eat it with", "serve with", "what goes with parippu"]
+    a: "Hot rice, a spoon of ghee, and pappadam. If you have it, a vegetable thoran or a little pickle on the side. Mix the dal into the rice with your fingers, if you like. It is allowed; it is encouraged."
+  - q: ["what can i use instead of ghee", "dairy free", "vegan parippu", "no ghee"]
+    a: "Leave it out, or use a little more coconut oil on top. The ghee is a treat, not a pillar. With coconut oil and no ghee, the whole dish is vegan."
+    tags: [substitution]
+  - q: ["i don't have shallots", "shallot substitute", "can i use onion"]
+    a: "A small red onion, sliced thin, will do. Shallots are sweeter and brown more evenly, but the onion will forgive you if you are patient with it."
+    tags: [substitution]
+  - q: ["i don't have a blender", "no blender", "how to grind coconut without blender"]
+    a: "Use a mortar and pestle for the cumin and garlic, then pound in the coconut with a splash of water. Or grate the garlic, crush the cumin, and stir them in with the coconut unground. It will be more rustic. Rustic is a polite word for 'lumpy', but lumpy tastes fine."
+    tags: [technique]
+  - q: ["can i double it", "make more", "scale up", "for more people"]
+    a: "Double everything except the tempering — make one and a half times that, or the oil will drown the dal. Cook in a wider pot so the dal cooks evenly. And make extra rice; people always eat more than they say."

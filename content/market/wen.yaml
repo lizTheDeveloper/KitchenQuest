@@ -1,0 +1,851 @@
+# Old Wen: produce stall. The third Wen to run it (the title came with the stall).
+# Dry, sharp, warm. Talks about produce as if it has a CV and a commute.
+# Voice: docs/style/voice.md §5. Out-of-season produce is "well-travelled", never a crime.
+# Wen's pronouns are not established; write "Wen".
+#
+# SEASONALITY: how regions and months plug in
+#   seasonal:
+#     <region-id>:          # kebab-case, matches Profile.region, e.g. pnw-usa, kerala-india, oaxaca-mexico, kansai-japan, uk-south
+#       <month>:            # 1-12
+#         - <question>      # same question schema as `questions`, game: seasonal
+#   - The game looks up seasonal[profile.region][currentMonth]. If missing, it tries the
+#     region's `fallback` (e.g. a broader region: pnw-usa -> us-north), then skips the
+#     seasonal round entirely. The general ripeness/storage questions always run.
+#   - Each seasonal question uses the same four options (in season now / stored from the
+#     autumn harvest / shipped in / depends) so players learn the categories, not the trivia.
+#   - New regions need a reviewer who shops there; cite a local seasonal chart (an extension
+#     service, growers' board or farmers' market calendar) in a comment.
+#   - Written so far: pnw-usa for November-February. Everything else is TODO.
+#
+# Sources used for pnw-usa: Washington State University Extension and Oregon State
+# University Extension harvest calendars, WA Apple Commission / USA Pears storage notes,
+# general farmers' market calendars (Seattle, Portland). # REVIEW: spot-check each month.
+
+id: wen
+name: "Old Wen"
+stall: produce
+art: grocer
+
+persona:
+  - "The third Wen to run the produce stall. The first Wen planted the plum tree behind it; the second Wen argued with it. This Wen just sells the plums."
+  - "Dry, sharp, warm. Speaks about vegetables as if they have CVs, commutes and self-esteem. ('That onion has made a wise career choice.')"
+  - "Knows seasonality cold, and ripeness by press, sniff, weight and colour. Teaches with palms, not fingertips, so the next shopper's avocado survives."
+  - "Not a snob: canned tomatoes in November and frozen peas any time are wise choices. Out-of-season produce is 'well-travelled', not wrong."
+  - "Suspicious of strawberries out of season, fond of squash, and believes every kitchen should have a bag of onions and a reason to use it."
+
+triggers:
+  greet:
+    ai: allowed
+    when: The player opens Wen's stall.
+    lines:
+      - "Squeeze gently, sniff the stem end, pick the heavy one. That's most of produce, honestly. The rest is knowing what month it is."
+      - "Morning. The squash are in a good mood. The strawberries are lying again."
+      - "Ah, a shopper. Palms, not fingertips. The avocados have been through enough."
+      - "Welcome. Everything here has a story. Some of the stories involve trucks."
+      - "Old Wen. Third of the name. The plums are from the first Wen's tree. Don't tell the plums; they think they're special."
+      - "What are we cooking? Tell me the dish and I'll tell you which vegetables want to be in it."
+  correct:
+    ai: allowed
+    when: The player answers a Wen question correctly (said before the option's own reaction).
+    lines:
+      - "Correct. Don't let it go to your head; it's a small head."
+      - "Right. You've been paying attention. The leeks noticed."
+      - "Yes. Wen nods. Wen doesn't nod at everyone."
+      - "Good. That's a real skill, that is. Shops won't teach you; they'd rather sell you the strawberry."
+  wrong:
+    ai: allowed
+    when: The player answers a Wen question wrongly (said before the option's own reaction).
+    lines:
+      - "Wrong, but educationally wrong. The best kind."
+      - "Ah. Not that one."
+      - "No. But I like the confidence."
+      - "Common mistake. The produce is used to it."
+  idle:
+    ai: allowed
+    when: The player lingers at the stall without acting.
+    lines:
+      - "Take your time. The cabbages aren't going anywhere. That's their whole appeal."
+      - "If you're not sure, pick it up. Heavy for its size is usually right."
+      - "The first Wen used to say: buy what's cheap and plentiful, and that's what's in season. The first Wen was usually right and never let anyone forget it."
+  out_of_stock:
+    ai: never
+    when: An item on the list isn't available and Wen offers a rules-checked substitute.
+    vars:
+      item: "the missing item"
+      swap: "the substitute"
+    lines:
+      - "No {item} today. {swap} does the same job. Labelled, and checked against your rules."
+      - "Out of {item}. Take {swap}. It's been checked. Your pan will want to see the label; it loves a label."
+  farewell:
+    ai: allowed
+    when: The player leaves Wen's stall.
+    lines:
+      - "Store the onions somewhere dark. They're shy."
+      - "Off you go. Use the soft things first and the hard things last."
+      - "Come back next week. There'll be different vegetables. That's the point of weeks."
+  medical:
+    ai: never
+    when: The player asks Wen a medical or diet-therapy question.
+    lines:
+      - "That one's for a doctor or a dietitian — I sell food, not diagnoses. What I can tell you is how to pick a good one of whatever they tell you to eat."
+
+games:
+  seasonal: "Seasonal or smuggled? Wen holds up an item; the player decides whether it's in season locally now, stored from the autumn harvest, shipped in, or depends."
+  ripeness: "Wen lays out three or four of one item; the player picks the one that's ready (or best for a stated use)."
+  storage: "How do you keep it once it's home?"
+
+# ----------------------------------------------------------------------------
+# Seasonal questions, keyed by region + month.
+# Option texts are fixed across all seasonal questions for consistency:
+#   A "In season here, now"   B "Local, stored from the autumn harvest"
+#   C "Shipped in from far away"   D "Depends: ask the farmer"
+# ----------------------------------------------------------------------------
+seasonal:
+  pnw-usa:
+    fallback: us-north
+    11:
+      - id: wen-pnw-11-squash
+        game: seasonal
+        prompt: "November, Pacific Northwest. Wen holds up a butternut squash. Where's it been?"
+        contains: [winter_squash]
+        options:
+          - text: "In season here, now"
+            correct: false
+            reaction: "Close. It's local, but it isn't growing now; the vines quit with the frost. It was picked in early autumn and it's been resting since, like a retired gentleman."
+          - text: "Local, stored from the autumn harvest"
+            correct: true
+            reaction: "Right. That squash has never been on a plane. It grew forty miles away, was harvested in September, and has the self-esteem to prove it."
+          - text: "Shipped in from far away"
+            correct: false
+            reaction: "Wen looks wounded on the squash's behalf. 'Grown two valleys over. Practically my cousin.'"
+          - text: "Depends: ask the farmer"
+            correct: false
+            reaction: "You could ask, but the squash would only tell you what I'm telling you: local, picked in autumn, keeps for months."
+        explain: "Winter squash is harvested in early autumn and keeps for months in a cool, dry place, so a November squash in the Pacific Northwest is usually local and stored."
+
+      - id: wen-pnw-11-strawberry
+        game: seasonal
+        prompt: "November. A punnet of strawberries, very red, labelled 'FRESH'. Where are they from?"
+        contains: [strawberry]
+        options:
+          - text: "In season here, now"
+            correct: false
+            reaction: "Oh, the sign says 'fresh'. Signs say many things. Local strawberries finish by early autumn; these commuted."
+          - text: "Local, stored from the autumn harvest"
+            correct: false
+            reaction: "Strawberries don't store. A strawberry kept for two months isn't a strawberry; it's a science project."
+          - text: "Shipped in from far away"
+            correct: true
+            reaction: "Right. A November strawberry has driven up from California or Mexico and is mostly a red promise. Taste it; it'll confess."
+          - text: "Depends: ask the farmer"
+            correct: false
+            reaction: "There isn't a local strawberry farmer with any strawberries right now. There's one with a great deal of free time."
+        explain: "Pacific Northwest strawberries are a June-July crop (with some everbearing varieties into early autumn), so November strawberries are shipped in."
+        # REVIEW: everbearing/day-neutral strawberries can run into September or October locally.
+
+      - id: wen-pnw-11-cranberry
+        game: seasonal
+        prompt: "November. A bag of fresh cranberries, glossy and firm. Local or not?"
+        contains: [cranberry]
+        options:
+          - text: "In season here, now"
+            correct: true
+            reaction: "Yes. Cranberry bogs on the Washington and Oregon coast harvest from late September into November. These are practically still damp."
+          - text: "Local, stored from the autumn harvest"
+            correct: false
+            reaction: "Reasonable guess, and they do keep well, but they're being harvested right now. Fresh off the bog."
+          - text: "Shipped in from far away"
+            correct: false
+            reaction: "Some are, from Wisconsin or Massachusetts. But the coast here grows them too. They're the region's quiet celebrities."
+          - text: "Depends: ask the farmer"
+            correct: false
+            reaction: "Fair, some bags are from back East. But these are in season here now, and that's the answer the stamp wants."
+        explain: "Cranberries are harvested on the Washington and Oregon coasts from roughly late September through November, so fresh cranberries in November can be local."
+        # REVIEW: confirm coastal WA/OR harvest window (Long Beach peninsula, Bandon/Coos County).
+
+      - id: wen-pnw-11-tomato
+        game: seasonal
+        prompt: "November. A bright red slicing tomato, perfectly round. Where's it from?"
+        contains: [tomato]
+        options:
+          - text: "In season here, now"
+            correct: false
+            reaction: "Sadly not. Local field tomatoes give up at the first frost, usually October. This one is from a greenhouse or a long way south."
+          - text: "Local, stored from the autumn harvest"
+            correct: false
+            reaction: "Tomatoes don't store for months. They go mealy and sad. Don't keep them in the fridge either; it's how they lose their will to live."
+          - text: "Shipped in from far away"
+            correct: true
+            reaction: "Correct. Field tomatoes here quit at the first frost. Pro move: canned tomatoes are picked ripe — better for November cooking than these."
+          - text: "Depends: ask the farmer"
+            correct: false
+            reaction: "There are local greenhouse tomatoes, so it's not silly. But most round red November tomatoes in a shop have travelled. Canned are your friend."
+        explain: "Field tomatoes in the Pacific Northwest end with the first frost, so November tomatoes are greenhouse-grown or shipped, and canned tomatoes are often the better choice for cooking."
+
+      - id: wen-pnw-11-cilantro
+        game: seasonal
+        prompt: "November. A bunch of cilantro. Grown nearby, or shipped in?"
+        contains: [cilantro]
+        options:
+          - text: "In season here, now"
+            correct: false
+            reaction: "Sometimes, under cover. But most bunches in a big shop came up from the south. You're half right, which is a lovely place to be."
+          - text: "Local, stored from the autumn harvest"
+            correct: false
+            reaction: "Cilantro stores for about a week, if you're kind to it. Not a season."
+          - text: "Shipped in from far away"
+            correct: false
+            reaction: "Usually, yes. But not always. Some local growers have it right now."
+          - text: "Depends: ask the farmer"
+            correct: true
+            reaction: "Trick question — a bit of both! Cilantro loves cool weather and shrugs off light frost, so some local growers have it under cover now. Most supermarket bunches are trucked from California or Mexico. Ask the farmer; farmers love being asked."
+        explain: "Cilantro is a cool-weather herb that some Pacific Northwest growers can produce under cover in late autumn, but most supermarket cilantro is shipped from warmer regions."
+
+    12:
+      - id: wen-pnw-12-kale
+        game: seasonal
+        prompt: "December. A bunch of curly kale, a little frost-nipped at the edges. Where's it from?"
+        contains: [kale]
+        options:
+          - text: "In season here, now"
+            correct: true
+            reaction: "Yes. Kale stands in the field all winter here and gets sweeter after a frost — the plant turns some starch into sugar. Old Wen always has kale."
+          - text: "Local, stored from the autumn harvest"
+            correct: false
+            reaction: "Kale doesn't store for months; it wilts. It doesn't need to. It's out there in the cold right now, being smug."
+          - text: "Shipped in from far away"
+            correct: false
+            reaction: "Some is, but kale is the Pacific Northwest's winter mascot. That one was cut this week."
+          - text: "Depends: ask the farmer"
+            correct: false
+            reaction: "You could, but every farmer round here will just say 'kale, yes, always kale' and look tired."
+        explain: "Kale is a hardy brassica that Pacific Northwest growers harvest through winter, and frost makes it sweeter."
+
+      - id: wen-pnw-12-satsuma
+        game: seasonal
+        prompt: "December. A crate of satsuma mandarins, loose-skinned and fragrant. Local?"
+        contains: [mandarin]
+        options:
+          - text: "In season here, now"
+            correct: false
+            reaction: "In season, yes. Here, no. A few hobbyists grow them in pots and brag, but the crate came from California."
+          - text: "Local, stored from the autumn harvest"
+            correct: false
+            reaction: "Citrus doesn't grow here commercially. It would need a coat."
+          - text: "Shipped in from far away"
+            correct: true
+            reaction: "Right — but don't feel bad buying them. Winter is citrus season in California and the South. 'In season somewhere sensible' is a perfectly good shopping rule."
+          - text: "Depends: ask the farmer"
+            correct: false
+            reaction: "There's no local satsuma farmer to ask. There's one in a greenhouse with three trees and a newsletter."
+        explain: "Satsumas and other mandarins are in season in winter in California and the US South, but they aren't grown commercially in the Pacific Northwest, so they're shipped in."
+
+      - id: wen-pnw-12-apple
+        game: seasonal
+        prompt: "December. A crisp Washington apple. Picked when?"
+        contains: [apple]
+        options:
+          - text: "In season here, now"
+            correct: false
+            reaction: "The trees are bare. Look out the window. That apple was picked in autumn."
+          - text: "Local, stored from the autumn harvest"
+            correct: true
+            reaction: "Right. Washington apples are picked from late summer to November and kept in cold, low-oxygen storage, which is why they're still crisp now. Basically hibernating."
+          - text: "Shipped in from far away"
+            correct: false
+            reaction: "Washington grows more apples than any other state. Shipping them in would be like importing rain."
+          - text: "Depends: ask the farmer"
+            correct: false
+            reaction: "The farmer would say 'last October' and go back to pruning."
+        explain: "Washington apples are harvested from roughly August to November and kept in controlled-atmosphere cold storage, so winter apples are local and stored."
+
+      - id: wen-pnw-12-zucchini
+        game: seasonal
+        prompt: "December. A glossy zucchini. Where's it from?"
+        contains: [zucchini]
+        options:
+          - text: "In season here, now"
+            correct: false
+            reaction: "In August, people here leave zucchini on strangers' doorsteps. In December, nobody does. That's your clue."
+          - text: "Local, stored from the autumn harvest"
+            correct: false
+            reaction: "Summer squash is the opposite of winter squash: it keeps about a week. That's why it's called summer."
+          - text: "Shipped in from far away"
+            correct: true
+            reaction: "Right. Summer squash ended with the frost. This one's from Mexico or Florida. Nothing wrong with it; just a long commute."
+          - text: "Depends: ask the farmer"
+            correct: false
+            reaction: "The farmer's zucchini plants are compost. Ask them about kale instead."
+        explain: "Zucchini is a summer squash that stops with the first frost and doesn't store well, so December zucchini is shipped in."
+
+    1:
+      - id: wen-pnw-1-leek
+        game: seasonal
+        prompt: "January. A fat leek, muddy at the root. Where's it from?"
+        contains: [leek]
+        options:
+          - text: "In season here, now"
+            correct: true
+            reaction: "Yes. Leeks sit in the cold ground all winter here and get dug as needed. The mud is the certificate of origin."
+          - text: "Local, stored from the autumn harvest"
+            correct: false
+            reaction: "They don't need storing — they stay in the field until someone digs them. Freshest thing on the stall."
+          - text: "Shipped in from far away"
+            correct: false
+            reaction: "With that much local mud on it? It'd have to be very good at disguises."
+          - text: "Depends: ask the farmer"
+            correct: false
+            reaction: "Ask, by all means. You'll hear: 'Dug it Tuesday.'"
+        explain: "Leeks are winter-hardy and stay in the field through a Pacific Northwest winter, so January leeks are typically local and freshly harvested."
+
+      - id: wen-pnw-1-asparagus
+        game: seasonal
+        prompt: "January. A bundle of asparagus. Local?"
+        contains: [asparagus]
+        options:
+          - text: "In season here, now"
+            correct: false
+            reaction: "The asparagus fields here are asleep under frost until spring. This one was awake somewhere warmer."
+          - text: "Local, stored from the autumn harvest"
+            correct: false
+            reaction: "Asparagus barely keeps a week. Stored asparagus is called 'regret'."
+          - text: "Shipped in from far away"
+            correct: true
+            reaction: "Right. Washington asparagus is an April-to-June affair. January bundles usually fly in from Peru or Mexico. Lovely; just well-travelled."
+          - text: "Depends: ask the farmer"
+            correct: false
+            reaction: "No local farmer has asparagus in January. Several have opinions about it."
+        explain: "Asparagus in Washington is harvested in spring (roughly April-June), so winter asparagus is imported, often from Peru or Mexico."
+
+      - id: wen-pnw-1-potato
+        game: seasonal
+        prompt: "January. A sack of russet potatoes. When were these dug?"
+        contains: [potato]
+        options:
+          - text: "In season here, now"
+            correct: false
+            reaction: "Nobody's digging potatoes from frozen ground for fun. These were dug in autumn."
+          - text: "Local, stored from the autumn harvest"
+            correct: true
+            reaction: "Right. Dug in autumn, cured, kept cool and dark. Washington grows a mountain of potatoes. Possibly literally; I haven't checked."
+          - text: "Shipped in from far away"
+            correct: false
+            reaction: "From where? The Pacific Northwest is where potatoes go on holiday."
+          - text: "Depends: ask the farmer"
+            correct: false
+            reaction: "The farmer will say 'October' and offer you a second sack."
+        explain: "Potatoes are harvested in late summer and autumn and stored cool and dark for months, so winter potatoes in the Pacific Northwest are typically local and stored."
+
+      - id: wen-pnw-1-parsnip
+        game: seasonal
+        prompt: "January. A knobbly parsnip. Where's it been?"
+        contains: [parsnip]
+        options:
+          - text: "In season here, now"
+            correct: true
+            reaction: "Yes. Parsnips can stay in the ground through winter here, and the cold turns their starch sweet. A frosty parsnip is a better parsnip."
+          - text: "Local, stored from the autumn harvest"
+            correct: false
+            reaction: "Some are, and that's not daft. But many are dug through the winter, straight from the cold ground. Both are local."
+          - text: "Shipped in from far away"
+            correct: false
+            reaction: "Parsnips don't travel unless they have to. This one hasn't had to."
+          - text: "Depends: ask the farmer"
+            correct: false
+            reaction: "Fair, but the answer the Bureau's looking for is 'in season now'. Winter is the parsnip's moment."
+        explain: "Parsnips are a winter root that can be harvested from the ground through a mild Pacific Northwest winter, and frost makes them sweeter."
+
+    2:
+      - id: wen-pnw-2-pear
+        game: seasonal
+        prompt: "February. A d'Anjou pear, green and firm. Picked when?"
+        contains: [pear]
+        options:
+          - text: "In season here, now"
+            correct: false
+            reaction: "Pear trees in February are mostly twigs and hope. This was picked in autumn."
+          - text: "Local, stored from the autumn harvest"
+            correct: true
+            reaction: "Right. Oregon and Washington grow most of America's pears, picked in autumn and kept in cold storage. Ripen it on the counter, then check the neck."
+          - text: "Shipped in from far away"
+            correct: false
+            reaction: "Some pears do come from Chile or Argentina in spring. But an Anjou in February is almost certainly from just up the road, out of storage."
+          - text: "Depends: ask the farmer"
+            correct: false
+            reaction: "The farmer would say 'September, and it's been in the cold room since'. I've saved you a trip."
+        explain: "Pacific Northwest pears like d'Anjou are harvested in autumn and kept in cold storage through winter and into spring, and they ripen at room temperature."
+
+      - id: wen-pnw-2-blueberry
+        game: seasonal
+        prompt: "February. Plump blueberries, a dusty bloom on each. Local?"
+        contains: [blueberry]
+        options:
+          - text: "In season here, now"
+            correct: false
+            reaction: "The local bushes are bare sticks right now. These are from the other side of the equator."
+          - text: "Local, stored from the autumn harvest"
+            correct: false
+            reaction: "Frozen local blueberries, yes — frozen blueberries are a great buy. Fresh ones don't last months."
+          - text: "Shipped in from far away"
+            correct: true
+            reaction: "Right. It's summer in Chile and Peru, so that's where February blueberries come from. Local ones are July and August. Frozen local ones are excellent all year."
+          - text: "Depends: ask the farmer"
+            correct: false
+            reaction: "The local farmer's bushes are dormant. The farmer is also dormant. It's February."
+        explain: "Pacific Northwest blueberries ripen in summer, so fresh February blueberries come from the Southern Hemisphere, while frozen local berries are a good winter buy."
+
+      - id: wen-pnw-2-nettle
+        game: seasonal
+        prompt: "Late February. A bag of young stinging nettles from a forager. In season?"
+        contains: [nettle]
+        options:
+          - text: "In season here, now"
+            correct: true
+            reaction: "Yes — among the first wild greens of the year here, late winter into spring. Handle with gloves until they're blanched; a minute in boiling water takes the sting out."
+          - text: "Local, stored from the autumn harvest"
+            correct: false
+            reaction: "Autumn nettles are tough and old. Young spring tips are the good ones, and they're just starting."
+          - text: "Shipped in from far away"
+            correct: false
+            reaction: "Nobody ships nettles. Nobody has to. They grow by every path here, uninvited."
+          - text: "Depends: ask the farmer"
+            correct: false
+            reaction: "There's no nettle farmer. There's a nettle forager with excellent gloves."
+        explain: "Young stinging nettles are among the earliest wild greens in the Pacific Northwest, usually from late winter into spring; blanching or cooking removes the sting."
+        # REVIEW: nettle start date varies by year and elevation (late Feb in lowland western WA/OR is typical). Consider dropping for players who'd forage without guidance.
+
+      - id: wen-pnw-2-mushroom
+        game: seasonal
+        prompt: "February. A basket of cremini mushrooms. Local and in season?"
+        contains: [mushroom]
+        options:
+          - text: "In season here, now"
+            correct: true
+            reaction: "Yes, in a manner of speaking. Cultivated mushrooms grow indoors all year on local farms. They don't do seasons. They do sheds."
+          - text: "Local, stored from the autumn harvest"
+            correct: false
+            reaction: "Mushrooms last about a week. A stored mushroom is a slimy mushroom."
+          - text: "Shipped in from far away"
+            correct: false
+            reaction: "Some are, but there are mushroom farms in this region. Creminis grow happily in the dark, like teenagers."
+          - text: "Depends: ask the farmer"
+            correct: false
+            reaction: "The farmer would say 'picked yesterday, as always'. Mushroom farmers have very consistent answers."
+        explain: "Cultivated mushrooms like cremini are grown indoors year-round, including on farms in the Pacific Northwest, so they're always in season locally."
+        # REVIEW: confirm commercial mushroom farms supply WA/OR shops (there are several).
+
+# ----------------------------------------------------------------------------
+# General questions (any region, any month)
+# ----------------------------------------------------------------------------
+questions:
+  - id: wen-avocado-ripe
+    game: ripeness
+    prompt: "Pick the ripe avocado for tonight's guacamole. Use your palm, not your fingertips — fingertips bruise it for the next person."
+    contains: [avocado]
+    options:
+      - text: "Dark green-purple. Gives gently to palm pressure. The stem cap flicks off — green underneath."
+        correct: true
+        reaction: "That's the one. Gentle give, darkening skin, and green under the stem cap means ready today."
+      - text: "Bright green, hard as a doorstop. The stem cap won't budge."
+        correct: false
+        reaction: "That one's ready on Thursday. Lovely if your guacamole is a Thursday guacamole. Leave it on the counter two to five days."
+      - text: "Nearly black. Your press leaves a dent that stays. Brown under the stem."
+        correct: false
+        reaction: "Overripe — the dent that stays and the brown under the stem give it away. It's had its moment. Possibly several."
+      - text: "Dark, with a sunken soft patch on one side and loose, wrinkly skin."
+        correct: false
+        reaction: "Sunken soft spots and loose skin mean bruised or overripe inside. Squeeze-tested by forty shoppers before you, poor thing."
+    explain: "A ripe avocado gives slightly to gentle palm pressure and shows green (not brown) under the stem cap; hard ones ripen on the counter in a few days."
+
+  - id: wen-squash-best
+    game: ripeness
+    prompt: "Pick the best butternut squash for a week of soups."
+    contains: [winter_squash]
+    options:
+      - text: "Heavy for its size. Matte tan skin your fingernail can't dent. Dry stem attached."
+        correct: true
+        reaction: "Perfect. Heavy means dense flesh; matte, hard skin means fully mature; a dry stem keeps rot out. It'll keep on a cool shelf for weeks."
+      - text: "Shiny, with green streaks. Feels light."
+        correct: false
+        reaction: "Glossy skin and green streaks on a butternut mean it was picked young. Light means less flesh and more disappointment."
+      - text: "No stem — just a hole where the stem used to be."
+        correct: false
+        reaction: "Stemless squash spoil faster; the hole is a front door for mould. Keep looking."
+      - text: "A soft, damp spot near the bottom."
+        correct: false
+        reaction: "That's rot starting. This squash has begun its second career as compost."
+    explain: "Choose winter squash that's heavy for its size with a hard, matte rind and a dry stem; soft spots or a missing stem mean it won't keep."
+
+  - id: wen-pear-neck
+    game: ripeness
+    prompt: "Which pear is ready to eat today?"
+    contains: [pear]
+    options:
+      - text: "Gives slightly when you press gently near the stem."
+        correct: true
+        reaction: "Yes. 'Check the neck.' Pears ripen from the inside out, so the neck tells you first. The fat bottom is the last to know."
+      - text: "Rock hard all over."
+        correct: false
+        reaction: "That pear needs a few days on the counter. Pears ripen after picking; they just need time and a bit of warmth."
+      - text: "Soft and squishy at the fat bottom."
+        correct: false
+        reaction: "If the bottom's soft, the middle's already gone grainy. Pears ripen from the centre outwards. That one's for a smoothie or a crumble, quickly."
+      - text: "Changed from green to bright yellow."
+        correct: false
+        reaction: "Some varieties change colour and some don't. Anjous stay green when ripe. Colour's a gossip; the neck tells the truth."
+    explain: "Pears ripen from the inside out after picking, so press gently near the stem: if it gives slightly, it's ready."
+
+  - id: wen-lemon-juicy
+    game: ripeness
+    prompt: "Which lemon will give you the most juice?"
+    contains: [lemon]
+    options:
+      - text: "Heavy for its size, with thin, smooth, glossy skin."
+        correct: true
+        reaction: "Right. Weight is juice. Thin, smooth skin means less pith and more lemon. Roll it on the counter before cutting; it helps."
+      - text: "The biggest one, with thick bumpy skin."
+        correct: false
+        reaction: "Big and bumpy is often mostly skin and pith. Lovely for zest. Stingy with juice."
+      - text: "A slightly green one, very firm."
+        correct: false
+        reaction: "Firm and greenish means less juicy. Lemons don't get much juicier after picking. Pick the heavy one."
+      - text: "One with soft, dark spots."
+        correct: false
+        reaction: "Soft spots are the start of mould. That lemon has stopped being a lemon and started being a hobby."
+    explain: "Heavy lemons with thin, smooth skin hold the most juice; rolling them firmly before cutting helps release it."
+
+  - id: wen-ethylene
+    game: storage
+    prompt: "You want your rock-hard avocado ripe by Saturday. Where do you put it?"
+    contains: [avocado]
+    options:
+      - text: "In a paper bag on the counter, with a banana or an apple."
+        correct: true
+        reaction: "Yes. Bananas and apples give off ethylene, a ripening gas. Trap it in a paper bag and the avocado gets the message."
+      - text: "In the fridge."
+        correct: false
+        reaction: "The fridge pauses ripening. Great once it's ripe, useless for getting there. Your avocado would be hard until about March."
+      - text: "In a sealed plastic bag in the sun."
+        correct: false
+        reaction: "Sealed plastic traps moisture and heat. You'd get a sweaty avocado with mould ambitions. Paper bag, room temperature."
+      - text: "In a bowl of water."
+        correct: false
+        reaction: "It's an avocado, not a bunch of flowers. Water does nothing but make it damp and confused."
+    explain: "Ethylene gas from bananas and apples speeds ripening; a paper bag at room temperature traps it, and the fridge slows ripening once fruit is ready."
+
+  - id: wen-onion-potato
+    game: storage
+    prompt: "Where do onions and potatoes go when you get home?"
+    contains: [onion, potato]
+    options:
+      - text: "Both somewhere cool, dark and dry, but not next to each other."
+        correct: true
+        reaction: "Yes. Together, the onions' moisture and gases encourage the potatoes to sprout. They're better friends at a distance."
+      - text: "Both in the fridge."
+        correct: false
+        reaction: "A whole onion in the fridge goes soft and damp, and potatoes get odd and sweet. Cool cupboard for both, apart."
+      - text: "In the same basket, so you can find them."
+        correct: false
+        reaction: "Convenient, but the onions will gossip to the potatoes, and the potatoes will start sprouting out of spite."
+      - text: "On a sunny windowsill."
+        correct: false
+        reaction: "Light turns potatoes green, and the green bit is bitter and you'll have to cut it off. Onions like the dark too. They're shy."
+    explain: "Store whole onions and potatoes in a cool, dark, dry, ventilated place, kept apart so the onions don't speed up potato sprouting."
+
+  - id: wen-berries-wash
+    game: storage
+    prompt: "You've bought berries for the week. When do you wash them?"
+    contains: [berry]
+    options:
+      - text: "Just before you eat them."
+        correct: true
+        reaction: "Right. Water speeds up mould. Keep them dry in the fridge, in a container lined with paper towel, and rinse only what you're about to eat."
+      - text: "As soon as you get home, then back in the fridge."
+        correct: false
+        reaction: "Wet berries in a box go fuzzy in about a day. The mould throws a party; the berries aren't invited."
+      - text: "Never. Berries clean themselves."
+        correct: false
+        reaction: "Berries are many things. Self-cleaning is not one of them. A quick rinse just before eating."
+      - text: "Soak them in soapy water."
+        correct: false
+        reaction: "Please don't. Soap isn't meant for food and it soaks into soft fruit. Cool running water is all they need."
+    explain: "Rinse berries under cool running water just before eating; washing them early adds moisture that speeds up mould."
+
+  - id: wen-tomato-fridge
+    game: storage
+    prompt: "You bought ripe-ish tomatoes for later in the week. Where do they go?"
+    contains: [tomato]
+    options:
+      - text: "On the counter, stem side down, out of direct sun."
+        correct: true
+        reaction: "Yes. Cold dulls a tomato's flavour and can make it mealy. Counter until you eat it. If it's fully ripe and you can't eat it in time, the fridge is fine — just let it warm up before eating."
+      - text: "Straight into the fridge."
+        correct: false
+        reaction: "Cold takes the flavour away and makes the texture floury. Unless it's fully ripe and about to turn, leave it out."
+      - text: "On a sunny windowsill to ripen faster."
+        correct: false
+        reaction: "Direct sun cooks them unevenly. Out of the sun, on the counter. Tomatoes like a nice room, not a beach."
+      - text: "In a sealed plastic bag."
+        correct: false
+        reaction: "Sealed plastic traps moisture and they'll go soft and mouldy. Let them breathe."
+    explain: "Keep tomatoes at room temperature out of direct sun until you eat them; refrigerate only fully ripe ones you can't use in time, and bring them back to room temperature first."
+
+  - id: wen-leek-grit
+    game: storage
+    prompt: "Your leeks are full of grit between the layers. Best way to clean them?"
+    contains: [leek]
+    options:
+      - text: "Slice them first, then swish the slices in a bowl of water and lift them out."
+        correct: true
+        reaction: "Right. The grit sinks; the leeks float. Lift them out, don't pour them out, or you'll pour the grit back on."
+      - text: "Rinse the outside of the whole leek."
+        correct: false
+        reaction: "The grit is inside, between the layers, where it climbed while the leek was growing. Washing the outside is like dusting the outside of a cupboard."
+      - text: "Peel off layers until you stop finding grit."
+        correct: false
+        reaction: "You'll end up with a leek the width of a pencil. Slice, then soak."
+      - text: "Grit adds texture. Leave it."
+        correct: false
+        reaction: "Grit adds a crunch nobody ordered. Slice and soak."
+    explain: "Soil gets trapped between a leek's layers, so slice it first, then swish the pieces in a bowl of water and lift them out, leaving the grit behind."
+
+  - id: wen-green-potato
+    game: ripeness
+    prompt: "A potato in your sack has gone green in patches. What do you do?"
+    contains: [potato]
+    options:
+      - text: "Cut away the green parts and any sprouts generously; if it's very green or tastes bitter, throw it out."
+        correct: true
+        reaction: "Yes. Green means it saw light, and light also raises solanine, which is bitter and can upset your stomach. Small patches: cut deep. Very green: compost."
+      - text: "Cook it longer; heat removes the green."
+        correct: false
+        reaction: "Cooking doesn't remove solanine. Cut the green parts off generously instead."
+      - text: "It's fine, green is just a colour."
+        correct: false
+        reaction: "Green is a sign. Not a stop sign, but a 'cut that bit off' sign."
+      - text: "Peel it thinly and use as normal."
+        correct: false
+        reaction: "A thin peel might not reach all the green. Cut generously, and keep potatoes in the dark from now on."
+    explain: "Green on a potato means it's been exposed to light, which also raises bitter solanine; cut away green parts and sprouts generously, and discard very green potatoes."
+
+  - id: wen-carrot-tops
+    game: storage
+    prompt: "You bought carrots with their leafy tops on. Before storing them?"
+    contains: [carrot]
+    options:
+      - text: "Cut the tops off, then store the carrots in the fridge."
+        correct: true
+        reaction: "Right. The leaves keep drawing water out of the root, and the carrot goes bendy. Separate them. The tops are good in pesto, by the way."
+      - text: "Leave the tops on; they keep the carrots fresh."
+        correct: false
+        reaction: "The leaves are still trying to grow, using the carrot's water. In two days you'll have a carrot you can tie in a knot."
+      - text: "Put them in a vase of water like flowers."
+        correct: false
+        reaction: "Lovely centrepiece. Terrible carrot storage. Tops off, fridge."
+      - text: "Store them on the counter in the sun."
+        correct: false
+        reaction: "Warm carrots go soft and sad. Fridge, in a bag or a drawer."
+    explain: "Cut leafy tops off carrots before storing, because the leaves pull moisture from the root; keep the carrots in the fridge."
+
+  - id: wen-garlic-sprout
+    game: ripeness
+    prompt: "Your garlic cloves have little green shoots in the middle. Is it still usable?"
+    contains: [garlic]
+    options:
+      - text: "Yes; it's safe. Pull out the green shoot if you're using it raw, as it can be bitter."
+        correct: true
+        reaction: "Right. Sprouted garlic is safe, just a bit sharper. Halve the clove and flick out the green. Next time, buy firm heads with tight skins and no shoots."
+      - text: "No, sprouted garlic is poisonous."
+        correct: false
+        reaction: "It's not. It's just enthusiastic. Remove the shoot and carry on."
+      - text: "Only if you plant it first."
+        correct: false
+        reaction: "You can plant it, and you'll get garlic next summer. But you can cook it tonight too."
+      - text: "Soak it to kill the shoot."
+        correct: false
+        reaction: "Soaking garlic gives you wet garlic with a shoot. Just pull the shoot out."
+    explain: "Sprouted garlic is safe to eat; the green shoot can taste bitter, so remove it for raw uses, and choose firm heads without shoots when buying."
+
+  - id: wen-cilantro-store
+    game: storage
+    prompt: "How do you keep a bunch of cilantro fresh for a week?"
+    contains: [cilantro]
+    options:
+      - text: "Stems in a jar of water in the fridge, loosely covered with a bag."
+        correct: true
+        reaction: "Yes. Treat it like flowers, but cold. Change the water every couple of days and it'll last a week or more."
+      - text: "Tightly sealed in its plastic band on the counter."
+        correct: false
+        reaction: "Two days on the counter and it's soup. Cilantro likes water and cold."
+      - text: "Washed and wrapped in a wet towel in the freezer."
+        correct: false
+        reaction: "Frozen cilantro goes limp and dark when it thaws. Fine for cooking into a sauce, but not for scattering on top."
+      - text: "Dried on a windowsill."
+        correct: false
+        reaction: "Dried cilantro tastes of almost nothing. The flavour's in the freshness. Jar of water, fridge."
+    explain: "Store soft herbs like cilantro with their stems in water in the fridge, loosely covered, and change the water every couple of days."
+
+  - id: wen-onion-pick
+    game: ripeness
+    prompt: "Pick the best storage onion from the sack."
+    contains: [onion]
+    options:
+      - text: "Heavy, firm all over, with dry, papery, rustling skin."
+        correct: true
+        reaction: "That onion has made a wise career choice. Firm and dry means it'll keep for weeks in a cool, dark cupboard."
+      - text: "Slightly soft at the neck."
+        correct: false
+        reaction: "A soft neck is where rot starts. Press the top; it should be as firm as the rest."
+      - text: "Sprouting a green shoot."
+        correct: false
+        reaction: "It's trying to become a plant. You can still eat it, but it's softer inside and won't keep. Pick a quiet one."
+      - text: "Damp, with dark powdery patches under the skin."
+        correct: false
+        reaction: "That dark powder is mould. Put it down gently and wash your hands."
+    explain: "Choose onions that are firm and heavy with dry, papery skins, and avoid soft necks, sprouts, dampness or dark powdery mould."
+
+  - id: wen-banana-fridge
+    game: storage
+    prompt: "Your bananas are perfectly ripe but you won't eat them for a few days. What can you do?"
+    contains: [banana]
+    options:
+      - text: "Put them in the fridge; the skin will go dark but the inside stays good."
+        correct: true
+        reaction: "Yes. Cold slows ripening. The peel turns brown-black, which frightens people, but the fruit inside is fine. Or peel and freeze them for smoothies and banana bread."
+      - text: "Nothing. Bananas can never go in the fridge."
+        correct: false
+        reaction: "That rule is for unripe bananas, which stop ripening in the cold. Ripe ones are fine in there. Ugly, but fine."
+      - text: "Wrap them in wet paper."
+        correct: false
+        reaction: "Wet paper just makes a damp banana. Fridge, or peel and freeze."
+      - text: "Put them in a bag with apples."
+        correct: false
+        reaction: "That speeds them up. Excellent if you want banana bread tomorrow. Not if you want bananas on Thursday."
+    explain: "Refrigerate ripe bananas to slow further ripening (the peel darkens but the fruit stays good), or peel and freeze them."
+
+  - id: wen-frozen-veg
+    game: storage
+    prompt: "It's mid-winter and the fresh peas look sad. Are frozen peas a good choice?"
+    contains: [pea]
+    options:
+      - text: "Yes; they're frozen soon after picking and are just as useful nutritionally."
+        correct: true
+        reaction: "Right. Frozen peas are picked at their best and frozen within hours. In winter they're often better than 'fresh' ones that have been travelling for a week."
+      - text: "No; frozen vegetables have no nutrients left."
+        correct: false
+        reaction: "That's a myth. Freezing keeps nutrients remarkably well. Frozen vegetables are a perfectly good way to eat something green."
+      - text: "Only if you thaw them overnight first."
+        correct: false
+        reaction: "Cook them straight from frozen. A few minutes in boiling water or a hot pan. Thawing just makes them sad sooner."
+      - text: "Only for babies."
+        correct: false
+        reaction: "Peas are for everyone. Frozen peas are for everyone who's busy, which is everyone."
+    explain: "Frozen vegetables are usually frozen soon after harvest and keep their nutrients well, so they're a good, cheap way to eat vegetables out of season."
+
+# ----------------------------------------------------------------------------
+# Item tips: how to pick and store each common item (shown on item cards and
+# in the stall's tip bubble). Keys are ingredient ids.
+# ----------------------------------------------------------------------------
+item_tips:
+  avocado:
+    pick: "Palm, not fingertips. Gentle give, darkening skin, and green under the stem cap means today. Rock-hard means a few days."
+    store: "Counter to ripen (paper bag with a banana to hurry it). Fridge once ripe, for a day or two more."
+  tomato:
+    pick: "Heavy for its size, smells like tomato at the stem, deep even colour, no soft spots."
+    store: "Counter, stem side down, out of the sun. Fridge only if fully ripe and you can't eat it in time; warm it back up before eating."
+  onion:
+    pick: "Heavy, firm, with dry papery skin. Skip soft necks, sprouts and damp or powdery patches."
+    store: "Cool, dark, dry, ventilated cupboard. Not the fridge (whole), and not next to the potatoes. Cut onion: covered, in the fridge, a few days."
+  shallot:
+    pick: "Firm and heavy with tight, dry skins. Avoid soft necks or green sprouts."
+    store: "Like onions: cool, dark, dry, ventilated."
+  garlic:
+    pick: "Tight, firm cloves and dry skin. No green shoots, no soft spots."
+    store: "Cool, dark, dry and airy. A whole head keeps for weeks; separated cloves dry out faster."
+  potato:
+    pick: "Firm, smooth, no green patches, no sprouts, no wrinkles."
+    store: "Cool, dark, ventilated, away from onions. Cut away any green before cooking."
+  carrot:
+    pick: "Firm and bright, snap rather than bend. If the tops are on, they should be fresh and green."
+    store: "Tops off, then in the fridge in a bag or crisper drawer. Weeks."
+  winter_squash:
+    pick: "Heavy for its size, hard matte rind your fingernail can't dent, dry stem attached."
+    store: "A cool, dry shelf, for weeks to months. Once cut, wrap and refrigerate; use within a few days."
+  chili:
+    pick: "Glossy, firm, green stem. Wrinkly means they've been waiting for you too long."
+    store: "Fridge, in a bag, a week or two. Dried chillies last for months in a jar."
+  cilantro:
+    pick: "Perky, bright, no yellow leaves, no slime at the stems."
+    store: "Stems in a jar of water in the fridge, loosely bagged. Change the water every two days."
+  lemon:
+    pick: "Heavy for its size, thin smooth glossy skin, no soft spots."
+    store: "Counter for a week; in a sealed bag in the fridge for a month."
+  lime:
+    pick: "Heavy, glossy, gives very slightly. A yellowish lime is riper and often juicier."
+    store: "Like lemons: fridge in a bag keeps them juicy longest."
+  apple:
+    pick: "Firm, no bruises or soft spots, stem intact."
+    store: "Fridge keeps them crisp for weeks. Keep away from leafy greens; apples give off ethylene."
+  pear:
+    pick: "Usually firm in the shop. Ready when the neck near the stem gives to a gentle press."
+    store: "Counter to ripen; fridge once ripe."
+  banana:
+    pick: "Buy a mix of ripe and greenish so they don't all ripen at once."
+    store: "Counter until ripe, then fridge (the peel darkens; the fruit is fine) or peel and freeze."
+  strawberry:
+    pick: "Fully red to the shoulders, fragrant, green caps fresh. Check the bottom of the punnet for squashed ones."
+    store: "Unwashed, in the fridge, on paper towel. Rinse just before eating. Two or three days."
+  berry:
+    pick: "Plump, dry, no mould or juice stains in the box. Blueberries should have a dusty bloom."
+    store: "Unwashed, in the fridge. Rinse just before eating. Frozen berries are excellent all year."
+  kale:
+    pick: "Crisp, deep-coloured leaves, no yellowing. Smaller leaves are more tender."
+    store: "Fridge, loosely bagged, up to a week. Strip the tough stems before cooking."
+  leek:
+    pick: "Firm, straight, with a long white and pale-green part. Avoid yellow or slimy tops."
+    store: "Fridge, unwashed, a week or so. Slice, then soak to clean."
+  cabbage:
+    pick: "Heavy for its size, tight leaves, no splits."
+    store: "Fridge, whole, for weeks. Peel off the outer leaves if they get tired."
+  brussels_sprout:
+    pick: "Small, tight, bright green heads. Skip yellow leaves and loose sprouts."
+    store: "Fridge, unwashed, about a week."
+  mushroom:
+    pick: "Firm, dry, smooth caps, no slime or dark wet patches."
+    store: "In a paper bag in the fridge, about a week. Wipe or quickly rinse just before cooking."
+  ginger:
+    pick: "Smooth, taut, shiny skin; snaps cleanly. Wrinkly means old and fibrous."
+    store: "Fridge, unpeeled, in a bag, a few weeks. Or freeze it and grate from frozen."
+  green_onion:
+    pick: "Crisp, bright green tops and firm white ends."
+    store: "Fridge, wrapped in a damp towel, or roots-down in a glass of water."
+  cranberry:
+    pick: "Glossy, firm, deep red; they should bounce. Skip soft or shrivelled ones."
+    store: "Fridge for weeks; freeze in the bag for months."
+  mandarin:
+    pick: "Heavy for its size and fragrant. Satsumas have loose skin; that's normal."
+    store: "Counter for a few days, fridge for a couple of weeks."
+  parsnip:
+    pick: "Firm, small to medium (big ones can be woody in the middle), no soft spots."
+    store: "Fridge, in a bag, a few weeks."
+  zucchini:
+    pick: "Small to medium, firm, glossy skin. Big ones are watery and seedy."
+    store: "Fridge, a few days to a week."
+
+faq:
+  - q: ["how do i know what's in season", "what's in season", "in season now"]
+    a: "What's cheap and piled high is usually in season. For the rest: ask me, or check a local farmers' market calendar. And the stall game teaches you the main ones for your region and month."
+  - q: ["should i buy organic", "is organic better", "organic worth it"]
+    a: "That's a choice about farming, taste and money, and reasonable people choose differently. For your cooking, the most important thing is that you buy vegetables and eat them. Fresh, frozen, organic or not: all better than none."
+  - q: ["are frozen vegetables healthy", "frozen vs fresh", "is frozen veg ok"]
+    a: "Yes. Frozen vegetables are picked and frozen quickly and keep their nutrients well. In winter they're often better than tired fresh ones. A bag of frozen peas is the best value in any shop."
+  - q: ["do i need to wash produce", "how to wash vegetables", "wash fruit"]
+    a: "Rinse under cool running water just before you use it, and rub firm things like potatoes with your hands or a brush. No soap or detergent. Pre-washed bagged salad that says 'ready to eat' doesn't need washing again."
+  - q: ["what is ethylene", "fruits that ripen others", "keep fruit apart"]
+    a: "A gas some fruit give off as they ripen: apples, bananas, avocados, pears, tomatoes. It speeds ripening nearby. Use it on purpose (avocado in a bag with a banana) and avoid it by accident (keep apples away from leafy greens)."
+  - q: ["how do i stop vegetables going off", "veg goes bad before i use it", "food waste"]
+    a: "Eat the soft things first and the hard things last. Berries, herbs, salad and mushrooms early in the week; carrots, cabbage, squash, onions and apples later. Your pan will remind you. Your pan reminds everyone of everything."
+  - q: ["is ugly produce ok", "wonky vegetables", "bruised fruit"]
+    a: "A crooked carrot is a carrot that's lived a little. Shape doesn't matter. Cut away small bruises and eat the rest. Mould, slime or a bad smell: that's when it's done."
+  - q: ["how much produce should i buy", "how many vegetables for a week"]
+    a: "Buy for the dishes you've planned, plus one or two easy things for snacking: apples, carrots, a bag of frozen veg. Better to come back for more than to compost a fridge drawer."
