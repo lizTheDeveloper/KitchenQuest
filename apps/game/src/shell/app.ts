@@ -87,7 +87,7 @@ export function mountApp(doc: Document, base: Omit<AppContext, 'navigate'>): voi
       current = screen;
       doc.title = `${screen.title} · Kitchen Quest`;
       container.replaceChildren();
-      screen.mount(container, route, ctx);
+      await screen.mount(container, route, ctx);
     }
     if (my !== token) return;
     if (moveFocus) {

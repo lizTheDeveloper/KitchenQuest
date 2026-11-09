@@ -12,7 +12,7 @@ const SHELF_ERROR_TEXT = "Couldn't check these dishes against your rules. Treat 
 /** Canon recipes, by country then title. */
 export function shelfSlugs(): string[] {
   return Object.keys(content.recipes).sort((a, b) => {
-    const ma = content.recipes[a]!.meta, mb = content.recipes[b]!.meta;
+    const ma = content.recipes[a].meta, mb = content.recipes[b].meta;
     return ma.country.localeCompare(mb.country) || ma.title.localeCompare(mb.title);
   });
 }

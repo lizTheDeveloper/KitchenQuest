@@ -50,8 +50,8 @@ function cookScreen(): Screen {
     mount(el, route, ctx) {
       if (route.name !== 'cook' || !Object.hasOwn(content.recipes, route.slug)) throw new RouteNotFound();
       const { slug } = route;
-      const recipe: ParsedRecipe = content.recipes[slug]!;
-      const cook = content.cooks[recipe.meta.cook]!;
+      const recipe: ParsedRecipe = content.recipes[slug];
+      const cook = content.cooks[recipe.meta.cook];
       const doc = el.ownerDocument;
       const win = doc.defaultView!;
       const total = recipe.steps.length;
@@ -120,13 +120,13 @@ function cookScreen(): Screen {
           case 'text': return doc.createTextNode(item.value);
           case 'cookware': return h('span', { class: 'cookware', 'data-content': '' }, item.name);
           case 'ingredient': {
-            const ing = recipe.ingredients[item.index]!;
+            const ing = recipe.ingredients[item.index];
             const amt = amount(ing), swap = swapFor(ing);
             return h('span', { class: 'ingredient' },
               contentText('strong', ing.displayName ?? ing.name), amt ? ` (${amt})` : null, swap ? ` (${swap})` : null);
           }
           case 'timer': {
-            const t = recipe.timers[item.index]!;
+            const t = recipe.timers[item.index];
             const seconds = timerSeconds(t);
             const id = `${stepNo}-${item.index}`;
             const visible = `Start ${formatClock(seconds * 1000)} timer`;
@@ -142,7 +142,7 @@ function cookScreen(): Screen {
       };
 
       const renderStep = () => {
-        const s = recipe.steps[step]!;
+        const s = recipe.steps[step];
         progress.textContent = `Step ${step + 1} of ${total}`;
         stepBox.replaceChildren(
           ...(s.section ? [contentText('h2', s.section, { class: 'cook-section' })] : []),
@@ -211,7 +211,7 @@ function cookScreen(): Screen {
         ctx.store.update((s) => ({ ...s, toolkit: events.reduce(recordTechnique, s.toolkit), cookProgress: null }));
         await wake.disable();
         say('cook.done', { dish: cook.dish || card.title, cook: cook.name });
-        const form = content.bureau.forms.certificate!;
+        const form = content.bureau.forms.certificate;
         const names = card.skills.map((s) => techniqueName(s.id)).join(', ');
         const mql = win.matchMedia('(prefers-reduced-motion: reduce)');
         await showBureauForm(doc.getElementById('overlay-root') ?? doc.body, {

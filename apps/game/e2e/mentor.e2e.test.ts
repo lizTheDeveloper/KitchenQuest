@@ -7,7 +7,7 @@ import { expectNoA11yViolations, openApp, type OpenedApp } from './helpers';
 const pan = parse(readFileSync(fileURLToPath(new URL('../../../content/dialogue/pan.yaml', import.meta.url)), 'utf8')) as {
   triggers: Record<string, { lines: string[] }>;
 };
-const lines = (id: string) => pan.triggers[id]!.lines;
+const lines = (id: string) => pan.triggers[id].lines;
 
 let app: OpenedApp | null = null;
 afterEach(async () => { await app?.close(); app = null; });

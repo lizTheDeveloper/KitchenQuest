@@ -6,7 +6,6 @@
     "scripts",
     "tools",
     "apps/*/*.ts",
-    "apps/*/e2e",
     "packages/*/*.ts"
   ]
 }

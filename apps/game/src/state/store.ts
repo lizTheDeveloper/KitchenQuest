@@ -60,7 +60,7 @@ function merge(p: Record<string, unknown>): PlayerState | null {
   if (has('dialogueHistory') && !isObj(p.dialogueHistory)) return null;
   if (has('rulesUnreadable') && typeof p.rulesUnreadable !== 'boolean') return null;
   if (has('settings') && !isObj(p.settings)) return null;
-  const s = (isObj(p.settings) ? p.settings : {}) as Record<string, unknown>;
+  const s = (isObj(p.settings) ? p.settings : {});
   const ds = d.settings;
   for (const k of ['showCalories', 'familyTable', 'iosNoteDismissed'] as const) {
     if (s[k] !== undefined && typeof s[k] !== 'boolean') return null;
@@ -73,12 +73,12 @@ function merge(p: Record<string, unknown>): PlayerState | null {
     localRules: has('localRules') ? (p.localRules as Rule[]) : d.localRules,
     accountRules: has('accountRules') ? (p.accountRules as Rule[] | null) : d.accountRules,
     account: has('account') ? (p.account as { email: string } | null) : d.account,
-    toolkit: has('toolkit') ? (p.toolkit as unknown as ToolkitState) : d.toolkit,
+    toolkit: has('toolkit') ? (p.toolkit as ToolkitState) : d.toolkit,
     cookProgress: has('cookProgress') ? (p.cookProgress as { slug: string; step: number } | null) : d.cookProgress,
     dialogueHistory: has('dialogueHistory') ? (p.dialogueHistory as Record<string, number[]>) : d.dialogueHistory,
     settings: {
       showCalories: (s.showCalories as boolean | undefined) ?? ds.showCalories,
-      reducedMotion: (s.reducedMotion as PlayerSettings['reducedMotion'] | undefined) ?? ds.reducedMotion,
+      reducedMotion: (s.reducedMotion) ?? ds.reducedMotion,
       familyTable: (s.familyTable as boolean | undefined) ?? ds.familyTable,
       iosNoteDismissed: (s.iosNoteDismissed as boolean | undefined) ?? ds.iosNoteDismissed,
     },
@@ -174,8 +174,8 @@ export function createStore(
     try {
       if (storage!.getItem(CORRUPT_KEY) === raw) return true; // already rescued
       for (let i = RESCUE_KEYS.length - 1; i > 0; i--) {
-        const older = storage!.getItem(RESCUE_KEYS[i - 1]!);
-        if (older !== null) storage!.setItem(RESCUE_KEYS[i]!, older);
+        const older = storage!.getItem(RESCUE_KEYS[i - 1]);
+        if (older !== null) storage!.setItem(RESCUE_KEYS[i], older);
       }
       storage!.setItem(CORRUPT_KEY, raw);
       return true;

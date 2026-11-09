@@ -127,9 +127,9 @@ describe('createStore', () => {
     b.update((x) => ({ ...x, toolkit: recordTechnique(x.toolkit, { kind: 'lesson', technique: 'dice', at: '2026-11-02' }) }));
     const t = createStore(st).get().toolkit.techniques;
     expect(Object.keys(t).sort()).toEqual(['dice', 'tadka']);
-    expect(t.tadka!.tier).toBe('tried');
+    expect(t.tadka.tier).toBe('tried');
     // a stale lesson on tadka cannot lower the tier
-    b.update((x) => ({ ...x, toolkit: { techniques: { ...x.toolkit.techniques, tadka: { ...t.tadka!, tier: 'seen', lastUsedAt: '2026-01-01' } } } }));
+    b.update((x) => ({ ...x, toolkit: { techniques: { ...x.toolkit.techniques, tadka: { ...t.tadka, tier: 'seen', lastUsedAt: '2026-01-01' } } } }));
     expect(createStore(st).get().toolkit.techniques.tadka).toMatchObject({ tier: 'tried', lastUsedAt: '2026-11-01' });
   });
 

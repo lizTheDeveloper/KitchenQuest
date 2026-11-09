@@ -13,7 +13,7 @@ describe('status chips', () => {
       const parse = (c: string) => (c.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number);
       const lum = ([r, g, b]: number[]) => {
         const f = (v: number) => { const x = v / 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; };
-        return 0.2126 * f(r!) + 0.7152 * f(g!) + 0.0722 * f(b!);
+        return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
       };
       return [...document.querySelectorAll('.chip')].map((el) => {
         const cs = getComputedStyle(el);

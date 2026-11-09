@@ -80,7 +80,7 @@ export function showBureauForm(
       if (ev.key !== 'Tab') return;
       const items = [...dialog.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((e) => !(e as HTMLButtonElement).disabled);
       if (items.length === 0) { ev.preventDefault(); return; }
-      const first = items[0]!, last = items[items.length - 1]!;
+      const first = items[0], last = items[items.length - 1];
       const active = doc.activeElement;
       if (!dialog.contains(active)) { ev.preventDefault(); first.focus(); }
       else if (ev.shiftKey && active === first) { ev.preventDefault(); last.focus(); }
