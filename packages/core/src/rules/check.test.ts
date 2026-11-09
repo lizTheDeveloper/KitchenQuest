@@ -26,6 +26,7 @@ const fixture: IngredientNode[] = [
   { id: 'coconut_aminos', name: 'coconut aminos' },
   { id: 'curry_paste', name: 'curry paste', labelDependent: true },
   { id: 'salt', name: 'salt' },
+  { id: 'salty_sauce', name: 'salty sauce', contains: ['salt'] },
 ];
 
 const graph = IngredientGraph.fromData({ ingredients: fixture });
@@ -126,6 +127,7 @@ describe('check', () => {
     const withoutAminos = SUBS.filter((s) => s.to !== 'coconut_aminos');
     const blocked = check(r, rules, graph, withoutAminos, DATE);
     expect(blocked.status).toBe('blocked');
+    expect(blocked.findings.length).toBeGreaterThan(0);
     for (const f of blocked.findings) {
       expect(f.status).toBe('blocked');
       expect(f.swap).toBeUndefined();
@@ -239,10 +241,45 @@ describe('check', () => {
     ).toThrow(/bad-rule.*unicorn/);
   });
 
-  it('throws on a substitution to an unknown ingredient', () => {
-    const subs: Substitution[] = [{ from: 'soy_sauce', to: 'mystery_sauce' }];
-    expect(() =>
-      check(recipe('Add @soy sauce{1%tbsp}.'), [avoid('no-wheat', ['wheat'])], graph, subs, DATE),
-    ).toThrow(/mystery_sauce/);
+  it('validates every substitution up front, whatever the recipe', () => {
+    const r = recipe('Chop @tomato{1}.');
+    expect(() => check(r, [], graph, [{ from: 'soy_sauce', to: 'mystery_sauce' }], DATE)).toThrow(
+      /mystery_sauce/,
+    );
+    expect(() => check(r, [], graph, [{ from: 'ghost_sauce', to: 'tamari' }], DATE)).toThrow(/ghost_sauce/);
+  });
+
+  it('ignores per-day limits in M1', () => {
+    const rule: Rule = {
+      id: 'daily-salt',
+      target: { kind: 'ingredient', ids: ['salt'] },
+      type: 'limit',
+      severity: 'intolerance',
+      limit: { amount: 5, unit: 'g', per: 'day' },
+    };
+    const result = check(recipe('Add @salt{12%g}.', 2), [rule], graph, SUBS, DATE);
+    expect(result.status).toBe('ok');
+    expect(result.findings).toEqual([]);
+  });
+
+  it('swap re-check rejects a candidate reaching a per-serving limit target, whatever the amount', () => {
+    const rules: Rule[] = [
+      avoid('no-wheat', ['wheat']),
+      {
+        id: 'low-salt',
+        target: { kind: 'ingredient', ids: ['salt'] },
+        type: 'limit',
+        severity: 'intolerance',
+        limit: { amount: 5, unit: 'g', per: 'serving' },
+      },
+    ];
+    const r = recipe('Add @soy sauce{1%tbsp}.');
+    const only: Substitution[] = [{ from: 'soy_sauce', to: 'salty_sauce' }];
+    expect(check(r, rules, graph, only, DATE).status).toBe('blocked');
+
+    const withFallback: Substitution[] = [...only, { from: 'soy_sauce', to: 'tamari' }];
+    const result = check(r, rules, graph, withFallback, DATE);
+    expect(result.status).toBe('swap');
+    expect(result.findings[0]!.swap?.toId).toBe('tamari');
   });
 });

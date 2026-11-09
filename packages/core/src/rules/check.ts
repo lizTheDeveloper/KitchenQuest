@@ -59,7 +59,7 @@ function evaluate(
   if (!path) return null;
   if (rule.type === 'avoid') return { kind: 'match', rule, path };
 
-  // limit: validateRules guarantees rule.limit exists. per: 'day' needs the meal log (not in M1).
+  // limit: validateRules guarantees rule.limit exists. Only per-serving limits reach here.
   const limit = rule.limit!;
   if (item.quantity === null || item.unit !== limit.unit) return { kind: 'label', rule, path };
   return item.quantity / servings > limit.amount ? { kind: 'match', rule, path } : null;
@@ -78,9 +78,6 @@ function findSwap(
 ): Finding['swap'] {
   for (const sub of subs) {
     if (sub.from !== fromId) continue;
-    if (!graph.has(sub.to)) {
-      throw new Error(`Substitution "${sub.from}" -> "${sub.to}": "${sub.to}" is not in the ingredient graph`);
-    }
     const node = graph.get(sub.to);
     if (node.labelDependent) continue;
     if (rules.some((rule) => pathToAny(graph, sub.to, rule) !== null)) continue;
@@ -101,8 +98,19 @@ export function check(
   const problems = validateRules(rules, graph);
   if (problems.length > 0) throw new Error(`Invalid rules: ${problems.join('; ')}`);
 
+  const badSubs = subs.flatMap((sub) =>
+    [sub.from, sub.to]
+      .filter((id) => !graph.has(id))
+      .map((id) => `Substitution "${sub.from}" -> "${sub.to}": "${id}" is not in the ingredient graph`),
+  );
+  if (badSubs.length > 0) throw new Error(`Invalid substitutions: ${badSubs.join('; ')}`);
+
   const active = rules.filter((rule) => isActive(rule, date));
-  const restricting = active.filter((rule) => rule.type === 'avoid' || rule.type === 'limit');
+  // per: 'day' limits need the meal log (milestone 9), so in M1 they are ignored entirely:
+  // no findings, no label-dependent trigger, no part in the swap re-check.
+  const restricting = active.filter(
+    (rule) => rule.type === 'avoid' || (rule.type === 'limit' && rule.limit?.per === 'serving'),
+  );
   const findings: Finding[] = [];
 
   for (const item of recipe.ingredients) {
