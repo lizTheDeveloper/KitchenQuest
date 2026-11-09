@@ -29,13 +29,15 @@
 2. A replayed, expired or tampered login token must fail, and a token must work exactly once even under two concurrent verifies. → Task 3.
 3. Rules stored in the database must be unreadable without `DATA_KEY` (no plaintext ingredient ids in the table). → Tasks 2, 5.
 4. A rule body that core rejects (unknown id, inverted phase, bad enum) must return 400 with core's problem messages, never be stored. → Task 5.
-5. Account deletion must leave no row anywhere referencing the user, and export must include every stored field decrypted. → Task 7.
+5. A player with no entitlements must still get every "free forever" feature (spec §16): sign-in, rules, recipe checks, export, delete. → Task 8.
+6. Account deletion must leave no row anywhere referencing the user, and export must include every stored field decrypted. → Task 7.
 
 ## Tasks
 
 - [x] [Step 0 — Carry-over core safety fixes](step-0.md)
 - [x] [Step 1 — API skeleton, config, test harness, local Postgres, CI](step-1.md)
 - [ ] [Step 2 — Schema, migrations, encryption helper](step-2.md)
+- [ ] [Step 2b — Entitlements and usage metering](step-2b.md)
 - [ ] [Step 3 — Magic-link sign-in and sessions](step-3.md)
 - [ ] [Step 4 — Profile](step-4.md)
 - [ ] [Step 5 — Ingredient search and allergy/diet rules](step-5.md)

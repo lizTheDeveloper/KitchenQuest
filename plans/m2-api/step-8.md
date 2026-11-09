@@ -10,6 +10,7 @@ One scripted journey through the real app with the real canon and seed data:
 5. `GET /recipes` → parippu `blocked` with disclaimer; for every recipe the API status equals core `check` run directly on the same recipe source with the same rules and date (the API adds no logic).
 6. A second user sees none of user 1's rules and gets `ok` for parippu.
 7. `GET /me/export` includes the rule; `DELETE /me` removes everything.
+8. Free forever (spec §16): every step above runs for a user with **no** entitlements, and the test asserts `GET /me` shows `entitlements: []` at the start. No endpoint used above may consult entitlements.
 
 - [ ] **8.1 Write it.** **8.2 Run** → PASS (it should, since Steps 3–7 exist; if not, fix the owning code and add a focused test there).
 - [ ] **8.3 Final verification:** root `npm test`, `npm run typecheck`, `npm run build -w @kitchenquest/game`.

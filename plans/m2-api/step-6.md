@@ -7,6 +7,7 @@
 ```ts
 export async function syncCanon(db: Db, recipesDir: string, graph: IngredientGraph): Promise<{ added: number; updated: number; removed: number; unchanged: number }>;
 ```
+- Front matter gains optional `contributors: string[]` (stable contributor ids, e.g. GitHub handles) for the §16 contributor revenue share; store them in a `contributors text[] not null default '{}'` column on `canon_recipes` (migration in this step).
 - Reads every `recipes/**/*.cook`, parses with core `parseRecipe`, slug = path without extension (`india/kerala/parippu`), `content_hash` = sha256 of source. All-or-nothing in one transaction: any parse error aborts the whole sync with the file path in the message. Rows for deleted files are removed.
 
 **Routes (auth required, uses the player's decrypted rules and today's date from the clock):**
