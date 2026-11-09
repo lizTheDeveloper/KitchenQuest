@@ -3,3 +3,5 @@ export * from './recipe/types';
 export { parseRecipe } from './recipe/parse';
 export * from './ingredients/types';
 export { IngredientGraph } from './ingredients/graph';
+export * from './rules/types';
+export { validateRules, isActive } from './rules/active';
