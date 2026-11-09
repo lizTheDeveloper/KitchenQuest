@@ -151,6 +151,30 @@ export class IngredientGraph {
     return this.nodes.has(id);
   }
 
+  /**
+   * Ingredients whose name or an alias matches `query` (normalized like `resolve`), at most
+   * `limit` of them, each once. Prefix matches come before substring matches, then by name, so
+   * the order is deterministic. `matched` is the label that matched: the name when it matches as
+   * well as an alias does, else the first matching alias. An empty query matches nothing.
+   */
+  search(query: string, limit = 10): { id: string; name: string; matched: string }[] {
+    const q = normalize(query);
+    if (q === '' || !(limit > 0)) return [];
+    const hits: { id: string; name: string; matched: string; tier: number }[] = [];
+    for (const node of this.nodes.values()) {
+      let best: { matched: string; tier: number } | null = null;
+      for (const label of [node.name, ...(node.aliases ?? [])]) {
+        const key = normalize(label);
+        const tier = key.startsWith(q) ? 0 : key.includes(q) ? 1 : -1;
+        if (tier >= 0 && (best === null || tier < best.tier)) best = { matched: label, tier };
+      }
+      if (best) hits.push({ id: node.id, name: node.name, ...best });
+    }
+    const byText = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+    hits.sort((a, b) => a.tier - b.tier || byText(a.name, b.name) || byText(a.id, b.id));
+    return hits.slice(0, limit).map(({ id, name, matched }) => ({ id, name, matched }));
+  }
+
   pathTo(fromId: string, targetId: string): string[] | null {
     this.get(fromId);
     this.get(targetId);

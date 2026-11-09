@@ -49,7 +49,7 @@ describe('log redaction (C-9)', () => {
     const cookie = await signIn(app, mailer, 'logs@example.com');
     const cookies = { kq_session: cookie };
     const reqs = [
-      // No search route yet (Step 5): an unmatched route, and a matched one with a query string.
+      // The search route (Step 5), a matched route with a stray query string, and an unmatched path.
       app.inject({ method: 'GET', url: '/ingredients/search?q=peanut' }),
       app.inject({ method: 'GET', url: '/health?q=peanut' }),
       app.inject({ method: 'GET', url: '/rules/peanut' }),
@@ -66,7 +66,7 @@ describe('log redaction (C-9)', () => {
       app.inject({ method: 'GET', url: '/test/boom?q=peanut' }),
     ];
     const res = await Promise.all(reqs);
-    expect(res.map((r) => r.statusCode)).toEqual([404, 200, 404, 200, 400, 400, 400, 401, 500]);
+    expect(res.map((r) => r.statusCode)).toEqual([200, 200, 404, 200, 400, 400, 400, 401, 500]);
 
     const text = logs.text();
     expect(logs.lines().length).toBeGreaterThan(10);
