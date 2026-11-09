@@ -2,6 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
+import { eq } from 'drizzle-orm';
+import { profiles } from '../src/db/schema.js';
 import { CaptureMailer } from '../src/mail/mailer.js';
 import type { Db } from '../src/types.js';
 import { signIn } from './helpers/auth.js';
@@ -137,5 +139,22 @@ describe('profile', () => {
     const res = await put(await user(), { mealWindows });
     expect(res.statusCode).toBe(200);
     expect(res.json().mealWindows).toEqual(mealWindows);
+  });
+
+  it('reads a stored name outside the fixed set as "other", in GET /profile and the export', async () => {
+    const cookie = await user();
+    const id = (await app.inject({ method: 'GET', url: '/me', cookies: { kq_session: cookie } })).json().id as string;
+    await get(cookie);
+    // A row written before names became a fixed set (N-7).
+    await db
+      .update(profiles)
+      .set({ mealWindows: [{ name: 'Ramadan suhoor', start: '04:00', end: '04:30' }, w({ name: 'dinner' })] })
+      .where(eq(profiles.userId, id));
+    const expected = [{ name: 'other', start: '04:00', end: '04:30' }, w({ name: 'dinner' })];
+    expect((await get(cookie)).json().mealWindows).toEqual(expected);
+    const exported = await app.inject({ method: 'GET', url: '/me/export', cookies: { kq_session: cookie } });
+    expect(exported.statusCode).toBe(200);
+    expect(exported.json().profile.mealWindows).toEqual(expected);
+    expect(exported.body).not.toContain('Ramadan');
   });
 });

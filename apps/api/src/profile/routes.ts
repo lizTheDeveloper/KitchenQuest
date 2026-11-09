@@ -37,12 +37,28 @@ const ProfileBody = z
   .partial()
   .strict();
 
+type MealWindowName = (typeof MEAL_WINDOW_NAMES)[number];
+type StoredMealWindow = { name: MealWindowName; start: string; end: string };
+
+/**
+ * Stored meal windows as served: a name outside the fixed set (a row written
+ * before N-7 made names an enum) reads as `other`, so free text is never
+ * shown back or exported. Used by GET /profile and the account export.
+ */
+export function knownMealWindows(stored: unknown): StoredMealWindow[] {
+  const list = Array.isArray(stored) ? (stored as { name?: unknown }[]) : [];
+  return list.map((w) => ({
+    ...(w as StoredMealWindow),
+    name: (MEAL_WINDOW_NAMES as readonly unknown[]).includes(w.name) ? (w.name as MealWindowName) : 'other',
+  }));
+}
+
 interface Profile {
   marketDays: number[];
   mealsPerWeek: number | null;
   country: string | null;
   region: string | null;
-  mealWindows: { name: (typeof MEAL_WINDOW_NAMES)[number]; start: string; end: string }[];
+  mealWindows: StoredMealWindow[];
 }
 
 const cols = {
@@ -58,7 +74,7 @@ async function loadProfile(db: Db, userId: string): Promise<Profile> {
   await db.insert(profiles).values({ userId }).onConflictDoNothing({ target: profiles.userId });
   const [row] = await db.select(cols).from(profiles).where(eq(profiles.userId, userId));
   if (!row) throw new Error('profile vanished after insert');
-  return row as Profile;
+  return { ...(row as Profile), mealWindows: knownMealWindows(row.mealWindows) };
 }
 
 export async function profileRoutes(app: FastifyInstance): Promise<void> {

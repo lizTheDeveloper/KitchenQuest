@@ -8,7 +8,7 @@
 
 The API serves the paragraph between the two markers below (without the blank lines around it), byte for byte, as the `health_data` notice (`apps/api/src/consent/notices.ts` reads this file at boot). Each grant records this version and the SHA-256 of that text in `consents.notice_version` and `consents.notice_sha256`, so the ledger shows exactly which words the player agreed to.
 
-**Never edit the text of this file.** A change of even one character changes the hash and breaks the record. Write `health_data-v2.md` with a new version instead; players are then asked again, and their v1 grant is ended as `superseded`. `apps/api/test/consent.test.ts` fails if the text and the declared hash disagree.
+**Never edit the text of this file.** A change of even one character changes the hash and breaks the record. Write `health_data-v2.md` with a new version instead, and set `ACCEPTED_VERSIONS.health_data` in `apps/api/src/consent/notices.ts` to the versions that still count: a grant under any other version stops counting (403 `consent_required` on health writes, `needsReconsent` in `GET /me/consents`), the player is asked again, and the new grant ends the old one as `superseded`. `apps/api/test/consent.test.ts` fails if the text and the declared hash disagree.
 
 ## Why it names religious and cultural diets
 

@@ -1,6 +1,9 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import type { ConsentPurpose } from './ledger.js';
+import type { CONSENT_PURPOSES } from '../db/schema.js';
+
+// From the schema, not ledger.ts, which imports this module.
+type ConsentPurpose = (typeof CONSENT_PURPOSES)[number];
 
 export interface Notice {
   version: string;
@@ -61,6 +64,23 @@ export const NOTICES: Partial<Record<ConsentPurpose, Notice>> = {
     text: 'Share your country and region with the Pantry so you see ingredients and posts from near you. Never your exact location.',
   },
 };
+
+/**
+ * The notice versions whose grants still count, per purpose. A purpose listed
+ * here counts only grants under one of these versions: when its notice changes
+ * in substance (health_data v1 named religious and cultural diets for the first
+ * time), older grants stop counting and the player is asked again
+ * (`needsReconsent` in GET /me/consents). A purpose not listed counts a grant
+ * under any version. Keep the current version in the list.
+ */
+const ACCEPTED_VERSIONS: Partial<Record<ConsentPurpose, readonly string[]>> = {
+  health_data: ['v1'],
+};
+
+/** The versions that count for `purpose`, or `undefined` when any version does. */
+export function acceptedVersions(purpose: ConsentPurpose): readonly string[] | undefined {
+  return ACCEPTED_VERSIONS[purpose];
+}
 
 export function noticeSha256(n: Notice): Buffer {
   return createHash('sha256').update(n.text, 'utf8').digest();

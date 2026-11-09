@@ -274,7 +274,7 @@ describe('the magic-link email (N-1)', () => {
     expect(mail.text).not.toMatch(/<[a-z!/]/i); // no markup, so nothing to wrap or track
     // The token is random text, so look only at the words around it.
     const all = `${mail.subject}\n${mail.text.replace(URL_RE, '')}`.toLowerCase();
-    for (const word of ['peanut', 'epipen', 'anaphyla', 'allerg', 'diet', 'rule', 'health', 'consent', 'dinner', 'nz', 'unsubscribe']) {
+    for (const word of ['peanut', 'epipen', 'anaphyla', 'allerg', 'diet', 'rule', 'health', 'consent', 'dinner', 'nz', 'halal', 'kosher', 'fast', 'unsubscribe']) {
       expect(all, word).not.toContain(word);
     }
   });

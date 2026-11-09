@@ -1,0 +1,4 @@
+# Consent notices are hashed byte for byte (consents.notice_sha256); the
+# processor register is read at boot. Keep both LF on every checkout.
+docs/compliance/notices/*.md text eol=lf
+docs/compliance/processors.json text eol=lf

@@ -21,6 +21,7 @@ import {
   users,
 } from '../db/schema.js';
 import { ApiError } from '../errors.js';
+import { knownMealWindows } from '../profile/routes.js';
 import { loadRules } from '../rules/routes.js';
 
 /** The exact words the player types to delete their account. */
@@ -205,7 +206,9 @@ async function buildExport(tx: Tx, config: Config, userId: string, now: Date, pr
   return {
     exportedAt: now.toISOString(),
     user: { id: user.id, email: user.email, createdAt: iso(user.createdAt), ageConfirmedAt: iso(user.ageConfirmedAt) },
-    profile: profile ? { ...profile, updatedAt: iso(profile.updatedAt) } : null,
+    profile: profile
+      ? { ...profile, mealWindows: knownMealWindows(profile.mealWindows), updatedAt: iso(profile.updatedAt) }
+      : null,
     rules: decrypted,
     consents: await consentHistory(tx, userId),
     entitlements: ents.map((e) => ({
