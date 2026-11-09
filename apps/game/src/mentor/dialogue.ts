@@ -46,7 +46,7 @@ export function defaultFor(trigger: LineTrigger, name: string): string | null {
   const m = doc === undefined ? null : /\(default:\s*(?:'([^']*)'|"([^"]*)"|([^)]*?))\s*\)/.exec(doc);
   const found = m ? (m[1] ?? m[2] ?? m[3]) : undefined;
   if (found !== undefined && found !== '') return found;
-  return Object.hasOwn(COMMON_DEFAULTS, name) ? COMMON_DEFAULTS[name]! : null;
+  return Object.hasOwn(COMMON_DEFAULTS, name) ? COMMON_DEFAULTS[name] : null;
 }
 
 export interface Dialogue { say(id: string, vars?: Vars): Said }
@@ -65,16 +65,16 @@ export function createDialogue(
     say(id, vars = {}) {
       const resolved = resolveTrigger(bank, id);
       if (resolved === null) throw new DialogueError(`Unknown dialogue trigger "${id}"`);
-      const trigger = bank.triggers[resolved]!;
+      const trigger = bank.triggers[resolved];
       const n = trigger.lines.length;
       if (n === 0) throw new DialogueError(`Dialogue trigger "${resolved}" has no lines`);
       const used = (history[resolved] ?? []).filter((i) => i >= 0 && i < n);
       const recent = used.slice(Math.max(0, used.length - Math.min(3, n - 1)));
-      const last = used.length > 0 ? used[used.length - 1]! : -1;
+      const last = used.length > 0 ? used[used.length - 1] : -1;
 
       const filled = trigger.lines.map((l) => fillLine(l, vars));
       const fillable = filled.flatMap((t, i) => (t === null ? [] : [i]));
-      const pickFrom = (pool: number[]): number => pool[Math.min(pool.length - 1, Math.floor(random() * pool.length))]!;
+      const pickFrom = (pool: number[]): number => pool[Math.min(pool.length - 1, Math.floor(random() * pool.length))];
 
       let index: number;
       let text: string;
@@ -90,7 +90,7 @@ export function createDialogue(
         text = filled[index]!;
       } else {
         index = 0;
-        text = trigger.lines[0]!.replace(VAR, (_m, name: string) => {
+        text = trigger.lines[0].replace(VAR, (_m, name: string) => {
           const v = varText(vars, name);
           if (v !== null) return v;
           const d = defaultFor(trigger, name);

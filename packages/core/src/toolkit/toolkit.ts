@@ -25,7 +25,7 @@ export interface ToolkitRow {
   freshness: Freshness | null;
 }
 
-export const EMPTY_TOOLKIT: ToolkitState = Object.freeze({ techniques: Object.freeze({}) }) as ToolkitState;
+export const EMPTY_TOOLKIT: ToolkitState = Object.freeze({ techniques: Object.freeze({}) });
 
 const RANK: Record<Tier, number> = { seen: 0, tried: 1, yours: 2 };
 const maxTier = (a: Tier, b: Tier): Tier => (RANK[a] >= RANK[b] ? a : b);

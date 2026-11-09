@@ -3,8 +3,8 @@ import { z } from 'zod';
 import { requireUser } from '../auth/session.js';
 import { CONSENT_PURPOSES } from '../db/schema.js';
 import { ApiError } from '../errors.js';
-import { deleteHealthData } from './health-data.js';
-import { consentHistory, grantConsent, isConsentPurpose, withdrawConsent } from './ledger.js';
+import { deleteHealthDataIn } from './health-data.js';
+import { consentHistory, grantConsent, isConsentPurpose, withdrawConsentIn } from './ledger.js';
 import { NOTICES, noticeSha256 } from './notices.js';
 
 const GrantBody = z
@@ -60,8 +60,11 @@ export async function consentRoutes(app: FastifyInstance): Promise<void> {
       });
     }
     const at = now();
-    await withdrawConsent(db, req.user.id, purpose, at, req.id);
-    if (purpose === 'health_data' && healthData === 'delete') await deleteHealthData(db, req.user.id, at, req.id);
+    // One transaction: consent is never withdrawn with a requested deletion left undone.
+    await db.transaction(async (tx) => {
+      await withdrawConsentIn(tx, req.user.id, purpose, at, req.id);
+      if (purpose === 'health_data' && healthData === 'delete') await deleteHealthDataIn(tx, req.user.id, at, req.id);
+    });
     return reply.status(204).send();
   });
 }

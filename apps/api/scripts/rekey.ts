@@ -7,18 +7,46 @@ import { audit } from '../src/audit/audit.js';
 import { loadConfig } from '../src/config.js';
 import { rewrapUserKeys } from '../src/crypto/userkeys.js';
 import { createDb } from '../src/db/client.js';
+import { loggableError } from '../src/errors.js';
 
 const config = loadConfig(process.env);
 const batchSize = Number(process.env.REKEY_BATCH_SIZE ?? 500);
 if (!Number.isInteger(batchSize) || batchSize <= 0) throw new Error('REKEY_BATCH_SIZE must be a positive integer');
 
 const { db, sql } = createDb(config.databaseUrl, { max: 1 });
+const started = new Date();
+let result: { rewrapped: number; remaining: number } | undefined;
+let primary: unknown;
 try {
-  const started = new Date();
-  const { rewrapped, remaining } = await rewrapUserKeys(db, config.keyring, { batchSize });
-  await audit(db, { actorKind: 'script', actorId: `rekey:${userInfo().username}`, action: 'keys.rekey', target: config.keyring.activeId }, started);
-  console.log(`rekey to ${config.keyring.activeId}: user_keys: ${rewrapped} re-wrapped, ${remaining} remaining`);
-  if (remaining > 0) process.exitCode = 1;
-} finally {
+  result = await rewrapUserKeys(db, config.keyring, { batchSize });
+  console.log(`rekey to ${config.keyring.activeId}: user_keys: ${result.rewrapped} re-wrapped, ${result.remaining} remaining`);
+  if (result.remaining > 0) process.exitCode = 1;
+} catch (err) {
+  primary = err;
+}
+// C-5: every run is audited, failed ones included, with its outcome and counts (no key material).
+const outcome = result === undefined ? 'failed' : result.remaining > 0 ? 'incomplete' : 'ok';
+const counts = result === undefined ? '' : ` rewrapped=${result.rewrapped} remaining=${result.remaining}`;
+try {
+  await audit(
+    db,
+    { actorKind: 'script', actorId: `rekey:${userInfo().username}`, action: 'keys.rekey', target: `active=${config.keyring.activeId} outcome=${outcome}${counts}` },
+    started,
+  );
+} catch (auditErr) {
+  // Never let a failed audit write hide why the rekey itself failed.
+  if (primary === undefined) primary = auditErr;
+  else console.error(`rekey: the keys.rekey audit event could not be written either: ${JSON.stringify(loggableError(auditErr))}`);
+}
+try {
   await sql.end({ timeout: 5 });
+} catch (endErr) {
+  // Closing the pool must not replace the primary error either.
+  console.error(`rekey: closing the database connection failed: ${JSON.stringify(loggableError(endErr))}`);
+}
+if (primary !== undefined) {
+  // Report through the scrubber, never Node's uncaught-error printer (which
+  // prints every property, e.g. a driver error's bound parameters).
+  console.error(`rekey failed: ${JSON.stringify(loggableError(primary))}`);
+  process.exitCode = 1;
 }

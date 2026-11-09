@@ -32,7 +32,7 @@ const stop = async () => {
   await sql.end({ timeout: 5 });
   process.exit(0);
 };
-process.on('SIGINT', stop);
-process.on('SIGTERM', stop);
+process.on('SIGINT', () => void stop());
+process.on('SIGTERM', () => void stop());
 
 await app.listen({ port: config.port, host: '0.0.0.0' });

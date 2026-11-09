@@ -72,7 +72,7 @@ export function showDialogue(
     const show = () => {
       const last = index === opts.lines.length - 1;
       next.textContent = last ? 'Done' : 'Next';
-      typer = typeInto(text, opts.lines[index]!, opts.reducedMotion);
+      typer = typeInto(text, opts.lines[index], opts.reducedMotion);
       text.setAttribute('data-content', '');
     };
     const finish = () => {

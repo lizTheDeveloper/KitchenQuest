@@ -15,7 +15,7 @@ afterAll(async () => {
 
 async function newUser(email: string) {
   const [u] = await t.db.insert(users).values({ email, ageConfirmedAt: new Date() }).returning();
-  return u!.id;
+  return u.id;
 }
 
 const d = (s: string) => new Date(s);

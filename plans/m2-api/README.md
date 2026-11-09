@@ -18,7 +18,7 @@
 - Sign-in: email magic link only. Login tokens: 32 random bytes, only the SHA-256 hash stored, single use, expire after 15 minutes. Sessions: 32 random bytes, hash stored, 30-day expiry, cookie `kq_session` with `HttpOnly; Secure; SameSite=Lax; Path=/`.
 - Age gate: creating an account requires `ageConfirmed: true` (16+, spec §1.2); store `age_confirmed_at`, never a birthday.
 - Data minimisation: no location beyond country/region, no names required, email is the only identifier.
-- Error body shape everywhere: `{ "error": { "code": string, "message": string, "details"?: unknown } }`. Codes used: `bad_request`, `confirmation_required`, `consent_required` (403), `unauthorized`, `not_found`, `rate_limited`, `conflict`.
+- Error body shape everywhere: `{ "error": { "code": string, "message": string, "details"?: unknown } }`. Codes used: `bad_request`, `confirmation_required`, `consent_required` (403), `unauthorized`, `not_found`, `rate_limited`, `conflict`, `rules_need_review` (409).
 - Dates in requests are ISO `YYYY-MM-DD`; the server's "today" comes from the injected clock.
 - Fail loudly: invalid config stops the server at boot with a message naming the variable.
 - Tests run against real Postgres 16 (`TEST_DATABASE_URL`); each test file gets its own schema. No mocked database.
@@ -48,10 +48,10 @@
 - [x] [Step 2b — Entitlements and usage metering](step-2b.md)
 - [x] [Step 3 — Magic-link sign-in and sessions](step-3.md)
 - [x] [Step 4 — Profile](step-4.md)
-- [ ] [Step 5 — Ingredient search and allergy/diet rules](step-5.md)
-- [ ] [Step 6 — Canon recipe sync and recipe endpoints](step-6.md)
-- [ ] [Step 7 — Export and delete account](step-7.md)
-- [ ] [Step 8 — End-to-end safety test](step-8.md)
+- [x] [Step 5 — Ingredient search and allergy/diet rules](step-5.md)
+- [x] [Step 6 — Canon recipe sync and recipe endpoints](step-6.md)
+- [x] [Step 7 — Export and delete account](step-7.md)
+- [x] [Step 8 — End-to-end safety test](step-8.md)
 - [ ] [Step 9 — Compliance follow-ups](step-9.md)
 
 **Deferred, on purpose:** meal logs, plans, market, AI (later milestones); passkeys; real SMTP delivery config beyond an SMTP-URL mailer; deployment (milestone 11).

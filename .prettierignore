@@ -1,0 +1,16 @@
+# Generated, vendored or non-code assets: never reformatted.
+node_modules/
+dist/
+coverage/
+.vite/
+.data/
+package-lock.json
+apps/api/migrations/
+art/
+prototype/
+data/
+content/
+recipes/
+playwright-report/
+test-results/
+*.sql

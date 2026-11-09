@@ -80,8 +80,8 @@ describe('parseRecipe', () => {
     const r = parseRecipe(src);
     const q = Object.fromEntries(r.ingredients.map((i) => [i.name, i.quantity]));
     expect(q).toEqual({ salt: 0.75, onion: 0.5, sugar: 1.5, chilli: 2, stock: 0.75, herbs: null });
-    expect(r.ingredients[0]!.unit).toBe('tsp');
-    expect(r.timers[0]!.quantity).toBe(0.5);
+    expect(r.ingredients[0].unit).toBe('tsp');
+    expect(r.timers[0].quantity).toBe(0.5);
   });
 
   it('names an aliased ingredient by what it is, keeping the alias for display', () => {
@@ -98,6 +98,16 @@ describe('parseRecipe', () => {
 
   it('reads sacred when present', () => {
     expect(parseRecipe(withFront(VALID_LINES + '\nsacred: true')).meta.sacred).toBe(true);
+  });
+
+  it('reads contributors as written, and defaults to none', () => {
+    expect(parseRecipe(withFront(VALID_LINES)).meta.contributors).toEqual([]);
+    expect(parseRecipe(withFront(VALID_LINES + '\ncontributors: [Ada-L, bob]')).meta.contributors).toEqual(['Ada-L', 'bob']);
+  });
+
+  it('rejects bad contributors without repeating the value', () => {
+    const problems = problemsOf(withFront(VALID_LINES + '\ncontributors: [secret-handle, 3]'));
+    expect(problems).toEqual(['contributors must be a list of non-empty strings']);
   });
 
   it('rejects malformed Cooklang', () => {

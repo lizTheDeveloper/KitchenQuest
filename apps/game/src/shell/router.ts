@@ -34,6 +34,10 @@ export function routeHref(route: Exclude<Route, { name: 'notFound' }>): string {
     case 'visit': return `#/visit/${route.cookId}`;
     case 'recipe': return `#/recipe/${route.slug}`;
     case 'cook': return `#/cook/${route.slug}`;
-    default: return `#/${route.name}`;
+    case 'kitchen':
+    case 'map':
+    case 'recipes':
+    case 'settings':
+      return `#/${route.name}`;
   }
 }

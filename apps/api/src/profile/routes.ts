@@ -30,7 +30,7 @@ const ProfileBody = z
   .partial()
   .strict();
 
-export interface Profile {
+interface Profile {
   marketDays: number[];
   mealsPerWeek: number | null;
   country: string | null;

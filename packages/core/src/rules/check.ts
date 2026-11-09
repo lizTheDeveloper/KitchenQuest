@@ -171,11 +171,11 @@ export function check(
         return;
       }
       const viaKind = reachViaKind(graph, id, rule);
-      if (viaKind) hits[k]!.push({ kind: 'label', rule, path: viaKind });
+      if (viaKind) hits[k].push({ kind: 'label', rule, path: viaKind });
     });
 
     if (rule.type === 'avoid') {
-      for (const { k, path } of matched) hits[k]!.push({ kind: 'match', rule, path });
+      for (const { k, path } of matched) hits[k].push({ kind: 'match', rule, path });
       continue;
     }
 
@@ -186,14 +186,14 @@ export function check(
     const measurable: typeof matched = [];
     const unmeasured: typeof matched = [];
     for (const m of matched) {
-      const { quantity, unit } = lines[m.k]!.item;
+      const { quantity, unit } = lines[m.k].item;
       (quantity === null || !sameUnit(unit, limit.unit) ? unmeasured : measurable).push(m);
     }
-    const total = measurable.reduce((sum, { k }) => sum + lines[k]!.item.quantity!, 0);
+    const total = measurable.reduce((sum, { k }) => sum + lines[k].item.quantity!, 0);
     if (total / recipe.meta.servings > limit.amount) {
-      for (const { k, path } of measurable) hits[k]!.push({ kind: 'match', rule, path });
+      for (const { k, path } of measurable) hits[k].push({ kind: 'match', rule, path });
     }
-    for (const { k, path } of unmeasured) hits[k]!.push({ kind: 'label', rule, path });
+    for (const { k, path } of unmeasured) hits[k].push({ kind: 'label', rule, path });
   }
 
   const findings: Finding[] = [];
@@ -203,7 +203,7 @@ export function check(
       return;
     }
 
-    const lineHits = hits[k]!;
+    const lineHits = hits[k];
     const hitTargets = lineHits.flatMap((h) => h.rule.target.ids);
     const swap = lineHits.some((h) => h.kind === 'match')
       ? findSwap(graph, id, subs, restricting, hitTargets)

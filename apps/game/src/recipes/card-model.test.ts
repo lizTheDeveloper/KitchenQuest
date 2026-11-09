@@ -22,9 +22,9 @@ describe('buildRecipeCard', () => {
       slug: SLUG, status: 'ok', rulesChecked: 0, rulesError: null, disclaimer: null, severe: false,
       cookable: true, notCookableReason: null, draft: true, sacred: false, findings: [],
     });
-    expect(c.title).toBe(content.recipes[SLUG]!.meta.title);
-    expect(c.cook).toEqual({ id: 'leela', name: content.cooks.leela!.name });
-    expect(c.skills.map((s) => s.id)).toEqual(content.recipes[SLUG]!.meta.skills);
+    expect(c.title).toBe(content.recipes[SLUG].meta.title);
+    expect(c.cook).toEqual({ id: 'leela', name: content.cooks.leela.name });
+    expect(c.skills.map((s) => s.id)).toEqual(content.recipes[SLUG].meta.skills);
     expect(c.skills.every((s) => s.name !== '')).toBe(true);
     expect(c.license).toBe('CC-BY-SA-4.0');
   });
@@ -52,7 +52,7 @@ describe('buildRecipeCard', () => {
   });
 
   test('ghee intolerance without the store-bought pappadam: the card is a swap', () => {
-    const recipe = structuredClone(content.recipes[SLUG]!);
+    const recipe = structuredClone(content.recipes[SLUG]);
     recipe.ingredients = recipe.ingredients.filter((i) => i.name !== 'pappadam');
     const noPappadam: GameContent = { ...content, recipes: { ...content.recipes, [SLUG]: recipe } };
     const c = card(ready([gheeIntolerance]), { content: noPappadam });
@@ -78,8 +78,8 @@ describe('buildRecipeCard', () => {
     expect(card(ready([])).nutrition.rows.map((r) => r.nutrient))
       .toEqual(['protein_g', 'fat_g', 'carb_g', 'fiber_g', 'sugars_g', 'sodium_mg']);
     const on = card(ready([]), { showCalories: true }).nutrition.rows;
-    expect(on[0]!.nutrient).toBe('energy_kcal');
-    expect(on[0]!.value).toMatch(/^\d+ kcal$/);
+    expect(on[0].nutrient).toBe('energy_kcal');
+    expect(on[0].value).toMatch(/^\d+ kcal$/);
   });
 
   test('nutrition values are whole numbers with units', () => {
@@ -90,7 +90,7 @@ describe('buildRecipeCard', () => {
   });
 
   test('sacred dish is never cookable', () => {
-    const recipe = structuredClone(content.recipes[SLUG]!);
+    const recipe = structuredClone(content.recipes[SLUG]);
     recipe.meta.sacred = true;
     const sacred: GameContent = { ...content, recipes: { ...content.recipes, [SLUG]: recipe } };
     for (const rules of [ready([]), ready([coconutSevere]), { status: 'error', message: 'x' } as RulesState]) {

@@ -7,6 +7,7 @@ export type MailMessage = Parameters<Mailer['send']>[0];
 export class LogMailer implements Mailer {
   constructor(private readonly write: (line: string) => void = (line) => console.log(line)) {}
 
+  // eslint-disable-next-line @typescript-eslint/require-await -- implements Mailer.send, which returns a Promise
   async send(msg: MailMessage): Promise<void> {
     this.write(`[mail] to=${msg.to} subject=${msg.subject}\n${msg.text}`);
   }
@@ -32,6 +33,7 @@ export class SmtpMailer implements Mailer {
 export class CaptureMailer implements Mailer {
   readonly sent: MailMessage[] = [];
 
+  // eslint-disable-next-line @typescript-eslint/require-await -- implements Mailer.send, which returns a Promise
   async send(msg: MailMessage): Promise<void> {
     this.sent.push({ ...msg });
   }

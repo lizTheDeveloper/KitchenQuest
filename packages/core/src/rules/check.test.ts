@@ -91,7 +91,7 @@ describe('check', () => {
       severity: 'anaphylactic',
       path: ['worcestershire', 'anchovy', 'fish'],
     });
-    expect(result.findings[0]!.swap).toBeUndefined();
+    expect(result.findings[0].swap).toBeUndefined();
     expect(result.severe).toBe(true);
     expect(result.disclaimer).toBe(DISCLAIMER);
   });
@@ -175,7 +175,7 @@ describe('check', () => {
   it('a matched label-dependent ingredient gets no extra label finding', () => {
     const result = check(recipe('Add @soy sauce{1%tbsp}.'), [avoid('no-soy', ['soy'])], graph, [], DATE);
     expect(result.findings).toHaveLength(1);
-    expect(result.findings[0]!.kind).toBe('match');
+    expect(result.findings[0].kind).toBe('match');
   });
 
   it('inactive phase is ignored', () => {
@@ -292,7 +292,7 @@ describe('check', () => {
     const withFallback: Substitution[] = [...only, { from: 'soy_sauce', to: 'tamari' }];
     const result = check(r, rules, graph, withFallback, DATE);
     expect(result.status).toBe('swap');
-    expect(result.findings[0]!.swap?.toId).toBe('tamari');
+    expect(result.findings[0].swap?.toId).toBe('tamari');
   });
 
   describe('unsafeFor', () => {
@@ -316,14 +316,14 @@ describe('check', () => {
       const lowFodmap = avoid('low-fodmap', ['fodmap_fructan'], 'intolerance');
       const result = check(r, [lowFodmap], g, [infused], DATE);
       expect(result.status).toBe('swap');
-      expect(result.findings[0]!.swap?.toId).toBe('garlic_infused_oil');
+      expect(result.findings[0].swap?.toId).toBe('garlic_infused_oil');
     });
 
     it('never offers the swap when a matching rule targets a listed id', () => {
       for (const rule of [avoid('garlic', ['garlic'], 'anaphylactic'), avoid('alliums', ['allium'])]) {
         const result = check(r, [rule], g, [infused], DATE);
         expect(result.status).toBe('blocked');
-        expect(result.findings[0]!.swap).toBeUndefined();
+        expect(result.findings[0].swap).toBeUndefined();
       }
       // ...nor when a low-FODMAP rule is active alongside the allergy
       const both = [avoid('low-fodmap', ['fodmap_fructan'], 'intolerance'), avoid('garlic', ['garlic'])];
@@ -334,7 +334,7 @@ describe('check', () => {
       const subs = [infused, { from: 'garlic', to: 'asafoetida' }];
       const result = check(r, [avoid('garlic', ['garlic'])], g, subs, DATE);
       expect(result.status).toBe('swap');
-      expect(result.findings[0]!.swap?.toId).toBe('asafoetida');
+      expect(result.findings[0].swap?.toId).toBe('asafoetida');
     });
 
     it('rejects unknown ids in unsafeFor', () => {
@@ -371,11 +371,11 @@ describe('check: category ingredients', () => {
         status: 'unverified',
         ruleId: 'no-x',
       });
-      expect(result.findings[0]!.path![0]).toBe('nut');
-      expect(result.findings[0]!.path!.at(-1)).toBe(target);
+      expect(result.findings[0].path![0]).toBe('nut');
+      expect(result.findings[0].path!.at(-1)).toBe(target);
     }
     const nuts = check(recipe('Add @nuts{50%g}.'), [avoid('no-peanut', ['peanut'])], graph, SUBS, DATE);
-    expect(nuts.findings[0]!.path).toEqual(['nut', 'peanut']);
+    expect(nuts.findings[0].path).toEqual(['nut', 'peanut']);
   });
 
   it('meat is unverified for a pork rule', () => {
@@ -393,7 +393,7 @@ describe('check: category ingredients', () => {
     const result = check(recipe('Add @nuts{50%g}.'), [avoid('no-nuts', ['nut'])], graph, SUBS, DATE);
     expect(result.status).toBe('blocked');
     expect(result.findings).toHaveLength(1);
-    expect(result.findings[0]!.kind).toBe('match');
+    expect(result.findings[0].kind).toBe('match');
   });
 
   it('a category with no kind reaching the target stays ok', () => {
@@ -448,7 +448,7 @@ describe('check: ingredient unsafeFor', () => {
     const subs: Substitution[] = [{ from: 'garlic_infused_oil', to: 'neutral_oil' }];
     const result = check(r, [avoid('garlic-allergy', ['garlic'])], g, subs, DATE);
     expect(result.status).toBe('swap');
-    expect(result.findings[0]!.swap?.toId).toBe('neutral_oil');
+    expect(result.findings[0].swap?.toId).toBe('neutral_oil');
   });
 
   it('matches exact rule target ids only: fine for low-FODMAP although garlic is a fructan', () => {
@@ -459,7 +459,7 @@ describe('check: ingredient unsafeFor', () => {
     const subs: Substitution[] = [{ from: 'garlic', to: 'garlic_infused_oil' }];
     const result = check(recipe('Add @garlic{2}.'), [avoid('alliums', ['allium'])], g, subs, DATE);
     expect(result.status).toBe('blocked');
-    expect(result.findings[0]!.swap).toBeUndefined();
+    expect(result.findings[0].swap).toBeUndefined();
   });
 });
 

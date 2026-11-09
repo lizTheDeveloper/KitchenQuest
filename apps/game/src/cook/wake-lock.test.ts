@@ -50,7 +50,7 @@ describe('wake lock', () => {
     expect(await wl.enable()).toBe('on');
     expect(calls).toEqual(['screen']);
     await wl.disable();
-    expect(sentinels[0]!.released).toBe(true);
+    expect(sentinels[0].released).toBe(true);
     expect(wl.state).toBe('off');
   });
   test('re-acquires on visible while enabled, not after disable', async () => {
@@ -60,7 +60,7 @@ describe('wake lock', () => {
     await wl.enable();
     // the browser drops the lock when the tab is hidden
     doc.fire('hidden');
-    sentinels[0]!.drop();
+    sentinels[0].drop();
     doc.fire('visible');
     await Promise.resolve(); await Promise.resolve();
     expect(calls.length).toBe(2);
@@ -76,7 +76,7 @@ describe('wake lock', () => {
     const p = wl.enable();
     await wl.disable();
     await p;
-    expect(sentinels[0]!.released).toBe(true);
+    expect(sentinels[0].released).toBe(true);
     expect(wl.state).toBe('off');
   });
   test('two enables while a request is pending, then disable: every sentinel is released', async () => {

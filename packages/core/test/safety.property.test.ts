@@ -28,7 +28,7 @@ function ancestors(id: string): string[] {
   const seen = new Set<string>([id]);
   const queue = [id];
   for (let i = 0; i < queue.length; i++) {
-    const node = graph.get(queue[i]!);
+    const node = graph.get(queue[i]);
     for (const next of [...(node.isA ?? []), ...(node.contains ?? [])]) {
       if (!seen.has(next)) {
         seen.add(next);
@@ -136,7 +136,7 @@ const anyRecipeArb = fc
   })
   .chain(({ names, amounts, servings }) =>
     fc.tuple(...names.map(spellingArb)).map((written) =>
-      parseRecipe(cook(written.map((name, i) => ({ name, amount: amounts[i]! })), servings)),
+      parseRecipe(cook(written.map((name, i) => ({ name, amount: amounts[i] })), servings)),
     ),
   );
 
@@ -306,7 +306,7 @@ describe('safety properties (seed graph)', () => {
 
     fc.assert(
       fc.property(arb, ({ ids, names, amounts, servings, day, target, rule: shape, others, kind, severity }) => {
-        const recipe = parseRecipe(cook(names.map((name, i) => ({ name, amount: amounts[i]! })), servings));
+        const recipe = parseRecipe(cook(names.map((name, i) => ({ name, amount: amounts[i] })), servings));
         expect(recipe.ingredients.map((i) => graph.resolve(i.name))).toEqual(ids);
 
         const base = { id: 'kind-under-test', target: { kind, ids: [target] }, severity };

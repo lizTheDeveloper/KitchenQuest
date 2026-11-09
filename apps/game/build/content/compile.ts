@@ -66,12 +66,12 @@ type SourceTrigger = LineTrigger & { when?: unknown; notes?: unknown };
 /** Drop the writers' `when` and `notes`; the client never reads them. */
 function clientTriggers(triggers: Record<string, SourceTrigger>): Record<string, LineTrigger> {
   return Object.fromEntries(
-    Object.entries(triggers).map(([id, { when: _when, notes: _notes, ...rest }]) => [id, rest as LineTrigger]),
+    Object.entries(triggers).map(([id, { when: _when, notes: _notes, ...rest }]) => [id, rest]),
   );
 }
 
 function clientStall(stall: StallFile): StallFile {
-  const out: StallFile = { ...stall, triggers: clientTriggers(stall.triggers as Record<string, SourceTrigger>) };
+  const out: StallFile = { ...stall, triggers: clientTriggers(stall.triggers) };
   const variants = stall.variants as Record<string, { triggers?: Record<string, SourceTrigger> }> | undefined;
   if (variants) {
     out.variants = Object.fromEntries(

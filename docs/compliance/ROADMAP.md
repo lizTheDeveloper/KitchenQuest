@@ -8,16 +8,19 @@ Milestone numbering follows spec §13: M3 = game shell, **M4 = mentor/AI** (the 
 
 Tick each item when it lands. Full requirement text is in `2026-11-09-health-data-compliance.md` §6, matched by id.
 
-- [ ] **C-1** Consent ledger — *M2* — `plans/m2-api/step-2c.md` (new); README Global Constraints
-- [ ] **C-2** Key ring and rotation — *M2* — `plans/m2-api/step-2c.md`; `apps/api/src/config.ts`; `.env.example`
-- [ ] **C-3** Bind ciphertext to context — *M2* — `plans/m2-api/step-2c.md`; amend Step 5 storage line
-- [ ] **C-4** Per-user data keys (crypto-shredding) — *M2 recommended; at the latest before M12 launch, while no real data exists* — `plans/m2-api/step-2c.md`
-- [ ] **C-5** Content-free access and security audit log — *M2* — `plans/m2-api/step-2c.md`; amend Step 3 (sign-in events), Step 7 (export and delete events)
-- [ ] **C-6** Retention job — *M2 (framework); each later milestone registers* — `plans/m2-api/step-2c.md`
-- [ ] **C-7** Complete export — *M2* — amend `plans/m2-api/step-7.md`
+- [x] **C-1** Consent ledger — *M2* — `plans/m2-api/step-2c.md` (new); README Global Constraints
+- [x] **C-2** Key ring and rotation — *M2* — `plans/m2-api/step-2c.md`; `apps/api/src/config.ts`; `.env.example`
+- [x] **C-3** Bind ciphertext to context — *M2* — `plans/m2-api/step-2c.md`; amend Step 5 storage line
+- [x] **C-4** Per-user data keys (crypto-shredding) — *M2 recommended; at the latest before M12 launch, while no real data exists* — `plans/m2-api/step-2c.md`
+- [x] **C-5** Content-free access and security audit log — *M2* — `plans/m2-api/step-2c.md`; amend Step 3 (sign-in events), Step 7 (export and delete events)
+- [x] **C-6** Retention job — *M2 (framework); each later milestone registers* — `plans/m2-api/step-2c.md`
+- [x] **C-7** Complete export — *M2* — amend `plans/m2-api/step-7.md`
+  - Landed in M2 Step 7 (`GET /me/export`). **Open: confirm with counsel** that usage exported as per-feature totals (events, units, cost, first and last time), rather than one row per `usage_events` event, satisfies GDPR Art. 15 and MHMDA access.
 - [ ] **C-8** Complete delete — *M2* — amend `plans/m2-api/step-7.md`
-- [ ] **C-9** Log and error redaction — *M2* — `plans/m2-api/step-2c.md`; amend Step 5 (test)
-- [ ] **C-10** Org/health separation constraint — *M2 (constraint); M12 or the org plan (tables)* — `plans/m2-api/README.md` Global Constraints
+  - Done in M2 Step 7 (`DELETE /me`): user delete with cascade (sessions revoked, `user_keys` crypto-shredded), `login_tokens` by email, `audit_events` pseudonymized, one transaction.
+  - **Remaining, so not ticked:** the processor-deletion queue. Mail-provider suppression-list and recipient deletion (A-10 in `data-inventory.md`) when the provider is chosen (*M12*); object-storage photo deletion (C-20) in *M8*.
+- [x] **C-9** Log and error redaction — *M2* — `plans/m2-api/step-2c.md`; amend Step 5 (test)
+- [x] **C-10** Org/health separation constraint — *M2 (constraint); M12 or the org plan (tables)* — `plans/m2-api/README.md` Global Constraints
 - [ ] **C-10b** Session hygiene — *M2 (Step 3) or M12* — amend `plans/m2-api/step-3.md`
 - [ ] **C-11** E2E consent and free-forever test — *M2* — amend `plans/m2-api/step-8.md`, Step 5, README error codes
 - [ ] **C-12** Conversation storage — *M3* — `plans/m3-mentor/README.md`
@@ -53,6 +56,8 @@ Tick each item when it lands. Full requirement text is in `2026-11-09-health-dat
 - [ ] **C-42** Workforce access — *M12* — `plans/m12-launch/README.md`
 - [ ] **C-43** Claims review — *M12* — `plans/m12-launch/README.md`
 - [ ] **C-45** Family mode data (§19) — *M5 (reserve) / M13* — M5 plan; `plans/m13-family/README.md`
+- [ ] **C-45** Security headers from the server/host: CSP with `frame-ancestors 'none'`, HSTS, `X-Content-Type-Options`, `Referrer-Policy` (the game's meta CSP can't carry frame-ancestors) — *M12 (deploy)*
+- [x] **N-3 (partial)** Game store: CSP meta, "delete data on this device", rescue copies capped — *M3 Task 3*
 - [ ] **C-44** Region gating — *M12* — `plans/m12-launch/README.md`
 
 ## Additional requirements from the risk register (N-1–N-11, `risk-register.md` §6)

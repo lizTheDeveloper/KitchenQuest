@@ -17,28 +17,28 @@ describe('schema', () => {
       select table_name from information_schema.tables
       where table_schema = 'public' order by table_name`;
     const names = tables.map((r) => r.table_name);
-    for (const n of ['users', 'login_tokens', 'sessions', 'profiles', 'rules', 'canon_recipes', 'user_keys', 'consents', 'audit_events']) {
+    for (const n of ['users', 'login_tokens', 'sessions', 'profiles', 'rules', 'canon_recipes', 'user_keys', 'consents', 'audit_events', 'self_read_counts']) {
       expect(names).toContain(n);
     }
     const applied = await t.sql`select count(*)::int as n from drizzle.__drizzle_migrations`;
-    expect(applied[0]!.n).toBe(5);
+    expect(applied[0].n).toBe(9);
   });
 
   it('cascades user deletion to sessions, profiles and rules', async () => {
     const [u] = await t.db.insert(users).values({ email: 'cascade@x.com', ageConfirmedAt: new Date() }).returning();
     await t.db.insert(sessions).values({
-      userId: u!.id,
+      userId: u.id,
       tokenHash: Buffer.from('h1'),
       expiresAt: new Date(Date.now() + 1000),
     });
-    await t.db.insert(profiles).values({ userId: u!.id });
-    await t.db.insert(rules).values({ userId: u!.id, sealed: Buffer.from('x') });
+    await t.db.insert(profiles).values({ userId: u.id });
+    await t.db.insert(rules).values({ userId: u.id, sealed: Buffer.from('x') });
 
-    await t.db.delete(users).where(eq(users.id, u!.id));
+    await t.db.delete(users).where(eq(users.id, u.id));
 
-    expect(await t.db.select().from(sessions).where(eq(sessions.userId, u!.id))).toHaveLength(0);
-    expect(await t.db.select().from(profiles).where(eq(profiles.userId, u!.id))).toHaveLength(0);
-    expect(await t.db.select().from(rules).where(eq(rules.userId, u!.id))).toHaveLength(0);
+    expect(await t.db.select().from(sessions).where(eq(sessions.userId, u.id))).toHaveLength(0);
+    expect(await t.db.select().from(profiles).where(eq(profiles.userId, u.id))).toHaveLength(0);
+    expect(await t.db.select().from(rules).where(eq(rules.userId, u.id))).toHaveLength(0);
   });
 
   it('treats emails case-insensitively (citext)', async () => {

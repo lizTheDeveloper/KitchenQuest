@@ -124,3 +124,56 @@ describe('IngredientGraph', () => {
     expect(g.pathTo('cashew', 'nut')).toEqual(['cashew', 'nut']);
   });
 });
+
+describe('IngredientGraph.search', () => {
+  it('finds an ingredient by an alias prefix, reporting the label that matched', () => {
+    expect(graph.search('scal')).toEqual([{ id: 'green_onion', name: 'green onion', matched: 'scallion' }]);
+    expect(graph.search('  SCAL ')).toEqual(graph.search('scal'));
+  });
+
+  it('returns [] for an empty or blank query', () => {
+    expect(graph.search('')).toEqual([]);
+    expect(graph.search('   ')).toEqual([]);
+  });
+
+  it('lists prefix matches before substring matches, each by name', () => {
+    // "so": prefix of "soy" and "soy sauce"; nothing else contains it.
+    expect(graph.search('so').map((r) => r.id)).toEqual(['soy', 'soy_sauce']);
+    // "nut": prefix of "nut"; substring of "tree nut".
+    expect(graph.search('nut').map((r) => r.id)).toEqual(['nut', 'tree_nut']);
+    // "on": prefix of "onion" (none here); substring of "green onion", "spring onion".
+    expect(graph.search('on')).toEqual([{ id: 'green_onion', name: 'green onion', matched: 'green onion' }]);
+    // "a": prefix of "anchovy"; substring of cashew, scallion, soy sauce, tomato, wheat, worcestershire sauce.
+    expect(graph.search('a').map((r) => r.id)).toEqual([
+      'anchovy',
+      'cashew',
+      'green_onion',
+      'soy_sauce',
+      'tomato',
+      'wheat',
+      'worcestershire',
+    ]);
+  });
+
+  it('returns each ingredient once, preferring its name over an alias', () => {
+    // "onion" is a substring of the name and of "spring onion".
+    expect(graph.search('onion')).toEqual([{ id: 'green_onion', name: 'green onion', matched: 'green onion' }]);
+    // A prefix alias beats a substring name.
+    expect(graph.search('spr')).toEqual([{ id: 'green_onion', name: 'green onion', matched: 'spring onion' }]);
+  });
+
+  it('normalizes inner whitespace and caps results at the limit (default 10)', () => {
+    expect(graph.search('soy   SAU').map((r) => r.id)).toEqual(['soy_sauce']);
+    expect(graph.search('a', 2).map((r) => r.id)).toEqual(['anchovy', 'cashew']);
+    expect(graph.search('a', 0)).toEqual([]);
+    const many = IngredientGraph.fromData({
+      ingredients: Array.from({ length: 15 }, (_, i) => ({ id: `x${i}`, name: `x item ${String(i).padStart(2, '0')}` })),
+    });
+    expect(many.search('x')).toHaveLength(10);
+    expect(many.search('x')[0].id).toBe('x0');
+  });
+
+  it('finds nothing for an unmatched query', () => {
+    expect(graph.search('dragon')).toEqual([]);
+  });
+});

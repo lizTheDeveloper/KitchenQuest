@@ -9,9 +9,13 @@ const THANKS = /\b(thanks|thank you|cheers|ta)\b/i;
 export function createScriptedBackend(dialogue: Dialogue): MentorBackend {
   return {
     kind: 'scripted',
-    async reply(input) {
-      if (input.kind === 'voice') return dialogue.say('voice.not_yet');
-      return dialogue.say(THANKS.test(input.text) ? 'thanks' : 'ai_unavailable');
+    reply(input) {
+      // Deferred so a throw from dialogue.say still arrives as a rejection, as callers expect.
+      return Promise.resolve().then(() =>
+        input.kind === 'voice'
+          ? dialogue.say('voice.not_yet')
+          : dialogue.say(THANKS.test(input.text) ? 'thanks' : 'ai_unavailable'),
+      );
     },
   };
 }

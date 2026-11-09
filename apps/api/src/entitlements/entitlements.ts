@@ -12,7 +12,7 @@ export const ENTITLEMENT_KINDS = [
 ] as const;
 export type EntitlementKind = (typeof ENTITLEMENT_KINDS)[number];
 
-export const ENTITLEMENT_SOURCES = ['stripe', 'manual', 'school', 'org'] as const;
+const ENTITLEMENT_SOURCES = ['stripe', 'manual', 'school', 'org'] as const;
 export type EntitlementSource = (typeof ENTITLEMENT_SOURCES)[number];
 
 /** Kinds active at `now`: starts_at inclusive, ends_at exclusive, each kind once, sorted. */

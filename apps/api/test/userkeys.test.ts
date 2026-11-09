@@ -30,7 +30,7 @@ async function newUser(): Promise<string> {
     .insert(users)
     .values({ email: `keys${++seq}@example.com`, ageConfirmedAt: new Date() })
     .returning({ id: users.id });
-  return u!.id;
+  return u.id;
 }
 
 const ctxFor = (userId: string, table = 'rules', rowId = randomUUID()): SealContext => ({ table, userId, rowId });
@@ -50,9 +50,9 @@ describe('per-user sealing (C-3, C-4)', () => {
     await Promise.all([1, 2, 3].map(() => sealFor(db, ringK1, ctxFor(userId), rule)));
     const rows = await db.select().from(userKeys).where(eq(userKeys.userId, userId));
     expect(rows).toHaveLength(1);
-    expect(rows[0]!.keyId).toBe('k1');
-    // The wrapped key is not the raw ring key, and different users get different data keys.
-    expect(rows[0]!.wrapped.includes(k1)).toBe(false);
+    expect(rows[0].keyId).toBe('k1');
+    // The stored wrapped key does not contain the ring key's bytes.
+    expect(rows[0].wrapped.includes(k1)).toBe(false);
   });
 
   it('uses a different data key for each user', async () => {
@@ -115,10 +115,10 @@ describe('key ring rotation and rekey (C-2)', () => {
     const lateCtx = ctxFor(late);
     const lateSealed = await sealFor(db, ringBoth, lateCtx, rule);
     const [lateKey] = await db.select().from(userKeys).where(eq(userKeys.userId, late));
-    expect(lateKey!.keyId).toBe('k2');
+    expect(lateKey.keyId).toBe('k2');
 
     // Before rekey, dropping k1 would lose data.
-    await expect(openFor(db, ringK2, blobs[0]!.ctx, blobs[0]!.sealed)).rejects.toThrow(/k1/);
+    await expect(openFor(db, ringK2, blobs[0].ctx, blobs[0].sealed)).rejects.toThrow(/k1/);
 
     const first = await rewrapUserKeys(db, ringBoth, { batchSize: 2 });
     expect(first.rewrapped).toBeGreaterThanOrEqual(owners.length);
@@ -139,7 +139,7 @@ describe('key ring rotation and rekey (C-2)', () => {
     const sealedA = await sealFor(db, ringK2, ctxA, rule);
     await sealFor(db, ringK2, ctxFor(b), rule);
     const [ka] = await db.select().from(userKeys).where(eq(userKeys.userId, a));
-    await db.update(userKeys).set({ wrapped: ka!.wrapped }).where(eq(userKeys.userId, b));
+    await db.update(userKeys).set({ wrapped: ka.wrapped }).where(eq(userKeys.userId, b));
     await expect(openFor(db, ringK2, { ...ctxA, userId: b }, sealedA)).rejects.toThrow();
   });
 });

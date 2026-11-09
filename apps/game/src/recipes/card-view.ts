@@ -62,10 +62,10 @@ export function renderRecipeCard(card: RecipeCard, opts: { onCook(): void; headi
     // Always visible, never collapsible (§4.4).
     parts.push(
       h('p', { class: 'disclaimer', role: 'note' }, card.disclaimer),
-      contentText('p', d.cross_contact!, { class: 'disclaimer' }),
+      contentText('p', d.cross_contact, { class: 'disclaimer' }),
     );
   }
-  if (card.findings.some((f) => f.kind === 'label')) parts.push(contentText('p', d.unverified!, { class: 'disclaimer-unverified' }));
+  if (card.findings.some((f) => f.kind === 'label')) parts.push(contentText('p', d.unverified, { class: 'disclaimer-unverified' }));
 
   const n = card.nutrition;
   parts.push(

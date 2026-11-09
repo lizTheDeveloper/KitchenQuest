@@ -15,9 +15,14 @@ export class ApiError extends Error {
 // A dotted domain is required, so scoped package paths like `/@fastify/cookie` are left alone.
 const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/g;
 
-/** Drops drizzle's `params: ...` line (bound values) and masks email addresses. */
+/**
+ * Drops drizzle's bound values and masks email addresses. Drizzle appends
+ * `params: ...` last, and a bound value can span lines (a bytea with 0x0a in
+ * it), so everything from `params:` to the end of the text goes. For a query
+ * error that also drops the stack frames after it; the query text survives.
+ */
 function scrub(text: string): string {
-  return text.replace(/^params: .*$/gm, 'params: [redacted]').replace(EMAIL, '[email]');
+  return text.replace(/(^|\n)params:[\s\S]*$/, '$1params: [redacted]').replace(EMAIL, '[email]');
 }
 
 interface LoggableError {
@@ -44,6 +49,10 @@ export function loggableError(err: unknown, depth = 0): LoggableError {
   if (err instanceof ZodError) {
     const issues = err.issues.map((i) => `${i.code} at ${i.path.map((p) => (typeof p === 'number' ? '[n]' : String(p))).join('.') || '(root)'}`);
     return { name: 'ZodError', message: `${err.issues.length} validation issue(s): ${scrub(issues.join('; '))}` };
+  }
+  // Core's rule and substitution errors list the offending ingredient ids, which can be health data.
+  if (/^Invalid (rules|substitutions):/.test(err.message)) {
+    return { name: err.name === 'Error' ? err.constructor.name : err.name, message: 'Invalid rules or substitutions (details withheld)' };
   }
   const code = (err as { code?: unknown }).code;
   return {

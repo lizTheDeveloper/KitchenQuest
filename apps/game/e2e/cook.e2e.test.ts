@@ -8,7 +8,7 @@ import { expectNoA11yViolations, expectNoHorizontalScroll, openApp, type OpenedA
 const pan = parse(readFileSync(fileURLToPath(new URL('../../../content/dialogue/pan.yaml', import.meta.url)), 'utf8')) as {
   triggers: Record<string, { lines: string[] }>;
 };
-const lines = (id: string) => pan.triggers[id]!.lines;
+const lines = (id: string) => pan.triggers[id].lines;
 /** Does `said` match one of the trigger's lines, with each {var} filled by anything? */
 const isLine = (id: string, said: string | null) => lines(id).some((l) =>
   new RegExp('^' + l.split(/\{\w+\}/).map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.+') + '$').test(said ?? ''));

@@ -9,14 +9,14 @@ const SWEEP_EVERY_MS = 60_000;
  */
 export function ipKey(ip: string): string {
   const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
-  if (mapped) return mapped[1]!;
+  if (mapped) return mapped[1];
   if (!isIPv6(ip)) return ip;
-  const addr = ip.split('%')[0]!; // drop a zone id
+  const addr = ip.split('%')[0]; // drop a zone id
   const [head = '', tail = ''] = addr.split('::');
   const headGroups = head ? head.split(':') : [];
   const tailGroups = addr.includes('::') ? (tail ? tail.split(':') : []) : [];
   const groups = addr.includes('::')
-    ? [...headGroups, ...Array(8 - headGroups.length - tailGroups.length).fill('0'), ...tailGroups]
+    ? [...headGroups, ...new Array<string>(8 - headGroups.length - tailGroups.length).fill('0'), ...tailGroups]
     : headGroups;
   return `${groups
     .slice(0, 4)
@@ -41,7 +41,7 @@ export class SlidingWindowLimiter {
   /** Milliseconds until `key` may be hit again at `now`; 0 when it may be hit now. */
   waitMs(key: string, now: number): number {
     const recent = this.recent(key, now);
-    return recent.length < this.limit ? 0 : recent[0]! + this.windowMs - now;
+    return recent.length < this.limit ? 0 : recent[0] + this.windowMs - now;
   }
 
   hit(key: string, now: number): void {

@@ -43,7 +43,7 @@ async function newUser(): Promise<string> {
     .insert(users)
     .values({ email: `consent${++seq}@example.com`, ageConfirmedAt: clock })
     .returning({ id: users.id });
-  return u!.id;
+  return u.id;
 }
 
 const auditFor = (userId: string) =>
@@ -67,9 +67,9 @@ describe('consent ledger (C-1)', () => {
     const rows = await sql`select purpose, notice_version, notice_sha256, method, granted_at, withdrawn_at from consents where user_id = ${userId}`;
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ purpose: 'health_data', notice_version: 'v1', method: 'tap' });
-    expect(new Date(rows[0]!.granted_at).getTime()).toBe(t0.getTime());
-    expect(new Date(rows[0]!.withdrawn_at).getTime()).toBe(t1.getTime());
-    expect(Buffer.from(rows[0]!.notice_sha256).equals(sha('notice'))).toBe(true);
+    expect(new Date(rows[0].granted_at).getTime()).toBe(t0.getTime());
+    expect(new Date(rows[0].withdrawn_at).getTime()).toBe(t1.getTime());
+    expect(Buffer.from(rows[0].notice_sha256).equals(sha('notice'))).toBe(true);
   });
 
   it('a repeat grant of the same notice is a no-op; a new notice version supersedes the old', async () => {
@@ -86,6 +86,43 @@ describe('consent ledger (C-1)', () => {
       ['v2', null],
     ]);
     expect(await hasConsent(db, userId, 'voice', t1)).toBe(true);
+  });
+
+  it('grant, withdraw, grant again: consent is back, with full history', async () => {
+    const userId = await newUser();
+    const t = (h: number) => new Date(Date.UTC(2026, 5, 1, h));
+    await grantConsent(db, userId, 'health_data', 'v1', sha('a'), 'tap', t(1));
+    await withdrawConsent(db, userId, 'health_data', t(2));
+    expect(await hasConsent(db, userId, 'health_data', t(2))).toBe(false);
+    await grantConsent(db, userId, 'health_data', 'v1', sha('a'), 'tap', t(3));
+    expect(await hasConsent(db, userId, 'health_data', t(3))).toBe(true);
+    expect(await hasConsent(db, userId, 'health_data', new Date(t(2).getTime() + 1))).toBe(false);
+    const rows = await sql`select ended_reason from consents where user_id = ${userId} order by granted_at`;
+    expect(rows.map((r) => r.ended_reason)).toEqual(['withdrawn', null]);
+  });
+
+  it('records why a grant ended: withdrawn or superseded', async () => {
+    const userId = await newUser();
+    await grantConsent(db, userId, 'voice', 'v1', sha('a'), 'tap', new Date('2026-06-01T00:00:00Z'));
+    await grantConsent(db, userId, 'voice', 'v2', sha('b'), 'tap', new Date('2026-06-02T00:00:00Z'));
+    await withdrawConsent(db, userId, 'voice', new Date('2026-06-03T00:00:00Z'));
+    const rows = await sql`select notice_version, ended_reason from consents where user_id = ${userId} order by granted_at`;
+    expect(rows.map((r) => [r.notice_version, r.ended_reason])).toEqual([
+      ['v1', 'superseded'],
+      ['v2', 'withdrawn'],
+    ]);
+    // The database keeps withdrawn_at and ended_reason together.
+    await expect(sql`update consents set ended_reason = null where user_id = ${userId}`).rejects.toThrow();
+  });
+
+  it('concurrent first grants record exactly one active grant and one audit event', async () => {
+    const userId = await newUser();
+    const results = await Promise.allSettled(
+      Array.from({ length: 5 }, () => grantConsent(db, userId, 'pantry_location', 'v1', sha('a'), 'tap', clock)),
+    );
+    expect(results.map((r) => r.status)).toEqual(Array(5).fill('fulfilled'));
+    expect(await sql`select 1 from consents where user_id = ${userId}`).toHaveLength(1);
+    expect((await auditFor(userId)).map((r) => r.action)).toEqual(['consent.grant']);
   });
 
   it('the database allows only one active grant per purpose', async () => {
@@ -167,6 +204,7 @@ describe('consent routes (C-1)', () => {
       method: 'tap',
       grantedAt: clock.toISOString(),
       withdrawnAt: null,
+      endedReason: null,
     });
 
     clock = new Date(clock.getTime() + 60_000);
@@ -175,6 +213,7 @@ describe('consent routes (C-1)', () => {
     const list = await app.inject({ method: 'GET', url: '/me/consents', cookies });
     expect(list.json().consents).toHaveLength(1);
     expect(list.json().consents[0].withdrawnAt).toBe(clock.toISOString());
+    expect(list.json().consents[0].endedReason).toBe('withdrawn');
   });
 
   it('rejects a stale notice version, an unoffered purpose and an unknown purpose', async () => {
@@ -196,7 +235,7 @@ describe('consent routes (C-1)', () => {
     const email = `route${++seq}@example.com`;
     const cookies = { kq_session: await signIn(app, mailer, email) };
     const [u] = await sql`select id from users where email = ${email}`;
-    const userId = u!.id as string;
+    const userId = u.id as string;
     await app.inject({ method: 'POST', url: '/me/consents', cookies, payload: { purpose: 'health_data', noticeVersion: current.version } });
     const rowId = randomUUID();
     await db.insert(rules).values({ id: rowId, userId, sealed: await sealFor(db, config.keyring, { table: 'rules', userId, rowId }, { t: 1 }) });
@@ -217,11 +256,34 @@ describe('consent routes (C-1)', () => {
     ]);
   });
 
+  it('withdraw-with-delete is one transaction: a failing delete leaves consent in place', async () => {
+    const email = `route${++seq}@example.com`;
+    const cookies = { kq_session: await signIn(app, mailer, email) };
+    const [u] = await sql`select id from users where email = ${email}`;
+    const userId = u.id as string;
+    await app.inject({ method: 'POST', url: '/me/consents', cookies, payload: { purpose: 'health_data', noticeVersion: current.version } });
+    await db.insert(rules).values({ userId, sealed: Buffer.from('x') });
+    // Make the rules delete fail for this user only.
+    await sql.unsafe(`
+      create function fail_rules_delete() returns trigger language plpgsql as $$
+      begin if old.user_id = '${userId}' then raise exception 'injected failure'; end if; return old; end $$;
+      create trigger fail_rules_delete before delete on rules for each row execute function fail_rules_delete();`);
+    try {
+      const res = await app.inject({ method: 'DELETE', url: '/me/consents/health_data', cookies, payload: { healthData: 'delete' } });
+      expect(res.statusCode).toBe(500);
+      expect(await hasConsent(db, userId, 'health_data', clock)).toBe(true);
+      expect(await sql`select 1 from rules where user_id = ${userId}`).toHaveLength(1);
+      expect((await auditFor(userId)).map((r) => r.action)).toEqual(['auth.sign_in', 'consent.grant']);
+    } finally {
+      await sql.unsafe('drop trigger fail_rules_delete on rules; drop function fail_rules_delete();');
+    }
+  });
+
   it('"keep" leaves health data in place', async () => {
     const email = `route${++seq}@example.com`;
     const cookies = { kq_session: await signIn(app, mailer, email) };
     const [u] = await sql`select id from users where email = ${email}`;
-    const userId = u!.id as string;
+    const userId = u.id as string;
     await app.inject({ method: 'POST', url: '/me/consents', cookies, payload: { purpose: 'health_data', noticeVersion: current.version } });
     await db.insert(rules).values({ userId, sealed: Buffer.from('x') });
     await app.inject({ method: 'DELETE', url: '/me/consents/health_data', cookies, payload: { healthData: 'keep' } });

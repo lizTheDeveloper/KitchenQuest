@@ -72,6 +72,13 @@ function validateMeta(raw: Map<unknown, unknown>): { meta: RecipeMeta | null; pr
   if (sacred !== undefined && sacred !== null && typeof sacred !== 'boolean')
     problems.push('sacred must be true or false');
 
+  // Contributor ids are personal data: the problem message never repeats a value.
+  const contributors = raw.get('contributors');
+  if (contributors !== undefined && contributors !== null) {
+    if (!Array.isArray(contributors) || !contributors.every((c) => typeof c === 'string' && c.trim() !== ''))
+      problems.push('contributors must be a list of non-empty strings');
+  }
+
   if (problems.length > 0) return { meta: null, problems };
 
   return {
@@ -88,6 +95,7 @@ function validateMeta(raw: Map<unknown, unknown>): { meta: RecipeMeta | null; pr
       license: strings.license,
       status: status as RecipeStatus,
       sacred: sacred === true,
+      contributors: Array.isArray(contributors) ? (contributors as string[]) : [],
     },
   };
 }

@@ -4,7 +4,7 @@ import { content } from '../content';
 import { cookedEvents } from './finish';
 
 const slug = 'india/kerala/parippu';
-const parippu = content.recipes[slug]!;
+const parippu = content.recipes[slug];
 
 describe('cookedEvents', () => {
   test('cookedEvents for parippu', () => {
@@ -15,6 +15,6 @@ describe('cookedEvents', () => {
   });
   test('folding them marks every technique tried', () => {
     const t = cookedEvents(slug, parippu, '2026-11-09').reduce(recordTechnique, EMPTY_TOOLKIT);
-    expect(t.techniques.tempering!.tier).toBe('tried');
+    expect(t.techniques.tempering.tier).toBe('tried');
   });
 });
