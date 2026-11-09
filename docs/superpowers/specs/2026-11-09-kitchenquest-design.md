@@ -383,6 +383,16 @@ mic → VAD (in browser) → streaming STT (self-hosted open-source Whisper) →
 - **Modes:** hold-to-talk by default; a hands-free mode with voice activity detection for cook mode (hands are messy).
 - **Voices:** each character gets a distinct open-source TTS voice. The Pan's voice is a priority art-direction task.
 - **Hosting:** a `voice` service on Hetzner (a GPU box if CPU latency misses the target). Audio is processed in memory and never stored. Transcripts are kept only as the conversation text, under the same retention rules as other conversation data.
+- **Spike results** (`docs/spikes/2026-11-09-voice-latency.md`):
+  - **Measured end of speech → first audio, p50:** about 1.43 s for faster-whisper tiny.en + Qwen (reasoning off) + Piper on CPU, and about 1.64 s with base.en. p90 is about 2.0 s, mostly LLM time to first sentence. **Target revised:** p50 ≤ 1.5 s and p90 ≤ 2.5 s.
+  - **Hiding latency:** a pre-rendered Pan filler sound plays at once ("Hmm.", a sizzle), and tool turns speak a scripted line (§7.6b.8).
+  - **Starting stack:** faster-whisper base.en (int8, beam 1, with a pantry and allergen vocabulary hint) on a Hetzner CCX33-class CPU box, about 35–50 concurrent conversations (estimate). Move STT and TTS to a GPU box only when needed.
+  - **Recognition limits:** speech-to-text misses about half of rare ingredient names without a vocabulary hint, and spelled letters are weak. That confirms the §7.6 rule that allergen rules always need an on-screen tap.
+  - **Licensing:**
+    - The Piper engine and espeak-ng are GPL-3.0. That's fine as a separately run server process, but it is never linked into or shipped with our code.
+    - Piper voice licences vary: `ryan-high` is non-commercial and **excluded**. Others need a licence check before use.
+    - Kokoro-82M is Apache-2.0, the preferred voice once on GPU.
+  - **Launch with hold-to-talk.** Hands-free with barge-in follows once echo handling is tested in browsers.
 - **Text mode** is always available and is the default where voice isn't permitted (no mic, public place).
 - **Alternatives considered:** Qwen's realtime omni model on Alibaba Cloud (better latency and natural turn-taking, but breaks the OpenRouter-only rule); browser built-in speech (free, but robotic and inconsistent across browsers; acceptable as a development stand-in only).
 
