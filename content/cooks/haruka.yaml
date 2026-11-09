@@ -164,6 +164,7 @@ faq:
   - q: ["what is umeboshi", "what does umeboshi taste like", "pickled plum"]
     a: "Ume — a Japanese apricot-plum — salted and dried and pickled, often with red shiso. Very sour and very salty. You use a little piece. The first one surprises everybody. The tenth one, you crave."
   # REVIEW: Ume (Prunus mume) is botanically closer to apricot; 'Japanese apricot' or 'plum' are both common in English. Fine either way.
+  # REVIEW: sheet nori became widespread around the Edo period; "the oldest onigiri had no nori" is the claim below.
   - q: ["what if i don't have nori", "no nori", "onigiri without seaweed", "seaweed allergy"]
     a: "Then don't use it. Onigiri without nori are still onigiri. Roll them in toasted sesame seeds, or furikake, or just eat them plain and salty. Many of the oldest onigiri had no nori at all."
     tags: [substitution]
