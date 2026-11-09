@@ -31,7 +31,7 @@ let seq = 0;
 beforeAll(async () => {
   ({ db, sql, close: closeDb } = await testDb());
   await sql`delete from canon_recipes`;
-  await syncCanon(db, RECIPES_DIR, catalog.graph);
+  await syncCanon(db, RECIPES_DIR, catalog.graph, NOW);
 });
 afterAll(async () => {
   await closeDb?.();

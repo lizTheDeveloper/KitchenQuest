@@ -8,6 +8,7 @@ import { buildApp } from '../src/app.js';
 import { defaultCatalog } from '../src/catalog.js';
 import { NOTICES } from '../src/consent/notices.js';
 import { CaptureMailer } from '../src/mail/mailer.js';
+import { RECIPE_READS_PER_MINUTE } from '../src/recipes/routes.js';
 import { RECIPES_DIR, syncCanon } from '../src/recipes/sync.js';
 import type { Db } from '../src/types.js';
 import { loggableError } from '../src/errors.js';
@@ -49,10 +50,10 @@ describe('syncCanon', () => {
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-  const rows = () => sql`select path, slug, title, country, region, status, content_hash, contributors from canon_recipes order by path`;
+  const rows = () => sql`select path, slug, title, country, region, status, content_hash, contributors, synced_at from canon_recipes order by path`;
 
   it('adds, then reports unchanged, updated and removed', async () => {
-    expect(await syncCanon(db, dir, graph)).toEqual({ added: 2, updated: 0, removed: 0, unchanged: 0 });
+    expect(await syncCanon(db, dir, graph, NOW)).toEqual({ added: 2, updated: 0, removed: 0, unchanged: 0 });
     const r = await rows();
     expect(r.map((x) => x.slug)).toEqual(['testland/north/a', 'testland/north/b']);
     expect(r[0]).toMatchObject({ path: 'testland/north/a.cook', title: 'A', country: 'Testland', region: 'North', status: 'draft' });
@@ -60,48 +61,50 @@ describe('syncCanon', () => {
     // Stored exactly as written: case kept, order kept.
     expect(r[0].contributors).toEqual(['Ada-L', 'bob']);
     expect(r[1].contributors).toEqual([]);
+    // synced_at comes from the caller's clock (M-3).
+    expect(r.map((x) => new Date(x.synced_at as string).toISOString())).toEqual([NOW.toISOString(), NOW.toISOString()]);
 
-    expect(await syncCanon(db, dir, graph)).toEqual({ added: 0, updated: 0, removed: 0, unchanged: 2 });
+    expect(await syncCanon(db, dir, graph, NOW)).toEqual({ added: 0, updated: 0, removed: 0, unchanged: 2 });
 
     put('testland/north/b.cook', recipe('B2'));
-    expect(await syncCanon(db, dir, graph)).toEqual({ added: 0, updated: 1, removed: 0, unchanged: 1 });
+    expect(await syncCanon(db, dir, graph, NOW)).toEqual({ added: 0, updated: 1, removed: 0, unchanged: 1 });
     expect((await rows())[1].title).toBe('B2');
 
     rmSync(join(dir, 'testland/north/b.cook'));
-    expect(await syncCanon(db, dir, graph)).toEqual({ added: 0, updated: 0, removed: 1, unchanged: 1 });
+    expect(await syncCanon(db, dir, graph, NOW)).toEqual({ added: 0, updated: 0, removed: 1, unchanged: 1 });
     expect((await rows()).map((x) => x.slug)).toEqual(['testland/north/a']);
   });
 
   it('a row whose contributors differ from the file is updated even with the same source hash', async () => {
-    await syncCanon(db, dir, graph);
+    await syncCanon(db, dir, graph, NOW);
     await sql`update canon_recipes set contributors = '{}' where slug = 'testland/north/a'`;
-    expect(await syncCanon(db, dir, graph)).toEqual({ added: 0, updated: 1, removed: 0, unchanged: 1 });
+    expect(await syncCanon(db, dir, graph, NOW)).toEqual({ added: 0, updated: 1, removed: 0, unchanged: 1 });
     expect((await rows())[0].contributors).toEqual(['Ada-L', 'bob']);
   });
 
   it('a malformed file aborts everything, names the path, and leaves the table unchanged', async () => {
-    await syncCanon(db, dir, graph);
+    await syncCanon(db, dir, graph, NOW);
     const before = await rows();
     put('testland/north/b.cook', recipe('B changed'));
     put('testland/north/c.cook', recipe('C'));
     rmSync(join(dir, 'testland/north/a.cook'));
     put('testland/north/z-bad.cook', 'no front matter at all @salt{}');
-    await expect(syncCanon(db, dir, graph)).rejects.toThrow(/testland\/north\/z-bad\.cook/);
+    await expect(syncCanon(db, dir, graph, NOW)).rejects.toThrow(/testland\/north\/z-bad\.cook/);
     expect(await rows()).toEqual(before);
   });
 
   it('refuses a recipe with an ingredient the graph does not know, naming the path', async () => {
     put('testland/north/c.cook', recipe('C', '', 'Add @unobtainium{1}.'));
-    await expect(syncCanon(db, dir, graph)).rejects.toThrow(/testland\/north\/c\.cook.*unobtainium/);
+    await expect(syncCanon(db, dir, graph, NOW)).rejects.toThrow(/testland\/north\/c\.cook.*unobtainium/);
     expect(await rows()).toEqual([]);
   });
 
   it('refuses a directory with no recipes and leaves the canon alone', async () => {
-    await syncCanon(db, dir, graph);
+    await syncCanon(db, dir, graph, NOW);
     const before = await rows();
     const empty = mkdtempSync(join(tmpdir(), 'kq-empty-'));
     try {
-      await expect(syncCanon(db, empty, graph)).rejects.toThrow(/no \.cook files/);
+      await expect(syncCanon(db, empty, graph, NOW)).rejects.toThrow(/no \.cook files/);
     } finally {
       rmSync(empty, { recursive: true, force: true });
     }
@@ -110,7 +113,7 @@ describe('syncCanon', () => {
 
   it('a bad contributors list fails without echoing the ids', async () => {
     put('testland/north/c.cook', recipe('C', 'contributors: [secret-handle, 7]\n'));
-    const err = await syncCanon(db, dir, graph).catch((e: Error) => e);
+    const err = await syncCanon(db, dir, graph, NOW).catch((e: Error) => e);
     expect((err as Error).message).toMatch(/testland\/north\/c\.cook/);
     expect((err as Error).message).not.toContain('secret-handle');
   });
@@ -122,7 +125,7 @@ describe('recipe endpoints', () => {
   let seq = 0;
   beforeAll(async () => {
     await sql`delete from canon_recipes`;
-    await syncCanon(db, RECIPES_DIR, graph);
+    await syncCanon(db, RECIPES_DIR, graph, NOW);
   });
   beforeEach(async () => {
     mailer = new CaptureMailer();
@@ -230,13 +233,13 @@ describe('recipe endpoints', () => {
     mkdirSync(join(dir, 't/n'), { recursive: true });
     writeFileSync(join(dir, 't/n/c.cook'), recipe('C', 'contributors: [Ada-L]\n'));
     try {
-      await syncCanon(db, dir, graph);
+      await syncCanon(db, dir, graph, NOW);
       const d = (await call(await user(), { method: 'GET', url: '/recipes/t/n/c' })).json();
       expect(d.meta).not.toHaveProperty('contributors');
       expect(d.source).toContain('contributors: [Ada-L]');
     } finally {
       rmSync(dir, { recursive: true, force: true });
-      await syncCanon(db, RECIPES_DIR, graph);
+      await syncCanon(db, RECIPES_DIR, graph, NOW);
     }
   });
 
@@ -299,6 +302,81 @@ describe('recipe endpoints', () => {
         expect((await call(cookie, { method: 'GET', url: `/recipes?date=${q}` })).statusCode, q).toBe(200);
       }
     });
+  });
+
+  describe('an unreadable stored rule (M-4)', () => {
+    const INTERNAL = { error: { code: 'internal', message: 'Internal server error' } };
+    const unreadable = {
+      'a tampered sealed blob': (userId: string) => sql`update rules set sealed = overlay(sealed placing '\\xff'::bytea from 40 for 1) where user_id = ${userId}`,
+      'a missing user_keys row': (userId: string) => sql`delete from user_keys where user_id = ${userId}`,
+    };
+    for (const [what, breakIt] of Object.entries(unreadable)) {
+      it(`${what}: list and detail fail closed with a scrubbed 500, never ok`, async () => {
+        const cookie = await withConsent();
+        await addRule(cookie, COCONUT);
+        const userId = (await call(cookie, { method: 'GET', url: '/me' })).json().id as string;
+        await breakIt(userId);
+        const logs = captureLogs();
+        const logged = await buildApp({ config, db, mailer, now: () => NOW, logger: logs.logger });
+        try {
+          for (const url of ['/recipes', '/recipes/india/kerala/parippu', '/recipes/japan/osaka/onigiri']) {
+            const res = await logged.inject({ method: 'GET', url, cookies: { kq_session: cookie } });
+            expect(res.statusCode, url).toBe(500);
+            expect(res.json(), url).toEqual(INTERNAL);
+            expect(res.body).not.toMatch(/"ok"|coconut|status/);
+          }
+        } finally {
+          await logged.close();
+        }
+        expect(logs.text()).toContain('request failed');
+        expect(logs.text()).not.toMatch(/coconut/i);
+      });
+    }
+  });
+
+  it('list check.status equals core check for every canon recipe (parity)', async () => {
+    const cookie = await withConsent();
+    await addRule(cookie, COCONUT);
+    await addRule(cookie, { target: { kind: 'ingredient', ids: ['rice'] }, type: 'avoid', severity: 'intolerance' });
+    const stored = (await call(cookie, { method: 'GET', url: '/rules' })).json().rules;
+    const list = (await call(cookie, { method: 'GET', url: '/recipes' })).json().recipes as { slug: string; check: { status: string } }[];
+    const rows = await sql<{ slug: string; source: string }[]>`select slug, source from canon_recipes`;
+    expect(list).toHaveLength(rows.length);
+    const statuses = new Set<string>();
+    for (const row of rows) {
+      const direct = check(parseRecipe(row.source), stored, graph, [...catalog.substitutions], '2026-11-09');
+      const listed = list.find((r) => r.slug === row.slug)!;
+      expect(listed.check.status, row.slug).toBe(direct.status);
+      statuses.add(direct.status);
+    }
+    // The rules make the set non-trivial: not every recipe is ok.
+    expect(statuses.size).toBeGreaterThan(1);
+  });
+
+  it('list and detail count as self-reads of the rules (M-6), content-free', async () => {
+    const cookie = await withConsent();
+    await addRule(cookie, COCONUT);
+    const userId = (await call(cookie, { method: 'GET', url: '/me' })).json().id as string;
+    await call(cookie, { method: 'GET', url: '/recipes' });
+    await call(cookie, { method: 'GET', url: '/recipes/india/kerala/parippu' });
+    const rows = await sql`select resource, day::text as day, count from self_read_counts where user_id = ${userId}`;
+    expect(rows.map((r) => ({ ...r }))).toEqual([{ resource: 'rules', day: '2026-11-09', count: 2 }]);
+  });
+
+  it(`limits list and detail to ${RECIPE_READS_PER_MINUTE} a minute per player (429 rate_limited)`, async () => {
+    const a = await user();
+    for (let i = 0; i < RECIPE_READS_PER_MINUTE; i++) {
+      const url = i % 2 ? '/recipes' : '/recipes/japan/osaka/onigiri';
+      expect((await call(a, { method: 'GET', url })).statusCode, `request ${i + 1}`).toBe(200);
+    }
+    for (const url of ['/recipes', '/recipes/japan/osaka/onigiri']) {
+      const res = await call(a, { method: 'GET', url });
+      expect(res.statusCode).toBe(429);
+      expect(res.json().error.code).toBe('rate_limited');
+      expect(Number(res.headers['retry-after'])).toBeGreaterThan(0);
+    }
+    // Another player is not affected.
+    expect((await call(await user(), { method: 'GET', url: '/recipes' })).statusCode).toBe(200);
   });
 
   it('an unknown slug is 404', async () => {

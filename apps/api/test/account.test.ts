@@ -9,7 +9,7 @@ import { pseudonymFor } from '../src/audit/audit.js';
 import { NOTICES } from '../src/consent/notices.js';
 import { open } from '../src/crypto/seal.js';
 import { openFor } from '../src/crypto/userkeys.js';
-import { auditEvents, rules, userKeys, users } from '../src/db/schema.js';
+import { auditEvents, rules, userKeys } from '../src/db/schema.js';
 import { grant } from '../src/entitlements/entitlements.js';
 import { CaptureMailer } from '../src/mail/mailer.js';
 import { recordUsage } from '../src/usage/usage.js';
@@ -133,18 +133,21 @@ describe('GET /me/export', () => {
     const x = res.json();
 
     expect(x.exportedAt).toBe(NOW.toISOString());
-    const [u] = await db.select().from(users).where(eq(users.id, p.id));
     expect(x.user).toEqual({
       id: p.id,
       email: p.email,
-      createdAt: u.createdAt.toISOString(),
+      createdAt: NOW.toISOString(),
       ageConfirmedAt: NOW.toISOString(),
     });
     expect(x.profile).toEqual({ ...PROFILE, updatedAt: expect.any(String) });
-    expect(x.rules).toEqual([
-      { ...PEANUT, id: p.ruleIds[0], createdAt: expect.any(String), updatedAt: expect.any(String) },
-      { ...DAIRY, id: p.ruleIds[1], createdAt: expect.any(String), updatedAt: expect.any(String) },
-    ]);
+    // Both rules carry the same (fixed) clock time, so their order is not asserted.
+    expect(x.rules).toHaveLength(2);
+    expect(x.rules).toEqual(
+      expect.arrayContaining([
+        { ...PEANUT, id: p.ruleIds[0], createdAt: NOW.toISOString(), updatedAt: NOW.toISOString() },
+        { ...DAIRY, id: p.ruleIds[1], createdAt: NOW.toISOString(), updatedAt: NOW.toISOString() },
+      ]),
+    );
     expect(x.consents).toEqual([
       expect.objectContaining({
         purpose: 'health_data',
@@ -231,6 +234,41 @@ describe('GET /me/export', () => {
     expect(res.body).not.toMatch(/tokenHash|token_hash|wrapped|sealed/);
   });
 
+  it('stamps every created/updated time from the injected clock, not the database or wall clock (M-3)', async () => {
+    const CLOCK = new Date('2021-03-04T05:06:07.000Z');
+    const at = CLOCK.toISOString();
+    const own = await buildApp({ config, db, mailer, now: () => CLOCK, logger: false });
+    try {
+      const req = (cookie: string | null, opts: InjectOptions) =>
+        own.inject({ ...opts, ...(cookie ? { cookies: { kq_session: cookie } } : {}) });
+      const cookie = await signIn(own, mailer, `clock${++seq}@example.com`);
+      const id = (await req(cookie, { method: 'GET', url: '/me' })).json<{ id: string }>().id;
+      const consent = await req(cookie, {
+        method: 'POST',
+        url: '/me/consents',
+        payload: { purpose: 'health_data', noticeVersion: NOTICES.health_data!.version },
+      });
+      expect(consent.statusCode).toBe(201);
+      expect((await req(cookie, { method: 'GET', url: '/profile' })).statusCode).toBe(200);
+      expect((await req(cookie, { method: 'PUT', url: '/profile', payload: PROFILE })).statusCode).toBe(200);
+      const ruleId = (await req(cookie, { method: 'POST', url: '/rules', payload: { rule: PEANUT, confirmed: true } })).json().rule.id;
+      expect((await req(cookie, { method: 'PUT', url: `/rules/${ruleId}`, payload: { rule: DAIRY, confirmed: true } })).statusCode).toBe(200);
+      await grant(db, id, 'founding', 'manual', CLOCK, undefined, CLOCK);
+      await recordUsage(db, id, 'ingest', 1, 1, CLOCK);
+      const x = (await req(cookie, { method: 'GET', url: '/me/export' })).json();
+      expect(x.user.createdAt).toBe(at);
+      expect(x.profile.updatedAt).toBe(at);
+      expect(x.rules).toEqual([expect.objectContaining({ createdAt: at, updatedAt: at })]);
+      expect(x.entitlements[0].createdAt).toBe(at);
+      expect(x.usage[0]).toMatchObject({ firstAt: at, lastAt: at });
+      expect(x.sessions).toEqual([expect.objectContaining({ createdAt: at })]);
+      expect(x.loginTokens).toEqual([expect.objectContaining({ createdAt: at })]);
+      expect(x.dataKey.createdAt).toBe(at);
+    } finally {
+      await own.close();
+    }
+  });
+
   it('writes an account.export audit event', async () => {
     const p = await fullPlayer();
     await exportOf(p.cookie);
@@ -244,7 +282,7 @@ describe('GET /me/export', () => {
     const a = await fullPlayer();
     const b = await fullPlayer();
     const x = (await exportOf(a.cookie)).json();
-    expect((x.rules as { id: string }[]).map((r) => r.id)).toEqual(a.ruleIds);
+    expect((x.rules as { id: string }[]).map((r) => r.id).sort()).toEqual([...a.ruleIds].sort());
     const text = JSON.stringify(x);
     expect(text).not.toContain(b.id);
     expect(text).not.toContain(b.email);

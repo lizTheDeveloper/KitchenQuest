@@ -12,13 +12,15 @@ export async function recordUsage(
   feature: UsageFeature,
   units: number,
   costMicroUsd: number,
+  /** When it happened (`created_at`); the database's clock when omitted. */
+  now?: Date,
 ): Promise<void> {
   if (!USAGE_FEATURES.includes(feature)) throw new Error(`unknown usage feature: ${feature}`);
   if (!Number.isInteger(units) || units < 0) throw new Error('units must be a non-negative integer');
   if (!Number.isInteger(costMicroUsd) || costMicroUsd < 0) {
     throw new Error('costMicroUsd must be a non-negative integer');
   }
-  await db.insert(usageEvents).values({ userId, feature, units, costMicroUsd });
+  await db.insert(usageEvents).values({ userId, feature, units, costMicroUsd, ...(now ? { createdAt: now } : {}) });
 }
 
 /** Sum of units for the feature from `since` (inclusive) to now. */
