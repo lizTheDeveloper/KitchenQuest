@@ -37,12 +37,19 @@
     "apps/game": {
       "entry": [
         "src/**/*.test.ts",
-        "e2e/**/*.ts"
+        "e2e/**/*.ts",
+        "build/**/*.test.ts"
       ],
       "project": [
         "src/**/*.ts",
         "e2e/**/*.ts",
-        "*.ts"
+        "*.ts",
+        "build/**/*.ts"
+      ],
+      "ignoreDependencies": [
+        "@fontsource/atkinson-hyperlegible",
+        "@fontsource/pixelify-sans",
+        "@fontsource/vt323"
       ]
     }
   }

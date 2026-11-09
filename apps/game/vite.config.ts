@@ -1,8 +1,14 @@
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
+import { kqAssets } from './build/assets-plugin';
+import { kqContent } from './build/content-plugin';
+
+const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
 
 export default defineConfig({
-  base: './',
-  server: { port: 5173 },
+  base: '/',
+  plugins: [kqContent({ repoRoot }), kqAssets({ repoRoot })],
+  server: { port: 5173, fs: { allow: [repoRoot] } },
   build: {
     outDir: 'dist',
     chunkSizeWarningLimit: 1600, // Phaser alone is ~1.2 MB minified

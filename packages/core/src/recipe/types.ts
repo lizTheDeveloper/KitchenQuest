@@ -32,10 +32,24 @@ export interface RecipeTimer {
   unit: string | null;
 }
 
+export type StepItem =
+  | { type: 'text'; value: string }
+  /** `index` points into ParsedRecipe.ingredients. */
+  | { type: 'ingredient'; index: number }
+  | { type: 'cookware'; name: string }
+  /** `index` points into ParsedRecipe.timers. */
+  | { type: 'timer'; index: number };
+
+export interface RecipeStep {
+  section: string | null;
+  items: StepItem[];
+}
+
 export interface ParsedRecipe {
   meta: RecipeMeta;
   ingredients: RecipeIngredient[];
   timers: RecipeTimer[];
+  steps: RecipeStep[];
   source: string;
 }
 

@@ -14,8 +14,11 @@ Tick each item when it lands. Full requirement text is in `2026-11-09-health-dat
 - [x] **C-4** Per-user data keys (crypto-shredding) — *M2 recommended; at the latest before M12 launch, while no real data exists* — `plans/m2-api/step-2c.md`
 - [x] **C-5** Content-free access and security audit log — *M2* — `plans/m2-api/step-2c.md`; amend Step 3 (sign-in events), Step 7 (export and delete events)
 - [x] **C-6** Retention job — *M2 (framework); each later milestone registers* — `plans/m2-api/step-2c.md`
-- [ ] **C-7** Complete export — *M2* — amend `plans/m2-api/step-7.md`
+- [x] **C-7** Complete export — *M2* — amend `plans/m2-api/step-7.md`
+  - Landed in M2 Step 7 (`GET /me/export`). **Open: confirm with counsel** that usage exported as per-feature totals (events, units, cost, first and last time), rather than one row per `usage_events` event, satisfies GDPR Art. 15 and MHMDA access.
 - [ ] **C-8** Complete delete — *M2* — amend `plans/m2-api/step-7.md`
+  - Done in M2 Step 7 (`DELETE /me`): user delete with cascade (sessions revoked, `user_keys` crypto-shredded), `login_tokens` by email, `audit_events` pseudonymized, one transaction.
+  - **Remaining, so not ticked:** the processor-deletion queue. Mail-provider suppression-list and recipient deletion (A-10 in `data-inventory.md`) when the provider is chosen (*M12*); object-storage photo deletion (C-20) in *M8*.
 - [x] **C-9** Log and error redaction — *M2* — `plans/m2-api/step-2c.md`; amend Step 5 (test)
 - [x] **C-10** Org/health separation constraint — *M2 (constraint); M12 or the org plan (tables)* — `plans/m2-api/README.md` Global Constraints
 - [ ] **C-10b** Session hygiene — *M2 (Step 3) or M12* — amend `plans/m2-api/step-3.md`

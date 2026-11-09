@@ -55,8 +55,13 @@ export async function deleteSession(db: Pick<Db, 'delete'>, token: unknown): Pro
   return row?.userId ?? null;
 }
 
-/** preHandler: sets `request.user` from a live session cookie, or fails with 401 `unauthorized`. */
-export async function requireUser(request: FastifyRequest, _reply: FastifyReply): Promise<void> {
+/**
+ * preHandler: sets `request.user` from a live session cookie, or fails with 401
+ * `unauthorized`. Every authenticated response is `Cache-Control: no-store`, so
+ * no browser or proxy cache keeps a copy of the player's data.
+ */
+export async function requireUser(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+  reply.header('cache-control', 'no-store');
   const { db, now } = request.server.deps;
   const user = await sessionUser(db, request.cookies[SESSION_COOKIE], now());
   if (!user) throw new ApiError(401, 'unauthorized', 'Sign in required');

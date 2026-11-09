@@ -5,6 +5,7 @@ import { audit } from '../audit/audit.js';
 import { loginTokens, users } from '../db/schema.js';
 import { activeEntitlements } from '../entitlements/entitlements.js';
 import { ApiError } from '../errors.js';
+import { lockSignInEmail } from './email-lock.js';
 import { ipKey, SlidingWindowLimiter } from './rate-limit.js';
 import {
   createSession,
@@ -54,10 +55,14 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
     // Same work whether or not an account exists: the user is created at /auth/verify.
     const { token, hash } = newToken();
-    await db.insert(loginTokens).values({
-      email,
-      tokenHash: hash,
-      expiresAt: new Date(t + LOGIN_TOKEN_TTL_MS),
+    // Under the email's lock, so it cannot interleave with an account delete (C-8).
+    await db.transaction(async (tx) => {
+      await lockSignInEmail(tx, email);
+      await tx.insert(loginTokens).values({
+        email,
+        tokenHash: hash,
+        expiresAt: new Date(t + LOGIN_TOKEN_TTL_MS),
+      });
     });
     const link = `${origin}/auth/verify?token=${token}`;
     await mailer.send({
@@ -114,6 +119,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     });
 
     reply.setCookie(SESSION_COOKIE, sessionToken, SESSION_COOKIE_OPTIONS);
+    reply.header('cache-control', 'no-store');
     return { user: { id: user.id, email: user.email } };
   });
 

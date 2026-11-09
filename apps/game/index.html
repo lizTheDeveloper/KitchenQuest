@@ -2,15 +2,23 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; base-uri 'self'; form-action 'self'; object-src 'none'" />
     <title>Kitchen Quest</title>
-    <style>
-      html, body { margin: 0; height: 100%; background: #1d1410; }
-      #game { width: 100%; height: 100%; }
-    </style>
   </head>
   <body>
-    <div id="game"></div>
+    <a class="skip-link" href="#view">Skip to content</a>
+    <header id="hud">
+      <a class="hud-title" href="#/kitchen">Kitchen Quest</a>
+      <button id="pan-button" class="btn btn-secondary" type="button" aria-expanded="false" aria-controls="pan-panel">The Pan</button>
+      <a class="hud-link" href="#/settings">Settings</a>
+    </header>
+    <main id="screen">
+      <div id="stage" aria-hidden="true"></div>
+      <div id="view"></div>
+    </main>
+    <div id="overlay-root"></div>
+    <div id="announcer" aria-live="assertive" class="visually-hidden"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

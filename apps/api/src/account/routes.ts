@@ -3,6 +3,8 @@ import { asc, eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { audit, pseudonymizeAudit } from '../audit/audit.js';
+import { lockSignInEmail } from '../auth/email-lock.js';
+import { SlidingWindowLimiter } from '../auth/rate-limit.js';
 import { requireUser, SESSION_COOKIE, SESSION_COOKIE_OPTIONS } from '../auth/session.js';
 import type { Config } from '../config.js';
 import { consentHistory, type Tx } from '../consent/ledger.js';
@@ -34,18 +36,60 @@ const ProcessorRegister = z.object({
         purpose: z.string().min(1),
         country: z.string().min(1),
         contact: z.string().min(1),
+        status: z.string().min(1),
+        data_categories: z.array(z.string().min(1)).min(1),
       }),
     )
     .min(1),
 });
 
-type Processor = z.infer<typeof ProcessorRegister>['processors'][number];
+/**
+ * A recipient of the player's data (GDPR Art. 15(1)(c)), as the export lists it.
+ * `status` is the register's own wording; `inUse` is false while the register
+ * says the processor is only planned; `detailsConfirmed` is false while its
+ * name, country or contact is still a placeholder ([verify], TBD).
+ */
+interface Processor {
+  name: string;
+  purpose: string;
+  country: string;
+  contact: string;
+  status: string;
+  inUse: boolean;
+  detailsConfirmed: boolean;
+}
 
-/** The processor list the export carries (C-7): name, purpose, country, contact from the checked-in register. */
+/**
+ * The processor list the export carries (C-7), from the checked-in register.
+ * Processors that receive no user data at all (build-time tools) are not
+ * recipients and are left out.
+ */
 function loadProcessors(): Processor[] {
   const doc = ProcessorRegister.parse(JSON.parse(readFileSync(PROCESSORS_FILE, 'utf8')));
-  return doc.processors.map(({ name, purpose, country, contact }) => ({ name, purpose, country, contact }));
+  return doc.processors
+    .filter((p) => !p.data_categories.every((c) => /^none\b/i.test(c)))
+    .map(({ name, purpose, country, contact, status }) => ({
+      name,
+      purpose,
+      country,
+      contact,
+      status,
+      inUse: !/^planned\b/i.test(status),
+      detailsConfirmed: !/\[verify|\bTBD\b/i.test(`${name} ${country} ${contact}`),
+    }));
 }
+
+const HOUR = 60 * 60 * 1000;
+
+/** A failed lock or read because a concurrent transaction deleted the row (REPEATABLE READ). */
+function isSerializationFailure(err: unknown): boolean {
+  for (let e: unknown = err, i = 0; e && i < 4; e = (e as { cause?: unknown }).cause, i++) {
+    if ((e as { code?: unknown }).code === '40001') return true;
+  }
+  return false;
+}
+
+const signedOut = () => new ApiError(401, 'unauthorized', 'Sign in required');
 
 const iso = (d: Date | null) => (d ? d.toISOString() : null);
 
@@ -65,7 +109,7 @@ async function buildExport(tx: Tx, config: Config, userId: string, now: Date, pr
       .from(users)
       .where(eq(users.id, userId))
   ).at(0);
-  if (!user) throw new ApiError(401, 'unauthorized', 'Sign in required');
+  if (!user) throw signedOut();
 
   const profile = (
     await tx
@@ -111,7 +155,7 @@ async function buildExport(tx: Tx, config: Config, userId: string, now: Date, pr
     .select({
       feature: usageEvents.feature,
       events: sql<number>`count(*)::int`,
-      units: sql<number>`sum(${usageEvents.units})::int`,
+      units: sql<number>`sum(${usageEvents.units})::bigint`.mapWith(Number),
       costMicroUsd: sql<number>`sum(${usageEvents.costMicroUsd})::bigint`.mapWith(Number),
       firstAt: sql<Date>`min(${usageEvents.createdAt})`.mapWith(usageEvents.createdAt),
       lastAt: sql<Date>`max(${usageEvents.createdAt})`.mapWith(usageEvents.createdAt),
@@ -192,22 +236,42 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
   const { db, config, now } = app.deps;
   // Read once at boot, so a missing or malformed register stops the server.
   const processors = loadProcessors();
+  // Per app instance; an export is heavy (every table, every rule decrypted).
+  const exportLimiter = new SlidingWindowLimiter(5, HOUR);
 
   app.get('/me/export', { preHandler: requireUser }, async (req, reply) => {
     const at = now();
     const userId = req.user.id;
+    const wait = exportLimiter.waitMs(userId, at.getTime());
+    if (wait > 0) {
+      reply.header('retry-after', String(Math.ceil(wait / 1000)));
+      throw new ApiError(429, 'rate_limited', 'Too many exports; try again later');
+    }
+    exportLimiter.hit(userId, at.getTime());
     // One snapshot, so the file is consistent; the export event is in it and commits with it.
-    const data = await db.transaction(
-      async (tx) => {
-        await audit(
-          tx,
-          { actorKind: 'user', actorId: userId, subjectUserId: userId, action: 'account.export', requestId: req.id },
-          at,
-        );
-        return buildExport(tx, config, userId, at, processors);
-      },
-      { isolationLevel: 'repeatable read' },
-    );
+    let data;
+    try {
+      data = await db.transaction(
+        async (tx) => {
+          // First: hold the user row (KEY SHARE) until commit. A concurrent account
+          // delete then waits for this export, so its pseudonymize sees the export
+          // event; a delete that got there first makes this fail (no row, or a
+          // serialization failure), and the export is refused.
+          const held = await tx.execute(sql`select 1 from ${users} where ${users.id} = ${userId} for key share`);
+          if (held.length === 0) throw signedOut();
+          await audit(
+            tx,
+            { actorKind: 'user', actorId: userId, subjectUserId: userId, action: 'account.export', requestId: req.id },
+            at,
+          );
+          return buildExport(tx, config, userId, at, processors);
+        },
+        { isolationLevel: 'repeatable read' },
+      );
+    } catch (err) {
+      if (isSerializationFailure(err)) throw signedOut();
+      throw err;
+    }
     return reply
       .header('content-type', 'application/json; charset=utf-8')
       .header('content-disposition', 'attachment; filename="kitchen-quest-export.json"')
@@ -229,14 +293,18 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
     // with the rest), then the user (cascading to sessions, profile, rules, consents,
     // user_keys, entitlements, usage, self-read counts), then sign-in links by email,
     // then the audit trail, which the database pseudonymizes only once the user is gone.
+    // A running export holds the user row, so the delete waits for it (see above).
     await db.transaction(async (tx) => {
+      // Serializes with /auth/request for this email, so no sign-in link slips in
+      // between deleting the links and commit.
+      await lockSignInEmail(tx, email);
       await audit(
         tx,
         { actorKind: 'user', actorId: userId, subjectUserId: userId, action: 'account.delete', requestId: req.id },
         at,
       );
       const deleted = await tx.delete(users).where(eq(users.id, userId)).returning({ id: users.id });
-      if (deleted.length === 0) throw new ApiError(401, 'unauthorized', 'Sign in required');
+      if (deleted.length === 0) throw signedOut();
       await tx.delete(loginTokens).where(eq(loginTokens.email, email));
       await pseudonymizeAudit(tx, config.pseudonymKey, userId);
     });
