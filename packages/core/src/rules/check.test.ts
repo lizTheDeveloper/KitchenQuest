@@ -521,6 +521,24 @@ describe('check: per-serving limits add up across lines', () => {
     expect(check(recipe('Add @salt{7%G}.', 1), [salt8], graph, [], DATE).status).toBe('ok');
   });
 
+  it('keeps a known violation blocked when another line is unmeasurable', () => {
+    const result = check(recipe('Add @salt{50%g} and @table salt{}.', 1), [salt8], graph, [], DATE);
+    expect(result.status).toBe('blocked');
+    expect(result.findings.map((f) => [f.ingredientId, f.kind, f.status])).toEqual([
+      ['salt', 'match', 'blocked'],
+      ['table_salt', 'label', 'unverified'],
+    ]);
+  });
+
+  it('folds only whitelisted units, case-insensitively', () => {
+    const tbsp: Rule = { ...salt8, limit: { amount: 2, unit: 'tbsp', per: 'serving' } };
+    expect(check(recipe('Add @salt{3%TBSP}.', 1), [tbsp], graph, [], DATE).status).toBe('blocked');
+    const dotted: Rule = { ...salt8, limit: { amount: 2, unit: 't.', per: 'serving' } };
+    for (const u of ['T.', 'Ts', 'ts']) {
+      expect(check(recipe(`Add @salt{1%${u}}.`, 1), [dotted], graph, [], DATE).status).toBe('unverified');
+    }
+  });
+
   it('never folds T (tablespoon) into t (teaspoon)', () => {
     const tsp: Rule = { ...salt8, limit: { amount: 2, unit: 't', per: 'serving' } };
     expect(check(recipe('Add @salt{1%T}.', 1), [tsp], graph, [], DATE).status).toBe('unverified');

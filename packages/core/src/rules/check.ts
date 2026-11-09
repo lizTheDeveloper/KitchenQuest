@@ -78,15 +78,20 @@ function reachViaKind(graph: IngredientGraph, id: string, rule: Rule): string[] 
   return null;
 }
 
+const FOLDING_UNITS = new Set(
+  ['g', 'kg', 'mg', 'oz', 'lb', 'ml', 'l', 'tsp', 'tbsp', 'cup'].flatMap((u) => [u, `${u}s`]),
+);
+
 /**
- * Limit units match case-insensitively ("G" is "g"), except that "T" (tablespoon) and "t"
- * (teaspoon) are different units by cooking convention and are never folded together.
+ * Limit units match exactly, or case-insensitively only when the lowercase form is a known
+ * case-insensitive unit ("G" is "g"). Anything else must match exactly: "T" (tablespoon) and "t"
+ * (teaspoon) differ by cooking convention, and dotted or plural forms ("T.", "Ts") are not folded.
  */
 function sameUnit(a: string | null, b: string): boolean {
   if (a === null) return false;
   if (a === b) return true;
-  if (a.toLowerCase() === 't') return false;
-  return a.toLowerCase() === b.toLowerCase();
+  const lower = a.toLowerCase();
+  return lower === b.toLowerCase() && FOLDING_UNITS.has(lower);
 }
 
 type RuleHit = { kind: 'match' | 'label'; rule: Rule; path: string[] };
@@ -174,21 +179,21 @@ export function check(
       continue;
     }
 
-    // Per-serving limit (validateRules guarantees rule.limit): the matching lines add up. If any
-    // of them can't be measured in the limit's unit, the total is unknown: one label finding.
+    // Per-serving limit (validateRules guarantees rule.limit): the matching lines add up. Lines
+    // that can't be measured in the limit's unit make the total unknown (a label finding each),
+    // but the measurable lines alone may already exceed the limit: that stays a known violation.
     const limit = rule.limit!;
-    const unmeasured = matched.find(({ k }) => {
-      const { quantity, unit } = lines[k]!.item;
-      return quantity === null || !sameUnit(unit, limit.unit);
-    });
-    if (unmeasured) {
-      hits[unmeasured.k]!.push({ kind: 'label', rule, path: unmeasured.path });
-      continue;
+    const measurable: typeof matched = [];
+    const unmeasured: typeof matched = [];
+    for (const m of matched) {
+      const { quantity, unit } = lines[m.k]!.item;
+      (quantity === null || !sameUnit(unit, limit.unit) ? unmeasured : measurable).push(m);
     }
-    const total = matched.reduce((sum, { k }) => sum + lines[k]!.item.quantity!, 0);
+    const total = measurable.reduce((sum, { k }) => sum + lines[k]!.item.quantity!, 0);
     if (total / recipe.meta.servings > limit.amount) {
-      for (const { k, path } of matched) hits[k]!.push({ kind: 'match', rule, path });
+      for (const { k, path } of measurable) hits[k]!.push({ kind: 'match', rule, path });
     }
+    for (const { k, path } of unmeasured) hits[k]!.push({ kind: 'label', rule, path });
   }
 
   const findings: Finding[] = [];
