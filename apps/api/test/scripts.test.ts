@@ -19,11 +19,11 @@ afterAll(async () => {
   await t?.close();
 });
 
-function script(name: string, args: string[], env: Record<string, string>) {
+function script(name: string, args: string[], env: Record<string, string>, databaseUrl = t.url) {
   const { DATA_KEY: _, DATA_KEYS: __, DATA_KEY_ID: ___, PSEUDONYM_KEY: ____, ...base } = process.env;
   return run(process.execPath, ['--import', 'tsx', `scripts/${name}.ts`, ...args], {
     cwd: API,
-    env: { ...base, NODE_OPTIONS: '--no-warnings', DATABASE_URL: t.url, PSEUDONYM_KEY: randomBytes(32).toString('base64'), ...env },
+    env: { ...base, NODE_OPTIONS: '--no-warnings', DATABASE_URL: databaseUrl, PSEUDONYM_KEY: randomBytes(32).toString('base64'), ...env },
   });
 }
 
@@ -67,24 +67,42 @@ describe('admin scripts write audit events (C-5)', () => {
   }, 30_000);
 
   it('rekey.ts rethrows the original failure when its audit write fails too', async () => {
-    const lost = randomBytes(32);
-    const k4 = randomBytes(32);
-    const [u] = await t.db.insert(users).values({ email: 'rekey-both@example.com', ageConfirmedAt: new Date() }).returning();
-    await sealFor(t.db, new Keyring(new Map([['lost2', lost]]), 'lost2'), { table: 'rules', userId: u!.id, rowId: 'r1' }, { a: 1 });
-    await t.sql.unsafe(`
-      create function fail_rekey_audit() returns trigger language plpgsql as $$
-      begin if new.action = 'keys.rekey' then raise exception 'audit insert blocked'; end if; return new; end $$;
-      create trigger fail_rekey_audit before insert on audit_events for each row execute function fail_rekey_audit();`);
+    // Its own database: earlier tests leave user keys under other ring ids, and
+    // rekey visits rows in user_id (random uuid) order, so with shared rows the
+    // first unknown key id it meets would vary from run to run.
+    const own = await testDb();
     try {
-      const err = (await script('rekey', [], { DATA_KEYS: `k4:${k4.toString('base64')}`, DATA_KEY_ID: 'k4' }).catch((e: unknown) => e)) as {
-        stderr: string;
-      };
-      // The thrown (primary) error is the rekey's own: a ring key that is no longer configured.
-      expect(err.stderr).toMatch(/Error: open: unknown key id "lost2?"/);
-      // The audit failure is reported, not swallowed.
+      const lost = randomBytes(32);
+      const k4 = randomBytes(32);
+      const [u] = await own.db.insert(users).values({ email: 'rekey-both@example.com', ageConfirmedAt: new Date() }).returning();
+      await sealFor(own.db, new Keyring(new Map([['lost2', lost]]), 'lost2'), { table: 'rules', userId: u!.id, rowId: 'r1' }, { a: 1 });
+      expect(await own.sql`select key_id from user_keys`).toEqual([{ key_id: 'lost2' }]);
+      await own.sql.unsafe(`
+        create function fail_rekey_audit() returns trigger language plpgsql as $$
+        begin if new.action = 'keys.rekey' then raise exception 'audit insert blocked'; end if; return new; end $$;
+        create trigger fail_rekey_audit before insert on audit_events for each row execute function fail_rekey_audit();`);
+
+      const err = (await script('rekey', [], { DATA_KEYS: `k4:${k4.toString('base64')}`, DATA_KEY_ID: 'k4' }, own.url).catch(
+        (e: unknown) => e,
+      )) as { code?: number; stderr: string };
+      expect(err.code).toBe(1);
+      // The audit failure is reported on stderr, not swallowed...
       expect(err.stderr).toMatch(/audit event could not be written[\s\S]*audit insert blocked/);
+      // ...and the failure the script reports (scrubbed, after that line) is the
+      // rekey's own, never the audit error.
+      const failed = err.stderr.match(/^rekey failed: (.*)$/m);
+      expect(failed, err.stderr).not.toBeNull();
+      const reported = JSON.parse(failed![1]!) as { name: string; message: string };
+      expect(reported).toMatchObject({ name: 'Error', message: 'open: unknown key id "lost2"' });
+      expect(err.stderr.indexOf('rekey failed:')).toBeGreaterThan(err.stderr.indexOf('audit insert blocked'));
+      // Nothing reached Node's own uncaught-error printer.
+      expect(err.stderr).not.toMatch(/^\s+at /m);
+      expect(err.stderr).not.toMatch(/Node\.js v\d+/);
+      // Nothing was re-wrapped and no audit row slipped through.
+      expect(await own.sql`select key_id from user_keys`).toEqual([{ key_id: 'lost2' }]);
+      expect(await own.sql`select 1 from audit_events where action = 'keys.rekey'`).toHaveLength(0);
     } finally {
-      await t.sql.unsafe('drop trigger fail_rekey_audit on audit_events; drop function fail_rekey_audit();');
+      await own.close();
     }
   }, 30_000);
 });

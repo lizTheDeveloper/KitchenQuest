@@ -36,8 +36,17 @@ try {
 } catch (auditErr) {
   // Never let a failed audit write hide why the rekey itself failed.
   if (primary === undefined) primary = auditErr;
-  else console.error('rekey: the keys.rekey audit event could not be written either:', loggableError(auditErr));
-} finally {
-  await sql.end({ timeout: 5 });
+  else console.error(`rekey: the keys.rekey audit event could not be written either: ${JSON.stringify(loggableError(auditErr))}`);
 }
-if (primary !== undefined) throw primary;
+try {
+  await sql.end({ timeout: 5 });
+} catch (endErr) {
+  // Closing the pool must not replace the primary error either.
+  console.error(`rekey: closing the database connection failed: ${JSON.stringify(loggableError(endErr))}`);
+}
+if (primary !== undefined) {
+  // Report through the scrubber, never Node's uncaught-error printer (which
+  // prints every property, e.g. a driver error's bound parameters).
+  console.error(`rekey failed: ${JSON.stringify(loggableError(primary))}`);
+  process.exitCode = 1;
+}

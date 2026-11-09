@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { eq } from 'drizzle-orm';
+import { eq, sql as dsql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import Fastify from 'fastify';
 import { audit, PseudonymizeError, pseudonymFor, pseudonymizeAudit, purgeAuditBefore } from '../src/audit/audit.js';
@@ -144,6 +144,39 @@ describe('audit log (C-5)', () => {
     // And the scrubber itself redacts a multi-line params tail.
     const multi = new Error(`Failed query: select 1\nparams: abc\n${raw.toString('latin1')}\nmore`);
     expect(loggableError(multi).message).toBe('Failed query: select 1\nparams: [redacted]');
+  });
+
+  it('a real DrizzleQueryError binding raw key bytes is fully scrubbed in the log', async () => {
+    // Only ASCII bytes, so drizzle's `params: ${buffer}` prints them as-is, line breaks included.
+    const raw = Buffer.alloc(32);
+    for (let i = 0; i < 32; i++) raw[i] = [0x0a, 0x0d, 0x41 + i, 0x7a][i % 4]!;
+    const [u] = await db.insert(users).values({ email: 'leak2@example.com', ageConfirmedAt: new Date() }).returning();
+
+    let thrown: unknown;
+    try {
+      // The unsafe form (raw bytes bound): fails because the user still exists.
+      await db.execute(dsql`select audit_pseudonymize(${u!.id}::uuid, ${raw}::bytea)`);
+    } catch (e) {
+      thrown = e;
+    }
+    expect((thrown as Error).constructor.name).toBe('DrizzleQueryError');
+    // The unscrubbed message really does carry the key, so the test can catch a leak.
+    expect((thrown as Error).message).toContain(raw.toString('latin1'));
+
+    const logs = captureLogs();
+    const logApp = Fastify({ logger: logs.logger });
+    logApp.log.error({ err: thrown }, 'query failed');
+    logApp.log.error({ error: loggableError(thrown) }, 'request failed');
+    await logApp.close();
+    const text = logs.text();
+    expect(logs.lines()).toHaveLength(2);
+    expect(text).toContain('params: [redacted]');
+
+    const escaped = JSON.stringify(raw.toString('latin1')).slice(1, -1);
+    const fragments = Array.from({ length: escaped.length - 7 }, (_, i) => escaped.slice(i, i + 8));
+    for (const secret of [escaped, ...fragments, raw.toString('hex'), raw.toString('base64')]) {
+      expect(text.includes(secret), `log contains ${JSON.stringify(secret)}`).toBe(false);
+    }
   });
 
   it("cannot rewrite a non-uuid actor id such as an operator's name", async () => {
