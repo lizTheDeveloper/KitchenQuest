@@ -83,19 +83,20 @@ function mapScreen(): Screen {
         ...(footnote ? [contentText('p', footnote.text, { class: 'map-footnote' })] : []),
       );
 
+      let stopBar: (() => void) | null = null;
       const stopBackdrop = mountBackdrop(backdropSlot, { className: 'map-backdrop', src: assets['scene.map'], width: MAP_WIDTH, scene: 'Map', layer });
-      const stopBar = renderActionBar(bar, [
-        { id: 'talk', label: 'Talk to the Pan', run: () => { const m = getMentor(); m.say('travel.map_remark'); m.open(); } },
-        { id: 'home', label: 'Home kitchen', run: () => ctx.navigate({ name: 'kitchen' }) },
-      ]);
-
+      // Set before anything else can throw: #stage now lives in this screen and must go home on unmount.
       cleanup = () => {
         alive = false;
-        stopBar();
+        stopBar?.();
         stopBackdrop();
         // Leaving with the permit still open (the back button): decline it, so the page doesn't stay inert.
         if (permitOpen) doc.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
       };
+      stopBar = renderActionBar(bar, [
+        { id: 'talk', label: 'Talk to the Pan', run: () => { const m = getMentor(); m.say('travel.map_remark'); m.open(); } },
+        { id: 'home', label: 'Home kitchen', run: () => ctx.navigate({ name: 'kitchen' }) },
+      ]);
     },
     unmount() { cleanup?.(); cleanup = null; },
   };

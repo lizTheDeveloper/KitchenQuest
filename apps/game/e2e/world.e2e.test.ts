@@ -147,7 +147,76 @@ describe('world map', () => {
     const card = page.getByRole('dialog', { name: PARIPPU_TITLE });
     await card.waitFor();
     expect(await card.getByRole('button', { name: /Cook it/ }).isDisabled()).toBe(true);
+    expect(await card.textContent()).toContain("Kitchen Quest can't guarantee a dish is safe for your allergy. Always check labels.");
   });
+
+  it('keyboard: Tab reaches the Leela pin, Enter opens the permit, Escape returns focus to the pin', async () => {
+    app = await openApp('/#/map', { reducedMotion: true });
+    const { page } = app;
+    await page.locator('.map-pin').first().waitFor();
+    let reached = false;
+    for (let i = 0; i < 15 && !reached; i += 1) {
+      await page.keyboard.press('Tab');
+      reached = (await page.evaluate(() => document.activeElement?.textContent)) === LEELA_PIN;
+    }
+    expect(reached, 'Tab reaches the Leela pin').toBe(true);
+    await page.keyboard.press('Enter');
+    await page.getByRole('dialog', { name: 'Travel Permit' }).waitFor();
+    await page.keyboard.press('Escape');
+    expect(await page.getByRole('dialog', { name: 'Travel Permit' }).count()).toBe(0);
+    expect(await page.evaluate(() => document.activeElement?.textContent)).toBe(LEELA_PIN);
+  });
+
+  it('while the intro replays, "See the recipe" cannot open the card over it', async () => {
+    app = await openApp('/#/map', { reducedMotion: true });
+    const { page } = app;
+    await visitLeela(page);
+    await page.getByRole('button', { name: 'Hear the intro again' }).click();
+    await dialogueText(page).waitFor();
+    const see = page.getByRole('button', { name: 'See the recipe: Parippu' });
+    expect(await see.isDisabled()).toBe(true);
+    await see.dispatchEvent('click');
+    expect(await page.getByRole('dialog', { name: PARIPPU_TITLE }).count()).toBe(0);
+    for (let i = 0; i < leela.intro.length; i += 1) await page.locator('.dialogue .dialogue-next').click();
+    expect(await see.isDisabled()).toBe(false);
+    await see.click();
+    await page.getByRole('dialog', { name: PARIPPU_TITLE }).waitFor();
+  });
+
+  for (const [where, hash, breakIt] of [
+    // renderActionBar listens on window for canvas actions: make that throw, after the backdrop has mounted.
+    ['the map', '#/map', 'listener'],
+    // The visit's intro reads the reduced-motion media query after the backdrop has mounted.
+    ['a visit', '#/visit/leela', 'matchMedia'],
+  ] as const) {
+    it(`a screen that fails after its backdrop mounted (${where}) still puts #stage back home`, async () => {
+      app = await openApp('/#/settings', { reducedMotion: true });
+      const { page } = app;
+      await page.locator('#view h1').waitFor();
+      await page.evaluate((how) => {
+        const w = window as unknown as Record<string, unknown>;
+        if (how === 'listener') {
+          const orig = window.addEventListener.bind(window);
+          w.__kqRestore = () => { window.addEventListener = orig; };
+          window.addEventListener = ((type: string, ...rest: never[]) => {
+            if (type === 'kq:action') throw new Error('test: broken after the backdrop');
+            return (orig as (...a: unknown[]) => void)(type, ...rest);
+          }) as typeof window.addEventListener;
+        } else {
+          const orig = window.matchMedia.bind(window);
+          w.__kqRestore = () => { window.matchMedia = orig; };
+          window.matchMedia = () => { throw new Error('test: broken after the backdrop'); };
+        }
+      }, breakIt);
+      await page.evaluate((h) => { location.hash = h; }, hash);
+      await page.locator('#view h1', { hasText: 'Something went off the boil' }).waitFor();
+      expect(await page.evaluate(() => document.querySelector('#stage')?.parentElement?.id)).toBe('screen');
+      await page.evaluate(() => { (window as unknown as { __kqRestore(): void }).__kqRestore(); location.hash = '#/kitchen'; });
+      await page.locator('#view h1', { hasText: 'Your kitchen' }).waitFor();
+      await page.locator('#screen > #stage canvas').waitFor();
+      app.consoleErrors.length = 0; // the forced failure logs by design
+    });
+  }
 
   it('an unknown cook is not found', async () => {
     app = await openApp('/#/visit/nobody', { reducedMotion: true });
@@ -157,14 +226,18 @@ describe('world map', () => {
   it('works with the Phaser chunk blocked', async () => {
     app = await openApp('/', { reducedMotion: true });
     const { page } = app;
-    await page.route('**/assets/phaser-*.js', (r) => r.abort());
+    const blocked: string[] = [];
+    await page.route('**/assets/phaser-*.js', (r) => { blocked.push(r.request().url()); return r.abort(); });
     await page.goto(new URL('/#/map', page.url()).toString());
     await page.reload();
     await page.locator('#view h1', { hasText: 'World map' }).waitFor();
     await page.locator('#view img.map-backdrop-img').waitFor();
+    await page.waitForFunction(() => document.querySelector('#stage') !== null);
     await visitLeela(page);
     await page.locator('#view img.visit-backdrop-img').waitFor();
+    expect(blocked.length, 'the phaser chunk was requested and blocked').toBeGreaterThan(0);
     expect(await page.locator('#stage canvas').count()).toBe(0);
+    expect(await page.evaluate(() => (window as unknown as { __kqScene?: string | null }).__kqScene ?? null)).toBeNull();
   });
 
   it('with Phaser loaded, the map and the cook\'s kitchen run their scenes behind the HTML', async () => {
@@ -195,8 +268,8 @@ describe('world map', () => {
     await page.waitForFunction(() => location.hash === '#/kitchen');
   });
 
-  it('at width 400 there is no horizontal scroll and the pins stay on the backdrop', async () => {
-    app = await openApp('/#/map', { reducedMotion: true, width: 400 });
+  for (const width of [400, 320]) it(`at width ${width} there is no horizontal scroll, and the pins are at least 44px and stay on the backdrop`, async () => {
+    app = await openApp('/#/map', { reducedMotion: true, width });
     const { page } = app;
     await page.locator('.map-pin').first().waitFor();
     await expectNoHorizontalScroll(page);
@@ -204,6 +277,8 @@ describe('world map', () => {
     expect(frame.width).toBeGreaterThan(0);
     for (const pin of await page.locator('.map-pin').all()) {
       const b = (await pin.boundingBox())!;
+      expect(b.width).toBeGreaterThanOrEqual(44);
+      expect(b.height).toBeGreaterThanOrEqual(44);
       expect(b.x).toBeGreaterThanOrEqual(frame.x - 0.5);
       expect(b.y).toBeGreaterThanOrEqual(frame.y - 0.5);
       expect(b.x + b.width).toBeLessThanOrEqual(frame.x + frame.width + 0.5);

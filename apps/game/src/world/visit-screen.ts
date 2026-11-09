@@ -52,9 +52,17 @@ function visitScreen(): Screen {
         className: 'visit-backdrop', src: assets[backdrop], width: KITCHEN_WIDTH, scene: 'CookKitchen',
         data: { backdrop, cook: `char.${id}` },
       });
+      // Set before anything else can throw: #stage now lives in this screen and must go home on unmount.
+      cleanup = () => {
+        alive = false;
+        stopBar?.();
+        closeCard?.();
+        dialogueSlot?.remove();
+        stopBackdrop();
+      };
 
       const openCard = (opener: HTMLElement | null) => {
-        if (closeCard) return;
+        if (closeCard || dialogueSlot) return; // never over the cook's intro
         const state = ctx.store.get();
         const card = buildRecipeCard({
           slug: cook.recipe, content, graph, rules: activeRules(state, graph), today: localDate(ctx.now()), showCalories: state.settings.showCalories,
@@ -83,25 +91,20 @@ function visitScreen(): Screen {
         dialogueSlot = slot;
         overlayRoot.append(slot);
         const first = !stopBar;
+        const seeRecipe = bar.querySelector<HTMLButtonElement>('[data-action="recipe"]');
+        if (seeRecipe) seeRecipe.disabled = true;
         void showDialogue(slot, {
           speaker: cook.name, portrait: assets[`char.${id}`] ?? null, lines: cook.intro, reducedMotion: isReduced(ctx, win),
         }).then(() => {
           slot.remove();
           dialogueSlot = null;
+          if (seeRecipe) seeRecipe.disabled = false;
           if (!alive || !first) return;
           showBar();
           bar.querySelector<HTMLElement>('[data-action="recipe"]')?.focus();
         });
       }
       playIntro();
-
-      cleanup = () => {
-        alive = false;
-        stopBar?.();
-        closeCard?.();
-        dialogueSlot?.remove();
-        stopBackdrop();
-      };
     },
     unmount() { cleanup?.(); cleanup = null; },
   };
