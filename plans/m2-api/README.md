@@ -46,5 +46,6 @@
 - [ ] [Step 6 — Canon recipe sync and recipe endpoints](step-6.md)
 - [ ] [Step 7 — Export and delete account](step-7.md)
 - [ ] [Step 8 — End-to-end safety test](step-8.md)
+- [ ] [Step 9 — Compliance follow-ups](step-9.md)
 
 **Deferred, on purpose:** meal logs, plans, market, AI (later milestones); passkeys; real SMTP delivery config beyond an SMTP-URL mailer; deployment (milestone 11).
