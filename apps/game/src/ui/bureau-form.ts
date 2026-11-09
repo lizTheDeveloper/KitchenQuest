@@ -13,6 +13,14 @@ export function showBureauForm(
 ): Promise<'confirm' | 'decline'> {
   const { form } = opts;
   const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  // Everything outside the dialog becomes inert (no focus, no clicks, hidden from screen readers).
+  const inerted: HTMLElement[] = [];
+  for (const el of Array.from(root.ownerDocument.body.children)) {
+    if (el instanceof HTMLElement && !el.contains(root) && !el.inert && el.tagName !== 'SCRIPT' && el.id !== 'announcer') {
+      el.inert = true;
+      inerted.push(el);
+    }
+  }
   const titleId = 'bureau-form-title';
 
   return new Promise((resolve) => {
@@ -22,6 +30,7 @@ export function showBureauForm(
       settled = true;
       doc.removeEventListener('keydown', onKey, true);
       backdrop.remove();
+      for (const el of inerted) el.inert = false;
       opener?.focus();
       resolve(answer);
     };
@@ -55,7 +64,7 @@ export function showBureauForm(
 
     const dialog = h('div', { class: 'bureau-form', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': titleId },
       h('p', { class: 'bureau-number' }, `PANTRY BUREAU · FORM ${form.number}`),
-      contentText('h2', form.title, { id: titleId, class: 'bureau-title' }),
+      contentText('h2', form.title, { id: titleId, class: 'bureau-title', tabindex: -1 }),
       form.title_aside ? contentText('p', form.title_aside, { class: 'bureau-aside' }) : null,
       dl,
       opts.footnote ? contentText('p', opts.footnote, { class: 'bureau-footnote' }) : null,
@@ -80,6 +89,7 @@ export function showBureauForm(
 
     doc.addEventListener('keydown', onKey, true);
     root.append(backdrop);
-    confirmBtn.focus();
+    // Focus the heading, not Confirm: a stray Enter or Space must never stamp a safety form.
+    dialog.querySelector<HTMLElement>(`#${titleId}`)!.focus();
   });
 }

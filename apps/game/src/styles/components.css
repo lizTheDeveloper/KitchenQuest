@@ -89,9 +89,8 @@ select {
 }
 .chip-ok { color: var(--herb); }
 .chip-swap { color: var(--saffron); }
-.chip-blocked { color: var(--chili); }
 .chip-unverified { color: var(--sky); }
-.chip-blocked { background: #2a1517; }
+.chip-blocked { color: var(--fg); background: #3a1a1c; box-shadow: 0 0 0 2px var(--chili); }
 
 /* Parchment dialogue box */
 .dialogue {
@@ -150,3 +149,7 @@ select {
   transition: none !important; animation: none !important; scroll-behavior: auto !important;
 }
 [data-motion="reduced"] .bureau-form.is-stamping .bureau-stamp { opacity: 1; transform: rotate(-12deg); }
+
+.confirm-box { margin-top: 1rem; padding: .75rem 1rem; background: var(--iron); box-shadow: 0 0 0 3px var(--chili); }
+.confirm-box h3 { margin: 0 0 .5rem; font-size: 1.125rem; }
+.button-row { display: flex; flex-wrap: wrap; gap: .75rem 1rem; margin-top: .75rem; }

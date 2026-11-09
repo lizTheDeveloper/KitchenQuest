@@ -11,7 +11,18 @@ export async function openApp(
   path: string,
   opts: { seed?: Partial<PlayerState>; reducedMotion?: boolean; width?: number; serviceWorkers?: 'allow' | 'block' } = {},
 ): Promise<OpenedApp> {
-  const base = inject('baseUrl');
+  return openAt(new URL(path, inject('baseUrl')).toString(), opts);
+}
+
+/** Open a component fixture served from source (e2e/fixtures), not part of the production build. */
+export function openFixture(path: string, opts: { width?: number; reducedMotion?: boolean } = {}): Promise<OpenedApp> {
+  return openAt(new URL(path, inject('fixtureUrl')).toString(), opts);
+}
+
+async function openAt(
+  url: string,
+  opts: { seed?: Partial<PlayerState>; reducedMotion?: boolean; width?: number; serviceWorkers?: 'allow' | 'block' },
+): Promise<OpenedApp> {
   const browser = await chromium.launch();
   const context = await browser.newContext({
     viewport: { width: opts.width ?? 1280, height: 800 },
@@ -33,7 +44,12 @@ export async function openApp(
   page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()); });
   page.on('pageerror', (e) => { consoleErrors.push(e.message); });
   page.on('request', (r) => { requests.push(r.url()); });
-  await page.goto(new URL(path, base).toString());
+  try {
+    await page.goto(url);
+  } catch (err) {
+    await browser.close();
+    throw err;
+  }
   return { page, context, consoleErrors, requests, close: () => browser.close() };
 }
 

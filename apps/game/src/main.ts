@@ -7,4 +7,4 @@ import { createStore, safeLocalStorage } from './state/store';
 
 registerPlaceholderScreens();
 registerSettingsScreen();
-mountApp(document, { store: createStore(safeLocalStorage()), now: () => new Date() });
+mountApp(document, { store: createStore(safeLocalStorage(), window), now: () => new Date() });

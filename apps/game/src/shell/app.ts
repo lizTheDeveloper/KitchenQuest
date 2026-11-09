@@ -53,15 +53,28 @@ export function mountApp(doc: Document, base: Omit<AppContext, 'navigate'>): voi
     const route = parseRoute(win.location.hash);
     current?.unmount?.();
     current = null;
-    view.replaceChildren();
+    // Each render gets its own container, so a slow mount that loses the race can't write into the new screen.
+    const container = h('div', { class: 'screen-body' });
+    view.replaceChildren(container);
     const make = screens.get(route.name);
-    const screen = make ? make() : notFoundScreen();
+    let screen = make ? make() : notFoundScreen();
     current = screen;
     doc.title = `${screen.title} · Kitchen Quest`;
-    await screen.mount(view, route, ctx);
+    try {
+      await screen.mount(container, route, ctx);
+    } catch (err) {
+      console.error(err);
+      if (my !== token) return;
+      screen.unmount?.();
+      screen = errorScreen();
+      current = screen;
+      doc.title = `${screen.title} · Kitchen Quest`;
+      container.replaceChildren();
+      screen.mount(container, route, ctx);
+    }
     if (my !== token) return;
     if (moveFocus) {
-      const h1 = view.querySelector('h1');
+      const h1 = container.querySelector('h1');
       if (h1) { h1.tabIndex = -1; h1.focus(); }
     }
   }
@@ -77,6 +90,19 @@ function notFoundScreen(): Screen {
       el.append(
         h('h1', null, 'Not found'),
         h('p', null, "That page isn't in the kitchen."),
+        h('p', null, h('a', { href: routeHref({ name: 'kitchen' }) }, 'Back to the kitchen')),
+      );
+    },
+  };
+}
+
+function errorScreen(): Screen {
+  return {
+    title: 'Something went off the boil',
+    mount(el) {
+      el.append(
+        h('h1', null, 'Something went off the boil'),
+        h('p', null, "That page wouldn't open. Nothing you've saved has been touched."),
         h('p', null, h('a', { href: routeHref({ name: 'kitchen' }) }, 'Back to the kitchen')),
       );
     },
