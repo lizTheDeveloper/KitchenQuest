@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "node --import tsx src/server.ts",
     "test": "NODE_OPTIONS=--no-warnings=ExperimentalWarning vitest run",
+    "grant": "node --import tsx scripts/grant.ts",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json"
   },
   "dependencies": {

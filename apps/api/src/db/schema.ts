@@ -1,7 +1,9 @@
 import { sql } from "drizzle-orm";
 import {
+  bigserial,
   customType,
   index,
+  integer,
   jsonb,
   pgTable,
   primaryKey,
@@ -107,3 +109,36 @@ export const canonRecipes = pgTable("canon_recipes", {
   contentHash: text("content_hash").notNull(),
   syncedAt: ts("synced_at").notNull().defaultNow(),
 });
+
+/** Never holds price, payment or card data; payments live with the payment provider. */
+export const entitlements = pgTable(
+  "entitlements",
+  {
+    id: id(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    source: text("source").notNull(),
+    startsAt: ts("starts_at").notNull(),
+    endsAt: ts("ends_at"),
+    createdAt: ts("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("entitlements_user_id_idx").on(t.userId)],
+);
+
+/** Content-free: counts and cost only, never a prompt, transcript or response. */
+export const usageEvents = pgTable(
+  "usage_events",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    feature: text("feature").notNull(),
+    units: integer("units").notNull(),
+    costMicroUsd: integer("cost_microusd").notNull(),
+    createdAt: ts("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("usage_events_user_feature_idx").on(t.userId, t.feature, t.createdAt)],
+);
