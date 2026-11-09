@@ -35,7 +35,7 @@
 ## Tasks
 
 - [x] [Step 1 — Workspace restructure + core package skeleton](step-1.md)
-- [ ] [Step 2 — Recipe parsing and front-matter validation](step-2.md)
+- [x] [Step 2 — Recipe parsing and front-matter validation](step-2.md)
 - [ ] [Step 3 — Ingredient graph](step-3.md)
 - [ ] [Step 4 — Rule types, validation, and active phases](step-4.md)
 - [ ] [Step 5 — Recipe check and swaps](step-5.md)
