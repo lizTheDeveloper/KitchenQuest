@@ -1,0 +1,1139 @@
+<title>Kitchen Quest Recipe Trail</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Pixelify+Sans:wght@400;600&family=VT323&display=swap">
+<style>
+:root {
+  color-scheme: dark;
+  --iron: #1e1b1d;
+  --iron-2: #2b2629;
+  --iron-edge: #4a4044;
+  --parchment: #f2e3c2;
+  --parchment-ink: #2a1d14;
+  --ember: #e8743b;
+  --herb: #6fae4f;
+  --saffron: #f2c14e;
+  --chili: #c8423a;
+  --sky: #6aa6d8;
+  --fg: #efe6d8;
+  --muted: #a89a8e;
+  --shade: rgb(0 0 0 / .55);
+  --display: "Pixelify Sans", "Courier New", monospace;
+  --body: "Atkinson Hyperlegible", system-ui, sans-serif;
+  --mono: "VT323", "Courier New", monospace;
+  --px: 0 0 0 3px var(--iron-edge), 0 0 0 6px var(--iron);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--iron); color: var(--fg); }
+body { font-family: var(--body); font-size: 17px; line-height: 1.45; overflow-x: hidden; }
+img { image-rendering: pixelated; }
+button { font: inherit; }
+:focus-visible { outline: 3px solid var(--saffron); outline-offset: 3px; }
+
+.wrap {
+  max-width: 900px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-top: 12px; padding-bottom: 48px;
+}
+
+/* HUD */
+.hud { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; background: var(--iron-2); box-shadow: var(--px); margin: 6px 6px 18px; padding: 8px 12px; }
+.hud .title { font-family: var(--display); font-weight: 600; color: var(--ember); font-size: 18px; margin-right: auto; }
+.hud .lv { font-family: var(--display); font-size: 15px; }
+.xpbar { width: 110px; height: 12px; background: var(--iron); box-shadow: 0 0 0 2px var(--iron-edge); position: relative; }
+.xpbar i { position: absolute; inset: 0 auto 0 0; background: var(--ember); width: 0; transition: width .4s steps(8); }
+.hud .num { font-family: var(--mono); font-size: 21px; line-height: 1; }
+.badge { font-family: var(--mono); font-size: 17px; padding: 1px 7px; box-shadow: 0 0 0 2px var(--iron-edge); color: var(--muted); }
+.badge.live { color: var(--herb); box-shadow: 0 0 0 2px var(--herb); }
+
+/* breadcrumb */
+.crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 6px 14px; font-family: var(--display); font-size: 14px; color: var(--muted); }
+.crumbs button.link { background: none; border: 0; color: var(--saffron); padding: 2px 0; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; font-family: var(--display); font-size: 14px; }
+.crumbs .sep { color: var(--iron-edge); }
+.crumbs .here { color: var(--fg); }
+
+/* Buttons */
+.btn { font-family: var(--display); font-size: 16px; border: 0; cursor: pointer; padding: 10px 16px; color: var(--parchment-ink); background: var(--ember); box-shadow: 0 0 0 3px var(--parchment-ink), 0 4px 0 3px var(--parchment-ink); margin: 6px 4px 10px; position: relative; }
+.btn:active { transform: translateY(2px); box-shadow: 0 0 0 3px var(--parchment-ink), 0 2px 0 3px var(--parchment-ink); }
+.btn.sec { background: var(--iron-2); color: var(--fg); box-shadow: 0 0 0 3px var(--iron-edge), 0 4px 0 3px var(--iron); }
+.btn.sec:active { box-shadow: 0 0 0 3px var(--iron-edge), 0 2px 0 3px var(--iron); }
+.btn.small { font-size: 14px; padding: 6px 10px; }
+.btn[disabled] { opacity: .5; cursor: not-allowed; }
+.row { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; }
+
+/* Game screen */
+.screen { position: relative; box-shadow: var(--px); margin: 6px 6px 22px; background: var(--iron-2); overflow: hidden; }
+.screen > .bg { display: block; width: 100%; height: auto; }
+.screen .sprite { position: absolute; image-rendering: pixelated; }
+.screen .sprite[data-sz="cook"] { width: 64px; height: 64px; }
+@media (min-width: 700px) { .screen .sprite[data-sz="cook"] { width: 128px; height: 128px; } }
+
+/* map */
+.pin { position: absolute; transform: translate(-50%, -100%); background: none; border: 0; padding: 0; cursor: pointer; display: flex; flex-direction: column; align-items: center; }
+.pin .flag { width: 18px; height: 18px; background: var(--ember); box-shadow: 0 0 0 2px var(--parchment-ink); display: grid; place-items: center; font-family: var(--mono); font-size: 16px; color: var(--parchment-ink); line-height: 1; }
+.pin .stick { width: 3px; height: 9px; background: var(--parchment-ink); }
+.pin .tag { position: absolute; bottom: 100%; margin-bottom: 4px; white-space: nowrap; font-family: var(--display); font-size: 12px; background: var(--parchment); color: var(--parchment-ink); padding: 1px 5px; box-shadow: 0 0 0 2px var(--parchment-ink); }
+.pin.locked .flag { background: var(--muted); }
+.pin.import .flag { background: var(--saffron); }
+.pin.done .flag { background: var(--herb); }
+.pin:not(.locked) .flag { animation: bob 1.2s steps(2) infinite; }
+@keyframes bob { 50% { transform: translateY(-3px); } }
+.panbtn { position: absolute; left: 2%; bottom: 3%; background: none; border: 0; padding: 0; cursor: pointer; }
+.panbtn img { width: 64px; height: 64px; display: block; }
+.bubble { position: absolute; left: 2%; bottom: calc(3% + 70px); max-width: min(78%, 360px); background: var(--parchment); color: var(--parchment-ink); padding: 8px 10px; font-size: 15px; box-shadow: 0 0 0 3px var(--parchment-ink); }
+.bubble b { font-family: var(--display); }
+
+.board { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); margin: 0 6px 18px; }
+.qcard { background: var(--iron-2); box-shadow: var(--px); padding: 12px; display: flex; gap: 10px; align-items: flex-start; }
+.qcard img { width: 64px; height: 64px; flex: none; }
+.qcard h3 { margin: 0 0 2px; font-family: var(--display); font-size: 17px; }
+.qcard .meta { color: var(--muted); font-size: 14px; }
+.qcard.locked img { filter: grayscale(1) brightness(.6); }
+.hearts { font-family: var(--mono); font-size: 19px; color: var(--ember); letter-spacing: 1px; }
+.hearts .off { color: var(--iron-edge); }
+
+/* Dialogue */
+.dlg { position: relative; background: var(--parchment); color: var(--parchment-ink); box-shadow: 0 0 0 3px var(--parchment-ink), 0 0 0 6px var(--iron-edge); margin: 26px 6px 18px; padding: 16px 16px 12px; display: flex; gap: 14px; min-height: 120px; }
+.dlg .plate { position: absolute; top: -20px; left: 10px; background: var(--ember); color: var(--parchment-ink); font-family: var(--display); font-weight: 600; font-size: 15px; padding: 2px 10px; box-shadow: 0 0 0 3px var(--parchment-ink); }
+.dlg .portrait { width: 128px; height: 128px; flex: none; background: var(--iron-2); box-shadow: 0 0 0 3px var(--parchment-ink); }
+.dlg .say { flex: 1; min-width: 0; }
+.dlg .txt { margin: 0 0 8px; font-size: 18px; min-height: 3em; }
+.dlg .txt em { font-style: italic; }
+.dlg .btn.sec { background: var(--iron-2); }
+.choices { display: grid; gap: 8px; margin-top: 6px; }
+.choice { text-align: left; font-family: var(--body); font-size: 16px; background: var(--parchment); color: var(--parchment-ink); border: 0; padding: 9px 12px; cursor: pointer; box-shadow: 0 0 0 2px var(--parchment-ink); }
+.choice:hover { background: var(--saffron); }
+.choice.wrong { text-decoration: line-through; opacity: .65; }
+.hint { font-size: 13px; color: var(--muted); margin: 0 6px 10px; }
+.dlg .hint { color: var(--parchment-ink); opacity: .75; margin: 6px 0 0; }
+
+/* Panels */
+.panel { background: var(--parchment); color: var(--parchment-ink); box-shadow: 0 0 0 3px var(--parchment-ink), 0 0 0 6px var(--iron-edge); margin: 6px 6px 22px; padding: 16px; }
+.panel h2 { font-family: var(--display); font-size: 24px; margin: 0 0 2px; }
+.panel h3 { font-family: var(--display); font-size: 18px; margin: 14px 0 6px; }
+.panel .sub { font-size: 14px; opacity: .8; margin: 0 0 8px; }
+.panel .btn.sec { box-shadow: 0 0 0 3px var(--parchment-ink), 0 4px 0 3px var(--parchment-ink); }
+.ironpanel { background: var(--iron-2); box-shadow: var(--px); margin: 6px 6px 22px; padding: 14px; }
+
+/* Gift moment */
+.gift { text-align: center; }
+.gift .bow { font-family: var(--mono); font-size: 48px; line-height: 1; }
+.gift p { max-width: 560px; margin: 8px auto; }
+
+/* Recipe card */
+.cardgrid { display: grid; gap: 4px 22px; }
+@media (min-width: 760px) { .cardgrid { grid-template-columns: 5fr 7fr; } }
+.ings { list-style: none; padding: 0; margin: 0; }
+.ings li { display: flex; gap: 8px; align-items: flex-start; padding: 5px 0; border-bottom: 2px dotted var(--iron-edge); }
+.ings .q { font-family: var(--mono); font-size: 20px; line-height: 1.1; min-width: 70px; }
+.ings .nm { flex: 1; }
+.ings .why { display: block; font-size: 13px; opacity: .85; }
+.ings .swapline { display: block; font-size: 14px; font-weight: 700; }
+.st { font-size: 15px; flex: none; }
+.steps { padding-left: 22px; margin: 0; }
+.steps li { margin-bottom: 8px; }
+.ck-i { font-weight: 700; color: var(--parchment-ink); background: color-mix(in srgb, var(--ember) 28%, transparent); padding: 0 2px; }
+.ck-c { font-style: italic; }
+.ck-t { font-family: var(--mono); font-size: 19px; background: color-mix(in srgb, var(--sky) 30%, transparent); padding: 0 3px; }
+.front { display: grid; grid-template-columns: auto 1fr; gap: 0 10px; font-size: 14px; margin: 6px 0 10px; }
+.front dt { font-weight: 700; }
+.front dd { margin: 0; }
+.draft { background: var(--saffron); color: var(--parchment-ink); font-family: var(--display); font-size: 13px; padding: 2px 6px; display: inline-block; box-shadow: 0 0 0 2px var(--parchment-ink); }
+pre.cook { background: var(--iron); color: var(--fg); font-family: var(--mono); font-size: 18px; line-height: 1.25; padding: 12px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; box-shadow: 0 0 0 3px var(--iron-edge); margin: 8px 0; }
+pre.cook .k { color: var(--saffron); }
+pre.cook .i { color: var(--ember); }
+pre.cook .c { color: var(--herb); }
+pre.cook .t { color: var(--sky); }
+pre.cook .cm { color: var(--muted); }
+
+/* rules strip */
+.rules { background: var(--iron-2); color: var(--fg); box-shadow: 0 0 0 3px var(--parchment-ink); padding: 10px 12px; margin: 10px 0 12px; }
+.rules .lbl { font-family: var(--display); font-size: 15px; margin-bottom: 6px; display: block; }
+.tog { font-family: var(--body); font-size: 14px; background: var(--iron); color: var(--fg); border: 0; padding: 6px 10px; cursor: pointer; box-shadow: 0 0 0 2px var(--iron-edge); margin: 4px; }
+.tog[aria-pressed="true"] { background: var(--chili); color: var(--parchment); box-shadow: 0 0 0 2px var(--parchment); }
+.tog.diet[aria-pressed="true"] { background: var(--sky); color: var(--parchment-ink); }
+.chip { display: inline-block; font-family: var(--display); font-size: 15px; padding: 3px 9px; color: var(--parchment-ink); box-shadow: 0 0 0 2px var(--parchment-ink); }
+.chip.ok { background: var(--herb); } .chip.swap { background: var(--saffron); } .chip.blocked { background: var(--chili); color: var(--parchment); } .chip.unverified { background: var(--sky); }
+.disclaimer { font-size: 14px; font-weight: 700; border-left: 6px solid var(--chili); padding: 6px 10px; background: color-mix(in srgb, var(--chili) 12%, transparent); margin: 8px 0; }
+.footnote { font-size: 13px; opacity: .8; margin: 6px 0; }
+
+/* Bureau slip */
+.slip { background: var(--parchment); color: var(--parchment-ink); box-shadow: 0 0 0 2px var(--parchment-ink); padding: 12px 14px; position: relative; overflow: hidden; margin: 10px 0; font-size: 15px; }
+.slip .hd { font-family: var(--mono); font-size: 20px; letter-spacing: 1px; border-bottom: 2px solid var(--parchment-ink); margin-bottom: 8px; }
+.slip .f { display: grid; grid-template-columns: 110px 1fr; gap: 2px 8px; }
+.slip .f dt { font-family: var(--mono); font-size: 17px; }
+.slip .f dd { margin: 0; border-bottom: 1px dashed var(--parchment-ink); }
+.spell { font-family: var(--mono); font-size: 21px; letter-spacing: 2px; color: var(--chili); }
+.stamp { position: absolute; right: 8%; top: 22%; font-family: var(--mono); font-size: 40px; color: var(--chili); border: 4px solid var(--chili); padding: 0 10px; transform: rotate(-14deg) scale(1); opacity: .9; pointer-events: none; animation: stamp .35s steps(4) both; }
+@keyframes stamp { 0% { transform: rotate(-14deg) scale(2.4); opacity: 0; } 100% { transform: rotate(-14deg) scale(1); opacity: .9; } }
+
+/* overlay */
+.overlay { position: fixed; inset: 0; background: var(--shade); display: grid; place-items: center; padding: 16px; z-index: 20; }
+.overlay .slip { width: min(460px, 100%); }
+
+/* Cook mode */
+.cm-top { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px; align-items: center; margin: 0 6px 12px; }
+.stepno { font-family: var(--mono); font-size: 26px; color: var(--saffron); }
+.bigstep { font-size: clamp(22px, 5.2vw, 30px); line-height: 1.35; margin: 4px 0 14px; }
+.timerbtn { font-family: var(--mono); font-size: 26px; background: var(--iron); color: var(--fg); border: 0; padding: 6px 14px; cursor: pointer; box-shadow: 0 0 0 3px var(--sky); margin: 4px 6px 4px 0; }
+.timerbtn.run { box-shadow: 0 0 0 3px var(--ember); color: var(--ember); }
+.timerbtn.done { box-shadow: 0 0 0 3px var(--herb); color: var(--herb); animation: flash .5s steps(2) 6; }
+@keyframes flash { 50% { background: var(--herb); color: var(--iron); } }
+.checks { list-style: none; padding: 0; margin: 8px 0; }
+.checks label { display: flex; gap: 10px; align-items: center; padding: 6px 0; font-size: 18px; cursor: pointer; }
+.checks input { width: 24px; height: 24px; accent-color: var(--herb); }
+.tray { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 6px 12px; }
+.tray .t { font-family: var(--mono); font-size: 18px; padding: 2px 8px; box-shadow: 0 0 0 2px var(--ember); background: var(--iron-2); }
+.tray .t.done { box-shadow: 0 0 0 2px var(--herb); color: var(--herb); }
+.switch { font-size: 14px; display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+.panline { display: flex; gap: 10px; align-items: center; margin: 0 6px 16px; }
+.panline img { width: 64px; height: 64px; flex: none; }
+.panline .b { background: var(--parchment); color: var(--parchment-ink); padding: 8px 12px; box-shadow: 0 0 0 3px var(--parchment-ink); font-size: 16px; }
+
+/* Present */
+.photo { max-width: 100%; max-height: 360px; display: block; margin: 10px 0; box-shadow: 0 0 0 3px var(--parchment-ink); image-rendering: auto; }
+.filelbl { display: inline-block; }
+input[type=file] { font-size: 14px; max-width: 100%; }
+
+/* Rewards */
+.cert { text-align: center; position: relative; overflow: hidden; }
+.cert .hd { font-family: var(--mono); font-size: 22px; letter-spacing: 2px; }
+.rw { list-style: none; padding: 0; margin: 10px auto; max-width: 460px; text-align: left; }
+.rw li { padding: 5px 0; border-bottom: 2px dotted var(--iron-edge); font-size: 17px; }
+.rw .n { font-family: var(--mono); font-size: 22px; color: var(--chili); }
+
+/* toasts */
+.toasts { position: fixed; top: 12px; right: max(12px, env(safe-area-inset-right, 0px)); z-index: 30; display: grid; gap: 8px; justify-items: end; pointer-events: none; }
+.toast { font-family: var(--mono); font-size: 22px; background: var(--iron-2); color: var(--saffron); padding: 4px 12px; box-shadow: var(--px); animation: slide .3s steps(4) both; }
+@keyframes slide { from { transform: translateX(120%); } to { transform: none; } }
+
+.permit { position: relative; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+footer { color: var(--muted); font-size: 13px; margin: 26px 6px 0; }
+
+@media (max-width: 520px) {
+  .dlg { flex-direction: column; align-items: flex-start; }
+  .dlg { margin-top: 64px; }
+  .dlg .portrait { width: 64px; height: 64px; position: absolute; right: 10px; top: -60px; }
+  .dlg .plate { left: 10px; }
+  .dlg .txt { font-size: 17px; }
+  .pin .tag { font-size: 10px; padding: 0 3px; }
+  .panbtn img { width: 64px; height: 64px; }
+  .xpbar { width: 70px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+
+<div class="wrap">
+  <header class="hud" aria-label="Apprentice status">
+    <span class="title">Kitchen Quest</span>
+    <span class="lv">Apprentice Lv <span class="num" id="lv">1</span></span>
+    <span class="xpbar" title="XP to next level" aria-hidden="true"><i id="xpfill"></i></span>
+    <span class="num" id="xpn" aria-label="XP">0 XP</span>
+    <span class="num" title="Bureau Stamps">✪ <span id="stamps">0</span></span>
+    <span class="badge" id="aibadge">Reactions: scripted</span>
+  </header>
+  <nav class="crumbs" id="crumbs" aria-label="Breadcrumb"></nav>
+  <main id="main"></main>
+  <footer>
+    Prototype. Recipes are drafts until reviewed by a cook from that tradition. In the real app you'll talk to the Pan out loud; here, tap.
+    <br>*The Pantry Bureau regrets any inconvenience caused by the Pantry Bureau.
+  </footer>
+</div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<div class="sr" aria-live="polite" id="live"></div>
+
+<script>
+/* ============================================================
+   Recipes as Cooklang (.cook) text — the source of truth.
+   ============================================================ */
+const RECIPES = {
+leela: `---
+title: Parippu Curry (Kerala dal with coconut)
+country: India
+region: Kerala (Kochi)
+credit: Home cooks of Kochi, Kerala; taught in-game by Ammachi Leela
+cook: ammachi-leela
+difficulty: 1
+skills: [legumes, heat-control, tempering]
+servings: 3
+license: CC-BY-SA-4.0
+status: draft
+---
+-- Draft until reviewed by a cook from this tradition.
+Rinse @split moong dal{100%g} in a #bowl{} two or three times, until the water runs mostly clear.
+
+Put the dal in a #pot{} with @water{500%ml}, @turmeric{1/4%tsp} and @green chillies{2}, slit lengthways. Simmer, part-covered, until soft enough to crush against the side with a spoon. Add a splash more water if it gets thick. ~{20%minutes}
+
+While it cooks, grind @grated coconut{60%g} with @cumin seeds{1/2%tsp}, @garlic{1%clove} and a splash of water in a #blender{} to a smooth, thick paste.
+
+Mash the dal lightly with the back of a #ladle{}. Stir in the coconut paste and @salt{3/4%tsp}. Bring back to a gentle bubble — no hard boil now, or the coconut splits — and simmer. ~{5%minutes}
+
+For the tempering, heat @coconut oil{1%tbsp} in a #small pan{} over medium heat. Add @mustard seeds{1/2%tsp} and wait until they pop. ~{30%seconds}
+
+Add @shallots{3}, thinly sliced, and @dried red chillies{2}. Fry until the shallots turn golden. ~{3%minutes}
+
+Add @curry leaves{1%sprig} — stand back, they spit — stir for a few seconds, then pour the sizzling tempering over the dal. Serve with hot rice, a spoon of @ghee{1%tsp} if you like, and @pappadam{3}.
+`,
+marisol: `---
+title: Frijoles de Olla
+country: Mexico
+region: Oaxaca
+credit: Home cooks of Oaxaca; taught in-game by Doña Marisol
+cook: dona-marisol
+difficulty: 1
+skills: [legumes, heat-control, patience]
+servings: 6
+license: CC-BY-SA-4.0
+status: draft
+---
+-- Draft until reviewed by a cook from this tradition. No soaking needed; older beans just take longer.
+Spread @dried black beans{500%g} on a #tray{} and pick out any small stones or shrivelled beans. Rinse them well in a #colander{}.
+
+Put the beans in an #olla{} or other heavy pot with @water{2.5%l}, @white onion{1/2}, @garlic{2%cloves} and @lard{1%tbsp}. Bring to a boil. ~{10%minutes}
+
+Turn the heat down to the gentlest simmer and partly cover. Cook until the beans are soft and creamy inside. Check now and then: if the water dips below the beans, add hot water from a #kettle{}, never cold. ~{2%hours}
+
+Taste a few beans. When they are completely tender, add @salt{2%tsp} and @epazote{2%sprigs}. Simmer so the broth takes the flavour. ~{20%minutes}
+
+Fish out the onion and the epazote stalks. Taste the broth and adjust the salt. Serve the beans in their broth in a #bowl{}, with warm @corn tortillas{6} on the side.
+`,
+haruka: `---
+title: Onigiri (rice balls)
+country: Japan
+region: Osaka (Kansai)
+credit: Home cooks and onigiri shops of Osaka; taught in-game by Haruka
+cook: haruka
+difficulty: 2
+skills: [grains, heat-control, shaping]
+servings: 6
+license: CC-BY-SA-4.0
+status: draft
+---
+-- Draft until reviewed by a cook from this tradition. 360 ml rice = 2 rice-cooker cups (about 300 g).
+Measure @Japanese short-grain rice{360%ml} into a #bowl{}. Add cold water, swirl gently with your fingertips and pour it off quickly. Repeat three or four times, until the water is only slightly cloudy. Drain in a #sieve{}.
+
+Put the rice in a #heavy pot with a lid{} with @water{400%ml} and let it soak. ~{30%minutes}
+
+Bring to a boil over medium-high heat with the lid on, then turn the heat to its lowest and cook without lifting the lid. ~{13%minutes}
+
+Turn off the heat and let the rice steam, lid still on. ~{10%minutes}
+
+Meanwhile, make okaka: mix @katsuobushi{5%g} (bonito flakes) with @soy sauce{1%tsp}. Pit @umeboshi{2} and tear them into pieces.
+
+Fluff the rice with a wet #rice paddle{} and let it cool until you can hold it comfortably — warm, not hot. ~{5%minutes}
+
+Wet your hands and rub a pinch of @salt{1%tsp} over your palms. Take about 100 g of rice, press a dent in the middle, add a little filling, and close the rice over it.
+
+Cup one hand into a V and turn the ball into a triangle with three or four gentle presses — firm enough to hold, never squashed. Wrap each in a strip of @nori{2%sheets}, cut in thirds, just before eating.
+`,
+import: `---
+title: Pasta al Limone
+country: Italy
+region: Campania (Amalfi Coast)
+credit: From an Instagram post you imported; original author credited in your private copy
+source: instagram
+license: author's own — private, not in the open canon
+status: private-import
+---
+Cook @spaghetti{200%g} in a #large pot{} of well-salted boiling water until al dente. ~{9%minutes}
+
+Meanwhile, in a #wide pan{}, melt @butter{30%g} over low heat with the zest of @lemon{1}.
+
+Scoop out a mug of pasta water, drain the pasta and tip it into the pan with the lemon juice and a splash of the water.
+
+Off the heat, toss with finely grated @Parmigiano Reggiano{40%g}, adding pasta water until glossy. Finish with @black pepper{}.
+`
+};
+
+/* ============================================================
+   Tiny Cooklang parser (front matter + @ingredients, #cookware, ~timers)
+   ============================================================ */
+const TOKEN = /@([^@#~{}\n]+?)\{([^}]*)\}|@([\p{L}\d_-]+)|#([^@#~{}\n]+?)\{([^}]*)\}|#([\p{L}\d_-]+)|~([^@#~{}\n]*?)\{([^}]*)\}/gu;
+function splitQty(s) { const [q = "", u = ""] = (s || "").split("%"); return { qty: q.trim(), unit: u.trim() }; }
+function parseCook(src) {
+  const meta = {}; let body = src;
+  const fm = src.match(/^---\n([\s\S]*?)\n---\n?/);
+  if (fm) {
+    body = src.slice(fm[0].length);
+    for (const line of fm[1].split("\n")) {
+      const m = line.match(/^(\w+):\s*(.*)$/); if (!m) continue;
+      let v = m[2].trim();
+      if (/^\[.*\]$/.test(v)) v = v.slice(1, -1).split(",").map(x => x.trim()).filter(Boolean);
+      meta[m[1]] = v;
+    }
+  }
+  const notes = [];
+  const paras = body.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
+  const steps = []; const ingredients = []; const cookware = [];
+  for (const para of paras) {
+    const lines = [];
+    for (const ln of para.split("\n")) {
+      const c = ln.indexOf("--");
+      if (c === 0) { notes.push(ln.slice(2).trim()); continue; }
+      lines.push(ln);
+    }
+    const text = lines.join(" ").trim(); if (!text) continue;
+    const parts = []; let last = 0; let m;
+    TOKEN.lastIndex = 0;
+    while ((m = TOKEN.exec(text))) {
+      if (m.index > last) parts.push({ type: "text", value: text.slice(last, m.index) });
+      if (m[1] !== undefined || m[3] !== undefined) {
+        const name = (m[1] ?? m[3]).trim(); const { qty, unit } = splitQty(m[2]);
+        const ing = { type: "ingredient", name, qty, unit };
+        parts.push(ing); ingredients.push(ing);
+      } else if (m[4] !== undefined || m[6] !== undefined) {
+        const name = (m[4] ?? m[6]).trim(); parts.push({ type: "cookware", name }); if (!cookware.includes(name)) cookware.push(name);
+      } else {
+        const { qty, unit } = splitQty(m[8]);
+        parts.push({ type: "timer", name: (m[7] || "").trim(), qty, unit, seconds: toSeconds(qty, unit) });
+      }
+      last = TOKEN.lastIndex;
+    }
+    if (last < text.length) parts.push({ type: "text", value: text.slice(last) });
+    steps.push(parts);
+  }
+  // unique ingredient list in order of appearance
+  const list = [];
+  for (const i of ingredients) {
+    const ex = list.find(x => x.name.toLowerCase() === i.name.toLowerCase());
+    if (ex) { if (i.qty) ex.amounts.push(fmtQty(i)); } else list.push({ name: i.name, amounts: i.qty ? [fmtQty(i)] : [] });
+  }
+  return { meta, notes, steps, ingredients: list, cookware };
+}
+function toSeconds(q, u) {
+  const n = parseFrac(q); u = (u || "").toLowerCase();
+  if (/^h/.test(u)) return n * 3600; if (/^m/.test(u)) return n * 60; return n;
+}
+function parseFrac(q) { if (!q) return 0; if (q.includes("/")) { const [a, b] = q.split("/").map(Number); return a / b; } return Number(q) || 0; }
+function fmtQty(i) { return [i.qty, i.unit].filter(Boolean).join(" "); }
+function highlightCook(src) {
+  const esc = escapeHtml(src);
+  return esc.replace(/^(---[\s\S]*?---)/, m => m.replace(/^(\w+):/gm, '<span class="k">$1</span>:'))
+    .replace(/^(--.*)$/gm, '<span class="cm">$1</span>')
+    .replace(/(@[^@#~{}\n]+?\{[^}]*\})/g, '<span class="i">$1</span>')
+    .replace(/(#[^@#~{}\n;&]+?\{[^}]*\})/g, '<span class="c">$1</span>')
+    .replace(/(~\{[^}]*\})/g, '<span class="t">$1</span>');
+}
+
+/* ============================================================
+   Deterministic allergy / diet engine (never the AI)
+   ============================================================ */
+const ALIAS = {
+  "split moong dal": "moong_dal", "water": "water", "turmeric": "turmeric", "green chillies": "green_chili",
+  "grated coconut": "grated_coconut", "cumin seeds": "cumin", "garlic": "garlic", "salt": "salt",
+  "coconut oil": "coconut_oil", "mustard seeds": "mustard_seed", "shallots": "shallot", "dried red chillies": "dried_chili",
+  "curry leaves": "curry_leaf", "ghee": "ghee", "pappadam": "pappadam",
+  "dried black beans": "black_bean", "white onion": "onion", "lard": "lard", "epazote": "epazote", "corn tortillas": "corn_tortilla",
+  "japanese short-grain rice": "rice", "katsuobushi": "katsuobushi", "soy sauce": "soy_sauce", "umeboshi": "umeboshi", "nori": "nori",
+  "spaghetti": "spaghetti", "butter": "butter", "lemon": "lemon", "parmigiano reggiano": "parmesan", "black pepper": "black_pepper",
+  "coconut milk": "coconut_milk"
+};
+// graph: is_a and contains edges (curated seeds)
+const GRAPH = {
+  moong_dal: { is_a: ["legume"] }, black_bean: { is_a: ["legume"] }, legume: {},
+  grated_coconut: { is_a: ["coconut"] }, coconut_oil: { contains: ["coconut"] }, coconut_milk: { contains: ["coconut"] }, coconut: { is_a: ["fruit"] },
+  garlic: { is_a: ["allium"] }, onion: { is_a: ["allium"] }, shallot: { is_a: ["allium"] }, allium: {},
+  lard: { is_a: ["pork"] }, pork: { is_a: ["meat"] }, meat: {},
+  katsuobushi: { is_a: ["fish"] }, fish: {},
+  soy_sauce: { contains: ["soy", "wheat"] }, soy: {}, wheat: {},
+  spaghetti: { contains: ["wheat"] }, butter: { contains: ["milk"] }, ghee: { contains: ["milk"] }, milk: {},
+  parmesan: { contains: ["milk", "animal_rennet"] }, animal_rennet: { is_a: ["meat"] },
+  water: {}, turmeric: {}, green_chili: {}, dried_chili: {}, cumin: {}, salt: {}, mustard_seed: {}, curry_leaf: {},
+  epazote: {}, corn_tortilla: { contains: ["corn"] }, corn: {}, rice: {}, umeboshi: {}, nori: {}, lemon: { is_a: ["fruit"] }, black_pepper: {}, fruit: {},
+  neutral_oil: {}, garlic_oil: {}, green_onion_tops: {}, veg_hard_cheese: { contains: ["milk"] }, shio_kombu: { contains: ["soy", "wheat"] }
+  // pappadam deliberately unresolved: a store-bought compound → ❓
+};
+const RULES = {
+  nut:     { label: "Peanut / tree-nut allergy", sev: "allergy", severe: true, targets: ["peanut", "tree_nut"], spell: "PEANUT · TREE NUT", covers: "peanuts, almonds, cashews, walnuts, pistachios, hazelnuts, pecans and their oils, butters and flours" },
+  coconut: { label: "Coconut allergy", sev: "allergy", severe: true, targets: ["coconut"], spell: "C-O-C-O-N-U-T", covers: "grated and desiccated coconut, coconut milk, coconut cream, coconut oil" },
+  fodmap:  { label: "Low-FODMAP (onion, garlic)", sev: "intolerance", severe: false, targets: ["allium"], spell: "ONION · GARLIC", covers: "onion, garlic, shallot (prototype rule: real low-FODMAP also limits some beans and lentils — plan it with your dietitian)" },
+  veg:     { label: "Vegetarian", sev: "preference", severe: false, targets: ["meat", "fish"], spell: "", covers: "meat, poultry, fish, lard, gelatin, animal rennet, fish flakes and sauces" }
+};
+const SUBS = {
+  lard: [{ id: "neutral_oil", label: "neutral oil (e.g. sunflower), same amount" }],
+  coconut_oil: [{ id: "neutral_oil", label: "neutral oil, same amount" }],
+  garlic: [{ id: "garlic_oil", label: "garlic-infused oil (1 tsp) — the flavour, not the fructans" }],
+  onion: [{ id: "green_onion_tops", label: "green tops of spring onions only" }],
+  shallot: [{ id: "green_onion_tops", label: "green tops of spring onions only" }],
+  katsuobushi: [{ id: "shio_kombu", label: "shio kombu (salted kelp) — or more umeboshi" }],
+  parmesan: [{ id: "veg_hard_cheese", label: "a vegetarian hard cheese (non-animal rennet)" }]
+  // grated coconut: no curated substitute → ⛔ for coconut allergy
+};
+function reach(id, seen = new Set(), path = []) {
+  // returns array of {node, path:[...]} for every ancestor via is_a / contains
+  const out = []; const g = GRAPH[id]; if (!g) return out;
+  for (const rel of ["is_a", "contains"]) for (const n of (g[rel] || [])) {
+    if (seen.has(n)) continue; seen.add(n);
+    const p = [...path, `${rel === "is_a" ? "is a" : "contains"} ${n.replace(/_/g, " ")}`];
+    out.push({ node: n, path: p }, ...reach(n, seen, p));
+  }
+  return out;
+}
+function matches(id, rule) {
+  if (rule.targets.includes(id)) return [id.replace(/_/g, " ")];
+  const hit = reach(id).find(r => rule.targets.includes(r.node));
+  return hit ? hit.path : null;
+}
+function checkIngredient(name, active) {
+  const id = ALIAS[name.toLowerCase()];
+  if (!id || !GRAPH[id]) return { status: "unverified", why: "Store-bought or unknown: can't verify the ingredients. Check the label." };
+  const hits = [];
+  for (const k of active) { const p = matches(id, RULES[k]); if (p) hits.push({ rule: k, path: p }); }
+  if (!hits.length) return { status: "ok" };
+  const sub = (SUBS[id] || []).find(s => active.every(k => !matches(s.id, RULES[k])));
+  const why = hits.map(h => `${RULES[h.rule].label}: ${name} → ${h.path.join(" → ")}`).join("; ");
+  return sub ? { status: "swap", why, sub } : { status: "blocked", why };
+}
+function checkRecipe(parsed, active) {
+  const findings = parsed.ingredients.map(i => ({ ...i, ...checkIngredient(i.name, active) }));
+  const has = s => findings.some(f => f.status === s);
+  const status = has("blocked") ? "blocked" : has("unverified") ? "unverified" : has("swap") ? "swap" : "ok";
+  return { status, findings };
+}
+const STAT = { ok: ["✅", "ok"], swap: ["🔁", "swap"], blocked: ["⛔", "blocked"], unverified: ["❓", "can't verify"] };
+
+/* ============================================================
+   Cooks, quests, dialogue (content as data)
+   ============================================================ */
+const COOKS = {
+  leela: {
+    name: "Ammachi Leela", sprite: "art/cook_in.png", place: "Kochi, Kerala, India", short: "Kochi", dish: "Parippu Curry", dishShort: "Parippu",
+    pin: { x: 67.6, y: 52 }, next: "marisol", greet: "Vaa, vaa — come in, sit. Mind the cat.",
+    story: [
+      "This is parippu. At an Onam sadya it is the first thing served on the banana leaf — dal, ghee, rice — before anything else. But mostly it is Tuesday food.",
+      "Every house in Kochi makes it, and every house is quietly certain the others do it wrong. I learned it from my mother's sister. So it is not mine to give away. It is ours to pass on.",
+      "But first, help me with the tempering. My hands know the order. Let us see if yours can learn it."
+    ],
+    quest: {
+      title: "The Tempering Order",
+      q: "The coconut oil is hot. Which goes in FIRST?",
+      options: [
+        { t: "Mustard seeds — and wait for them to pop", ok: true, r: "Yes. Mustard seeds first, until they crackle like a small applause. Then shallots and chillies, then curry leaves last — they need only a moment." },
+        { t: "Curry leaves", ok: false, r: "Ah — then they're crisp and black before the seeds have even woken up. Curry leaves need seconds, not minutes. They go last. Try again." },
+        { t: "The shallots", ok: false, r: "The shallots would cool the oil, and the mustard seeds would never pop — they'd sit there bitter and sulking. Seeds first, child." },
+        { t: "A splash of water, for luck", ok: false, r: "Water in hot oil? Luck is exactly what you would need. The Pan just flinched, and it is not even here." }
+      ]
+    },
+    teach: "Now you know where it starts. Come — I will show you the whole thing. Write it down; my memory is excellent, but it is mine.",
+    intro: "Before you go: my friend Marisol in Oaxaca. We met at a seed-savers' gathering — she knows beans the way I know dal. I have written to her. She is expecting you.",
+    scripted: [
+      "I can't see it from here — Kochi is far — but I can hear that the mustard seeds popped. Next time, let the shallots go one shade darker; that's where the sweetness lives.",
+      "You made it, and you sat down to eat it. That is the whole recipe, really. Tip: if it thickens while it waits, loosen it with a little hot water, not cold."
+    ]
+  },
+  marisol: {
+    name: "Doña Marisol", sprite: "art/cook_mx.png", place: "Oaxaca, Mexico", short: "Oaxaca", dish: "Frijoles de Olla", dishShort: "Frijoles",
+    pin: { x: 21.5, y: 45 }, next: "haruka", greet: "Pásale, pásale. Leela said you were coming. She also said you're slow with the shallots.",
+    story: [
+      "Frijoles de olla — beans from the pot. Here we cook black beans in an olla de barro, a clay pot, with a little lard and epazote from the yard.",
+      "My grandmother said the olla gives a taste you cannot buy. Use whatever heavy pot you have. The beans will forgive you. Mostly.",
+      "First, a question my neighbour's son got wrong for three years. Let's see about you."
+    ],
+    quest: {
+      title: "The Salt Question",
+      q: "When do you add the salt to a pot of beans?",
+      options: [
+        { t: "At the end, once the beans are completely soft", ok: true, r: "Exactly. Some say early salt toughens the skins — my abuela did, the scientists argue. But this I know for sure: the broth cooks down for hours. Salt at the start, and you've salted twice." },
+        { t: "At the very start, all of it", ok: false, r: "And then two hours later the broth has cooked down and it tastes like the sea. You can always add salt. You cannot un-add it." },
+        { t: "Never — beans are naturally salty", ok: false, r: "Beans are many things, mijo. Salty is not one of them. Try again." },
+        { t: "Whenever the beans look like they want it", ok: false, r: "Beans don't ask. They wait. Like a good guest. Think about the broth — what happens to it over two hours?" }
+      ]
+    },
+    teach: "Good. Now I'll teach you the pot. Bring hot water when it runs low, never cold — cold stops everything and the beans take offence.",
+    intro: "Haruka in Osaka and I write each other letters about rice and beans, which are the two halves of half the world's dinners. I've told her about you. Be on time; she opens at six.",
+    scripted: [
+      "From here it looks like a proper pot of beans — and a pot of beans is a kind of patience you can eat. Tip: mash a spoonful against the side and stir it back; the broth gets silkier.",
+      "You waited two hours for beans. In this house that makes you family, or at least a cousin. Next time try a little crumbled queso fresco on top."
+    ]
+  },
+  haruka: {
+    name: "Haruka", sprite: "art/cook_jp.png", place: "Osaka, Japan", short: "Osaka", dish: "Onigiri", dishShort: "Onigiri",
+    pin: { x: 86.4, y: 34 }, next: null, greet: "Irasshai! Marisol's apprentice? Good. Wash your hands, then come and look at this disaster.",
+    story: [
+      "Onigiri is hand food. Students, farmers, people on the early train. In Osaka people will argue for an hour about whether the nori should be crisp or soft.",
+      "My shop makes three hundred a morning. Each one I press only three or four times. Any more and you are not making onigiri, you are making a brick.",
+      "Now: my new helper made this batch. The rice is gluey. It sticks to everything, including my patience. Why?"
+    ],
+    quest: {
+      title: "The Gluey Rice",
+      q: "The rice is gluey. What went wrong?",
+      options: [
+        { t: "It wasn't rinsed, and there was too much water", ok: true, r: "Yes! The loose starch on the grains turns to paste, and extra water finishes the job. Rinse until the water is only a little cloudy, and measure the water." },
+        { t: "Not enough soy sauce", ok: false, r: "Soy sauce fixes many things. Not this. Also, please never put soy sauce in my rice pot." },
+        { t: "The rice was sad", ok: false, r: "The rice is fine. It's my helper who is sad now. Think about what's on the surface of the grains." },
+        { t: "It was pressed too gently", ok: false, r: "Too gentle makes it fall apart. Too sticky is a different problem — it starts before the pot." }
+      ]
+    },
+    teach: "Good eye. Now I'll teach you properly, from the rinse to the last press. Watch my hands, not my face.",
+    intro: "I'd introduce you to my friend in Lisbon, but the Bureau says that requires Form 12-C, and Form 12-C requires Form 12-B. Next season.",
+    scripted: [
+      "From here I can't count the presses, but I trust you stopped at four. Tip: keep a bowl of water beside you and wet your hands before every single one — the rice won't stick to you.",
+      "You made onigiri. Eat one now, while the nori still crackles. Tip: if they crumble, the rice was too cool when you shaped it — shape while it's still warm."
+    ]
+  }
+};
+const PAN_MAP = [
+  "I am a pan. I do not fly. And yet here I am, in a carry-on.",
+  "Remember: we are guests. Guests listen. Guests wash up.",
+  "The Bureau's travel permits are valid for one kitchen, one dish, and a reasonable amount of gratitude.",
+  "Nobody's food is 'exotic'. It's somebody's Tuesday.",
+  "The map is to scale. The scale is 'large'.",
+  "Every cook on this map knows more than I do. I find that restful."
+];
+const PAN_COOK = [
+  "Step done. I'd applaud, but: no hands.",
+  "Nothing is on fire. I've checked. Twice.",
+  "Taste it. Tasting isn't cheating; it's the entire point.",
+  "Waiting on a timer? The Bureau recommends staring at it. It doesn't help, but it's traditional.",
+  "You're doing fine. I've seen worse. I've been worse; ask me about 1911.",
+  "Wipe your hands. The page cannot be seasoned."
+];
+const SKILL_NAMES = { legumes: "Legumes", "heat-control": "Heat control", tempering: "Tempering", grains: "Grains", shaping: "Shaping", patience: "Patience" };
+
+/* ============================================================
+   State (localStorage optional)
+   ============================================================ */
+const DEFAULT = { xp: 0, stamps: 0, skills: {}, trust: { leela: 1, marisol: 0, haruka: 0 }, unlocked: { leela: true }, quests: {}, cooked: {}, rules: [], log: [] };
+let S = load();
+function load() { try { const s = JSON.parse(localStorage.getItem("kq-quest") || "null"); if (s && s.trust) return { ...structuredClone(DEFAULT), ...s }; } catch {} return structuredClone(DEFAULT); }
+function save() { try { localStorage.setItem("kq-quest", JSON.stringify(S)); } catch {} }
+let view = { name: "map" };
+const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/* ============================================================
+   AI (sample) — optional; scripted fallback always works
+   ============================================================ */
+let sample = null; let imagesOK = false;
+(async () => {
+  try { sample = await window.claude?.use?.("sample"); } catch {}
+  try { if (sample && typeof sample.limits === "function") { const l = await sample.limits(); imagesOK = !(l && (l.images === false || l.images?.max === 0 || l.images?.allowed === false)); } else imagesOK = !!sample; } catch { imagesOK = false; }
+  updateAiBadge();
+})();
+function updateAiBadge() {
+  const b = document.getElementById("aibadge");
+  b.textContent = sample ? "Reactions: live AI" : "Reactions: scripted"; b.classList.toggle("live", !!sample);
+}
+
+/* ============================================================
+   Helpers
+   ============================================================ */
+const $ = s => document.querySelector(s);
+const main = document.getElementById("main");
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+function pick(a) { return a[Math.floor(Math.random() * a.length)]; }
+function hearts(n, max = 4) { let h = ""; for (let i = 0; i < max; i++) h += i < n ? "♥" : '<span class="off">♥</span>'; return `<span class="hearts" aria-label="Trust ${n} of ${max}">${h}</span>`; }
+const TRUST = ["Stranger", "Guest", "Acquainted", "Trusted apprentice", "Family friend"];
+function toast(t) {
+  const el = document.createElement("div"); el.className = "toast"; el.textContent = t;
+  $("#toasts").appendChild(el); setTimeout(() => el.remove(), 2800);
+}
+function gain(xp, skill) {
+  S.xp += xp; toast(`+${xp} XP${skill ? " · " + skill : ""}`);
+  if (skill) S.skills[skill] = (S.skills[skill] || 0) + xp;
+  hud(); save();
+}
+function hud() {
+  const lv = Math.floor(S.xp / 100) + 1; $("#lv").textContent = lv;
+  $("#xpfill").style.width = (S.xp % 100) + "%"; $("#xpn").textContent = S.xp + " XP"; $("#stamps").textContent = S.stamps;
+}
+function say(text) { $("#live").textContent = text; }
+let typing = null;
+function typeInto(el, text, done) {
+  if (typing) { clearInterval(typing.id); typing = null; }
+  if (reduced) { el.textContent = text; done && done(); return; }
+  let i = 0; el.textContent = "";
+  const t = { id: setInterval(() => { i += 2; el.textContent = text.slice(0, i); if (i >= text.length) finish(); }, 18), finish };
+  function finish() { clearInterval(t.id); el.textContent = text; typing = null; done && done(); }
+  typing = t;
+}
+function skipTyping() { if (typing) typing.finish(); }
+
+/* dialogue box builder */
+function dialogueBox(cook, who) {
+  const c = COOKS[cook];
+  const isPan = who === "pan";
+  return `<section class="dlg" aria-live="polite">
+    <span class="plate">${isPan ? "The Pan" : escapeHtml(c.name)}</span>
+    <img class="portrait" src="${isPan ? "art/pan.png" : c.sprite}" alt="">
+    <div class="say"><p class="txt" id="dtxt"></p><div id="dact"></div></div>
+  </section>`;
+}
+
+/* ============================================================
+   Navigation
+   ============================================================ */
+function go(v) { stopAll(); view = v; render(); window.scrollTo({ top: 0, behavior: reduced ? "auto" : "smooth" }); }
+function crumbs() {
+  const c = view.cook && COOKS[view.cook];
+  const trail = [{ label: "World map", v: { name: "map" } }];
+  if (view.name === "import") trail.push({ label: "Recipe from Abroad" });
+  if (c) {
+    trail.push({ label: c.short, v: { name: "kitchen", cook: view.cook } });
+    const order = ["card", "cook", "present", "rewards"];
+    const labels = { card: "Recipe card", cook: "Cook mode", present: "Present", rewards: "Rewards" };
+    const idx = order.indexOf(view.name);
+    for (let i = 0; i <= idx; i++) trail.push({ label: labels[order[i]], v: { name: order[i], cook: view.cook } });
+  }
+  const back = trail.length > 1 ? trail[trail.length - 2].v : null;
+  $("#crumbs").innerHTML = (back ? `<button class="btn sec small" id="backbtn">◀ Back</button>` : "") +
+    trail.map((t, i) => i === trail.length - 1 ? `<span class="here" aria-current="page">${t.label}</span>` : `<button class="link" data-i="${i}">${t.label}</button><span class="sep">›</span>`).join("");
+  $("#crumbs").querySelectorAll("button.link").forEach(b => b.onclick = () => go(trail[+b.dataset.i].v));
+  if (back) $("#backbtn").onclick = () => go(back);
+}
+function render() {
+  hud(); crumbs();
+  ({ map: renderMap, kitchen: renderKitchen, card: renderCard, cook: renderCookMode, present: renderPresent, rewards: renderRewards, import: renderImport })[view.name]();
+}
+
+/* ============================================================
+   1. World map
+   ============================================================ */
+function renderMap() {
+  const pins = Object.entries(COOKS).map(([k, c]) => {
+    const locked = !S.unlocked[k]; const done = S.cooked[k];
+    return `<button class="pin ${locked ? "locked" : ""} ${done ? "done" : ""}" style="left:${c.pin.x}%;top:${c.pin.y}%" data-cook="${k}"
+      aria-label="${c.name}, ${c.place}: ${c.dish}. ${locked ? "Awaiting an introduction" : "Trust: " + TRUST[S.trust[k]]}">
+      <span class="tag">${locked ? "🔒 " : ""}${c.short}</span><span class="flag">${locked ? "?" : done ? "✓" : "!"}</span><span class="stick"></span></button>`;
+  }).join("") + `<button class="pin import" style="left:51.5%;top:30%" data-import="1" aria-label="Recipe from Abroad: Pasta al Limone, Italy. Visible only to you.">
+      <span class="tag">✉ Abroad</span><span class="flag">✉</span><span class="stick"></span></button>`;
+  main.innerHTML = `
+  <section class="screen" aria-label="World map">
+    <img class="bg" src="art/bg_map.png" alt="Pixel-art map of the Earth">
+    ${pins}
+    <button class="panbtn" id="panq" aria-label="The Pan, your travelling companion. Tap for a remark."><img src="art/pan.png" alt=""></button>
+    <div class="bubble" id="panbub" hidden></div>
+  </section>
+  <p class="hint">Tap a pin. Cooks send word through the Pantry Bureau; you travel as their guest.</p>
+  <div class="board">
+    ${Object.entries(COOKS).map(([k, c]) => {
+      const locked = !S.unlocked[k];
+      return `<article class="qcard ${locked ? "locked" : ""}">
+        <img src="${c.sprite}" alt="">
+        <div><h3>${c.name}</h3><div class="meta">${c.place} · ${c.dish}</div>
+        ${locked ? `<div class="meta">🔒 Awaiting an introduction</div>` : `${hearts(S.trust[k])} <span class="meta">${TRUST[S.trust[k]]}</span>${S.cooked[k] ? `<div class="meta">✓ Taught &amp; cooked</div>` : ""}`}
+        <div class="row">${locked ? `<button class="btn sec small" disabled>Not yet</button>` : `<button class="btn small" data-go="${k}">${S.cooked[k] ? "Visit again" : "Travel"}</button>`}</div></div>
+      </article>`;
+    }).join("")}
+    <article class="qcard"><img src="art/i_tomato.png" alt="" style="width:64px;height:64px">
+      <div><h3>Recipe from Abroad</h3><div class="meta">Italy · Pasta al Limone</div><div class="meta">"A traveler left this at the Bureau." Visible only to you.</div>
+      <div class="row"><button class="btn sec small" data-import="1">Open note</button></div></div></article>
+  </div>`;
+  main.querySelectorAll("[data-cook]").forEach(b => b.onclick = () => {
+    const k = b.dataset.cook;
+    if (!S.unlocked[k]) return panBubble(`${COOKS[k].name} hasn't sent word yet. The Bureau calls this "awaiting an introduction". I call it manners.`);
+    permit(k);
+  });
+  main.querySelectorAll("[data-go]").forEach(b => b.onclick = () => permit(b.dataset.go));
+  main.querySelectorAll("[data-import]").forEach(b => b.onclick = () => go({ name: "import" }));
+  const pq = $("#panq");
+  pq.onclick = () => panBubble(pick(PAN_MAP));
+  pq.onmouseenter = () => { if ($("#panbub").hidden) panBubble(pick(PAN_MAP)); };
+}
+function panBubble(t) { const b = $("#panbub"); if (!b) return; b.hidden = false; b.innerHTML = `<b>The Pan:</b> ${escapeHtml(t)}`; speak(t); }
+function speak() {} // voice lives in kitchen.html; the Pan stays text-only here
+
+/* Bureau travel permit */
+function permit(k) {
+  const c = COOKS[k];
+  const ov = document.createElement("div"); ov.className = "overlay"; ov.setAttribute("role", "dialog"); ov.setAttribute("aria-modal", "true"); ov.setAttribute("aria-label", "Travel permit");
+  ov.innerHTML = `<div class="slip permit">
+    <div class="hd">PANTRY BUREAU · FORM 9-T/TRAVEL</div>
+    <dl class="f"><dt>BEARER</dt><dd>One (1) apprentice, plus pan</dd>
+    <dt>DESTINATION</dt><dd>${c.place}</dd><dt>HOST</dt><dd>${c.name}</dd>
+    <dt>STATUS</dt><dd>Guest. Invited.</dd><dt>PURPOSE</dt><dd>To learn, if taught</dd></dl>
+    <p class="footnote">*Permit void if the bearer calls anything "exotic", leaves without washing up, or claims to have "discovered" a dish.</p>
+    <div class="row"><button class="btn" id="stampgo">Stamp it ✔</button><button class="btn sec" id="nogo">Not quite</button></div>
+  </div>`;
+  document.body.appendChild(ov); $("#stampgo").focus();
+  $("#nogo").onclick = () => ov.remove();
+  $("#stampgo").onclick = () => {
+    const s = document.createElement("div"); s.className = "stamp"; s.textContent = "APPROVED"; ov.querySelector(".slip").appendChild(s);
+    $("#stampgo").disabled = true; S.stamps += 1; hud(); save(); toast("+1 ✪ Bureau Stamp");
+    setTimeout(() => { ov.remove(); go({ name: "kitchen", cook: k }); }, reduced ? 300 : 900);
+  };
+  ov.addEventListener("keydown", e => { if (e.key === "Escape") ov.remove(); });
+}
+
+/* ============================================================
+   2. Cook's kitchen: story → quest → gift
+   ============================================================ */
+function renderKitchen() {
+  const k = view.cook, c = COOKS[k];
+  main.innerHTML = `
+  <section class="screen" aria-label="${c.name}'s kitchen">
+    <img class="bg" src="art/bg_kitchen.png" alt="">
+    <img class="sprite" src="${c.sprite}" alt="${c.name}" style="left:56%;bottom:6%" data-sz="cook">
+    <img class="sprite" src="art/player.png" alt="You, the apprentice" style="left:28%;bottom:6%" data-sz="cook">
+    <img class="sprite" src="art/pan.png" alt="The Pan" style="left:12%;bottom:4%" data-sz="cook">
+  </section>
+  <p class="hint">${c.place} · Trust ${hearts(S.trust[k])} ${TRUST[S.trust[k]]} · Tap the box to skip typing.</p>
+  ${dialogueBox(k)}
+  <div id="kextra"></div>`;
+  const lines = [c.greet, ...c.story];
+  const already = S.quests[k];
+  let i = 0;
+  const txt = $("#dtxt"), act = $("#dact");
+  $(".dlg").addEventListener("click", e => { if (e.target.tagName !== "BUTTON") skipTyping(); });
+  function next() {
+    if (already && i === 0) { lines.splice(1, lines.length - 1, "Back again? Good. A dish is learned the third time you cook it, not the first."); }
+    if (i < lines.length) {
+      act.innerHTML = ""; const line = lines[i++];
+      typeInto(txt, line, () => { act.innerHTML = `<button class="btn" id="nx">${i < lines.length ? "Next ▶" : (already ? "Cook it again ▶" : "Help with the quest ▶")}</button>`; $("#nx").onclick = next; $("#nx").focus(); });
+      return;
+    }
+    if (already) return go({ name: "card", cook: k });
+    quest();
+  }
+  function quest() {
+    const q = c.quest;
+    act.innerHTML = "";
+    typeInto(txt, `Quest — ${q.title}: ${q.q}`, () => {
+      act.innerHTML = `<div class="choices">${q.options.map((o, j) => `<button class="choice" data-j="${j}">${escapeHtml(o.t)}</button>`).join("")}</div>`;
+      act.querySelectorAll(".choice").forEach(b => b.onclick = () => {
+        const o = q.options[+b.dataset.j];
+        if (!o.ok) { b.classList.add("wrong"); typeInto(txt, o.r); say(o.r); return; }
+        act.innerHTML = "";
+        typeInto(txt, o.r, () => {
+          S.quests[k] = true; S.trust[k] = Math.max(S.trust[k], 2); save();
+          gain(20, "Quest"); toast(`Trust ↑ ${c.name}`);
+          act.innerHTML = `<button class="btn" id="nx">Continue ▶</button>`; $("#nx").focus();
+          $("#nx").onclick = gift;
+        });
+      });
+    });
+  }
+  function gift() {
+    typeInto(txt, c.teach);
+    act.innerHTML = "";
+    $("#kextra").innerHTML = `<section class="panel gift" aria-label="A recipe is taught">
+      <div class="bow" aria-hidden="true">✦ ✦ ✦</div>
+      <h2>${c.name} has taught you ${c.dish}</h2>
+      <p>It still belongs to the home cooks of ${c.short}. Now it is also yours to cook — and to pass on, with their name on it.</p>
+      <button class="btn" id="opencard">Open the recipe card ▶</button></section>`;
+    $("#opencard").onclick = () => go({ name: "card", cook: k }); $("#opencard").focus();
+  }
+  next();
+}
+
+/* ============================================================
+   3. Recipe card (Cooklang + allergy check)
+   ============================================================ */
+function renderStepHTML(parts) {
+  return parts.map(p => p.type === "text" ? escapeHtml(p.value)
+    : p.type === "ingredient" ? `<span class="ck-i">${escapeHtml(p.name)}${p.qty ? ` (${escapeHtml(fmtQty(p))})` : ""}</span>`
+    : p.type === "cookware" ? `<span class="ck-c">${escapeHtml(p.name)}</span>`
+    : `<span class="ck-t">⏲ ${escapeHtml(p.qty)} ${escapeHtml(p.unit)}</span>`).join("");
+}
+function rulesStrip() {
+  return `<div class="rules" role="group" aria-label="Allergy and diet rules (example)">
+    <span class="lbl">Your rules <span class="footnote" style="color:var(--muted)">(examples — toggle to test)</span></span>
+    ${Object.entries(RULES).map(([k, r]) => `<button class="tog ${r.severe ? "" : "diet"}" aria-pressed="${S.rules.includes(k)}" data-rule="${k}">${r.severe ? "⚠ " : ""}${r.label}${r.severe ? " (severe)" : ""}</button>`).join("")}
+  </div>`;
+}
+function bindRules(rerender) {
+  main.querySelectorAll("[data-rule]").forEach(b => b.onclick = () => {
+    const k = b.dataset.rule;
+    if (S.rules.includes(k)) { S.rules = S.rules.filter(x => x !== k); save(); return rerender(); }
+    readback(k, rerender);
+  });
+}
+function readback(k, rerender) {
+  const r = RULES[k];
+  const ov = document.createElement("div"); ov.className = "overlay"; ov.setAttribute("role", "dialog"); ov.setAttribute("aria-modal", "true"); ov.setAttribute("aria-label", "Confirm rule");
+  ov.innerHTML = `<div class="slip">
+    <div class="hd">PANTRY BUREAU · FORM 27-B/ALLERGEN</div>
+    <p style="margin:0 0 8px"><b>The Pan reads it back:</b> "${r.severe ? `Severe ${r.label.toLowerCase()}. Avoid entirely.` : `${r.label}. Avoid.`}"</p>
+    <dl class="f"><dt>RULE</dt><dd>${r.label}</dd>
+    ${r.spell ? `<dt>SPELLED</dt><dd class="spell">${r.spell}</dd>` : ""}
+    <dt>SEVERITY</dt><dd>${r.sev}</dd><dt>COVERS</dt><dd>${r.covers}</dd></dl>
+    <p class="footnote">*Form 27-B must be stamped by a qualified pan. The pan is qualified. The pan has the certificate somewhere.</p>
+    <div class="row"><button class="btn" id="rb-ok">Stamp it ✔</button><button class="btn sec" id="rb-no">Not quite</button></div></div>`;
+  document.body.appendChild(ov); $("#rb-ok").focus();
+  $("#rb-no").onclick = () => ov.remove();
+  ov.addEventListener("keydown", e => { if (e.key === "Escape") ov.remove(); });
+  $("#rb-ok").onclick = () => {
+    const s = document.createElement("div"); s.className = "stamp"; s.textContent = "APPROVED"; ov.querySelector(".slip").appendChild(s);
+    $("#rb-ok").disabled = true;
+    S.rules.push(k); save();
+    setTimeout(() => { ov.remove(); rerender(); }, reduced ? 200 : 700);
+  };
+}
+function allergyBlock(parsed) {
+  const res = checkRecipe(parsed, S.rules);
+  const severe = S.rules.some(k => RULES[k].severe);
+  const chipText = { ok: "✅ OK for your rules", swap: "🔁 OK with labeled swaps", blocked: "⛔ Blocked for your rules", unverified: "❓ Can't fully verify" }[res.status];
+  return { res, html: `<p><span class="chip ${res.status}">${chipText}</span></p>
+    ${res.status === "blocked" ? `<p class="footnote">This dish stays on your map. The cook can teach you an adapted version (not in this prototype).</p>` : ""}
+    ${severe ? `<p class="footnote">⚠ Severe rule active: watch for cross-contact (shared spice jars, fryer oil, packaged spice mixes). Check every label.</p>` : ""}
+    <p class="disclaimer">Kitchen Quest can't guarantee a dish is safe for your allergy. Always check labels.</p>` };
+}
+function ingList(res) {
+  return `<ul class="ings">${res.findings.map(f => `<li>
+    <span class="st" title="${STAT[f.status][1]}" aria-label="${STAT[f.status][1]}">${STAT[f.status][0]}</span>
+    <span class="q">${escapeHtml(f.amounts.join(" + ") || "—")}</span>
+    <span class="nm">${f.status === "swap" ? `<s>${escapeHtml(f.name)}</s><span class="swapline">swapped: ${escapeHtml(f.sub.label)}</span>` : escapeHtml(f.name)}
+    ${f.why ? `<span class="why">${escapeHtml(f.why)}</span>` : ""}
+    ${f.name.toLowerCase().includes("coconut") && S.rules.includes("nut") && !S.rules.includes("coconut") ? `<span class="why">Coconut isn't usually treated as a tree nut, but some people react to both. Ask your allergist.</span>` : ""}</span></li>`).join("")}</ul>`;
+}
+let showRaw = false;
+function renderCard() {
+  const k = view.cook, c = COOKS[k], P = parseCook(RECIPES[k]), m = P.meta;
+  const { res, html } = allergyBlock(P);
+  main.innerHTML = `
+  <section class="panel" aria-label="Recipe card">
+    <div class="row" style="justify-content:space-between">
+      <div><h2>${escapeHtml(m.title)}</h2><p class="sub">${escapeHtml(m.region)}, ${escapeHtml(m.country)} · serves ${escapeHtml(m.servings)} · difficulty ${"★".repeat(+m.difficulty)}</p></div>
+      <img src="${c.sprite}" alt="${c.name}" width="64" height="64">
+    </div>
+    <p style="margin:0 0 6px"><b>Credit:</b> ${escapeHtml(m.credit)}.</p>
+    <p style="margin:0 0 6px"><span class="draft">STATUS: DRAFT</span> <span class="footnote">— draft until reviewed by a cook from this tradition.</span></p>
+    <p class="footnote">Skills: ${m.skills.map(s => SKILL_NAMES[s] || s).join(" · ")} · License ${escapeHtml(m.license)}</p>
+    ${rulesStrip()}
+    ${html}
+    <div class="row"><button class="btn sec small" id="raw" aria-pressed="${showRaw}">${showRaw ? "Hide" : "View as"} Cooklang</button></div>
+    ${showRaw ? `<pre class="cook" aria-label="Cooklang source">${highlightCook(RECIPES[k])}</pre>
+      <p class="footnote">This card is rendered from the .cook text above by a tiny parser on this page: <code>@ingredient{qty%unit}</code>, <code>#cookware{}</code>, <code>~{time%unit}</code>.</p>` : ""}
+    <div class="cardgrid">
+      <div><h3>Ingredients</h3>${ingList(res)}
+        <h3>Cookware</h3><p style="margin:0">${P.cookware.map(escapeHtml).join(" · ")}</p></div>
+      <div><h3>Method</h3><ol class="steps">${P.steps.map(s => `<li>${renderStepHTML(s)}</li>`).join("")}</ol>
+        ${P.notes.length ? `<p class="footnote">${P.notes.map(escapeHtml).join(" ")}</p>` : ""}</div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button class="btn" id="tocook" ${res.status === "blocked" ? "disabled" : ""}>Cook it now ▶</button>
+      ${res.status === "blocked" ? `<span class="footnote">Blocked by your rules — the game never shows a blocked dish as cookable.</span>` : ""}
+    </div>
+  </section>`;
+  $("#raw").onclick = () => { showRaw = !showRaw; renderCard(); };
+  bindRules(renderCard);
+  const tc = $("#tocook"); if (tc) tc.onclick = () => go({ name: "cook", cook: k, step: 0 });
+}
+
+/* Recipe from Abroad (import) */
+function renderImport() {
+  const P = parseCook(RECIPES.import), m = P.meta;
+  const { res, html } = allergyBlock(P);
+  main.innerHTML = `
+  <section class="ironpanel"><div class="panline" style="margin:0"><img src="art/pan.png" alt="">
+    <div class="b">"A traveler left a note at the Bureau." It's your own import, from a post you saved. It sits on the map in Italy, visible only to you. In the full game, a guest cook from Campania would host a short quest for it.</div></div></section>
+  <section class="panel" aria-label="Imported recipe">
+    <h2>✉ ${escapeHtml(m.title)}</h2>
+    <p class="sub">${escapeHtml(m.region)}, ${escapeHtml(m.country)} · Recipe from Abroad</p>
+    <p style="margin:0 0 6px"><b>Credit:</b> ${escapeHtml(m.credit)}.</p>
+    <p class="footnote"><span class="draft">PRIVATE IMPORT</span> Not in the open canon. Sharing it needs the original author's permission and a review.</p>
+    ${rulesStrip()}
+    ${html}
+    <div class="cardgrid"><div><h3>Ingredients</h3>${ingList(res)}</div>
+    <div><h3>Method</h3><ol class="steps">${P.steps.map(s => `<li>${renderStepHTML(s)}</li>`).join("")}</ol></div></div>
+    <div class="row"><button class="btn sec" id="backmap">◀ Back to the map</button></div>
+  </section>`;
+  bindRules(renderImport);
+  $("#backmap").onclick = () => go({ name: "map" });
+}
+
+/* ============================================================
+   4. Cook mode
+   ============================================================ */
+let timers = {}; let tick = null; let fast = false; let wake = null;
+function stopAll() { if (tick) { clearInterval(tick); tick = null; } timers = {}; if (wake) { try { wake.release(); } catch {} wake = null; } }
+function fmt(s) { s = Math.max(0, Math.ceil(s)); const m = Math.floor(s / 60), ss = s % 60; return String(m).padStart(2, "0") + ":" + String(ss).padStart(2, "0"); }
+let checked = {};
+function renderCookMode() {
+  const k = view.cook, c = COOKS[k], P = parseCook(RECIPES[k]);
+  const n = view.step || 0, parts = P.steps[n], total = P.steps.length;
+  const res = checkRecipe(P, S.rules);
+  const subOf = name => res.findings.find(f => f.name === name && f.status === "swap");
+  const stepIngs = parts.filter(p => p.type === "ingredient");
+  const stepTimers = parts.map((p, i) => ({ ...p, key: `${n}-${i}` })).filter(p => p.type === "timer");
+  const body = parts.map((p, i) => {
+    if (p.type === "text") return escapeHtml(p.value);
+    if (p.type === "ingredient") { const s = subOf(p.name); return `<span class="ck-i">${s ? escapeHtml(s.sub.label.split(" —")[0].split(",")[0]) + " (swapped)" : escapeHtml(p.name)}</span>`; }
+    if (p.type === "cookware") return `<span class="ck-c">${escapeHtml(p.name)}</span>`;
+    return `<span class="ck-t">${escapeHtml(p.qty)} ${escapeHtml(p.unit)}</span>`;
+  }).join("");
+  main.innerHTML = `
+  <div class="cm-top">
+    <span class="stepno">STEP ${n + 1}/${total}</span>
+    <span class="row">
+      <label class="switch"><input type="checkbox" id="fast" ${fast ? "checked" : ""}> Demo: fast-forward ×60</label>
+      <button class="btn sec small" id="wake" aria-pressed="${!!wake}">${wake ? "☀ Screen kept awake" : "☀ Keep screen awake"}</button>
+    </span>
+  </div>
+  <div class="tray" id="tray" aria-label="Running timers"></div>
+  <section class="panel" aria-label="Current step">
+    <p class="bigstep">${body}</p>
+    ${stepTimers.length ? `<div>${stepTimers.map(t => `<button class="timerbtn" data-t="${t.key}" data-s="${t.seconds}" aria-label="Start ${t.qty} ${t.unit} timer">⏲ ${fmt(t.seconds)}</button>`).join("")}</div>` : ""}
+    ${stepIngs.length ? `<h3>Check off</h3><ul class="checks">${stepIngs.map((p, i) => { const id = `${k}-${n}-${i}`; const s = subOf(p.name);
+      return `<li><label><input type="checkbox" data-ck="${id}" ${checked[id] ? "checked" : ""}> ${escapeHtml(s ? s.sub.label : p.name)}${p.qty ? ` — <span style="font-family:var(--mono);font-size:21px">${escapeHtml(fmtQty(p))}</span>` : ""}</label></li>`; }).join("")}</ul>` : ""}
+    <div class="row">
+      <button class="btn sec" id="prev" ${n === 0 ? "disabled" : ""}>◀ Previous</button>
+      <button class="btn" id="next">${n === total - 1 ? "Done — present your dish ▶" : "Next step ▶"}</button>
+    </div>
+  </section>
+  <div class="panline"><img src="art/pan.png" alt="The Pan"><div class="b" id="panq">${n === 0 ? "Big text, one step at a time. Tap a timer to start it. I'll keep count; I have nothing else on." : escapeHtml(pick(PAN_COOK))}</div></div>
+  <p class="hint">${c.dish} · taught by ${c.name}. Timers keep running when you change steps.</p>`;
+  $("#fast").onchange = e => { fast = e.target.checked; };
+  $("#wake").onclick = toggleWake;
+  main.querySelectorAll("[data-ck]").forEach(b => b.onchange = () => { checked[b.dataset.ck] = b.checked; });
+  main.querySelectorAll("[data-t]").forEach(b => b.onclick = () => {
+    const key = b.dataset.t, t = timers[key];
+    if (!t) timers[key] = { left: +b.dataset.s, run: true, label: b.getAttribute("aria-label").replace("Start ", "") };
+    else if (t.left <= 0) { t.left = +b.dataset.s; t.run = true; }
+    else t.run = !t.run;
+    startTick(); paintTimers();
+  });
+  $("#prev").onclick = () => { view.step = n - 1; renderKeep(); };
+  $("#next").onclick = () => {
+    if (n === total - 1) { gain(10, "Cooking"); return go({ name: "present", cook: k }); }
+    view.step = n + 1; renderKeep();
+  };
+  paintTimers();
+}
+function renderKeep() { crumbs(); renderCookMode(); window.scrollTo({ top: 0 }); }
+function startTick() {
+  if (tick) return;
+  let last = Date.now();
+  tick = setInterval(() => {
+    const now = Date.now(), dt = (now - last) / 1000 * (fast ? 60 : 1); last = now;
+    for (const t of Object.values(timers)) if (t.run && t.left > 0) { t.left -= dt; if (t.left <= 0) { t.left = 0; t.run = false; t.justDone = true; } }
+    paintTimers();
+  }, 250);
+}
+function paintTimers() {
+  const tray = $("#tray"); if (!tray) return;
+  for (const [key, t] of Object.entries(timers)) {
+    const b = main.querySelector(`[data-t="${key}"]`);
+    if (b) { b.textContent = (t.left <= 0 ? "✓ " : t.run ? "⏸ " : "▶ ") + fmt(t.left); b.className = "timerbtn " + (t.left <= 0 ? "done" : t.run ? "run" : ""); }
+    if (t.justDone) { t.justDone = false; beep(); const q = $("#panq"); if (q) q.textContent = `Timer done (${t.label}). I didn't blink. I can't blink.`; say(`Timer done: ${t.label}`); }
+  }
+  tray.innerHTML = Object.values(timers).map(t => `<span class="t ${t.left <= 0 ? "done" : ""}">⏲ ${escapeHtml(t.label)} ${fmt(t.left)}</span>`).join("");
+}
+function beep() { try { const a = new (window.AudioContext || window.webkitAudioContext)(); const o = a.createOscillator(); o.type = "square"; o.frequency.value = 880; o.connect(a.destination); o.start(); o.stop(a.currentTime + 0.25); } catch {} }
+async function toggleWake() {
+  const q = $("#panq");
+  if (wake) { try { await wake.release(); } catch {} wake = null; renderKeep(); return; }
+  try { wake = await navigator.wakeLock.request("screen"); wake.addEventListener?.("release", () => { wake = null; }); renderKeep(); q && ($("#panq").textContent = "Screen will stay awake. So will I. I always am."); }
+  catch { if (q) q.textContent = "Your browser declined to keep the screen awake. Tap it now and then with a clean knuckle; I'll nag."; }
+}
+
+/* ============================================================
+   5. Present your dish (photo → reaction)
+   ============================================================ */
+let photoFile = null, photoUrl = null, ctl = null;
+function renderPresent() {
+  const k = view.cook, c = COOKS[k];
+  main.innerHTML = `
+  <section class="screen" aria-label="Presentation">
+    <img class="bg" src="art/bg_kitchen.png" alt="">
+    <img class="sprite" src="${c.sprite}" alt="${c.name}" style="left:56%;bottom:6%" data-sz="cook">
+    <img class="sprite" src="art/player.png" alt="You" style="left:28%;bottom:6%" data-sz="cook">
+  </section>
+  <section class="panel" aria-label="Present your dish">
+    <h2>Present your dish</h2>
+    <p class="sub">Show ${c.name} what you made. It's a reaction, not an inspection — photos aren't verified, and that's fine.</p>
+    <label class="filelbl"><span class="btn" style="display:inline-block">📷 Take or choose a photo</span><br>
+      <input type="file" accept="image/*" capture="environment" id="photo" aria-label="Photo of your dish"></label>
+    <div id="prev"></div>
+    <div class="row">
+      <button class="btn" id="showcook" disabled>Show ${c.name} ▶</button>
+      <button class="btn sec" id="skip">Skip photo (I cooked it, honest)</button>
+    </div>
+    <p class="footnote">${sample ? (imagesOK ? "Live AI reaction (Claude standing in for the production model)." : "Live AI is on, but images aren't available here — you'll get a scripted reaction.") : "Scripted reactions (no live AI on this page right now)."}</p>
+  </section>
+  <div id="react"></div>`;
+  $("#photo").onchange = e => {
+    photoFile = e.target.files?.[0] || null;
+    if (photoUrl) URL.revokeObjectURL(photoUrl);
+    photoUrl = photoFile ? URL.createObjectURL(photoFile) : null;
+    $("#prev").innerHTML = photoUrl ? `<img class="photo" src="${photoUrl}" alt="Your photo of ${c.dish}">` : "";
+    $("#showcook").disabled = !photoFile;
+  };
+  $("#showcook").onclick = () => react(k, true);
+  $("#skip").onclick = () => react(k, false);
+}
+async function react(k, withPhoto) {
+  const c = COOKS[k];
+  $("#react").innerHTML = dialogueBox(k);
+  const txt = $("#dtxt"), act = $("#dact");
+  const done = () => { act.innerHTML = `<button class="btn" id="torw">Collect rewards ▶</button>`; $("#torw").onclick = () => go({ name: "rewards", cook: k, photo: withPhoto }); $("#torw").focus(); };
+  $(".dlg").addEventListener("click", e => { if (e.target.tagName !== "BUTTON") skipTyping(); });
+  $(".dlg").scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "center" });
+  if (!withPhoto) { typeInto(txt, `No photo? I believe you. ${k === "leela" ? "Your sleeves smell of mustard seeds and coconut oil" : k === "marisol" ? "You have the calm face of someone who waited two hours for beans" : "There is a grain of rice on your elbow"}. That's evidence enough.`, done); return; }
+  if (!sample || !imagesOK) { typeInto(txt, pick(c.scripted), done); return; }
+  txt.textContent = `${c.name} is looking at your photo…`;
+  ctl = new AbortController();
+  act.innerHTML = `<button class="btn sec small" id="stop">Stop</button>`;
+  $("#stop").onclick = () => ctl.abort();
+  const P = parseCook(RECIPES[k]);
+  const prompt = `You are ${c.name}, a home cook from ${c.place}, in a cozy cooking game. Your apprentice — a guest you have been teaching — just cooked your ${c.dish} for real and is showing you a photo. Ingredients: ${P.ingredients.map(i => i.name).join(", ")}.
+React in character in 2 to 4 sentences of plain English: warm and dry, competent, a little funny. Name one specific thing you can actually see in the photo. Give exactly one practical tip for next time. This is a reaction, not a grade or a verification.
+Never comment on bodies, weight, health or diet. Never joke about cultures or accents. If the photo doesn't show food, say so kindly and with humour. No preamble, no emoji, no quotation marks.`;
+  let got = false;
+  try {
+    const { text } = await sample(prompt, { images: [photoFile], modelTier: "quick", signal: ctl.signal,
+      onText: ({ text }) => { got = true; txt.textContent = text; } });
+    txt.textContent = (text || "").trim() || pick(c.scripted);
+    done();
+  } catch (e) {
+    if (e?.code === "cancelled" || e?.name === "AbortError") { txt.textContent = got ? txt.textContent : "…" + c.name + " smiles and waits."; return done(); }
+    if (e?.code === "rate_limited") { txt.textContent = `${c.name} needs a moment — the shop is busy. Here's what she said earlier:`; typeInto(txt, pick(c.scripted), done); return; }
+    if (["not_granted", "sampling_disabled", "tools_unavailable"].includes(e?.code)) { sample = null; updateAiBadge(); }
+    typeInto(txt, pick(c.scripted), done);
+  }
+}
+
+/* ============================================================
+   6. Rewards + introduction
+   ============================================================ */
+function renderRewards() {
+  const k = view.cook, c = COOKS[k], P = parseCook(RECIPES[k]);
+  const first = !S.cooked[k];
+  const xp = first ? 50 : 25, sxp = 15;
+  const nxt = c.next && COOKS[c.next];
+  const intro = first && nxt && !S.unlocked[c.next];
+  S.cooked[k] = (S.cooked[k] || 0) + 1;
+  S.trust[k] = Math.min(4, S.trust[k] + 1);
+  S.stamps += 3;
+  const meal = `${c.dishShort} · 1 serving`;
+  S.log.push({ meal, at: Date.now() });
+  if (intro) S.unlocked[c.next] = true;
+  save();
+  gain(xp, "Cook day");
+  const skills = P.meta.skills.map(s => SKILL_NAMES[s] || s);
+  skills.forEach((s, i) => setTimeout(() => gain(sxp, s), 350 * (i + 1)));
+  main.innerHTML = `
+  <section class="panel cert" aria-label="Bureau certificate">
+    <div class="hd">PANTRY BUREAU · CERTIFICATE OF A DISH COOKED</div>
+    <p class="footnote">Form 51-D (in triplicate; the other two copies are with the Pan)</p>
+    <img src="${c.sprite}" alt="" width="128" height="128">
+    <h2>${c.dish}</h2>
+    <p class="sub">Taught by ${c.name}, on behalf of the home cooks of ${c.short}.</p>
+    <ul class="rw">
+      <li><span class="n">+${xp} XP</span> · Cook day${first ? " (first time)" : ""}</li>
+      ${skills.map(s => `<li><span class="n">+${sxp}</span> · ${s} skill</li>`).join("")}
+      <li>Trust with ${c.name}: ${hearts(S.trust[k])} ${TRUST[S.trust[k]]}</li>
+      <li><span class="n">+3 ✪</span> · Bureau Stamps</li>
+      <li>📒 Logged: ${escapeHtml(meal)}</li>
+    </ul>
+    <p class="footnote">*Certificate confers no rights, titles or kitchens. It does confer the right to make this again.</p>
+    <div class="stamp" style="top:auto;bottom:16px;right:16px;font-size:32px">APPROVED</div>
+  </section>
+  ${intro ? `${dialogueBox(k)}
+  <section class="panel gift" aria-label="Introduction"><div class="bow" aria-hidden="true">✉</div>
+    <h2>An introduction: ${nxt.name}</h2><p>${nxt.place} is now open on your map.</p>
+    <img src="${nxt.sprite}" alt="${nxt.name}" width="64" height="64"></section>`
+  : (c.next ? "" : dialogueBox(k))}
+  <div class="row" style="margin:0 6px"><button class="btn" id="tomap">Back to the map ▶</button></div>`;
+  if (intro || !c.next) { typeInto($("#dtxt"), c.intro); $(".dlg").addEventListener("click", () => skipTyping()); }
+  $("#tomap").onclick = () => go({ name: "map" });
+  if (intro) setTimeout(() => toast(`🗺 ${nxt.short} unlocked`), 1600);
+  // rewards are granted once per visit to this screen; replace history so back doesn't re-grant
+  view = { name: "rewards-done", cook: k };
+}
+
+/* boot */
+render();
+</script>
