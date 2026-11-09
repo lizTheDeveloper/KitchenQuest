@@ -53,6 +53,8 @@ Tick each item when it lands. Full requirement text is in `2026-11-09-health-dat
 - [ ] **C-42** Workforce access — *M12* — `plans/m12-launch/README.md`
 - [ ] **C-43** Claims review — *M12* — `plans/m12-launch/README.md`
 - [ ] **C-45** Family mode data (§19) — *M5 (reserve) / M13* — M5 plan; `plans/m13-family/README.md`
+- [ ] **C-45** Security headers from the server/host: CSP with `frame-ancestors 'none'`, HSTS, `X-Content-Type-Options`, `Referrer-Policy` (the game's meta CSP can't carry frame-ancestors) — *M12 (deploy)*
+- [x] **N-3 (partial)** Game store: CSP meta, "delete data on this device", rescue copies capped — *M3 Task 3*
 - [ ] **C-44** Region gating — *M12* — `plans/m12-launch/README.md`
 
 ## Additional requirements from the risk register (N-1–N-11, `risk-register.md` §6)
