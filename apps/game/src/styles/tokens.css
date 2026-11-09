@@ -1,0 +1,19 @@
+/* Verbatim from prototype/BRIEF.md */
+:root {
+  color-scheme: dark;
+  --iron: #1e1b1d;        /* page bg, cast-iron */
+  --iron-2: #2b2629;      /* panels on iron */
+  --iron-edge: #4a4044;   /* pixel borders */
+  --parchment: #f2e3c2;   /* dialogue boxes */
+  --parchment-ink: #2a1d14;
+  --ember: #e8743b;       /* accent: XP, primary buttons, the Pan's heat */
+  --herb: #6fae4f;        /* success / ✅ ok */
+  --saffron: #f2c14e;     /* swap 🔁 / warnings / stamps highlight */
+  --chili: #c8423a;       /* ⛔ blocked / severe allergy */
+  --sky: #6aa6d8;         /* ❓ can't verify / info */
+  --fg: #efe6d8;          /* text on iron */
+  --muted: #a89a8e;
+  --display: "Pixelify Sans", "Courier New", monospace;   /* headings, buttons, names */
+  --body: "Atkinson Hyperlegible", system-ui, sans-serif; /* dialogue + reading text: legibility first */
+  --mono: "VT323", "Courier New", monospace;              /* numbers, XP, timers, stamps */
+}

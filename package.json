@@ -9,7 +9,11 @@
     "dev": "npm run dev -w @kitchenquest/game",
     "build": "npm run build -w @kitchenquest/game",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm test --workspaces --if-present"
+    "test": "npm test --workspaces --if-present",
+    "test:e2e": "npm run test:e2e -w @kitchenquest/game"
+  },
+  "overrides": {
+    "playwright-core": "1.63.0"
   },
   "devDependencies": {
     "typescript": "^7.0.2"
