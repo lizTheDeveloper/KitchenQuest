@@ -46,6 +46,19 @@ afterEach(async () => {
 
 const call = (cookie: string | null, opts: InjectOptions) =>
   app.inject({ ...opts, ...(cookie ? { cookies: { kq_session: cookie } } : {}) });
+/** For every table, how many rows mention `needle` in any column (row cast to text). */
+async function mentions(needle: string): Promise<Record<string, number>> {
+  const tables = await sql<{ table_name: string }[]>`
+    select table_name from information_schema.tables
+    where table_schema = 'public' and table_type = 'BASE TABLE' order by table_name`;
+  const out: Record<string, number> = {};
+  for (const { table_name: t } of tables) {
+    const [row] = await sql<{ n: number }[]>`
+      select count(*)::int as n from ${sql(t)} as r where position(lower(${needle}) in lower(r::text)) > 0`;
+    out[t] = row.n;
+  }
+  return out;
+}
 const grantHealth = (cookie: string) =>
   call(cookie, {
     method: 'POST',
@@ -56,9 +69,12 @@ const grantHealth = (cookie: string) =>
 describe('end-to-end safety journey', () => {
   it('sign in, profile, search, confirmed rule, per-player checks, isolation, export, delete (free forever)', async () => {
     // 1. Sign in as a brand-new user with no entitlements (§16).
-    const a = await signIn(app, mailer, `e2e${++seq}-a@example.com`);
+    const email = `e2e${++seq}-a@example.com`;
+    const a = await signIn(app, mailer, email);
     const me = (await call(a, { method: 'GET', url: '/me' })).json<{ id: string; entitlements: unknown[] }>();
     expect(me.entitlements).toEqual([]);
+    const [u] = await db.select().from(users).where(eq(users.id, me.id));
+    expect(u.ageConfirmedAt).toEqual(NOW);
     expect(await db.select().from(entitlements).where(eq(entitlements.userId, me.id))).toEqual([]);
 
     // 2. Profile: market day Saturday.
@@ -115,6 +131,11 @@ describe('end-to-end safety journey', () => {
     expect(del.statusCode).toBe(204);
     expect(await db.select().from(users).where(eq(users.id, me.id))).toEqual([]);
     expect(await db.select().from(rulesTable).where(eq(rulesTable.userId, me.id))).toEqual([]);
+    const gone = await mentions(me.id);
+    for (const t of ['consents', 'user_keys', 'sessions', 'entitlements', 'usage_events', 'self_read_counts', 'profiles', 'rules']) {
+      expect(gone[t], `${t} still mentions the deleted user`).toBe(0);
+    }
+    expect((await mentions(email)).login_tokens).toBe(0);
     expect((await call(a, { method: 'GET', url: '/me' })).statusCode).toBe(401);
   });
 
@@ -135,6 +156,7 @@ describe('end-to-end safety journey', () => {
     expect((await call(c, { method: 'POST', url: '/rules', payload: { rule: COCONUT, confirmed: true } })).statusCode).toBe(201);
     const w = await call(c, { method: 'DELETE', url: '/me/consents/health_data', payload: { healthData: 'keep' } });
     expect(w.statusCode).toBe(204);
+    expect((await call(c, { method: 'GET', url: '/rules' })).json().rules).toEqual([expect.objectContaining(COCONUT)]);
     const after = await call(c, { method: 'POST', url: '/rules', payload: { rule: COCONUT, confirmed: true } });
     expect(after.statusCode).toBe(403);
     expect(after.json().error.code).toBe('consent_required');
