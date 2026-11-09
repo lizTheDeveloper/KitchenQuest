@@ -2,7 +2,7 @@ import { recordTechnique, timerSeconds, type ParsedRecipe, type RecipeIngredient
 import { content, graph, techniqueName } from '../content';
 import { getMentor } from '../mentor';
 import { buildRecipeCard, type RecipeCard } from '../recipes/card-model';
-import { activeRules, cardInputsKey, localDate } from '../recipes/rules';
+import { activeRules, cardInputsKey, localDate, watchLocalDate } from '../recipes/rules';
 import { registerScreen, RouteNotFound, type Screen } from '../shell/app';
 import { reducedMotion } from '../shell/motion';
 import { routeHref } from '../shell/router';
@@ -177,8 +177,13 @@ function cookScreen(): Screen {
         if (finished || stopped) return;
         const r = tick(timers, ctx.now().getTime());
         timers = r.timers;
+        // Timers follow the wall clock (Date-based), so after a sleep several can finish in one tick: one message.
+        if (announcer && r.finished.length > 0) {
+          const msg = r.finished.map((t) => `Timer finished: ${formatDuration(t.durationMs / 1000)} for step ${t.step}`).join('. ');
+          announcer.textContent = ''; // cleared first so an identical message is announced again
+          announcer.textContent = msg;
+        }
         for (const t of r.finished) {
-          if (announcer) announcer.textContent = `Timer finished: ${formatDuration(t.durationMs / 1000)} for step ${t.step}`;
           say('cook.timer_done', { step: `step ${t.step}` });
           beep(win);
           try { win.navigator.vibrate?.(200); } catch { /* not supported */ }
@@ -233,15 +238,21 @@ function cookScreen(): Screen {
       };
       doc.addEventListener('keydown', onKey);
 
-      // If the player's rules change while cooking (another tab), the dish is checked again.
+      // The dish is checked again whenever its inputs change: the player's rules (another tab) or the local date
+      // (a rule's phase can start at midnight). Either way a dish that is no longer cookable is refused at once.
+      const recheck = () => {
+        if (finished || stopped) return;
+        card = buildCard();
+        if (!card.cookable) { teardown(); el.replaceChildren(refusal(card)); }
+      };
       let key = cardInputsKey(ctx.store.get());
       const unsubscribe = ctx.store.subscribe((s) => {
         const k = cardInputsKey(s);
-        if (k === key || finished) return;
+        if (k === key) return;
         key = k;
-        card = buildCard();
-        if (!card.cookable) { teardown(); el.replaceChildren(refusal(card)); }
+        recheck();
       });
+      const stopDate = watchLocalDate(doc, ctx.now, recheck);
 
       function teardown() {
         stopped = true;
@@ -249,6 +260,7 @@ function cookScreen(): Screen {
         doc.removeEventListener('visibilitychange', tickNow);
         doc.removeEventListener('keydown', onKey);
         unsubscribe();
+        stopDate();
         void wake.disable();
       }
       cleanup = teardown;

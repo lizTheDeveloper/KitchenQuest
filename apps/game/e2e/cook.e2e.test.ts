@@ -211,4 +211,31 @@ describe('cook mode', () => {
     expect(isLine('cook.start', said)).toBe(true);
     expect(await page.locator('#pan-text').count()).toBe(0);
   });
+
+  it('refuses mid-cook when another tab saves a blocking rule', async () => {
+    app = await openApp(COOK, { reducedMotion: true });
+    const { page } = app;
+    await progress(app).waitFor();
+    await page.evaluate(({ key, rule }) => {
+      const s = JSON.parse(localStorage.getItem(key) ?? '{"v":1}');
+      s.localRules = [rule];
+      localStorage.setItem(key, JSON.stringify(s));
+      window.dispatchEvent(new StorageEvent('storage', { key, storageArea: localStorage }));
+    }, { key: STORE_KEY, rule: coconutSevere });
+    await page.locator('.cook-refusal').waitFor();
+    expect(await page.textContent('#view')).toContain("isn't cookable");
+    expect(await page.getByRole('button', { name: /Next step/ }).count()).toBe(0);
+  });
+
+  it('refuses mid-cook when midnight starts a rule phase', async () => {
+    const phased = { ...coconutSevere, phase: { start: '2026-11-10' } };
+    app = await openApp(COOK, { reducedMotion: true, seed: { v: 1, localRules: [phased] } });
+    await withClock(app);
+    const { page } = app;
+    expect(await page.locator('.cook-refusal').count()).toBe(0);
+    await page.clock.fastForward(13 * 3600_000); // 12:00 -> 01:00 next day
+    await page.clock.runFor(61_000);
+    await page.locator('.cook-refusal').waitFor();
+    expect(await page.textContent('#view')).toContain("isn't cookable");
+  });
 });

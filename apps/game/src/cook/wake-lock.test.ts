@@ -79,4 +79,13 @@ describe('wake lock', () => {
     expect(sentinels[0]!.released).toBe(true);
     expect(wl.state).toBe('off');
   });
+  test('two enables while a request is pending, then disable: every sentinel is released', async () => {
+    const { nav, sentinels } = fakeNav();
+    const wl = createWakeLock(asNav(nav), asDoc(fakeDoc()));
+    const a = wl.enable(), b = wl.enable();
+    await wl.disable();
+    await Promise.all([a, b]);
+    expect(sentinels.length).toBeGreaterThan(0);
+    expect(sentinels.every((x) => x.released)).toBe(true);
+  });
 });

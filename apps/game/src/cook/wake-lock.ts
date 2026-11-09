@@ -17,9 +17,12 @@ export function createWakeLock(nav: Navigator, doc: Document, onChange?: (s: Wak
   async function acquire(): Promise<WakeState> {
     const api = (nav as unknown as { wakeLock?: WakeLockApi }).wakeLock;
     if (!api) { set('unsupported'); return state; }
+    if (pending || sentinel) return state;
     pending = true;
     try {
       const s = await api.request('screen');
+      const old = sentinel as Sentinel | null;
+      if (old) await old.release().catch(() => {}); // never leave an earlier lock behind
       if (!enabled) { await s.release().catch(() => {}); return state; }
       sentinel = s;
       s.addEventListener?.('release', () => { if (sentinel === s) { sentinel = null; if (state === 'on') set('off'); } });
