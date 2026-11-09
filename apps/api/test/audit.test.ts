@@ -1,7 +1,10 @@
 import { randomBytes } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { audit, pseudonymFor, pseudonymizeAudit, purgeAuditBefore } from '../src/audit/audit.js';
+import Fastify from 'fastify';
+import { audit, PseudonymizeError, pseudonymFor, pseudonymizeAudit, purgeAuditBefore } from '../src/audit/audit.js';
+import { loggableError } from '../src/errors.js';
+import { captureLogs } from './helpers/logs.js';
 import { SecretKey } from '../src/crypto/keyring.js';
 import { auditEvents, users } from '../src/db/schema.js';
 import type { Db } from '../src/types.js';
@@ -94,7 +97,7 @@ describe('audit log (C-5)', () => {
   it("refuses to pseudonymize a live user's id", async () => {
     const [u] = await db.insert(users).values({ email: 'alive@example.com', ageConfirmedAt: new Date() }).returning();
     await audit(db, { actorKind: 'user', actorId: u!.id, subjectUserId: u!.id, action: 'auth.sign_in' }, new Date());
-    await expect(pseudonymizeAudit(db, pkey, u!.id)).rejects.toMatchObject({ cause: { message: expect.stringMatching(/still exists/) } });
+    await expect(pseudonymizeAudit(db, pkey, u!.id)).rejects.toThrow(/still exists/);
     // Setting the flags by hand does not get past the trigger either.
     await expect(
       sql.begin(async (tx) => {
@@ -104,6 +107,43 @@ describe('audit log (C-5)', () => {
       }),
     ).rejects.toThrow(/append-only/);
     expect(await rowsFor(u!.id)).toHaveLength(1);
+  });
+
+  it('a failed pseudonymize call leaks no key bytes or hex into the error or the log', async () => {
+    // A key full of line breaks: the old `params:` scrub stopped at the first newline.
+    const raw = Buffer.alloc(32);
+    for (let i = 0; i < 32; i++) raw[i] = [0x0a, 0x0d, 0x41 + i, 0x7a][i % 4]!;
+    const key = new SecretKey(raw);
+    const [u] = await db.insert(users).values({ email: 'leak@example.com', ageConfirmedAt: new Date() }).returning();
+
+    let thrown: unknown;
+    try {
+      await pseudonymizeAudit(db, key, u!.id);
+    } catch (e) {
+      thrown = e;
+    }
+    expect(thrown).toBeInstanceOf(PseudonymizeError);
+    const err = thrown as PseudonymizeError;
+    expect(err.message).toMatch(/still exists/);
+
+    const logs = captureLogs();
+    const logApp = Fastify({ logger: logs.logger });
+    const log = logApp.log;
+    log.error({ err }, 'pseudonymize failed');
+    log.error(err);
+    log.error({ error: loggableError(err) }, 'request failed');
+
+    const hex = raw.toString('hex');
+    const secrets = [hex, hex.slice(0, 16), raw.toString('base64'), raw.toString('latin1'), raw.subarray(2, 12).toString('latin1')];
+    const surfaces = { message: err.message, stack: err.stack ?? '', json: JSON.stringify(err), log: logs.text() };
+    await logApp.close();
+    expect(surfaces.log.length).toBeGreaterThan(0);
+    for (const [where, text] of Object.entries(surfaces)) {
+      for (const secret of secrets) expect(text.includes(secret), `${where} contains key material`).toBe(false);
+    }
+    // And the scrubber itself redacts a multi-line params tail.
+    const multi = new Error(`Failed query: select 1\nparams: abc\n${raw.toString('latin1')}\nmore`);
+    expect(loggableError(multi).message).toBe('Failed query: select 1\nparams: [redacted]');
   });
 
   it("cannot rewrite a non-uuid actor id such as an operator's name", async () => {

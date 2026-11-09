@@ -65,4 +65,26 @@ describe('admin scripts write audit events (C-5)', () => {
     const rows = await t.sql`select target from audit_events where action = 'keys.rekey' and target like 'active=k3%'`;
     expect(rows).toEqual([{ target: 'active=k3 outcome=failed' }]);
   }, 30_000);
+
+  it('rekey.ts rethrows the original failure when its audit write fails too', async () => {
+    const lost = randomBytes(32);
+    const k4 = randomBytes(32);
+    const [u] = await t.db.insert(users).values({ email: 'rekey-both@example.com', ageConfirmedAt: new Date() }).returning();
+    await sealFor(t.db, new Keyring(new Map([['lost2', lost]]), 'lost2'), { table: 'rules', userId: u!.id, rowId: 'r1' }, { a: 1 });
+    await t.sql.unsafe(`
+      create function fail_rekey_audit() returns trigger language plpgsql as $$
+      begin if new.action = 'keys.rekey' then raise exception 'audit insert blocked'; end if; return new; end $$;
+      create trigger fail_rekey_audit before insert on audit_events for each row execute function fail_rekey_audit();`);
+    try {
+      const err = (await script('rekey', [], { DATA_KEYS: `k4:${k4.toString('base64')}`, DATA_KEY_ID: 'k4' }).catch((e: unknown) => e)) as {
+        stderr: string;
+      };
+      // The thrown (primary) error is the rekey's own: a ring key that is no longer configured.
+      expect(err.stderr).toMatch(/Error: open: unknown key id "lost2?"/);
+      // The audit failure is reported, not swallowed.
+      expect(err.stderr).toMatch(/audit event could not be written[\s\S]*audit insert blocked/);
+    } finally {
+      await t.sql.unsafe('drop trigger fail_rekey_audit on audit_events; drop function fail_rekey_audit();');
+    }
+  }, 30_000);
 });

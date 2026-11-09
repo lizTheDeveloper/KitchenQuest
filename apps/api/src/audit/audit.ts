@@ -54,10 +54,32 @@ export function pseudonymFor(pseudonymKey: SecretKey, userId: string): string {
  * user, in the same transaction. Returns the rows changed.
  */
 export async function pseudonymizeAudit(db: Executor, pseudonymKey: SecretKey, userId: string): Promise<number> {
-  const rows = await db.execute<{ n: number }>(
-    sql`select audit_pseudonymize(${userId}::uuid, ${pseudonymKey.bytes}::bytea) as n`,
-  );
-  return Number(rows[0]!.n);
+  // The key travels as hex text, decoded in SQL, so it never appears as raw bytes in a driver or drizzle message.
+  const keyHex = pseudonymKey.bytes.toString('hex');
+  try {
+    const rows = await db.execute<{ n: number }>(
+      sql`select audit_pseudonymize(${userId}::uuid, decode(${keyHex}, 'hex')) as n`,
+    );
+    return Number(rows[0]!.n);
+  } catch (err) {
+    // Drizzle's message quotes the bound parameters (the key), and the driver's
+    // error keeps them as a property; rethrow only the database's own message and code.
+    throw new PseudonymizeError(err);
+  }
+}
+
+/** A failed `audit_pseudonymize()` call, carrying no query parameters. */
+export class PseudonymizeError extends Error {
+  readonly code?: string;
+
+  constructor(err: unknown) {
+    const pg = (err as { cause?: unknown })?.cause ?? err;
+    const message = pg instanceof Error ? pg.message : 'unknown error';
+    super(`audit_pseudonymize failed: ${message}`);
+    this.name = 'PseudonymizeError';
+    const code = (pg as { code?: unknown })?.code;
+    if (typeof code === 'string') this.code = code;
+  }
 }
 
 /**
