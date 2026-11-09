@@ -5,7 +5,7 @@ export * from './ingredients/types';
 export { IngredientGraph } from './ingredients/graph';
 export * from './rules/types';
 export { validateRules, isActive, isValidDate } from './rules/active';
-export { check, DISCLAIMER } from './rules/check';
+export { check, DISCLAIMER, validateSubstitutions } from './rules/check';
 export type { CheckStatus, Substitution, Finding, CheckResult } from './rules/check';
 export { toGrams } from './nutrition/units';
 export { nutritionPerServing } from './nutrition/compute';
