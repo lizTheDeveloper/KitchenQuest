@@ -6,11 +6,17 @@ import type { Rule, Severity } from './types';
 
 export type CheckStatus = 'ok' | 'swap' | 'blocked' | 'unverified';
 
-/** `from` and `to` are ingredient ids. */
+/**
+ * A curated swap. `from` and `to` are ingredient ids. `unsafeFor` lists rule target ids for
+ * which this swap must never be offered, even though `to` doesn't reach them in the graph
+ * (e.g. garlic-infused oil carries garlic flavour, so it is unsafe for a garlic allergy, but it
+ * has no fructans, so it still suits a low-FODMAP rule).
+ */
 export interface Substitution {
   from: string;
   to: string;
   note?: string;
+  unsafeFor?: string[];
 }
 
 export interface Finding {
@@ -68,16 +74,19 @@ function evaluate(
 /**
  * The first substitution for `fromId` whose replacement would itself produce no findings:
  * it reaches no active avoid/limit target (regardless of quantity, since the swap's amount
- * is unknown) and is not label-dependent.
+ * is unknown) and is not label-dependent. A substitution is also skipped when any target id
+ * of a rule that hit the ingredient (`hitTargets`) is in its `unsafeFor`.
  */
 function findSwap(
   graph: IngredientGraph,
   fromId: string,
   subs: Substitution[],
   rules: Rule[],
+  hitTargets: string[],
 ): Finding['swap'] {
   for (const sub of subs) {
     if (sub.from !== fromId) continue;
+    if (sub.unsafeFor?.some((id) => hitTargets.includes(id))) continue;
     const node = graph.get(sub.to);
     if (node.labelDependent) continue;
     if (rules.some((rule) => pathToAny(graph, sub.to, rule) !== null)) continue;
@@ -99,7 +108,7 @@ export function check(
   if (problems.length > 0) throw new Error(`Invalid rules: ${problems.join('; ')}`);
 
   const badSubs = subs.flatMap((sub) =>
-    [sub.from, sub.to]
+    [sub.from, sub.to, ...(sub.unsafeFor ?? [])]
       .filter((id) => !graph.has(id))
       .map((id) => `Substitution "${sub.from}" -> "${sub.to}": "${id}" is not in the ingredient graph`),
   );
@@ -124,7 +133,10 @@ export function check(
       .map((rule) => evaluate(graph, id, item, recipe.meta.servings, rule))
       .filter((hit): hit is RuleHit => hit !== null);
 
-    const swap = hits.some((h) => h.kind === 'match') ? findSwap(graph, id, subs, restricting) : undefined;
+    const hitTargets = hits.flatMap((h) => h.rule.target.ids);
+    const swap = hits.some((h) => h.kind === 'match')
+      ? findSwap(graph, id, subs, restricting, hitTargets)
+      : undefined;
 
     for (const hit of hits) {
       const finding: Finding = {

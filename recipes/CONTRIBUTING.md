@@ -46,8 +46,8 @@ able to understand each one:
   add it in the same change, with its USDA FoodData Central nutrition and the allergen links
   it needs (`isA`, `contains`). Mark store-bought products whose contents vary by brand
   (soy sauce, tortillas, pappadam) as `labelDependent`.
-- **Quantities** use decimals, not fractions: write `@salt{0.75%tsp}`, not `@salt{3/4%tsp}`.
-  The parser can't read fractions yet, so it would treat the amount as unknown.
+- **Quantities** can be whole numbers, decimals or fractions (`@salt{3/4%tsp}`,
+  `@sugar{1 1/2%tsp}`). For a range (`@chillies{1-2}`), nutrition and limits use the first number.
 - **Units** are `g`, `kg`, `mg`, `oz`, `lb`, `ml`, `l`, `tsp`, `tbsp` or `cup`, or none for a
   count. Put other measures in the name: `@garlic cloves{2}`, `@epazote sprigs{2}`,
   `@nori sheets{2}`, not `@garlic{2%cloves}`.
@@ -64,9 +64,11 @@ steps and names. They are the authority on the dish.
 
 ## Credit
 
-The `credit` field names the community the recipe comes from ("Home cooks of Kochi, Kerala"),
-and the people who contributed or reviewed it. Contributors are credited in the game, on the
-cook's card.
+A draft's `credit` says where it came from without claiming the community's name: "Drafted by
+Kitchen Quest editors from the home cooking of Kochi, Kerala — awaiting community review".
+Once a reviewer from that community signs off, the credit can name the community and the people
+who contributed or reviewed the recipe ("Home cooks of Kochi, Kerala; reviewed by ..."). Contributors
+are credited in the game, on the cook's card.
 
 ## Sacred foods
 

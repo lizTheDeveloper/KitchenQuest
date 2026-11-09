@@ -282,4 +282,52 @@ describe('check', () => {
     expect(result.status).toBe('swap');
     expect(result.findings[0]!.swap?.toId).toBe('tamari');
   });
+
+  describe('unsafeFor', () => {
+    const g = IngredientGraph.fromData({
+      ingredients: [
+        { id: 'allium', name: 'allium' },
+        { id: 'fodmap_fructan', name: 'fructan' },
+        { id: 'garlic', name: 'garlic', isA: ['allium', 'fodmap_fructan'] },
+        { id: 'garlic_infused_oil', name: 'garlic-infused oil' },
+        { id: 'asafoetida', name: 'asafoetida' },
+      ],
+    });
+    const infused: Substitution = {
+      from: 'garlic',
+      to: 'garlic_infused_oil',
+      unsafeFor: ['garlic', 'allium'],
+    };
+    const r = recipe('Add @garlic{2}.');
+
+    it('still offers the swap for a rule whose targets are not listed', () => {
+      const lowFodmap = avoid('low-fodmap', ['fodmap_fructan'], 'intolerance');
+      const result = check(r, [lowFodmap], g, [infused], DATE);
+      expect(result.status).toBe('swap');
+      expect(result.findings[0]!.swap?.toId).toBe('garlic_infused_oil');
+    });
+
+    it('never offers the swap when a matching rule targets a listed id', () => {
+      for (const rule of [avoid('garlic', ['garlic'], 'anaphylactic'), avoid('alliums', ['allium'])]) {
+        const result = check(r, [rule], g, [infused], DATE);
+        expect(result.status).toBe('blocked');
+        expect(result.findings[0]!.swap).toBeUndefined();
+      }
+      // ...nor when a low-FODMAP rule is active alongside the allergy
+      const both = [avoid('low-fodmap', ['fodmap_fructan'], 'intolerance'), avoid('garlic', ['garlic'])];
+      expect(check(r, both, g, [infused], DATE).status).toBe('blocked');
+    });
+
+    it('falls through to the next passing substitution', () => {
+      const subs = [infused, { from: 'garlic', to: 'asafoetida' }];
+      const result = check(r, [avoid('garlic', ['garlic'])], g, subs, DATE);
+      expect(result.status).toBe('swap');
+      expect(result.findings[0]!.swap?.toId).toBe('asafoetida');
+    });
+
+    it('rejects unknown ids in unsafeFor', () => {
+      const bad: Substitution = { ...infused, unsafeFor: ['ghost'] };
+      expect(() => check(r, [], g, [bad], DATE)).toThrow(/ghost/);
+    });
+  });
 });

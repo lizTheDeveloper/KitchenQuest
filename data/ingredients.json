@@ -646,10 +646,8 @@
         "salted kelp"
       ],
       "contains": [
-        "soy",
-        "wheat"
+        "soy_sauce"
       ],
-      "labelDependent": true,
       "per100g": {
         "energy_kcal": 110,
         "protein_g": 16.9,

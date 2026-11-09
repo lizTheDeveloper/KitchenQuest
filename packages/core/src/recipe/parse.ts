@@ -7,6 +7,34 @@ export { RecipeError } from './types';
 
 const parser = new CooklangParser();
 
+type RawNumber =
+  | { type: 'regular'; value: number }
+  | { type: 'fraction'; value: { whole: number; num: number; den: number } };
+type RawValue =
+  | { type: 'number'; value: RawNumber }
+  | { type: 'range'; value: { start: RawNumber; end: RawNumber } }
+  | { type: 'text'; value: string };
+
+function rawNumber(n: RawNumber): number {
+  return n.type === 'fraction' ? n.value.whole + n.value.num / n.value.den : n.value;
+}
+
+/**
+ * The numeric amount of a Cooklang quantity: regular numbers, fractions ("3/4", "1 1/2"),
+ * and the start of a range. Text amounts ("some") and missing quantities give null.
+ * The package's own getQuantityValue returns NaN for fractions, so it is not used.
+ */
+function quantityValue(quantity: { value: unknown } | null | undefined, what: string): number | null {
+  if (!quantity) return null;
+  const value = quantity.value as RawValue;
+  let n: number;
+  if (value.type === 'number') n = rawNumber(value.value);
+  else if (value.type === 'range') n = rawNumber(value.value.start);
+  else return null;
+  if (!Number.isFinite(n)) throw new RecipeError([`${what}: quantity is not a finite number`]);
+  return n;
+}
+
 const STRING_KEYS = ['title', 'country', 'region', 'credit', 'cook', 'license'] as const;
 
 function validateMeta(raw: Map<unknown, unknown>): { meta: RecipeMeta | null; problems: string[] } {
@@ -92,15 +120,15 @@ export function parseRecipe(source: string): ParsedRecipe {
 
   return {
     meta,
-    ingredients: getFlatIngredients(recipe).map((i) => ({
+    ingredients: getFlatIngredients(recipe).map((i, k) => ({
       name: i.name,
-      quantity: typeof i.quantity === 'number' ? i.quantity : null,
+      quantity: quantityValue(recipe.ingredients[k]?.quantity, `ingredient "${i.name}"`),
       unit: i.unit || null,
       note: i.note || null,
     })),
-    timers: getFlatTimers(recipe).map((t) => ({
+    timers: getFlatTimers(recipe).map((t, k) => ({
       name: t.name || null,
-      quantity: typeof t.quantity === 'number' ? t.quantity : null,
+      quantity: quantityValue(recipe.timers[k]?.quantity, `timer ${k + 1}`),
       unit: t.unit || null,
     })),
     source,

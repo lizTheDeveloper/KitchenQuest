@@ -72,6 +72,18 @@ describe('parseRecipe', () => {
     expect(problemsOf(withFront(swap('skills', 'skills: knife'))).some((p) => p.includes('skills'))).toBe(true);
   });
 
+  it('reads fractions, mixed numbers and ranges as numbers', () => {
+    const src = withFront(VALID_LINES).replace(
+      'Stir @salt{}.',
+      'Add @salt{3/4%tsp}, @onion{1/2}, @sugar{1 1/2%tsp}, @chilli{1-2}, @stock{1/2-3/4%cup} and @herbs{some%g}. Rest ~{1/2%hour}.',
+    );
+    const r = parseRecipe(src);
+    const q = Object.fromEntries(r.ingredients.map((i) => [i.name, i.quantity]));
+    expect(q).toEqual({ salt: 0.75, onion: 0.5, sugar: 1.5, chilli: 1, stock: 0.5, herbs: null });
+    expect(r.ingredients[0]!.unit).toBe('tsp');
+    expect(r.timers[0]!.quantity).toBe(0.5);
+  });
+
   it('keeps the source', () => {
     expect(parseRecipe(FULL).source).toBe(FULL);
   });
