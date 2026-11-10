@@ -1,3 +1,5 @@
+import { capText } from './intents';
+
 const LETTER = /\p{L}/u;
 
 /**
@@ -5,7 +7,7 @@ const LETTER = /\p{L}/u;
  * 'T-R-E-E N-U-T'. Letters are upper-cased (`en` locale); anything that isn't a letter is dropped.
  */
 export function spell(name: string): string {
-  return name
+  return capText(name)
     .normalize('NFC')
     .split(/\s+/)
     .map((word) =>

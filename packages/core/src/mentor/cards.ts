@@ -1,5 +1,6 @@
 import { normalizeName, type IngredientGraph } from '../ingredients/graph';
 import { SEVERE, type Rule, type Severity } from '../rules/types';
+import { capText } from './intents';
 import { windowEnd, WEEKDAY_NAMES, type MealSlot } from './parse';
 import type { RuleTerm } from './rule-terms';
 import { spell } from './spell';
@@ -154,7 +155,7 @@ export function buildRuleCard(
   graph: IngredientGraph,
   terms: readonly RuleTerm[],
 ): RuleCardResult {
-  const term = normalizeName(input.term);
+  const term = normalizeName(capText(input.term));
   const entry = terms.find((t) => t.phrases.some((p) => normalizeName(p) === term));
   if (entry) {
     const target = { ids: entry.ids, name: entry.name, form: entry.form, termSeverity: entry.severity };

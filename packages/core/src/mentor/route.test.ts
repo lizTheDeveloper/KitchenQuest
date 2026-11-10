@@ -95,7 +95,7 @@ test('mentionsHealthTerm', () => {
   expect(mentionsHealthTerm('Onions!', graph, terms)).toBe(true); // plurals as resolve strips them
   expect(mentionsHealthTerm('I put some soy sauce on it', graph, terms)).toBe(true);
   expect(mentionsHealthTerm('How should I hold a knife?', graph, terms)).toBe(false);
-  expect(mentionsHealthTerm('peanutty', graph, terms)).toBe(false); // whole words only
+  expect(mentionsHealthTerm('peanutty', graph, terms)).toBe(true); // a compound counts (round 2): the gate over-catches on purpose
 });
 
 test.each(['peanutbutter', 'glutenfree', 'p e a n u t', 'Ꭿlmond milk', 'I like pеanut butter', 'lactose'])(

@@ -285,6 +285,8 @@ describe('fix round 2: recall (R4, minor)', () => {
     ['allergic to them', undefined],
     ['allergic to it all', undefined],
     ['allergic to everything too', undefined],
+    ["I'm allergic to peanuts, my son is intolerant to them", [['peanuts', 'allergy']]],
+    ['intolerant to milk and my allergist says avoid it', [['milk', null]]],
   ])('%s', (text, items) => expect(severities(text)).toEqual(items));
 
   test('"but only mildly to milk" keeps milk as a term; mildly never lowers it', () => {

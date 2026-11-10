@@ -1,6 +1,6 @@
 import { normalizeName, type IngredientGraph } from '../ingredients/graph';
 import type { LineRef } from './cards';
-import { canonicalText, foldConfusables, type TurnIntent } from './intents';
+import { canonicalText, capText, foldConfusables, type TurnIntent } from './intents';
 import { parseRuleStatement, weekdaysOf } from './parse';
 import type { RuleTerm } from './rule-terms';
 
@@ -67,7 +67,7 @@ export function dropMealsMatchingRemovals<T extends { description: string | null
 /** Weekday numbers (0 = Sunday) for names like 'Saturday', 'sat' or 'saturdays'; unknown names dropped. */
 export function weekdayNumbers(names: readonly string[]): number[] {
   const out = names.flatMap((n) => {
-    const key = normalizeName(n).replace(/s$/, '');
+    const key = normalizeName(capText(n)).replace(/s$/, '');
     return key === 'weekend' ? [] : weekdaysOf(key);
   });
   return [...new Set(out)].sort((a, b) => a - b);
@@ -86,7 +86,7 @@ export function matchDish(
   text: string,
   recipes: readonly { slug: string; title: string }[],
 ): { slug: string; title: string } | null {
-  const t = normalizeName(text);
+  const t = normalizeName(capText(text));
   if (t === '') return null;
   for (const r of recipes) {
     const slug = normalizeName(r.slug);
@@ -105,6 +105,28 @@ export function matchDish(
 }
 
 const MAX_NAME_WORDS = 5;
+/** The shortest name found inside a compound word ("peanutbutter"); shorter ones over-match ("nutrition"). */
+const COMPOUND_MIN = 4;
+
+/** Runs of 3+ single letters joined into one word: "p e a n u t" → "peanut". */
+function joinLetterRuns(words: readonly string[]): string[] {
+  const out: string[] = [];
+  let run = '';
+  const flush = () => {
+    if (run.length >= 3) out.push(run);
+    else out.push(...run);
+    run = '';
+  };
+  for (const w of words) {
+    if ([...w].length === 1) run += w;
+    else {
+      flush();
+      out.push(w);
+    }
+  }
+  flush();
+  return out;
+}
 
 /** The plural strips `resolve` uses, applied to rule-term phrases too ("vegans", "celiacs"). */
 const pluralForms = (g: string): string[] => [g, ...(g.endsWith('es') ? [g.slice(0, -2)] : []), ...(g.endsWith('s') ? [g.slice(0, -1)] : [])];
@@ -114,8 +136,10 @@ const pluralForms = (g: string): string[] => [g, ...(g.endsWith('es') ? [g.slice
  * them) or any rule-term phrase, as whole words. The text is NFKC-normalised with invisible
  * characters dropped and lookalikes folded, and read three ways: as written ("peanut-free",
  * "gluten-free"), split at hyphens and apostrophes ("peanut", "free"; "peanut", "s"), and with
- * them removed ("pea-nut" → "peanut"). It over-catches on purpose: it is half of Step 7's
- * consent gate (pre-flight C1).
+ * them removed ("pea-nut" → "peanut"), with letter-spaced runs joined ("p e a n u t"), and
+ * each word checked for a name of 4+ letters at its start or end ("peanutbutter",
+ * "glutenfree"; exact names only, so "minutes" is not "nut"). It over-catches on purpose: it is
+ * half of Step 7's consent gate (pre-flight C1). The input is capped at MAX_TEXT.
  */
 export function mentionsHealthTerm(text: string, graph: IngredientGraph, terms: readonly RuleTerm[]): boolean {
   const clean = normalizeName(foldConfusables(canonicalText(text)).replace(/[‘’‛]/g, "'"));
@@ -124,14 +148,29 @@ export function mentionsHealthTerm(text: string, graph: IngredientGraph, terms: 
     .split(' ')
     .map((w) => w.replace(/^['-]+|['-]+$/g, ''))
     .filter((w) => w !== '');
+  const joined = asWritten.map((w) => w.replace(/['-]/g, ''));
   const readings = [
     asWritten,
     asWritten.flatMap((w) => w.split(/['-]/)).filter((w) => w !== ''),
-    asWritten.map((w) => w.replace(/['-]/g, '')),
+    joined,
+    joinLetterRuns(asWritten),
   ];
   const phrases = new Set(
     terms.flatMap((t) => t.phrases.map(normalizeName)).flatMap((p) => [p, p.replace(/-/g, ' '), p.replace(/-/g, '')]),
   );
+  const isExactName = (part: string): boolean => {
+    if (phrases.has(part)) return true;
+    const id = graph.resolve(part);
+    if (id === null) return false;
+    const node = graph.get(id);
+    return [node.name, ...(node.aliases ?? [])].some((label) => normalizeName(label) === part);
+  };
+  for (const word of new Set(joined)) {
+    for (let k = COMPOUND_MIN; k <= word.length - 1; k++) {
+      if (isExactName(word.slice(0, k))) return true;
+      if (word.length - k >= COMPOUND_MIN && isExactName(word.slice(k))) return true;
+    }
+  }
   for (const words of readings) {
     for (let i = 0; i < words.length; i++) {
       for (let n = 1; n <= MAX_NAME_WORDS && i + n <= words.length; n++) {
@@ -146,10 +185,12 @@ export function mentionsHealthTerm(text: string, graph: IngredientGraph, terms: 
 
 /**
  * Text after this is not the player's own words (S19 and the spike's injection cases): an
- * instruction to the AI, a role prefix at the start of a line, or a role tag.
+ * instruction to the AI, a system/developer/tool/assistant role label anywhere, a user label at
+ * the start of a line or after a sentence end, or a role tag. Matched on NFKC text with
+ * lookalikes folded ("ＳＹＳＴＥＭ:", "ѕystem:").
  */
 export const INJECTION_MARKER =
-  /note to (the )?(ai|assistant)|\bassistant\s*:|the user (already )?agreed|ignore (all |the )?previous|developer override|do not mention this|^[^\S\n]*(system|developer|tool|user)\s*:|<\/?\s*(system|developer|assistant|tool|user)\b/im;
+  /note to (the )?(ai|assistant)|\b(assistant|system|developer|tool)\s*:|the user (already )?agreed|ignore (all |the )?previous|developer override|do not mention this|(^|[.!?])[^\S\n]*user\s*:|<\/?\s*(system|developer|assistant|tool|user)\b/im;
 
 /** A pasted block starts at a line beginning with -, * or a digit, or a line in capitals of 6+ letters. */
 function isPastedLine(l: string): boolean {

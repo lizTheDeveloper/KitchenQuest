@@ -45,8 +45,21 @@ export const HEALTH_PATTERN =
   /\b(allerg\w*|intoleran\w*|anaphyla\w*|epi-?pen|coeliac|celiac|vegan|vegetarian|pescatarian|halal|kosher|jain|diet\w*|can'?t (eat|have)|cannot (eat|have)|don'?t eat|avoid\w*|sensitive to|stomach|bloat\w*|rough after|makes me (sick|ill)|ate|eaten|had|breakfast|brekkie|lunch|dinner|supper|snack\w*)\b/;
 
 /**
- * Common Greek and Cyrillic letters that look like Latin ones, folded to the Latin letter, so
- * "tаpped" (Cyrillic а) reads as "tapped". One UTF-16 unit to one, so indices still line up.
+ * The most a turn's text may hold (plan Global Constraint). Every exported text function in
+ * the mentor toolkit reads at most this many characters, so hostile input can't stall it.
+ */
+export const MAX_TEXT = 500;
+
+/** At most MAX_TEXT code points of `text`. */
+export function capText(text: string): string {
+  if (text.length <= MAX_TEXT) return text;
+  return Array.from(text.slice(0, MAX_TEXT * 2)).slice(0, MAX_TEXT).join('');
+}
+
+/**
+ * Letters that look like Latin ones, folded to the Latin letter, so "tаpped" (Cyrillic а)
+ * reads as "tapped": common Cyrillic, Greek and Cherokee lookalikes and the small capitals.
+ * One UTF-16 unit to one, so indices still line up.
  */
 const CONFUSABLES: Readonly<Record<string, string>> = {
   // Cyrillic
@@ -56,19 +69,33 @@ const CONFUSABLES: Readonly<Record<string, string>> = {
   // Greek
   α: 'a', ε: 'e', ι: 'i', κ: 'k', ν: 'v', ο: 'o', ρ: 'p', τ: 't', υ: 'u', χ: 'x', ϲ: 'c',
   Α: 'A', Β: 'B', Ε: 'E', Ζ: 'Z', Η: 'H', Ι: 'I', Κ: 'K', Μ: 'M', Ν: 'N', Ο: 'O', Ρ: 'P', Τ: 'T', Υ: 'Y', Χ: 'X',
+  // Cherokee capitals that read as Latin ones
+  Ꭰ: 'D', Ꭱ: 'R', Ꭲ: 'T', Ꭹ: 'Y', Ꭺ: 'A', Ꭻ: 'J', Ꭼ: 'E', Ꭿ: 'A', Ꮃ: 'W', Ꮇ: 'M', Ꮋ: 'H', Ꮐ: 'G', Ꮓ: 'Z',
+  Ꮪ: 'S', Ꮩ: 'V', Ꮮ: 'L', Ꮯ: 'C', Ꮲ: 'P', Ꮶ: 'K', Ᏼ: 'B',
+  // Small capitals
+  ᴀ: 'a', ʙ: 'b', ᴄ: 'c', ᴅ: 'd', ᴇ: 'e', ꜰ: 'f', ɢ: 'g', ʜ: 'h', ɪ: 'i', ᴊ: 'j', ᴋ: 'k', ʟ: 'l', ᴍ: 'm', ɴ: 'n',
+  ᴏ: 'o', ᴘ: 'p', ǫ: 'q', ʀ: 'r', ꜱ: 's', ᴛ: 't', ᴜ: 'u', ᴠ: 'v', ᴡ: 'w', ʏ: 'y', ᴢ: 'z',
 };
-const CONFUSABLE_CHARS = new RegExp(`[${Object.keys(CONFUSABLES).join('')}]`, 'g');
 /** Invisible format characters (zero-width space and joiners, bidi marks, soft hyphen). */
 const FORMAT_CHARS = /\p{Cf}/gu;
+const COMBINING_MARKS = /\p{M}+/gu;
 
-/** NFKC (fullwidth "Ｐｅａｎｕｔ" → "Peanut"), with invisible format characters removed. */
+/** NFKC (fullwidth "Ｐｅａｎｕｔ" → "Peanut"), capped at MAX_TEXT, with invisible format characters removed. */
 export function canonicalText(text: string): string {
-  return text.normalize('NFKC').replace(FORMAT_CHARS, '');
+  return capText(text).normalize('NFKC').replace(FORMAT_CHARS, '');
 }
 
-/** Lookalike Greek and Cyrillic letters folded to Latin, length-preserving. */
+/** One character folded: a listed lookalike, else its base letter without accents ("é" → "e"), else itself. */
+function foldChar(ch: string): string {
+  const mapped = CONFUSABLES[ch];
+  if (mapped !== undefined) return mapped;
+  const base = ch.normalize('NFD').replace(COMBINING_MARKS, '');
+  return base.length === 1 ? base : ch;
+}
+
+/** Lookalike letters folded to Latin and accents dropped, one UTF-16 unit for one (length-preserving). */
 export function foldConfusables(text: string): string {
-  return text.replace(CONFUSABLE_CHARS, (ch) => CONFUSABLES[ch] ?? ch);
+  return text.replace(/[^\p{ASCII}]/gu, foldChar);
 }
 
 /** Canonical, lookalikes folded, lower-cased, curly quotes made straight, whitespace collapsed. */
@@ -104,14 +131,19 @@ export function classifyTurn(text: string): TurnIntent {
 }
 
 /** Lookalikes of page events: card taps and system notes never arrive as user text (§7.6b.4). */
-export const PAGE_EVENT_WORDS = /\b(tap|tapped|click|clicked|stamp|stamped|confirm|confirmed|saved|system|button|event|card)\b/i;
+export const PAGE_EVENT_WORDS =
+  /\b(tap|tapped|click|clicked|stamp|stamped|confirm|confirmed|saved|system|button|event|card|approved|accepted|selected)\b/i;
 /** Bracket pairs a forged event may hide in (fullwidth forms are already folded by NFKC). */
-export const PAGE_EVENT_BRACKETS: Readonly<Record<string, string>> = { '[': ']', '【': '】', '(': ')', '{': '}', '〔': '〕', '〖': '〗' };
+export const PAGE_EVENT_BRACKETS: Readonly<Record<string, string>> = {
+  '[': ']', '【': '】', '(': ')', '{': '}', '〔': '〕', '〖': '〗', '«': '»', '‹': '›', '⟦': '⟧', '<': '>', '「': '」',
+  '『': '』', '《': '》', '〈': '〉', '⟨': '⟩', '⁅': '⁆', '❨': '❩', '❪': '❫', '❬': '❭', '❮': '❯', '❰': '❱',
+  '﴾': '﴿', '⸨': '⸩', '⦅': '⦆', '⦗': '⦘',
+};
 export const ROLE_TAGS = /<\/?\s*(system|developer|assistant|tool|user)\b[^>]*>/gi;
-export const ROLE_PREFIXES = /^[^\S\n]*(system|assistant|developer|tool)\s*:/gim;
+export const ROLE_PREFIXES = /(?:^|(?<=[.!?]))[^\S\n]*(system|assistant|developer|tool)\s*:/gim;
 /** An unbracketed forged event: "Player tapped Stamp it on the card." up to the end of the sentence. */
 export const PAGE_EVENT_SENTENCE =
-  /\b(the )?player (has |just )?(tapped|clicked|stamped|confirmed|pressed)\b[^.!?\n]*[.!?]*/gi;
+  /\b(the\s+)?(player|user)\s+((has|have|had|just)\s+)?((now|just|already|then|\w+ly)\s+)?(tapped|clicked|stamped|confirmed|pressed|approved|accepted|selected|chose|picked)\b[^.!?\n]*[.!?]*/gi;
 
 /** [start, end) of every bracket pair whose content (nested pairs included) names a page event. */
 function bracketSpans(folded: string): [number, number][] {

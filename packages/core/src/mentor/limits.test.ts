@@ -5,7 +5,7 @@ import { IngredientGraph } from '../ingredients/graph';
 import type { RuleTerm } from './rule-terms';
 import * as M from './index';
 
-// Every exported text function caps its input at MAX_TEXT and stays linear, so a hostile
+// Timed with Date.now() (src has no DOM or node types). Every exported text function caps its input at MAX_TEXT and stays linear, so a hostile
 // 40k-character message can't stall the server or the client (fix round 2, R2).
 const graph = IngredientGraph.fromData(ingredients);
 const terms = ruleTerms as RuleTerm[];
@@ -73,9 +73,9 @@ const FUNCTIONS: [string, (s: string) => unknown][] = [
 
 test.each(FUNCTIONS)('%s finishes each 40k-character input in under 50 ms', (_name, fn) => {
   for (const [input, text] of Object.entries(INPUTS)) {
-    const t0 = performance.now();
+    const t0 = Date.now();
     fn(text);
-    expect(performance.now() - t0, input).toBeLessThan(50);
+    expect(Date.now() - t0, input).toBeLessThan(50);
   }
 });
 
