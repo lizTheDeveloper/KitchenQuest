@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { cacheName, routeFor, staleCaches } from './sw-routes';
+import { cacheName, precache, routeFor, staleCaches } from './sw-routes';
 
 test.each([
   ['POST', 'https://kq.test/api/auth/verify', 'cors', 'passthrough'],
@@ -19,3 +19,9 @@ test('cacheName', () => expect(cacheName('abc123')).toBe('kq-shell-abc123'));
 
 test('staleCaches keeps only current kq caches', () =>
   expect(staleCaches(['kq-shell-a', 'kq-shell-b', 'other'], 'kq-shell-b')).toEqual(['kq-shell-a']));
+
+test('precache bypasses the HTTP cache: every request uses cache mode reload', async () => {
+  const added: Request[] = [];
+  await precache({ addAll: (reqs: RequestInfo[]) => { added.push(...(reqs as Request[])); return Promise.resolve(); } }, ['/index.html', '/assets/a.js'], 'https://kq.test');
+  expect(added.map((r) => [r.url, r.cache])).toEqual([['https://kq.test/index.html', 'reload'], ['https://kq.test/assets/a.js', 'reload']]);
+});

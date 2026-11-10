@@ -20,7 +20,7 @@ export function staleCaches(keys: string[], current: string): string[];   // eve
 export function precacheList(bundleFileNames: string[], publicFiles: string[]): string[];   // '/'-prefixed, sorted; excludes sw.js, *.map, '/auth/verify/…'
 export function kqServiceWorker(): Plugin;   // in generateBundle: replaces self.__KQ_PRECACHE__ and __KQ_VERSION__ in the 'sw' chunk
 // pwa/register.ts
-export function registerServiceWorker(nav: Navigator, prod: boolean): Promise<ServiceWorkerRegistration | null>;   // './sw.js', scope '/'; null when !prod or unsupported
+export function registerServiceWorker(nav: Navigator, prod: boolean): Promise<ServiceWorkerRegistration | null>;   // '/sw.js', scope '/'; null when !prod or unsupported
 // pwa/install.ts
 export function isIos(ua: string, maxTouchPoints: number): boolean;   // iPhone|iPad|iPod, or 'Macintosh' with maxTouchPoints > 1 (iPadOS)
 export function isStandalone(win: { matchMedia(q: string): { matches: boolean }; navigator: { standalone?: boolean } }): boolean;

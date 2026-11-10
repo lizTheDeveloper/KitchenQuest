@@ -1,22 +1,41 @@
 import { createHash } from 'node:crypto';
-import { readdirSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import type { Plugin } from 'vite';
 
-/** Never precached: the worker itself, source maps, and the sign-in page (it must always come from the network). */
-const EXCLUDE: readonly RegExp[] = [/^sw\.js$/, /\.map$/, /^auth\/verify\//, /(^|\/)\./];
+/**
+ * Never precached: the worker itself, source maps, dotfiles, and anything under /api or /auth (the sign-in
+ * page must always come from the network; the worker never holds player data, even by accident).
+ */
+const EXCLUDE: readonly RegExp[] = [/^sw\.js$/, /\.map$/, /^(api|auth)(\/|$)/, /(^|\/)\./];
 
-/** Every file the worker precaches, '/'-prefixed and sorted. Takes bundle and public-dir file names. */
+/** A Vite asset name without its `-[hash]` and extension: 'assets/vt323-latin-400-normal'. */
+const fontStem = (f: string) => f.replace(/-[A-Za-z0-9_-]{8}\.woff2?$/, '');
+
+/**
+ * Every file the worker precaches, '/'-prefixed and sorted. Takes bundle and public-dir file names. A `.woff`
+ * is dropped when the same font ships as `.woff2`: every browser that runs the worker reads woff2.
+ */
 export function precacheList(bundleFileNames: string[], publicFiles: string[]): string[] {
   const all = [...bundleFileNames, ...publicFiles].filter((f) => !EXCLUDE.some((re) => re.test(f)));
-  return [...new Set(all.map((f) => `/${f}`))].sort();
+  const woff2 = new Set(all.filter((f) => f.endsWith('.woff2')).map(fontStem));
+  const kept = all.filter((f) => !(f.endsWith('.woff') && woff2.has(fontStem(f))));
+  return [...new Set(kept.map((f) => `/${f}`))].sort();
 }
 
-/** First 12 hex of sha256 over the sorted precache list plus the compiled content's version. */
-export function swVersion(precache: string[], contentVersion: string): string {
+/**
+ * First 12 hex of sha256 over the sorted precache list, the compiled content's version, and the bytes of the
+ * files whose names carry no hash (index.html, public files, the worker's own code), so changing any of them
+ * yields a new sw.js and a new cache.
+ */
+export function swVersion(precache: string[], contentVersion: string, bytes: Readonly<Record<string, string | Uint8Array>> = {}): string {
   const h = createHash('sha256');
   for (const f of [...precache].sort()) h.update(`${f}\n`);
   h.update(contentVersion);
+  for (const k of Object.keys(bytes).sort()) {
+    h.update(`\0${k}\0`);
+    h.update(bytes[k]);
+  }
   return h.digest('hex').slice(0, 12);
 }
 
@@ -59,13 +78,16 @@ export function kqServiceWorker(): Plugin {
         const files: string[] = [];
         if (publicDir) walk(publicDir, files);
         const list = precacheList(Object.keys(bundle), files.map((p) => relative(publicDir, p).split(sep).join('/')));
-        if (!list.includes('/index.html')) { this.error('kq-service-worker: index.html is missing from the precache'); return; }
+        const html = bundle['index.html'] as (typeof bundle)[string] | undefined;
+        if (!list.includes('/index.html') || html?.type !== 'asset') { this.error('kq-service-worker: index.html is missing from the precache'); return; }
+        const bytes: Record<string, string | Uint8Array> = { '/index.html': html.source, 'sw.js': sw.code };
+        for (const p of files) bytes[`/${relative(publicDir, p).split(sep).join('/')}`] = readFileSync(p);
         for (const token of [PRECACHE_TOKEN, VERSION_TOKEN]) {
           if (!sw.code.includes(token)) { this.error(`kq-service-worker: ${token} not found in sw.js`); return; }
         }
         sw.code = sw.code
           .replaceAll(PRECACHE_TOKEN, JSON.stringify(list))
-          .replaceAll(VERSION_TOKEN, JSON.stringify(swVersion(list, cv)));
+          .replaceAll(VERSION_TOKEN, JSON.stringify(swVersion(list, cv, bytes)));
       },
     },
   };

@@ -77,6 +77,7 @@ export function kqSecurityHeaders(): Plugin;   // dev + preview middleware: on v
     - 429 or 5xx → "The Bureau couldn't finish that just now. Try again in a moment.", and re-enable the button.
     - Network → "Couldn't reach the Bureau. Check your connection and try again.", and re-enable the button.
   - At most one request is in flight.
+  - Service worker (from Step 10): the verify page does **not** register it; only `main.ts` does, always at the absolute path `/sw.js` with scope `/`. The worker treats `/auth/*` and `/api/*` as network-only and never precaches them, so this page is always fetched fresh.
 - `deploy/security-headers.conf`: an nginx `location ^~ /auth/verify { add_header Referrer-Policy "no-referrer" always; add_header Cache-Control "no-store" always; try_files $uri $uri/ /auth/verify/index.html; }` block, with a comment pointing at this step. Deployment itself is a later milestone.
 
 - [ ] **11.1 Tests:**

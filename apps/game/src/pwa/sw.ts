@@ -2,13 +2,13 @@
  * Kitchen Quest's service worker, hand-written. The build (build/sw-plugin.ts) replaces
  * `self.__KQ_PRECACHE__` with the precache list and `__KQ_VERSION__` with its version.
  *
- * - install: precache the app shell, compiled content and art. No skipWaiting, so an open cook session keeps
+ * - install: precache the app shell, compiled content and art, bypassing the HTTP cache. No skipWaiting, so an open cook session keeps
  *   its worker until every tab closes.
  * - activate: delete older Kitchen Quest caches, then take control.
  * - fetch: only ever reads the precache; it never writes a response it fetched at runtime, and never touches
  *   /api/* or /auth/*.
  */
-import { cacheName, routeFor, staleCaches } from './sw-routes';
+import { cacheName, precache, routeFor, staleCaches } from './sw-routes';
 
 declare const self: ServiceWorkerGlobalScope & { __KQ_PRECACHE__: string[] };
 declare const __KQ_VERSION__: string;
@@ -17,7 +17,7 @@ const PRECACHE: string[] = self.__KQ_PRECACHE__;
 const CACHE = cacheName(__KQ_VERSION__);
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(PRECACHE)));
+  event.waitUntil(caches.open(CACHE).then((cache) => precache(cache, PRECACHE, self.location.origin)));
 });
 
 self.addEventListener('activate', (event) => {

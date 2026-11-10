@@ -15,9 +15,9 @@ let iosLine: string | null = null;
  * The Bureau's slip explaining Add to Home Screen on iPhone and iPad, or null when it shouldn't show.
  * "Got it" dismisses it for good on this device.
  */
-export function iosNote(win: Window, store: PlayerStore, headingLevel: 'h2' | 'h3'): HTMLElement | null {
+export function iosNote(win: Window, store: PlayerStore, headingLevel: 'h2' | 'h3', onDismiss?: () => void): HTMLElement | null {
   if (!iosNoteVisible(store.get().settings, env(win))) return null;
-  iosLine ??= createDialogue(content.pan).say('intake.ios_home_screen').text;
+  iosLine ??= createDialogue(content.pan).say('intake.ios_install').text;
   const ok = h('button', { type: 'button', class: 'btn btn-primary' }, 'Got it');
   const note = h('section', { class: 'ios-note', 'aria-label': 'Add to Home Screen' },
     h(headingLevel, { class: 'ios-note-title' }, 'Add to Home Screen'),
@@ -27,6 +27,7 @@ export function iosNote(win: Window, store: PlayerStore, headingLevel: 'h2' | 'h
   ok.addEventListener('click', () => {
     note.remove();
     store.update((s) => ({ ...s, settings: { ...s.settings, iosNoteDismissed: true } }));
+    onDismiss?.();
   });
   return note;
 }
@@ -38,7 +39,7 @@ export function installSection(win: Window, store: PlayerStore): { el: HTMLEleme
     const e = env(win);
     if (e.standalone) { body.replaceChildren(h('p', null, 'Installed.')); return; }
     if (e.ios) {
-      body.replaceChildren(iosNote(win, store, 'h3') ??
+      body.replaceChildren(iosNote(win, store, 'h3', render) ??
         h('p', null, "On an iPhone or iPad, tap Share, then 'Add to Home Screen'."));
       return;
     }

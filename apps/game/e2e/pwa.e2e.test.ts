@@ -8,7 +8,7 @@ import { expectNoA11yViolations, expectNoHorizontalScroll, openApp, type OpenedA
 const pan = parse(readFileSync(fileURLToPath(new URL('../../../content/dialogue/pan.yaml', import.meta.url)), 'utf8')) as {
   triggers: Record<string, { lines: string[] }>;
 };
-const IOS_LINES = pan.triggers['intake.ios_home_screen'].lines;
+const IOS_LINES = pan.triggers['intake.ios_install'].lines;
 const PARIPPU_TITLE = /^title: (.+)$/m.exec(readFileSync(fileURLToPath(new URL('../../../recipes/india/kerala/parippu.cook', import.meta.url)), 'utf8'))![1];
 const PIN_NAMES = [
   'Visit Doña Marisol — Oaxaca, Mexico',
@@ -51,9 +51,9 @@ describe('installable PWA', () => {
     const base = inject('baseUrl');
     const res = await fetch(new URL('/manifest.webmanifest', base));
     expect(res.status).toBe(200);
-    const m = await res.json() as { name: string; short_name: string; start_url: string; scope: string; display: string; background_color: string; theme_color: string; icons: { src: string; sizes: string; type: string; purpose?: string }[] };
+    const m = await res.json() as { id: string; name: string; short_name: string; start_url: string; scope: string; display: string; background_color: string; theme_color: string; icons: { src: string; sizes: string; type: string; purpose?: string }[] };
     expect(m).toMatchObject({
-      name: 'Kitchen Quest', short_name: 'Kitchen Quest', start_url: '/#/kitchen', scope: '/', display: 'standalone',
+      id: '/', name: 'Kitchen Quest', short_name: 'Kitchen Quest', start_url: '/#/kitchen', scope: '/', display: 'standalone',
       background_color: '#1e1b1d', theme_color: '#1e1b1d',
     });
     expect(m.icons).toHaveLength(3);
@@ -69,6 +69,10 @@ describe('installable PWA', () => {
     app = await openApp('/', { serviceWorkers: 'allow' });
     const { page, context } = app;
     await waitForControl(page);
+    // Online, the app reaches the API through the worker's scope; nothing about it may be kept.
+    await context.route('**/api/me', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"id":"u1","email":"a@b.test"}' }));
+    expect(await page.evaluate(async () => (await (await fetch('/api/me')).json() as { email: string }).email)).toBe('a@b.test');
+    expect(await page.evaluate(async () => (await fetch('/auth/verify?token=abc')).status)).toBeGreaterThan(0);
 
     await context.setOffline(true);
     const errorsBefore = app.consoleErrors.length;
@@ -102,6 +106,12 @@ describe('installable PWA', () => {
     expect(cached.length).toBeGreaterThan(10);
     expect(cached.filter((u) => /\/(api|auth)(\/|$|\?)/.test(new URL(u).pathname))).toEqual([]);
     expect(cached.some((u) => /\/sw\.js$/.test(u))).toBe(false);
+    expect(cached.some((u) => u.endsWith('.woff2'))).toBe(true);
+    // A .woff stays only when its .woff2 was small enough to be inlined into the CSS.
+    const stem = (u: string) => u.replace(/-[A-Za-z0-9_-]{8}\.woff2?$/, '');
+    const woff2 = new Set(cached.filter((u) => u.endsWith('.woff2')).map(stem));
+    expect(cached.filter((u) => u.endsWith('.woff') && woff2.has(stem(u)))).toEqual([]);
+    expect(cached.filter((u) => u.endsWith('.woff')).length).toBeLessThan(cached.filter((u) => u.endsWith('.woff2')).length);
 
     expect(app.consoleErrors.slice(errorsBefore)).toEqual([]);
   });
@@ -135,11 +145,41 @@ describe('installable PWA', () => {
     const note = page.locator('#sw-update-note');
     await note.waitFor();
     expect(await note.textContent()).toContain("A new edition of the Bureau's handbook is ready. It'll be used next time you open Kitchen Quest.");
+    expect(await note.evaluate((e) => e.closest('main') !== null)).toBe(true);
+    await expectNoA11yViolations(page, 'update note');
     // No skipWaiting: the page keeps its worker.
     expect(await page.evaluate(async () => (await navigator.serviceWorker.getRegistration())!.waiting !== null)).toBe(true);
     expect(await page.evaluate(() => navigator.serviceWorker.controller!.scriptURL)).toBe(before);
     await note.getByRole('button', { name: 'Got it' }).click();
     expect(await note.count()).toBe(0);
+  });
+
+  it('"Delete everything" also deletes the offline copy and unregisters the worker', async () => {
+    app = await openApp('/', {
+      serviceWorkers: 'allow',
+      initScript: `(() => {
+        const real = ServiceWorkerRegistration.prototype.unregister;
+        ServiceWorkerRegistration.prototype.unregister = function () {
+          sessionStorage.setItem('test.unregistered', String(Number(sessionStorage.getItem('test.unregistered') ?? 0) + 1));
+          return real.call(this);
+        };
+      })();`,
+    });
+    const { page } = app;
+    await waitForControl(page);
+    await page.evaluate(async () => { await caches.open('kq-offline-marker'); await caches.open('not-ours'); });
+    // kq-offline-marker is not a kq-shell-* cache, so only "Delete everything" can remove it.
+    expect(await cacheKeys(page)).toContain('kq-offline-marker');
+
+    await go(page, '#/settings');
+    await page.getByRole('button', { name: 'Delete Kitchen Quest data on this device' }).click();
+    await Promise.all([page.waitForEvent('load'), page.getByRole('button', { name: 'Delete everything' }).click()]);
+    await page.locator('h1', { hasText: 'Your kitchen' }).waitFor();
+
+    expect(await page.evaluate(() => Number(sessionStorage.getItem('test.unregistered') ?? 0))).toBeGreaterThanOrEqual(1);
+    const after = await cacheKeys(page);
+    expect(after).not.toContain('kq-offline-marker');
+    expect(after).toContain('not-ours');
   });
 
   it('on an iPhone, explains Add to Home Screen until "Got it"', async () => {
@@ -158,6 +198,7 @@ describe('installable PWA', () => {
     await expectNoA11yViolations(page, 'settings with iOS note');
     await note.first().getByRole('button', { name: 'Got it' }).click();
     expect(await note.count()).toBe(0);
+    expect(await page.locator('#install-section').textContent()).toContain("On an iPhone or iPad, tap Share, then 'Add to Home Screen'.");
     expect(await page.evaluate((k) => (JSON.parse(localStorage.getItem(k)!) as { settings: { iosNoteDismissed: boolean } }).settings.iosNoteDismissed, STORE_KEY)).toBe(true);
 
     await go(page, '#/kitchen');

@@ -4,7 +4,7 @@ import { h } from '../ui/dom';
 export async function registerServiceWorker(nav: Navigator, prod: boolean): Promise<ServiceWorkerRegistration | null> {
   if (!prod || !('serviceWorker' in nav)) return null;
   try {
-    return await nav.serviceWorker.register('./sw.js', { scope: '/' });
+    return await nav.serviceWorker.register('/sw.js', { scope: '/' });
   } catch (err) {
     console.warn('Offline play is unavailable: the service worker did not register.', err);
     return null;
@@ -18,7 +18,7 @@ function showUpdateNote(doc: Document): void {
   const ok = h('button', { type: 'button', class: 'btn btn-secondary' }, 'Got it');
   const note = h('div', { class: 'notice update-note', role: 'status', id: 'sw-update-note' }, h('p', null, UPDATE_NOTE), ok);
   ok.addEventListener('click', () => note.remove());
-  doc.getElementById('screen')?.before(note);
+  doc.getElementById('screen')?.prepend(note); // inside <main>, so it sits in a landmark
 }
 
 /**
@@ -34,4 +34,21 @@ export function noteWaitingUpdate(doc: Document, reg: ServiceWorkerRegistration,
       if (worker.state === 'installed' && nav.serviceWorker.controller) showUpdateNote(doc);
     });
   });
+}
+
+/**
+ * "Delete everything on this device" means the offline copy too: delete every Kitchen Quest cache (kq-*) and
+ * unregister the worker. Caches that aren't ours are left alone. Each half runs even if the other fails.
+ */
+export async function deleteOfflineCopy(nav: Navigator, cacheStorage: CacheStorage | undefined): Promise<void> {
+  const unregister = async () => {
+    if (!('serviceWorker' in nav)) return;
+    for (const reg of await nav.serviceWorker.getRegistrations()) await reg.unregister();
+  };
+  const clear = async () => {
+    if (!cacheStorage) return;
+    const keys = (await cacheStorage.keys()).filter((k) => k.startsWith('kq-'));
+    await Promise.all(keys.map((k) => cacheStorage.delete(k)));
+  };
+  await Promise.allSettled([unregister(), clear()]);
 }

@@ -25,3 +25,11 @@ export function cacheName(version: string): string {
 export function staleCaches(keys: string[], current: string): string[] {
   return keys.filter((k) => k.startsWith(PREFIX) && k !== current);
 }
+
+/**
+ * Fill the cache with the precache list. `cache: 'reload'` skips the browser's HTTP cache, so a new worker
+ * never stores a stale copy of an unhashed file (index.html, the manifest, icons).
+ */
+export function precache(cache: Pick<Cache, 'addAll'>, urls: string[], origin: string): Promise<void> {
+  return cache.addAll(urls.map((u) => new Request(new URL(u, origin), { cache: 'reload' })));
+}
