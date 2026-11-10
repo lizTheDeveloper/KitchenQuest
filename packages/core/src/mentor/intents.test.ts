@@ -357,3 +357,28 @@ describe('fix round 3: strong symptoms (E6)', () => {
   });
   test.each(["used up the rice", "we're out of eggs", "I had pancakes, finished the milk", "I had toast for breakfast"])('%j is no emergency', (text) => expect(classifyTurn(text)).not.toBe('emergency'));
 });
+
+describe('round-3 review: more severe-reaction signs are emergencies', () => {
+  test.each([
+    'my kid is turning blue',
+    "he's turning blue",
+    'lips going blue',
+    'her lips are blue',
+    'blue lips',
+    'my chest is tight',
+    'my chest feels tight after the peanuts',
+    "I'm allergic to peanuts and my chest is tight",
+    "he's choking",
+    'she ate nuts and is choking',
+    "can't stop coughing after the shrimp",
+    "ate shrimp and now I can't stop coughing",
+    'hard to swallow after peanuts',
+    'throat itchy after kiwi',
+    'my throat itches',
+    'anafilaxia',
+    'urticaria',
+    'ich habe Atemnot',
+  ])('%s → emergency', (text) => {
+    expect(classifyTurn(text)).toBe('emergency');
+  });
+});
