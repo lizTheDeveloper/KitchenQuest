@@ -26,11 +26,11 @@ export async function updateRuleIn(tx: Tx, deps: { keyring: Keyring; catalog: Ca
 export async function deleteRuleIn(tx: Tx, userId: string, rowId: string, at: Date, requestId?: string): Promise<void>;        // live user, then user rules lock; no consent (M2 rule)
 ```
 - Behaviour that stays the same:
-  - `confirmed: true` is still checked before any database work (400 `confirmation_required`).
+  - **Changed:** `confirmed: true` is now checked before the consent check and before any rule or consent query (400 `confirmation_required`). Today `parseWrite` calls `requireConsent` first.
   - Bodies keep their M2 strict shape.
   - Responses are unchanged.
   - The fast pre-transaction `requireConsent` is removed: the locked check inside the transaction is the only consent check, and it runs after the live-user check.
-- Lock order across the API becomes: user row (`lockLiveUser`) → `rules:<id>` advisory lock → consent row. Account delete takes the user row first, so it still serializes ahead. Document this in the `lockUserRules` comment and the `lockLiveUser` comment.
+- **One global lock order (pre-flight C13), for every transaction in M4:** user row (`lockLiveUser`) → per-user advisory locks (`rules:<id>`, then `pantry:<id>` from Step 5) → consent row (`lockConsentIn`) → proposal row (Step 6 `lockProposal`). Account delete takes the user row first, so it still serializes ahead. Consent withdraw-with-delete takes the user row, then the consent row, then deletes rules, meals, messages and proposals, which fits the order. Write this order, with this list, in the `lockLiveUser` comment and the `lockUserRules` comment. Each service accepts locks its caller already holds (advisory and row locks are re-entrant within one transaction).
 
 - [ ] **3.1 Write the failing tests:**
 ```ts
@@ -45,10 +45,13 @@ test('createRuleIn for a user that no longer exists → 401, never 403', async (
   await expect(db.transaction((tx) => createRuleIn(tx, deps, deletedUserId, rule, now))).rejects.toMatchObject({ status: 401, code: 'unauthorized' });
 });
 test('createRuleIn without consent → 403 and nothing stored', ...);
-test('POST /rules without confirmed is still 400 confirmation_required before any DB read', ...);   // spy: no query when confirmed is missing (count queries via a drizzle logger)
-test('M2 rule tests still pass unchanged', ...);   // the existing rules.test.ts suite is the regression net
+test('POST /rules without confirmed is 400 confirmation_required before any rules or consents query', async () => {
+  // a drizzle logger on the test db records SQL; reset it after requireUser's session lookup (in an onRequest hook added by the test)
+  expect(res.statusCode).toBe(400); expect(res.json().error.code).toBe('confirmation_required');
+  expect(sqlAfterAuth.filter((q) => /\b(rules|consents)\b/.test(q))).toEqual([]);
+});
 ```
 - [ ] **3.2 Run** `npm test -w @kitchenquest/api -- rules` → FAIL (the cap test sees 2 × 201 or 201 rules; the 401 test sees 403).
-- [ ] **3.3 Implement** `service.ts` and switch the routes to it. `.env.example`: above `TRUST_PROXY`, add `# Deploy MUST set this to the reverse proxy (hop count or its addresses): the search, export and mentor limiters key on the client IP.`
-- [ ] **3.4 Run** `npm test -w @kitchenquest/api` → PASS (the full API suite: lock order changes can deadlock elsewhere).
+- [ ] **3.3 Implement** `service.ts` and switch the routes to it. `.env.example` has no `TRUST_PROXY` line yet: add `TRUST_PROXY=false`, with the comment `# Deploy MUST set this to the reverse proxy (hop count or its addresses): the search, export and mentor limiters key on the client IP.` above it.
+- [ ] **3.4 Run** `npm test -w @kitchenquest/api` → PASS. The full suite, including the unchanged M2 `rules.test.ts`, is the regression net for the refactor and the lock order.
 - [ ] **3.5 Commit** `fix(api): per-user rule lock makes the cap strict; consent checked after the live-user lock`

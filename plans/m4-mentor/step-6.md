@@ -8,7 +8,7 @@ This step holds the storage the agent needs, and nothing more:
 The consent notices change so that the words match what is now kept and sent.
 
 **Files:**
-- Create: `apps/api/src/mentor/constants.ts`, `apps/api/src/mentor/conversations.ts`, `apps/api/src/mentor/memory.ts`, `apps/api/src/mentor/proposals.ts`, generated migration `apps/api/drizzle/00NN_mentor.sql`
+- Create: `apps/api/src/mentor/constants.ts`, `apps/api/src/mentor/conversations.ts`, `apps/api/src/mentor/memory.ts`, `apps/api/src/mentor/proposals.ts`, generated migration `apps/api/migrations/0010_mentor.sql`
 - Create: `docs/compliance/notices/health_data-v2.md`, `docs/compliance/notices/ai_health-v1.md`
 - Modify:
   - `apps/api/src/db/schema.ts`
@@ -30,7 +30,7 @@ The consent notices change so that the words match what is now kept and sent.
 - Consumes: `ProposalCard`, `ServerCard`, `ReplyPart` (Step 1); `sealFor`/`openFor`, `registerRetention`, `hasConsent` (M2).
 - Produces:
 ```ts
-// mentor/constants.ts — the Global Constraints values, exported (PROPOSAL_TTL_MS, UNDO_WINDOW_MS, TRANSCRIPT_RETENTION_DAYS, HISTORY_MESSAGES, MEMORY_TTL_MS, CONVERSATION_IDLE_MS, TURNS_PER_MINUTE, FREE_AI_TURNS_PER_DAY, GUILD_AI_TURNS_PER_DAY, MAX_TEXT)
+// mentor/constants.ts — the Global Constraints values, exported (PROPOSAL_TTL_MS, UNDO_WINDOW_MS, TRANSCRIPT_RETENTION_DAYS, HISTORY_MESSAGES, MEMORY_TTL_MS, CONVERSATION_IDLE_MS, TURNS_PER_MINUTE, FREE_AI_TURNS_PER_DAY, GUILD_AI_TURNS_PER_DAY, MAX_TEXT, MAX_PANTRY_ITEMS; Step 5's inline 300 is replaced by this import)
 // mentor/conversations.ts
 export type StoredMessage = { role: 'player'; text: string } | { role: 'pan'; parts: ReplyPart[]; proposalIds: string[] };
 /** The caller's conversation when `id` is theirs and its last turn was within CONVERSATION_IDLE_MS, else a new one. Never another user's. */
@@ -59,6 +59,8 @@ export interface LoadedProposal { id: string; userId: string; conversationId: st
   status: 'open' | 'confirmed' | 'rejected' | 'expired' | 'undone'; card: ProposalCard; expiresAt: Date; decidedAt: Date | null; writeRef: string | null; undo: unknown | null }
 export async function createProposal(tx: Tx, keyring: Keyring, p: { userId: string; conversationId: string | null; turnSeq: number | null; card: ProposalCard }, now: Date): Promise<ServerCard>;
 export async function lockProposal(tx: Tx, keyring: Keyring, userId: string, id: string, now: Date): Promise<LoadedProposal | null>;   // FOR UPDATE; null when not theirs; an open one past expires_at reads as 'expired' (and is updated so)
+// Always LAST in the global lock order (Step 3): the caller already holds the user row, any advisory lock and the consent row.
+export async function peekProposal(tx: Tx, keyring: Keyring, userId: string, id: string): Promise<{ kind: ProposalKind } | null>;   // no lock; lets confirm pick its locks before lockProposal
 export async function openProposalsOfTurn(tx: Tx, keyring: Keyring, userId: string, conversationId: string, turnSeq: number, now: Date): Promise<LoadedProposal[]>;
 export async function markDecided(tx: Tx, id: string, status: 'confirmed' | 'rejected' | 'undone', channel: 'tap' | 'typed_yes' | null, writeRef: string | null, undo: unknown | null, keyring: Keyring, userId: string, now: Date): Promise<void>;
 ```
@@ -83,11 +85,11 @@ test('retention: messages older than 30 days go, newer stay; proposals older tha
 test('lockProposal: other user → null; past expires_at → status expired', ...);
 test('proposal payload is sealed: no "peanut" in mentor_proposals.sealed', ...);
 test('health_data v1 grants no longer count; v2 does', ...);   // hasConsent false for a v1 grant, needsReconsent lists health_data
-test('notice files hash-check at boot', ...);                 // the existing consent.test.ts check covers both new files
+test('an ai_health grant under the old inline version 2026-11-09 no longer counts', ...);   // hasConsent(ai_health) false; needsReconsent includes ai_health
 test('withdraw health_data with delete removes messages and proposals', ...);
 test('export lists conversations with decrypted messages; delete removes every mentor row', ...);
 ```
 - [ ] **6.2 Run** `npm test -w @kitchenquest/api -- mentor-store retention account consent architecture inventory` → FAIL.
 - [ ] **6.3 Implement.** Compute each notice's SHA-256 with the existing `noticeSha256` and write it into the file.
-- [ ] **6.4 Run** `npm test -w @kitchenquest/api` → PASS.
+- [ ] **6.4 Run** `npm test -w @kitchenquest/api` → PASS. The existing `consent.test.ts` hash check now covers the two new notice files; it fails if a declared SHA-256 is wrong.
 - [ ] **6.5 Commit** `feat(api): sealed 30-day transcripts, memory-only without consent, sealed proposals; consent notices name them`

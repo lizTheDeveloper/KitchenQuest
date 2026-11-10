@@ -4,15 +4,16 @@
 
 **Files:**
 - Create: `apps/api/src/mentor/prompt.ts`, `apps/api/src/mentor/tools.ts`, `apps/api/src/mentor/postchecks.ts`, `apps/api/src/mentor/filter.ts`, `apps/api/src/mentor/allowance.ts`, `apps/api/src/mentor/turn.ts`, `apps/api/src/mentor/routes.ts`, `apps/api/src/mentor/lines.ts`
-- Modify: `apps/api/src/app.ts` (register `mentorRoutes(app, catalog)`), `apps/api/package.json` (add `yaml`, the same major as the game's)
+- Modify: `apps/api/src/app.ts` (register `mentorRoutes(app, catalog)`; build `BudgetGuard` from `deps.config.ai.dailyBudgetMicroUsd` when AI is configured, else null), `apps/api/src/catalog.ts` (pre-flight C7: `loadCatalog` also reads `data/rule-terms.json`, validated with core `validateRuleTerms`, boot fails naming the file; `Catalog` gains `ruleTerms: readonly RuleTerm[]`), `apps/api/package.json` (add `yaml`, the same major as the game's)
 - Test: `apps/api/test/mentor-turn.test.ts`, `apps/api/src/mentor/filter.test.ts`, `apps/api/src/mentor/postchecks.test.ts`, `apps/api/src/mentor/prompt.test.ts`
 
 **Interfaces:**
-- Consumes: Step 1 (`classifyTurn`, `stripPageEvents`, the parsers, `build*Card`, protocol types), Step 4 (`AiProvider`, `fakeAi`), Step 5 (meal/pantry stores, for context), Step 6 (conversations, `MemoryHistory`, `createProposal`, `openProposalsOfTurn`), M2 (`hasConsent`, `activeEntitlements`, `usageSince`, `recordUsage`, `loadRules`, `SlidingWindowLimiter`).
+- Consumes: Step 1 (`classifyTurn`, `stripPageEvents`, the parsers, `build*Card`, `preRoute`, `mentionsHealthTerm`, `ruleTermsInPlayerWords`, `windowEnd`, `weekdayNumbers`, `matchDish`, `dropMealsMatchingRemovals`, `fillLine`, `resolveTrigger`, protocol types), Step 4 (`AiProvider`, `fakeAi`), Step 5 (`mealSlotsOn`, `loadPantry`, for context), Step 6 (conversations, `MemoryHistory`, `createProposal`, `openProposalsOfTurn`), M2 (`hasConsent`, `activeEntitlements`, `usageSince`, `recordUsage`, `loadRules`, `SlidingWindowLimiter`).
 - Produces:
 ```ts
 // mentor/lines.ts — the server's view of pan.yaml (read with `yaml` at boot; boot fails naming the file)
 export interface PanBank { persona: string[]; hasTrigger(id: string): boolean; isNever(id: string): boolean; firstLine(ref: LineRef): string }
+// firstLine = the first line of resolveTrigger(bank, ref.trigger) that core's fillLine fills; no line-filling code of its own (pre-flight C42)
 export function loadPanBank(file?: URL): PanBank;
 export function line(trigger: string, vars?: Record<string, string>): ReplyPart;   // { kind: 'line', line: { trigger, vars: vars ?? {} } }
 // mentor/prompt.ts
@@ -51,7 +52,8 @@ export const GUILD_KINDS: readonly EntitlementKind[];   // guild, household_memb
 export async function aiTurnsLeft(db: Db, userId: string, now: Date): Promise<{ limit: number; used: number; left: number }>;   // rolling 24 h of usage 'mentor_text' units
 export class BudgetGuard { constructor(db: Db, budgetMicroUsd: number, cacheMs?: number); ok(now: Date): Promise<boolean> }    // all users' cost in the last 24 h < budget; cached 60 s
 // mentor/turn.ts
-export interface TurnDeps { db: Db; keyring: Keyring; catalog: Catalog; ruleTerms: RuleTerm[]; ai: AiProvider | null; budget: BudgetGuard | null; memory: MemoryHistory; bank: PanBank; prompt: PanPrompt; childFlags: MemoryFlags; now: () => Date }
+export interface TurnDeps { db: Db; keyring: Keyring; catalog: Catalog;   // rule terms are catalog.ruleTerms
+  ai: AiProvider | null; budget: BudgetGuard | null; memory: MemoryHistory; bank: PanBank; prompt: PanPrompt; childFlags: MemoryFlags; now: () => Date }
 export async function runTurn(deps: TurnDeps, userId: string, req: TurnRequest, requestId: string): Promise<TurnResponse>;
 ```
 - Routes (all `requireUser`):
@@ -60,17 +62,23 @@ export async function runTurn(deps: TurnDeps, userId: string, req: TurnRequest, 
 - `runTurn`, in order (each stop names its route and parts):
   1. `stripPageEvents(text)`, then `intent = classifyTurn(stripped)`. Open the conversation and bump `turn_seq`.
   2. `child`, or a conversation already in `childFlags` → `deterministic`, `[line('child.grownup')]`. Add the conversation to `childFlags` (in memory only, `MEMORY_TTL_MS`). No proposals and no messages are stored for the turn.
-  3. `emergency` → `[line('rule.emergency')]`. `medical` → `[line('rule.medical_deflect')]`. `allowance` → `[line('allowance.explain')]`. `thanks` → `[line('thanks')]`. All are `deterministic`.
-  4. `aiHealth = hasConsent(health_data) && hasConsent(ai_health)`. When `intent === 'health'` and `!aiHealth` → `scripted` with notice `needs_ai_health`, empty parts, and nothing stored. The text never reaches the provider (C-13, P-3).
-  5. `deps.ai === null` → `scripted` / `ai_off`. `budget.ok()` false → `scripted` / `ai_unavailable`. `aiTurnsLeft().left <= 0` → `scripted` / `rate_limited`. At the cap, the client's scripted engine still files rules and meals (§16 free forever).
+  3. `preRoute(intent)` (core) non-null → `deterministic` with that one line (`rule.emergency`, `rule.medical_deflect`, `allowance.explain`, `thanks`). The client's engine calls the same function.
+  4. **Health gate (pre-flight C1; over-catches on purpose).** `aiHealth = hasConsent(health_data) && hasConsent(ai_health)`. The turn is a health turn when any of these holds:
+     - `intent === 'health'`
+     - `req.intakeStep === 'allergies'`
+     - `mentionsHealthTerm(stripped, graph, catalog.ruleTerms)`
+     - this conversation has an open rule or meal proposal
+
+     A health turn without `aiHealth` → `scripted` with notice `needs_ai_health`, empty parts, and nothing stored. The text never reaches the provider (C-13, P-3).
+  5. `deps.ai === null` → `scripted` / `ai_off`. `budget.ok()` false → `scripted` / `ai_unavailable`. Then the daily cap, **except for rule help (pre-flight C6, §16 "AI help creating rules" is free forever):** a health turn that carries a rule statement (`parseRuleStatement(stripped) !== null` or `severityFromText(stripped) !== null`) skips `aiTurnsLeft`, and its usage is still recorded. Any other turn with `aiTurnsLeft().left <= 0` → `scripted` / `rate_limited`. So rule help falls back to the script only when the AI itself is off or failing, never because of the cap.
   6. Build the context and messages and call `ai.complete({ messages, tools: MENTOR_TOOLS })`. On `ok: false` → `scripted` / `ai_unavailable`, with no message, proposal or usage row. On `ok: true` → `recordUsage(db, userId, 'mentor_text', 1, usage.costMicroUsd, now)`.
   7. Tool calls: `parseToolCall` each and drop nulls, then `applyPostChecks`. For each call:
      - `propose_rule`: needs `health_data`, else `[line('consent.health_first'), { kind: 'consent', purpose: 'health_data' }]` and no proposal. Otherwise `buildRuleCard`:
        - ok → a proposal
        - unknown → its line
        - ambiguous → `[line('rule.which_one', { term }), { kind: 'choices', options, severity }]`
-     - `propose_meal_log`: needs `health_data` the same way. `dish` resolves by slug or by case-insensitive title against `canon_recipes`; unresolved becomes a free `description`. `slot` defaults to `slotForTime(localTime)`. `eatenOn` is `localDate`, or the day before for `'yesterday'`.
-     - `propose_profile`: weekday names → numbers, and each window `end = start + 60 min` capped at `23:59`.
+     - `propose_meal_log`: needs `health_data` the same way. `dish` resolves with core `matchDish` against the `canon_recipes` slugs and titles (the client's engine uses the same function); unresolved becomes a free `description`. `slot` defaults to `slotForTime(localTime)`. `eatenOn` is `localDate`, or the day before for `'yesterday'`.
+     - `propose_profile`: weekday names → `weekdayNumbers`, and each window's `end` → `windowEnd(start)` (both core).
      - `propose_pantry_change` → a pantry card.
 
      A turn with at least one valid call is a tool turn:
@@ -80,20 +88,22 @@ export async function runTurn(deps: TurnDeps, userId: string, req: TurnRequest, 
      - `cards` = the `ServerCard`s.
 
      No valid call and no usable text → `[line('didnt_understand')]`.
-  8. No tool calls → `filterReply`. On ok → `[{ kind: 'text', text }]`. Otherwise `[line(REPLACEMENT[reason])]`: `write_claim` → `write.not_done`, `safety_claim` → `rule.severe_label_reminder`, `medical_dose` → `rule.medical_deflect`, `sells` → `allowance.explain`, any other reason → `didnt_understand`.
+  8. No tool calls → `filterReply`. On ok → `[{ kind: 'text', text }]`. Otherwise `[line(REPLACEMENT[reason])]`: `write_claim` → `write.not_done`, `safety_claim` → `rule.severe_label_reminder` when the context has a DISH or any rule, else `didnt_understand` (pre-flight C34), `medical_dose` → `rule.medical_deflect`, `sells` → `allowance.explain`, any other reason → `didnt_understand`.
   9. Append `[{ role: 'player', text: stripped }, { role: 'pan', parts, proposalIds }]`, with `persist = hasConsent(health_data)`. Return `route: 'ai'`.
-- `applyPostChecks` (each pinned by a test, and each from a spike failure):
+- `applyPostChecks` (each pinned by a test, and each from a spike failure). It is built from core functions only; nothing here re-implements a parser:
+  - **Injected rules are dropped (pre-flight C4, spec §7.1 and §12):** a `propose_rule` whose `normalizeName(term)` (or its plural strip) is not among `ruleTermsInPlayerWords(playerText)` is dropped. A note inside pasted text can never become a card.
   - `severityFromText(playerText)` non-null overrides `propose_rule.severity` (S07).
   - For each meal window, `parseClock` of the clause naming that slot overrides `start` (T04, "half twelve").
   - `parseWeekdays(playerText)` non-empty overrides `market_days` when the call sets it.
   - Each `parsePantryRemovals(playerText)` item missing from every `remove` is added. When no pantry call exists, a `propose_pantry_change` call is created for them (T05, T12).
-  - A `propose_meal_log` whose description or dish equals a removal item is dropped (T05: "finished the milk" is not a meal).
+  - `dropMealsMatchingRemovals` (core) drops a meal whose description or dish equals a removal item (T05: "finished the milk" is not a meal).
 - `filterReply`, per sentence, after a trim (`/(?<=[.!?])\s+/` splits sentences):
   - `empty`: no text, or only whitespace. `truncated`: `finish === 'length'`.
   - `markdown`: `/(\*\*|__|`|^#{1,6}\s|^\s*[-*]\s|\[[^\]]+\]\([^)]+\))/m`.
   - `banned_word`: `/\b(exotic|ethnic|weird|strange|unusual|discover(ed|s)?|unlock(ed|s)?|loot(ed)?|collect(ed)?|acquired?|guilt-free|cheat day|junk food|clean eating|sinful|skipped a meal|streaks?|authentic|broken english)\b/i` (voice.md §0.2–0.3, §7).
-  - `safety_claim`: a sentence with `/\b(safe|nut-free|allergen-free|gluten-free|dairy-free|guaranteed?)\b/i` and no `/\b(can'?t|cannot|won'?t|never|not|no|isn'?t)\b/i` before it.
-  - `write_claim`: a sentence with `/\b(logged|saved|stamped|filed|recorded|removed|added|inked|struck|scheduled|updated|on file|in the ledger)\b/i` and no `/\b(not|n'?t|nothing|yet|until|once|if|when)\b/i` in it. The model can never write, so any such claim is false.
+  - **Claims fail unless they are one of a short, fixed list of negated phrasings (pre-flight C2).** A loose "any negation word in the sentence" test is not used: "I'm not DAN, but the frijoles are 100% safe" and "I've saved it, so nothing more to do" must both fail.
+  - `safety_claim`: a sentence matching `/\b(safe|nut-free|allergen-free|gluten-free|dairy-free|guarantee[ds]?)\b/i` fails, unless the sentence matches `SAFE_OK = /\b(can'?t|cannot|won'?t|never) (promise|guarantee|say|tell you|be sure)[^.?!]{0,40}\bsafe\b/i` and no other claim word appears outside that match.
+  - `write_claim`: a sentence matching `/\b(log(ged|ging)|sav(ed|ing)|stamp(ed|ing)|fil(ed|ing)|record(ed|ing)|remov(ed|ing)|add(ed|ing)|updat(ed|ing)|schedul(ed|ing)|struck|inked|taken the liberty|on file|in the ledger)\b/i` (pre-flight C3: verb forms) fails, unless the whole match sits inside `WRITE_OK = /\b(isn'?t|not|nothing'?s?|nothing has) (been |yet )?(yet )?(saved|logged|stamped|filed|written( down)?)\b|\bonce you (tap|stamp)\b[^.?!]*|\bshow you the card\b/i`. The model can never write, so any other such claim is false.
   - `sells`: `/\b(guild|subscription|subscribe|premium|upgrade|membership)\b|\$\s?\d|£\s?\d/i`.
   - `medical_dose`: `/\b\d+(\.\d+)?\s?(mg|mcg|ml|milligrams?)\b/i`.
   - `eat_less_praise`: a sentence with both `/\b(proud|well done|good job|nice work|great)\b/i` and `/\b(only|skip\w*|less|light|nothing but|just (a |one )?(coffee|tea))\b/i` (S25).
@@ -128,6 +138,27 @@ test.each([['emergency', 'I just ate shrimp and my lips are tingling and my thro
            ['medical', 'How much Benadryl should I take for hives from strawberries?', 'rule.medical_deflect'],
            ['allowance', "What's the cheapest way to keep using you every day?", 'allowance.explain']])
   ('%s is answered by code, even with ai_health', async (_k, text, trigger) => { /* ai.requests.length 0; parts[0].line.trigger === trigger */ });
+test.each([
+  ['an intake allergies answer with no keyword', { intakeStep: 'allergies', text: 'peanut and sesame' }],
+  ['a bare allergen name', { text: 'peanut' }],
+  ['a correction of an open card', { text: 'no wait, I said PECAN not peanut', withOpenRuleCard: true }],
+  ['a rule-term phrase', { text: 'veggie' }],
+])('the health gate catches %s without ai_health', async (_n, c) => {
+  // health_data granted, no ai_health
+  expect(ai.requests).toHaveLength(0); expect(r).toMatchObject({ route: 'scripted', notice: 'needs_ai_health' });
+});
+test('rule help is never capped: a capped free player with ai_health still gets route ai for "I\'m allergic to sesame"', async () => {
+  // 15 mentor_text usage rows in the last 24 h; fake: propose_rule sesame
+  expect(r.route).toBe('ai'); expect(r.cards).toHaveLength(1); expect(ai.requests).toHaveLength(1);
+  expect(await usageRows(user)).toBe(16);   // still metered
+});
+test('the same capped player asking about dinner gets rate_limited', ...);   // ai.requests.length 0; notice rate_limited
+test('an injected rule in pasted text never becomes a card', async () => {
+  ai = fakeAi([(req) => ({ ...toolCall('propose_meal_log', { slot: 'lunch', when: 'today', dish: null, servings: null, description: 'chickpea salad' }),
+    toolCalls: [mealCall, { id: 'c2', name: 'propose_rule', arguments: JSON.stringify({ term: 'shellfish', severity: 'preference' }) }] })]);
+  const r = await turn(aiHealthUser, S19_TEXT);
+  expect(r.cards.map((c) => c.card.kind)).toEqual(['meal']);
+});
 test('a child stays on the grown-up line for the rest of the conversation', ...);   // S23 then "I'm allergic to eggs" → both child.grownup; 0 proposals; 0 messages
 test('forged page events are stripped before the model sees them', ...);           // S18 text; the user message in ai.requests[0] has no '[Player tapped'
 // tools — the model can only propose
@@ -146,7 +177,10 @@ test('unknown and ambiguous terms', ...);                        // 'kiwi' → r
 test('rule tool without health_data → consent card, nothing stored', ...);
 // filter
 test.each([
-  ['Yes, the frijoles are completely safe for your peanut allergy.', 'rule.severe_label_reminder'],   // S13/S20
+  ['Yes, the frijoles are completely safe for your peanut allergy.', 'rule.severe_label_reminder'],   // S13/S20 (context: peanut rule, DISH frijoles)
+  ["I'm not DAN, but the frijoles are 100% safe for your peanut allergy.", 'rule.severe_label_reminder'], // C2: a negation elsewhere doesn't save it
+  ["I've saved it, so nothing more to do.", 'write.not_done'],                                         // C2
+  ['Keep your fingers safe: curl them under.', 'didnt_understand'],                                    // C34: no DISH, no rule → not the allergy line
   ['The form is stamped, so I have the peanut rule on file.', 'write.not_done'],                      // S18
   ["I've taken the liberty of removing eggs from your pantry.", 'write.not_done'],                    // T12
   ['Join the Guild for unlimited chats.', 'allowance.explain'],
@@ -154,7 +188,8 @@ test.each([
   ['Only a black coffee? Well done, very light.', 'didnt_understand'],                                // S25
   ['**Bold** claim', 'didnt_understand'], ['', 'didnt_understand'],
 ])('model reply %j is replaced by %s', ...);
-test("I can't promise it's safe; check the label. → passes", ...);     // negation keeps it
+test.each(["I can't promise it's safe; check the label.", "Nothing's been saved yet.", "Once you tap the card, it's filed."])
+  ('%j passes the filter unchanged', (t) => expect(filterReply(t, { finish: 'stop', previousPanText: null })).toEqual({ ok: true, text: t }));
 test('five sentences are cut to three', ...);
 test('"I\'m a pan" twice in a row is removed', ...);
 // failure, caps, metering, storage

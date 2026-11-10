@@ -15,7 +15,7 @@ Allergies come after a tap-based consent card (C-17), and every question can be 
 
 **Files:**
 - Create: `apps/game/src/mentor/intake.ts` (+ test), `apps/game/src/rules/rules-screen.ts`, `apps/game/src/rules/rule-form.ts` (+ test), `apps/game/src/settings/mentor-section.ts`, `apps/game/src/auth/age-screen.ts` (+ test)
-- Modify: `apps/game/src/shell/router.ts` (+ test: `{ name: 'rules' }` ↔ `#/rules`), `apps/game/src/shell/app.ts` (register the screen; start intake on first open), `apps/game/src/settings/settings-screen.ts`, `apps/game/src/auth/verify-page.ts` (the age screen replaces M3's "I'm 16 or older" checkbox), `apps/game/e2e/signin.e2e.test.ts`
+- Modify: `apps/game/src/shell/app.ts` (register the real `rules` screen over Step 9's placeholder; start intake on first open), `apps/game/src/settings/settings-screen.ts`, `apps/game/src/auth/verify-page.ts` (the age screen replaces M3's `showAgeGate` checkbox "I'm 16 or older"), `apps/game/e2e/signin.e2e.test.ts`
 - Test: `apps/game/e2e/intake.e2e.test.ts`, `apps/game/e2e/rules.e2e.test.ts`
 
 **Interfaces:**
@@ -31,16 +31,17 @@ export function parseIntakeAnswer(step: IntakeStep, text: string, deps: { graph:
   { kind: 'card'; card: ProposalCard } | { kind: 'none' } | { kind: 'done' } | { kind: 'skip' } | { kind: 'unparsed' } | { kind: 'reply'; reply: RuleCardResult };
 // rules/rule-form.ts — the form fallback (no AI, no conversation)
 export function mountRuleForm(el: HTMLElement, opts: { graph: IngredientGraph; ruleTerms: RuleTerm[]; onCard(card: RuleCard): void }): () => void;
+// the rules screen wraps each card as { origin: 'local', localId: crypto.randomUUID(), card, issuedTurn: 0 } before renderCard; issuedTurn 0 means a typed yes can never reach it
 // auth/age-screen.ts
 export type AgeAnswer = 'ok' | 'under' | 'ask_birthday';
 export function ageFromYear(birthYear: number, thisYear: number): AgeAnswer;   // diff ≥ 17 → ok; 16 → ask_birthday; < 16 → under
 export function mountAgeScreen(el: HTMLElement, opts: { thisYear: number; onOk(): void; onUnder(): void }): void;
 // settings/mentor-section.ts
-export function mountMentorSection(el: HTMLElement, opts: { store: PlayerStore; client: ApiClient; forms: Record<string, BureauForm> }): () => void;
+export function mentorSection(store: PlayerStore, client: ApiClient, forms: Record<string, BureauForm>): { el: HTMLElement; stop: () => void };   // M3's accountSection shape
 ```
 - Intake:
   - Start on first open, when `intake.step === null`, standard mode, after `greet.first_ever`. The panel says `intake.open`, shows the Form 1-A checklist (`forms.intake`, one tick per stamped field), and asks each step's `intake.<step>.ask`. `intake.step` is persisted after each step.
-  - For each answer, `parseIntakeAnswer`:
+  - For each answer, `parseIntakeAnswer`. **Skip words are checked first** (pre-flight C45): `skip|not now|later|pass` → `skip`, before any step parser, so "skip" never becomes `country: 'skip'`.
     - `market_day` → `parseWeekdays` → a profile card with `marketDays`.
     - `meals_per_week` → `parseCount` → `mealsPerWeek`.
     - `region` → up to 80 characters. With a comma, `country` is the last part and `region` the rest. Without one, `country` is the text and `region` is null.
@@ -49,13 +50,13 @@ export function mountMentorSection(el: HTMLElement, opts: { store: PlayerStore; 
       - Otherwise `parseRuleStatement`, falling back to the whole answer as one term → `buildRuleCard`.
       - After each stamp → `intake.allergies.followup`, and stay on the step.
     - `pantry` → `parsePantryAdds`, with the whole answer split on commas as a fallback.
-    - `skip|not now|later|pass` → `intake.skip`, then the next step.
+    - `skip` → `intake.skip`, then the next step.
   - When an answer is `unparsed`:
     - With the AI backend available, it sends the answer as a turn with `intakeStep` set. The server's tools make the card (Step 7).
     - Otherwise the Pan says the step's re-ask (`schedule.bad_time` for times, `didnt_understand` otherwise) and shows chips: weekday buttons, 1–7, or Skip.
   - A stamped card → the step's `intake.<step>.followup` with its var (`day`, `count`, `region`, `items`), then the next ask.
   - After `pantry`, `intake.complete`, then `intake.notifications` is **not** shown (reminders are M9). `intake.step = 'done'`.
-  - **Consent before allergies (C-17):** when signed in and `health_data` has no current grant (`listConsents`), the allergies step first shows `renderConsentCard('health_data', …)`. Declining → `intake.skip` and the next step; onboarding completes without rules (spec §6). Signed out, the rule card footnote reads "*Kept on this device only." and no consent card is shown.
+  - **Consent before allergies (C-17):** when signed in and M3's `healthConsent(await client.consents())` is not `'granted'` (`'missing'` or `'reconsent'`), the allergies step first shows `renderConsentCard('health_data', …)`. Declining → `intake.skip` and the next step; onboarding completes without rules (spec §6). Signed out, the rule card footnote reads "*Kept on this device only." and no consent card is shown.
   - Family Table mode never starts the intake.
 - AI disclosure (C-16): the first time the panel opens in standard mode with `aiDisclosureSeen === false`, a plain notice bubble shows `disclaimers.ai_characters` verbatim with a "Got it" button that sets the flag. Settings shows the same text, always.
 - Rules screen (`#/rules`, h1 "Your rules"):
@@ -70,7 +71,7 @@ export function mountMentorSection(el: HTMLElement, opts: { store: PlayerStore; 
   - `ask_birthday` → the radio question "Have you had your birthday yet this year?" (Yes → ok, No → under).
   - `under` → replace the form with "Kitchen Quest accounts are for people aged 16 and over. You can still play on this device without an account." and a link to `/#/kitchen`. The form cannot be shown again on that page load.
   - The year is never sent, stored, logged or put in the URL. `[lawyer]` per C-39.
-- Settings → "The Pan":
+- Settings → "The Pan" (`mentorSection`, added to M3's settings screen beside `accountSection`):
   - The disclosure text.
   - "Talk to the Pan's AI" (`settings.aiMentor`).
   - When signed in, "Let the AI see my allergies, rules and meals" (grant or withdraw `ai_health`, with the notice shown on grant).
@@ -106,7 +107,7 @@ test('it works with the AI off and the API down', ...);   // /api/** → abort; 
 // signin.e2e.test.ts (extend)
 test('age screen: no year preselected; under-16 gets no account and the year is never sent', ...);   // verify request bodies never contain the year; localStorage unchanged
 ```
-- [ ] **11.2 Run** `npm test -w @kitchenquest/game -- intake age rule-form router` and the three e2e files → FAIL.
+- [ ] **11.2 Run** `npm test -w @kitchenquest/game -- intake age rule-form` and the three e2e files → FAIL.
 - [ ] **11.3 Implement.**
 - [ ] **11.4 Run** the full game unit and e2e suites and the typecheck → PASS.
 - [ ] **11.5 Commit** `feat(game): Form 1-A intake by conversation, consent and AI disclosure cards, rules screen, neutral age screen`

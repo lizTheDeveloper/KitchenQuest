@@ -4,7 +4,8 @@ One interface for every AI call (spec §7). OpenRouter is the only implementatio
 
 **Files:**
 - Create: `apps/api/src/ai/provider.ts`, `apps/api/src/ai/openrouter.ts` (+ `openrouter.test.ts`), `apps/api/src/ai/processors.ts` (+ `processors-gate.test.ts`), `apps/api/test/helpers/fake-ai.ts`
-- Modify: `apps/api/src/config.ts` (AI env), `apps/api/src/app.ts` (`Deps.ai: AiProvider | null`), `apps/api/src/server.ts` (build the provider from config), `apps/api/test/helpers/config.ts` (AI off by default), `apps/api/test/processors.test.ts` (N-9 schema), `docs/compliance/processors.json` (the policy the code pins, under `openrouter.retention` and `.training_use`; `status: "built M4, gated on DPA"`), `.env.example`
+- Modify: `apps/api/src/config.ts` (AI env), `apps/api/src/app.ts` (`Deps.ai: AiProvider | null`), `apps/api/src/server.ts` (build the provider from config), `apps/api/test/helpers/config.ts` (AI off by default), `apps/api/test/processors.test.ts` (N-9 schema), `docs/compliance/processors.json` (the policy the code pins, under `openrouter.retention` and `.training_use`; `status` is left alone, Step 12 owns it), `.env.example`
+- Test: `apps/api/test/config.test.ts` (new; the existing `describe('loadConfig')` block moves here from `apps/api/test/health.test.ts`)
 - Modify: `apps/api/package.json` (no new runtime dependency here; `fetch` is Node 22's)
 
 **Interfaces:**
@@ -89,7 +90,7 @@ test('a failing call logs no content even when the error body echoes the prompt'
   expect(logs.text()).not.toMatch(/peanut/i);
   expect(logs.text()).toMatch(/"failure":"http_4xx"/);
 });
-// config tests (extend the existing config test file)
+// config.test.ts (the loadConfig tests moved from health.test.ts, plus these)
 test('AI off by default and no AI variable needed', ...);
 test.each([['OPENROUTER_API_KEY'], ['AI_PROVIDERS'], ['AI_DAILY_BUDGET_USD']])('AI_ENABLED=true without %s fails naming it', ...);
 test('a :free model is refused', ...);                           // AI_MODEL=qwen/qwen3.8-27b:free → error names C-14
@@ -98,6 +99,6 @@ test('production refuses AI while the OpenRouter DPA is not signed', ...);   // 
 test('processorsNotReady lists unsigned ids', ...);              // a temp register file with openrouter 'signed', providers 'unknown' → ['openrouter-model-providers']
 ```
 - [ ] **4.2 Run** `npm test -w @kitchenquest/api -- ai config processors` → FAIL.
-- [ ] **4.3 Implement.** `buildApp` takes `deps.ai` as given, with `null` meaning AI off. `server.ts` builds it with `createOpenRouterProvider(config.ai, { fetch, log: app.log })` when `config.ai` is set. `.env.example` lists the AI variables with `AI_ENABLED=false`.
+- [ ] **4.3 Implement.** `buildApp` takes `deps.ai` as given, with `null` meaning AI off. `server.ts` builds it with `createOpenRouterProvider(config.ai, { fetch, log: app.log })` when `config.ai` is set. `.env.example` lists the AI variables with `AI_ENABLED=false` and, exactly, `AI_PROVIDERS=tenstorrent,modelrun` (Step 12's eval fingerprint reads this line), `AI_MODEL=qwen/qwen3.8-27b`, `# OPENROUTER_API_KEY=`, `# AI_DAILY_BUDGET_USD=`.
 - [ ] **4.4 Run** `npm test -w @kitchenquest/api` and `npm run typecheck -w @kitchenquest/api` → PASS.
 - [ ] **4.5 Commit** `feat(api): AiProvider over OpenRouter with pinned no-retention routing, DPA gate and content-free logging`
