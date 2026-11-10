@@ -217,9 +217,7 @@ No child data is collected until counsel signs off (P-9). The rows are reserved 
 |---|---|---|---|---|---|---|---|---|---|
 | W-1 | Recipe contributor ids (stable ids, e.g. GitHub handles) | `recipes/**/*.cook` front matter; `canon_recipes.contributors` (M2 Step 6) | identifier (public, third party) | legit.; contributor agreement | no | as long as the recipe is in the canon | GitHub; Hetzner | not in the player's E; contributor rights handled separately (**gap**) | planned M2 Step 6 |
 | W-2 | Recipe source URL and author credit | `canon_recipes.source`, recipe cards | identifier (third party, public) | legit. (credit) | no | as above | Hetzner | n/a | built |
-| W-3 | Canon recipe metadata | `meal_logs` | `meal_logs.id`, `meal_logs.user_id`, `meal_logs.eaten_on`, `meal_logs.slot`, `meal_logs.sealed`, `meal_logs.created_at` | H-7 |
-| `pantry_items` | `pantry_items.id`, `pantry_items.user_id`, `pantry_items.sealed`, `pantry_items.created_at` | H-11 |
-| `canon_recipes` | none | n/a | n/a | n/a | n/a | n/a | built |
+| W-3 | Canon recipe metadata | `canon_recipes` | none | n/a | n/a | n/a | n/a | n/a | built |
 
 ### 3.13 Free-text fields and their caps (N-7)
 
@@ -272,12 +270,12 @@ Every string the API accepts from a player, with its maximum. A field not listed
 ## 5. Keeping this file true
 
 - Every PR that adds or changes a table, column, object-storage path, outbound request or log field updates this file in the same PR.
-- `apps/api/test/inventory.test.ts` (N-8) migrates a fresh database, lists every `table.column` from `information_schema`, and fails if one is missing from this file. Add a new column to the row that covers it and to §6.
+- `apps/api/test/inventory.test.ts` (N-8) migrates a fresh database, lists every `table.column` from `information_schema`, and fails if one is missing from its table's row in §6 (only §6 is read). Add a new column to the row that covers it and to §6.
 - Review annually and on any new processor (P-11), new AI feature, new region or any change to a consent purpose.
 
 ## 6. Column index (N-8)
 
-Every column the migrations create, as `table.column`, with the inventory row that covers it. `apps/api/test/inventory.test.ts` fails if a column is missing here or anywhere above.
+Every column the migrations create, as `table.column`, with the inventory row that covers it. `apps/api/test/inventory.test.ts` reads only this table and fails if a column is missing from its table's row.
 
 | Table | Columns | Rows |
 |---|---|---|
@@ -286,6 +284,8 @@ Every column the migrations create, as `table.column`, with the inventory row th
 | `sessions` | `sessions.id`, `sessions.user_id`, `sessions.token_hash`, `sessions.expires_at`, `sessions.created_at` | A-6 |
 | `profiles` | `profiles.user_id`, `profiles.market_days`, `profiles.meals_per_week`, `profiles.country`, `profiles.region`, `profiles.meal_windows`, `profiles.updated_at` | P-1, P-2, P-3 |
 | `rules` | `rules.id`, `rules.user_id`, `rules.sealed`, `rules.created_at`, `rules.updated_at` | H-1, H-2, H-3 |
+| `meal_logs` | `meal_logs.id`, `meal_logs.user_id`, `meal_logs.eaten_on`, `meal_logs.slot`, `meal_logs.sealed`, `meal_logs.created_at` | H-7 |
+| `pantry_items` | `pantry_items.id`, `pantry_items.user_id`, `pantry_items.sealed`, `pantry_items.created_at` | H-11 |
 | `canon_recipes` | `canon_recipes.path`, `canon_recipes.slug`, `canon_recipes.title`, `canon_recipes.country`, `canon_recipes.region`, `canon_recipes.status`, `canon_recipes.source`, `canon_recipes.content_hash`, `canon_recipes.contributors`, `canon_recipes.synced_at` | W-1 (`contributors`), W-2 (`source`), W-3 (the rest; no player data) |
 | `entitlements` | `entitlements.id`, `entitlements.user_id`, `entitlements.kind`, `entitlements.source`, `entitlements.starts_at`, `entitlements.ends_at`, `entitlements.created_at` | U-2 |
 | `usage_events` | `usage_events.id`, `usage_events.user_id`, `usage_events.feature`, `usage_events.units`, `usage_events.cost_microusd`, `usage_events.created_at` | U-1, V-4 |
