@@ -16,8 +16,13 @@ export type PanItem =
   | { kind: 'said'; said: Said }
   /** An ambiguous term: the panel shows the options and builds a local rule card from the one tapped. */
   | { kind: 'choices'; options: { id: string; name: string }[]; severity: Severity | null }
-  /** Show that consent card. */
-  | { kind: 'consent'; purpose: 'health_data' | 'ai_health' }
+  /** Show that consent card. `onAnswer` hears the tap: true once the grant is filed, false on Not now (or no notice). */
+  | { kind: 'consent'; purpose: 'health_data' | 'ai_health'; onAnswer?: (granted: boolean) => void }
+  /**
+   * Quick answers to the question just asked (the intake's weekday, 1–7 and Skip chips, Step 11). A tap is a new turn:
+   * the panel shows the label as the player's bubble and renders what `onPick` returns.
+   */
+  | { kind: 'quick'; label: string; options: { label: string; value: string }[]; onPick(value: string, ctx: TurnContext): Promise<PanReply> }
   /** The saved rules need review (API 409 `rules_need_review`): code-owned player copy and a link to Your rules. */
   | { kind: 'rules_error'; message: string; href: string }
   /** The AI failed twice on this text: a "Try again" button that sends it again. The text lives in memory only (N-4). */

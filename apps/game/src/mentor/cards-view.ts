@@ -100,6 +100,8 @@ export function setCardNote(el: HTMLElement, text: string): void {
 export function renderCard(view: CardView, opts: {
   forms: Record<string, BureauForm>; now: () => Date;
   onConfirm(edits?: { severity?: Severity }): void | Promise<void>; onReject(): void | Promise<void>;
+  /** A plain note under the fields (Step 11: "*Kept on this device only." on a signed-out rule card). */
+  footnote?: string;
 }): HTMLElement {
   const { card } = view;
   const form = opts.forms[formIdFor(card)] as BureauForm | undefined;
@@ -125,7 +127,8 @@ export function renderCard(view: CardView, opts: {
     ? contentText('button', form.buttons.decline, { type: 'button', class: 'btn btn-secondary pan-card-reject' })
     : h('button', { type: 'button', class: 'btn btn-secondary pan-card-reject' }, NOT_NOW);
   const stamp = contentText('div', content.bureau.stamps[form.stamp] ?? form.stamp.toUpperCase(), { class: 'bureau-stamp', 'aria-hidden': 'true' });
-  const el = bureauSlip(form, uid('pan-card-title'), dl, h('div', { class: 'bureau-buttons' }, confirmBtn, rejectBtn), stamp);
+  const footnote = opts.footnote ? h('p', { class: 'bureau-footnote pan-card-footnote' }, opts.footnote) : null;
+  const el = bureauSlip(form, uid('pan-card-title'), dl, footnote, h('div', { class: 'bureau-buttons' }, confirmBtn, rejectBtn), stamp);
   el.dataset.origin = view.origin;
   el.dataset.kind = card.kind;
 

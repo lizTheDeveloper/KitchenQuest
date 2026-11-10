@@ -21,6 +21,9 @@ const UNDO_FAILED_TEXT = "That didn't go through, so nothing was undone. Tap Und
 const CONSENT_UNAVAILABLE_TEXT = "The permission form couldn't load just now. Nothing has changed.";
 const CONSENT_FAILED_TEXT = "That didn't go through. Nothing has changed. Tap 'I agree' to try again.";
 const CONSENT_DONE_TEXT = 'Permission filed. Thank you.';
+/** The footnote on a rule card a signed-out player would stamp: it is written to this device only (Step 11). */
+export const DEVICE_ONLY_FOOTNOTE = '*Kept on this device only.';
+export const DISCLOSURE_OK = 'Got it';
 /** How long the stamp lands before a card turns into its trail entry (motion on). */
 const STAMP_MS = 650;
 
@@ -36,6 +39,14 @@ export interface MentorPanel {
   show(reply: PanReply): void;
   /** The current Pan turn number. */
   readonly turn: number;
+  /** Called each time the panel opens, after the AI disclosure (Step 11 starts the intake here). Returns the unsubscribe. */
+  onOpen(fn: () => void): () => void;
+  /** Called when a card in the panel is stamped or turned down (the intake follows its own cards this way). */
+  onCardDone(fn: (view: CardView, result: 'confirmed' | 'rejected') => void): () => void;
+  /** A standing element above the conversation (the Form 1-A checklist), or null to remove it. */
+  setAside(el: HTMLElement | null): void;
+  /** Typed text goes to `fn` first; when it returns null the backend answers as usual. Null removes it. */
+  interceptText(fn: ((text: string, ctx: TurnContext) => Promise<PanReply> | null) | null): void;
 }
 
 interface OpenCard { view: CardView; el: HTMLElement; li: HTMLElement }
@@ -46,6 +57,8 @@ const keyOf = (c: CardView) => (c.origin === 'server' ? `server:${c.proposalId}`
 export function mountMentorPanel(root: HTMLElement, opts: {
   mode: MentorMode; backend: MentorBackend; dialogue: Dialogue; writer: CardWriter; engine: ScriptedEngine; client: ApiClient;
   forms: Record<string, BureauForm>; store: PlayerStore; reducedMotion: () => boolean; now: () => Date;
+  /** C-16, verbatim: shown once as a notice the first time the panel opens in standard mode (`aiDisclosureSeen`). */
+  disclosure?: string;
 }): MentorPanel {
   // Spec §19: in Family Table mode children never reach the AI. Refuse before touching the DOM.
   if (opts.mode === 'familyTable' && opts.backend.kind !== 'scripted') {
@@ -68,6 +81,13 @@ export function mountMentorPanel(root: HTMLElement, opts: {
     bubbles,
     status,
   );
+  const asideSlot = h('div', { class: 'pan-aside' });
+  asideSlot.hidden = true;
+  bubbles.before(asideSlot);
+  const openListeners = new Set<() => void>();
+  const doneListeners = new Set<(view: CardView, result: 'confirmed' | 'rejected') => void>();
+  const cardDone = (view: CardView, result: 'confirmed' | 'rejected') => { for (const fn of [...doneListeners]) fn(view, result); };
+  let intercept: ((text: string, ctx: TurnContext) => Promise<PanReply> | null) | null = null;
 
   let talkBtn: HTMLButtonElement | null = null;
   let textBox: HTMLTextAreaElement | null = null;
@@ -132,8 +152,9 @@ export function mountMentorPanel(root: HTMLElement, opts: {
   // --- Cards ---------------------------------------------------------------------------------------------------
 
   function addCard(view: CardView): void {
+    const deviceOnly = view.origin === 'local' && view.card.kind === 'rule' && store.get().account === null;
     const el = renderCard(view, {
-      forms, now: opts.now,
+      forms, now: opts.now, ...(deviceOnly ? { footnote: DEVICE_ONLY_FOOTNOTE } : {}),
       onConfirm: (edits) => confirm(view, 'tap', edits),
       onReject: () => reject(view),
     });
@@ -193,6 +214,7 @@ export function mountMentorPanel(root: HTMLElement, opts: {
       renderItems(out.items, []);
       // Carry from Step 2: the intake follow-up only after a confirmed write.
       if (view.card.kind === 'rule' && store.get().intake.step === 'allergies') sayLine('intake.allergies.followup');
+      cardDone(view, 'confirmed');
       return;
     }
     // A failed write is never silent (Step 9 carry): a scripted line, and a way to try again.
@@ -225,6 +247,7 @@ export function mountMentorPanel(root: HTMLElement, opts: {
     cards.delete(key);
     removeLi(c.li);
     renderItems(items, []);
+    cardDone(view, 'rejected');
   }
 
   async function undo(t: Trail): Promise<UndoOutcome> {
@@ -260,10 +283,15 @@ export function mountMentorPanel(root: HTMLElement, opts: {
 
   function applyAction(a: CardAction): void {
     switch (a.kind) {
-      case 'confirmed': void toTrail(`server:${a.proposalId}`, a.trail); return;
+      case 'confirmed': {
+        const c = cards.get(`server:${a.proposalId}`);
+        void toTrail(`server:${a.proposalId}`, a.trail);
+        if (c) cardDone(c.view, 'confirmed');
+        return;
+      }
       case 'rejected': {
         const c = cards.get(`server:${a.proposalId}`);
-        if (c) { cards.delete(`server:${a.proposalId}`); removeLi(c.li); }
+        if (c) { cards.delete(`server:${a.proposalId}`); removeLi(c.li); cardDone(c.view, 'rejected'); }
         return;
       }
       case 'undone': {
@@ -289,24 +317,44 @@ export function mountMentorPanel(root: HTMLElement, opts: {
 
   // --- Items ---------------------------------------------------------------------------------------------------
 
-  function renderConsent(purpose: 'health_data' | 'ai_health'): void {
+  function renderConsent(purpose: 'health_data' | 'ai_health', onAnswer?: (granted: boolean) => void): void {
     const li = addLi('pan-item pan-consent-item');
     void client.consents().then((r) => {
       const notice = r.ok ? r.data.notices[purpose] : undefined;
       const form = forms[purpose === 'ai_health' ? 'consent_ai' : 'consent_health'] as BureauForm | undefined;
-      if (notice === undefined || form === undefined) { li.replaceChildren(h('p', { class: 'pan-note', role: 'status' }, CONSENT_UNAVAILABLE_TEXT)); return; }
+      if (notice === undefined || form === undefined) {
+        li.replaceChildren(h('p', { class: 'pan-note', role: 'status' }, CONSENT_UNAVAILABLE_TEXT));
+        onAnswer?.(false);
+        return;
+      }
       const el = renderConsentCard(purpose, {
         form, notice,
         onAgree: async () => {
           const g = await client.grantConsent(purpose, notice.version);
-          if (g.ok) li.replaceChildren(h('p', { class: 'pan-note', role: 'status' }, CONSENT_DONE_TEXT));
-          else setCardNote(el, CONSENT_FAILED_TEXT);
+          if (g.ok) {
+            li.replaceChildren(h('p', { class: 'pan-note', role: 'status' }, CONSENT_DONE_TEXT));
+            if (doc.activeElement === doc.body) (textBox ?? closeBtn).focus();
+            onAnswer?.(true);
+          } else setCardNote(el, CONSENT_FAILED_TEXT);
         },
         // Saying no costs nothing: play goes on.
-        onDecline: () => { removeLi(li); },
+        onDecline: () => { removeLi(li); onAnswer?.(false); },
       });
       li.replaceChildren(el);
     });
+  }
+
+  function renderQuick(item: Extract<PanItem, { kind: 'quick' }>): void {
+    const buttons = item.options.map((o) => h('button', { type: 'button', class: 'btn btn-secondary pan-quick' }, o.label));
+    const li = addLi('pan-item pan-quick-item', h('div', { class: 'button-row', role: 'group', 'aria-label': item.label }, ...buttons));
+    buttons.forEach((b, n) => b.addEventListener('click', () => {
+      if (pending) return;
+      for (const x of buttons) x.disabled = true;
+      const hadFocus = li.contains(doc.activeElement);
+      const o = item.options[n];
+      addBubble('you', o.label);
+      void turnWith((ctx) => item.onPick(o.value, ctx)).then(() => { if (hadFocus) (textBox ?? closeBtn).focus(); });
+    }));
   }
 
   function renderChoices(item: Extract<PanItem, { kind: 'choices' }>): void {
@@ -334,7 +382,8 @@ export function mountMentorPanel(root: HTMLElement, opts: {
           break;
         }
         case 'choices': renderChoices(item); break;
-        case 'consent': renderConsent(item.purpose); break;
+        case 'consent': renderConsent(item.purpose, item.onAnswer); break;
+        case 'quick': renderQuick(item); break;
         case 'rules_error':
           addLi('pan-item pan-rules-error', h('div', { class: 'rules-error', role: 'note' },
             h('p', null, item.message), h('p', null, h('a', { href: item.href, class: 'rules-error-link' }, 'Open Your rules'))));
@@ -380,12 +429,13 @@ export function mountMentorPanel(root: HTMLElement, opts: {
     if (sendBtn) sendBtn.disabled = on;
   };
 
-  const reply = async (input: MentorInput): Promise<void> => {
+  /** One Pan turn: bump the turn, show that the Pan is thinking, render the reply (never silent on a throw). */
+  const turnWith = async (get: (ctx: TurnContext) => Promise<PanReply>): Promise<void> => {
     turn++;
     setPending(true);
     let r: PanReply;
     try {
-      r = await backend.reply(input, context());
+      r = await get(context());
     } catch (err) {
       console.error(err);
       r = { items: [{ kind: 'said', said: dialogue.say('mentor.ai_unavailable') }], cards: [], intents: [], actions: [], notice: null };
@@ -393,6 +443,26 @@ export function mountMentorPanel(root: HTMLElement, opts: {
       setPending(false);
     }
     render(r);
+  };
+  const reply = (input: MentorInput): Promise<void> => turnWith((ctx) => {
+    const intercepted = input.kind === 'text' && intercept ? intercept(input.text, ctx) : null;
+    return intercepted ?? backend.reply(input, ctx);
+  });
+
+  /** C-16: the AI disclosure, once ever, the first time the panel opens in standard mode. A plain notice, not a Pan line. */
+  let disclosureShown = false;
+  const showDisclosure = () => {
+    if (!standard || disclosureShown || opts.disclosure === undefined || store.get().aiDisclosureSeen) return;
+    disclosureShown = true;
+    const ok = h('button', { type: 'button', class: 'btn btn-secondary pan-disclosure-ok' }, DISCLOSURE_OK);
+    const box = h('div', { class: 'pan-disclosure', role: 'note' }, h('p', { 'data-content': '' }, opts.disclosure), ok);
+    const li = addLi('pan-item pan-disclosure-item', box);
+    ok.addEventListener('click', () => {
+      store.update((s) => ({ ...s, aiDisclosureSeen: true }));
+      const hadFocus = li.contains(doc.activeElement);
+      ok.remove();
+      if (hadFocus) (textBox ?? closeBtn).focus();
+    });
   };
   backend.onLate?.((r) => { render(r); });
 
@@ -460,6 +530,8 @@ export function mountMentorPanel(root: HTMLElement, opts: {
       opener?.setAttribute('aria-expanded', 'true');
       doc.addEventListener('keydown', onDocKey);
       (textBox ?? closeBtn).focus();
+      showDisclosure();
+      for (const fn of [...openListeners]) fn();
     },
     close() {
       if (!open) return;
@@ -472,6 +544,13 @@ export function mountMentorPanel(root: HTMLElement, opts: {
     isOpen: () => open,
     say: sayLine,
     show: render,
+    onOpen(fn) { openListeners.add(fn); return () => { openListeners.delete(fn); }; },
+    onCardDone(fn) { doneListeners.add(fn); return () => { doneListeners.delete(fn); }; },
+    setAside(el) {
+      asideSlot.replaceChildren(...(el ? [el] : []));
+      asideSlot.hidden = el === null;
+    },
+    interceptText(fn) { intercept = standard ? fn : null; },
   };
 
   closeBtn.addEventListener('click', () => api.close());
