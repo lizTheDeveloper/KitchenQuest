@@ -47,3 +47,19 @@ jobs:
       - run: npm audit --omit=dev --audit-level=high
       - run: npm run typecheck
       - run: npm test
+  game:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # CI runners only: this installs the Chromium that matches the pinned playwright-core (1.63.0, see the
+      # root package.json overrides). Never run it locally; the dev container ships its own Chromium.
+      - run: npx playwright install --with-deps chromium
+      - run: npm run typecheck -w @kitchenquest/game
+      - run: npm test -w @kitchenquest/game
+      - run: npm run build -w @kitchenquest/game
+      - run: npm run test:e2e -w @kitchenquest/game

@@ -7,7 +7,16 @@ A web game built with [Phaser 3](https://phaser.io), TypeScript, and [Vite](http
 ```bash
 npm install
 npm run dev        # dev server at http://localhost:5173
+npm run test:e2e   # builds the game, then drives Chromium against `vite preview`
 ```
+
+### The game
+
+- **API.** The game talks to the M2 API same-origin under `/api`. `vite dev` and `vite preview` proxy `/api/*` to `KQ_API_ORIGIN` (default `http://localhost:3000`), stripping the `/api` prefix; in production the reverse proxy does the same. Without an API the game runs signed out.
+- **Sign-in links.** The API's `APP_ORIGIN` must be the game's origin (e.g. `http://localhost:5173` for `npm run dev`), so magic links land on the game's `/auth/verify` page.
+- **Content and art are compiled at build time.** The YAML under `content/` and the `.cook` recipes under `recipes/` are validated and bundled when Vite builds; a bad YAML file fails the build and names its path.
+- **Art.** Files in `art/` override those in `prototype/art/` by manifest key; `prototype/art/` is the fallback.
+- **E2E tests** use Playwright's Chromium (`playwright@1.63.0`). CI installs it with `npx playwright install --with-deps chromium`; dev containers come with it.
 
 ## Scripts
 
@@ -35,11 +44,23 @@ npm run dev -w @kitchenquest/api   # http://localhost:3000/health
 npm workspaces monorepo.
 
 ```
-apps/game/                # Phaser game (@kitchenquest/game)
-  index.html              # page shell, mounts the game into #game
-  public/assets/          # images, audio, tilemaps (served as-is)
-  src/main.ts             # Phaser game config
-  src/scenes/             # one file per Phaser scene
+apps/game/                # Phaser game + HTML overlays, a PWA (@kitchenquest/game)
+  index.html              # page shell: HUD, #stage (the canvas, aria-hidden) and #view (the HTML screen)
+  auth/verify/            # the magic-link landing page (/auth/verify)
+  build/                  # Vite plugins: content + art compilers, service worker, security headers
+  e2e/                    # Playwright tests against `vite build` + `vite preview` (screens.ts lists every screen)
+  public/                 # icons and the web manifest (served as-is)
+  src/shell/              # router, screens, motion settings
+  src/content/            # the compiled content, typed
+  src/mentor/             # the Pan: dialogue picker and the mentor panel
+  src/recipes/            # recipe shelf and recipe cards (status from core `check`)
+  src/cook/               # cook mode: steps, timers, wake lock, certificate
+  src/kitchen/            # the home kitchen and the knife roll
+  src/world/              # world map, travel permit, cook visits
+  src/pwa/                # service worker and install prompts
+  src/api/                # M2 API client
+  src/auth/               # the /auth/verify page
+  src/scenes/             # Phaser scenes (no text on the canvas)
   src/util/               # pure game logic (unit-testable, no Phaser)
 apps/api/                 # Fastify API (@kitchenquest/api)
 packages/core/            # @kitchenquest/core: pure recipe/allergy logic, no I/O
