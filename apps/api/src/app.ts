@@ -7,6 +7,8 @@ import { authRoutes } from './auth/routes.js';
 import { requireUser } from './auth/session.js';
 import { defaultCatalog, type Catalog } from './catalog.js';
 import { consentRoutes } from './consent/routes.js';
+import { mealRoutes } from './meals/routes.js';
+import { pantryRoutes } from './pantry/routes.js';
 import { profileRoutes } from './profile/routes.js';
 import { recipeRoutes } from './recipes/routes.js';
 import { rulesRoutes } from './rules/routes.js';
@@ -76,6 +78,8 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
   await consentRoutes(app);
   await rulesRoutes(app, catalog);
   await recipeRoutes(app, catalog);
+  await mealRoutes(app);
+  await pantryRoutes(app, catalog);
   await accountRoutes(app);
 
   return app;

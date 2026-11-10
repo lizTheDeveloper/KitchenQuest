@@ -56,11 +56,12 @@ interface Change {
   removeNames?: string[];
   removeIds?: string[];
 }
+const OMIT = Symbol('omit confirmed');
 const change = (cookie: string | null, c: Change, confirmed: unknown = true) =>
   call(cookie, {
     method: 'POST',
     url: '/pantry/changes',
-    payload: { add: c.add ?? [], removeNames: c.removeNames ?? [], removeIds: c.removeIds ?? [], ...(confirmed === undefined ? {} : { confirmed }) },
+    payload: { add: c.add ?? [], removeNames: c.removeNames ?? [], removeIds: c.removeIds ?? [], ...(confirmed === OMIT ? {} : { confirmed }) },
   });
 const items = async (cookie: string) => (await call(cookie, { method: 'GET', url: '/pantry' })).json<{ items: Item[] }>().items;
 const item = (name: string, ingredientId: string | null = null) => ({ name, ingredientId });
@@ -91,7 +92,7 @@ describe('pantry', () => {
     expect((await change(null, { add: [item('Milk')] })).statusCode).toBe(401);
     expect((await call(null, { method: 'GET', url: '/pantry' })).statusCode).toBe(401);
     const c = await player();
-    for (const confirmed of [undefined, false, 'true']) {
+    for (const confirmed of [OMIT, false, 'true']) {
       const res = await change(c, { add: [item('Milk')] }, confirmed);
       expect(res.statusCode).toBe(400);
       expect(res.json().error.code).toBe('confirmation_required');

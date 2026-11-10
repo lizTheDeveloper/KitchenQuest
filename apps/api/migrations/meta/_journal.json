@@ -64,6 +64,13 @@
       "when": 1794263660796,
       "tag": "0008_canon_recipe_contributors",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1794282045582,
+      "tag": "0009_meals_pantry",
+      "breakpoints": true
     }
   ]
 }

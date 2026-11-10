@@ -1,14 +1,15 @@
 import { eq } from 'drizzle-orm';
 import { audit } from '../audit/audit.js';
-import { rules } from '../db/schema.js';
+import { mealLogs, rules } from '../db/schema.js';
 import type { Tx } from './ledger.js';
 
 /**
  * Every table holding a user's health data (C-1 "delete health data now").
+ * `pantry_items` is not one (H-11: contract basis, [lawyer]), so it stays.
  * Each later milestone that adds one (journeys, symptoms, meal logs,
  * transcripts) must add it here; the C-10 architecture test lists them too.
  */
-const HEALTH_TABLES = [rules] as const;
+const HEALTH_TABLES = [rules, mealLogs] as const;
 
 /**
  * Deletes all of the user's health data inside the caller's transaction

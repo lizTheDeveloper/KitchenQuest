@@ -11,4 +11,6 @@ export const ADVISORY_LOCK = {
   signInEmail: 1,
   /** `lockUserRules`: one user's rule writes. */
   rules: 2,
+  /** `lockUserPantry`: one user's pantry writes (taken after `rules`, before the consent row). */
+  pantry: 3,
 } as const;

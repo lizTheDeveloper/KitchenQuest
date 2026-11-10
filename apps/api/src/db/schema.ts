@@ -235,7 +235,7 @@ export const auditEvents = pgTable(
   ],
 );
 
-export const SELF_READ_RESOURCES = ["rules"] as const;
+export const SELF_READ_RESOURCES = ["rules", "meals", "pantry"] as const;
 
 /**
  * C-5: the player's routine reads of their own health data, counted per user,
@@ -258,4 +258,54 @@ export const selfReadCounts = pgTable(
     check("self_read_counts_resource_check", sql`${t.resource} in (${inList(SELF_READ_RESOURCES)})`),
     check("self_read_counts_count_check", sql`${t.count} > 0`),
   ],
+);
+
+/** Core's `MEAL_SLOTS` (= M2's meal-window names); `test/meals.test.ts` checks they are equal. */
+export const MEAL_LOG_SLOTS = ["breakfast", "lunch", "dinner", "snack", "other"] as const;
+
+/**
+ * H-7 / C-23: what the player ate. `sealed` is core's `MealItem` (the dish
+ * slug and servings, or the free description), sealed with `sealFor` under
+ * { table: 'meal_logs', userId, rowId: id }. The date and slot stay plain:
+ * C-23 allows it, and the range read and the prompt context need them.
+ * Health data (`HEALTH_TABLES`): deleted by a withdraw-with-delete of `health_data`.
+ */
+export const mealLogs = pgTable(
+  "meal_logs",
+  {
+    id: id(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    eatenOn: date("eaten_on", { mode: "string" }).notNull(),
+    slot: text("slot").notNull(),
+    sealed: bytea("sealed").notNull(),
+    /** Set from the app's injected clock; defaultNow() is only a fallback. */
+    createdAt: ts("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("meal_logs_user_eaten_on_idx").on(t.userId, t.eatenOn),
+    check("meal_logs_slot_check", sql`${t.slot} in (${inList(MEAL_LOG_SLOTS)})`),
+  ],
+);
+
+/**
+ * H-11: what is in the player's pantry. `sealed` is core's `PantryItem`
+ * (name and ingredient id), sealed with `sealFor` under
+ * { table: 'pantry_items', userId, rowId: id }. Sealed although its basis is
+ * contract, since contents can imply a diet ([lawyer] whether it needs
+ * `health_data`); not in `HEALTH_TABLES`, so a health-data withdrawal keeps it.
+ */
+export const pantryItems = pgTable(
+  "pantry_items",
+  {
+    id: id(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    sealed: bytea("sealed").notNull(),
+    /** Set from the app's injected clock; defaultNow() is only a fallback. */
+    createdAt: ts("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("pantry_items_user_id_idx").on(t.userId)],
 );

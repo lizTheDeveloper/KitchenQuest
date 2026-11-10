@@ -107,11 +107,11 @@ Trust boundaries: device to API, API to every third party. Everything left of Op
 | H-4 | Ingredient and category targets resolved by AI during rule expansion | AI request (only the typed term); result saved in H-1 | health | `ai_health` | n/a in transit; then H-1 | not retained by us; provider ZDR | OpenRouter, model provider | covered via H-1 | planned M8 (C-22) |
 | H-5 | Diet journeys and enrollments (e.g. low-FODMAP, custom journeys: name, phases, rule sets) | `journeys`, `journey_enrollments` | health (journey implies condition) | `health_data` | S-U (C-23) | until deleted | Hetzner | E, D | planned M9 |
 | H-6 | Symptom check-ins: symptom names, 0 to 3 scores, free-text note, date | `symptom_checkins` | health | `health_data` | S-U (C-23); date may stay plain | until deleted | Hetzner | E, D | planned M9 |
-| H-7 | Meal logs: dish or free-form text, servings eaten, estimates, slot, time | `meal_logs` | health (nutrition; infers conditions) | `health_data` | S-U (C-23); date and slot may stay plain | until deleted | Hetzner | E, D | planned M9 |
+| H-7 | Meal logs: dish (canon slug and servings eaten) or free-form description, the date eaten and the slot | `meal_logs` (`meal_logs.sealed` is core's `MealItem`, sealed S-U with AAD `{ table: 'meal_logs', userId, rowId }`; `meal_logs.id`, `meal_logs.user_id`, `meal_logs.eaten_on`, `meal_logs.slot`, `meal_logs.created_at` plain) | health (nutrition; infers conditions) | `health_data` (403 `consent_required` without it; `confirmed: true` on every write) | S-U (C-23); date and slot stay plain (needed for range reads and the mentor's "already logged" context) | until the player deletes the log, withdraws `health_data` with "delete" (`HEALTH_TABLES`), or deletes the account | Hetzner (ciphertext only) | E (decrypted), D | **built M4** (Step 5), minimal: no nutrition numbers or estimates yet (M9). Logged dates must be within 7 days before and 1 day after today; free description capped (§3.13) |
 | H-8 | Nutrition snapshots and weekly aggregates | `nutrition_snapshots` or computed | health (derived) | `health_data` | S-U if stored (derived data is still health data) | rebuild on demand preferred; else as H-7 | Hetzner | E, D | planned M5/M9 |
 | H-9 | Low-intake check-in | **computed on the fly, never stored as a label** (C-27) | health inference | `health_data` | n/a | none | none | n/a | planned M9; control is the absence of data |
 | H-10 | Body metrics (weight etc.) | not designed | health | `health_data` + separate opt-in | S-U | n/a | n/a | n/a | out of v1 (spec §5); listed so nobody adds it without a DPIA update |
-| H-11 | Pantry items, market list, meal plan, plan items | `pantry_items`, `meal_plans`, `plan_items`, `market_runs` | usage; pantry contents can imply diet or condition (gluten-free staples) | contract; **[lawyer]** whether `health_data` | proposed S-U for pantry and plan | until deleted | Hetzner | E, D | planned M5/M9 |
+| H-11 | Pantry items, market list, meal plan, plan items | `pantry_items` (`pantry_items.sealed` is core's `PantryItem`, name and ingredient id, sealed S-U with AAD `{ table: 'pantry_items', userId, rowId }`; `pantry_items.id`, `pantry_items.user_id`, `pantry_items.created_at` plain); later `meal_plans`, `plan_items`, `market_runs` | usage; pantry contents can imply diet or condition (gluten-free staples) | contract; **[lawyer]** whether `health_data`. No consent is asked today; every change needs `confirmed: true` | S-U for the pantry (built); proposed for the plan | until the player removes the item or deletes the account; a `health_data` withdrawal keeps it (not in `HEALTH_TABLES`) | Hetzner (ciphertext only) | E (decrypted), D | `pantry_items` **built M4** (Step 5), at most **300 items per player** (one more is 400 `too_many_items`); plan and market tables planned M5/M9 |
 | H-12 | Margin Notes (own recipe variations) and private recipes (Cooklang) | `recipe_notes`, `private_recipes` | usage; free text can contain health facts | contract; `health_data` if free text can hold health content | proposed S-U | until deleted | Hetzner | E (also `.cook` files), D | planned M5 |
 | H-13 | "Cooked for Someone" record (who the player fed) | `shared_table` | usage; **data about third parties** | contract | proposed S-U | until deleted | Hetzner | E, D | planned M5. Proposed rule: store a label the player types, never a contact, and never a health fact about the other person (see R-19) |
 | H-14 | Household Kitchen membership and sharing opt-ins | `households`, `household_members` | usage; sharing flags can reveal a member's rules | `health_data` per member (C-25) | per-member S-U | until member leaves or deletes | Hetzner | E (own data only), D | planned M9 |
@@ -196,7 +196,7 @@ No child data is collected until counsel signs off (P-9). The rows are reserved 
 | J-5 | Retention-job run records | logs or `job_runs` | technical | legit. | no | 90 d proposed | Hetzner | n/a | planned M2 |
 | J-6 | Data-rights request log | `audit_events` (action `dsr_*`) plus privacy mailbox | identifier | legal | no | 3 years **[lawyer]** | mail provider; Hetzner | E (own), partly retained | planned M12 (C-31) |
 | J-7 | Processor register | `docs/compliance/processors.json` (repo) | none | legal | n/a | n/a | none | E (list, C-7) | built (in the export, Step 7) |
-| J-8 | Self-read counters: how many times a day the player read their own rules: `GET /rules`, and `GET /recipes` and `GET /recipes/<slug>`, which decrypt the rules to check recipes (M-6), so the count is honest | `self_read_counts` (`self_read_counts.user_id`, `self_read_counts.resource`, `self_read_counts.day`, `self_read_counts.count`) | usage (content-free; stands in for per-read audit events so no "when they looked" log is built) | legit. (C-5 access accountability) | no | 24 months (C-6 retention job) | Hetzner | E, D (cascade) | built (Step 7) |
+| J-8 | Self-read counters: how many times a day the player read their own rules (`GET /rules`, and `GET /recipes` and `GET /recipes/<slug>`, which decrypt the rules to check recipes (M-6), so the count is honest), meal logs (`GET /meals`, resource `meals`) and pantry (`GET /pantry`, resource `pantry`) | `self_read_counts` (`self_read_counts.user_id`, `self_read_counts.resource`, `self_read_counts.day`, `self_read_counts.count`) | usage (content-free; stands in for per-read audit events so no "when they looked" log is built) | legit. (C-5 access accountability) | no | 24 months (C-6 retention job) | Hetzner | E, D (cascade) | built (Step 7) |
 
 ### 3.11 Logs, errors, client-side storage
 
@@ -217,7 +217,9 @@ No child data is collected until counsel signs off (P-9). The rows are reserved 
 |---|---|---|---|---|---|---|---|---|---|
 | W-1 | Recipe contributor ids (stable ids, e.g. GitHub handles) | `recipes/**/*.cook` front matter; `canon_recipes.contributors` (M2 Step 6) | identifier (public, third party) | legit.; contributor agreement | no | as long as the recipe is in the canon | GitHub; Hetzner | not in the player's E; contributor rights handled separately (**gap**) | planned M2 Step 6 |
 | W-2 | Recipe source URL and author credit | `canon_recipes.source`, recipe cards | identifier (third party, public) | legit. (credit) | no | as above | Hetzner | n/a | built |
-| W-3 | Canon recipe metadata | `canon_recipes` | none | n/a | n/a | n/a | n/a | n/a | built |
+| W-3 | Canon recipe metadata | `meal_logs` | `meal_logs.id`, `meal_logs.user_id`, `meal_logs.eaten_on`, `meal_logs.slot`, `meal_logs.sealed`, `meal_logs.created_at` | H-7 |
+| `pantry_items` | `pantry_items.id`, `pantry_items.user_id`, `pantry_items.sealed`, `pantry_items.created_at` | H-11 |
+| `canon_recipes` | none | n/a | n/a | n/a | n/a | n/a | built |
 
 ### 3.13 Free-text fields and their caps (N-7)
 
@@ -236,6 +238,15 @@ Every string the API accepts from a player, with its maximum. A field not listed
 | `rule.phase.start`, `rule.phase.end` | `rules.sealed` | 10 | core requires `YYYY-MM-DD` |
 | `rule.target.ids[]` | `rules.sealed` | n/a | each must be an id in the ingredient graph (core) |
 | rules per player (`POST /rules`) | `rules` | 200 rows | not a string cap: bounds how much health data one account holds and how much each request decrypts (M-5); 400 `too_many_rules` |
+| meal `item.description` (`POST /meals`, free meal) | `meal_logs.sealed` | 200 after trim (core `MEAL_DESCRIPTION_MAX`) | sealed (S-U); at least 1 character after trim |
+| meal `item.slug` (dish) | `meal_logs.sealed` | n/a | must be a `canon_recipes.slug` |
+| meal `item.servings` (dish) | `meal_logs.sealed` | n/a | a finite number from 0.25 to 10 |
+| meal `eatenOn`, `slot` | `meal_logs.eaten_on`, `meal_logs.slot` | 10 / n/a | a real `YYYY-MM-DD` within [today − 7, today + 1]; `slot` is the enum `breakfast`, `lunch`, `dinner`, `snack`, `other` |
+| `from`, `to` (`GET /meals`) | nowhere | 10 each | real dates, `from` ≤ `to`, at most 31 days both included |
+| pantry `add[].name` (`POST /pantry/changes`) | `pantry_items.sealed` | 80 after trim | sealed (S-U); at least 1 character after trim |
+| pantry `add[].ingredientId` | `pantry_items.sealed` | 64 | null or an id in the ingredient graph |
+| pantry `removeNames[]`, `removeIds[]` | nowhere (matched, then dropped) | 80 / 64 each, at most 300 entries | unmatched entries are ignored |
+| pantry items per player (`POST /pantry/changes`) | `pantry_items` | 300 rows | not a string cap: bounds each request's decrypting (M-5); 400 `too_many_items`. Serialized per player by an advisory lock, so two racing adds cannot pass it |
 | `q` (`GET /ingredients/search`) | nowhere; never logged | 100 | |
 | `date` (`GET /recipes`) | nowhere | 10 | `YYYY-MM-DD` within a day of today |
 | `noticeVersion` (`POST /me/consents`) | `consents.notice_version` | 64 | must equal the current notice's version |
