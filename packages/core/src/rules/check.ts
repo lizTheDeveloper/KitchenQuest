@@ -42,6 +42,16 @@ export const DISCLAIMER =
 
 const RANK: Record<CheckStatus, number> = { ok: 0, swap: 1, unverified: 2, blocked: 3 };
 
+/**
+ * Rule targets an ingredient list can't verify: additives that any product may carry without
+ * its name saying so (sulphites in dried fruit, wine, pickles, prawns...). Under a rule on one,
+ * every line that isn't itself a match is a label finding, so no recipe is ever `ok` for it
+ * (can't verify is never safe). Ids, so every alias ("sulfites", "e220") is covered.
+ */
+export const UNVERIFIABLE_TARGETS: readonly string[] = Object.freeze(['sulphites']);
+
+const targetsUnverifiable = (rule: Rule): boolean => rule.target.ids.some((id) => UNVERIFIABLE_TARGETS.includes(id));
+
 /** The first path from `id` to any of the rule's targets, or null. */
 function pathToAny(graph: IngredientGraph, id: string, rule: Rule): string[] | null {
   for (const target of rule.target.ids) {
@@ -94,7 +104,7 @@ function sameUnit(a: string | null, b: string): boolean {
   return lower === b.toLowerCase() && FOLDING_UNITS.has(lower);
 }
 
-type RuleHit = { kind: 'match' | 'label'; rule: Rule; path: string[] };
+type RuleHit = { kind: 'match' | 'label'; rule: Rule; path?: string[] };
 
 /**
  * The first substitution for `fromId` whose replacement would itself produce no findings:
@@ -172,6 +182,7 @@ export function check(
       }
       const viaKind = reachViaKind(graph, id, rule);
       if (viaKind) hits[k].push({ kind: 'label', rule, path: viaKind });
+      else if (targetsUnverifiable(rule)) hits[k].push({ kind: 'label', rule });
     });
 
     if (rule.type === 'avoid') {
@@ -192,6 +203,9 @@ export function check(
     const total = measurable.reduce((sum, { k }) => sum + lines[k].item.quantity!, 0);
     if (total / recipe.meta.servings > limit.amount) {
       for (const { k, path } of measurable) hits[k].push({ kind: 'match', rule, path });
+    } else if (targetsUnverifiable(rule)) {
+      // A carrier's weight is not its additive content (1 g of gelatine is not 1 g of sulphites).
+      for (const { k, path } of measurable) hits[k].push({ kind: 'label', rule, path });
     }
     for (const { k, path } of unmeasured) hits[k].push({ kind: 'label', rule, path });
   }
@@ -219,6 +233,7 @@ export function check(
         severity: hit.rule.severity,
         path: hit.path,
       };
+      if (hit.path === undefined) delete finding.path;
       if (hit.kind === 'match' && swap) finding.swap = swap;
       findings.push(finding);
     }
@@ -227,6 +242,13 @@ export function check(
       findings.push({ ingredient: item.name, ingredientId: id, kind: 'label', status: 'unverified' });
     }
   });
+
+  // No line to hang the reminder on: the recipe itself can't be verified for the additive.
+  if (lines.length === 0) {
+    for (const rule of restricting.filter(targetsUnverifiable)) {
+      findings.push({ ingredient: '', ingredientId: null, kind: 'label', status: 'unverified', ruleId: rule.id, severity: rule.severity });
+    }
+  }
 
   let status: CheckStatus = 'ok';
   for (const f of findings) if (RANK[f.status] > RANK[status]) status = f.status;

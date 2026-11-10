@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import { DISCLAIMER, IngredientGraph, SEVERE, check, parseRecipe } from '../src/index';
+import { DISCLAIMER, IngredientGraph, SEVERE, UNVERIFIABLE_TARGETS, check, parseRecipe } from '../src/index';
 import type { IngredientData, Rule, Severity, Substitution } from '../src/index';
 
 /**
@@ -411,6 +411,38 @@ describe('safety properties (seed graph)', () => {
         expect(check(recipe, [...active, rule], graph, subs, date)).toEqual(
           check(recipe, active, graph, subs, date),
         );
+      }),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  it('a rule on an additive no ingredient list can verify (sulphites) is never ok or swap', () => {
+    const arb = dayArb.chain((day) =>
+      fc.record({
+        recipe: anyRecipeArb,
+        day: fc.constant(day),
+        target: fc.constantFrom(...UNVERIFIABLE_TARGETS),
+        type: fc.constantFrom<'avoid' | 'limit'>('avoid', 'limit'),
+        severity: fc.constantFrom(...SEVERITIES),
+        phase: activePhaseArb(day),
+        others: activeRulesArb(day, 3),
+      }),
+    );
+
+    fc.assert(
+      fc.property(arb, ({ recipe, day, target, type, severity, phase, others }) => {
+        const base = { id: 'additive-under-test', target: { kind: 'category' as const, ids: [target] }, severity };
+        const body: Rule =
+          type === 'avoid'
+            ? { ...base, type }
+            : { ...base, type, limit: { amount: 1000, unit: 'g', per: 'serving' } };
+        const result = check(recipe, [...others, withPhase(body, phase)], graph, subs, iso(day));
+        expect(['unverified', 'blocked']).toContain(result.status);
+        // Every line has a finding from the additive rule, a match or a label reminder.
+        const lines = recipe.ingredients.filter((i) => graph.resolve(i.name) !== null);
+        for (const line of lines) {
+          expect(result.findings.some((f) => f.ingredient === line.name && f.ruleId === 'additive-under-test')).toBe(true);
+        }
       }),
       { numRuns: NUM_RUNS },
     );

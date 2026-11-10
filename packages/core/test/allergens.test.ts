@@ -1,5 +1,5 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { IngredientGraph, check, parseRecipe } from '../src/index';
@@ -247,6 +247,81 @@ describe('EU 14 / US 9 allergen members', () => {
     for (const id of ['gelatin', 'grated_coconut', 'prawn', 'crab', 'lobster', 'crayfish', 'squid', 'octopus']) {
       expect(runWith(id, [avoid(['sulphites'])]).status, id).toBe('blocked');
     }
+  });
+
+  describe('sulphites cannot be verified from an ingredient list', () => {
+    const sulphites = avoid(['sulphites']);
+    const canon = (readdirSync(join(ROOT, 'recipes'), { recursive: true }) as string[])
+      .filter((f) => f.endsWith('.cook'))
+      .map((f) => f.split(sep).join('/'))
+      .sort();
+    const canonRecipe = (file: string) => parseRecipe(readFileSync(join(ROOT, 'recipes', file), 'utf8'));
+
+    it('finds the canon recipes', () => expect(canon.length).toBeGreaterThan(0));
+
+    it.each(canon)('a sulphite rule never leaves %s ok', (file) => {
+      for (const id of ['sulphites', graph.resolve('sulfites')!, graph.resolve('E220')!]) {
+        const result = check(canonRecipe(file), [avoid([id])], graph, subs, '2026-11-10');
+        expect(['unverified', 'blocked']).toContain(result.status);
+        expect(result.findings.some((f) => f.kind === 'label' && f.status === 'unverified')).toBe(true);
+      }
+    });
+
+    it('a plain line is unverified with a label reminder, no path claimed', () => {
+      const result = runWith('rice', [sulphites]);
+      expect(result.status).toBe('unverified');
+      expect(result.findings).toEqual([
+        {
+          ingredient: 'short-grain white rice',
+          ingredientId: 'rice',
+          kind: 'label',
+          status: 'unverified',
+          ruleId: sulphites.id,
+          severity: 'anaphylactic',
+        },
+      ]);
+    });
+
+    it('a line that is sulphites, or carries them, is still blocked', () => {
+      expect(runWith('sulphites', [sulphites]).status).toBe('blocked');
+      expect(runWith('gelatin', [sulphites]).status).toBe('blocked');
+    });
+
+    it('precedence stays blocked > unverified > swap > ok', () => {
+      // A peanut match outranks the sulphite reminder.
+      expect(runWith('peanut', [sulphites, avoid(['peanut'])]).status).toBe('blocked');
+      // Vegetarian swaps bonito flakes, but the sulphite reminder outranks the swap.
+      const vegetarian = avoid(['meat', 'fish'], 'preference');
+      expect(runWith('bonito_flakes', [vegetarian]).status).toBe('swap');
+      const both = runWith('bonito_flakes', [vegetarian, sulphites]);
+      expect(both.status).toBe('unverified');
+      expect(both.findings.find((f) => f.ruleId === vegetarian.id)).toMatchObject({ status: 'swap' });
+      // Without the additive rule nothing changes.
+      expect(runWith('rice', [avoid(['peanut'])]).status).toBe('ok');
+    });
+
+    it('a per-serving sulphite limit is never ok either', () => {
+      const limit: Rule = { ...sulphites, type: 'limit', limit: { amount: 1000, unit: 'g', per: 'serving' } };
+      expect(runWith('rice', [limit]).status).toBe('unverified');
+      // 50 g of gelatine is under the limit, but its weight is not its sulphite content.
+      expect(runWith('gelatin', [limit]).status).toBe('unverified');
+    });
+
+    it('a recipe with no ingredients is unverified for it', () => {
+      const result = check(dish('Boil the kettle.'), [sulphites], graph, subs, '2026-11-10');
+      expect(result.status).toBe('unverified');
+      expect(result.findings).toEqual([
+        {
+          ingredient: '',
+          ingredientId: null,
+          kind: 'label',
+          status: 'unverified',
+          ruleId: sulphites.id,
+          severity: 'anaphylactic',
+        },
+      ]);
+      expect(check(dish('Boil the kettle.'), [avoid(['peanut'])], graph, subs, '2026-11-10').status).toBe('ok');
+    });
   });
 
   it('new members with FDC ids carry a full per100g', () => {
