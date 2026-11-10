@@ -1,5 +1,5 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "strict": true, "lib": ["ES2022"], "types": [] },
+  "compilerOptions": { "strict": true, "lib": ["ES2022"], "types": [], "resolveJsonModule": true },
   "include": ["src"]
 }

@@ -1,0 +1,37 @@
+[
+  {
+    "name": "vegetarian",
+    "phrases": ["vegetarian", "veggie"],
+    "ids": ["meat", "fish", "shellfish", "gelatin"],
+    "severity": "preference",
+    "form": "rule_diet"
+  },
+  {
+    "name": "vegan",
+    "phrases": ["vegan", "plant-based", "plant based"],
+    "ids": ["meat", "fish", "shellfish", "milk", "egg", "honey", "gelatin"],
+    "severity": "preference",
+    "form": "rule_diet"
+  },
+  {
+    "name": "pescatarian",
+    "phrases": ["pescatarian", "pescetarian"],
+    "ids": ["meat", "gelatin"],
+    "severity": "preference",
+    "form": "rule_diet"
+  },
+  {
+    "name": "coeliac",
+    "phrases": ["coeliac", "celiac", "gluten free", "gluten-free"],
+    "ids": ["gluten"],
+    "severity": null,
+    "form": "rule_allergen"
+  },
+  {
+    "name": "no pork",
+    "phrases": ["no pork", "pork free", "pork-free"],
+    "ids": ["pork"],
+    "severity": "preference",
+    "form": "rule_diet"
+  }
+]
