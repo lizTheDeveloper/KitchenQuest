@@ -49,6 +49,7 @@ export default tseslint.config(
           './apps/*/tsconfig.json',
           './apps/*/tsconfig.test.json',
           './apps/*/tsconfig.node.json',
+          './apps/*/tsconfig.sw.json',
           './packages/*/tsconfig.json',
           './packages/*/tsconfig.test.json',
           './tsconfig.eslint.json',

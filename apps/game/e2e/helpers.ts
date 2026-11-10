@@ -9,7 +9,7 @@ export interface OpenedApp {
 
 export async function openApp(
   path: string,
-  opts: { seed?: Partial<PlayerState>; reducedMotion?: boolean; width?: number; serviceWorkers?: 'allow' | 'block' } = {},
+  opts: OpenOptions = {},
 ): Promise<OpenedApp> {
   return openAt(new URL(path, inject('baseUrl')).toString(), opts);
 }
@@ -19,16 +19,22 @@ export function openFixture(path: string, opts: { width?: number; reducedMotion?
   return openAt(new URL(path, inject('fixtureUrl')).toString(), opts);
 }
 
-async function openAt(
-  url: string,
-  opts: { seed?: Partial<PlayerState>; reducedMotion?: boolean; width?: number; serviceWorkers?: 'allow' | 'block' },
-): Promise<OpenedApp> {
+interface OpenOptions {
+  seed?: Partial<PlayerState>; reducedMotion?: boolean; width?: number; serviceWorkers?: 'allow' | 'block';
+  userAgent?: string;
+  /** Runs in the page before any of the app's scripts, on every load. */
+  initScript?: string;
+}
+
+async function openAt(url: string, opts: OpenOptions): Promise<OpenedApp> {
   const browser = await chromium.launch();
   const context = await browser.newContext({
     viewport: { width: opts.width ?? 1280, height: 800 },
     serviceWorkers: opts.serviceWorkers ?? 'block',
     reducedMotion: opts.reducedMotion ? 'reduce' : 'no-preference',
+    ...(opts.userAgent ? { userAgent: opts.userAgent } : {}),
   });
+  if (opts.initScript) await context.addInitScript(opts.initScript);
   if (opts.seed) {
     // Seed only when nothing is stored yet, so a reload keeps what the app saved.
     await context.addInitScript(

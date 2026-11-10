@@ -7,6 +7,7 @@ import { hideStage, showScene } from '../scenes/phaser-host';
 import { registerScreen, type AppContext, type Screen } from '../shell/app';
 import { reducedMotion } from '../shell/motion';
 import type { PlayerStore } from '../state/store';
+import { iosNote } from '../settings/install-section';
 import { renderActionBar } from '../ui/action-bar';
 import { showDialogue } from '../ui/dialogue-box';
 import { h } from '../ui/dom';
@@ -53,6 +54,8 @@ function kitchenScreen(): Screen {
       const bar = h('div', { class: 'kitchen-actions' });
       const greetingSlot = h('div', { class: 'kitchen-greeting' });
       el.replaceChildren(h('h1', null, 'Your kitchen'), greetingSlot, backdropSlot, bar);
+      const note = iosNote(win, ctx.store, 'h2');
+      if (note) bar.after(note);
 
       const showFallback = () => {
         if (!alive || backdropSlot.firstChild) return;
