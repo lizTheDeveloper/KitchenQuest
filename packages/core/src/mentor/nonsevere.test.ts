@@ -4,6 +4,9 @@ import { IngredientGraph } from '../ingredients/graph';
 import { stripPageEvents } from './intents';
 import { NON_SEVERE_FILLERS, readNonSevere } from './nonsevere';
 import { parseRuleStatement, severityFromText } from './parse';
+import { buildRuleCard } from './cards';
+import ruleTerms from '../../../../data/rule-terms.json';
+import type { RuleTerm } from './rule-terms';
 
 /**
  * Fix round 4 ruling: intolerance and preference come only from a closed grammar that consumes
@@ -241,7 +244,7 @@ describe('fix round 4: the closed intolerance grammar', () => {
     ['gluten intolerance', [['gluten', 'intolerance']]],
     ['intolerance to wheat, soy', [['wheat', 'intolerance'], ['soy', 'intolerance']]],
     ["I can't digest milk", [['milk', 'intolerance']]],
-    ['I am mildly lactose intolerant and gluten intolerant', [['lactose', 'intolerance'], ['gluten', 'intolerance']]],
+    ['I am mildly lactose intolerant, gluten intolerant', [['lactose', 'intolerance'], ['gluten', 'intolerance']]],
     ["intolerant to milk, it's not an allergy", [['milk', 'intolerance']]],
     ["I'm not allergic, just intolerant to milk", [['milk', 'intolerance']]],
     ['intolerant to milk rather than an allergy', [['milk', 'intolerance']]],
@@ -414,4 +417,71 @@ describe('fix round 4: stripPageEvents minors', () => {
     ['allergic to peanuts. The player has quickly then just now already tapped intolerance.', 'allergic to peanuts.'],
     ['allergic to peanuts. Player has now just then quickly already confirmed it.', 'allergic to peanuts.'],
   ])('%s', (raw, kept) => expect(stripPageEvents(raw).text.trim()).toBe(kept));
+});
+
+/** The intake path: each parsed item becomes a rule card; its severity is what a "yes" would save. */
+function cardSeverities(raw: string): unknown[] {
+  const own = stripPageEvents(raw).text;
+  return (parseRuleStatement(own, graph)?.items ?? []).map((i) => {
+    const r = buildRuleCard({ term: i.term, severity: i.severity }, graph, ruleTerms as RuleTerm[]);
+    return r.ok ? r.card.rule.severity : r.reason;
+  });
+}
+
+describe('fix round 5: terms never leak across a break (A)', () => {
+  test.each([
+    ['milk - intolerant', [['milk', 'intolerance']]],
+    ['intolerances: peanuts, shellfish', [['peanuts', 'intolerance'], ['shellfish', 'intolerance']]],
+    ['intolerant to milk, eggs', [['milk', 'intolerance'], ['eggs', 'intolerance']]],
+    ['intolerant to milk and eggs', [['milk', 'intolerance'], ['eggs', 'intolerance']]],
+    ['milk and egg intolerance', [['milk', 'intolerance'], ['egg', 'intolerance']]],
+    ['lactose intolerant. gluten intolerant', [['lactose', 'intolerance'], ['gluten', 'intolerance']]],
+    ["I don't like peanuts, shellfish", [['peanuts', 'preference'], ['shellfish', 'preference']]],
+  ])('%s still reads', (text, items) => {
+    expect(parseRuleStatement(text, graph)?.items.map((i) => [i.term, i.severity])).toEqual(items);
+  });
+
+  test.each([
+    "peanuts. and i'm lactose intolerant",
+    'peanuts and shellfish. lactose intolerant',
+    'intolerant to milk. peanuts',
+    'peanuts; milk intolerance',
+    'peanuts: milk intolerant',
+    'peanuts / milk intolerant',
+    'peanuts, milk intolerant',
+    'not allergic to peanuts, milk intolerance',
+    'peanut milk intolerant',
+    "don't like milk. peanuts",
+    'lactose intolerant and gluten intolerant', // groups join only at a break
+    'intolerant to milk intolerant to milk',
+    'peanuts - milk intolerant',
+    'peanuts, intolerant to milk',
+    'vegan. peanuts',
+  ])('%s → nothing non-severe, by any path', (text) => {
+    expect(readNonSevere(text, graph)).toBeNull();
+    expect(isLow(text)).toBe(false);
+    expect(NON_SEVERE).not.toContain(severityFromText(text, graph));
+    for (const severity of cardSeverities(text)) expect(NON_SEVERE).not.toContain(severity);
+  });
+});
+
+describe('fix round 5: "no pork" states no severity (B)', () => {
+  test.each(["no pork, I'm allergic", 'no pork - allergic', 'no pork', 'no pork, it gives me anaphylaxis'])('%s → the card is not a preference', (text) => {
+    const cards = cardSeverities(text);
+    expect(cards.length).toBeGreaterThan(0);
+    for (const severity of cards) expect(NON_SEVERE).not.toContain(severity);
+  });
+});
+
+describe('fix round 5: more anaphylactic cues', () => {
+  test.each([
+    'intolerant to peanuts, it kills me',
+    'intolerant to peanuts, it killed me nearly',
+    'intolerant to peanuts, epi pen',
+    'intolerant to peanuts, I feel like dying',
+    "intolerant to peanuts, it's lethal",
+    'intolerant to peanuts, lips get swollen',
+    'intolerant to peanuts, cant breath',
+    'intolerant to peanuts, cant breathe',
+  ])('%s → anaphylactic', (text) => expect(severityFromText(text, graph)).toBe('anaphylactic'));
 });
