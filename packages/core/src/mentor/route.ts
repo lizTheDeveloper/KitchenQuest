@@ -1,7 +1,7 @@
 import { normalizeName, type IngredientGraph } from '../ingredients/graph';
 import { SEVERE, type Severity } from '../rules/types';
 import type { LineRef } from './cards';
-import { canonicalText, capText, foldConfusables, stripPageEvents, type TurnIntent } from './intents';
+import { canonicalText, capText, classifyTurn, foldConfusables, stripPageEvents, type TurnIntent } from './intents';
 import { parseClock, parseRuleStatement, severityFromText, weekdaysOf, type MealSlot } from './parse';
 import type { RuleTerm } from './rule-terms';
 
@@ -406,4 +406,33 @@ export function pantryMatcher(
   const resolved = new Set(removeNames.map((n) => graph.resolve(n)).filter((id): id is string => id !== null));
   const ids = new Set(removeIds.map((id) => id.toLowerCase()));
   return (i) => ids.has(i.id) || names.has(normalizeName(i.name)) || (i.ingredientId !== null && resolved.has(i.ingredientId));
+}
+
+/**
+ * The health predicate on text alone (pre-flight C1, Step 7 fix round 1 R1), shared by the API's gate and the
+ * client's scripted engine: a health, emergency or medical intent, any graph name, alias, rule-term phrase or
+ * health word, any severity, or any rule statement. Over-catches on purpose.
+ */
+export function isHealthText(text: string, graph: IngredientGraph, terms: readonly RuleTerm[]): boolean {
+  const intent = classifyTurn(text);
+  return (
+    intent === 'health' ||
+    intent === 'emergency' ||
+    intent === 'medical' ||
+    mentionsHealthTerm(text, graph, terms) ||
+    severityFromText(text, graph) !== null ||
+    parseRuleStatement(text, graph) !== null
+  );
+}
+
+/**
+ * M4 Step 9 fix round 2 (E2): an emergency turn whose player words (RAW turn text) also state a rule, or name
+ * an ingredient with a severity cue ("I'm allergic to peanuts, I had anaphylaxis once"). The emergency line comes first; the
+ * allergy is then never dropped: the rule path (a card, or the ask) follows.
+ */
+export function emergencyStatesRule(playerText: string, graph: IngredientGraph): boolean {
+  const own = ownWords(playerText);
+  if (parseRuleStatement(own, graph) !== null) return true;
+  // A severity cue (hives, swelling, anaphylaxis) with an ingredient named: the allergen is offered for a card.
+  return statesSevere(playerText, graph) && namedIngredients(own, graph).length > 0;
 }

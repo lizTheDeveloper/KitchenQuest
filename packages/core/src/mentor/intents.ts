@@ -23,15 +23,25 @@ export const EMERGENCY_PATTERN =
 /**
  * Fix round 1 (C1, structural): an eating or exposure verb and a reaction or symptom word anywhere in the
  * message is an emergency, whatever the subject wording or tense ("I've got a rash", "he's got hives",
- * "my daughter had sesame, her lips are swelling"). Over-catches on purpose.
+ * "my daughter had sesame, her lips are swelling"). Over-catches on purpose ("had a sick day so ate soup").
+ * Fix round 2 (E1) widens both lists, and adds a few Spanish words.
  */
-export const EXPOSURE_VERB = /\b(ate|eaten|had|tried|tasted|touched|drank|drunk|licked|bit|bitten)\b/;
+export const EXPOSURE_VERB =
+  /\b(ate|eaten|eating|had|tried|tasted|touched|drank|drunk|licked|bit|bitten|swallow\w*|consum\w*|ingest\w*|fed|gave|given|chew\w*|accidentally|comi|comio|comer|comiendo)\b/;
 export const REACTION_STEM =
-  /\b(hives|rash\w*|swell\w*|swollen|wheez\w*|itch\w*|tingl\w*|throat\w*|breath\w*|vomit\w*|throw(n|s|ing)? up|threw up|sick|faint\w*|dizz\w*|collaps\w*|lips?|tongue|reaction\w*|epi-?pens?|anaphyla\w*)\b/;
+  /\b(hives|hivs?|welts?|blotch\w*|puff\w*|rash\w*|swell\w*|swollen|wheez\w*|itch\w*|tingl\w*|throat\w*|breath\w*|vomit\w*|throw(n|s|ing)? up|threw up|sick|faint\w*|dizz\w*|collaps\w*|lips?|tongue|mouth|face|can'?t swallow|reaction\w*|epi-?pens?|anaphyla\w*|feel(s|ing)? (funny|weird|strange|odd)|(is|are|gone|went|turn\w*) (all )?red|picazon|garganta|hinchad\w*|ronchas|urticaria)\b/;
+/** Present symptoms with no verb at all (E1): "my throat's closing", "I've got hives", "I'm having an allergic reaction". */
+export const PRESENT_SYMPTOM =
+  /\b((throat'?s?|throats) (is |feels |getting )?(tight|closing|swell\w*)|(i'?ve got|i have|i got|getting|breaking out in) (hives|a rash|welts|swelling|a swollen \w+)|having an? (allergic |bad |anaphylactic )?reaction|can'?t breathe|no puedo respirar)\b/;
+/** Common allergens, for "help" with an exposure verb ("kid accidentally ate nuts, help!"). */
+const HELP_ALLERGEN =
+  /\b(nuts?|peanuts?|cashews?|almonds?|walnuts?|pecans?|hazelnuts?|pistachios?|sesame|shellfish|shrimps?|prawns?|crabs?|lobsters?|fish|eggs?|milk|dairy|soy|wheat|gluten|kiwi|mustard|celery|lupin|cacahuetes?)\b/;
 
-/** The emergency pre-route: the listed phrasings, or an exposure verb with a reaction word (C1). */
+/** The emergency pre-route: the listed phrasings, present symptoms, an exposure verb with a reaction word, or "help" after an exposure. */
 export function isEmergency(normalized: string): boolean {
-  return EMERGENCY_PATTERN.test(normalized) || (EXPOSURE_VERB.test(normalized) && REACTION_STEM.test(normalized));
+  if (EMERGENCY_PATTERN.test(normalized) || PRESENT_SYMPTOM.test(normalized)) return true;
+  if (!EXPOSURE_VERB.test(normalized)) return false;
+  return REACTION_STEM.test(normalized) || (/\bhelp\b/.test(normalized) && HELP_ALLERGEN.test(normalized));
 }
 
 export const CHILD_PATTERNS: readonly RegExp[] = [

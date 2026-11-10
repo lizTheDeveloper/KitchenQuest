@@ -6,6 +6,8 @@ import type { TurnIntent } from './intents';
 import type { RuleTerm } from './rule-terms';
 import {
   askForDroppedTerms,
+  emergencyStatesRule,
+  isHealthText,
   clockForSlot,
   dropMealsMatchingRemovals,
   matchDish,
@@ -227,4 +229,14 @@ describe('shared post-checks (moved from the API for the client engine, Step 9)'
     expect(m({ id: 'id-9', name: 'rice', ingredientId: null })).toBe(true);
     expect(m({ id: 'b', name: 'rice', ingredientId: 'rice' })).toBe(false);
   });
+});
+
+test('emergencyStatesRule and isHealthText (Step 9 fix round 2)', () => {
+  expect(emergencyStatesRule("I'm allergic to peanuts, I had anaphylaxis once", graph)).toBe(true);
+  expect(emergencyStatesRule('my son is allergic to egg, he had hives as a baby', graph)).toBe(true);
+  expect(emergencyStatesRule("I had prawns and now I've got hives", graph)).toBe(true); // hives is a severity cue, prawn named
+  expect(emergencyStatesRule("I think I'm having an allergic reaction", graph)).toBe(false); // nothing named
+  expect(emergencyStatesRule('my throat is closing', graph)).toBe(false);
+  expect(isHealthText('can I eat this? shrimp makes my throat close', graph, terms)).toBe(true);
+  expect(isHealthText('what should I cook tonight?', graph, terms)).toBe(false);
 });

@@ -138,6 +138,12 @@ describe('meals', () => {
     expect(parseMealStatement("I had toast for breakfast and also I'm allergic to kiwi")).toEqual({ description: 'toast', slot: 'breakfast', when: 'today' });
     expect(parseMealStatement('had dal and rice but I am vegan by the way')).toEqual({ description: 'dal and rice', slot: null, when: 'today' });
     expect(parseMealStatement('I had an allergic reaction to prawns')).toBeNull();
+    // Fix round 2 (E3): a reaction word anywhere in the meal or a pantry item refuses it.
+    for (const t of ['I had toast and then my lips swelled', 'had pancakes, face went puffy', 'ate soup with hives after']) expect(parseMealStatement(t), t).toBeNull();
+    expect(parsePantryAdds("I've got hives")).toEqual([]);
+    expect(parsePantryAdds('I got a rash on my arm')).toEqual([]);
+    expect(parsePantryAdds("i've got a swollen lip and some rice")).toEqual(['rice']);
+    expect(parsePantryRemovals('ran out of breath and milk')).toEqual(['milk']);
     // Fix round 1 (I2): a reaction is never a meal.
     for (const t of ['had a reaction to prawns', 'I had a bad reaction after lunch', 'had hives all night', 'had a rash on my arm', 'had swelling', 'had anaphylaxis once']) {
       expect(parseMealStatement(t), t).toBeNull();

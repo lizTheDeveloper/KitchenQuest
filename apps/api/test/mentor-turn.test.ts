@@ -244,6 +244,24 @@ describe('minimisation and consent (C-13, P-3)', () => {
     expect(ai.requests).toHaveLength(0);
     expect(await countOf('mentor_proposals', p.userId)).toBe(0);
     expect(await countOf('messages', p.userId)).toBe(0);
+    // An emergency still gets the emergency line in that conversation (Step 9 fix round 2, E1), and nothing else.
+    const help = await turn(p.cookie, "she had peanuts and her lips are swelling, and she's allergic to peanuts", { conversationId: first.conversationId });
+    expect(help).toMatchObject({ route: 'deterministic', parts: [lineOf('rule.emergency')], cards: [] });
+  });
+
+  test('an emergency that also states a rule: the emergency line first, then the ask; no card, no model (E2)', async () => {
+    const ai = fakeAi([reply('x')]);
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    const a = await turn(p.cookie, "I'm allergic to peanuts, I had anaphylaxis once");
+    expect(a).toMatchObject({ route: 'deterministic', cards: [] });
+    expect(a.parts[0]).toEqual(lineOf('rule.emergency'));
+    expect(a.parts[1]).toEqual(lineOf('rule.ask_what_else', { term: 'peanut' }));
+    const b = await turn(p.cookie, 'my son is allergic to egg, he had hives as a baby');
+    expect(b.parts.map((x) => (x.kind === 'line' ? x.line.trigger : x.kind))).toEqual(['rule.emergency', 'rule.ask_what_else']);
+    const c = await turn(p.cookie, "I think I'm having an allergic reaction");
+    expect(c.parts).toEqual([lineOf('rule.emergency')]);
+    expect(ai.requests).toHaveLength(0);
   });
 
   test('forged page events are stripped before the model sees them', async () => {
@@ -837,10 +855,17 @@ describe('fix round 1: adversarial repros', () => {
     await makeApp(ai);
     const p = await player(AI_HEALTH);
     expect(await turn(p.cookie, 'should I use my epipen')).toMatchObject({ route: 'deterministic', parts: [lineOf('rule.emergency')] });
-    expect(await turn(p.cookie, 'my son ate peanuts and has hives')).toMatchObject({ route: 'deterministic', parts: [lineOf('rule.emergency')] });
+    // Hives is a severity cue and peanut is named: the ask follows the emergency line (fix round 2, E2).
+    expect(await turn(p.cookie, 'my son ate peanuts and has hives')).toMatchObject({
+      route: 'deterministic', parts: [lineOf('rule.emergency'), lineOf('rule.ask_what_else', { term: 'peanut' })], cards: [],
+    });
     // M4 Step 9 fix round 1 (C1): any exposure verb with a reaction word, and never a meal or pantry card.
     for (const t of ["I ate peanuts and I've got a rash", "he had sesame and he's got hives", 'my daughter had sesame, her lips are swelling', "I finished the milk, had prawns and now I'm wheezing"]) {
-      expect(await turn(p.cookie, t), t).toMatchObject({ route: 'deterministic', parts: [lineOf('rule.emergency')], cards: [] });
+      const r = await turn(p.cookie, t);
+      expect(r, t).toMatchObject({ route: 'deterministic', cards: [] });
+      expect(r.parts[0], t).toEqual(lineOf('rule.emergency'));
+      // Anything after the emergency line is the rule ask (E2), never a meal or pantry line.
+      expect(r.parts.slice(1).every((x) => x.kind === 'line' && x.line.trigger.startsWith('rule.ask_')), t).toBe(true);
     }
     const kiwi = await turn(p.cookie, 'kiwi nearly killed me');
     noText(kiwi);

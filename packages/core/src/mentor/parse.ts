@@ -1,6 +1,6 @@
 import type { Severity } from '../rules/types';
 import type { IngredientGraph } from '../ingredients/graph';
-import { capText, normalizeTurn } from './intents';
+import { capText, normalizeTurn, REACTION_STEM } from './intents';
 import { readNonSevere } from './nonsevere';
 
 /**
@@ -202,7 +202,8 @@ export function parsePantryRemovals(text: string): string[] {
   }
   found.sort((a, b) => a.index - b.index);
   // "we finished it": a pronoun names no item (fix round 2).
-  return [...new Set(found.map((f) => f.item))].filter((item) => item !== '' && !PRONOUN_ITEM.test(item));
+  // E3: a symptom is never a pantry item.
+  return [...new Set(found.map((f) => f.item))].filter((item) => item !== '' && !PRONOUN_ITEM.test(item) && !REACTION_STEM.test(item));
 }
 
 export const PANTRY_ADD_PATTERN =
@@ -222,7 +223,8 @@ export function parsePantryAdds(text: string): string[] {
     for (const raw of m[1].split(LIST_SPLIT)) {
       const item = raw.trim().replace(LEADING_COUNT, '').replace(LEADING_UNIT, '').trim();
       // "I've got no eggs left" is a removal, never an add.
-      if (item === '' || /^(no|none|nothing)\b/.test(item) || /\bleft$/.test(item)) continue;
+      // E3: "I got a rash on my arm", "i've got a swollen lip": a symptom is never a pantry item.
+      if (item === '' || /^(no|none|nothing)\b/.test(item) || /\bleft$/.test(item) || REACTION_STEM.test(item)) continue;
       if (!out.includes(item)) out.push(item);
     }
   }
@@ -569,6 +571,7 @@ export function parseMealStatement(
     .replace(MEAL_WHEN_WORDS, ' ')
     .replace(/\s+/g, ' ')
     .replace(/^[\s,:-]+|[\s,:-]+$/g, '');
-  if (description === '' || NOT_FOOD.test(description)) return null;
+  // Fix round 2 (E3): a reaction or symptom word anywhere in the message means it is no meal ("toast, then my lips swelled").
+  if (description === '' || NOT_FOOD.test(description) || REACTION_STEM.test(t)) return null;
   return { description, slot, when: MEAL_YESTERDAY_PATTERN.test(t) ? 'yesterday' : 'today' };
 }

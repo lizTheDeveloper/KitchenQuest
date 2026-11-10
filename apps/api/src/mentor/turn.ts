@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   askForDroppedTerms,
+  emergencyStatesRule,
   buildMealCard,
   buildPantryCard,
   buildProfileCard,
@@ -461,8 +462,19 @@ export async function runTurn(deps: TurnDeps, userId: string, req: TurnRequest, 
   const opened = await openTurn(deps, userId, req, now);
   const id = opened.conversationId;
 
-  // 2. A child: the grown-up line for the rest of the conversation; nothing kept (§19).
+  // 2a. An emergency is answered first, even in a conversation where a child spoke (M4 Step 9 fix round 2, E1).
+  // A rule the same message states is never dropped (E2): the plain ask follows, so the player can file it
+  // once they are safe. No meal or pantry card on an emergency turn.
   const childKey = `${userId}:${id}`;
+  if (intent === 'emergency') {
+    const parts: ReplyPart[] = [line('rule.emergency')];
+    if (!deps.childFlags.has(childKey, now.getTime()) && emergencyStatesRule(raw, deps.catalog.graph)) {
+      parts.push({ kind: 'line', line: askForDroppedTerms(raw, [], false, deps.catalog.graph) ?? { trigger: 'rule.ask_keep_off', vars: {} } });
+    }
+    return respond(id, 'deterministic', parts);
+  }
+
+  // 2b. A child: the grown-up line for the rest of the conversation; nothing kept (§19).
   if (intent === 'child' || deps.childFlags.has(childKey, now.getTime())) {
     deps.childFlags.add(childKey, now.getTime());
     return respond(id, 'deterministic', [line('child.grownup')]);
