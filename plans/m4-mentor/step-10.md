@@ -90,3 +90,5 @@ test('cards pass axe and keep focus order', ...);   // expectNoA11yViolations wi
 - [ ] **10.3 Implement.**
 - [ ] **10.4 Run** the game unit, e2e and typecheck commands → PASS.
 - [ ] **10.5 Commit** `feat(game): proposal cards, write trail with undo, AI backend with scripted fallback`
+
+**Carry from Step 2 review:** `intake.allergies.followup` ("Stamped… / Saved…") fires only after a confirmed write; `rule.readback` lines ending "Is that right?" on a severe card must be followed by `rule.tap_needed` and never accept a typed yes.

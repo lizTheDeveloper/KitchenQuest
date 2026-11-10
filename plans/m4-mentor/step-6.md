@@ -93,3 +93,7 @@ test('export lists conversations with decrypted messages; delete removes every m
 - [ ] **6.3 Implement.** Compute each notice's SHA-256 with the existing `noticeSha256` and write it into the file.
 - [ ] **6.4 Run** `npm test -w @kitchenquest/api` → PASS. The existing `consent.test.ts` hash check now covers the two new notice files; it fails if a declared SHA-256 is wrong.
 - [ ] **6.5 Commit** `feat(api): sealed 30-day transcripts, memory-only without consent, sealed proposals; consent notices name them`
+
+**Carry from Step 2 review:**
+- The new `ai_health` v1 notice file must mention meals (the consent_ai form title is "Rules and Meals").
+- `forgetConversations` must hard-delete messages, transcripts and linked proposals, and forget memory; test that no rows remain for that user afterwards — `forget.done` promises it.
