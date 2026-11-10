@@ -101,6 +101,17 @@ async function addRule(cookie: string, ids: string[], severity = 'anaphylactic')
   return res.json<{ rule: { id: string } }>().rule.id;
 }
 
+/** Saved pantry items: a removal card names only rows the player has (Step 8, Step 5 carry). */
+async function seedPantry(cookie: string, names: string[]) {
+  const res = await call(cookie, {
+    method: 'POST',
+    url: '/pantry/changes',
+    payload: { add: names.map((name) => ({ name, ingredientId: null })), removeNames: [], removeIds: [], confirmed: true },
+  });
+  expect(res.statusCode).toBe(200);
+  return res.json<{ items: { id: string; name: string }[] }>().items;
+}
+
 const countOf = async (table: string, userId?: string) => {
   const [row] = userId
     ? await sql<{ n: number }[]>`select count(*)::int as n from ${sql(table)} where user_id = ${userId}`
@@ -360,6 +371,7 @@ describe('tools — the model can only propose', () => {
     ]);
     await makeApp(ai);
     const p = await player(AI_HEALTH);
+    const saved = await seedPantry(p.cookie, ['milk', 'eggs']);
     const s07 = await turn(p.cookie, 'I have a severe peanut allergy, like EpiPen severe.');
     expect(s07.cards[0].card).toMatchObject({ kind: 'rule', rule: { severity: 'anaphylactic' } });
     const t04 = await turn(p.cookie, 'remind me to eat lunch at like half twelve and dinner around 7ish pm');
@@ -371,11 +383,11 @@ describe('tools — the model can only propose', () => {
     expect(t03.cards[0].card).toMatchObject({ kind: 'profile', patch: { marketDays: [6] } });
     const t05 = await turn(p.cookie, "I've got lentils, an onion and some eggs. Oh and I finished the milk.");
     expect(t05.cards.map((c) => c.card.kind)).toEqual(['pantry']);
-    expect(t05.cards[0].card).toMatchObject({ kind: 'pantry', remove: ['milk'] });
+    expect(t05.cards[0].card).toMatchObject({ kind: 'pantry', remove: ['milk'], removeIds: [saved.find((i) => i.name === 'milk')!.id] });
     const t12 = await turn(p.cookie, "Market's on Friday, and I've got no eggs left.");
     expect(t12.cards.map((c) => c.card)).toMatchObject([
       { kind: 'profile', patch: { marketDays: [5] } },
-      { kind: 'pantry', add: [], remove: ['eggs'] },
+      { kind: 'pantry', add: [], remove: ['eggs'], removeIds: [saved.find((i) => i.name === 'eggs')!.id] },
     ]);
   });
 
@@ -850,6 +862,26 @@ describe('fix round 1: adversarial repros', () => {
     const p = await player(AI_HEALTH);
     const r = await turn(p.cookie, 'what should I cook tonight?');
     expect(r.cards).toEqual([]);
+  });
+
+  test('Step 5 carry: a removal is resolved to the saved rows when proposed; a name that matches none is said, on no card', async () => {
+    const ai = fakeAi([
+      toolCall('propose_pantry_change', { add: [], remove: ['milk', 'eggs'] }),
+      toolCall('propose_pantry_change', { add: [], remove: ['eggs'] }),
+    ]);
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    const saved = await seedPantry(p.cookie, ['Milk', 'oat milk']);
+    const r = await turn(p.cookie, 'I finished the milk and the eggs');
+    // "Milk" by name; "oat milk" is another item and stays.
+    expect(r.cards.map((c) => c.card)).toMatchObject([
+      { kind: 'pantry', add: [], remove: ['Milk'], removeIds: [saved.find((i) => i.name === 'Milk')!.id], summary: 'remove Milk' },
+    ]);
+    expect(r.parts).toEqual([lineOf('pantry.readback', { summary: 'remove Milk' }), lineOf('pantry.not_found', { items: 'eggs' })]);
+    const r2 = await turn(p.cookie, 'no eggs left', { conversationId: r.conversationId });
+    expect(r2.cards).toEqual([]);
+    // "eggs" makes it a health turn and no card came out, so the plain ask follows (Step 7, safe side).
+    expect(r2.parts).toEqual([lineOf('pantry.not_found', { items: 'eggs' }), lineOf('rule.ask_keep_off')]);
   });
 
   test('H: a reply in lines is cut to three (I6)', async () => {
@@ -1436,6 +1468,7 @@ describe('fix round 4: R9 — no model text reaches any player', () => {
   ])('L3: %j with %j makes a pantry card from the player\'s words, and no model text', async (q, text, purposes) => {
     await makeApp(fakeAi([reply(text)]));
     const p = await player(purposes);
+    await seedPantry(p.cookie, ['rice']);
     const r = await turn(p.cookie, q);
     seesNoModelText(r, text);
     expect(r.cards.map((c) => c.card.kind)).toEqual(['pantry']);
