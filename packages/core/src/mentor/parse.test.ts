@@ -247,3 +247,50 @@ describe('fix round 1: clocks, counts, weekdays, pantry, meals (M3–M5)', () =>
     expect(parseMealStatement(t)).toBeNull(),
   );
 });
+
+describe('fix round 2: an unattached allergy word voids intolerance (R1)', () => {
+  test.each([
+    "I'm allergic and intolerant to milk",
+    'allergic/intolerant to milk',
+    "I'm allergic & intolerant to milk",
+    'intolerant to milk and allergic to it',
+    "milk intolerance, it's actually an allergy",
+    'intolerant to milk (allergic actually)',
+    "I'm intolerant to milk, I'm also allergic",
+    'intolerant to milk + allergic to it',
+    'intolerant to milk; allergic',
+  ])('%s → milk null', (text) => {
+    expect(parseRuleStatement(text)?.items).toEqual([{ term: 'milk', severity: null }]);
+  });
+
+  test('an allergy that names its own term leaves the intolerance alone', () => {
+    expect(severities('allergic to peanuts and intolerant to milk')).toEqual([['peanuts', 'allergy'], ['milk', 'intolerance']]);
+    expect(severities("I'm not allergic, just intolerant to milk")).toEqual([['milk', 'intolerance']]);
+  });
+});
+
+describe('fix round 2: recall (R4, minor)', () => {
+  test.each([
+    ['no allergies apart from peanuts', [['peanuts', 'allergy']]],
+    ['no allergies except peanuts', [['peanuts', 'allergy']]],
+    ["I haven't got any allergies except peanuts", [['peanuts', 'allergy']]],
+    ["I'm allergic to nothing except peanuts", [['peanuts', 'allergy']]],
+    ["I'm lactose intolerant", [['lactose', 'intolerance']]],
+    ["I'm gluten intolerant", [['gluten', 'intolerance']]],
+    ['peanuts - allergic', [['peanuts', 'allergy']]],
+    ['no allergies, but I avoid pork', [['pork', null]]],
+    ["I'm allergic to peanuts, tree nuts are fine", [['peanuts', 'allergy']]],
+    ['allergic to peanuts, milk is ok', [['peanuts', 'allergy']]],
+    ['allergic to peanuts maybe', [['peanuts', 'allergy']]],
+    ['allergic to them', undefined],
+    ['allergic to it all', undefined],
+    ['allergic to everything too', undefined],
+  ])('%s', (text, items) => expect(severities(text)).toEqual(items));
+
+  test('"but only mildly to milk" keeps milk as a term; mildly never lowers it', () => {
+    const r = parseRuleStatement("I'm severely allergic to peanuts but only mildly to milk")!;
+    expect(r.terms).toEqual(['peanuts', 'milk']);
+    expect(r.items[0].severity).toBe('anaphylactic');
+    expect(['anaphylactic', 'allergy', null]).toContain(r.items[1].severity); // over-raising is accepted
+  });
+});
