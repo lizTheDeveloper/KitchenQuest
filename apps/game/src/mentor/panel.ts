@@ -1,6 +1,6 @@
 import { typeInto } from '../ui/dialogue-box';
 import { h } from '../ui/dom';
-import type { MentorBackend } from './backend';
+import type { MentorBackend, MentorInput } from './backend';
 import type { Dialogue, Said, Vars } from './dialogue';
 
 /** The panel keeps the last this-many bubbles; older ones are removed so a long session can't grow without end. */
@@ -18,7 +18,7 @@ export interface MentorPanel {
 
 export function mountMentorPanel(
   root: HTMLElement,
-  opts: { mode: MentorMode; backend: MentorBackend; dialogue: Dialogue; reducedMotion: () => boolean },
+  opts: { mode: MentorMode; backend: MentorBackend; dialogue: Dialogue; reducedMotion: () => boolean; signedIn: () => boolean },
 ): MentorPanel {
   // Spec §19: in Family Table mode children never reach the AI. Refuse before touching the DOM.
   if (opts.mode === 'familyTable' && opts.backend.kind !== 'scripted') {
@@ -62,15 +62,18 @@ export function mountMentorPanel(
     if (body) typers.get(body)?.finish();
   });
 
-  const reply = async (input: Parameters<MentorBackend['reply']>[0]): Promise<void> => {
-    let said: Said;
+  // Step 9's minimal panel (pre-flight C9): said items become bubbles; cards and other items wait for Step 10.
+  let turn = 0;
+  const reply = async (input: MentorInput): Promise<void> => {
+    let said: Said[];
     try {
-      said = await backend.reply(input);
+      const r = await backend.reply(input, { turn: ++turn, openCards: [], intakeStep: null, signedIn: opts.signedIn() });
+      said = r.items.flatMap((i) => (i.kind === 'said' ? [i.said] : []));
     } catch (err) {
       console.error(err);
-      said = dialogue.say('ai_unavailable');
+      said = [dialogue.say('ai_unavailable')];
     }
-    addBubble('pan', said.text);
+    for (const s of said) addBubble('pan', s.text);
   };
 
   if (standard) {

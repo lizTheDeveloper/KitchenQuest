@@ -200,9 +200,10 @@ describe('card writer', () => {
       getProfile: () => ok(profile),
       putProfile: (patch) => ok({ ...profile, ...(patch as object) }),
     }, signedIn);
-    const pantry = await writer.confirm(local(buildPantryCard({ add: ['rice'], remove: ['eggs'] }, graph)), 'tap');
+    const card = buildPantryCard({ add: ['rice'], remove: ['eggs'] }, graph);
+    const pantry = await writer.confirm(local(card), 'tap');
     if (!pantry.ok) throw new Error('expected a write');
-    expect(calls[1].args).toEqual([{ add: [{ name: 'rice', ingredientId: 'rice' }], removeNames: ['eggs'], removeIds: [] }, true]);
+    expect(calls[1].args).toEqual([{ add: card.add, removeNames: ['eggs'], removeIds: [] }, true]);
     await writer.undo(pantry.trail);
     // The same-name item that was already there ('old-rice') is never touched; the route's add takes no ids.
     expect(calls[2].args).toEqual([{ add: [{ name: 'eggs', ingredientId: 'egg' }], removeNames: [], removeIds: ['new-rice'] }, true]);

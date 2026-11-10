@@ -62,7 +62,7 @@ export const RUSTY_SEED: Partial<PlayerState> = {
   toolkit: { techniques: { tempering: { tier: 'yours', firstAt: daysAgo(300), lastUsedAt: daysAgo(200), recipes: [PARIPPU, 'mexico/oaxaca/frijoles'] } } },
 };
 const coconutSevere = { id: 'r1', target: { kind: 'ingredient' as const, ids: ['coconut'] }, type: 'avoid' as const, severity: 'anaphylactic' as const };
-const settings = (familyTable: boolean) => ({ showCalories: false, reducedMotion: 'system' as const, familyTable, iosNoteDismissed: false });
+const settings = (familyTable: boolean) => ({ showCalories: false, reducedMotion: 'system' as const, familyTable, iosNoteDismissed: false, aiMentor: true });
 const json = (status: number, body: unknown) => ({ status, contentType: 'application/json', body: JSON.stringify(body) });
 
 const h1 = (page: Page, text: string | RegExp) => page.locator('h1', { hasText: text }).first().waitFor();

@@ -31,7 +31,7 @@ describe('mentor panel', () => {
     expect(app.consoleErrors).toEqual([]);
   });
 
-  it('answers thanks and other text from the script, and makes no requests', async () => {
+  it('answers thanks, other text and a rule statement from the script, and makes no requests', async () => {
     app = await openApp('/#/settings', { reducedMotion: true });
     const { page } = app;
     await page.locator('#pan-button').click();
@@ -46,7 +46,13 @@ describe('mentor panel', () => {
     await page.locator('#pan-text').fill("what's for dinner");
     await page.keyboard.press('Enter');
     await page.waitForFunction(() => document.querySelectorAll('#pan-panel .bubble.pan').length === 2);
-    expect(lines('ai_unavailable')).toContain((await lastPan(page).textContent())!);
+    // M4: the scripted engine answers what it can't read with didnt_understand.
+    expect(lines('didnt_understand')).toContain((await lastPan(page).textContent())!);
+    // A rule statement gets the code-built read-back, spelled, with no request (the AI is off, nothing is written).
+    await page.locator('#pan-text').fill("I'm allergic to sesame");
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => document.querySelectorAll('#pan-panel .bubble.pan').length === 3);
+    expect(await lastPan(page).textContent()).toContain('S-E-S-A-M-E');
     expect(others()).toBe(before);
   });
 
@@ -82,11 +88,11 @@ describe('mentor panel', () => {
     await page.locator('#pan-panel .bubble.pan .typed-visible').waitFor();
     await page.locator('#pan-panel .bubble.pan').click();
     await page.waitForFunction(() => document.querySelector('#pan-panel .is-typing') === null);
-    expect(lines('ai_unavailable')).toContain((await lastPan(page).textContent())!);
+    expect(lines('didnt_understand')).toContain((await lastPan(page).textContent())!);
   });
 
   it('Family Table mode has no text box, form or talk button', async () => {
-    app = await openApp('/', { reducedMotion: true, seed: { settings: { showCalories: false, reducedMotion: 'system', familyTable: true, iosNoteDismissed: false } } });
+    app = await openApp('/', { reducedMotion: true, seed: { settings: { showCalories: false, reducedMotion: 'system', familyTable: true, iosNoteDismissed: false, aiMentor: true } } });
     const { page } = app;
     await page.locator('#pan-button').click();
     expect(await page.locator('#pan-panel textarea, #pan-panel input, #pan-panel form, #pan-talk').count()).toBe(0);
@@ -98,7 +104,7 @@ describe('mentor panel', () => {
     await app.page.locator('#pan-button').click();
     await expectNoA11yViolations(app.page, 'standard');
     await app.close();
-    app = await openApp('/', { reducedMotion: true, seed: { settings: { showCalories: false, reducedMotion: 'system', familyTable: true, iosNoteDismissed: false } } });
+    app = await openApp('/', { reducedMotion: true, seed: { settings: { showCalories: false, reducedMotion: 'system', familyTable: true, iosNoteDismissed: false, aiMentor: true } } });
     await app.page.locator('#pan-button').click();
     await expectNoA11yViolations(app.page, 'familyTable');
   });

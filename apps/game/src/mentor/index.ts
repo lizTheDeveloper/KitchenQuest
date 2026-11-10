@@ -1,9 +1,11 @@
+import { content, graph } from '../content';
 import type { PlayerStore } from '../state/store';
 import type { LineBank } from '../content/types';
 import { reducedMotion } from '../shell/motion';
 import { createScriptedBackend } from './backend';
 import { createDialogue } from './dialogue';
 import { mountMentorPanel, type MentorPanel } from './panel';
+import { createScriptedEngine } from './scripted';
 
 export { createDialogue } from './dialogue';
 export type { MentorPanel } from './panel';
@@ -26,20 +28,23 @@ export function historyOptions(store: PlayerStore): { history: Record<string, nu
   return { history: dialogueHistory, onHistory: (h) => { store.update((s) => ({ ...s, dialogueHistory: h })); } };
 }
 
-/** Mount the panel once, on the scripted backend, with its line history kept in the player store. */
+/** Mount the panel once, on the scripted backend (the core toolkit, no network), with its line history kept in the player store. */
 export function mountMentor(doc: Document, store: PlayerStore, bank: LineBank): MentorPanel {
   if (mentor) return mentor;
   const win = doc.defaultView!;
   const mql = win.matchMedia('(prefers-reduced-motion: reduce)');
   const dialogue = createDialogue(bank, historyOptions(store));
+  const recipes = Object.entries(content.recipes).map(([slug, r]) => ({ slug, title: r.meta.title }));
+  const engine = createScriptedEngine({ dialogue, graph, ruleTerms: content.ruleTerms, recipes, now: () => new Date() });
   const root = doc.createElement('div');
   root.id = 'pan-root';
   doc.body.append(root);
   mentor = mountMentorPanel(root, {
     mode: store.get().settings.familyTable ? 'familyTable' : 'standard',
-    backend: createScriptedBackend(dialogue),
+    backend: createScriptedBackend(engine, dialogue),
     dialogue,
     reducedMotion: () => reducedMotion(store.get().settings.reducedMotion, mql),
+    signedIn: () => store.get().account !== null,
   });
   return mentor;
 }

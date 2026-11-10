@@ -1,21 +1,20 @@
-import type { Dialogue, Said } from './dialogue';
+import type { Dialogue } from './dialogue';
+import type { PanReply, TurnContext } from './reply';
+import type { ScriptedEngine } from './scripted';
 
-type MentorInput = { kind: 'text'; text: string } | { kind: 'voice' };
-export interface MentorBackend { readonly kind: 'scripted' | 'ai'; reply(input: MentorInput): Promise<Said> }
+export type MentorInput = { kind: 'text'; text: string } | { kind: 'voice' };
+export interface MentorBackend { readonly kind: 'scripted' | 'ai'; reply(input: MentorInput, ctx: TurnContext): Promise<PanReply> }
 
-const THANKS = /\b(thanks|thank you|cheers|ta)\b/i;
-
-/** M3's only backend: written lines, no network. */
-export function createScriptedBackend(dialogue: Dialogue): MentorBackend {
+/** The path that always works: written lines and code-built cards, no network (M4 Step 9). */
+export function createScriptedBackend(engine: ScriptedEngine, dialogue: Dialogue): MentorBackend {
   return {
     kind: 'scripted',
-    reply(input) {
-      // Deferred so a throw from dialogue.say still arrives as a rejection, as callers expect.
-      return Promise.resolve().then(() =>
+    reply(input, ctx) {
+      // Deferred so a throw from the engine or dialogue.say still arrives as a rejection, as callers expect.
+      return Promise.resolve().then((): PanReply =>
         input.kind === 'voice'
-          ? dialogue.say('voice.not_yet')
-          : dialogue.say(THANKS.test(input.text) ? 'thanks' : 'ai_unavailable'),
-      );
+          ? { items: [{ kind: 'said', said: dialogue.say('voice.not_yet') }], cards: [], intents: [], actions: [], notice: null }
+          : engine.reply(input.text, ctx));
     },
   };
 }
