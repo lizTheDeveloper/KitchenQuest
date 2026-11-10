@@ -87,7 +87,7 @@ describe('rules', () => {
     expect(parseRuleStatement("I'm allergic to shellfish. Just save it")).toMatchObject({ terms: ['shellfish'], severity: 'allergy' });
     expect(parseRuleStatement("I can't eat the eggs, milk & wheat because they upset my stomach")).toMatchObject({
       terms: ['eggs', 'milk', 'wheat'],
-      severity: 'intolerance',
+      severity: null, // a symptom is not a severity word: the card asks
     });
     expect(parseRuleStatement('I have a tree nut allergy')).toMatchObject({ terms: ['tree nut'], severity: 'allergy' });
     expect(parseRuleStatement('anaphylactic to cashews')).toMatchObject({ terms: ['cashews'], severity: 'anaphylactic' });
@@ -103,11 +103,12 @@ describe('rules', () => {
   test.each([
     ['EpiPen severe', 'anaphylactic'],
     ['an allergy, I end up in hospital', 'anaphylactic'],
-    ['not an allergy, i just feel rough after', 'intolerance'],
+    ['not an allergy, i just feel rough after', null], // a symptom is not a severity word
+    ['intolerant, not an allergy', 'intolerance'],
     ['allergic', 'allergy'],
     ["I'd rather not", 'preference'],
     ['peanut allergy, it upsets my stomach', 'allergy'], // allergy beats a soft cue
-    ['not like an allergy, it upsets my stomach', 'intolerance'],
+    ['not like an allergy, it upsets my stomach', null],
     ["I'm vegan", null], // a diet word is not a severity
     ['hmm', null],
   ])('severityFromText(%s)', (t, v) => expect(severityFromText(t)).toBe(v));
@@ -152,8 +153,13 @@ describe('fix round 1: a parser only keeps or raises a stated severity (C1)', ()
     ["I'm coeliac and vegan", [['coeliac', null], ['vegan', 'preference']], null],
     ["I have a peanut allergy, I'm really sensitive to it", [['peanut', 'allergy']], 'allergy'],
     ['peanut allergy, it upsets my stomach', [['peanut', 'allergy']], 'allergy'],
-    ['allergic to peanuts and sensitive to milk', [['peanuts', 'allergy'], ['milk', 'intolerance']], null],
-    ['garlic kinda wrecks my stomach, it is not an allergy, I just avoid garlic', [['garlic', 'intolerance']], 'intolerance'],
+    ['allergic to peanuts and sensitive to milk', [['peanuts', 'allergy'], ['milk', null]], null], // "sensitive" is not a severity word
+    ['allergic to peanuts and intolerant to milk', [['peanuts', 'allergy'], ['milk', 'intolerance']], null],
+    ['garlic kinda wrecks my stomach, it is not an allergy, I just avoid garlic', [['garlic', null]], null], // symptoms never lower the default
+    ["I can't eat milk because it upsets my stomach", [['milk', null]], null],
+    ["I can't eat onions, they make me feel sick", [['onions', null]], null],
+    ['lactose intolerance', [['lactose', 'intolerance']], 'intolerance'],
+    ["I'm intolerant to milk, it's not an allergy", [['milk', 'intolerance']], 'intolerance'],
     ["I'm allergic to peanuts, not like an allergy really", [['peanuts', null]], null], // conflicting → asked
     ["I'm vegan and severely allergic to sesame", [['vegan', 'preference'], ['sesame', 'anaphylactic']], null],
     ["I can't eat shellfish, I end up in hospital", [['shellfish', 'anaphylactic']], 'anaphylactic'],

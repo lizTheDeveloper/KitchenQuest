@@ -212,25 +212,26 @@ export function parsePantryAdds(text: string): string[] {
   return out;
 }
 
-/** "Not an allergy" is the only cue that may set intolerance where an allergy is named. */
+/** "Not an allergy": it never sets a severity, it only makes a stated allergy conflicting. */
 export const NOT_AN_ALLERGY = /\bnot (like |really |exactly |quite )?an? allergy\b|\bisn'?t (like )?an? allergy\b/;
+const NOT_AN_ALLERGY_ALL = new RegExp(NOT_AN_ALLERGY.source, 'g');
 export const ANAPHYLACTIC_CUE = /anaphyla|epi-?pen|\bsevere|deadly|hospital|life[- ]threatening/;
-export const SOFT_INTOLERANCE_CUE = /intoleran|sensitive|upsets? my|wrecks? my|rough after|bloat/;
 
 /**
- * Message-wide severity, earlier patterns win. An allergy beats every softer cue unless the
- * player says it's not an allergy. Diet words are not severities (a rule term carries its own).
+ * Message-wide severity from explicit severity words only, earlier patterns win. A symptom
+ * ("upsets my stomach", "makes me feel sick", "sensitive") is not a severity word and never
+ * sets one below the default; only "intolerant" / "intolerance" gives intolerance. Diet words
+ * are not severities (a rule term carries its own). Read with "not an allergy" removed.
  */
 export const SEVERITY_PATTERNS: readonly [RegExp, Severity][] = [
   [ANAPHYLACTIC_CUE, 'anaphylactic'],
-  [NOT_AN_ALLERGY, 'intolerance'],
   [/\ballerg/, 'allergy'],
-  [SOFT_INTOLERANCE_CUE, 'intolerance'],
+  [/\bintoleran/, 'intolerance'],
   [/prefer|don'?t like|rather not/, 'preference'],
 ];
 
 export function severityFromText(text: string): Severity | null {
-  const t = normalizeTurn(text);
+  const t = normalizeTurn(text).replace(NOT_AN_ALLERGY_ALL, ' ');
   for (const [pattern, severity] of SEVERITY_PATTERNS) if (pattern.test(t)) return severity;
   return null;
 }
@@ -259,6 +260,8 @@ const TERM_STOP = /[.!?;()]/;
 const EXAMPLE_ABBREVIATIONS = /\b(?:e\.g|i\.e)\.?(?=\s|,|$)/g;
 /** Inside a term list these list examples, like a comma: "tree nuts e.g. cashews", "nuts like cashews". */
 const EXAMPLE_WORDS = /\b(?:eg|ie|such as|including|especially|like)\b/g;
+/** A list part starting with a subject pronoun is a new clause, not a term. */
+const CLAUSE_START = /^(they|it|it's|that|this|he|she|we|you|i|i'm|i've)\b/;
 /** A negation or exception inside a term list ends it. */
 const SPAN_EXCEPT = /\b(not|never|except|apart from|other than|but not|no)\b.*$/;
 /** Words that end the term list: "peanuts because they…" is just peanuts. */
@@ -305,7 +308,7 @@ const negated = (t: string, index: number): boolean => RULE_NEGATION.test(wordsB
 function triggerSeverity(phrase: string): Severity | null {
   if (phrase.startsWith('anaphylactic')) return 'anaphylactic';
   if (phrase.startsWith('allerg')) return 'allergy';
-  if (phrase.startsWith('intoleran') || phrase.startsWith('sensitive')) return 'intolerance';
+  if (phrase.startsWith('intoleran')) return 'intolerance'; // "sensitive to" states none
   return null;
 }
 
@@ -317,20 +320,17 @@ interface FoundTerm {
 }
 
 /**
- * Message-wide cues may keep or raise a stated severity, never lower it. The one exception is
- * an explicit "not an allergy": it sets intolerance where none was stated, and makes a stated
- * allergy conflicting (null, so the card asks). Preference-diet terms keep their own severity.
+ * Message-wide cues may keep or raise a stated severity, never lower it: an anaphylactic cue
+ * raises every term but a preference diet. "Not an allergy" sets nothing; it makes a stated
+ * allergy conflicting (null, so the card asks). Symptoms set nothing.
  */
 function applyCues(items: FoundTerm[], t: string): void {
   const notAnAllergy = NOT_AN_ALLERGY.test(t);
   const anaphylactic = ANAPHYLACTIC_CUE.test(t);
-  const allergy = /\ballerg/.test(t.replace(new RegExp(NOT_AN_ALLERGY.source, 'g'), ' '));
-  const soft = SOFT_INTOLERANCE_CUE.test(t);
   for (const item of items) {
     if (item.diet && item.severity === 'preference') continue;
     if (anaphylactic) item.severity = notAnAllergy ? null : 'anaphylactic';
-    else if (notAnAllergy) item.severity = item.severity === null ? 'intolerance' : item.severity === 'intolerance' ? 'intolerance' : null;
-    else if (item.severity === null && soft && !allergy) item.severity = 'intolerance';
+    else if (notAnAllergy && (item.severity === 'allergy' || item.severity === 'anaphylactic')) item.severity = null;
   }
 }
 
@@ -360,6 +360,7 @@ export function parseRuleStatement(
     const phrase: string | undefined = m[1]; // one of the two groups matched
     const severity = triggerSeverity(phrase ?? m[2]);
     for (const part of span.replace(CLAUSE_END, '').replace(EXAMPLE_WORDS, ',').split(LIST_SPLIT)) {
+      if (CLAUSE_START.test(part.trim())) break; // ", they make me feel sick" is a new clause
       const term = cleanTerm(part);
       if (term !== '') found.push({ index: m.index, term, severity, diet: false });
     }
