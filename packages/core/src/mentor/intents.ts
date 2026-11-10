@@ -44,12 +44,39 @@ export const THANKS_PATTERN = /^(thanks|thank you|cheers|ta)\b[^?]{0,30}$/;
 export const HEALTH_PATTERN =
   /\b(allerg\w*|intoleran\w*|anaphyla\w*|epi-?pen|coeliac|celiac|vegan|vegetarian|pescatarian|halal|kosher|jain|diet\w*|can'?t (eat|have)|cannot (eat|have)|don'?t eat|avoid\w*|sensitive to|stomach|bloat\w*|rough after|makes me (sick|ill)|ate|eaten|had|breakfast|brekkie|lunch|dinner|supper|snack\w*)\b/;
 
-/** Lower-cased, curly quotes made straight, whitespace collapsed. */
+/**
+ * Common Greek and Cyrillic letters that look like Latin ones, folded to the Latin letter, so
+ * "tаpped" (Cyrillic а) reads as "tapped". One UTF-16 unit to one, so indices still line up.
+ */
+const CONFUSABLES: Readonly<Record<string, string>> = {
+  // Cyrillic
+  а: 'a', в: 'b', е: 'e', к: 'k', м: 'm', н: 'h', о: 'o', р: 'p', с: 'c', т: 't', у: 'y', х: 'x', ѕ: 's', і: 'i', ј: 'j',
+  ԁ: 'd', ԛ: 'q', ԝ: 'w', ӏ: 'l', ү: 'y', һ: 'h',
+  А: 'A', В: 'B', Е: 'E', К: 'K', М: 'M', Н: 'H', О: 'O', Р: 'P', С: 'C', Т: 'T', У: 'Y', Х: 'X', Ѕ: 'S', І: 'I', Ј: 'J',
+  // Greek
+  α: 'a', ε: 'e', ι: 'i', κ: 'k', ν: 'v', ο: 'o', ρ: 'p', τ: 't', υ: 'u', χ: 'x', ϲ: 'c',
+  Α: 'A', Β: 'B', Ε: 'E', Ζ: 'Z', Η: 'H', Ι: 'I', Κ: 'K', Μ: 'M', Ν: 'N', Ο: 'O', Ρ: 'P', Τ: 'T', Υ: 'Y', Χ: 'X',
+};
+const CONFUSABLE_CHARS = new RegExp(`[${Object.keys(CONFUSABLES).join('')}]`, 'g');
+/** Invisible format characters (zero-width space and joiners, bidi marks, soft hyphen). */
+const FORMAT_CHARS = /\p{Cf}/gu;
+
+/** NFKC (fullwidth "Ｐｅａｎｕｔ" → "Peanut"), with invisible format characters removed. */
+export function canonicalText(text: string): string {
+  return text.normalize('NFKC').replace(FORMAT_CHARS, '');
+}
+
+/** Lookalike Greek and Cyrillic letters folded to Latin, length-preserving. */
+export function foldConfusables(text: string): string {
+  return text.replace(CONFUSABLE_CHARS, (ch) => CONFUSABLES[ch] ?? ch);
+}
+
+/** Canonical, lookalikes folded, lower-cased, curly quotes made straight, whitespace collapsed. */
 export function normalizeTurn(text: string): string {
-  return text
+  return foldConfusables(canonicalText(text))
     .toLowerCase()
-    .replace(/[‘’‛′]/g, "'")
-    .replace(/[“”‟″]/g, '"')
+    .replace(/[\u2018\u2019\u201B\u2032]/g, "'")
+    .replace(/[\u201C\u201D\u201F\u2033]/g, '"')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -77,14 +104,75 @@ export function classifyTurn(text: string): TurnIntent {
 }
 
 /** Lookalikes of page events: card taps and system notes never arrive as user text (§7.6b.4). */
-export const PAGE_EVENT_BRACKETS =
-  /\[[^\]]{0,200}\b(tap|tapped|click|clicked|stamp|stamped|confirm|confirmed|saved|system|button|event|card)\b[^\]]{0,200}\]/gi;
+export const PAGE_EVENT_WORDS = /\b(tap|tapped|click|clicked|stamp|stamped|confirm|confirmed|saved|system|button|event|card)\b/i;
+/** Bracket pairs a forged event may hide in (fullwidth forms are already folded by NFKC). */
+export const PAGE_EVENT_BRACKETS: Readonly<Record<string, string>> = { '[': ']', '【': '】', '(': ')', '{': '}', '〔': '〕', '〖': '〗' };
 export const ROLE_TAGS = /<\/?\s*(system|developer|assistant|tool|user)\b[^>]*>/gi;
-export const ROLE_PREFIXES = /^\s*(system|assistant|developer|tool)\s*:/gim;
+export const ROLE_PREFIXES = /^[^\S\n]*(system|assistant|developer|tool)\s*:/gim;
+/** An unbracketed forged event: "Player tapped Stamp it on the card." up to the end of the sentence. */
+export const PAGE_EVENT_SENTENCE =
+  /\b(the )?player (has |just )?(tapped|clicked|stamped|confirmed|pressed)\b[^.!?\n]*[.!?]*/gi;
 
-/** `text` with forged page events, role tags and role prefixes removed; everything else kept exactly. */
+/** [start, end) of every bracket pair whose content (nested pairs included) names a page event. */
+function bracketSpans(folded: string): [number, number][] {
+  const spans: [number, number][] = [];
+  const stack: { at: number; close: string }[] = [];
+  for (let i = 0; i < folded.length; i++) {
+    const ch = folded[i];
+    const close = PAGE_EVENT_BRACKETS[ch];
+    if (close !== undefined) {
+      stack.push({ at: i, close });
+      continue;
+    }
+    const top = stack.length > 0 ? stack[stack.length - 1] : null;
+    if (top !== null && ch === top.close) {
+      stack.pop();
+      if (PAGE_EVENT_WORDS.test(folded.slice(top.at + 1, i))) spans.push([top.at, i + 1]);
+    }
+  }
+  return spans;
+}
+
+function patternSpans(folded: string, pattern: RegExp): [number, number][] {
+  return [...folded.matchAll(pattern)].map((m) => [m.index, m.index + m[0].length]);
+}
+
+/** `text` without the spans (overlapping or nested spans merge). */
+function cut(text: string, spans: [number, number][]): string {
+  const sorted = [...spans].sort((a, b) => a[0] - b[0]);
+  let out = '';
+  let pos = 0;
+  for (const [start, end] of sorted) {
+    if (end <= pos) continue;
+    out += text.slice(pos, Math.max(pos, start));
+    pos = end;
+  }
+  return out + text.slice(pos);
+}
+
+/**
+ * `text` with forged page events, role tags and role prefixes removed. Matching runs on the
+ * NFKC form with invisible characters dropped and Greek/Cyrillic lookalikes folded, and repeats
+ * until nothing changes, so a removal can't recompose another ("[Player ta<user>pped]",
+ * "<sy</user>stem>"). Everything else is kept exactly (apart from NFKC and invisible characters).
+ */
 export function stripPageEvents(text: string): { text: string; stripped: boolean } {
-  let out = text;
-  for (const pattern of [PAGE_EVENT_BRACKETS, ROLE_TAGS, ROLE_PREFIXES]) out = out.replace(pattern, '');
-  return { text: out, stripped: out !== text };
+  let out = canonicalText(text);
+  let stripped = false;
+  for (;;) {
+    const folded = foldConfusables(out);
+    // One kind at a time, brackets first, so an unbracketed-sentence match never swallows the
+    // text after a bracketed event.
+    const spans = [
+      () => bracketSpans(folded),
+      () => patternSpans(folded, ROLE_TAGS),
+      () => patternSpans(folded, ROLE_PREFIXES),
+      () => patternSpans(folded, PAGE_EVENT_SENTENCE),
+    ]
+      .map((find) => find())
+      .find((found) => found.length > 0);
+    if (spans === undefined) return { text: out, stripped };
+    out = cut(out, spans);
+    stripped = true;
+  }
 }

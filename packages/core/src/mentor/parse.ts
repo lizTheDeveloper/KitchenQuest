@@ -28,38 +28,50 @@ function hourOf(word: string): number | null {
 /** 12-hour clock to 24-hour: 12 am is 00, 12 pm is 12. */
 const to24 = (h: number, meridiem: string): number => (h % 12) + (meridiem === 'pm' ? 12 : 0);
 
-/** British "half seven" is half past seven. Am/pm unknown, so the morning reading, except twelve. */
-export const CLOCK_HALF = new RegExp(`\\b(half|quarter past|quarter to) ${HOUR_WORD}\\b`, 'g');
-export const CLOCK_COLON = /\b(\d{1,2}):(\d{2})(?:\s*(am|pm)\b)?/g;
+/** British "half seven" is half past seven. Am/pm unknown: the morning reading (twelve stays noon). */
+export const CLOCK_HALF = new RegExp(`\\b(half past|half|quarter past|quarter to) ${HOUR_WORD}\\b(?:\\s*(am|pm)\\b)?`, 'g');
+/** "18:30", "6:30 pm", "7.30pm", "19.30". Never after a currency sign or inside a longer number. */
+export const CLOCK_COLON = /(?<![£$€\d.,])\b(\d{1,2})([:.])(\d{2})(?![\d]|[.,]\d)(?:\s*(am|pm)\b)?/g;
 export const CLOCK_MERIDIEM = /\b(\d{1,2})\s*(?:ish)?\s*(am|pm)\b/g;
+export const CLOCK_OCLOCK = new RegExp(`\\b${HOUR_WORD} ?o'?clock\\b(?:\\s*(am|pm)\\b)?`, 'g');
 export const CLOCK_NAMED = /\b(noon|midday|midnight)\b/g;
+
+const DAY_MINUTES = 24 * 60;
+/** Hour (1–12) plus an offset in minutes, as HH:MM. Without am/pm, the morning reading, except 12. */
+function clockAt(hour: number, offset: number, meridiem: string | undefined): string {
+  let total = (meridiem === undefined ? hour : to24(hour, meridiem)) * 60 + offset;
+  if (meridiem === undefined && total < 60) total += 12 * 60; // "quarter to one" is 12:45
+  total = (total + DAY_MINUTES) % DAY_MINUTES;
+  return hhmm(Math.floor(total / 60), total % 60);
+}
+
+const HALF_OFFSETS: Readonly<Record<string, number>> = { 'half past': 30, half: 30, 'quarter past': 15, 'quarter to': -15 };
 
 function clockCandidates(t: string): { index: number; value: string | null }[] {
   const out: { index: number; value: string | null }[] = [];
   for (const m of t.matchAll(CLOCK_HALF)) {
     const h = hourOf(m[2]);
-    let value: string | null = null;
-    if (h !== null) {
-      if (m[1] === 'half') value = hhmm(h, 30);
-      else if (m[1] === 'quarter past') value = hhmm(h, 15);
-      else value = hhmm(h === 1 ? 12 : h - 1, 45);
-    }
-    out.push({ index: m.index, value });
+    out.push({ index: m.index, value: h === null ? null : clockAt(h, HALF_OFFSETS[m[1]], m[3] as string | undefined) });
   }
   for (const m of t.matchAll(CLOCK_COLON)) {
     const h = Number(m[1]);
-    const min = Number(m[2]);
-    const meridiem = m[3] as string | undefined; // the optional group
+    const min = Number(m[3]);
+    const meridiem = m[4] as string | undefined; // the optional group
     let value: string | null = null;
     if (min <= 59) {
       if (meridiem !== undefined) value = h >= 1 && h <= 12 ? hhmm(to24(h, meridiem), min) : null;
-      else value = h <= 23 ? hhmm(h, min) : null;
+      // "7.30" alone could be a price or an amount; a dot needs am/pm or a 24-hour hour.
+      else if (m[2] === ':' || h >= 13) value = h <= 23 ? hhmm(h, min) : null;
     }
     out.push({ index: m.index, value });
   }
   for (const m of t.matchAll(CLOCK_MERIDIEM)) {
     const h = Number(m[1]);
     out.push({ index: m.index, value: h >= 1 && h <= 12 ? hhmm(to24(h, m[2]), 0) : null });
+  }
+  for (const m of t.matchAll(CLOCK_OCLOCK)) {
+    const h = hourOf(m[1]);
+    out.push({ index: m.index, value: h === null ? null : clockAt(h, 0, m[2] as string | undefined) });
   }
   for (const m of t.matchAll(CLOCK_NAMED)) out.push({ index: m.index, value: m[1] === 'midnight' ? '00:00' : '12:00' });
   return out;
@@ -84,27 +96,52 @@ export function windowEnd(start: string): string {
 /** Weekday names and three-letter abbreviations, 0 = Sunday. */
 export const WEEKDAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const;
 export const WEEKDAY_PATTERN =
-  /\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday|sun|mon|tue|wed|thu|fri|sat|weekend)s?\b/g;
+  /\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday|weekend|sun|mon|tues|tue|wed|thurs|thur|thu|fri|sat)s?\b/g;
+/** Words a short weekday answer may hold besides the days ("sat and sun", "every fri"). */
+const WEEKDAY_ANSWER_WORDS = new Set(['and', 'or', 'n', 'on', 'every', 'the', 'both', 'usually', 'mostly']);
+const LIST_PUNCT = /[,/&+]/;
 
 /** The weekday number(s) for one matched word: a name, an abbreviation or "weekend". */
 export function weekdaysOf(word: string): number[] {
   if (word === 'weekend') return [0, 6];
-  const i = WEEKDAY_NAMES.findIndex((n) => n === word || n.slice(0, 3) === word);
+  const i = WEEKDAY_NAMES.findIndex((n) => n === word || (word.length >= 3 && n.startsWith(word) && word.length <= 5));
   return i < 0 ? [] : [i];
 }
 
 const sortedUnique = (ns: number[]): number[] => [...new Set(ns)].sort((a, b) => a - b);
 
+/**
+ * Weekday names (any case, plurals, "weekend(s)") anywhere. A three-letter abbreviation counts
+ * only in a short answer made of days ("sat and sun") or next to list punctuation ("fri, sat"),
+ * so "I sat down", "mon dieu" and "wed like" name no day.
+ */
 export function parseWeekdays(text: string): number[] {
   const t = normalizeTurn(text);
-  return sortedUnique([...t.matchAll(WEEKDAY_PATTERN)].flatMap((m) => weekdaysOf(m[1])));
+  const matches = [...t.matchAll(WEEKDAY_PATTERN)];
+  const words = t.split(/[^a-z']+/).filter((w) => w !== '');
+  const dayWords = new Set(matches.map((m) => m[0]));
+  const shortAnswer = words.every((w) => dayWords.has(w) || WEEKDAY_ANSWER_WORDS.has(w));
+  const nextToList = (m: RegExpExecArray | RegExpMatchArray): boolean => {
+    const before = t.slice(0, m.index).trimEnd();
+    const after = t.slice(m.index! + m[0].length).trimStart();
+    return LIST_PUNCT.test(before.slice(-1)) || LIST_PUNCT.test(after.charAt(0));
+  };
+  return sortedUnique(
+    matches
+      .filter((m) => WEEKDAY_NAMES.some((n) => m[1] === n) || m[1] === 'weekend' || shortAnswer || nextToList(m))
+      .flatMap((m) => weekdaysOf(m[1])),
+  );
 }
 
 export const COUNT_PATTERN = new RegExp(`\\b(\\d{1,2}|${NUMBER_WORDS.join('|')}|a couple|most nights)\\b`);
+/** "5-6", "5 to 6", "five or six": a range is not one count. */
+export const COUNT_RANGE = new RegExp(`\\b(\\d{1,2}|${NUMBER_WORDS.join('|')})\\s*(-|–|to|or)\\s*(\\d{1,2}|${NUMBER_WORDS.join('|')})\\b`);
 
-/** A count 0–42 in digits or zero…twenty; "a couple" is 2 and "most nights" is 5; else null. */
+/** A count 0–42 in digits or zero…twenty; "a couple" is 2 and "most nights" is 5; a range or anything else is null. */
 export function parseCount(text: string): number | null {
-  const m = COUNT_PATTERN.exec(normalizeTurn(text));
+  const t = normalizeTurn(text);
+  if (COUNT_RANGE.test(t)) return null;
+  const m = COUNT_PATTERN.exec(t);
   if (!m) return null;
   const w = m[1];
   if (w === 'a couple') return 2;
@@ -121,6 +158,11 @@ export const PANTRY_REMOVAL_PATTERNS: readonly RegExp[] = [
   /\bno more ([a-z][a-z ]{0,30}?)\b(?=[,.!?]|$| and )/g,
 ];
 
+/** More items after a removal: "finished the milk and eggs", "ran out of rice, lentils and the oats". */
+export const PANTRY_REMOVAL_MORE = /^(?:\s*,\s*(?:and\s+)?|\s+and\s+|\s*&\s*)(the |my |our |some |any )?([a-z][a-z ]{0,30}?)\b(?=[,.!?]|$| and )/;
+/** A continuation that is a new clause, not another item ("…and I bought eggs"). */
+const NOT_AN_ITEM = /^(i|i'm|we|you|he|she|they|it|then|also|so|but|now|got|bought|have|had|just|oh|no|finished|used|ran|run|out|chucked|threw|binned)\b/;
+
 /** Items the player has used up, lower-cased, in the order they were said. */
 export function parsePantryRemovals(text: string): string[] {
   const t = normalizeTurn(text);
@@ -129,6 +171,17 @@ export function parsePantryRemovals(text: string): string[] {
     for (const m of t.matchAll(pattern)) {
       const item = m[m.length - 1].trim().replace(/ left$/, '');
       if (item !== '') found.push({ index: m.index, item });
+      // "a, b and c" is a list; "coffee, sadly" is not: comma items count only before an "and".
+      let end = m.index + m[0].length;
+      const more: { index: number; item: string; and: boolean }[] = [];
+      for (let next = PANTRY_REMOVAL_MORE.exec(t.slice(end)); next; next = PANTRY_REMOVAL_MORE.exec(t.slice(end))) {
+        const nextItem = next[2].trim().replace(/ left$/, '');
+        if (NOT_AN_ITEM.test(nextItem)) break;
+        more.push({ index: end, item: nextItem, and: /\band\b|&/.test(next[0].slice(0, next[0].length - next[2].length)) });
+        end += next[0].length;
+      }
+      const lastAnd = more.map((x) => x.and).lastIndexOf(true);
+      found.push(...more.slice(0, lastAnd + 1));
     }
   }
   found.sort((a, b) => a.index - b.index);
@@ -137,7 +190,7 @@ export function parsePantryRemovals(text: string): string[] {
 
 export const PANTRY_ADD_PATTERN =
   /\b(?:i'?ve got|i have got|i got|bought|picked up|add(?:ed)?)\s+([^.!?;]+?)(?:\s+to (?:the |my )?pantry)?\s*(?=[.!?;]|$)/g;
-export const LIST_SPLIT = /\s*(?:,|&|\+|\band\b|\bn\b)\s*/;
+export const LIST_SPLIT = /\s*(?:,|&|\+|\band\b|\bor\b|\bn\b)\s*/;
 const COUNT_WORDS = `(?:a couple of|couple of|a few|lots of|loads of|a bit of|\\d+(?:\\.\\d+)?|${NUMBER_WORDS.join('|')}|a|an|some|few)`;
 const UNIT_WORDS =
   '(?:tins?|cans?|bags?|packs?|packets?|jars?|bottles?|boxes|box|bunch(?:es)?|heads?|cartons?|loaf|loaves|kg|g|grams?|kilos?|lbs?|pounds?|litres?|liters?|l|ml|dozen|handfuls?|pieces?|cloves?|blocks?)';
@@ -159,12 +212,21 @@ export function parsePantryAdds(text: string): string[] {
   return out;
 }
 
-// Earlier patterns win.
+/** "Not an allergy" is the only cue that may set intolerance where an allergy is named. */
+export const NOT_AN_ALLERGY = /\bnot (like |really |exactly |quite )?an? allergy\b|\bisn'?t (like )?an? allergy\b/;
+export const ANAPHYLACTIC_CUE = /anaphyla|epi-?pen|\bsevere|deadly|hospital|life[- ]threatening/;
+export const SOFT_INTOLERANCE_CUE = /intoleran|sensitive|upsets? my|wrecks? my|rough after|bloat/;
+
+/**
+ * Message-wide severity, earlier patterns win. An allergy beats every softer cue unless the
+ * player says it's not an allergy. Diet words are not severities (a rule term carries its own).
+ */
 export const SEVERITY_PATTERNS: readonly [RegExp, Severity][] = [
-  [/anaphyla|epi-?pen|severe|deadly|hospital/, 'anaphylactic'],
-  [/intoleran|not (like )?an allergy|sensitive|upsets? my|wrecks? my|rough after/, 'intolerance'],
+  [ANAPHYLACTIC_CUE, 'anaphylactic'],
+  [NOT_AN_ALLERGY, 'intolerance'],
   [/\ballerg/, 'allergy'],
-  [/prefer|don'?t like|rather not|vegan|vegetarian|pescatarian|halal|kosher/, 'preference'],
+  [SOFT_INTOLERANCE_CUE, 'intolerance'],
+  [/prefer|don'?t like|rather not/, 'preference'],
 ];
 
 export function severityFromText(text: string): Severity | null {
@@ -173,57 +235,172 @@ export function severityFromText(text: string): Severity | null {
   return null;
 }
 
+/**
+ * Phrases a term list follows, each with the severity it states (null: none stated). The bare
+ * forms need a colon or dash ("Allergies: peanuts", "allergic - peanuts").
+ */
+export const RULE_TRIGGER_PATTERN =
+  /\b(?:(allergic to|allergy to|anaphylactic to|intolerant to|intolerance to|sensitive to|can'?t eat|cannot eat|can'?t have|cannot have|don'?t eat|do not eat|avoid)\b\s*[:\-–—]?|(allergic|allergies|allergy|intolerances|intolerance|intolerant)\s*[:\-–—])\s*/g;
+/** "peanut allergy", "nut allergies", "lactose intolerance": the words before name the term. */
+export const RULE_BEFORE_PATTERN = /\b(allergy|allergies|intolerance|intolerances)\b(?!\s*(?:to\b|[:\-–—]))/g;
 // "no pork" is reached only as this whole phrase, never as a bare "no".
-export const RULE_AFTER_PATTERN =
-  /\b(?:allergic to|allergy to|anaphylactic to|intolerant to|intolerance to|sensitive to|can'?t eat|cannot eat|don'?t eat|avoid)\s+([^.!?;:()]+)/g;
-export const RULE_BEFORE_PATTERN = /\b((?:[a-z-]+ ){0,3})(?:allergy|intolerance)\b/g;
 export const DIET_WORD_PATTERN =
   /\b(vegetarian|veggie|vegan|plant-based|plant based|pescatarian|pescetarian|coeliac|celiac|gluten-free|gluten free|no pork|pork-free|pork free|halal|kosher|jain)\b/g;
+/** Diet words that are a preference by their own meaning; the rest (coeliac, no pork…) state none. */
+const PREFERENCE_DIETS = new Set(['vegetarian', 'veggie', 'vegan', 'plant-based', 'plant based', 'pescatarian', 'pescetarian', 'halal', 'kosher']);
+/** "veggie" is a diet only with a rule cue ("I'm veggie", "veggie diet"), never "a veggie burger". */
+const VEGGIE_CUE_BEFORE = /\b(i'?m|i am|im|we'?re|we are)\s+((a|fully|strictly|strict|totally|mostly)\s+)?$/;
+const VEGGIE_CUE_AFTER = /^\s+diet\b/;
+/** A match is skipped when one of these is among the three words before it in its clause. */
+export const RULE_NEGATION = /\b(not|never|no|don'?t|do not|doesn'?t|does not|haven'?t|isn'?t|aren'?t|wasn'?t|ain'?t)\b/;
+/** Where a term list stops: a sentence or clause end. */
+const TERM_STOP = /[.!?;()]/;
+/** "e.g." would end the sentence; it is blanked first (same length, so indices hold). */
+const EXAMPLE_ABBREVIATIONS = /\b(?:e\.g|i\.e)\.?(?=\s|,|$)/g;
+/** Inside a term list these list examples, like a comma: "tree nuts e.g. cashews", "nuts like cashews". */
+const EXAMPLE_WORDS = /\b(?:eg|ie|such as|including|especially|like)\b/g;
+/** A negation or exception inside a term list ends it. */
+const SPAN_EXCEPT = /\b(not|never|except|apart from|other than|but not|no)\b.*$/;
 /** Words that end the term list: "peanuts because they…" is just peanuts. */
-const CLAUSE_END = /\b(because|but|so|since|as|like|which|if|when|though|although|just|please|thanks|and i|i'm|im|i)\b.*$/;
-const LEADING_FILLER = /^((a|an|the|some|any|my|all|of|really|very|super|mildly|slightly|quite|bad|badly|mild|severe|severely|serious|seriously|deadly|real|proper|like|have|got|had|has|with|an?)\s+)+/;
-const BEFORE_FILLER = new Set([
-  'a', 'an', 'the', 'my', 'have', 'has', 'had', 'got', 'with', 'like', 'severe', 'mild', 'bad', 'slight', 'serious',
-  'deadly', 'real', 'proper', 'big', 'small', 'minor', 'major', 'really', 'very', 'super', 'an', 'not', 'no', 'food',
-  'i', "i'm", 'im', 'is', 'it', 'its', "it's", 'this', 'that', 'some', 'kind', 'of', 'sort', 'just',
+const CLAUSE_END = /\b(because|but|so|since|as|which|if|when|though|although|just|please|thanks|and i|i'm|im|i)\b.*$/;
+/** Words that are never a term by themselves (pronouns, quantities, adverbs, severity words). */
+const NOT_A_TERM = new Set([
+  'a', 'an', 'the', 'my', 'some', 'any', 'all', 'of', 'have', 'has', 'had', 'got', 'with', 'like', 'severe', 'severely',
+  'mild', 'mildly', 'bad', 'badly', 'slight', 'slightly', 'serious', 'seriously', 'deadly', 'real', 'really', 'proper',
+  'big', 'small', 'minor', 'major', 'very', 'super', 'quite', 'too', 'also', 'well', 'much', 'anymore', 'either', 'ever',
+  'not', 'no', 'food', 'foods', 'i', "i'm", 'im', 'is', 'it', "it's", 'its', 'this', 'that', 'these', 'those', 'them',
+  'they', 'anything', 'everything', 'something', 'nothing', 'stuff', 'things', 'thing', 'kind', 'sort', 'just', 'at',
+  'eat', 'eating', 'allergy', 'allergies', 'allergic', 'intolerance', 'intolerant', 'sensitive',
+]);
+/** Words at the start of a term that are dropped ("the eggs", "a severe peanut"). */
+const LEADING_FILLER = new Set([
+  'a', 'an', 'the', 'my', 'some', 'any', 'all', 'of', 'really', 'very', 'super', 'mild', 'mildly', 'slightly', 'quite',
+  'bad', 'badly', 'severe', 'severely', 'serious', 'seriously', 'deadly', 'real', 'proper', 'like', 'have', 'got', 'had',
+  'has', 'with', 'big', 'small', 'minor', 'major', 'slight', 'food', 'not', 'no', 'i', "i'm", 'im', 'is', 'it', 'its',
+  "it's", 'this', 'that', 'kind', 'sort', 'just',
 ]);
 
 function cleanTerm(raw: string): string {
-  return raw
+  const words = raw
     .replace(CLAUSE_END, '')
-    .replace(/[\s.,!?;:'"-]+$/, '')
+    .replace(/[^a-z0-9' -]+/g, ' ')
     .trim()
-    .replace(LEADING_FILLER, '')
-    .trim();
+    .split(/\s+/)
+    .map((w) => w.replace(/^[-']+|[-']+$/g, ''))
+    .filter((w) => w !== '');
+  let start = 0;
+  while (start < words.length && LEADING_FILLER.has(words[start])) start++;
+  const kept = words.slice(start);
+  return kept.every((w) => NOT_A_TERM.has(w)) ? '' : kept.join(' ');
+}
+
+/** The (up to) three words before `index` in its clause. */
+function wordsBefore(t: string, index: number): string {
+  const clause = t.slice(0, index).split(/[,.;!?:\n()]/).pop()!;
+  return clause.trim().split(/\s+/).slice(-3).join(' ');
+}
+const negated = (t: string, index: number): boolean => RULE_NEGATION.test(wordsBefore(t, index));
+
+/** The severity a trigger phrase states. */
+function triggerSeverity(phrase: string): Severity | null {
+  if (phrase.startsWith('anaphylactic')) return 'anaphylactic';
+  if (phrase.startsWith('allerg')) return 'allergy';
+  if (phrase.startsWith('intoleran') || phrase.startsWith('sensitive')) return 'intolerance';
+  return null;
+}
+
+interface FoundTerm {
+  index: number;
+  term: string;
+  severity: Severity | null;
+  diet: boolean;
 }
 
 /**
- * The ingredient or diet terms in a rule statement, and the severity the words carry. Terms
- * come after "allergic to / intolerant to / can't eat / avoid …", before "allergy / intolerance",
- * or as a whole diet word. Null when there are none.
+ * Message-wide cues may keep or raise a stated severity, never lower it. The one exception is
+ * an explicit "not an allergy": it sets intolerance where none was stated, and makes a stated
+ * allergy conflicting (null, so the card asks). Preference-diet terms keep their own severity.
  */
-export function parseRuleStatement(text: string): { terms: string[]; severity: Severity | null } | null {
-  const t = normalizeTurn(text);
-  const found: { index: number; term: string }[] = [];
-  for (const m of t.matchAll(RULE_AFTER_PATTERN)) {
-    for (const part of cleanTerm(m[1]).split(LIST_SPLIT)) {
+function applyCues(items: FoundTerm[], t: string): void {
+  const notAnAllergy = NOT_AN_ALLERGY.test(t);
+  const anaphylactic = ANAPHYLACTIC_CUE.test(t);
+  const allergy = /\ballerg/.test(t.replace(new RegExp(NOT_AN_ALLERGY.source, 'g'), ' '));
+  const soft = SOFT_INTOLERANCE_CUE.test(t);
+  for (const item of items) {
+    if (item.diet && item.severity === 'preference') continue;
+    if (anaphylactic) item.severity = notAnAllergy ? null : 'anaphylactic';
+    else if (notAnAllergy) item.severity = item.severity === null ? 'intolerance' : item.severity === 'intolerance' ? 'intolerance' : null;
+    else if (item.severity === null && soft && !allergy) item.severity = 'intolerance';
+  }
+}
+
+/**
+ * The ingredient or diet terms in a rule statement, each with the severity its own words state,
+ * and the one severity they all share (null when they differ or none is stated: the card asks).
+ * Terms come after "allergic to / intolerant to / can't eat / avoid …", before "allergy /
+ * intolerance", or as a whole diet word. A negated match ("I don't have a peanut allergy",
+ * "I'm not vegan") is skipped. Null when there are no terms.
+ */
+export function parseRuleStatement(
+  text: string,
+): { terms: string[]; severity: Severity | null; items: { term: string; severity: Severity | null }[] } | null {
+  const t = normalizeTurn(text.replace(/\r?\n/g, ' ; ')).replace(EXAMPLE_ABBREVIATIONS, (m) => ','.padEnd(m.length));
+  const triggers = [...t.matchAll(RULE_TRIGGER_PATTERN)];
+  const diets = [...t.matchAll(DIET_WORD_PATTERN)];
+  const starts = [...triggers, ...diets].map((m) => m.index).sort((a, b) => a - b);
+  const found: FoundTerm[] = [];
+
+  for (const m of triggers) {
+    if (negated(t, m.index)) continue;
+    const from = m.index + m[0].length;
+    const nextStart = starts.find((s) => s >= from) ?? t.length;
+    const stop = t.slice(from, nextStart).search(TERM_STOP);
+    // "allergic to peanuts, not tree nuts": a negation or exception ends the list.
+    const span = t.slice(from, stop < 0 ? nextStart : from + stop).replace(SPAN_EXCEPT, '');
+    const severity = triggerSeverity(m[1] ?? m[2]);
+    for (const part of span.replace(CLAUSE_END, '').replace(EXAMPLE_WORDS, ',').split(LIST_SPLIT)) {
       const term = cleanTerm(part);
-      if (term !== '') found.push({ index: m.index, term });
+      if (term !== '') found.push({ index: m.index, term, severity, diet: false });
     }
   }
+
   for (const m of t.matchAll(RULE_BEFORE_PATTERN)) {
-    const words = m[1].trim().split(' ').filter((w) => w !== '');
+    const before = /((?:[a-z'-]+ ){0,3})$/.exec(t.slice(0, m.index))![1];
+    const words = before.trim().split(' ').filter((w) => w !== '');
     let start = words.length;
-    while (start > 0 && !BEFORE_FILLER.has(words[start - 1])) start--;
-    for (const part of words.slice(start).join(' ').split(LIST_SPLIT)) {
+    while (start > 0 && !LEADING_FILLER.has(words[start - 1])) start--;
+    const termWords = words.slice(start);
+    if (termWords.length === 0) continue;
+    const index = m.index - before.length + words.slice(0, start).join(' ').length + (start > 0 ? 1 : 0);
+    if (negated(t, index)) continue;
+    const severity = m[1].startsWith('allerg') ? 'allergy' : 'intolerance';
+    for (const part of termWords.join(' ').split(LIST_SPLIT)) {
       const term = cleanTerm(part);
-      if (term !== '') found.push({ index: m.index, term });
+      if (term !== '') found.push({ index, term, severity, diet: false });
     }
   }
-  for (const m of t.matchAll(DIET_WORD_PATTERN)) found.push({ index: m.index, term: m[1] });
+
+  for (const m of diets) {
+    const word = m[1];
+    if (negated(t, m.index)) continue;
+    if (word === 'veggie') {
+      const after = t.slice(m.index + word.length);
+      if (!VEGGIE_CUE_BEFORE.test(t.slice(0, m.index)) && !VEGGIE_CUE_AFTER.test(after)) continue;
+    }
+    found.push({ index: m.index, term: word, severity: PREFERENCE_DIETS.has(word) ? 'preference' : null, diet: true });
+  }
+
   if (found.length === 0) return null;
+  applyCues(found, t);
   found.sort((a, b) => a.index - b.index);
-  return { terms: [...new Set(found.map((f) => f.term))], severity: severityFromText(t) };
+  const items: { term: string; severity: Severity | null }[] = [];
+  for (const f of found) {
+    const same = items.find((i) => i.term === f.term);
+    if (!same) items.push({ term: f.term, severity: f.severity });
+    else if (same.severity !== f.severity) same.severity = null; // said two ways: ask
+  }
+  const shared = new Set(items.map((i) => i.severity));
+  return { terms: items.map((i) => i.term), severity: shared.size === 1 ? items[0].severity : null, items };
 }
 
 /** Breakfast before 11:00, lunch before 15:00, snack before 17:00, dinner before 22:00, else snack. */
@@ -243,6 +420,9 @@ const SLOT_WORD: Record<string, MealSlot> = {
   breakfast: 'breakfast', brekkie: 'breakfast', lunch: 'lunch', dinner: 'dinner', supper: 'dinner', snack: 'snack',
 };
 const NOT_A_MEAL = /\b(allerg\w*|intoleran\w*|anaphyla\w*)\b/;
+/** "had enough", "had a long day", "had a go": the verb, not a meal. */
+export const NOT_FOOD =
+  /^(?:to|no|nothing|none|enough|it|that|this|them|fun|time|trouble|an? allergy|a (severe|bad|mild)\b|a (go|look|think|chat|word|break|nap|rest|bath|shower|laugh|cry|feeling|try|sleep|lie-in|lie in|day off)\b|a (good|great|nice|long|rough|hard|busy|lovely|bad|quiet|tough) (day|time|night|week|morning|evening|sleep|chat|one))\b/;
 
 /** "Had porridge with banana for breakfast." → the description, the slot named (if any), and the day. */
 export function parseMealStatement(
@@ -263,6 +443,6 @@ export function parseMealStatement(
     .replace(MEAL_WHEN_WORDS, ' ')
     .replace(/\s+/g, ' ')
     .replace(/^[\s,:-]+|[\s,:-]+$/g, '');
-  if (description === '' || /^(to|no|nothing|a (severe|bad|mild)|an? allergy)\b/.test(description)) return null;
+  if (description === '' || NOT_FOOD.test(description)) return null;
   return { description, slot, when: MEAL_YESTERDAY_PATTERN.test(t) ? 'yesterday' : 'today' };
 }
