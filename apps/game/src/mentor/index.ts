@@ -166,7 +166,7 @@ export function mountMentor(doc: Document, store: PlayerStore, bank: LineBank, c
     current.panel.destroy();
     current.backend.dispose?.();
     build();
-    if (wasOpen) current!.panel.open();
+    if (wasOpen) current.panel.open();
   });
   mentor = stablePanel(() => current!.panel);
   return mentor;

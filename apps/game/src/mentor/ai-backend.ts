@@ -99,6 +99,8 @@ export function createAiBackend(deps: {
   const prefixed = (items: PanItem[], r: PanReply): PanReply => ({ ...r, items: [...items, ...r.items] });
   /** Retries and late replies end here once the backend is replaced (fix round 1, I2). */
   let disposed = false;
+  /** Read through a call, so a check after an await sees a dispose that happened meanwhile. */
+  const isDisposed = () => disposed;
   const cancels = new Set<() => void>();
 
   /**
@@ -173,8 +175,8 @@ export function createAiBackend(deps: {
   async function retry(req: TurnRequest, ctx: TurnContext, scripted: PanReply): Promise<void> {
     if (disposed) return;
     const r = await client.mentorTurn({ ...req, conversationId });
-    const emit = (reply: PanReply) => { if (!disposed) for (const fn of listeners) fn(reply); };
-    if (disposed) return;
+    const emit = (reply: PanReply) => { if (!isDisposed()) for (const fn of listeners) fn(reply); };
+    if (isDisposed()) return;
     if (r.ok && isTurnResponse(r.data)) {
       conversationId = r.data.conversationId;
       if (r.data.route === 'scripted') return;

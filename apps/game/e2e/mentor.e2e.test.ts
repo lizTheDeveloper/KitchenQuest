@@ -259,8 +259,8 @@ describe('mentor cards, trail and AI backend (M4 Step 10)', () => {
     await tell(page, "I'm allergic to coconut");
     await page.locator('#pan-panel .pan-card').getByRole('button', { name: 'Stamp it ✔' }).click();
     await page.locator('#pan-panel .trail-entry').waitFor();
-    // The pressed button's place is taken by the trail entry's Undo.
-    expect(await page.evaluate(() => document.activeElement?.textContent)).toBe('Undo');
+    // The pressed button's place is taken by the trail entry text (fix round 1, M3).
+    expect(await page.evaluate(() => document.activeElement?.className)).toBe('trail-text');
     await tell(page, 'I avoid sesame');
     await page.locator('#pan-panel .pan-card').waitFor();
     await expectNoA11yViolations(page, 'rule card and trail entry');

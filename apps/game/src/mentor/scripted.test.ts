@@ -212,6 +212,8 @@ describe('scripted engine', () => {
     const withOld = e.reply('yes', ctx({ turn: 2, openCards: [older, profile[0]] }));
     expect(withOld.intents).toEqual([]);
     expect(said(withOld)).toEqual(['confirm.tap_card']);
+    // Undo is never blocked by open cards: it goes by the trail (fix round 1, M1).
+    expect(e.reply('undo', ctx({ turn: 2, openCards: [older, profile[0]] })).intents).toEqual([{ kind: 'undo' }]);
     const lone = e.reply('yes', ctx({ turn: 2, openCards: [serverCard] }));
     expect(lone.intents).toEqual([]);
     expect(said(lone)).toEqual(['confirm.tap_card']);

@@ -5,6 +5,8 @@ import type { ApiResult, Consents } from '../api/types';
 import { content, graph } from '../content';
 import { createStore, type PlayerState } from '../state/store';
 import { createAiBackend, RETRY_AFTER_MS } from './ai-backend';
+import { switchingBackend } from './index';
+import { createScriptedBackend } from './backend';
 import { createDialogue } from './dialogue';
 import type { CardView, PanItem, PanReply, TurnContext } from './reply';
 import { createScriptedEngine } from './scripted';
@@ -75,7 +77,9 @@ describe('AI backend', () => {
     expect(said(r)[0]).toBe('rule.readback');
     expect(r.cards).toMatchObject([{ origin: 'local', card: { kind: 'rule', severe: true } }]);
     expect(r.items.filter((i) => i.kind === 'consent')).toEqual([{ kind: 'consent', purpose: 'ai_health' }]);
-    expect(store.get().aiHealthOffered).toBe(true);
+    // The panel marks it offered when the card is on screen (fix round 1, M5); the backend never does.
+    expect(store.get().aiHealthOffered).toBe(false);
+    store.update((s) => ({ ...s, aiHealthOffered: true }));
     const again = await backend.reply(text("I'm allergic to sesame"), ctx({ turn: 2 }));
     expect(again.items.some((i) => i.kind === 'consent')).toBe(false);
   });
@@ -223,5 +227,61 @@ describe('AI backend', () => {
     const { backend, calls } = setup({});
     expect(said(await backend.reply({ kind: 'voice' }, ctx()))).toEqual(['voice.not_yet']);
     expect(calls).toEqual([]);
+  });
+
+  test('I2: dispose cancels the queued retry; nothing is sent or shown after it', async () => {
+    const { backend, calls, late, events } = setup({ consents: BOTH, mentorTurn: () => fail(503) });
+    await backend.reply(text('tell me a joke'), ctx());
+    backend.dispose?.();
+    events.dispatchEvent(new Event('online'));
+    await vi.advanceTimersByTimeAsync(RETRY_AFTER_MS * 2);
+    expect(turns(calls)).toHaveLength(1);
+    expect(late).toEqual([]);
+  });
+
+  test('I2: switching the backend (AI off) within the retry window sends no second POST /mentor/turn', async () => {
+    const store = createStore(null);
+    store.update((s) => ({ ...s, account: { email: 'cook@example.com' }, accountRules: [] }));
+    const dialogue = createDialogue(content.pan);
+    const engine = createScriptedEngine({ dialogue, graph, ruleTerms: content.ruleTerms, recipes: [], now: () => T0 });
+    const { client, calls } = fakeClient({ consents: BOTH, mentorTurn: () => fail(503) });
+    const backend = switchingBackend(store, (kind) => (kind === 'ai'
+      ? createAiBackend({ client, engine, dialogue, store, graph, ruleTerms: content.ruleTerms, now: () => T0, events: new EventTarget(), screen: () => null, intakeStep: () => null })
+      : createScriptedBackend(engine, dialogue)));
+    expect(backend.kind).toBe('ai');
+    await backend.reply(text('tell me a joke'), ctx());
+    store.update((s) => ({ ...s, settings: { ...s.settings, aiMentor: false } }));
+    expect(backend.kind).toBe('scripted');
+    await vi.advanceTimersByTimeAsync(RETRY_AFTER_MS * 2);
+    expect(turns(calls)).toHaveLength(1);
+  });
+
+  test('M4: a reply of only model text gets didnt_understand, never an empty reply', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { backend } = setup({ consents: BOTH, mentorTurn: () => ok(response({ route: 'ai', parts: [{ kind: 'text', text: 'chat' }] })) });
+    expect(said(await backend.reply(text('tell me a joke'), ctx()))).toEqual(['didnt_understand']);
+    vi.restoreAllMocks();
+  });
+
+  test('M8: a malformed server card is dropped with didnt_understand; good cards and lines stay', async () => {
+    const good = buildProfileCard({ marketDays: [6] });
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { backend } = setup({
+      consents: BOTH,
+      mentorTurn: () => ok(response({
+        parts: [{ kind: 'line', line: good.readback[0] }, { kind: 'line', line: { trigger: 'no.such.line', vars: {} } }],
+        cards: [
+          { proposalId: 'P1', expiresAt: '2026-11-10T12:30:00Z', card: good },
+          { proposalId: 'P2', expiresAt: '2026-11-10T12:30:00Z', card: { kind: 'rule', readback: [] } as never },
+          { proposalId: 'P3', expiresAt: 'soon', card: good },
+        ],
+        actions: [{ kind: 'confirmed', proposalId: 'P9' } as never],
+      })),
+    });
+    const r = await backend.reply(text('My market day is Saturday.'), ctx());
+    expect(r.cards.map((c) => (c.origin === 'server' ? c.proposalId : ''))).toEqual(['P1']);
+    expect(said(r)).toEqual(['profile.readback', 'didnt_understand']);
+    expect(r.actions).toEqual([]);
+    err.mockRestore();
   });
 });

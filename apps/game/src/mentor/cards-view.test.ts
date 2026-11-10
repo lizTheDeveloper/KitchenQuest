@@ -145,6 +145,16 @@ describe('renderTrail', () => {
     expect(button(renderTrail(entry('profile'), { now: () => new Date(), onUndo, onEdit: vi.fn() }), 'Edit')).toBeDefined();
   });
 
+  test('a focused Undo that goes at undoUntil hands focus to the entry text (fix round 1, M3)', () => {
+    vi.useFakeTimers({ now: T0 });
+    const el = renderTrail(entry('meal'), { now: () => new Date(), onUndo: vi.fn(), onEdit: vi.fn() });
+    document.body.append(el);
+    button(el, 'Undo')!.focus();
+    vi.advanceTimersByTime(UNDO_WINDOW_MS);
+    expect(document.activeElement).toBe(el.querySelector('.trail-text'));
+    expect(el.querySelector('.trail-text')!.getAttribute('tabindex')).toBe('-1');
+  });
+
   test('trail Edit calls onEdit', () => {
     const onEdit = vi.fn();
     button(renderTrail(entry('meal'), { now: () => now, onUndo: vi.fn(), onEdit }), 'Edit')!.click();

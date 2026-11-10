@@ -8,7 +8,7 @@ import { createStore, type PlayerState } from '../state/store';
 import type { MentorBackend } from './backend';
 import { CLOSED_TEXT } from './cards-view';
 import { createDialogue } from './dialogue';
-import { DEVICE_ONLY_FOOTNOTE, MAX_BUBBLES, mountMentorPanel, NOT_SAVED_TEXT, THINKING_TEXT, type MentorMode } from './panel';
+import { DEVICE_ONLY_FOOTNOTE, MAX_BUBBLES, mountMentorPanel, NOT_SAVED_TEXT, REJECT_FAILED_TEXT, THINKING_TEXT, type MentorMode } from './panel';
 import type { CardView, PanItem, PanReply, TurnContext } from './reply';
 import { createScriptedEngine } from './scripted';
 import type { CardWriter, UndoOutcome, WriteOutcome } from './writer';
@@ -399,5 +399,77 @@ describe('Step 11 hooks', () => {
     await flush();
     button(root.querySelector('.consent-card')!, 'Not now')!.click();
     expect(onAnswer).toHaveBeenCalledWith(false);
+  });
+});
+
+describe('fix round 1', () => {
+  test('I1: a typed yes while the tap is in flight is ignored; the tap writes once and leaves its trail entry', async () => {
+    let finish!: (o: WriteOutcome) => void;
+    const view = local(buildProfileCard({ marketDays: [6] }));
+    const writer = fakeWriter({ confirm: vi.fn(() => new Promise<WriteOutcome>((r) => { finish = r; })) });
+    const { root, pan } = mount({ writer });
+    pan.show(reply([], { cards: [view] }));
+    button(root, 'Ink it ✔')!.click();
+    pan.show(reply([], { intents: [{ kind: 'confirm', localId: 'L1' }] }));
+    await flush();
+    expect(writer.confirm).toHaveBeenCalledTimes(1);
+    finish({ ok: true, trail: trailFor(view.card), items: [] });
+    await flush();
+    expect(root.querySelector('.pan-card-note')).toBeNull();
+    expect(root.querySelector('.trail-entry')).not.toBeNull();
+    expect(button(root, 'Undo')).toBeDefined();
+  });
+
+  test('I1: a busy outcome from the writer shows nothing', async () => {
+    const writer = fakeWriter({ confirm: vi.fn(() => Promise.resolve({ ok: false as const, reason: 'busy' as const, items: [] })) });
+    const { root, pan } = mount({ writer });
+    pan.show(reply([], { cards: [local(buildProfileCard({ marketDays: [6] }))] }));
+    const before = panTexts(root).length;
+    button(root, 'Ink it ✔')!.click();
+    await flush();
+    expect(panTexts(root)).toHaveLength(before);
+    expect(root.querySelector('.pan-card.is-closed, .pan-card-note')).toBeNull();
+  });
+
+  test('M3: after a stamp, focus is on the trail entry text', async () => {
+    const { root, pan } = mount();
+    pan.show(reply([], { cards: [local(buildProfileCard({ marketDays: [6] }))] }));
+    button(root, 'Ink it ✔')!.focus();
+    button(root, 'Ink it ✔')!.click();
+    await flush();
+    expect(document.activeElement).toBe(root.querySelector('.trail-text'));
+  });
+
+  test('M7: a turn-down that fails says the card is still open, not "not saved"', async () => {
+    const writer = fakeWriter({ reject: vi.fn(() => Promise.resolve([])) });
+    const { root, pan } = mount({ writer });
+    pan.show(reply([], { cards: [local(buildProfileCard({ marketDays: [6] }))] }));
+    button(root, 'Leave in pencil')!.click();
+    await flush();
+    expect(root.querySelector('.pan-card-note')!.textContent).toBe(REJECT_FAILED_TEXT);
+  });
+
+  test('M5: aiHealthOffered is set when the ai_health card is on screen, not before', async () => {
+    const { pan, store } = mount({ patch: { account: { email: 'a@b.c' } } });
+    expect(store.get().aiHealthOffered).toBe(false);
+    pan.show({ items: [{ kind: 'consent', purpose: 'ai_health' }], cards: [], intents: [], actions: [], notice: null });
+    await flush();
+    expect(store.get().aiHealthOffered).toBe(true);
+  });
+
+  test('M8: a card that cannot be drawn is dropped with didnt_understand, never a thrown render', () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { root, pan } = mount();
+    const bad = { ...rule('milk', 'intolerance'), form: 'rule_bogus' } as unknown as ProposalCard;
+    expect(() => pan.show(reply([], { cards: [local(bad)] }))).not.toThrow();
+    expect(root.querySelector('.pan-card')).toBeNull();
+    expect(lines('didnt_understand')).toContain(panTexts(root).at(-1));
+    err.mockRestore();
+  });
+
+  test('destroy takes the panel out and drops its listeners', () => {
+    const { root, pan } = mount();
+    pan.destroy();
+    expect(root.querySelector('#pan-panel')).toBeNull();
   });
 });
