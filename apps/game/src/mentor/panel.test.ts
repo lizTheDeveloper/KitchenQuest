@@ -325,11 +325,14 @@ describe('Step 11 hooks', () => {
     pan.close();
     pan.open();
     expect(root.querySelectorAll('.pan-disclosure')).toHaveLength(1);
+    // Pinned outside the bubbles until acknowledged: 60 lines never trim it (fix round 1, M5).
+    for (let i = 0; i < 60; i++) pan.say('thanks');
+    expect(root.querySelector('.pan-disclosure')).toBe(note);
     button(note, 'Got it')!.click();
     expect(store.get().aiDisclosureSeen).toBe(true);
-    expect(button(note, 'Got it')).toBeUndefined();
-    // Not a Pan line: the bubble count is untouched.
-    expect(panTexts(root)).toEqual([]);
+    expect(root.querySelector('.pan-disclosure')).toBeNull();
+    // Not a Pan line: only the 50 bubbles the panel keeps.
+    expect(panTexts(root)).toHaveLength(50);
     const seen = mount({ disclosure: C16, patch: { aiDisclosureSeen: true } });
     seen.pan.open();
     expect(seen.root.querySelector('.pan-disclosure')).toBeNull();
@@ -398,7 +401,17 @@ describe('Step 11 hooks', () => {
     pan.show({ items: [{ kind: 'consent', purpose: 'ai_health', onAnswer }], cards: [], intents: [], actions: [], notice: null });
     await flush();
     button(root.querySelector('.consent-card')!, 'Not now')!.click();
-    expect(onAnswer).toHaveBeenCalledWith(false);
+    expect(onAnswer).toHaveBeenCalledWith('declined');
+  });
+
+  test('a consent notice that cannot load is "unavailable", never a no (fix round 1, I1)', async () => {
+    const { root, pan } = mount();
+    vi.mocked(client.consents).mockResolvedValueOnce({ ok: false, status: 0, error: { code: 'network', message: '' } } as never);
+    const onAnswer = vi.fn();
+    pan.show({ items: [{ kind: 'consent', purpose: 'ai_health', onAnswer }], cards: [], intents: [], actions: [], notice: null });
+    await flush();
+    expect(onAnswer).toHaveBeenCalledWith('unavailable');
+    expect(root.querySelector('.consent-card')).toBeNull();
   });
 });
 

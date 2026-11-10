@@ -13,7 +13,8 @@ export function renderConsentCard(purpose: 'health_data' | 'ai_health', opts: {
 }): HTMLElement {
   const { form } = opts;
   const label = form.fields.find((f) => f.key === 'notice')?.label ?? 'What this covers';
-  const agree = contentText('button', form.buttons.confirm, { type: 'button', class: 'btn btn-primary consent-agree' });
+  // Fix round 1 (I2): agreeing and saying no look the same; neither is the "default" choice.
+  const agree = contentText('button', form.buttons.confirm, { type: 'button', class: 'btn btn-secondary consent-agree' });
   const decline = contentText('button', form.buttons.decline ?? 'Not now', { type: 'button', class: 'btn btn-secondary consent-decline' });
   const el = bureauSlip(form, `consent-title-${++seq}`,
     h('dl', { class: 'bureau-fields' },

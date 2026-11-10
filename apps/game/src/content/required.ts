@@ -70,6 +70,7 @@ export const REQUIRED_PAN_TRIGGERS: readonly string[] = [
   'intake.allergies.ask',
   'intake.allergies.followup',
   'intake.allergies.none',
+  'intake.allergies.consent',
   'intake.pantry.ask',
   'intake.pantry.followup',
   'intake.skip',

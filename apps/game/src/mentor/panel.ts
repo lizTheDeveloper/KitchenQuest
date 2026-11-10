@@ -9,7 +9,7 @@ import type { MentorBackend, MentorInput } from './backend';
 import { CLOSED_TEXT, closeCard, renderCard, renderTrail, setCardNote } from './cards-view';
 import { renderConsentCard } from './consent-card';
 import type { Dialogue, Said, Vars } from './dialogue';
-import type { CardView, LocalIntent, PanItem, PanReply, TurnContext } from './reply';
+import type { CardView, ConsentAnswer, LocalIntent, PanItem, PanReply, TurnContext } from './reply';
 import type { ScriptedEngine } from './scripted';
 import type { CardWriter, UndoOutcome, WriteOutcome } from './writer';
 
@@ -87,6 +87,9 @@ export function mountMentorPanel(root: HTMLElement, opts: {
   const asideSlot = h('div', { class: 'pan-aside' });
   asideSlot.hidden = true;
   bubbles.before(asideSlot);
+  /** The C-16 disclosure is pinned here, outside the bubbles, so MAX_BUBBLES can never trim it before "Got it". */
+  const disclosureSlot = h('div', { class: 'pan-disclosure-slot' });
+  asideSlot.before(disclosureSlot);
   const openListeners = new Set<() => void>();
   const doneListeners = new Set<(view: CardView, result: 'confirmed' | 'rejected') => void>();
   const cardDone = (view: CardView, result: 'confirmed' | 'rejected') => { for (const fn of [...doneListeners]) fn(view, result); };
@@ -348,14 +351,15 @@ export function mountMentorPanel(root: HTMLElement, opts: {
 
   // --- Items ---------------------------------------------------------------------------------------------------
 
-  function renderConsent(purpose: 'health_data' | 'ai_health', onAnswer?: (granted: boolean) => void): void {
+  function renderConsent(purpose: 'health_data' | 'ai_health', onAnswer?: (answer: ConsentAnswer) => void): void {
     const li = addLi('pan-item pan-consent-item');
     void client.consents().then((r) => {
       const notice = r.ok ? r.data.notices[purpose] : undefined;
       const form = forms[purpose === 'ai_health' ? 'consent_ai' : 'consent_health'] as BureauForm | undefined;
       if (notice === undefined || form === undefined) {
         li.replaceChildren(h('p', { class: 'pan-note', role: 'status' }, CONSENT_UNAVAILABLE_TEXT));
-        onAnswer?.(false);
+        // Couldn't load is not a no (fix round 1, I1): whoever asked keeps the question open.
+        onAnswer?.('unavailable');
         return;
       }
       const el = renderConsentCard(purpose, {
@@ -365,11 +369,11 @@ export function mountMentorPanel(root: HTMLElement, opts: {
           if (g.ok) {
             li.replaceChildren(h('p', { class: 'pan-note', role: 'status' }, CONSENT_DONE_TEXT));
             if (doc.activeElement === doc.body) (textBox ?? closeBtn).focus();
-            onAnswer?.(true);
+            onAnswer?.('granted');
           } else setCardNote(el, CONSENT_FAILED_TEXT);
         },
         // Saying no costs nothing: play goes on.
-        onDecline: () => { removeLi(li); onAnswer?.(false); },
+        onDecline: () => { removeLi(li); onAnswer?.('declined'); },
       });
       li.replaceChildren(el);
       // The ai_health card is offered once ever, counted only when it is actually on screen (fix round 1, M5).
@@ -489,11 +493,11 @@ export function mountMentorPanel(root: HTMLElement, opts: {
     disclosureShown = true;
     const ok = h('button', { type: 'button', class: 'btn btn-secondary pan-disclosure-ok' }, DISCLOSURE_OK);
     const box = h('div', { class: 'pan-disclosure', role: 'note' }, h('p', { 'data-content': '' }, opts.disclosure), ok);
-    const li = addLi('pan-item pan-disclosure-item', box);
+    disclosureSlot.replaceChildren(box);
     ok.addEventListener('click', () => {
       store.update((s) => ({ ...s, aiDisclosureSeen: true }));
-      const hadFocus = li.contains(doc.activeElement);
-      ok.remove();
+      const hadFocus = box.contains(doc.activeElement);
+      box.remove(); // Settings → The Pan shows the same words, always
       if (hadFocus) (textBox ?? closeBtn).focus();
     });
   };

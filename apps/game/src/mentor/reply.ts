@@ -12,12 +12,15 @@ export interface LocalCardView { origin: 'local'; localId: string; card: Proposa
 export interface ServerCardView { origin: 'server'; proposalId: string; expiresAt: string; card: ProposalCard; issuedTurn: number }
 export type CardView = LocalCardView | ServerCardView;
 
+/** How a consent card ended. `unavailable` (the notice couldn't load) is not a no: the question stays open. */
+export type ConsentAnswer = 'granted' | 'declined' | 'unavailable';
+
 export type PanItem =
   | { kind: 'said'; said: Said }
   /** An ambiguous term: the panel shows the options and builds a local rule card from the one tapped. */
   | { kind: 'choices'; options: { id: string; name: string }[]; severity: Severity | null }
-  /** Show that consent card. `onAnswer` hears the tap: true once the grant is filed, false on Not now (or no notice). */
-  | { kind: 'consent'; purpose: 'health_data' | 'ai_health'; onAnswer?: (granted: boolean) => void }
+  /** Show that consent card. `onAnswer` hears the outcome: the grant filed, Not now, or the notice couldn't load. */
+  | { kind: 'consent'; purpose: 'health_data' | 'ai_health'; onAnswer?: (answer: ConsentAnswer) => void }
   /**
    * Quick answers to the question just asked (the intake's weekday, 1–7 and Skip chips, Step 11). A tap is a new turn:
    * the panel shows the label as the player's bubble and renders what `onPick` returns.

@@ -41,6 +41,32 @@ describe('parseIntakeAnswer (AI off)', () => {
     expect(parseIntakeAnswer('market_day', 'Saturday, later in the day', deps)).toMatchObject({ kind: 'card', card: { patch: { marketDays: [6] } } });
   });
 
+  test.each([
+    ['peanuts and shellfish', ['peanut', 'shellfish']],
+    ['peanut, sesame, milk', ['peanut', 'sesame', 'milk']],
+    ['tree nuts and sesame', ['tree_nut', 'sesame']],
+    ['just peanuts', ['peanut']],
+    ['only shellfish', ['shellfish']],
+    ['none except peanuts', ['peanut']],
+    ['nope, just peanuts', ['peanut']],
+    ['milk or eggs', ['milk', 'egg']],
+  ])('a bare list keeps every term, each a severe card that needs a tap (fix round 1, C2): %s', (text, ids) => {
+    const r = parseIntakeAnswer('allergies', text, deps);
+    const results = r.kind === 'rules' ? r.results : r.kind === 'card' ? [{ ok: true as const, card: r.card }] : [];
+    expect(results.map((x) => x.ok && x.card.kind === 'rule' && x.card.rule.target.ids[0])).toEqual(ids);
+    for (const x of results) expect(x.ok && x.card.kind === 'rule' && x.card.severe && x.card.rule.severity).toBe('anaphylactic');
+  });
+
+  test('an unknown part of a bare list gets its own line; the rest still get cards', () => {
+    const r = parseIntakeAnswer('allergies', 'peanuts and kiwi', deps);
+    expect(r).toMatchObject({ kind: 'rules', results: [{ ok: true }, { ok: false, reason: 'unknown_term', line: { vars: { term: 'kiwi' } } }] });
+  });
+
+  test('a plain yes or thanks at allergies names nothing (fix round 1, M7)', () => {
+    expect(parseIntakeAnswer('allergies', 'yes', deps)).toEqual({ kind: 'unparsed' });
+    expect(parseIntakeAnswer('allergies', 'thanks', deps)).toEqual({ kind: 'unparsed' });
+  });
+
   test('a health statement is never a region or a pantry item', () => {
     expect(parseIntakeAnswer('region', "I'm allergic to peanuts", deps)).toEqual({ kind: 'unparsed' });
     expect(parseIntakeAnswer('pantry', "I'm allergic to peanuts", deps)).toEqual({ kind: 'unparsed' });
@@ -169,6 +195,35 @@ describe('createIntake', () => {
     expect(m.intake.step).toBe('pantry');
     expect(lines('intake.pantry.ask')).toContain(m.lastPan());
     expect(m.panTexts().some((t) => lines('intake.skip').includes(t))).toBe(true);
+  });
+
+  test('signed in: a Pan line leads into the consent card; "yes" at allergies with no card gets the plain ask', async () => {
+    const m = setup({ patch: { account: { email: 'a@b.c' }, accountRules: [], intake: { step: 'allergies' } }, consents: { consents: [], needsReconsent: [], notices: NOTICES } });
+    m.panel.open();
+    m.intake.start();
+    await flush();
+    expect(lines('intake.allergies.consent')).toContain(m.lastPan());
+    await m.tap('I agree');
+    await m.send('yes');
+    expect(lines('rule.ask_keep_off')).toContain(m.lastPan());
+    expect(m.root.querySelector('.pan-card')).toBeNull();
+    expect(m.intake.step).toBe('allergies');
+  });
+
+  test('signed in: a consent notice that cannot load keeps the step open, with Try again (fix round 1, I1)', async () => {
+    const m = setup({ patch: { account: { email: 'a@b.c' }, accountRules: [], intake: { step: 'allergies' } } });
+    let fail = 2; // the intake's check, then the panel's notice fetch
+    const real = m.client.consents;
+    m.client.consents = vi.fn(() => (fail-- > 0 && fail === 0 ? Promise.resolve({ ok: false, status: 0, error: { code: 'network', message: '' } }) : real())) as never;
+    m.panel.open();
+    m.intake.start();
+    await flush();
+    expect(m.intake.step).toBe('allergies');
+    expect(m.intake.expecting).toBe('consent');
+    await m.tap('Try again');
+    expect(m.root.querySelector('.consent-card')).not.toBeNull();
+    await m.tap('I agree');
+    expect(lines('intake.allergies.ask')).toContain(m.lastPan());
   });
 
   test('signed in: agreeing files the grant by tap, then asks about allergies; a stale notice asks again', async () => {

@@ -217,6 +217,15 @@ triggers:
       - "Nothing off the menu. I'll still mark anything I can't verify, out of habit. I'm a cautious pan."
       - "None at all. Lovely. I'll keep an eye out anyway; it's what I'm for."
 
+  intake.allergies.consent:
+    ai: never
+    when: Signed in without health_data consent, right before the consent card that comes ahead of the allergies question (C-17).
+    notes: "Plain. No jokes. Saying no must sound as fine as saying yes."
+    lines:
+      - "Before the allergies question: allergies and diet rules are health details, so the Bureau needs your permission to keep them with your account. Read the card and tap the button you choose. 'Not now' is fine; we'll carry on."
+      - "Next is allergies and diet rules. Those are health details, and the Bureau keeps them only with your say-so. The card explains it. Tap 'I agree' or 'Not now'; either is fine."
+      - "One thing first. Allergies count as health details, so I need your permission before I can file them with your account. Have a read of the card and tap your choice. Saying no won't stop anything else."
+
   intake.pantry.ask:
     ai: allowed
     when: Intake step 5, asking what's in the cupboard right now.
@@ -242,11 +251,12 @@ triggers:
   intake.skip:
     ai: allowed
     when: The player skips an intake question.
+    notes: "Never promises to ask again: nothing re-asks a skipped question in M4 (Step 11 fix round 1, M1)."
     lines:
-      - "Skipped. I'll ask again another day, gently, like a pan that's not in a hurry."
-      - "That's fine. We'll come back to it. The Bureau is very good at waiting."
+      - "Skipped. If you want to tell me later, just say it and I'll read it back."
+      - "That's fine. It's on the form as 'not now'. Tell me whenever you like."
       - "Skipping is allowed. It's on the form. Box 7: 'Not now.'"
-      - "No problem. It'll keep."
+      - "No problem. We'll leave that one blank."
 
   intake.complete:
     ai: allowed

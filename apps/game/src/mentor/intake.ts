@@ -10,7 +10,7 @@ import { contentText, h } from '../ui/dom';
 import type { MentorBackend } from './backend';
 import type { Dialogue } from './dialogue';
 import type { MentorPanel } from './panel';
-import type { CardView, LocalCardView, PanItem, PanReply, TurnContext } from './reply';
+import type { CardView, ConsentAnswer, LocalCardView, PanItem, PanReply, TurnContext } from './reply';
 import type { ScriptedEngine } from './scripted';
 
 /**
@@ -68,6 +68,18 @@ function notAnAnswer(raw: string, graph: IngredientGraph): boolean {
   return classifyTurn(raw) !== 'other' || parseRuleStatement(raw, graph) !== null;
 }
 
+/** Words before or around a bare list that are no term: "just", "only", "none except", "and". */
+const BARE_LEAD = /^(?:(?:none|nothing|no allergies|no|nope)\s+(?:except|but|apart from|other than|besides)\s+|(?:just|only|except|and|also|plus|maybe)\s+)+/;
+/** Intents whose words name no allergy ("yes", "thanks", "undo that"). */
+const NAMES_NOTHING: ReadonlySet<string> = new Set(['yes', 'thanks', 'undo', 'allowance']);
+/** A list part that is only a filler word ("nope, just peanuts"). */
+const FILLER = /^(no|nope|none|nothing|yes|yeah|yep|um|erm|well|ok|okay|so)$/;
+/** The parts of a bare allergy list, each as said. */
+function bareTerms(raw: string): string[] {
+  const t = normalizeTurn(raw).replace(/[.!?]+$/, '').trim().replace(BARE_LEAD, '');
+  return t.split(LIST_SPLIT).map((x) => x.trim().replace(BARE_LEAD, '').trim()).filter((x) => x !== '' && !FILLER.test(x));
+}
+
 export function parseIntakeAnswer(
   step: IntakeStep, text: string, deps: { graph: IngredientGraph; ruleTerms: readonly RuleTerm[]; rulesStamped?: boolean },
 ): IntakeAnswer {
@@ -97,12 +109,17 @@ export function parseIntakeAnswer(
     }
     case 'allergies': {
       if (NONE_WORDS.test(t)) return deps.rulesStamped ? { kind: 'done' } : { kind: 'none' };
+      // A plain yes, thanks or the like names nothing (fix round 1, M7): the intake asks plainly.
+      if (NAMES_NOTHING.has(classifyTurn(raw))) return { kind: 'unparsed' };
       const statement = parseRuleStatement(raw, graph);
-      // No rule grammar: the whole answer is the term ("peanuts"). Can't verify is never safe: an unknown term says so.
-      const items = statement?.items.length ? statement.items : [{ term: raw, severity: null }];
+      // No rule grammar: the answer is a bare list ("peanuts and shellfish", "just peanuts", "none except peanuts").
+      // Each part is its own term; naming states no severity, so each card asks and defaults to Severe allergy (a tap).
+      // Can't verify is never safe: an unknown or ambiguous part gets its own line.
+      const items = statement?.items.length ? statement.items : bareTerms(raw).map((term) => ({ term, severity: null }));
+      if (items.length === 0) return { kind: 'unparsed' };
       const results = items.map((i) => buildRuleCard({ term: i.term, severity: i.severity }, graph, ruleTerms));
       // The Step 7 ask-for-dropped-terms rule (Carry from Step 1): a severe statement never loses a named ingredient.
-      const ask = askForDroppedTerms(raw, statement?.terms ?? [raw], results.length > 0, graph);
+      const ask = askForDroppedTerms(raw, statement?.terms ?? items.map((i) => i.term), results.length > 0, graph);
       if (results.length === 1 && ask === null) return results[0].ok ? { kind: 'card', card: results[0].card } : { kind: 'reply', reply: results[0] };
       return { kind: 'rules', results, ask };
     }
@@ -204,7 +221,7 @@ export function createIntake(deps: {
       const r = await client.consents();
       if (!(r.ok && healthConsent(r.data) === 'granted')) {
         expecting = 'consent';
-        return [{ kind: 'consent', purpose: 'health_data', onAnswer: onConsent }];
+        return [say('intake.allergies.consent'), { kind: 'consent', purpose: 'health_data', onAnswer: onConsent }];
       }
     }
     expecting = rulesStamped && step === 'allergies' ? 'more_rules' : 'answer';
@@ -220,11 +237,23 @@ export function createIntake(deps: {
   }
 
   /** The consent card's answer: agreed → the allergies question; Not now → skipped, onboarding goes on without rules (spec §6). */
-  function onConsent(granted: boolean): void {
+  function onConsent(outcome: ConsentAnswer): void {
     if (current() !== 'allergies' || expecting !== 'consent') return;
-    if (granted) {
+    if (outcome === 'granted') {
       expecting = 'answer';
       panel.show(reply([say('intake.allergies.ask')]));
+      return;
+    }
+    if (outcome === 'unavailable') {
+      // The notice couldn't load: not a no (fix round 1, I1). The step stays open: try again, or skip.
+      panel.show(reply([{
+        kind: 'quick', label: 'The permission form', options: [{ label: 'Try again', value: 'retry' }, { label: 'Skip', value: 'skip' }],
+        onPick: async (value, ctx) => {
+          if (value === 'skip') return reply(await skipNow());
+          if (current() !== 'allergies' || expecting !== 'consent') return answer(value, ctx);
+          return reply(await enter());
+        },
+      }]));
       return;
     }
     tick('rules', 'skipped');
@@ -299,7 +328,8 @@ export function createIntake(deps: {
       case 'card': return reply(parsed.card.readback.map(ref), [view(parsed.card, c.turn)]);
       case 'reply': return rulesReply([parsed.reply], null, c.turn);
       case 'rules': return rulesReply(parsed.results, parsed.ask, c.turn);
-      case 'unparsed': return unparsed(step, text, c);
+      // At allergies an answer that names nothing is never sent anywhere: the plain ask (fix round 1, M7).
+      case 'unparsed': return step === 'allergies' ? reply([say('rule.ask_keep_off')]) : unparsed(step, text, c);
     }
   }
 
