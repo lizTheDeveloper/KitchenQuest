@@ -541,7 +541,7 @@ const SLOT_WORD: Record<string, MealSlot> = {
   breakfast: 'breakfast', brekkie: 'breakfast', lunch: 'lunch', dinner: 'dinner', supper: 'dinner', snack: 'snack',
 };
 /** A new clause with its own subject: "… and also I'm allergic to kiwi", "… but my son had chips". */
-export const MEAL_CLAUSE_SPLIT = /\s*,?\s+(?:(?:and|but|so|then|oh|also)\s+)+(?=(?:i|i'm|im|i've|ive|my|we|we're|we've)\b)/;
+export const MEAL_CLAUSE_SPLIT = /\s*,?\s+(?:(?:and|but|so|then|oh|also|now)\s+)+(?=(?:i|i'm|im|i've|ive|my|we|we're|we've)\b)/;
 const NOT_A_MEAL = /\b(allerg\w*|intoleran\w*|anaphyla\w*)\b/;
 /** "had enough", "had a long day", "had a go": the verb, not a meal. */
 export const NOT_FOOD =

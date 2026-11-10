@@ -1,14 +1,20 @@
 import { validateRules, type IngredientGraph, type Rule } from '@kitchenquest/core/engine';
+import type { ApiErrorBody } from '../api/types';
 import type { PlayerState } from '../state/store';
 
 export type RulesState =
   | { status: 'ready'; rules: Rule[]; source: 'device' | 'account' }
-  | { status: 'error'; message: string };
+  /** `message` is player copy; `problems` (core's text) is for logs and tests, never shown on a card. */
+  | { status: 'error'; reason: 'unreadable' | 'invalid' | 'account_not_loaded'; message: string; problems: string[] };
 
-const UNREADABLE_MESSAGE =
-  "The rules saved on this device couldn't be read, so some may be missing. Tell the Bureau your rules again to clear this.";
+export const RULES_UNREADABLE_MESSAGE =
+  "Some of the rules saved on this device couldn't be read, so I can't be sure what to check for. Open Your rules to look them over and confirm them.";
 
-const ACCOUNT_NOT_LOADED_MESSAGE =
+export const RULES_INVALID_MESSAGE =
+  "One of your saved rules names something the Bureau's ingredient ledger no longer knows, so I can't check dishes against it. Open Your rules to fix it.";
+
+/** M3 Step 11's text, kept verbatim: signed in with `accountRules === null`, every check fails closed. */
+export const ACCOUNT_NOT_LOADED_MESSAGE =
   "Your account's rules couldn't be loaded, so dishes can't be checked. Try again in a moment.";
 
 /**
@@ -20,13 +26,19 @@ const ACCOUNT_NOT_LOADED_MESSAGE =
  */
 export function activeRules(state: PlayerState, graph: IngredientGraph): RulesState {
   const signedIn = state.account !== null;
-  if (signedIn && state.accountRules === null) return { status: 'error', message: ACCOUNT_NOT_LOADED_MESSAGE };
-  if (!signedIn && state.rulesUnreadable) return { status: 'error', message: UNREADABLE_MESSAGE };
+  if (signedIn && state.accountRules === null) return { status: 'error', reason: 'account_not_loaded', message: ACCOUNT_NOT_LOADED_MESSAGE, problems: [] };
+  if (!signedIn && state.rulesUnreadable) return { status: 'error', reason: 'unreadable', message: RULES_UNREADABLE_MESSAGE, problems: [] };
   const source = signedIn ? 'account' : 'device';
   const rules = signedIn ? state.accountRules! : state.localRules;
   const problems = validateRules(rules, graph);
-  if (problems.length > 0) return { status: 'error', message: problems.join('; ') };
+  if (problems.length > 0) return { status: 'error', reason: 'invalid', message: RULES_INVALID_MESSAGE, problems };
   return { status: 'ready', rules, source };
+}
+
+/** An API refusal that means the saved rules no longer validate (409 `rules_need_review`), as a rules error; else null. */
+export function rulesStateForApiError(error: ApiErrorBody, status: number): RulesState | null {
+  if (status !== 409 || error.code !== 'rules_need_review') return null;
+  return { status: 'error', reason: 'invalid', message: RULES_INVALID_MESSAGE, problems: [error.message] };
 }
 
 /** The player's LOCAL calendar date as YYYY-MM-DD: at 23:30 in UTC−8 it is still today, not tomorrow. */

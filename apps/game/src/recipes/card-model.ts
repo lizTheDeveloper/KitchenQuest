@@ -25,6 +25,8 @@ export interface RecipeCard {
   draft: boolean; sacred: boolean;
   status: CheckStatus; findings: CardFinding[]; severe: boolean; disclaimer: string | null;
   rulesChecked: number; rulesError: string | null;
+  /** Show a link to Your rules (#/rules) with the error: the player can fix it there. */
+  rulesLink: boolean;
   cookable: boolean; notCookableReason: 'blocked' | 'sacred' | null;
   nutrition: { rows: NutritionRow[]; estimated: boolean; missing: string[] };
 }
@@ -61,6 +63,7 @@ export function buildRecipeCard(input: {
   let disclaimer: string | null;
   let rulesChecked: number;
   let rulesError: string | null;
+  let rulesLink = false;
   if (rules.status === 'error') {
     status = 'unverified';
     findings = [];
@@ -68,7 +71,8 @@ export function buildRecipeCard(input: {
     severe = true;
     disclaimer = DISCLAIMER;
     rulesChecked = 0;
-    rulesError = rules.message;
+    rulesError = rules.message; // player copy; core's problem strings never reach a card
+    rulesLink = rules.reason !== 'account_not_loaded';
   } else {
     const result = check(recipe, rules.rules, graph, content.substitutions, today);
     const notes = new Map(rules.rules.map((r) => [r.id, r.note ?? null]));
@@ -100,7 +104,7 @@ export function buildRecipeCard(input: {
     cook: { id: meta.cook, name: cook.name },
     skills: meta.skills.map((id) => ({ id, name: skillName(id) })),
     draft: meta.status === 'draft', sacred,
-    status, findings, severe, disclaimer, rulesChecked, rulesError,
+    status, findings, severe, disclaimer, rulesChecked, rulesError, rulesLink,
     cookable, notCookableReason: sacred ? 'sacred' : status === 'blocked' ? 'blocked' : null,
     nutrition: { rows, estimated: n.estimated, missing: n.missing },
   };

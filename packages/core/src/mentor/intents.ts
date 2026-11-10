@@ -18,7 +18,7 @@ export type TurnIntent =
 // "anaphylactic to cashews" and "I carry an EpiPen" are rule statements, not emergencies.
 // Using an adrenaline pen now, or someone who ate something and now has hives or swelling, is (Step 7 fix round 1, I4).
 export const EMERGENCY_PATTERN =
-  /\b(can'?t breathe|cannot breathe|trouble breathing|hard to breathe|throat (feels |is )?(tight|closing|swelling|swollen)|tight throat|(lips?|tongue|face) (are |is )?(swelling|swollen|tingling)|having a reaction|reacting now|going into (anaphylaxis|shock)|call (911|999|112|an ambulance)|(use|used|using|give|inject|need) (my |his |her |their |the |an |our )?epi-?pens?|(ate|eaten|had)\b[^.!?]{0,60}\b(and|now) (now )?(has|have|got|is getting|am getting|getting|is covered in|broke out in) (hives|swelling|a rash|rash|welts|swollen \w+))\b/;
+  /\b(can'?t breathe|cannot breathe|trouble breathing|hard to breathe|throat (feels |is )?(tight|closing|swelling|swollen)|tight throat|(lips?|tongue|face) (are |is )?(swelling|swollen|tingling)|having a reaction|reacting now|going into (anaphylaxis|shock)|call (911|999|112|an ambulance)|(use|used|using|give|inject|need) (my |his |her |their |the |an |our )?epi-?pens?|(ate|eaten|had)\b[^.!?]{0,60}\b(and|now) (now )?((i|he|she|they|we|it|my \w+) )?(has|have|got|is getting|am getting|getting|is covered in|broke out in) (hives|swelling|a rash|rash|welts|swollen \w+))\b/;
 
 export const CHILD_PATTERNS: readonly RegExp[] = [
   /\b(i'?m|i am|im)\s+([3-9]|1[0-5])\b(?!\s*(:|am\b|pm\b|%|kg|lb))/,

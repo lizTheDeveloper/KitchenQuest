@@ -168,6 +168,9 @@ test.each([
   ['do I need to use the epi-pen', 'emergency'],
   ['my son ate peanuts and has hives', 'emergency'],
   ['she had some prawns and now has swelling on her face', 'emergency'],
+  // Step 9: with the subject said again.
+  ['I had peanuts and now I have hives', 'emergency'],
+  ['he ate prawns and he has swelling', 'emergency'],
   ['how many mg of ibuprofen with dinner', 'medical'],
   ['can I take paracetamol after this', 'medical'],
   ['is 10 mg too much', 'medical'],
