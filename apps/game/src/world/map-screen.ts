@@ -16,7 +16,7 @@ const MAP_WIDTH = 768;
 const pick = <T>(xs: readonly T[]): T | undefined => (xs.length === 0 ? undefined : xs[Math.floor(Math.random() * xs.length)]);
 
 /** Form 9-T. Resolves true when the player stamped it. */
-async function travelPermit(doc: Document, ctx: AppContext, cook: CookFile): Promise<boolean> {
+async function travelPermit(doc: Document, ctx: AppContext, cook: CookFile, signal: AbortSignal): Promise<boolean> {
   if (!Object.hasOwn(content.bureau.forms, 'travel')) throw new Error('forms.yaml has no travel form (9-T)');
   const form = content.bureau.forms.travel;
   const answer = await showBureauForm(doc.getElementById('overlay-root') ?? doc.body, {
@@ -31,6 +31,7 @@ async function travelPermit(doc: Document, ctx: AppContext, cook: CookFile): Pro
     footnote: pick(form.footnotes ?? []),
     reducedMotion: isReducedMotion(ctx.store, doc.defaultView!),
     stamps: content.bureau.stamps,
+    signal,
   });
   return answer === 'confirm';
 }
@@ -43,12 +44,13 @@ function mapScreen(): Screen {
       const doc = el.ownerDocument;
       let alive = true;
       let permitOpen = false;
+      const leaving = new AbortController();
 
       const choose = async (cook: CookFile, pin: HTMLButtonElement) => {
         if (permitOpen) return;
         permitOpen = true;
         pin.focus(); // some browsers don't focus a clicked button; the form returns focus to whatever had it
-        const go = await travelPermit(doc, ctx, cook);
+        const go = await travelPermit(doc, ctx, cook, leaving.signal);
         permitOpen = false;
         if (!alive || !go) return;
         getMentor().say('travel.depart', { cook: cook.name, place: cook.place });
@@ -87,7 +89,7 @@ function mapScreen(): Screen {
         stopBar?.();
         stopBackdrop();
         // Leaving with the permit still open (the back button): decline it, so the page doesn't stay inert.
-        if (permitOpen) doc.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+        leaving.abort();
       };
       stopBar = renderActionBar(bar, [
         { id: 'talk', label: 'Talk to the Pan', run: () => { const m = getMentor(); m.say('travel.map_remark'); m.open(); } },

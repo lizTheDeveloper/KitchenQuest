@@ -8,9 +8,12 @@ export function showBureauForm(
     form: BureauForm; values: Record<string, string>; footnote?: string; reducedMotion: boolean;
     /** The Bureau file's `stamps` map; the stamp text is `stamps[form.stamp]`. */
     stamps?: Record<string, string>;
+    /** Aborted when the screen behind it goes away (the back button): the form is declined and removed. */
+    signal?: AbortSignal;
   },
 ): Promise<'confirm' | 'decline'> {
   const { form } = opts;
+  if (opts.signal?.aborted) return Promise.resolve('decline');
   const doc = root.ownerDocument;
   const opener = doc.activeElement instanceof HTMLElement ? doc.activeElement : null;
   // Everything outside the dialog becomes inert (no focus, no clicks, hidden from screen readers).
@@ -19,15 +22,18 @@ export function showBureauForm(
 
   return new Promise((resolve) => {
     let settled = false;
-    const finish = (answer: 'confirm' | 'decline') => {
+    const finish = (answer: 'confirm' | 'decline', aborted = false) => {
       if (settled) return;
       settled = true;
       doc.removeEventListener('keydown', onKey, true);
+      opts.signal?.removeEventListener('abort', onAbort);
       backdrop.remove();
       restoreInert();
-      opener?.focus();
+      if (!aborted) opener?.focus(); // leaving: the next screen owns focus
       resolve(answer);
     };
+    const onAbort = () => finish('decline', true);
+    opts.signal?.addEventListener('abort', onAbort);
 
     const confirmBtn = contentText('button', form.buttons.confirm, { type: 'button', class: 'btn btn-primary' });
     const declineBtn = form.buttons.decline
