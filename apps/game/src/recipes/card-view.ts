@@ -34,9 +34,41 @@ function findingItem(f: CardFinding): HTMLElement {
     f.ruleNote ? h('span', { class: 'finding-note' }, `Your note: “${f.ruleNote}”`) : null);
 }
 
+function rulesErrorNote(card: RecipeCard): HTMLElement | null {
+  if (card.rulesError === null) return null;
+  return h('div', { class: 'rules-error', role: 'note' },
+    h('p', null, h('strong', null, RULES_ERROR_TEXT)),
+    h('p', { class: 'rules-error-detail' }, card.rulesError));
+}
+
+/** The allergy disclaimer and the cross-contact note. Always visible, never collapsible (§4.4). */
+function severeNotes(card: RecipeCard): HTMLElement[] {
+  if (!card.severe || card.disclaimer === null) return [];
+  return [
+    h('p', { class: 'disclaimer', role: 'note' }, card.disclaimer),
+    contentText('p', content.bureau.disclaimers.cross_contact, { class: 'disclaimer' }),
+  ];
+}
+
+/** "Check the label" when any ingredient could only be checked by reading what's in it. */
+function unverifiedNote(card: RecipeCard): HTMLElement | null {
+  return card.findings.some((f) => f.kind === 'label')
+    ? contentText('p', content.bureau.disclaimers.unverified, { class: 'disclaimer-unverified' })
+    : null;
+}
+
+/**
+ * The dish's safety status for cook mode, built from the same pieces as the card: the status chip, the
+ * "couldn't check" note, the allergy disclaimers when a severe rule is involved, and the label note.
+ */
+export function renderSafetyStrip(card: RecipeCard): HTMLElement {
+  return h('section', { class: 'safety-strip', 'aria-label': 'Safety check', 'data-status': card.status },
+    h('p', { class: 'recipe-status' }, statusChip(card.status)),
+    rulesErrorNote(card), ...severeNotes(card), unverifiedNote(card));
+}
+
 /** A recipe card. Every string is a text node; status and cookability come from the model only. */
 export function renderRecipeCard(card: RecipeCard, opts: { onCook(): void; headingLevel: 1 | 2 }): HTMLElement {
-  const d = content.bureau.disclaimers;
   const parts: (Node | null)[] = [];
 
   parts.push(
@@ -48,24 +80,16 @@ export function renderRecipeCard(card: RecipeCard, opts: { onCook(): void; headi
     h('p', { class: 'recipe-status' }, statusChip(card.status)),
   );
 
-  if (card.rulesError !== null) {
-    parts.push(h('div', { class: 'rules-error', role: 'note' },
-      h('p', null, h('strong', null, RULES_ERROR_TEXT)),
-      h('p', { class: 'rules-error-detail' }, card.rulesError)));
+  const error = rulesErrorNote(card);
+  if (error) {
+    parts.push(error);
   } else {
     parts.push(h('p', { class: 'rules-checked' }, rulesCheckedText(card.rulesChecked)));
   }
 
   if (card.findings.length > 0) parts.push(h('ul', { class: 'findings' }, ...card.findings.map(findingItem)));
 
-  if (card.severe && card.disclaimer !== null) {
-    // Always visible, never collapsible (§4.4).
-    parts.push(
-      h('p', { class: 'disclaimer', role: 'note' }, card.disclaimer),
-      contentText('p', d.cross_contact, { class: 'disclaimer' }),
-    );
-  }
-  if (card.findings.some((f) => f.kind === 'label')) parts.push(contentText('p', d.unverified, { class: 'disclaimer-unverified' }));
+  parts.push(...severeNotes(card), unverifiedNote(card));
 
   const n = card.nutrition;
   parts.push(

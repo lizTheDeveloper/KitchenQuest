@@ -1,5 +1,5 @@
 import type { Rule } from '@kitchenquest/core/engine';
-import type { PlayerStore } from '../state/store';
+import type { PlayerState, PlayerStore } from '../state/store';
 import type { ApiClient } from './client';
 import type { ApiResult } from './types';
 
@@ -37,10 +37,15 @@ export async function refreshAccount(client: ApiClient, store: PlayerStore): Pro
     return out.status === 0 ? 'offline' : 'signed-out';
   }
   const started = epoch(store);
+  const startedAs = store.get().account?.email ?? null;
+  // A sign-out here bumps the epoch. A sign-out (or another sign-in) in another tab reaches this store through
+  // storage instead, so each answer is also checked against the state it would land on: a sign-out still owed,
+  // or an account other than the one this refresh started with, means the answer is dropped.
   const stale = () => epoch(store) !== started;
+  const movedOn = (s: PlayerState, as: string | null) => s.signOutPending || (s.account?.email ?? null) !== as;
 
   const me = await client.me();
-  if (stale()) return 'signed-out';
+  if (stale() || movedOn(store.get(), startedAs)) return outcome(store);
   if (!me.ok && me.status === 401) { clearAccount(store); return 'signed-out'; }
   const email = me.ok ? (me.data as { email?: unknown } | null)?.email : undefined;
   if (typeof email !== 'string') {
@@ -50,15 +55,22 @@ export async function refreshAccount(client: ApiClient, store: PlayerStore): Pro
     if (!keepsCache(me)) dropAccountRules(store);
     return 'offline';
   }
-  // Another account's cached rules are never used for this one.
-  store.update((s) => ({ ...s, account: { email }, accountRules: s.account?.email === email ? s.accountRules : null }));
+  // Another account's cached rules are never used for this one. Checked again on what is stored right now.
+  const landIf = (as: string | null, fn: (s: PlayerState) => PlayerState): boolean => {
+    let landed = false;
+    store.update((s) => (movedOn(s, as) ? s : (landed = true, fn(s))));
+    return landed;
+  };
+  if (!landIf(startedAs, (s) => ({ ...s, account: { email }, accountRules: s.account?.email === email ? s.accountRules : null }))) {
+    return outcome(store);
+  }
 
   const list = await client.listRules();
-  if (stale()) return 'signed-out';
+  if (stale() || movedOn(store.get(), email)) return outcome(store);
   if (list.ok) {
     const rules = (list.data as { rules?: unknown } | null)?.rules;
     // A reply we can't read as rules leaves none loaded: checks fail closed.
-    store.update((s) => ({ ...s, accountRules: isRuleList(rules) ? rules : null }));
+    if (!landIf(email, (s) => ({ ...s, accountRules: isRuleList(rules) ? rules : null }))) return outcome(store);
   } else if (list.status === 401) {
     clearAccount(store);
     return 'signed-out';
@@ -69,6 +81,9 @@ export async function refreshAccount(client: ApiClient, store: PlayerStore): Pro
   } // offline or 429: keep the cached copy (or none, which is an error state too)
   return 'signed-in';
 }
+
+/** What a dropped refresh reports: whatever the device is now. */
+const outcome = (store: PlayerStore): 'signed-in' | 'signed-out' => (store.get().account === null ? 'signed-out' : 'signed-in');
 
 /**
  * Sign out on this device. The account and its rules are removed first, so nothing waits on the network;

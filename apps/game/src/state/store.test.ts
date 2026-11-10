@@ -313,3 +313,54 @@ describe('createStore (more)', () => {
     expect(fn).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('prototype-named technique keys in stored data', () => {
+  const rec = (tier: string, at: string) => ({ tier, firstAt: at, lastUsedAt: at, recipes: ['r'] });
+  it('a stored "__proto__" technique is kept as data and merged, never as a prototype', () => {
+    const raw = `{"v":1,"toolkit":{"techniques":{"__proto__":${JSON.stringify(rec('tried', '2026-01-01'))},"constructor":${JSON.stringify(rec('seen', '2026-01-01'))}}}}`;
+    const st = memStorage({ [STORE_KEY]: raw });
+    const s = createStore(st);
+    expect(s.notice).toBeNull();
+    s.update((x) => ({ ...x, toolkit: recordTechnique(x.toolkit, { kind: 'cooked', technique: 'constructor', at: '2026-02-01', recipe: 'q' }) }));
+    const t = s.get().toolkit.techniques;
+    expect(Object.getPrototypeOf(t)).toBe(Object.prototype);
+    expect(Object.hasOwn(t, '__proto__')).toBe(true);
+    expect(t['__proto__']).toEqual(rec('tried', '2026-01-01'));
+    expect(t.constructor).toMatchObject({ tier: 'yours', recipes: ['r', 'q'] });
+    const saved = JSON.parse(st.getItem(STORE_KEY)!) as { toolkit: { techniques: Record<string, unknown> } };
+    expect(Object.keys(saved.toolkit.techniques).sort()).toEqual(['__proto__', 'constructor']);
+    expect(({} as Record<string, unknown>).tier).toBeUndefined();
+  });
+
+  it('merging in a "__proto__" technique that storage lacks keeps it as an own key', () => {
+    const raw = `{"v":1,"toolkit":{"techniques":{"__proto__":${JSON.stringify(rec('tried', '2026-01-01'))}}}}`;
+    const st = memStorage({ [STORE_KEY]: raw });
+    const events = new EventTarget();
+    const s = createStore(st, events);
+    st.setItem(STORE_KEY, `{"v":1,"toolkit":{"techniques":{"boil":${JSON.stringify(rec('seen', '2026-01-02'))}}}}`); // another tab, without it
+    events.dispatchEvent(Object.assign(new Event('storage'), { key: STORE_KEY }));
+    const t = s.get().toolkit.techniques;
+    expect(Object.getPrototypeOf(t)).toBe(Object.prototype);
+    expect(Object.hasOwn(t, '__proto__')).toBe(true);
+    expect(Object.keys(t).sort()).toEqual(['__proto__', 'boil']);
+    expect(t['__proto__']).toEqual(rec('tried', '2026-01-01'));
+  });
+});
+
+describe('stopSaving', () => {
+  it('after stopSaving, updates stay in memory and storage events are ignored: deleted data is never written back', () => {
+    const st = memStorage();
+    const events = new EventTarget();
+    const s = createStore(st, events);
+    s.update((x) => ({ ...x, settings: { ...x.settings, showCalories: true } }));
+    s.stopSaving();
+    deleteDeviceData(st);
+    s.update((x) => ({ ...x, account: { email: 'cook@example.com' }, accountRules: [] }));
+    expect(st.getItem(STORE_KEY)).toBeNull();
+    expect(s.get().account).toEqual({ email: 'cook@example.com' });
+    st.setItem(STORE_KEY, JSON.stringify({ v: 1, signOutPending: true }));
+    events.dispatchEvent(Object.assign(new Event('storage'), { key: STORE_KEY }));
+    expect(s.get().signOutPending).toBe(false);
+    expect(JSON.parse(st.getItem(STORE_KEY)!)).toEqual({ v: 1, signOutPending: true });
+  });
+});

@@ -188,6 +188,40 @@ describe('installable PWA', () => {
     expect(after).toContain('not-ours');
   });
 
+  it('"Delete everything" with two tabs open: neither tab brings back the worker, the offline copy or the data', async () => {
+    app = await openApp('/', { serviceWorkers: 'allow' });
+    const { page, context } = app;
+    await waitForControl(page);
+    const other = await context.newPage();
+    await other.goto(page.url());
+    await other.locator('#view h1').waitFor();
+    expect(await other.evaluate(() => navigator.serviceWorker.controller !== null)).toBe(true);
+    await page.evaluate(async () => { await caches.open('kq-offline-marker'); });
+
+    await go(page, '#/settings');
+    await page.getByLabel('Show calories').check(); // something to delete
+    await page.getByRole('button', { name: 'Delete Kitchen Quest data on this device' }).click();
+    const otherReloaded = other.waitForEvent('load');
+    await Promise.all([page.waitForEvent('load'), page.getByRole('button', { name: 'Delete everything' }).click()]);
+    await otherReloaded;
+    await page.locator('h1', { hasText: 'Your kitchen' }).waitFor();
+    await other.locator('#view h1').waitFor();
+    // Give a re-registration (the bug) time to happen.
+    await page.waitForTimeout(1500);
+
+    for (const [name, p] of [['deleting tab', page], ['other tab', other]] as const) {
+      expect(await p.evaluate(async () => (await navigator.serviceWorker.getRegistrations()).length), name).toBe(0);
+      expect(await p.evaluate(() => navigator.serviceWorker.controller), name).toBeNull();
+    }
+    expect((await cacheKeys(page)).filter((k) => k.startsWith('kq-'))).toEqual([]);
+    const saved = await page.evaluate((k) => JSON.parse(localStorage.getItem(k) ?? '{}') as { settings?: { showCalories: boolean } }, STORE_KEY);
+    expect(saved.settings?.showCalories ?? false).toBe(false);
+    // The skip is for that one load only: the next start registers the worker again.
+    await page.reload();
+    await page.evaluate(async () => { await navigator.serviceWorker.ready; });
+    expect(await page.evaluate(async () => (await navigator.serviceWorker.getRegistrations()).length)).toBe(1);
+  });
+
   it('on an iPhone, explains Add to Home Screen until "Got it"', async () => {
     app = await openApp('/#/kitchen', { userAgent: IPHONE, initScript: NOT_STANDALONE, width: 400 });
     const { page } = app;

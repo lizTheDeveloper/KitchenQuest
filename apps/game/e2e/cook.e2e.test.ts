@@ -14,6 +14,9 @@ const isLine = (id: string, said: string | null) => lines(id).some((l) =>
   new RegExp('^' + l.split(/\{\w+\}/).map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.+') + '$').test(said ?? ''));
 
 const SLUG = 'india/kerala/parippu';
+const DISCLAIMER = "Kitchen Quest can't guarantee a dish is safe for your allergy. Always check labels.";
+const RULES_ERROR = "Couldn't check this dish against your rules. Treat it as unchecked.";
+const json = (status: number, body: unknown) => ({ status, contentType: 'application/json', body: JSON.stringify(body) });
 const COOK = `/#/cook/${SLUG}`;
 const coconutSevere = { id: 'r1', target: { kind: 'ingredient' as const, ids: ['coconut'] }, type: 'avoid' as const, severity: 'anaphylactic' as const };
 
@@ -79,6 +82,7 @@ describe('cook mode', () => {
     expect(await tray.textContent()).toContain('Step 2 · 19:00');
     expect(await page.getByRole('button', { name: 'Leave cook mode (stops 1 timer)' }).count()).toBe(1);
     await page.clock.runFor(19 * 60_000);
+    await page.clock.runFor(100); // the announcer is cleared, then set 50 ms later
     expect(await page.locator('#announcer').textContent()).toBe('Timer finished: 20 minutes for step 2');
     const said = await lastPan(app).textContent();
     expect(lines('cook.timer_done').map((l) => l.replace('{step}', 'step 2'))).toContain(said);
@@ -215,10 +219,11 @@ describe('cook mode', () => {
     expect(await page.locator('#pan-text').count()).toBe(0);
   });
 
-  it('refuses mid-cook when another tab saves a blocking rule', async () => {
+  it('refuses mid-cook when another tab saves a blocking rule; focus moves to the refusal and it is announced', async () => {
     app = await openApp(COOK, { reducedMotion: true });
     const { page } = app;
     await progress(app).waitFor();
+    await page.getByRole('button', { name: /Next step/ }).focus();
     await page.evaluate(({ key, rule }) => {
       const s = JSON.parse(localStorage.getItem(key) ?? '{"v":1}');
       s.localRules = [rule];
@@ -228,6 +233,9 @@ describe('cook mode', () => {
     await page.locator('.cook-refusal').waitFor();
     expect(await page.textContent('#view')).toContain("isn't cookable");
     expect(await page.getByRole('button', { name: /Next step/ }).count()).toBe(0);
+    await expect.poll(() => page.evaluate(() => document.activeElement?.matches('.cook-refusal h1') ?? false)).toBe(true);
+    await expect.poll(() => page.locator('#announcer').textContent()).toBe("This dish isn't cookable with your rules.");
+    expect(app.consoleErrors).toEqual([]);
   });
 
   it('refuses mid-cook when midnight starts a rule phase', async () => {
@@ -241,4 +249,107 @@ describe('cook mode', () => {
     await page.locator('.cook-refusal').waitFor();
     expect(await page.textContent('#view')).toContain("isn't cookable");
   });
+
+  it('a deep link to a ❓ severe dish shows the status and the allergy disclaimer in cook mode', async () => {
+    app = await openApp(COOK, { reducedMotion: true, seed: { v: 1, rulesUnreadable: true } });
+    const { page } = app;
+    await progress(app).waitFor();
+    const strip = page.locator('.cook-head .safety-strip');
+    expect(await strip.locator('.chip').getAttribute('data-status')).toBe('unverified');
+    const text = (await strip.textContent())!;
+    expect(text).toContain("Can't verify");
+    expect(text).toContain(DISCLAIMER);
+    expect(text).toContain(RULES_ERROR);
+    await expectNoA11yViolations(page, 'cook with an unverified dish');
+    expect(app.consoleErrors).toEqual([]);
+  });
+
+  it('mid-cook, a rules refresh that fails (500 on becoming visible) turns the strip from ✅ to ❓', async () => {
+    let rulesAnswer = json(200, { rules: [] });
+    app = await openApp(COOK, {
+      reducedMotion: true,
+      beforeGoto: async (page) => {
+        await page.route('**/api/me', (route) => route.fulfill(json(200, { id: 'u1', email: 'cook@example.com', entitlements: [] })));
+        await page.route('**/api/rules', (route) => route.fulfill(rulesAnswer));
+      },
+    });
+    const { page } = app;
+    await progress(app).waitFor();
+    const chip = page.locator('.cook-head .safety-strip .chip');
+    await expect.poll(() => chip.getAttribute('data-status')).toBe('ok');
+    expect(await page.locator('.cook-head .safety-strip').textContent()).not.toContain(DISCLAIMER);
+    await page.keyboard.press('ArrowRight');
+    rulesAnswer = json(500, { error: { code: 'internal', message: 'internal' } });
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    await expect.poll(() => chip.getAttribute('data-status')).toBe('unverified');
+    const text = (await page.locator('.cook-head .safety-strip').textContent())!;
+    expect(text).toContain(DISCLAIMER);
+    expect(text).toContain(RULES_ERROR);
+    // Still cookable, on the same step, with the steps redrawn.
+    expect(await progress(app).textContent()).toBe('Step 2 of 7');
+    expect(await page.getByRole('button', { name: /Next step/ }).count()).toBe(1);
+  });
+
+  it('the back button during the certificate removes it and the kitchen does not follow', async () => {
+    app = await openApp(`/#/recipe/${SLUG}`, { reducedMotion: true, seed: { v: 1, cookProgress: { slug: SLUG, step: 6 } } });
+    const { page } = app;
+    await page.getByRole('button', { name: /Cook it/ }).click();
+    await progress(app).waitFor();
+    expect(await progress(app).textContent()).toBe('Step 7 of 7');
+    await page.getByRole('button', { name: /^Done/ }).click();
+    const dialog = page.getByRole('dialog', { name: /Certificate of a Dish Cooked/ });
+    await dialog.waitFor();
+    await page.goBack();
+    await page.waitForFunction((slug) => location.hash === `#/recipe/${slug}`, SLUG);
+    await dialog.waitFor({ state: 'detached' });
+    expect(await page.locator('.overlay-backdrop').count()).toBe(0);
+    expect(await page.evaluate(() => [...document.body.children].some((e) => (e as HTMLElement).inert))).toBe(false);
+    await page.waitForTimeout(800);
+    expect(await page.evaluate(() => location.hash)).toBe(`#/recipe/${SLUG}`);
+    expect(app.consoleErrors).toEqual([]);
+  });
+
+  it('a ✅→❓ refresh mid-cook keeps focus on the timer button and announces the new status', async () => {
+    let rulesAnswer = json(200, { rules: [] });
+    app = await openApp(COOK, {
+      reducedMotion: true,
+      beforeGoto: async (page) => {
+        await page.route('**/api/me', (route) => route.fulfill(json(200, { id: 'u1', email: 'cook@example.com', entitlements: [] })));
+        await page.route('**/api/rules', (route) => route.fulfill(rulesAnswer));
+      },
+    });
+    const { page } = app;
+    await progress(app).waitFor();
+    const chip = page.locator('.cook-head .safety-strip .chip');
+    await expect.poll(() => chip.getAttribute('data-status')).toBe('ok');
+    await page.keyboard.press('ArrowRight');
+    const timer = page.locator('button.timer-start', { hasText: 'Start 20:00 timer' });
+    await timer.focus();
+    const name = await timer.getAttribute('aria-label');
+    rulesAnswer = json(500, { error: { code: 'internal', message: 'internal' } });
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    await expect.poll(() => chip.getAttribute('data-status')).toBe('unverified');
+    expect(await page.evaluate(() => document.activeElement?.getAttribute('aria-label') ?? null)).toBe(name);
+    await expect.poll(() => page.locator('#announcer').textContent()).toBe("Safety check now: Can't verify.");
+  });
+
+  it('a new swap shown in the step keeps focus on the same timer button', async () => {
+    app = await openApp(COOK, { reducedMotion: true, seed: { v: 1, cookProgress: { slug: SLUG, step: 4 } } });
+    const { page } = app;
+    await progress(app).waitFor();
+    expect(await progress(app).textContent()).toBe('Step 5 of 7');
+    const timer = page.locator('button.timer-start').first();
+    await timer.focus();
+    const name = await timer.getAttribute('aria-label');
+    await page.evaluate(({ key, rule }) => {
+      const s = JSON.parse(localStorage.getItem(key) ?? '{"v":1}');
+      s.localRules = [rule];
+      localStorage.setItem(key, JSON.stringify(s));
+      window.dispatchEvent(new StorageEvent('storage', { key, storageArea: localStorage }));
+    }, { key: STORE_KEY, rule: { id: 'p1', target: { kind: 'ingredient', ids: ['coconut_oil'] }, type: 'avoid', severity: 'preference' } });
+    await expect.poll(() => page.locator('.cook-text').textContent()).toMatch(/coconut oil.*\(.+\)/);
+    expect(await page.locator('.cook-refusal').count()).toBe(0);
+    expect(await page.evaluate(() => document.activeElement?.getAttribute('aria-label') ?? null)).toBe(name);
+  });
 });
+

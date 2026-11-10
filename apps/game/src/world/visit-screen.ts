@@ -2,10 +2,10 @@ import assets from 'virtual:kq-assets';
 import { content, graph } from '../content';
 import { buildRecipeCard } from '../recipes/card-model';
 import { renderRecipeCard } from '../recipes/card-view';
-import { activeRules, localDate } from '../recipes/rules';
+import { activeRules, cardInputsKey, localDate, watchLocalDate } from '../recipes/rules';
 import { kitchenBackdropKey } from '../scenes/phaser-host';
-import { registerScreen, RouteNotFound, type AppContext, type Screen } from '../shell/app';
-import { reducedMotion } from '../shell/motion';
+import { registerScreen, RouteNotFound, type Screen } from '../shell/app';
+import { isReducedMotion } from '../shell/motion';
 import { renderActionBar } from '../ui/action-bar';
 import { showDialogue } from '../ui/dialogue-box';
 import { contentText, h } from '../ui/dom';
@@ -14,10 +14,6 @@ import { mountBackdrop } from './backdrop';
 
 /** The kitchen backdrops are 320 wide; shown at 2x (integer), shrinking with the page. */
 const KITCHEN_WIDTH = 640;
-
-function isReduced(ctx: AppContext, win: Window): boolean {
-  return reducedMotion(ctx.store.get().settings.reducedMotion, win.matchMedia('(prefers-reduced-motion: reduce)'));
-}
 
 function visitScreen(): Screen {
   let cleanup: (() => void) | null = null;
@@ -32,6 +28,7 @@ function visitScreen(): Screen {
       const overlayRoot = doc.getElementById('overlay-root') ?? doc.body;
       doc.title = `${cook.name}'s kitchen · Kitchen Quest`;
       let alive = true;
+      const leaving = new AbortController(); // settles an intro still on screen when the player leaves
       let dialogueSlot: HTMLElement | null = null;
       let closeCard: (() => void) | null = null;
       let stopBar: (() => void) | null = null;
@@ -55,6 +52,7 @@ function visitScreen(): Screen {
       // Set before anything else can throw: #stage now lives in this screen and must go home on unmount.
       cleanup = () => {
         alive = false;
+        leaving.abort();
         stopBar?.();
         closeCard?.();
         dialogueSlot?.remove();
@@ -63,16 +61,40 @@ function visitScreen(): Screen {
 
       const openCard = (opener: HTMLElement | null) => {
         if (closeCard || dialogueSlot) return; // never over the cook's intro
-        const state = ctx.store.get();
-        const card = buildRecipeCard({
-          slug: cook.recipe, content, graph, rules: activeRules(state, graph), today: localDate(ctx.now()), showCalories: state.settings.showCalories,
-        });
-        const view = renderRecipeCard(card, {
-          headingLevel: 2,
-          onCook: () => { closeCard?.(); ctx.navigate({ name: 'cook', slug: cook.recipe }); },
-        });
+        const drawCard = () => {
+          const state = ctx.store.get();
+          const card = buildRecipeCard({
+            slug: cook.recipe, content, graph, rules: activeRules(state, graph), today: localDate(ctx.now()), showCalories: state.settings.showCalories,
+          });
+          return renderRecipeCard(card, {
+            headingLevel: 2,
+            onCook: () => { closeCard?.(); ctx.navigate({ name: 'cook', slug: cook.recipe }); },
+          });
+        };
+        const view = drawCard();
+        const body = h('div', { class: 'visit-card-body' }, view);
         const title = view.querySelector('h2')!;
-        closeCard = openModal(doc, { className: 'visit-card', title, body: view, opener, onClose: () => { closeCard = null; } });
+        // While open, the card follows its inputs (rules from another tab, sign-in, the local date), like the
+        // recipe screen: a stale ✅ or an enabled Cook button must never outlive the rule that changed it.
+        const redraw = () => {
+          const hadFocus = body.contains(doc.activeElement);
+          const fresh = drawCard();
+          const freshTitle = fresh.querySelector('h2')!;
+          freshTitle.id = title.id;
+          freshTitle.tabIndex = -1;
+          body.replaceChildren(fresh);
+          if (hadFocus) freshTitle.focus();
+        };
+        let key = cardInputsKey(ctx.store.get());
+        const unsubscribe = ctx.store.subscribe((s) => {
+          const k = cardInputsKey(s);
+          if (k !== key) { key = k; redraw(); }
+        });
+        const stopDate = watchLocalDate(doc, ctx.now, redraw);
+        closeCard = openModal(doc, {
+          className: 'visit-card', title, body, opener,
+          onClose: () => { closeCard = null; unsubscribe(); stopDate(); },
+        });
       };
 
       const showBar = () => {
@@ -94,12 +116,18 @@ function visitScreen(): Screen {
         const seeRecipe = bar.querySelector<HTMLButtonElement>('[data-action="recipe"]');
         if (seeRecipe) seeRecipe.disabled = true;
         void showDialogue(slot, {
-          speaker: cook.name, portrait: assets[`char.${id}`] ?? null, lines: cook.intro, reducedMotion: isReduced(ctx, win),
+          speaker: cook.name, portrait: assets[`char.${id}`] ?? null, lines: cook.intro, reducedMotion: isReducedMotion(ctx.store, win),
+          signal: leaving.signal,
         }).then(() => {
           slot.remove();
           dialogueSlot = null;
           if (seeRecipe) seeRecipe.disabled = false;
-          if (!alive || !first) return;
+          if (!alive) return;
+          if (!first) {
+            // A replay ends on the button that started it, even from a canvas hotspot (focus was on the body).
+            bar.querySelector<HTMLElement>('[data-action="intro"]')?.focus();
+            return;
+          }
           showBar();
           bar.querySelector<HTMLElement>('[data-action="recipe"]')?.focus();
         });

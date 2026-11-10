@@ -228,6 +228,95 @@ describe('signOut', () => {
   });
 });
 
+describe('a sign-out in another tab', () => {
+  function memStorage(): Storage {
+    const m = new Map<string, string>();
+    return {
+      get length() { return m.size; },
+      clear: () => m.clear(), key: (i) => [...m.keys()][i] ?? null,
+      getItem: (k) => m.get(k) ?? null, removeItem: (k) => { m.delete(k); },
+      setItem: (k, v) => { m.set(k, v); },
+    };
+  }
+  /** Two tabs on one device: shared storage, and each hears the other's writes as storage events. */
+  function twoTabs(initial: Partial<PlayerState>) {
+    const storage = memStorage();
+    const evA = new EventTarget(), evB = new EventTarget();
+    const a = createStore(storage, evA);
+    a.update((x) => ({ ...x, ...initial }));
+    const b = createStore(storage, evB);
+    const tell = (target: EventTarget) => target.dispatchEvent(Object.assign(new Event('storage'), { key: 'kq.player.v1' }));
+    return { a, b, storage, toA: () => tell(evA) };
+  }
+  const deferred = () => {
+    let answer!: (r: ApiResult<unknown>) => void;
+    return { call: () => new Promise<ApiResult<unknown>>((res) => { answer = res; }), answer: (r: ApiResult<unknown>) => answer(r) };
+  };
+  const meBody = (email = 'cook@example.com') => ok({ id: 'u1', email, entitlements: [] });
+
+  test('an in-flight /me reply in this tab cannot undo it', async () => {
+    const { a, b, storage, toA } = twoTabs({ account: { email: 'cook@example.com' }, accountRules: [coconut] });
+    const meA = deferred();
+    const { client } = fakeClient({ me: meA.call, listRules: rules([coconut]) });
+    const pending = refreshAccount(client, a);
+    await Promise.resolve();
+    // Tab B signs out offline: the sign-out is still owed to the server.
+    await signOut(fakeClient({ logout: status(0) }).client, b);
+    toA();
+    expect(a.get().signOutPending).toBe(true);
+    meA.answer(meBody());
+    expect(await pending).toBe('signed-out');
+    expect(a.get().account).toBeNull();
+    expect(a.get().accountRules).toBeNull();
+    expect(JSON.parse(storage.getItem('kq.player.v1')!)).toMatchObject({ account: null, accountRules: null, signOutPending: true });
+  });
+
+  test('a finished sign-out (nothing pending) still wins over an in-flight /me', async () => {
+    const { a, b, storage, toA } = twoTabs({ account: { email: 'cook@example.com' }, accountRules: [coconut] });
+    const meA = deferred();
+    const { client } = fakeClient({ me: meA.call, listRules: rules([coconut]) });
+    const pending = refreshAccount(client, a);
+    await Promise.resolve();
+    await signOut(fakeClient({ logout: () => Promise.resolve(ok(null, 204)) }).client, b);
+    toA();
+    expect(a.get().signOutPending).toBe(false);
+    meA.answer(meBody());
+    expect(await pending).toBe('signed-out');
+    expect(a.get().account).toBeNull();
+    expect(JSON.parse(storage.getItem('kq.player.v1')!)).toMatchObject({ account: null, accountRules: null });
+  });
+
+  test('an in-flight /rules reply cannot bring the rules or the account back', async () => {
+    const { a, b, storage, toA } = twoTabs({ account: { email: 'cook@example.com' }, accountRules: [coconut] });
+    const rulesA = deferred();
+    const { client } = fakeClient({ me: me(), listRules: rulesA.call });
+    const pending = refreshAccount(client, a);
+    await new Promise((r) => setTimeout(r, 0)); // /me answered; /rules in flight
+    expect(a.get().account).toEqual({ email: 'cook@example.com' });
+    await signOut(fakeClient({ logout: status(0) }).client, b);
+    toA();
+    rulesA.answer(ok({ rules: [coconut] }));
+    expect(await pending).toBe('signed-out');
+    expect(a.get().account).toBeNull();
+    expect(a.get().accountRules).toBeNull();
+    expect(JSON.parse(storage.getItem('kq.player.v1')!)).toMatchObject({ account: null, accountRules: null, signOutPending: true });
+  });
+
+  test('a different account signed in meanwhile keeps its own rules', async () => {
+    const { a, b, toA } = twoTabs({ account: { email: 'cook@example.com' }, accountRules: [coconut] });
+    const meA = deferred();
+    const { client } = fakeClient({ me: meA.call, listRules: rules([coconut]) });
+    const pending = refreshAccount(client, a);
+    await Promise.resolve();
+    b.update((x) => ({ ...x, account: { email: 'other@example.com' }, accountRules: [] }));
+    toA();
+    meA.answer(meBody('cook@example.com'));
+    await pending;
+    expect(a.get().account).toEqual({ email: 'other@example.com' });
+    expect(a.get().accountRules).toEqual([]);
+  });
+});
+
 describe('watchAccount', () => {
   test('refreshes on start, on online, and when the page becomes visible again (not when hidden)', async () => {
     const store = storeWith();

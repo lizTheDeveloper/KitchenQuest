@@ -8,6 +8,9 @@ const CHIPS: Record<CheckStatus, { emoji: string; label: string }> = {
   unverified: { emoji: '❓', label: "Can't verify" },
 };
 
+/** The status in words, as the chip shows it (for announcements). */
+export const statusLabel = (status: CheckStatus): string => CHIPS[status].label;
+
 /** Text label plus emoji, so status never rests on colour alone. */
 export function statusChip(status: CheckStatus): HTMLElement {
   const c = CHIPS[status];

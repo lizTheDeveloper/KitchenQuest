@@ -126,3 +126,22 @@ describe('validateThresholds', () => {
 test('public surface has no removal', () => {
   expect(Object.keys(toolkitModule).sort()).toEqual(['EMPTY_TOOLKIT', 'freshness', 'recordTechnique', 'toolkitRows', 'validateThresholds']);
 });
+
+describe('prototype-named technique keys', () => {
+  test.each(['__proto__', 'constructor', 'toString', 'hasOwnProperty'])('%s is an ordinary technique', (key) => {
+    const s = run([lesson(key, '2026-01-01'), cooked(key, '2026-01-02', 'a')]);
+    expect(Object.hasOwn(s.techniques, key)).toBe(true);
+    expect(Object.getPrototypeOf(s.techniques)).toBe(Object.prototype);
+    expect(s.techniques[key]).toEqual({ tier: 'tried', firstAt: '2026-01-01', lastUsedAt: '2026-01-02', recipes: ['a'] });
+    expect(toolkitRows(s, '2026-01-03', T)).toEqual([{ technique: key, tier: 'tried', freshness: 'sharp' }]);
+  });
+
+  test('a stored "__proto__" key survives a JSON round trip and new events', () => {
+    const stored = JSON.parse('{"techniques":{"__proto__":{"tier":"seen","firstAt":"2026-01-01","lastUsedAt":"2026-01-01","recipes":[]}}}') as ToolkitState;
+    const s = recordTechnique(stored, cooked('__proto__', '2026-02-01', 'b'));
+    expect(Object.hasOwn(s.techniques, '__proto__')).toBe(true);
+    expect(s.techniques['__proto__']).toMatchObject({ tier: 'tried', firstAt: '2026-01-01', recipes: ['b'] });
+    expect(JSON.parse(JSON.stringify(s))).toEqual(JSON.parse(JSON.stringify(s)));
+    expect(({} as Record<string, unknown>).tier).toBeUndefined();
+  });
+});
