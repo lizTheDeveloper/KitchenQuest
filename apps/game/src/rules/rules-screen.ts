@@ -1,6 +1,6 @@
 import {
-  buildRuleCard, SEVERE, SEVERITY_WORDS, validateRules,
-  type IngredientGraph, type Rule, type RuleCard, type RuleTerm,
+  buildRuleCard, confirmedLines, SEVERE, SEVERITY_WORDS, trailSummary, validateRules,
+  type IngredientGraph, type Rule, type RuleCard, type RuleTerm, type TrailEntry,
 } from '@kitchenquest/core/engine';
 import { refreshAccount } from '../api/account';
 import { content, graph } from '../content';
@@ -10,6 +10,7 @@ import { CLOSED_TEXT, closeCard, renderCard, setCardNote } from '../mentor/cards
 import { renderConsentCard } from '../mentor/consent-card';
 import { DEVICE_ONLY_FOOTNOTE, NOT_SAVED_TEXT } from '../mentor/panel';
 import type { LocalCardView, PanItem } from '../mentor/reply';
+import type { WriteOutcome } from '../mentor/writer';
 import { ACCOUNT_NOT_LOADED_MESSAGE, activeRules, RULES_INVALID_MESSAGE, RULES_UNREADABLE_MESSAGE } from '../recipes/rules';
 import type { AppContext, Screen } from '../shell/app';
 import { reducedMotion } from '../shell/motion';
@@ -26,9 +27,14 @@ import { mountRuleForm } from './rule-form';
  */
 const BAD_RULE_TEXT = "This rule names an ingredient the ledger doesn't know any more.";
 const UNREADABLE_CONFIRM = 'These are all my rules';
+/** Fix round 1 (M3): under the couldn't-be-read banner, an empty list is never "no rules". */
+const UNREADABLE_EMPTY = "None of the rules on this device could be read back. Add each of your rules again below. If you have none, tap 'These are all my rules'.";
 const NOT_REMOVED_TEXT = "That didn't go through, so nothing was removed. Try again in a moment.";
 const RESTORED_TEXT = 'Put back. Dishes are checked for it again.';
 const COPY_WARNING = "These rules are saved on this device but not on your account. While you're signed in, dishes are checked against your account's rules only.";
+const RAISE_WARNING = "These rules are stricter on this device than on your account. While you're signed in, dishes are checked against your account's version.";
+/** Strictest first: a device rule ranked higher than the account's version is offered for raising. */
+const RANK: Readonly<Record<Rule['severity'], number>> = { anaphylactic: 3, allergy: 2, intolerance: 1, preference: 0 };
 const CANT_COPY_TEXT = 'This one can be copied by telling the Pan about it.';
 const CONSENT_DONE_TEXT = 'Permission filed. Tap the stamp button again to save the rule.';
 const CONSENT_UNAVAILABLE_TEXT = "The permission form couldn't load just now. Nothing has changed.";
@@ -90,7 +96,7 @@ export function rulesScreen(): Screen {
 
       // --- A card, stamped by its own tap ----------------------------------------------------------------------
       /** Shows a Form 27-B card for `card` in `slot`; a tap writes it through the panel's writer. */
-      function showCard(slot: HTMLElement, card: RuleCard, onDone: () => void): void {
+      function showCard(slot: HTMLElement, card: RuleCard, onDone: () => void, write?: (card: RuleCard) => Promise<WriteOutcome>): void {
         // issuedTurn 0: a typed yes in the panel can never reach this card.
         const view: LocalCardView = { origin: 'local', localId: crypto.randomUUID(), card, issuedTurn: 0 };
         const signedOut = store.get().account === null;
@@ -99,7 +105,7 @@ export function rulesScreen(): Screen {
         const cardEl = renderCard(view, {
           forms, now: ctx.now, ...(signedOut ? { footnote: DEVICE_ONLY_FOOTNOTE } : {}),
           onConfirm: async (edits) => {
-            const out = await writer.confirm(view, 'tap', edits).catch((err: unknown) => {
+            const out = await (write ? write(card) : writer.confirm(view, 'tap', edits)).catch((err: unknown) => {
               console.error(err);
               return { ok: false as const, reason: 'network' as const, items: [] };
             });
@@ -160,6 +166,23 @@ export function rulesScreen(): Screen {
         });
       }
 
+      /** Raise an account rule to a stricter device rule's severity, by the card's tap (fix round 1, I3). */
+      async function raise(accountRule: Rule, card: RuleCard): Promise<WriteOutcome> {
+        const email = store.get().account?.email;
+        const r = await client.updateRule(accountRule.id, card.rule, true);
+        if (!r.ok) {
+          if (r.status === 403 && r.error.code === 'consent_required') return { ok: false, reason: 'consent_required', items: [say('consent.health_first')] };
+          if (r.status === 0 || r.status === 429 || r.status >= 500) return { ok: false, reason: 'network', items: [] };
+          return { ok: false, reason: 'invalid', items: [say('write.not_done')] };
+        }
+        const saved = r.data.rule;
+        store.update((st) => (st.account?.email !== email || st.accountRules === null ? st : { ...st, accountRules: st.accountRules.map((x) => (x.id === saved.id ? saved : x)) }));
+        void refreshAccount(client, store);
+        const trail: TrailEntry = { id: saved.id, origin: 'local', kind: 'rule', summary: trailSummary(card), undoUntil: new Date(ctx.now().getTime()).toISOString() };
+        return { ok: true, trail, items: confirmedLines(card).map((l) => say(l.trigger, l.vars)) };
+      }
+      const say = (trigger: string, vars: Record<string, string> = {}): PanItem => ({ kind: 'said', said: dialogue.say(trigger, vars) });
+
       // --- Removing ----------------------------------------------------------------------------------------------
       async function removeRule(rule: Rule): Promise<void> {
         const name = ruleName(rule, ruleTerms, graph);
@@ -213,7 +236,13 @@ export function rulesScreen(): Screen {
           tell(h('p', null, 'Thank you. Dishes are checked against these rules again.'));
           doc.getElementById('rules-heading')?.focus();
         });
-        banner.replaceChildren(h('div', { class: 'notice rules-unreadable', role: 'note' }, h('p', null, RULES_UNREADABLE_MESSAGE), confirm));
+        // Fix round 1 (M2): signed in, the list below is the account's, so the banner shows the device rules it confirms.
+        const deviceList = s.account === null ? null : h('div', null,
+          h('p', null, 'The button confirms the rules saved on this device:'),
+          s.localRules.length === 0
+            ? h('p', null, 'None could be read back.')
+            : h('ul', { class: 'rules-banner-list' }, ...s.localRules.map((r) => h('li', null, `${ruleName(r, ruleTerms, graph)}: ${SEVERITY_WORDS[r.severity]}`))));
+        banner.replaceChildren(h('div', { class: 'notice rules-unreadable', role: 'note' }, h('p', null, RULES_UNREADABLE_MESSAGE), deviceList, confirm));
       }
 
       function drawList(s: PlayerState): void {
@@ -227,9 +256,9 @@ export function rulesScreen(): Screen {
         const where = signedIn ? 'on your account' : 'on this device';
         const items = rules.map((rule) => {
           const bad = validateRules([rule], graph).length > 0;
-          const remove = h('button', { type: 'button', class: 'btn btn-secondary rules-remove' }, 'Remove');
-          remove.addEventListener('click', () => { void removeRule(rule); });
           const label = ruleName(rule, ruleTerms, graph);
+          const remove = h('button', { type: 'button', class: 'btn btn-secondary rules-remove', 'aria-label': `Remove ${label}` }, 'Remove');
+          remove.addEventListener('click', () => { void removeRule(rule); });
           return h('li', { class: `rules-item${bad ? ' is-bad' : ''}`, 'data-rule': rule.id },
             h('p', { class: 'rules-name' }, h('strong', null, label)),
             h('p', { class: 'rules-meta' }, `${SEVERE.has(rule.severity) ? '⚠ ' : ''}${SEVERITY_WORDS[rule.severity]}, ${where}`),
@@ -239,7 +268,7 @@ export function rulesScreen(): Screen {
         listBox.replaceChildren(
           state.status === 'error' && state.reason === 'invalid' ? h('p', { class: 'notice' }, RULES_INVALID_MESSAGE) : '',
           rules.length === 0
-            ? h('p', null, signedIn ? 'Your account has no rules yet.' : 'No rules are saved on this device yet.')
+            ? h('p', null, signedIn ? 'Your account has no rules yet.' : s.rulesUnreadable ? UNREADABLE_EMPTY : 'No rules are saved on this device yet.')
             : h('ul', { class: 'rules-list', 'aria-label': 'Your rules' }, ...items),
         );
       }
@@ -248,24 +277,41 @@ export function rulesScreen(): Screen {
       function drawCopy(s: PlayerState): void {
         if (s.account === null || s.accountRules === null) { copyBox.replaceChildren(); return; }
         const account = s.accountRules;
-        const missing = s.localRules.filter((l) => !account.some((a) => a.type === l.type && sameIds(a.target.ids, l.target.ids)));
-        if (missing.length === 0) { copyBox.replaceChildren(); return; }
+        const matchOf = (l: Rule) => account.find((a) => a.type === l.type && sameIds(a.target.ids, l.target.ids));
+        const missing = s.localRules.filter((l) => matchOf(l) === undefined);
+        // Fix round 1 (I3): the same rule, stricter on this device than on the account, is offered for raising.
+        const weaker = s.localRules.flatMap((l) => {
+          const a = matchOf(l);
+          return a !== undefined && RANK[l.severity] > RANK[a.severity] ? [{ device: l, account: a }] : [];
+        });
+        if (missing.length === 0 && weaker.length === 0) { copyBox.replaceChildren(); return; }
+        const row = (rule: Rule, meta: string, label: string, onCard: (slot: HTMLElement, card: RuleCard) => void) => {
+          const slot = h('div', { class: 'rules-copy-slot' });
+          const card = cardForRule(rule, ruleTerms, graph);
+          const name = ruleName(rule, ruleTerms, graph);
+          const btn = h('button', { type: 'button', class: 'btn btn-secondary rules-copy-btn', 'aria-label': `${label}: ${name}` }, label);
+          btn.addEventListener('click', () => { if (card) onCard(slot, card); });
+          return h('li', { class: 'rules-item' },
+            h('p', { class: 'rules-name' }, h('strong', null, name)),
+            h('p', { class: 'rules-meta' }, meta),
+            card ? h('div', { class: 'button-row' }, btn) : h('p', null, CANT_COPY_TEXT),
+            slot);
+        };
         copyBox.replaceChildren(
-          h('section', { class: 'panel rules-copy', 'aria-labelledby': 'rules-copy-title' },
+          missing.length === 0 ? '' : h('section', { class: 'panel rules-copy', 'aria-labelledby': 'rules-copy-title' },
             h('h2', { id: 'rules-copy-title' }, 'On this device only'),
             h('p', { class: 'notice' }, COPY_WARNING),
-            h('ul', { class: 'rules-list' }, ...missing.map((rule) => {
-              const slot = h('div', { class: 'rules-copy-slot' });
-              const card = cardForRule(rule, ruleTerms, graph);
-              const copy = h('button', { type: 'button', class: 'btn btn-secondary rules-copy-btn' }, 'Copy to my account');
-              copy.addEventListener('click', () => { if (card) showCard(slot, card, () => undefined); });
-              return h('li', { class: 'rules-item' },
-                h('p', { class: 'rules-name' }, h('strong', null, ruleName(rule, ruleTerms, graph))),
-                h('p', { class: 'rules-meta' }, `${SEVERITY_WORDS[rule.severity]}, on this device`),
-                card ? h('div', { class: 'button-row' }, copy) : h('p', null, CANT_COPY_TEXT),
-                slot);
-            }))));
+            h('ul', { class: 'rules-list' }, ...missing.map((rule) =>
+              row(rule, `${SEVERITY_WORDS[rule.severity]}, on this device`, 'Copy to my account', (slot, card) => { showCard(slot, card, () => undefined); })))),
+          weaker.length === 0 ? '' : h('section', { class: 'panel rules-raise', 'aria-labelledby': 'rules-raise-title' },
+            h('h2', { id: 'rules-raise-title' }, 'Stricter on this device'),
+            h('p', { class: 'notice' }, RAISE_WARNING),
+            h('ul', { class: 'rules-list' }, ...weaker.map(({ device, account: a }) =>
+              row(device, `${SEVERITY_WORDS[device.severity]} on this device; ${SEVERITY_WORDS[a.severity]} on your account`, 'Raise it on my account',
+                (slot, card) => { showCard(slot, card, () => undefined, (c) => raise(a, c)); })))),
+        );
       }
+
 
       let key = '';
       const draw = () => {

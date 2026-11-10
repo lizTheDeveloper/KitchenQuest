@@ -48,6 +48,7 @@ describe('mountAgeScreen', () => {
     m.pick('2010');
     expect(m.el.querySelector<HTMLElement>('.age-birthday')!.hidden).toBe(false);
     expect(m.el.querySelector('legend')!.textContent).toBe('Have you had your birthday yet this year?');
+    expect(m.el.querySelector('[role="status"]')!.textContent).toContain('Have you had your birthday yet this year?');
     expect(m.create()!.disabled).toBe(true);
     m.el.querySelector<HTMLInputElement>('input[value="yes"]')!.click();
     expect(m.create()!.disabled).toBe(false);

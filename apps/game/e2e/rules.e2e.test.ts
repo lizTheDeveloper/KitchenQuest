@@ -147,4 +147,49 @@ describe('Your rules (M4 Step 11)', () => {
     expect(await item(page, 'coconut').textContent()).toContain('on your account');
     expect(app.consoleErrors).toEqual([]);
   });
+
+  it('signed in: a device rule stricter than the account\'s is raised only through its own card; the unreadable banner names the device rules it confirms', async () => {
+    let server = [{ id: 's1', target: { kind: 'category', ids: ['coconut'] }, type: 'avoid', severity: 'intolerance' }];
+    const puts: Request[] = [];
+    app = await openApp('/#/rules', {
+      reducedMotion: true,
+      seed: { ...PAN_READY, localRules: [coconutSevere] as never, rulesUnreadable: true },
+      beforeGoto: async (page) => {
+        await page.route((u) => u.pathname === '/api/me', (r) => r.fulfill(json(200, { id: 'u1', email: 'cook@example.com', entitlements: [] })));
+        await page.route((u) => u.pathname === '/api/rules', (r) => r.fulfill(json(200, { rules: server })));
+        await page.route((u) => u.pathname === '/api/rules/s1', (r) => {
+          puts.push(r.request());
+          const body = r.request().postDataJSON() as { rule: { severity: string } };
+          server = [{ ...server[0], ...body.rule, id: 's1' }];
+          return r.fulfill(json(200, { rule: server[0] }));
+        });
+      },
+    });
+    const { page } = app;
+    const banner = page.locator('.rules-unreadable');
+    await banner.waitFor();
+    await expect.poll(() => banner.textContent()).toContain('coconut: a severe allergy');
+    const raise = page.locator('.rules-raise');
+    await raise.waitFor();
+    expect(await raise.textContent()).toContain('a severe allergy on this device; an intolerance on your account');
+    await raise.getByRole('button', { name: /Raise it on my account/ }).click();
+    const card = raise.locator('.pan-card');
+    await card.waitFor();
+    expect(puts).toHaveLength(0);
+    await card.getByRole('button', { name: 'Stamp it ✔' }).click();
+    await expect.poll(() => puts.length).toBe(1);
+    expect(puts[0].method()).toBe('PUT');
+    expect(puts[0].postDataJSON()).toMatchObject({ rule: { severity: 'anaphylactic', target: { ids: ['coconut'] } }, confirmed: true });
+    await expect.poll(() => page.locator('.rules-raise').count()).toBe(0);
+    expect(await item(page, 'coconut').textContent()).toContain('a severe allergy, on your account');
+    expect(app.consoleErrors).toEqual([]);
+  });
+
+  it('signed out with nothing readable: the list never says "no rules" under the banner', async () => {
+    app = await openApp('/#/rules', { reducedMotion: true, seed: { ...PAN_READY, rulesUnreadable: true } });
+    const { page } = app;
+    await page.getByText(RULES_UNREADABLE_MESSAGE).waitFor();
+    expect(await page.getByText('No rules are saved on this device yet.').count()).toBe(0);
+    await page.getByText('None of the rules on this device could be read back.', { exact: false }).waitFor();
+  });
 });

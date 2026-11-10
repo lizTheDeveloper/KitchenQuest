@@ -128,7 +128,7 @@ describe('/auth/verify', () => {
     const thisYear = new Date().getFullYear();
     // Exactly 16 by the year asks one more question.
     await year.selectOption(String(thisYear - 16));
-    await page.getByText('Have you had your birthday yet this year?').waitFor();
+    await page.locator('legend', { hasText: 'Have you had your birthday yet this year?' }).waitFor();
     await page.getByLabel('No', { exact: true }).check();
     await page.getByRole('button', { name: 'Create my account' }).click();
     await page.getByText('Kitchen Quest accounts are for people aged 16 and over. You can still play on this device without an account.').waitFor();

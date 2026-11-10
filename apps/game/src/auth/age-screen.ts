@@ -55,6 +55,8 @@ export function mountAgeScreen(el: HTMLElement, opts: { thisYear: number; onOk()
     birthday.append(row);
   }
 
+  // Fix round 1 (M4): the extra question is announced when it appears.
+  const announce = make('p', { class: 'visually-hidden age-announce', role: 'status' });
   const create = make('button', { type: 'button', id: 'create-account', class: 'btn btn-primary' }, 'Create my account');
   create.disabled = true;
 
@@ -69,6 +71,7 @@ export function mountAgeScreen(el: HTMLElement, opts: { thisYear: number; onOk()
   const refresh = () => {
     const year = select.value === '' ? null : Number(select.value);
     const ask = year !== null && ageFromYear(year, opts.thisYear) === 'ask_birthday';
+    if (ask !== !birthday.hidden) announce.textContent = ask ? 'One more question appeared: Have you had your birthday yet this year?' : '';
     birthday.hidden = !ask;
     if (!ask) for (const r of radios) r.checked = false;
     const a = answer();
@@ -92,5 +95,5 @@ export function mountAgeScreen(el: HTMLElement, opts: { thisYear: number; onOk()
     opts.onUnder();
   });
 
-  el.replaceChildren(make('h2', {}, 'Before we make your account'), yearField, birthday, create);
+  el.replaceChildren(make('h2', {}, 'Before we make your account'), yearField, birthday, announce, create);
 }
