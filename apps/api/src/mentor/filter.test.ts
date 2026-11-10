@@ -90,6 +90,13 @@ describe('filterReply, fix round 1 (C1, C2, I6)', () => {
     ['I wrote it on your list.', 'write_claim'],
     ['Once you tap nothing, because I already saved your peanut rule.', 'write_claim'], // C2: the once-you-tap swallow
     ["Once you tap the card it's filed, but I already saved your peanut rule anyway.", 'write_claim'],
+    ['The frijoles are peanut-free, so tuck in.', 'safety_claim'],
+    ['The frijoles are fine for your allergy.', 'safety_claim'],
+    ["Yes it's s4fe.", 'safety_claim'],
+    ['Take two antihistamines and lie down.', 'medical_dose'],
+    ['Join the gu1ld', 'sells'],
+    ['Eat only a little — well done!', 'eat_less_praise'],
+    ['It’s totally safe\u200b for you', 'safety_claim'],
   ])('%j fails as %s', (text, reason) => expect(stop(text)).toEqual({ ok: false, reason }));
 
   test('the refusals that pass are closed phrases', () => {

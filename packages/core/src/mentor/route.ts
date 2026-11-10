@@ -225,12 +225,12 @@ export function mentionsHealthTerm(text: string, graph: IngredientGraph, terms: 
 
 /**
  * Text after this is not the player's own words (S19 and the spike's injection cases): an
- * instruction to the AI, a system/developer/tool/assistant role label anywhere, a user label at
+ * instruction to the AI, any "the user …" (third person about the player: a pasted note, Step 7 fix round 1), a system/developer/tool/assistant role label anywhere, a user label at
  * the start of a line or after a sentence end, or a role tag. Matched on NFKC text with
  * lookalikes folded ("ＳＹＳＴＥＭ:", "ѕystem:").
  */
 export const INJECTION_MARKER =
-  /note to (the )?(ai|assistant)|\b(assistant|system|developer|tool)\s*:|the user (already )?agreed|ignore (all |the )?previous|developer override|do not mention this|(^|[.!?])[^\S\n]*user\s*:|<\/?\s*(system|developer|assistant|tool|user)\b/im;
+  /note to (the )?(ai|assistant)|\b(assistant|system|developer|tool)\s*:|\bthe user\b|ignore (all |the )?previous|developer override|do not mention this|(^|[.!?])[^\S\n]*user\s*:|<\/?\s*(system|developer|assistant|tool|user)\b/im;
 
 /** A pasted block starts at a line beginning with -, * or a digit, or a line in capitals of 6+ letters. */
 function isPastedLine(l: string): boolean {

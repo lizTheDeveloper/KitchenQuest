@@ -89,6 +89,14 @@ describe('retention (C-6)', () => {
     expect(await runRetention(db, now)).toMatchObject({ login_tokens: 0, sessions: 0, usage_events: 0, audit_events: 0 });
   });
 
+  it('keeps the hourly AI cost for 48 hours (M4 Step 7, P5)', async () => {
+    const now = new Date('2026-11-09T12:00:00Z');
+    const hoursAgo = (h: number) => new Date(now.getTime() - h * 3_600_000).toISOString();
+    await sql`insert into ai_cost_hours (hour, cost_microusd) values (${hoursAgo(49)}, 5), (${hoursAgo(47)}, 7)`;
+    expect(await runRetention(db, now)).toMatchObject({ ai_cost_hours: 1 });
+    expect((await sql`select cost_microusd::int as c from ai_cost_hours`).map((r) => r.c)).toEqual([7]);
+  });
+
   it('keeps self-read counts for 24 months (C-5, Step 7)', async () => {
     const now = new Date('2026-11-09T12:00:00Z');
     const [u] = await db.insert(users).values({ email: 'reads@example.com', ageConfirmedAt: now }).returning();

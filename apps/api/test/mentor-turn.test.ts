@@ -339,7 +339,7 @@ describe('tools — the model can only propose', () => {
     await makeApp(ai);
     const p = await player(AI_HEALTH);
     const r = await turn(p.cookie, 'I have a severe peanut allergy, save it');
-    expect(r.parts).toEqual([lineOf('didnt_understand'), lineOf('rule.ask_what_else')]); // I5: a severe statement always asks
+    expect(r.parts).toEqual([lineOf('didnt_understand'), lineOf('rule.ask_what_else', { term: 'peanut' })]); // I5: a severe statement always asks
     expect(r.cards).toEqual([]);
     expect(await countOf('rules', p.userId)).toBe(0);
     expect(await countOf('mentor_proposals', p.userId)).toBe(0);
@@ -798,7 +798,7 @@ describe('fix round 1: adversarial repros', () => {
     const p = await player(AI_HEALTH);
     const r = await turn(p.cookie, "I'm allergic to peanuts");
     noText(r);
-    expect(r.parts).toEqual([lineOf('write.not_done'), lineOf('rule.ask_what_else')]);
+    expect(r.parts).toEqual([lineOf('write.not_done'), lineOf('rule.ask_what_else', { term: 'peanut' })]);
     expect(await countOf('rules', p.userId)).toBe(0);
   });
 
@@ -887,7 +887,7 @@ describe('fix round 1: R1 and R2 — model text near health', () => {
     ['A prawn stir-fry would be grand.', null], // a kind of the player's shellfish rule
     ['Frijoles de Olla is a lovely pick.', FRIJOLES], // the dish on screen
     ['Take a tablet first.', null], // a medicine word
-    ['That one is fine for you.', null], // a fit word
+    ['That one is okay for everyone.', null], // a fit word
   ])('R2: %j on a non-health turn is replaced by mentor.check_card', async (text, slug) => {
     const ai = fakeAi([reply(text)]);
     await makeApp(ai);

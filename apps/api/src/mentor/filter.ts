@@ -46,7 +46,8 @@ const MARKDOWN = /(\*\*|__|`|^#{1,6}\s|^\s*[-*]\s|\[[^\]]+\]\([^)]+\))/m;
 /** voice.md §0.2–0.3 and §7. */
 const BANNED_WORDS =
   /\b(exotic|ethnic|weird|strange|unusual|discover(ed|s)?|unlock(ed|s)?|loot(ed)?|collect(ed)?|acquired?|guilt-free|cheat day|junk food|clean eating|sinful|skipped a meal|streaks?|authentic|broken english)\b/i;
-const SAFETY_CLAIM = /\b(safe|nut-free|allergen-free|gluten-free|dairy-free|guarantee[ds]?)\b/i;
+/** Safety words, any "-free", a digit for a letter ("s4fe") and "fine for your …" (fix round 1 probe). */
+const SAFETY_CLAIM = /\b(s[a@4]fe|[a-z]+-free|guarantee[ds]?|(fine|ok|okay) for (you|your))\b/i;
 /**
  * The only safety sentences that pass: a refusal whose object is the safety
  * itself, as one closed phrase with no clause break ("I can't promise it's
@@ -62,8 +63,8 @@ const WRITE_NEGATED =
   /\b(isn'?t|not|nothing'?s?|nothing has) (been |yet )?(yet )?(saved|logged|stamped|filed|noted|stored|recorded|written( down)?)\b|\bshow you the card\b/i;
 /** "Once you tap the card, it's filed": at most 30 characters on, holding one write word only. */
 const ONCE_YOU_TAP = /\bonce you (tap|stamp)\b[^.?!;]{0,30}/i;
-const SELLS = /\b(guild|subscription|subscribe|premium|upgrade|membership)\b|\$\s?\d|£\s?\d/i;
-const MEDICAL_DOSE = /\b\d+(\.\d+)?\s?(mg|mcg|ml|milligrams?)\b/i;
+const SELLS = /\b(gu[i1l!|]ld|subscription|subscribe|premium|upgrade|membership)\b|\$\s?\d|£\s?\d/i;
+const MEDICAL_DOSE = /\b\d+(\.\d+)?\s?(mg|mcg|ml|milligrams?)\b|\b(antihistamines?|benadryl|ibuprofen|paracetamol|acetaminophen|aspirin|piriton|cetirizine|loratadine)\b/i;
 const PRAISE = /\b(proud|well done|good job|nice work|great)\b/i;
 const LESS = /\b(only|skip\w*|less|light|nothing but|just (a |one )?(coffee|tea))\b/i;
 const IM_A_PAN = /\bi'?m a pan\b/i;

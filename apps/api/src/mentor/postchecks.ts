@@ -196,17 +196,16 @@ function namedIngredients(text: string, graph: IngredientGraph): string[] {
 
 /**
  * Step 1 carry and fix round 1 I5: the player's own words state a severe
- * allergy but name an ingredient that neither the rule grammar nor any kept
- * card covers ("i'm vegetarian, peanuts nearly killed me"). Returns that
+ * allergy but name an ingredient that no kept rule call covers (whether or
+ * not the grammar parsed it) ("i'm vegetarian, peanuts nearly killed me"). Returns that
  * ingredient's name, or null. The turn then adds `rule.ask_what_else`, so the
  * dropped term is never silently lost. Over-asks on purpose.
  */
 export function severeTermsLeftOut(playerText: string, keptRuleTerms: readonly string[], graph: IngredientGraph): string | null {
   const own = ownWords(playerText);
   if (!isSevere(severityFromText(own, graph))) return null;
-  const covered = new Set(
-    [...(parseRuleStatement(own, graph)?.terms ?? []), ...keptRuleTerms].map((t) => graph.resolve(t)).filter((id) => id !== null),
-  );
+  // Only the turn's rule calls cover a term: a term the grammar parsed but no card was made for is still missed.
+  const covered = new Set(keptRuleTerms.map((t) => graph.resolve(t)).filter((id) => id !== null));
   const missed = namedIngredients(own, graph).find((id) => !covered.has(id));
   return missed === undefined ? null : graph.get(missed).name;
 }
