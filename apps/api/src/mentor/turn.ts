@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   askForDroppedTerms,
+  emergencyRuleAsk,
   emergencyStatesRule,
   buildMealCard,
   buildPantryCard,
@@ -469,7 +470,7 @@ export async function runTurn(deps: TurnDeps, userId: string, req: TurnRequest, 
   if (intent === 'emergency') {
     const parts: ReplyPart[] = [line('rule.emergency')];
     if (!deps.childFlags.has(childKey, now.getTime()) && emergencyStatesRule(raw, deps.catalog.graph)) {
-      parts.push({ kind: 'line', line: askForDroppedTerms(raw, [], false, deps.catalog.graph) ?? { trigger: 'rule.ask_keep_off', vars: {} } });
+      parts.push({ kind: 'line', line: emergencyRuleAsk(raw, [], deps.catalog.graph) ?? { trigger: 'rule.ask_keep_off', vars: {} } });
     }
     return respond(id, 'deterministic', parts);
   }

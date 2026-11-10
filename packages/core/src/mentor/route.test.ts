@@ -6,6 +6,7 @@ import type { TurnIntent } from './intents';
 import type { RuleTerm } from './rule-terms';
 import {
   askForDroppedTerms,
+  emergencyRuleAsk,
   emergencyStatesRule,
   isHealthText,
   clockForSlot,
@@ -238,5 +239,12 @@ test('emergencyStatesRule and isHealthText (Step 9 fix round 2)', () => {
   expect(emergencyStatesRule("I think I'm having an allergic reaction", graph)).toBe(false); // nothing named
   expect(emergencyStatesRule('my throat is closing', graph)).toBe(false);
   expect(isHealthText('can I eat this? shrimp makes my throat close', graph, terms)).toBe(true);
+  expect(emergencyStatesRule('can I eat this? shrimp makes my throat close', graph)).toBe(true);
   expect(isHealthText('what should I cook tonight?', graph, terms)).toBe(false);
+});
+
+test('emergencyRuleAsk (Step 9 fix round 3)', () => {
+  expect(emergencyRuleAsk("I'm vegan, had eggs and my throat is closing", [], graph)).toEqual({ trigger: 'rule.ask_what_else', vars: { term: 'egg' } });
+  expect(emergencyRuleAsk("I'm allergic to peanuts and my throat is tight", ['peanuts'], graph)).toBeNull();
+  expect(emergencyRuleAsk("I'm vegetarian and I'm having an allergic reaction", [], graph)).toEqual({ trigger: 'rule.ask_keep_off', vars: {} });
 });

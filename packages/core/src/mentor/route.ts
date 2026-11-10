@@ -427,12 +427,24 @@ export function isHealthText(text: string, graph: IngredientGraph, terms: readon
 
 /**
  * M4 Step 9 fix round 2 (E2): an emergency turn whose player words (RAW turn text) also state a rule, or name
- * an ingredient with a severity cue ("I'm allergic to peanuts, I had anaphylaxis once"). The emergency line comes first; the
+ * any ingredient (the symptom is the severity cue) ("I'm allergic to peanuts, I had anaphylaxis once"). The emergency line comes first; the
  * allergy is then never dropped: the rule path (a card, or the ask) follows.
  */
 export function emergencyStatesRule(playerText: string, graph: IngredientGraph): boolean {
   const own = ownWords(playerText);
   if (parseRuleStatement(own, graph) !== null) return true;
-  // A severity cue (hives, swelling, anaphylaxis) with an ingredient named: the allergen is offered for a card.
-  return statesSevere(playerText, graph) && namedIngredients(own, graph).length > 0;
+  // On an emergency turn the symptom is itself the severity cue: any ingredient named is offered for a card (fix round 3).
+  return namedIngredients(own, graph).length > 0;
+}
+
+/**
+ * Fix round 3 (E2 on emergency turns): the ask after the emergency line. The symptom is the severity cue, so
+ * any named ingredient no kept (severe) rule card covers is asked for by name; with nothing named or kept, the
+ * plain ask. Null when the kept cards cover everything named. Server and engine both use it.
+ */
+export function emergencyRuleAsk(playerText: string, keptRuleTerms: readonly string[], graph: IngredientGraph): LineRef | null {
+  const covered = new Set(keptRuleTerms.map((t) => graph.resolve(t)).filter((id) => id !== null));
+  const missed = namedIngredients(ownWords(playerText), graph).find((id) => !covered.has(id));
+  if (missed !== undefined) return line('rule.ask_what_else', { term: graph.get(missed).name });
+  return keptRuleTerms.length > 0 ? null : line('rule.ask_keep_off');
 }

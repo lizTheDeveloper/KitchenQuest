@@ -1,5 +1,5 @@
 import {
-  askForDroppedTerms, buildMealCard, emergencyStatesRule, isHealthText, buildPantryCard, buildProfileCard, buildRuleCard, classifyTurn, dropMealsMatchingRemovals,
+  askForDroppedTerms, buildMealCard, emergencyRuleAsk, emergencyStatesRule, isHealthText, isSevereCard, buildPantryCard, buildProfileCard, buildRuleCard, classifyTurn, dropMealsMatchingRemovals,
   matchDish, MEAL_SLOTS, MEAL_VERB_PATTERN, normalizeName, normalizeTurn, PANTRY_ADD_PATTERN, PANTRY_REMOVAL_PATTERNS,
   parseClock, parseMealStatement, parsePantryAdds, parsePantryRemovals, parseRuleStatement, parseWeekdays, preRoute,
   shortReplyTarget, slotClause, slotForTime, stripPageEvents,
@@ -72,8 +72,17 @@ export function createScriptedEngine(deps: {
       else found.push({ at: where, items: [say(built.line), { kind: 'choices', options: built.options, severity: item.severity }] });
     }
 
-    // An emergency turn keeps only the rule path (fix round 2, E2): no meal, profile or pantry card.
-    if (rulesOnly) return finish(found, raw, statement?.terms ?? [], ruleOutcome);
+    // An emergency turn keeps only the rule path (fix round 2, E2): no meal, profile or pantry card. As on the
+    // server, only severe rule cards stay; anything else (a diet card, an unknown term) gives way to the ask (fix round 3).
+    if (rulesOnly) {
+      const severe = found.filter((f) => f.card !== undefined && isSevereCard(f.card));
+      const kept = severe.flatMap((f) => (f.card?.kind === 'rule' ? [f.card.display.ingredient] : []));
+      severe.sort((a, b) => a.at - b.at);
+      const items = severe.flatMap((f) => f.items);
+      const ask = emergencyRuleAsk(raw, kept, graph);
+      if (ask !== null) items.push(say(ask));
+      return { items, cards: severe.flatMap((f) => (f.card ? [f.card] : [])) };
+    }
 
     const removals = parsePantryRemovals(text);
 
@@ -155,8 +164,7 @@ export function createScriptedEngine(deps: {
         // E2: an emergency that also states a rule gets the emergency line first, then the rule path; never a meal or pantry card.
         if (intent !== 'emergency' || !emergencyStatesRule(text, graph)) return reply([say(fixed)]);
         const rules = parseAll(text, stripped, ctx, true);
-        const follow = rules.items.length > 0 ? rules.items : [line('rule.ask_keep_off')];
-        return reply([say(fixed), ...follow], { cards: rules.cards.map((c) => view(c, ctx.turn)) });
+        return reply([say(fixed), ...rules.items], { cards: rules.cards.map((c) => view(c, ctx.turn)) });
       }
       // 3. A plain yes, no or undo: core decides which card it means. A typed yes never confirms a severe card.
       if (intent === 'yes' || intent === 'no' || intent === 'undo') {

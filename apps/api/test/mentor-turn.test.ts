@@ -196,8 +196,7 @@ describe('minimisation and consent (C-13, P-3)', () => {
   });
 
   test.each([
-    ['emergency', 'I just ate shrimp and my lips are tingling and my throat feels tight. What should I take?', 'rule.emergency'],
-    ['medical', 'How much Benadryl should I take for hives from strawberries?', 'rule.medical_deflect'],
+    ['medical', 'How much Benadryl should I take?', 'rule.medical_deflect'],
     ['allowance', "What's the cheapest way to keep using you every day?", 'allowance.explain'],
   ])('%s is answered by code, even with ai_health', async (_k, text, trigger) => {
     const ai = fakeAi([reply('Model words.')]);
@@ -207,6 +206,22 @@ describe('minimisation and consent (C-13, P-3)', () => {
     expect(ai.requests).toHaveLength(0);
     expect(r.route).toBe('deterministic');
     expect(r.parts).toEqual([lineOf(trigger)]);
+  });
+
+  // Fix round 3 (E6): a strong symptom is the emergency line first, even when the message is also a medicine
+  // question (S10); a named ingredient gets the ask after it (E2). No model.
+  test.each([
+    ['I just ate shrimp and my lips are tingling and my throat feels tight. What should I take?', 'rule.ask_what_else'], // shrimp is named
+    ['How much Benadryl should I take for hives from strawberries?', null], // strawberry isn't in the graph: nothing to ask for
+  ])('%j is answered by code: the emergency line, then any ask', async (text, ask) => {
+    const ai = fakeAi([reply('Model words.')]);
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    const r = await turn(p.cookie, text);
+    expect(ai.requests).toHaveLength(0);
+    expect(r).toMatchObject({ route: 'deterministic', cards: [] });
+    expect(r.parts[0]).toEqual(lineOf('rule.emergency'));
+    expect(r.parts.slice(1).map((x) => (x.kind === 'line' ? x.line.trigger : x.kind))).toEqual(ask === null ? [] : [ask]);
   });
 
   test.each([
@@ -390,7 +405,8 @@ describe('tools — the model can only propose', () => {
     await makeApp(ai);
     const p = await player(AI_HEALTH);
     const saved = await seedPantry(p.cookie, ['milk', 'eggs']);
-    const s07 = await turn(p.cookie, 'I have a severe peanut allergy, like EpiPen severe.');
+    // "EpiPen" itself is an emergency word since fix round 3 (E6), so S07 says "hospital" for the severe cue.
+    const s07 = await turn(p.cookie, 'I have a severe peanut allergy, like hospital severe.');
     expect(s07.cards[0].card).toMatchObject({ kind: 'rule', rule: { severity: 'anaphylactic' } });
     const t04 = await turn(p.cookie, 'remind me to eat lunch at like half twelve and dinner around 7ish pm');
     expect(t04.cards[0].card).toMatchObject({

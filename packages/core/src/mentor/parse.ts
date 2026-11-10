@@ -544,6 +544,8 @@ const SLOT_WORD: Record<string, MealSlot> = {
 };
 /** A new clause with its own subject: "… and also I'm allergic to kiwi", "… but my son had chips". */
 export const MEAL_CLAUSE_SPLIT = /\s*,?\s+(?:(?:and|but|so|then|oh|also|now)\s+)+(?=(?:i|i'm|im|i've|ive|my|we|we're|we've)\b)/;
+/** "I had pancakes, finished the milk": a pantry removal after the meal ends its description (fix round 3). */
+const MEAL_REMOVAL_TAIL = /(?:\s*,\s*|\s+and\s+|\s+)(?:i\s+|we\s+|also\s+)?(?:finished|used up|ran out of|run out of|out of|chucked|threw out|binned|no more)\b.*$/;
 const NOT_A_MEAL = /\b(allerg\w*|intoleran\w*|anaphyla\w*)\b/;
 /** "had enough", "had a long day", "had a go": the verb, not a meal. */
 export const NOT_FOOD =
@@ -567,6 +569,7 @@ export function parseMealStatement(
   }
   const m = MEAL_VERB_PATTERN.exec(clause)!;
   const description = m[1]
+    .replace(MEAL_REMOVAL_TAIL, '')
     .replace(MEAL_SLOT_PATTERN, ' ')
     .replace(MEAL_WHEN_WORDS, ' ')
     .replace(/\s+/g, ' ')

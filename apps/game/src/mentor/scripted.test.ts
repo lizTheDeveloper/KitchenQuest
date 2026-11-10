@@ -33,7 +33,8 @@ describe('scripted engine', () => {
       cards: [{ kind: 'profile', patch: { mealWindows: [{ name: 'lunch', start: '12:30' }, { name: 'dinner', start: '19:00' }] } }],
     }],
     ['My market day is Saturday.', { cards: [{ kind: 'profile', patch: { marketDays: [6] } }] }],
-    ['I just ate shrimp and my lips are tingling and my throat feels tight. What should I take?', { said: ['rule.emergency'], cards: [] }],
+    // Shrimp is named: the ask follows the emergency line (fix round 3, E2 on emergency turns).
+    ['I just ate shrimp and my lips are tingling and my throat feels tight. What should I take?', { said: ['rule.emergency', 'rule.ask_what_else'], cards: [] }],
   ])('%s', (text, want) => {
     const r = engine().reply(text, ctx());
     if (want.cards) expect(cards(r)).toMatchObject(want.cards);
@@ -87,6 +88,65 @@ describe('scripted engine', () => {
     expect(cards(r).filter((c) => c.kind !== 'rule')).toEqual([]);
   });
 
+  // rev9c (fix round 3): every one is an emergency first; only severe rule cards ride along, never a meal, profile or pantry card.
+  test.each([
+    "her lips are swelling",
+    "my tongue is swelling",
+    "lips swelling after the peanut sauce",
+    "he's wheezing after the cake",
+    "after the nuts he is wheezing",
+    "my mouth is tingling",
+    "my face is swelling up",
+    "he is covered in hives",
+    "she's struggling to breathe",
+    "cant breathe",
+    "i cant breath",
+    "do I need my epi pen",
+    "should i use the epi-pen",
+    "give him the epipen?",
+    "anaphylaxis",
+    "going into anaphylaxis",
+    "anaphylactic shock",
+    "I think it is anaphylaxis",
+    "she is having anaphylaxis",
+    "my throat feels tight",
+    "i feel like my throat is closing",
+    "allergic to kiwi, my mouth is tingling right now",
+    "allergic to kiwi and my lips are swelling",
+    "I am allergic to peanuts and my throat is tight",
+    "I'm intolerant to milk and my throat is closing",
+    "I have a mild intolerance to milk, ate cheese and got hives",
+    "I'm intolerant to lactose, my throat is tight",
+    "I don't like mushrooms and I've got hives",
+    "I'm vegan, had eggs and my throat is closing",
+    "I'm vegetarian and I'm having an allergic reaction",
+    "I prefer no onion, ate some and my lips are swelling",
+    "slightly intolerant to wheat, had bread, now wheezing",
+    "I'm allergic to sesame and shellfish, my lips are swelling",
+    "I'm not allergic to anything, I'm just having a reaction",
+    "my throat is closing, I had peanuts, I'm allergic to them, please also add milk as an intolerance",
+    "I'm intolerant to milk and allergic to peanuts, ate peanuts, throat closing",
+  ])('rev9c emergency: %s', (text) => {
+    const r = engine().reply(text, ctx());
+    expect(said(r)[0]).toBe('rule.emergency');
+    expect(cards(r).every((c) => c.kind === 'rule' && c.severe)).toBe(true);
+    expect(said(r).slice(1).every((t) => t.startsWith('rule.'))).toBe(true);
+  });
+
+  test("I'm vegan, had eggs and my throat is closing → the emergency line, then the egg ask (no diet card)", () => {
+    const r = engine().reply("I'm vegan, had eggs and my throat is closing", ctx());
+    expect(said(r)).toEqual(['rule.emergency', 'rule.ask_what_else']);
+    expect(r.cards).toEqual([]);
+  });
+
+  test('rev9c plain turns: pantry and meal cards as before', () => {
+    expect(cards(engine().reply('used up the rice', ctx()))).toMatchObject([{ kind: 'pantry', remove: ['rice'] }]);
+    expect(cards(engine().reply('I had pancakes, finished the milk', ctx()))).toMatchObject([
+      { kind: 'meal', meal: { item: { kind: 'free', description: 'pancakes' } } }, { kind: 'pantry', remove: ['milk'] },
+    ]);
+    expect(cards(engine().reply('I had toast for breakfast', ctx()))).toMatchObject([{ kind: 'meal' }]);
+  });
+
   test('a plain emergency with nothing named is the emergency line alone', () => {
     expect(said(engine().reply("I think I'm having an allergic reaction", ctx()))).toEqual(['rule.emergency']);
     expect(said(engine().reply('my throat is closing', ctx()))).toEqual(['rule.emergency']);
@@ -97,7 +157,9 @@ describe('scripted engine', () => {
   });
 
   test('a health turn with no card gets the plain ask, offline as on the server (E4)', () => {
-    expect(said(engine().reply('can I eat this? shrimp makes my throat close', ctx()))).toEqual(['rule.ask_keep_off']);
+    expect(said(engine().reply('is this ok for me?', ctx()))).toEqual(['rule.ask_keep_off']);
+    // A closing throat is an emergency now (E6); shrimp is named, so the ask follows.
+    expect(said(engine().reply('can I eat this? shrimp makes my throat close', ctx()))).toEqual(['rule.emergency', 'rule.ask_what_else']);
   });
 
   test('signed out: a meal gets log.needs_account and no card', () => {

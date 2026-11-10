@@ -37,9 +37,21 @@ export const PRESENT_SYMPTOM =
 const HELP_ALLERGEN =
   /\b(nuts?|peanuts?|cashews?|almonds?|walnuts?|pecans?|hazelnuts?|pistachios?|sesame|shellfish|shrimps?|prawns?|crabs?|lobsters?|fish|eggs?|milk|dairy|soy|wheat|gluten|kiwi|mustard|celery|lupin|cacahuetes?)\b/;
 
-/** The emergency pre-route: the listed phrasings, present symptoms, an exposure verb with a reaction word, or "help" after an exposure. */
+/**
+ * Fix round 3 (E6, structural, the primary net): a strong symptom word anywhere is an emergency, with no verb
+ * or subject needed. Over-catches on purpose: "I'm anaphylactic to cashews and carry an epipen" and "a swell
+ * dinner" are accepted on the safe side (the rule path still follows the emergency line, E2).
+ */
+export const STRONG_SYMPTOM =
+  /\b(anaphyla\w*|epi[- ]?pens?|adrenalin\w*|auto-?injectors?|hives?|hivs|welts?|wheez\w*|can'?t breathe?|cannot breathe?|(struggling|trouble|hard) (to )?breath\w*|not breathing|throat (is |'?s |feels )?(tight|clos\w*|swell\w*)|swell\w*|swollen|tingl\w*|puff\w* up|numb|collaps\w*|faint\w*|vomit\w*|throwing up|passed out)\b/;
+/** Weaker words on a body part ("my mouth is tingling", "her eyes went all red"). */
+export const BODY_PART_SYMPTOM =
+  /\b(mouth|lips?|tongue|face|eyes?)('?s)? (is |are |feels? |went |gone |going |turned |looks? )?([a-z']+ ){0,2}(red|funny|weird|burning|itch\w*|tingl\w*)\b/;
+
+/** The emergency pre-route: the listed phrasings, present symptoms, strong symptom words, an exposure verb with a reaction word, or "help" after an exposure. */
 export function isEmergency(normalized: string): boolean {
   if (EMERGENCY_PATTERN.test(normalized) || PRESENT_SYMPTOM.test(normalized)) return true;
+  if (STRONG_SYMPTOM.test(normalized) || BODY_PART_SYMPTOM.test(normalized)) return true;
   if (!EXPOSURE_VERB.test(normalized)) return false;
   return REACTION_STEM.test(normalized) || (/\bhelp\b/.test(normalized) && HELP_ALLERGEN.test(normalized));
 }

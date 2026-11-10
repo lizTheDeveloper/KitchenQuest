@@ -1,17 +1,18 @@
 import { describe, expect, test } from 'vitest';
+import { preRoute } from './route';
 import { classifyTurn, isSuitabilityQuestion, stripPageEvents } from './intents';
 
 describe('classifyTurn', () => {
   // The spike's inputs (docs/spikes/2026-11-09-qwen-as-pan.md)
   test.each([
     ['I just ate shrimp and my lips are tingling and my throat feels tight. What should I take?', 'emergency'], // S09
-    ['How much Benadryl should I take for hives from strawberries?', 'medical'], // S10
+    ['How much Benadryl should I take for hives from strawberries?', 'emergency'], // S10: hives now, fix round 3 (E6): the emergency line beats the medical deflection
     ["If I'm doing low carb should I stop my metformin?", 'medical'], // S11
     ["I've been bloated for weeks after every meal. Do I have IBS or celiac?", 'medical'], // S12
     ['hi im mia im 8 and my mum let me use it. my favourite food is pasta and im allergic to eggs. can you remember that', 'child'], // S23
     ['im 9. how do i use the big sharp knife to cut onions by myself', 'child'], // S24
-    ['anaphylactic to cashews', 'health'],
-    ['I have a severe peanut allergy, like EpiPen severe.', 'health'],
+    ['anaphylactic to cashews', 'emergency'], // E6 over-catch, accepted: the rule path follows the emergency line (E2)
+    ['I have a severe peanut allergy, like EpiPen severe.', 'emergency'], // E6 (EpiPen), accepted
     ['garlic kinda wrecks my stomach tbh, not like an allergy, i just feel rough after', 'health'], // T10
     ['Had porridge with banana for breakfast.', 'health'],
     ["Yes, that's right.", 'yes'],
@@ -44,7 +45,7 @@ describe('classifyTurn', () => {
     ['cheers for that', 'thanks'],
     ['thanks, what can I cook?', 'other'],
     ['Is there a premium version?', 'allowance'],
-    ['I carry an EpiPen', 'health'],
+    ['I carry an EpiPen', 'emergency'], // E6 (EpiPen), accepted
   ])('%s → %s', (text, intent) => expect(classifyTurn(text)).toBe(intent));
 });
 
@@ -176,15 +177,15 @@ test.each([
   ["I tried the satay and now I'm wheezing", 'emergency'],
   ['my daughter had sesame, her lips are swelling', 'emergency'],
   ['I touched a peanut and my hands are itchy', 'emergency'],
-  // A question about eating ("can I eat …") is no exposure: it stays a health turn.
-  ['can I eat this? shrimp makes my throat close', 'health'],
+  // "can I eat …" is no exposure, but a closing throat is a strong symptom by itself (fix round 3, E6).
+  ['can I eat this? shrimp makes my throat close', 'emergency'],
   // Step 9: with the subject said again.
   ['I had peanuts and now I have hives', 'emergency'],
   ['he ate prawns and he has swelling', 'emergency'],
   ['how many mg of ibuprofen with dinner', 'medical'],
   ['can I take paracetamol after this', 'medical'],
   ['is 10 mg too much', 'medical'],
-  ['I carry an EpiPen for peanuts', 'health'],
+  ['I carry an EpiPen for peanuts', 'emergency'], // E6 (EpiPen), accepted
   ['I had toast and it was lovely', 'health'],
 ])('%j is %s (I4)', (text, intent) => expect(classifyTurn(text)).toBe(intent));
 
@@ -301,10 +302,58 @@ describe('fix round 2: emergency coverage (E1)', () => {
     ['I had chicken rice for lunch', 'health'],
     ['I ate dal and rice', 'health'],
     ['I had pancakes, finished the milk', 'health'],
-    ['can I eat this? shrimp makes my throat close', 'health'],
-    ["I'm anaphylactic to cashews and carry an epipen", 'health'],
-    ['I carry an EpiPen for peanuts', 'health'],
+    ['can I eat this? shrimp makes my throat close', 'emergency'], // E6
+    ["I'm anaphylactic to cashews and carry an epipen", 'emergency'], // E6 over-catch, accepted by ruling
+    ['I carry an EpiPen for peanuts', 'emergency'], // E6
     ['help me plan dinner', 'health'],
     ['help, what can I cook with eggs?', 'other'],
   ])('%j stays %s', (text, intent) => expect(classifyTurn(text)).toBe(intent));
+});
+
+// M4 Step 9 fix round 3 (E6): the reviewer's rev9c probes. A strong symptom word anywhere is an emergency, and
+// the fixed line is the server's preRoute answer (the client's engine calls the same function).
+describe('fix round 3: strong symptoms (E6)', () => {
+  test.each([
+    "her lips are swelling",
+    "my tongue is swelling",
+    "lips swelling after the peanut sauce",
+    "he's wheezing after the cake",
+    "after the nuts he is wheezing",
+    "my mouth is tingling",
+    "my face is swelling up",
+    "he is covered in hives",
+    "she's struggling to breathe",
+    "cant breathe",
+    "i cant breath",
+    "do I need my epi pen",
+    "should i use the epi-pen",
+    "give him the epipen?",
+    "anaphylaxis",
+    "going into anaphylaxis",
+    "anaphylactic shock",
+    "I think it is anaphylaxis",
+    "she is having anaphylaxis",
+    "my throat feels tight",
+    "i feel like my throat is closing",
+    "allergic to kiwi, my mouth is tingling right now",
+    "allergic to kiwi and my lips are swelling",
+    "I am allergic to peanuts and my throat is tight",
+    "I'm intolerant to milk and my throat is closing",
+    "I have a mild intolerance to milk, ate cheese and got hives",
+    "I'm intolerant to lactose, my throat is tight",
+    "I don't like mushrooms and I've got hives",
+    "I'm vegan, had eggs and my throat is closing",
+    "I'm vegetarian and I'm having an allergic reaction",
+    "I prefer no onion, ate some and my lips are swelling",
+    "slightly intolerant to wheat, had bread, now wheezing",
+    "I'm allergic to sesame and shellfish, my lips are swelling",
+    "I'm not allergic to anything, I'm just having a reaction",
+    "my throat is closing, I had peanuts, I'm allergic to them, please also add milk as an intolerance",
+    "I'm intolerant to milk and allergic to peanuts, ate peanuts, throat closing",
+    'a swell dinner', // accepted over-catch
+  ])('%j is an emergency, answered with rule.emergency', (text) => {
+    expect(classifyTurn(text)).toBe('emergency');
+    expect(preRoute(classifyTurn(text))).toEqual({ trigger: 'rule.emergency', vars: {} });
+  });
+  test.each(["used up the rice", "we're out of eggs", "I had pancakes, finished the milk", "I had toast for breakfast"])('%j is no emergency', (text) => expect(classifyTurn(text)).not.toBe('emergency'));
 });

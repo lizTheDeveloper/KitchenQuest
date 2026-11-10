@@ -144,6 +144,9 @@ describe('meals', () => {
     expect(parsePantryAdds('I got a rash on my arm')).toEqual([]);
     expect(parsePantryAdds("i've got a swollen lip and some rice")).toEqual(['rice']);
     expect(parsePantryRemovals('ran out of breath and milk')).toEqual(['milk']);
+    // Fix round 3: a pantry removal after the meal ends its description.
+    expect(parseMealStatement('I had pancakes, finished the milk')).toEqual({ description: 'pancakes', slot: null, when: 'today' });
+    expect(parseMealStatement('had porridge and used up the oats')).toEqual({ description: 'porridge', slot: null, when: 'today' });
     // Fix round 1 (I2): a reaction is never a meal.
     for (const t of ['had a reaction to prawns', 'I had a bad reaction after lunch', 'had hives all night', 'had a rash on my arm', 'had swelling', 'had anaphylaxis once']) {
       expect(parseMealStatement(t), t).toBeNull();
