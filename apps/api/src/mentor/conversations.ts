@@ -159,7 +159,7 @@ export async function recentMessages(
  * deletes nothing. Returns how many conversations were removed.
  *
  * Lock order (README): live user → advisory → consent → conversation row →
- * proposal and message rows. The conversation rows are locked first (FOR
+ * messages → mentor_proposals (the HEALTH_TABLES order). The conversation rows are locked first (FOR
  * UPDATE, by id), so a turn holding one (bumpTurn, appendMessages, a proposal
  * insert's foreign-key check) finishes first and what it wrote is deleted
  * here, and a turn that comes after waits and then finds its conversation
@@ -179,6 +179,9 @@ export async function forgetConversations(tx: Tx, memory: MemoryHistory, userId:
     .orderBy(asc(conversations.id))
     .for('update');
   const ids = locked.map((r) => r.id);
+  // Per-table order as HEALTH_TABLES (consent/health-data.ts): messages, then
+  // mentor_proposals, so this never deadlocks with a withdraw-with-delete.
+  if (ids.length > 0) await tx.delete(messages).where(and(eq(messages.userId, userId), inArray(messages.conversationId, ids)));
   const linked = ids.length > 0 ? inArray(mentorProposals.conversationId, ids) : undefined;
   if (conversationId === undefined) {
     const unlinked = isNull(mentorProposals.conversationId);
@@ -187,7 +190,6 @@ export async function forgetConversations(tx: Tx, memory: MemoryHistory, userId:
     await tx.delete(mentorProposals).where(and(eq(mentorProposals.userId, userId), linked));
   }
   if (ids.length === 0) return 0;
-  await tx.delete(messages).where(and(eq(messages.userId, userId), inArray(messages.conversationId, ids)));
   return (
     await tx
       .delete(conversations)

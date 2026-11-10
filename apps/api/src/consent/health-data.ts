@@ -8,7 +8,8 @@ import type { Tx } from './ledger.js';
  * `pantry_items` is not one (H-11: contract basis, [lawyer]), so it stays,
  * nor are the content-free `conversations` (P-14). Each later milestone that
  * adds one (journeys, symptoms) must add it here; the C-10 architecture test
- * lists them too.
+ * lists them too. Deleted in this order (README lock order):
+ * `forgetConversations` deletes messages before mentor_proposals too.
  */
 const HEALTH_TABLES = [rules, mealLogs, messages, mentorProposals] as const;
 

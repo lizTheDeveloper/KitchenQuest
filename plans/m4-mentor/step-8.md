@@ -138,4 +138,5 @@ test('C-15: no player or model text in the logs across the whole suite', ...);
 **Carry from Step 6 review:**
 - Undo or confirm of a proposal that has vanished (forgotten, deleted by a `health_data` withdraw, or removed by retention) answers `undo.nothing` (undo) or `proposal_closed`/`not_found` as specified (confirm), never a 500.
 - Undecided proposals are deleted as soon as `expires_at` passes (retention job, and `createProposal` purges the user's own expired ones), so a late tap usually finds no row: 404 `not_found`, which the client shows like `proposal_closed`. `lockProposal` still reports 'expired' for a row the purge has not reached yet.
+- A confirm (tap or typed yes) and an undo never lock a conversation row after `lockProposal`: if they touch the conversation at all, they take it first (conversation, then proposal), per the README lock order.
 - `markDecided('undone', null, null, null, …)` keeps `channel` and `write_ref` (COALESCE) and clears the undo payload.

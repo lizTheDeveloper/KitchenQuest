@@ -4,6 +4,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { MealCard, RuleCard } from '@kitchenquest/core';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { lockLiveUser } from '../src/auth/live-user.js';
+import { deleteHealthDataIn } from '../src/consent/health-data.js';
 import { grantConsent } from '../src/consent/ledger.js';
 import { NOTICES } from '../src/consent/notices.js';
 import { conversations, mentorProposals, messages, users } from '../src/db/schema.js';
@@ -352,6 +354,55 @@ describe('forget under concurrency (lock order: conversation row before proposal
     await turn;
     expect(await forget).toBe(1);
     expect(await rowsOf('mentor_proposals', u)).toHaveLength(0);
+  });
+
+  it('forget vs withdraw-with-delete: both finish, no deadlock, 0 rows (both delete messages before proposals)', async () => {
+    const mem = memory();
+    const u = await newUser();
+    const seed = async () => {
+      const c = await tx((t) => openConversation(t, u, null, NOW));
+      await tx(async (t) => {
+        await appendMessages(t, keyring, mem, u, c.id, [PLAYER, PAN], true, NOW);
+        await createProposal(t, keyring, { userId: u, conversationId: c.id, turnSeq: 1, card: MEAL_CARD }, NOW);
+      });
+    };
+    await seed();
+    // The withdraw holds its message row locks (mid-way through HEALTH_TABLES), then the forget starts.
+    const holding = gate();
+    const go = gate();
+    const withdraw = tx(async (t) => {
+      await lockLiveUser(t, u);
+      await t.delete(messages).where(eq(messages.userId, u));
+      holding.open();
+      await go.wait;
+      await deleteHealthDataIn(t, u, NOW, true);
+    });
+    await holding.wait;
+    const forget = tx(async (t) => {
+      await lockLiveUser(t, u);
+      return forgetConversations(t, mem, u);
+    });
+    await waitForLockWaiters(1);
+    go.open();
+    await Promise.all([withdraw, forget]);
+    for (const table of ['conversations', 'messages', 'mentor_proposals'] as const) expect(await rowsOf(table, u), table).toHaveLength(0);
+
+    // And unscripted races, many times over.
+    for (let i = 0; i < 10; i++) {
+      await seed();
+      await Promise.all([
+        tx(async (t) => {
+          await lockLiveUser(t, u);
+          return deleteHealthDataIn(t, u, NOW, false);
+        }),
+        tx(async (t) => {
+          await lockLiveUser(t, u);
+          return forgetConversations(t, mem, u);
+        }),
+      ]);
+      expect(await rowsOf('messages', u)).toHaveLength(0);
+      expect(await rowsOf('mentor_proposals', u)).toHaveLength(0);
+    }
   });
 
   it('a turn after the forget took its locks waits, then fails on the gone conversation: nothing stored', async () => {
