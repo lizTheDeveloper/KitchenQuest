@@ -66,9 +66,25 @@ const NAMES: Record<string, string[]> = {
   lupin: ['lupin', 'lupins', 'lupine'],
   lupin_bean: ['lupin bean', 'lupini', 'lupini beans', 'lupine beans'],
   lupin_flour: ['lupin flour', 'lupine flour'],
-  sulphites: ['sulphites', 'sulphite', 'sulfites', 'sulfite', 'sulphur dioxide', 'sulfur dioxide', 'sodium metabisulphite', 'e220'],
+  sulphites: [
+    'sulphites',
+    'sulphite',
+    'sulfites',
+    'sulfite',
+    'sulphur dioxide',
+    'sulfur dioxide',
+    'sodium metabisulphite',
+    'e220',
+  ],
   mustard: ['mustard'],
-  mustard_seed: ['mustard seeds', 'yellow mustard seed', 'white mustard seed', 'ground mustard', 'mustard powder', 'dry mustard'],
+  mustard_seed: [
+    'mustard seeds',
+    'yellow mustard seed',
+    'white mustard seed',
+    'ground mustard',
+    'mustard powder',
+    'dry mustard',
+  ],
   sesame: ['sesame'],
   sesame_seed: ['sesame seed', 'sesame seeds', 'white sesame seeds'],
   tahini: ['tahini', 'sesame paste'],
@@ -88,7 +104,18 @@ const NAMES: Record<string, string[]> = {
   shellfish: ['shellfish'],
 };
 
-const TREE_NUTS = ['almond', 'cashew', 'walnut', 'pecan', 'hazelnut', 'pistachio', 'brazil_nut', 'macadamia', 'pine_nut', 'chestnut'];
+const TREE_NUTS = [
+  'almond',
+  'cashew',
+  'walnut',
+  'pecan',
+  'hazelnut',
+  'pistachio',
+  'brazil_nut',
+  'macadamia',
+  'pine_nut',
+  'chestnut',
+];
 const CRUSTACEANS = ['prawn', 'crab', 'lobster', 'crayfish'];
 const MOLLUSCS = ['clam', 'mussel', 'oyster', 'scallop', 'squid', 'octopus', 'snail'];
 const FISH = ['cod', 'salmon', 'tuna', 'anchovy', 'sardine', 'mackerel'];
@@ -141,21 +168,43 @@ describe('EU 14 / US 9 allergen members', () => {
   it('shellfish is crustaceans and molluscs', () => {
     expect(graph.descendants('crustacean').sort()).toEqual([...CRUSTACEANS].sort());
     expect(graph.descendants('mollusc').sort()).toEqual([...MOLLUSCS].sort());
-    expect(graph.descendants('shellfish').sort()).toEqual(['crustacean', 'mollusc', ...CRUSTACEANS, ...MOLLUSCS].sort());
+    expect(graph.descendants('shellfish').sort()).toEqual(
+      ['crustacean', 'mollusc', ...CRUSTACEANS, ...MOLLUSCS].sort(),
+    );
     expect(graph.descendants('fish')).toEqual(expect.arrayContaining(FISH));
   });
 
   it.each([
-    ...TREE_NUTS.flatMap((id) => [[id, 'tree_nut'], [id, 'nut'], [id, id]]),
-    ...CRUSTACEANS.flatMap((id) => [[id, 'crustacean'], [id, 'shellfish']]),
-    ...MOLLUSCS.flatMap((id) => [[id, 'mollusc'], [id, 'shellfish']]),
+    ...TREE_NUTS.flatMap((id) => [
+      [id, 'tree_nut'],
+      [id, 'nut'],
+      [id, id],
+    ]),
+    ...CRUSTACEANS.flatMap((id) => [
+      [id, 'crustacean'],
+      [id, 'shellfish'],
+    ]),
+    ...MOLLUSCS.flatMap((id) => [
+      [id, 'mollusc'],
+      [id, 'shellfish'],
+    ]),
     ...FISH.map((id) => [id, 'fish']),
-    ['celery_stalk', 'celery'], ['celeriac', 'celery'], ['celery_seed', 'celery'],
-    ['lupin_bean', 'lupin'], ['lupin_flour', 'lupin'],
-    ['sesame_seed', 'sesame'], ['tahini', 'sesame'],
+    ['celery_stalk', 'celery'],
+    ['celeriac', 'celery'],
+    ['celery_seed', 'celery'],
+    ['lupin_bean', 'lupin'],
+    ['lupin_flour', 'lupin'],
+    ['sesame_seed', 'sesame'],
+    ['tahini', 'sesame'],
     ['mustard_seed', 'mustard'],
-    ['wheat', 'gluten'], ['barley', 'gluten'], ['rye', 'gluten'], ['oats', 'gluten'], ['spelt', 'gluten'], ['kamut', 'gluten'],
-    ['spelt', 'wheat'], ['kamut', 'wheat'],
+    ['wheat', 'gluten'],
+    ['barley', 'gluten'],
+    ['rye', 'gluten'],
+    ['oats', 'gluten'],
+    ['spelt', 'gluten'],
+    ['kamut', 'gluten'],
+    ['spelt', 'wheat'],
+    ['kamut', 'wheat'],
   ])('a rule on %2$s blocks a dish with %1$s', (id, target) => {
     const result = runWith(id, [avoid([target])]);
     expect(result.status).toBe('blocked');
@@ -172,7 +221,8 @@ describe('EU 14 / US 9 allergen members', () => {
   });
 
   it('a shellfish, nut or celery line is unverified for a rule on one of its members', () => {
-    const line = (name: string, target: string) => check(dish(`Add @${name}{50%g}.`), [avoid([target])], graph, subs, '2026-11-10').status;
+    const line = (name: string, target: string) =>
+      check(dish(`Add @${name}{50%g}.`), [avoid([target])], graph, subs, '2026-11-10').status;
     expect(line('shellfish', 'squid')).toBe('unverified');
     expect(line('tree nuts', 'cashew')).toBe('unverified');
     expect(line('celery', 'celeriac')).toBe('unverified');
@@ -200,11 +250,35 @@ describe('EU 14 / US 9 allergen members', () => {
   });
 
   it('new members with FDC ids carry a full per100g', () => {
-    const ids = [...TREE_NUTS, ...CRUSTACEANS, ...MOLLUSCS, ...FISH, 'celery_stalk', 'celeriac', 'celery_seed', 'lupin_bean', 'sesame_seed', 'tahini', 'barley', 'rye', 'oats', 'spelt', 'kamut'];
+    const ids = [
+      ...TREE_NUTS,
+      ...CRUSTACEANS,
+      ...MOLLUSCS,
+      ...FISH,
+      'celery_stalk',
+      'celeriac',
+      'celery_seed',
+      'lupin_bean',
+      'sesame_seed',
+      'tahini',
+      'barley',
+      'rye',
+      'oats',
+      'spelt',
+      'kamut',
+    ];
     for (const id of ids) {
       const node = graph.get(id);
       expect(node.fdcId, id).toEqual(expect.any(Number));
-      expect(Object.keys(node.per100g ?? {}).sort(), id).toEqual(['carb_g', 'energy_kcal', 'fat_g', 'fiber_g', 'protein_g', 'sodium_mg', 'sugars_g']);
+      expect(Object.keys(node.per100g ?? {}).sort(), id).toEqual([
+        'carb_g',
+        'energy_kcal',
+        'fat_g',
+        'fiber_g',
+        'protein_g',
+        'sodium_mg',
+        'sugars_g',
+      ]);
       expect(node.source, id).toContain(`FDC ${node.fdcId}`);
     }
   });
@@ -223,7 +297,10 @@ describe('EU 14 / US 9 allergen members', () => {
       const statement = parseRuleStatement(text, graph);
       expect(statement?.terms, text).toHaveLength(1);
       const result = buildRuleCard(statement!.items[0], graph, terms);
-      expect(result, text).toMatchObject({ ok: true, card: { rule: { target: { kind: 'ingredient', ids: ['cashew'] } } } });
+      expect(result, text).toMatchObject({
+        ok: true,
+        card: { rule: { target: { kind: 'ingredient', ids: ['cashew'] } } },
+      });
     }
     const tree = buildRuleCard({ term: 'tree nuts', severity: 'anaphylactic' }, graph, terms);
     expect(tree).toMatchObject({ ok: true, card: { rule: { target: { kind: 'category', ids: ['tree_nut'] } } } });
