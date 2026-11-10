@@ -7,12 +7,14 @@ import {
   classifyTurn,
   isSuitabilityQuestion,
   matchDish,
+  normalizeTurn,
   normalizeName,
   parseRuleStatement,
   preRoute,
   severityFromText,
   slotForTime,
   stripPageEvents,
+  SUITABILITY_PATTERN,
   weekdayNumbers,
   type ProfilePatchInput,
   type ProposalCard,
@@ -216,8 +218,8 @@ function replacementFor(reason: FilterFail, ctx: Pick<PromptContext, 'dish' | 'r
 
 /**
  * Stage 8: no card-making call. The model's text is shown only on a pure chat
- * turn (fix round 2, R6): not a health turn (R1), no dish on screen, and the
- * model returned no tool call (one offered and dropped means the text went
+ * turn (fix round 2, R6; round 3, R8): not a health turn (R1), a player with
+ * no rule and no rule card open, no dish on screen, and the model returned no tool call (one offered and dropped means the text went
  * with it). Otherwise a filter failure gets its line and anything else a
  * scripted line. On a pure chat turn the filtered text is still screened for
  * the player's rule words, medicines and food safety (R2).
@@ -226,15 +228,16 @@ async function textReply(
   result: Extract<AiResult, { ok: true }>,
   ctx: PromptContext,
   previousPanText: string | null,
-  health: boolean,
-  screenWords: () => Promise<string[]>,
+  turn: { health: boolean; hasRules: boolean; dishNamed: boolean },
+  screenWords: () => string[],
 ): Promise<Reply> {
   const filtered = filterReply(result.text, { finish: result.finish, previousPanText });
   const lineReply = (trigger: string): Reply => ({ parts: [line(trigger)], cards: [], toolTurn: false });
   if (!filtered.ok) return lineReply(replacementFor(filtered.reason, ctx));
-  const pureChat = !health && ctx.dish === null && result.toolCalls.length === 0;
-  if (!pureChat) return lineReply(ctx.dish !== null ? 'mentor.check_card' : 'didnt_understand');
-  return touchesHealth(filtered.text, await screenWords())
+  // R8 (fix round 3): a player with any rule, or with a rule card open, never sees model text.
+  const pureChat = !turn.health && !turn.hasRules && ctx.dish === null && result.toolCalls.length === 0;
+  if (!pureChat) return lineReply(turn.dishNamed ? 'mentor.check_card' : 'didnt_understand');
+  return touchesHealth(filtered.text, screenWords())
     ? lineReply('mentor.check_card')
     : { parts: [{ kind: 'text', text: filtered.text }], cards: [], toolTurn: false };
 }
@@ -289,17 +292,18 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
     await lockLiveUser(tx, userId);
     await recordUsage(tx, userId, 'mentor_text', 1, f.result.usage.costMicroUsd, now);
     const persist = await consentHeldIn(tx, userId, 'health_data', now);
-    const recipes = calls.some((c) => c.name === 'propose_meal_log')
-      ? await tx.select({ slug: canonRecipes.slug, title: canonRecipes.title }).from(canonRecipes)
-      : [];
-    const screenWords = async () => [
-      ...ruleWords(await loadRules(tx, deps.keyring, userId), deps.catalog),
+    const recipes = await tx.select({ slug: canonRecipes.slug, title: canonRecipes.title }).from(canonRecipes);
+    const rules = await loadRules(tx, deps.keyring, userId);
+    const hasRules = rules.length > 0 || f.opened.openHealthCard;
+    const dishNamed = f.ctx.dish !== null || matchDish(f.stripped, recipes) !== null;
+    const screenWords = () => [
+      ...ruleWords(rules, deps.catalog),
       ...(f.ctx.dish === null ? [] : [normalizeName(f.ctx.dish.title), normalizeName(f.ctx.dish.title.replace(/\s*\([^)]*\)\s*$/, ''))]),
     ];
     let reply: Reply;
     if (calls.length > 0) reply = cardsFromCalls(deps, calls, f.req, persist, recipes);
     else if (f.mode === 'rule_help') reply = { parts: [], cards: [], toolTurn: false }; // R3: the text is dropped
-    else reply = await textReply(f.result, f.ctx, f.previousPanText, f.health, screenWords);
+    else reply = await textReply(f.result, f.ctx, f.previousPanText, { health: f.health, hasRules, dishNamed }, screenWords);
 
     // I5: a severe statement always ends with a rule outcome, naming the missed ingredient when code knows it.
     const keptRuleTerms = calls.flatMap((c) => (c.name === 'propose_rule' ? [c.args.term] : []));
@@ -312,8 +316,15 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
     // asks plainly. A bare "didn't understand" gives way to the ask.
     // A question whether a dish suits the player, with no rule statement and no severity cue, is
     // answered by the dish card alone: it is a question, not a health statement (controller ruling).
+    // Fix round 3 (A): only when nothing else in the message is health, and only for a dish on
+    // screen or named; a bare "can I eat this?" with no dish still gets the plain ask.
+    const rest = normalizeTurn(f.stripped).replace(new RegExp(SUITABILITY_PATTERN.source, 'g'), ' ');
     const suitabilityOnly =
-      isSuitabilityQuestion(f.stripped) && parseRuleStatement(f.stripped, graph) === null && severityFromText(f.stripped, graph) === null;
+      isSuitabilityQuestion(f.stripped) &&
+      parseRuleStatement(f.stripped, graph) === null &&
+      severityFromText(f.stripped, graph) === null &&
+      !isHealthText(rest, deps.catalog) &&
+      dishNamed;
     if (suitabilityOnly && reply.cards.length === 0) reply.parts = [line('mentor.check_card')];
     const proposedRule = f.result.toolCalls.some((c) => c.name === 'propose_rule' && offered.has(c.name));
     const droppedRule = proposedRule && keptRuleTerms.length === 0;

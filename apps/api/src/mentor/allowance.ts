@@ -30,7 +30,15 @@ const hourOf = (t: number) => new Date(Math.floor(t / HOUR_MS) * HOUR_MS);
 /**
  * Adds a model call's cost to the hour's all-players total (`ai_cost_hours`):
  * no user id and no content, so an account delete never takes its spend out
- * of the global budget (fix round 1, P5). Pass the turn's transaction.
+ * of the global budget (fix round 1, P5). The turn calls it with the database
+ * itself, as one autocommitted statement right after the model call and
+ * outside every turn transaction, so it never holds this shared row while
+ * waiting on another lock (fix round 2, N6).
+ *
+ * Only `ok: true` results are counted: an `AiResult` failure carries no usage
+ * (`ai/provider.ts`), so a failure the provider still billed cannot be seen
+ * here. If the provider ever reports billed usage on failures, add it to the
+ * failure shape and record it here too (fix round 3, F).
  */
 export async function recordAiCost(db: Pick<Db, 'insert'>, costMicroUsd: number, now: Date): Promise<void> {
   await db

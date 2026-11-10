@@ -173,3 +173,31 @@ describe('filter and screen, fix round 2 (R7)', () => {
     expect(stop('Rice​ is a ｆｉｎｅ start.')).toEqual({ ok: true, text: 'Rice is a fine start.' });
   });
 });
+
+// Fix round 3: the re-review's bypass hunt (rev7c/filt.test.ts). Every phrasing fails or is screened.
+describe('filter and screen, fix round 3 (B2, B3, C)', () => {
+  test.each([
+    "I've deleted your rule.", 'Your rule is gone.', 'Done.', 'Done!', 'Your profile now says Saturday.', 'Saturday it is, market day locked in.',
+    "I've cleared your pantry.", 'Your pantry is empty now.', 'Milk: crossed off.', "I've marked Saturday as market day.", "I'll remember that.",
+    "I'll keep that in mind.", "Got it, I'll save that.", "I'll log it.", 'Your card is stamped.', "I've ticked that off.", 'Your list has milk on it now.',
+    "It's been dealt with.", "I'll add it.", 'Milk is in your cupboard now.', 'Market day: Saturday. Done and dusted.', 'Your rules are clear.',
+    "I've got that down.", "I've jotted it down.", 'Penciled in.', "That's in.", 'Locked in.', 'Your market day is Saturday from now on.',
+  ])('%j is a write claim (C)', (text) => expect(stop(text)).toEqual({ ok: false, reason: 'write_claim' }));
+
+  test.each([
+    'No worries there, go for it.', 'Nothing to worry about with this one.', 'You can eat anything you like tonight.', 'Eat up, nothing in there to fret about.',
+    'That one is totally s a f e.', "You won't react.", 'It is OK for you.', 'Good to go for you.', 'No problem for your belly.',
+  ])('%j is a safety claim (B2, B3)', (text) => expect(stop(text)).toEqual({ ok: false, reason: 'safety_claim' }));
+
+  test.each(['Have 2 Piriton first.', 'Take a Zyrtec.', 'Pop a Claritin.', 'Use your Epi pen.', 'Take an antihistamine tablet.', 'Have some Gaviscon.'])(
+    '%j never shows',
+    (text) => {
+      const f = stop(text);
+      expect(!f.ok || touchesHealth(f.text, [])).toBe(true);
+    },
+  );
+
+  test('ordinary chat still passes', () => {
+    for (const t of ['Toast counts. Toast always counts.', 'Rice is a fine start.', 'Well done on the bread, it looks lovely.']) expect(stop(t)).toEqual({ ok: true, text: t });
+  });
+});

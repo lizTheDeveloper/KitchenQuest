@@ -888,25 +888,119 @@ describe('fix round 1: R1 and R2 — model text near health', () => {
   });
 
   test.each([
-    ['A prawn stir-fry would be grand.', null], // a kind of the player's shellfish rule
-    ['Frijoles de Olla is a lovely pick.', FRIJOLES], // the dish on screen
     ['Take a tablet first.', null], // a medicine word
     ['That one is okay for everyone.', null], // a fit word
-  ])('R2: %j on a non-health turn is replaced by mentor.check_card', async (text, slug) => {
+  ])('R2: %j on a pure chat turn of a player without rules is replaced by mentor.check_card', async (text, slug) => {
+    const ai = fakeAi([reply(text)]);
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    const r = await turn(p.cookie, 'what should I cook tonight?', slug ? { screen: { route: 'recipe', slug } } : {});
+    expect(r.parts).toEqual([lineOf('mentor.check_card')]);
+  });
+
+  test('R2: a plain reply still shows to a player without rules', async () => {
+    const ai = fakeAi([reply('Rice is a fine start.')]);
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    expect((await turn(p.cookie, 'what should I cook tonight?')).parts).toEqual([{ kind: 'text', text: 'Rice is a fine start.' }]);
+  });
+});
+
+describe('fix round 3: R8 — a player with a rule never sees model text', () => {
+  test.each([
+    ['A prawn stir-fry would be grand.', null, 'didnt_understand'],
+    ['Rice is a fine start.', null, 'didnt_understand'],
+    ['Frijoles de Olla is a lovely pick.', FRIJOLES, 'mentor.check_card'],
+  ])('%j → %s', async (text, slug, trigger) => {
     const ai = fakeAi([reply(text)]);
     await makeApp(ai);
     const p = await player(AI_HEALTH);
     await addRule(p.cookie, ['shellfish']);
     const r = await turn(p.cookie, 'what should I cook tonight?', slug ? { screen: { route: 'recipe', slug } } : {});
-    expect(r.parts).toEqual([lineOf('mentor.check_card')]);
+    expect(r.parts).toEqual([lineOf(trigger)]);
   });
 
-  test('R2: a plain reply still shows', async () => {
-    const ai = fakeAi([reply('Rice is a fine start.')]);
+  test('a dish named in the text (not on screen) gets the card line', async () => {
+    const ai = fakeAi([reply('It simmers slowly.')]);
     await makeApp(ai);
     const p = await player(AI_HEALTH);
-    await addRule(p.cookie, ['tree_nut']);
-    expect((await turn(p.cookie, 'what should I cook tonight?')).parts).toEqual([{ kind: 'text', text: 'Rice is a fine start.' }]);
+    await addRule(p.cookie, ['peanut']);
+    expect((await turn(p.cookie, 'what about the frijoles de olla tonight')).parts).toEqual([lineOf('mentor.check_card')]);
+  });
+
+  test('an open rule card counts as a rule; tool proposals still work', async () => {
+    const ai = fakeAi([toolCall('propose_rule', { term: 'sesame', severity: 'allergy' }), reply('Rice is a fine start.'), toolCall('propose_profile', { market_days: ['saturday'], meals_per_week: null, region: null, country: null, meal_windows: null })]);
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    const first = await turn(p.cookie, "I'm allergic to sesame");
+    expect(first.cards).toHaveLength(1);
+    const chat = await turn(p.cookie, 'what should I cook tonight?', { conversationId: first.conversationId });
+    expect(chat.parts.filter((x) => x.kind === 'text')).toEqual([]);
+    const profile = await turn(p.cookie, 'my market day is saturday', { conversationId: first.conversationId });
+    expect(profile.cards.map((c) => c.card.kind)).toEqual(['profile']);
+  });
+});
+
+describe('fix round 3: B and C repros (rev7c/e2e.test.ts)', () => {
+  test.each([
+    ['can i eat pad thai', 'Go for it, pad thai is good to go for you.'],
+    ['is pad thai alright', 'No worries there, go for it.'],
+    ['could I have this satay', 'That one is totally s a f e.'],
+    ['may I eat this', 'Nothing to worry about with this one, enjoy.'],
+  ])('B: %j never shows %j to a player with a rule', async (q, text) => {
+    const ai = fakeAi([reply(text)]);
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    await addRule(p.cookie, ['peanut']);
+    const r = await turn(p.cookie, q);
+    expect(r.parts.filter((x) => x.kind === 'text')).toEqual([]);
+    expect(JSON.stringify(r)).not.toMatch(/go for it|good to go|no worries|s a f e|worry/i);
+  });
+
+  test.each([
+    ['make saturday my market day', "I've marked Saturday as market day."],
+    ['set saturday as market day', 'Done.'],
+    ['remember saturday is shop day', "Got it, I'll save that."],
+    ['clear my pantry', "I've cleared your pantry."],
+    ['delete my rule', "I've deleted your rule."],
+  ])('C: %j with %j is the write.not_done line', async (q, text) => {
+    const ai = fakeAi([reply(text)]);
+    await makeApp(ai);
+    const p = await player();
+    expect((await turn(p.cookie, q)).parts).toEqual([lineOf('write.not_done')]);
+  });
+});
+
+describe('fix round 3: A — a suitability question that carries a health statement', () => {
+  const QS = [
+    ['can I have this? nuts give me a rash', 'nuts'],
+    ['can I eat this? shrimp makes my throat close', 'shrimp'],
+    ['can I eat this, peanuts and me do not mix', 'peanuts'],
+  ] as const;
+  test.each(QS)('%j with a dish on screen: a rule outcome or the ask, never only the dish card', async (q, term) => {
+    const ai = fakeAi([toolCall('propose_rule', { term, severity: 'allergy' })]);
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    const r = await turn(p.cookie, q, { screen: { route: 'recipe', slug: FRIJOLES } });
+    expect(r.parts.filter((x) => x.kind === 'text')).toEqual([]);
+    const triggers = r.parts.flatMap((x) => (x.kind === 'line' ? [x.line.trigger] : []));
+    expect(r.cards.length > 0 || triggers.includes('rule.ask_keep_off') || triggers.includes('rule.ask_what_else')).toBe(true);
+    expect(triggers).not.toEqual(['mentor.check_card']);
+  });
+  test.each(QS)('%j with no dish: the same', async (q) => {
+    const ai = fakeAi([reply('Hmm.')]);
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    const r = await turn(p.cookie, q);
+    expect(r.parts.filter((x) => x.kind === 'text')).toEqual([]);
+    const triggers = r.parts.flatMap((x) => (x.kind === 'line' ? [x.line.trigger] : []));
+    expect(triggers.includes('rule.ask_keep_off') || triggers.includes('rule.ask_what_else')).toBe(true);
+  });
+  test('a bare suitability question with no dish gets the plain ask, not the dish card', async () => {
+    const ai = fakeAi([reply('Tuck in.')]);
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    expect((await turn(p.cookie, 'can I eat this one?')).parts).toEqual([lineOf('rule.ask_keep_off')]);
   });
 });
 
