@@ -48,7 +48,9 @@ function settingsScreen(api: ApiClient): Screen {
           no.disabled = true;
           void (async () => {
             // Signed in: end the session first, or the next start would sign this device straight back in.
-            const loggedOut = !signedIn || (await within(api.logout(), DELETE_STEP_MS))?.ok === true;
+            // Read again now: the account may have changed (another tab, a refresh) since the box opened.
+            const nowSignedIn = ctx.store.get().account !== null || ctx.store.get().signOutPending;
+            const loggedOut = !nowSignedIn || (await within(api.logout(), DELETE_STEP_MS))?.ok === true;
             const storage = safeLocalStorage();
             if (storage) {
               try {

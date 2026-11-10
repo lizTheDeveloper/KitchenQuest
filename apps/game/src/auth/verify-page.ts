@@ -30,6 +30,13 @@ export function startVerifyPage(opts: {
   const link = (href: string, text: string) => el('a', { href }, text);
 
   const h1 = el('h1', {}, 'Sign in to Kitchen Quest');
+  // Clickjacking backstop for the headers (frame-ancestors, X-Frame-Options): framed, the button never appears.
+  const win = doc.defaultView;
+  if (win && win.top !== win.self) {
+    token = null;
+    root.replaceChildren(h1, el('p', {}, 'This page has to be opened on its own, not inside another page.'));
+    return;
+  }
   if (!token) {
     const again = el('p');
     again.append(link('/#/settings', 'Ask for a new sign-in link in Settings'));

@@ -6,7 +6,13 @@ import type { Plugin } from 'vite';
  * a cache. Production sets these in nginx (deploy/security-headers.conf); this plugin does the same for the
  * Vite dev and preview servers. The page also sets `<meta name="referrer" content="no-referrer">` itself.
  */
-const VERIFY_HEADERS: Readonly<Record<string, string>> = { 'Referrer-Policy': 'no-referrer', 'Cache-Control': 'no-store' };
+const VERIFY_HEADERS: Readonly<Record<string, string>> = {
+  'Referrer-Policy': 'no-referrer',
+  'Cache-Control': 'no-store',
+  // Clickjacking: no other site may frame the "Sign me in" button (a <meta> CSP can't set frame-ancestors).
+  'Content-Security-Policy': "frame-ancestors 'none'",
+  'X-Frame-Options': 'DENY',
+};
 
 export function isVerifyPath(pathname: string): boolean {
   return pathname === '/auth/verify' || pathname === '/auth/verify/' || pathname === '/auth/verify/index.html';
@@ -44,11 +50,25 @@ export function verifyHeaders(req: Pick<IncomingMessage, 'url'>, res: Res, next:
   next();
 }
 
-/** Dev and preview middleware: on verify paths, `Referrer-Policy: no-referrer` and `Cache-Control: no-store`. */
+const REFERRER_META = /<meta name="referrer" content="no-referrer"\s*\/?>/;
+
+/**
+ * The verify page's referrer <meta> must be <head>'s first child, before any script or link. The dev server
+ * injects `/@vite/client` at the top of <head>, so put the meta back in front.
+ */
+export function referrerMetaFirst(html: string): string {
+  const meta = REFERRER_META.exec(html)?.[0];
+  if (!meta) return html;
+  return html.replace(meta, '').replace(/<head>/, `<head>${meta}`);
+}
+
+/** Dev and preview middleware: on verify paths, no referrer, no caching, and no framing (VERIFY_HEADERS). */
 export function kqSecurityHeaders(): Plugin {
   return {
     name: 'kq-security-headers',
     configureServer(server) { server.middlewares.use(verifyHeaders); },
     configurePreviewServer(server) { server.middlewares.use(verifyHeaders); },
+    // After Vite's own dev transforms; a no-op for the built page, where the meta is already first.
+    transformIndexHtml: { order: 'post', handler: (html) => referrerMetaFirst(html) },
   };
 }

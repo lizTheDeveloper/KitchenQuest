@@ -3,7 +3,7 @@ import type { Rule } from '@kitchenquest/core/engine';
 import { graph } from '../content';
 import { activeRules } from '../recipes/rules';
 import { createStore, type PlayerState } from '../state/store';
-import { refreshAccount, signOut } from './account';
+import { refreshAccount, signOut, watchAccount } from './account';
 import type { ApiClient } from './client';
 import type { ApiResult } from './types';
 
@@ -61,11 +61,34 @@ describe('refreshAccount', () => {
     expect(store.get().accountRules).toEqual([coconut]);
   });
 
-  test('rules that fail to load keep the cached copy', async () => {
-    const store = storeWith({ account: { email: 'cook@example.com' }, accountRules: [coconut] });
-    const { client } = fakeClient({ me: me(), listRules: status(503) });
-    expect(await refreshAccount(client, store)).toBe('signed-in');
-    expect(store.get().accountRules).toEqual([coconut]);
+  test('rules the server failed to send (5xx) are not loaded: fail closed, never the stale cache', async () => {
+    for (const st of [500, 503]) {
+      const store = storeWith({ account: { email: 'cook@example.com' }, accountRules: [] });
+      const { client } = fakeClient({ me: me(), listRules: status(st) });
+      expect(await refreshAccount(client, store)).toBe('signed-in');
+      expect(store.get().accountRules).toBeNull();
+      expect(activeRules(store.get(), graph).status).toBe('error');
+    }
+  });
+
+  test('any other non-401 rules failure (403, a non-JSON 200) also fails closed', async () => {
+    const badResponse = () => Promise.resolve<ApiResult<never>>({ ok: false, status: 200, error: { code: 'bad_response', message: '' } });
+    for (const listRules of [status(403), status(404), badResponse]) {
+      const store = storeWith({ account: { email: 'cook@example.com' }, accountRules: [coconut] });
+      const { client } = fakeClient({ me: me(), listRules });
+      await refreshAccount(client, store);
+      expect(store.get().accountRules).toBeNull();
+      expect(activeRules(store.get(), graph).status).toBe('error');
+    }
+  });
+
+  test('rules offline (status 0) or rate-limited (429) keep the cached copy', async () => {
+    for (const st of [0, 429]) {
+      const store = storeWith({ account: { email: 'cook@example.com' }, accountRules: [coconut] });
+      const { client } = fakeClient({ me: me(), listRules: status(st) });
+      expect(await refreshAccount(client, store)).toBe('signed-in');
+      expect(store.get().accountRules).toEqual([coconut]);
+    }
   });
 
   test('signed in but rules never loaded: checks fail closed, never "no rules"', async () => {
@@ -103,12 +126,37 @@ describe('refreshAccount', () => {
     expect(activeRules(store.get(), graph).status).toBe('error');
   });
 
-  test('a 5xx from /me changes nothing', async () => {
-    const store = storeWith({ account: { email: 'cook@example.com' }, accountRules: [coconut] });
-    const { client, calls } = fakeClient({ me: status(502) });
-    expect(await refreshAccount(client, store)).toBe('offline');
-    expect(calls).toEqual(['me']);
-    expect(store.get().accountRules).toEqual([coconut]);
+  test('/me offline (status 0) or rate-limited (429) changes nothing', async () => {
+    for (const st of [0, 429]) {
+      const store = storeWith({ account: { email: 'cook@example.com' }, accountRules: [coconut] });
+      const { client, calls } = fakeClient({ me: status(st) });
+      expect(await refreshAccount(client, store)).toBe('offline');
+      expect(calls).toEqual(['me']);
+      expect(store.get().account).toEqual({ email: 'cook@example.com' });
+      expect(store.get().accountRules).toEqual([coconut]);
+    }
+  });
+
+  test('/me 5xx, other 4xx or an unreadable answer: the cached rules may be stale, so they are dropped (fail closed)', async () => {
+    const badResponse = () => Promise.resolve<ApiResult<never>>({ ok: false, status: 200, error: { code: 'bad_response', message: '' } });
+    const noEmail = () => Promise.resolve(ok({ id: 'u1' }));
+    for (const meAnswer of [status(500), status(502), status(403), badResponse, noEmail]) {
+      const store = storeWith({ account: { email: 'cook@example.com' }, accountRules: [coconut] });
+      const { client, calls } = fakeClient({ me: meAnswer });
+      expect(await refreshAccount(client, store)).toBe('offline');
+      expect(calls).toEqual(['me']);
+      expect(store.get().account).toEqual({ email: 'cook@example.com' });
+      expect(store.get().accountRules).toBeNull();
+      expect(activeRules(store.get(), graph).status).toBe('error');
+    }
+  });
+
+  test('/me 5xx while signed out leaves the device signed out', async () => {
+    const store = storeWith({ localRules: [] });
+    const { client } = fakeClient({ me: status(500) });
+    await refreshAccount(client, store);
+    expect(store.get().account).toBeNull();
+    expect(activeRules(store.get(), graph)).toEqual({ status: 'ready', rules: [], source: 'device' });
   });
 
   test('invalid account rules make activeRules an error', async () => {
@@ -177,5 +225,25 @@ describe('signOut', () => {
     await pending;
     expect(store.get().account).toBeNull();
     expect(store.get().accountRules).toBeNull();
+  });
+});
+
+describe('watchAccount', () => {
+  test('refreshes on start, on online, and when the page becomes visible again (not when hidden)', async () => {
+    const store = storeWith();
+    const { client, calls } = fakeClient({ me: status(401) });
+    const win = new EventTarget();
+    const doc = Object.assign(new EventTarget(), { visibilityState: 'visible' as DocumentVisibilityState });
+    watchAccount(client, store, win as unknown as Window, doc as unknown as Document);
+    await Promise.resolve();
+    expect(calls).toEqual(['me']);
+    win.dispatchEvent(new Event('online'));
+    expect(calls).toEqual(['me', 'me']);
+    doc.visibilityState = 'hidden';
+    doc.dispatchEvent(new Event('visibilitychange'));
+    expect(calls).toEqual(['me', 'me']);
+    doc.visibilityState = 'visible';
+    doc.dispatchEvent(new Event('visibilitychange'));
+    expect(calls).toEqual(['me', 'me', 'me']);
   });
 });

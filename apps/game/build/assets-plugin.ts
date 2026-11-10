@@ -29,8 +29,11 @@ function assetFiles(repoRoot: string): string[] {
  */
 export function kqAssets(opts: { repoRoot: string }): Plugin {
   const { repoRoot } = opts;
+  // In dev, a watch file added from `load` becomes an import of the virtual module, and Vite can't import a
+  // folder (it 500s the app). The dev server watches the folders itself (configureServer below).
+  let serving = false;
   const manifest = (ctx: Rolldown.PluginContext, warn: boolean) => {
-    for (const f of FOLDERS) ctx.addWatchFile(join(repoRoot, f));
+    if (!serving) for (const f of FOLDERS) ctx.addWatchFile(join(repoRoot, f));
     try {
       const built = buildAssetManifest(assetFiles(repoRoot));
       if (warn) for (const w of built.warnings) ctx.warn(w);
@@ -56,6 +59,7 @@ export function kqAssets(opts: { repoRoot: string }): Plugin {
       return `${imports.join('\n')}\nexport default {\n${map.join('\n')}\n};\n`;
     },
     configureServer(server) {
+      serving = true;
       const dirs = FOLDERS.map((d) => join(repoRoot, d) + sep);
       const refresh = (file: string): void => {
         if (!dirs.some((d) => file.startsWith(d))) return;

@@ -9,7 +9,7 @@ const UNREADABLE_MESSAGE =
   "The rules saved on this device couldn't be read, so some may be missing. Tell the Bureau your rules again to clear this.";
 
 const ACCOUNT_NOT_LOADED_MESSAGE =
-  "Your account's rules haven't loaded on this device yet, so dishes can't be checked. Connect to the internet and open Kitchen Quest again.";
+  "Your account's rules couldn't be loaded, so dishes can't be checked. Try again in a moment.";
 
 /**
  * The rules to check dishes against. Signed in, the account's rules replace the device's: once they have

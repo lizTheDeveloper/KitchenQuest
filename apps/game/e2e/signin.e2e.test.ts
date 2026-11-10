@@ -13,6 +13,8 @@ afterEach(async () => { await app?.close(); app = null; });
 const json = (status: number, body: unknown) => ({ status, contentType: 'application/json', body: JSON.stringify(body) });
 const m2error = (status: number, code: string, details?: unknown) =>
   json(status, { error: { code, message: 'x', ...(details === undefined ? {} : { details }) } });
+/** M2's rate-limit answer carries retry-after (seconds). */
+const rateLimited = () => ({ ...m2error(429, 'rate_limited'), headers: { 'retry-after': '60' } });
 
 /** Records POST /api/auth/verify and answers from `answers` in order (the last one repeats). */
 function verifyMock(answers: ((route: Route) => Promise<void>)[]) {
@@ -44,6 +46,8 @@ describe('/auth/verify', () => {
 
     expect(response!.headers()['referrer-policy']).toBe('no-referrer');
     expect(response!.headers()['cache-control']).toBe('no-store');
+    expect(response!.headers()['content-security-policy']).toBe("frame-ancestors 'none'");
+    expect(response!.headers()['x-frame-options']).toBe('DENY');
     const meta = page.locator('head > meta[name="referrer"]').first();
     expect(await meta.getAttribute('content')).toBe('no-referrer');
     expect(await page.evaluate(() => document.head.firstElementChild?.getAttribute('name'))).toBe('referrer');
@@ -121,8 +125,8 @@ describe('/auth/verify', () => {
 
   it('busy or unreachable: says so and lets the player try again', async () => {
     const mock = verifyMock([
-      (route) => route.fulfill(m2error(429, 'rate_limited')),
-      (route) => route.fulfill(m2error(503, 'internal')),
+      (route) => route.fulfill(rateLimited()),
+      (route) => route.fulfill(m2error(500, 'internal')),
       (route) => route.abort('internetdisconnected'),
       reply(200, { unexpected: true }),
       reply(200, SIGNED_IN),
@@ -132,7 +136,7 @@ describe('/auth/verify', () => {
     const button = page.getByRole('button', { name: 'Sign me in' });
     const BUSY = "The Bureau couldn't finish that just now. Try again in a moment.";
     const OFFLINE = "Couldn't reach the Bureau. Check your connection and try again.";
-    // 429, 503, no network, and a 200 that isn't a sign-in answer.
+    // 429, 500, no network, and a 200 that isn't a sign-in answer.
     for (const text of [BUSY, BUSY, OFFLINE, BUSY]) {
       await button.click();
       await page.getByText(text).waitFor();
@@ -142,6 +146,34 @@ describe('/auth/verify', () => {
     await button.click();
     await page.getByText('Signed in as cook@example.com.').waitFor();
     expect(mock.seen.map((r) => JSON.parse(r.postData()!) as unknown)).toEqual(Array(5).fill({ token: 'T0K3N' }));
+  });
+
+  it('refuses to work inside a frame, even if the anti-framing headers were stripped', async () => {
+    const mock = verifyMock([reply(200, SIGNED_IN)]);
+    app = await openApp('/#/settings', {
+      beforeGoto: async (page) => {
+        await mock.install(page);
+        // A proxy that drops the headers: only the page's own check is left.
+        await page.route('**/auth/verify?**', async (route) => {
+          const res = await route.fetch();
+          const headers = { ...res.headers() };
+          delete headers['x-frame-options'];
+          delete headers['content-security-policy'];
+          await route.fulfill({ response: res, headers });
+        });
+      },
+    });
+    const { page } = app;
+    await page.evaluate(() => {
+      const f = document.createElement('iframe');
+      f.title = 'framed';
+      f.src = '/auth/verify?token=T0K3N';
+      document.body.append(f);
+    });
+    const frame = page.frameLocator('iframe[title="framed"]');
+    await frame.getByText('This page has to be opened on its own').waitFor();
+    expect(await frame.locator('#verify').count()).toBe(0);
+    expect(mock.seen).toHaveLength(0);
   });
 
   it('a link without a token says it is incomplete and sends nothing', async () => {
@@ -190,7 +222,7 @@ describe('/auth/verify', () => {
 describe('Settings → Account', () => {
   it('the sign-in request shows the same words for sent and rate-limited', async () => {
     const bodies: unknown[] = [];
-    const answers = [json(202, { ok: true }), m2error(429, 'rate_limited')];
+    const answers = [json(202, { ok: true }), rateLimited()];
     app = await openApp('/#/settings', {
       beforeGoto: (page) => page.route('**/api/auth/request', async (route) => {
         bodies.push(JSON.parse(route.request().postData()!));
@@ -209,6 +241,24 @@ describe('Settings → Account', () => {
     expect(bodies).toEqual([{ email: 'cook@example.com' }, { email: 'cook@example.com' }]);
     await expectNoA11yViolations(page, 'account section');
     expect(app.consoleErrors).toEqual([]);
+  });
+
+  it('cached account rules are not trusted when the server fails to send them (500): ❓, never ✅', async () => {
+    let rulesAnswer = json(200, { rules: [] });
+    app = await openApp(PARIPPU, {
+      beforeGoto: async (page) => {
+        await page.route('**/api/me', (route) => route.fulfill(json(200, { id: 'u1', email: 'cook@example.com', entitlements: [] })));
+        await page.route('**/api/rules', (route) => route.fulfill(rulesAnswer));
+      },
+    });
+    const { page } = app;
+    await expect.poll(() => chipStatus(page)).toBe('ok');
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem('kq.player.v1') ?? '{}').accountRules as unknown)).toEqual([]);
+
+    rulesAnswer = m2error(500, 'internal');
+    await page.reload();
+    await page.getByText("Couldn't check this dish against your rules. Treat it as unchecked.").waitFor();
+    expect(await chipStatus(page)).toBe('unverified');
   });
 
   it('signed in, account rules decide the card; bad account rules are ❓; signing out puts it back', async () => {
