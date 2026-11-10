@@ -2,10 +2,10 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { audit } from '../src/audit/audit.js';
 import { loginTokens, selfReadCounts, sessions, usageEvents, users } from '../src/db/schema.js';
 import { registerRetention, retentionPolicies, runRetention, scheduleRetention } from '../src/jobs/retention.js';
-import { TRANSCRIPT_RETENTION_DAYS } from '../src/mentor/constants.js';
+import { PROPOSAL_TTL_MS, TRANSCRIPT_RETENTION_DAYS } from '../src/mentor/constants.js';
 import { appendMessages, openConversation } from '../src/mentor/conversations.js';
 import { MemoryHistory } from '../src/mentor/memory.js';
-import { createProposal } from '../src/mentor/proposals.js';
+import { createProposal, markDecided } from '../src/mentor/proposals.js';
 import { testConfig } from './helpers/config.js';
 import type { Db } from '../src/types.js';
 import { testDb, type Sql } from './helpers/db.js';
@@ -102,7 +102,7 @@ describe('retention (C-6)', () => {
     expect(await runRetention(db, now)).toMatchObject({ self_read_counts: 0 });
   });
 
-  it('retention: messages older than 30 days go, newer stay; proposals older than 24 h go (C-12)', async () => {
+  it('retention: messages older than 30 days go, newer stay; undecided proposals go at expiry, decided ones after 24 h (C-12, I-4)', async () => {
     const now = new Date('2026-11-09T12:00:00Z');
     const ago = (ms: number) => new Date(now.getTime() - ms);
     const { keyring } = testConfig();
@@ -123,15 +123,24 @@ describe('retention (C-6)', () => {
       await appendMessages(tx, keyring, memory, u.id, old.id, [{ role: 'player', text: 'gone' }], true, ago(retention + 1000));
       await appendMessages(tx, keyring, memory, u.id, live.id, [{ role: 'player', text: 'old in a live one' }], true, ago(retention + 500));
       await appendMessages(tx, keyring, memory, u.id, live.id, [{ role: 'player', text: 'kept' }], true, ago(retention - 1000));
-      await createProposal(tx, keyring, { userId: u.id, conversationId: live.id, turnSeq: 1, card }, ago(24 * HOUR + 1000));
-      await createProposal(tx, keyring, { userId: u.id, conversationId: live.id, turnSeq: 1, card }, ago(24 * HOUR - 1000));
+      // Decided: kept 24 h after it was made, then deleted.
+      const gone = await createProposal(tx, keyring, { userId: u.id, conversationId: live.id, turnSeq: 1, card }, ago(24 * HOUR + 1000));
+      await markDecided(tx, gone.proposalId, 'confirmed', 'tap', null, null, keyring, u.id, ago(24 * HOUR + 1000));
+      const kept = await createProposal(tx, keyring, { userId: u.id, conversationId: live.id, turnSeq: 1, card }, ago(24 * HOUR - 1000));
+      await markDecided(tx, kept.proposalId, 'rejected', 'tap', null, null, keyring, u.id, ago(24 * HOUR - 1000));
+      // Undecided: deleted as soon as it has expired (PROPOSAL_TTL_MS after it was made).
+      await createProposal(tx, keyring, { userId: u.id, conversationId: live.id, turnSeq: 2, card }, ago(PROPOSAL_TTL_MS));
+      await createProposal(tx, keyring, { userId: u.id, conversationId: live.id, turnSeq: 3, card }, ago(PROPOSAL_TTL_MS - 1000));
     });
 
     const counts = await runRetention(db, now);
-    expect(counts).toMatchObject({ messages: 2, conversations: 1, mentor_proposals: 1 });
+    expect(counts).toMatchObject({ messages: 2, conversations: 1, mentor_proposals: 2 });
     expect((await sql`select id from conversations`).map((r) => r.id)).toEqual([live.id]);
     expect(await sql`select seq from messages where conversation_id = ${live.id}`).toEqual([{ seq: 2 }]);
-    expect(await sql`select 1 from mentor_proposals`).toHaveLength(1);
+    expect((await sql`select status, turn_seq from mentor_proposals order by turn_seq, status`).map((r) => [r.turn_seq, r.status])).toEqual([
+      [1, 'rejected'],
+      [3, 'open'],
+    ]);
     expect(await runRetention(db, now)).toMatchObject({ messages: 0, conversations: 0, mentor_proposals: 0 });
   });
 

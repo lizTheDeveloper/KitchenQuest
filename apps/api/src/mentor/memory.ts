@@ -9,16 +9,21 @@ export type StoredMessage = { role: 'player'; text: string } | { role: 'pan'; pa
  * stored without it). Never written to disk, the database or a log; a restart
  * clears it (like the rate-limit state, N-2). Keys are `${userId}:${conversationId}`.
  * An entry holds at most `max` messages and expires `ttlMs` after its last push;
- * `sweep` (run from `sweepPeriodically`) drops expired entries.
+ * `sweep` (run from `sweepPeriodically`) drops expired entries. At most
+ * `maxEntries` keys are held in all (10 000 by default): a push beyond that
+ * evicts the least recently pushed key, so memory stays bounded whatever the traffic.
  */
 export class MemoryHistory {
   private readonly ttlMs: number;
   private readonly max: number;
+  private readonly maxEntries: number;
+  /** In push order (oldest first): a push re-inserts its key at the end. */
   private readonly entries = new Map<string, { msgs: StoredMessage[]; at: number }>();
 
-  constructor(opts: { ttlMs: number; max: number }) {
+  constructor(opts: { ttlMs: number; max: number; maxEntries?: number }) {
     this.ttlMs = opts.ttlMs;
     this.max = opts.max;
+    this.maxEntries = opts.maxEntries ?? 10_000;
   }
 
   /** The held messages, oldest first (a copy), or none once expired. */
@@ -34,10 +39,20 @@ export class MemoryHistory {
 
   push(key: string, msgs: StoredMessage[], nowMs: number): void {
     const kept = [...this.get(key, nowMs), ...msgs].slice(-this.max);
+    this.entries.delete(key);
     this.entries.set(key, { msgs: kept, at: nowMs });
+    for (const oldest of this.entries.keys()) {
+      if (this.entries.size <= this.maxEntries) break;
+      this.entries.delete(oldest);
+    }
   }
 
-  /** Forgets every key starting with `keyPrefix`: `${userId}:` for all of a user's, `${userId}:${id}` for one. */
+  /** Forgets exactly one key (one conversation). */
+  deleteKey(key: string): void {
+    this.entries.delete(key);
+  }
+
+  /** Forgets every key starting with `keyPrefix`, e.g. `${userId}:` for all of a user's conversations. */
   delete(keyPrefix: string): void {
     for (const key of [...this.entries.keys()]) if (key.startsWith(keyPrefix)) this.entries.delete(key);
   }

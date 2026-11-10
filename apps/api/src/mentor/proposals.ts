@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { isSevereCard, type ProposalCard, type ProposalKind, type ServerCard } from '@kitchenquest/core';
-import { and, asc, eq, gt } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, lte, sql } from 'drizzle-orm';
 import type { Tx } from '../consent/ledger.js';
 import type { Keyring } from '../crypto/keyring.js';
 import { openFor, sealFor } from '../crypto/userkeys.js';
@@ -56,9 +56,14 @@ async function load(tx: Tx, keyring: Keyring, row: Row): Promise<LoadedProposal>
   };
 }
 
+/** Proposals never decided ('open' or 'expired') whose `expires_at` has passed at `now`. */
+export const undecidedExpired = (now: Date) =>
+  and(inArray(mentorProposals.status, ['open', 'expired']), lte(mentorProposals.expiresAt, now));
+
 /**
  * Records a card the server is about to show (sealed, open, expiring after
- * PROPOSAL_TTL_MS) and returns it as the wire's `ServerCard`. Only a card
+ * PROPOSAL_TTL_MS) and returns it as the wire's `ServerCard`. First deletes
+ * the user's undecided proposals that have expired. Only a card
  * recorded here can later be confirmed (Step 8's guard).
  */
 export async function createProposal(
@@ -67,6 +72,9 @@ export async function createProposal(
   p: { userId: string; conversationId: string | null; turnSeq: number | null; card: ProposalCard },
   now: Date,
 ): Promise<ServerCard> {
+  // Undecided cards are not kept past their expiry (data-inventory I-4); the
+  // retention job does the same for everyone, at most an hour late.
+  await tx.delete(mentorProposals).where(and(eq(mentorProposals.userId, p.userId), undecidedExpired(now)));
   const id = randomUUID();
   const expiresAt = new Date(now.getTime() + PROPOSAL_TTL_MS);
   await tx.insert(mentorProposals).values({
@@ -150,9 +158,10 @@ export async function openProposalsOfTurn(
 
 /**
  * Records the decision on the caller's proposal (held by `lockProposal`):
- * status, channel, the written row and the undo payload (sealed under its own
- * context), each set exactly as given, and `decided_at = now`. Another user's
- * id changes nothing.
+ * status, `decided_at = now`, and the undo payload (sealed under its own
+ * context; null clears it, e.g. once undone). `channel` and `writeRef` are
+ * set when given and kept when null, so an undone row still records how it
+ * was confirmed and what it wrote. Another user's id changes nothing.
  */
 export async function markDecided(
   tx: Tx,
@@ -169,7 +178,14 @@ export async function markDecided(
   const mine = and(eq(mentorProposals.id, id), eq(mentorProposals.userId, userId));
   const updated = await tx
     .update(mentorProposals)
-    .set({ status, channel, writeRef, undoSealed: null, decidedAt: now })
+    .set({
+      status,
+      // A null keeps what the confirm recorded (an 'undone' row still says how it was confirmed and what it wrote).
+      channel: sql`coalesce(${channel}, ${mentorProposals.channel})`,
+      writeRef: sql`coalesce(${writeRef}::uuid, ${mentorProposals.writeRef})`,
+      undoSealed: null,
+      decidedAt: now,
+    })
     .where(mine)
     .returning({ id: mentorProposals.id });
   // Sealed only once the row is known to be the caller's, so no data key is made for anyone else.

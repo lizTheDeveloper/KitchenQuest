@@ -70,6 +70,24 @@ async function newUser(consent = true): Promise<string> {
   return u.id;
 }
 
+/** Waits until `n` backends in this database are blocked on a lock. */
+async function waitForLockWaiters(n: number): Promise<void> {
+  for (let i = 0; i < 300; i++) {
+    const [row] = await sql<{ n: number }[]>`
+      select count(*)::int as n from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'`;
+    if (row.n >= n) return;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  throw new Error(`timed out waiting for ${n} lock waiter(s)`);
+}
+
+/** A promise and the function that resolves it. */
+function gate(): { wait: Promise<void>; open: () => void } {
+  let open!: () => void;
+  const wait = new Promise<void>((r) => (open = r));
+  return { wait, open };
+}
+
 const memory = () => new MemoryHistory({ ttlMs: MEMORY_TTL_MS, max: HISTORY_MESSAGES });
 const tx = <T>(fn: (t: Parameters<Parameters<Db['transaction']>[0]>[0]) => Promise<T>) => db.transaction(fn);
 
@@ -188,6 +206,26 @@ describe('transcripts (C-12)', () => {
     expect(mem.size).toBe(0);
   });
 
+  it('memory history deletes one exact key, and holds at most maxEntries keys (oldest pushed evicted)', () => {
+    const t0 = NOW.getTime();
+    const mem = new MemoryHistory({ ttlMs: MEMORY_TTL_MS, max: HISTORY_MESSAGES, maxEntries: 3 });
+    mem.push('u:1', [PLAYER], t0);
+    mem.push('u:10', [PLAYER], t0);
+    mem.deleteKey('u:1');
+    expect(mem.get('u:1', t0)).toEqual([]);
+    expect(mem.get('u:10', t0)).toEqual([PLAYER]);
+    mem.push('a', [PLAYER], t0);
+    mem.push('b', [PLAYER], t0);
+    mem.push('u:10', [PAN], t0 + 1); // pushed again: now the newest
+    mem.push('c', [PLAYER], t0 + 2);
+    expect(mem.size).toBe(3);
+    expect(mem.get('a', t0 + 2)).toEqual([]);
+    expect(mem.get('u:10', t0 + 2)).toEqual([PLAYER, PAN]);
+    expect(mem.get('b', t0 + 2)).toEqual([PLAYER]);
+    expect(mem.get('c', t0 + 2)).toEqual([PLAYER]);
+    expect(new MemoryHistory({ ttlMs: 1, max: 1 })).toBeDefined();
+  });
+
   it('memory flags expire after their ttl and are swept', () => {
     const flags = new MemoryFlags({ ttlMs: MEMORY_TTL_MS });
     const t0 = NOW.getTime();
@@ -267,6 +305,78 @@ describe('conversations', () => {
     expect(await rowsOf('messages', b)).toHaveLength(2);
     expect(await rowsOf('mentor_proposals', b)).toHaveLength(1);
     expect(mem.get(`${keep}:${k1.id}`, NOW.getTime())).toEqual([PLAYER]);
+  });
+});
+
+describe('forget under concurrency (lock order: conversation row before proposals)', () => {
+  it('forget racing a turn that creates a proposal: the forget waits, then leaves 0 proposal rows', async () => {
+    const mem = memory();
+    const u = await newUser();
+    const c = await tx((t) => openConversation(t, u, null, NOW));
+    const created = gate();
+    const commit = gate();
+    const turn = tx(async (t) => {
+      await bumpTurn(t, c.id, NOW);
+      await createProposal(t, keyring, { userId: u, conversationId: c.id, turnSeq: 1, card: MEAL_CARD }, NOW);
+      await appendMessages(t, keyring, mem, u, c.id, [PLAYER], true, NOW);
+      created.open();
+      await commit.wait;
+    });
+    await created.wait;
+    const forget = tx((t) => forgetConversations(t, mem, u));
+    await waitForLockWaiters(1);
+    commit.open();
+    await turn;
+    expect(await forget).toBe(1);
+    for (const table of ['conversations', 'messages', 'mentor_proposals'] as const) expect(await rowsOf(table, u), table).toHaveLength(0);
+  });
+
+  it('a typed-yes turn (conversation, then proposal lock) and a forget of that conversation do not deadlock', async () => {
+    const mem = memory();
+    const u = await newUser();
+    const c = await tx((t) => openConversation(t, u, null, NOW));
+    const { proposalId } = await tx((t) => createProposal(t, keyring, { userId: u, conversationId: c.id, turnSeq: 1, card: MEAL_CARD }, NOW));
+    const locked = gate();
+    const commit = gate();
+    const turn = tx(async (t) => {
+      await bumpTurn(t, c.id, NOW);
+      locked.open();
+      await commit.wait;
+      expect((await lockProposal(t, keyring, u, proposalId, NOW))?.status).toBe('open');
+      await markDecided(t, proposalId, 'confirmed', 'typed_yes', randomUUID(), null, keyring, u, NOW);
+    });
+    await locked.wait;
+    const forget = tx((t) => forgetConversations(t, mem, u, c.id));
+    await waitForLockWaiters(1);
+    commit.open();
+    await turn;
+    expect(await forget).toBe(1);
+    expect(await rowsOf('mentor_proposals', u)).toHaveLength(0);
+  });
+
+  it('a turn after the forget took its locks waits, then fails on the gone conversation: nothing stored', async () => {
+    const mem = memory();
+    const u = await newUser();
+    const c = await tx((t) => openConversation(t, u, null, NOW));
+    const forgot = gate();
+    const commit = gate();
+    const forget = tx(async (t) => {
+      const n = await forgetConversations(t, mem, u, c.id);
+      forgot.open();
+      await commit.wait;
+      return n;
+    });
+    await forgot.wait;
+    const turn = tx((t) => createProposal(t, keyring, { userId: u, conversationId: c.id, turnSeq: 1, card: MEAL_CARD }, NOW));
+    const settled = turn.then(
+      () => 'stored',
+      () => 'refused',
+    );
+    await waitForLockWaiters(1);
+    commit.open();
+    expect(await forget).toBe(1);
+    expect(await settled).toBe('refused');
+    expect(await rowsOf('mentor_proposals', u)).toHaveLength(0);
   });
 });
 
@@ -367,6 +477,38 @@ describe('proposals', () => {
     const other = await newUser();
     await tx((t) => markDecided(t, id, 'rejected', 'tap', null, null, keyring, other, at(3 * MIN)));
     expect((await rowsOf('mentor_proposals', u))[0].status).toBe('confirmed');
+  });
+
+  it('undecided proposals go once expired (on the next card); decided ones stay for the undo period', async () => {
+    const u = await newUser();
+    const other = await newUser();
+    const mk = (userId: string, now: Date) =>
+      tx((t) => createProposal(t, keyring, { userId, conversationId: null, turnSeq: null, card: MEAL_CARD }, now));
+    const open = await mk(u, NOW);
+    const decided = await mk(u, NOW);
+    await tx((t) => markDecided(t, decided.proposalId, 'rejected', 'tap', null, null, keyring, u, NOW));
+    const theirs = await mk(other, NOW);
+    // Still open one ms before expiry: kept.
+    await mk(u, at(PROPOSAL_TTL_MS - 1));
+    expect((await rowsOf('mentor_proposals', u)).map((r) => r.id)).toContain(open.proposalId);
+    // At expiry the next card for this user deletes the undecided one only.
+    await mk(u, at(PROPOSAL_TTL_MS));
+    const ids = (await rowsOf('mentor_proposals', u)).map((r) => r.id);
+    expect(ids).not.toContain(open.proposalId);
+    expect(ids).toContain(decided.proposalId);
+    expect((await rowsOf('mentor_proposals', other)).map((r) => r.id)).toEqual([theirs.proposalId]);
+  });
+
+  it("markDecided('undone') with nulls keeps the channel and written row, and clears the undo payload", async () => {
+    const u = await newUser();
+    const { proposalId: id } = await tx((t) =>
+      createProposal(t, keyring, { userId: u, conversationId: null, turnSeq: null, card: MEAL_CARD }, NOW),
+    );
+    const ref = randomUUID();
+    await tx((t) => markDecided(t, id, 'confirmed', 'tap', ref, { before: 1 }, keyring, u, NOW));
+    await tx((t) => markDecided(t, id, 'undone', null, null, null, keyring, u, at(MIN)));
+    const [row] = await rowsOf('mentor_proposals', u);
+    expect(row).toMatchObject({ status: 'undone', channel: 'tap', write_ref: ref, undo_sealed: null });
   });
 
   it('the database refuses unknown kinds, statuses, roles and channels', async () => {

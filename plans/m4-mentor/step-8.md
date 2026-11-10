@@ -134,3 +134,8 @@ test('C-15: no player or model text in the logs across the whole suite', ...);
 - [ ] **8.5 Commit** `feat(api): the write guard — tap or a single typed yes, severe needs a tap, undo window; adversarial suite`
 
 **Carry from Step 5 review:** a pantry removal card resolves names to item ids at proposal time, reads back those exact items, and confirms with `removeIds` (never re-matching names at confirm). Show `too_many_items` on an undo as a clear scripted line. Consider returning new ids from `restorePantryIn`.
+
+**Carry from Step 6 review:**
+- Undo or confirm of a proposal that has vanished (forgotten, deleted by a `health_data` withdraw, or removed by retention) answers `undo.nothing` (undo) or `proposal_closed`/`not_found` as specified (confirm), never a 500.
+- Undecided proposals are deleted as soon as `expires_at` passes (retention job, and `createProposal` purges the user's own expired ones), so a late tap usually finds no row: 404 `not_found`, which the client shows like `proposal_closed`. `lockProposal` still reports 'expired' for a row the purge has not reached yet.
+- `markDecided('undone', null, null, null, …)` keeps `channel` and `write_ref` (COALESCE) and clears the undo payload.

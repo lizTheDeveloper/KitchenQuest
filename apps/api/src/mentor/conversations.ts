@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, asc, desc, eq, gt, gte, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, inArray, isNull, or, sql } from 'drizzle-orm';
 import type { Tx } from '../consent/ledger.js';
 import type { Keyring } from '../crypto/keyring.js';
 import { openFor, sealFor } from '../crypto/userkeys.js';
@@ -66,6 +66,14 @@ export async function bumpTurn(tx: Tx, conversationId: string, now: Date): Promi
  * `memory` alone and nothing is stored. A persisting append holds the
  * conversation row (FOR UPDATE), so concurrent appends number their messages
  * one after the other; it throws if the conversation is not the caller's.
+ *
+ * The caller decides `persist` while holding the `health_data` consent row
+ * (`lockConsentIn`, or a share-locked `hasConsent` read in the same
+ * transaction), never from a read taken before it: a concurrent
+ * withdraw-with-delete then either waits for this append and deletes what it
+ * stored, or commits first and the turn sees no consent and keeps the
+ * messages in memory only. Deciding from an earlier read could store
+ * messages just after a withdrawal deleted them.
  */
 export async function appendMessages(
   tx: Tx,
@@ -146,26 +154,39 @@ export async function recentMessages(
  * "Forget this conversation" (C-12), or all of them when `conversationId` is
  * left out, inside the caller's transaction (which has taken `lockLiveUser`).
  * Hard-deletes the conversations, their messages and the proposals they made
- * (all of the user's proposals when forgetting all), and forgets the memory
- * history. Only the caller's: another user's id deletes nothing. Returns how
- * many conversations were removed.
+ * (forgetting all also deletes the user's proposals no conversation links any
+ * more), and forgets the memory history. Only the caller's: another user's id
+ * deletes nothing. Returns how many conversations were removed.
+ *
+ * Lock order (README): live user → advisory → consent → conversation row →
+ * proposal and message rows. The conversation rows are locked first (FOR
+ * UPDATE, by id), so a turn holding one (bumpTurn, appendMessages, a proposal
+ * insert's foreign-key check) finishes first and what it wrote is deleted
+ * here, and a turn that comes after waits and then finds its conversation
+ * gone. A conversation started after the lock is a new one and is kept.
+ *
+ * Memory is cleared before commit: if the transaction then rolls back, the
+ * memory history is gone while the rows stay, which errs toward forgetting.
  */
 export async function forgetConversations(tx: Tx, memory: MemoryHistory, userId: string, conversationId?: string): Promise<number> {
-  if (conversationId === undefined) {
-    memory.delete(`${userId}:`);
-    await tx.delete(mentorProposals).where(eq(mentorProposals.userId, userId));
-    await tx.delete(messages).where(eq(messages.userId, userId));
-    return (await tx.delete(conversations).where(eq(conversations.userId, userId)).returning({ id: conversations.id })).length;
-  }
-  memory.delete(memoryKey(userId, conversationId));
-  if (!UUID.test(conversationId)) return 0;
-  const owned = await tx
+  if (conversationId === undefined) memory.delete(`${userId}:`);
+  else memory.deleteKey(memoryKey(userId, conversationId));
+  if (conversationId !== undefined && !UUID.test(conversationId)) return 0;
+  const locked = await tx
     .select({ id: conversations.id })
     .from(conversations)
-    .where(and(eq(conversations.id, conversationId), eq(conversations.userId, userId)));
-  if (owned.length === 0) return 0;
-  const ids = owned.map((r) => r.id);
-  await tx.delete(mentorProposals).where(and(eq(mentorProposals.userId, userId), inArray(mentorProposals.conversationId, ids)));
+    .where(and(eq(conversations.userId, userId), ...(conversationId === undefined ? [] : [eq(conversations.id, conversationId)])))
+    .orderBy(asc(conversations.id))
+    .for('update');
+  const ids = locked.map((r) => r.id);
+  const linked = ids.length > 0 ? inArray(mentorProposals.conversationId, ids) : undefined;
+  if (conversationId === undefined) {
+    const unlinked = isNull(mentorProposals.conversationId);
+    await tx.delete(mentorProposals).where(and(eq(mentorProposals.userId, userId), linked ? or(linked, unlinked) : unlinked));
+  } else if (linked) {
+    await tx.delete(mentorProposals).where(and(eq(mentorProposals.userId, userId), linked));
+  }
+  if (ids.length === 0) return 0;
   await tx.delete(messages).where(and(eq(messages.userId, userId), inArray(messages.conversationId, ids)));
   return (
     await tx

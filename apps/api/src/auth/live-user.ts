@@ -16,7 +16,8 @@ import type { Db } from '../types.js';
  * One global lock order (pre-flight C13), for every transaction in M4:
  * user row (`lockLiveUser`) → per-user advisory locks (`rules:<id>`, then
  * `pantry:<id>`; namespaces in `db/advisory-locks.ts`) → consent row
- * (`lockConsentIn`) → proposal row (`lockProposal`). Account delete takes
+ * (`lockConsentIn`) → conversation row (`bumpTurn`, `appendMessages`,
+ * `forgetConversations`) → proposal row (`lockProposal`). Account delete takes
  * its sign-in-email lock, then the user row, before anything else, so it
  * still serializes ahead. Consent withdraw-with-delete takes the user row,
  * then the consent row, then deletes rules, meals, messages and proposals,

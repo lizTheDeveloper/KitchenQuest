@@ -3,6 +3,7 @@ import { purgeAuditBefore } from '../audit/audit.js';
 import { loggableError } from '../errors.js';
 import { conversations, loginTokens, mentorProposals, messages, selfReadCounts, sessions, usageEvents } from '../db/schema.js';
 import { TRANSCRIPT_RETENTION_DAYS } from '../mentor/constants.js';
+import { undecidedExpired } from '../mentor/proposals.js';
 import type { Db } from '../types.js';
 
 /** One table's retention rule (C-6): `run` deletes what has expired at `now` and returns how many rows. */
@@ -138,14 +139,16 @@ registerRetention({
     ),
 });
 
-// mentor_proposals: 24 hours after they were made, well past PROPOSAL_TTL_MS and UNDO_WINDOW_MS.
+// mentor_proposals: an undecided card ('open' or 'expired') as soon as its
+// expires_at has passed; a decided one 24 hours after it was made, well past
+// UNDO_WINDOW_MS (the undo and audit period). data-inventory I-4.
 registerRetention({
   table: 'mentor_proposals',
   run: (db, now) =>
     deleted(
       db
         .delete(mentorProposals)
-        .where(lt(mentorProposals.createdAt, new Date(now.getTime() - 24 * HOUR)))
+        .where(or(undecidedExpired(now), lt(mentorProposals.createdAt, new Date(now.getTime() - 24 * HOUR))))
         .returning({ id: mentorProposals.id }),
     ),
 });
