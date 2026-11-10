@@ -248,7 +248,7 @@ describe('recipe endpoints', () => {
     await addRule(cookie, COCONUT);
     const logs = captureLogs();
     const small = IngredientGraph.fromData({ ingredients: [{ id: 'salt', name: 'salt' }] });
-    const other = await buildApp({ config, db, mailer, ai: null, now: () => NOW, logger: logs.logger, catalog: { graph: small, substitutions: [] } });
+    const other = await buildApp({ config, db, mailer, ai: null, now: () => NOW, logger: logs.logger, catalog: { graph: small, substitutions: [], ruleTerms: [] } });
     try {
       for (const url of ['/recipes', '/recipes/india/kerala/parippu']) {
         const res = await other.inject({ method: 'GET', url, cookies: { kq_session: cookie } });

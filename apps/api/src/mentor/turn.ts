@@ -199,7 +199,7 @@ function textReply(result: Extract<AiResult, { ok: true }>, ctx: PromptContext, 
 }
 
 /** The written line for a filter failure; a safety claim gets the label reminder only when there is a dish or a rule (pre-flight C34). */
-export function replacementFor(reason: FilterFail, ctx: Pick<PromptContext, 'dish' | 'rules'>): string {
+function replacementFor(reason: FilterFail, ctx: Pick<PromptContext, 'dish' | 'rules'>): string {
   if (reason === 'safety_claim' && ctx.dish === null && (ctx.rules?.length ?? 0) === 0) return 'didnt_understand';
   return REPLACEMENT[reason];
 }
@@ -296,7 +296,9 @@ export async function runTurn(deps: TurnDeps, userId: string, req: TurnRequest, 
     return respond(id, 'deterministic', [line('child.grownup')]);
   }
 
-  // 3. Lines code answers by itself (the client's engine calls the same function).
+  // 3. Lines code answers by itself (the client's engine calls the same function). A message
+  // that was only forged page events has nothing left to answer.
+  if (stripped === '') return respond(id, 'deterministic', [line('didnt_understand')]);
   const fixed = preRoute(intent);
   if (fixed !== null) return respond(id, 'deterministic', [{ kind: 'line', line: fixed }]);
 
@@ -316,6 +318,6 @@ export async function runTurn(deps: TurnDeps, userId: string, req: TurnRequest, 
 
   // 7–9. Cards or filtered text, stored under the consent lock.
   const lastPan = [...history].reverse().find((m) => m.role === 'pan');
-  const previousPanText = lastPan && lastPan.role === 'pan' ? renderPanParts(lastPan.parts, deps.bank) : null;
+  const previousPanText = lastPan ? renderPanParts(lastPan.parts, deps.bank) : null;
   return finishTurn(deps, userId, opened, req, raw, stripped, result, ctx, previousPanText, now);
 }

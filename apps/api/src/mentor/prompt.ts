@@ -21,7 +21,9 @@ import {
 } from '@kitchenquest/core';
 import { eq } from 'drizzle-orm';
 import type { AiMessage, AiTool } from '../ai/provider.js';
+import type { Catalog } from '../catalog.js';
 import type { Tx } from '../consent/ledger.js';
+import type { Keyring } from '../crypto/keyring.js';
 import { canonRecipes, profiles } from '../db/schema.js';
 import { mealSlotsOn } from '../meals/store.js';
 import { loadPantry } from '../pantry/store.js';
@@ -30,7 +32,6 @@ import { loadRules } from '../rules/store.js';
 import type { StoredMessage } from './conversations.js';
 import type { PanBank } from './lines.js';
 import { openProposalsOfConversation } from './proposals.js';
-import type { TurnDeps } from './turn.js';
 
 /** Bump on any change to the system text, examples or context shape (Step 12's eval gate reads the fingerprint). */
 export const MENTOR_PROMPT_VERSION = 'pan-1';
@@ -118,7 +119,7 @@ export function loadPanPrompt(bank: PanBank, voiceGuide: URL = VOICE_MD): PanPro
 const capitalised = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
 
 /** A rule as the model may see it: a rule-term name or the graph names of its targets, never an id. */
-function ruleName(rule: Rule, deps: Pick<TurnDeps, 'catalog'>): string {
+function ruleName(rule: Rule, deps: { catalog: Catalog }): string {
   const ids = [...rule.target.ids].sort();
   const term = deps.catalog.ruleTerms.find((t) => t.ids.length === ids.length && [...t.ids].sort().every((id, i) => id === ids[i]));
   if (term) return term.name;
@@ -143,7 +144,8 @@ function cardSummary(card: Awaited<ReturnType<typeof openProposalsOfConversation
  */
 export async function buildPromptContext(
   tx: Tx,
-  deps: Pick<TurnDeps, 'keyring' | 'catalog'>,
+  /** The turn's deps (`TurnDeps`); only these are read. */
+  deps: { keyring: Keyring; catalog: Catalog },
   userId: string,
   req: TurnRequest,
   aiHealth: boolean,
@@ -151,7 +153,7 @@ export async function buildPromptContext(
   now: Date,
 ): Promise<PromptContext> {
   const day = new Date(`${req.localDate}T00:00:00Z`).getUTCDay();
-  const [row] = await tx.select().from(profiles).where(eq(profiles.userId, userId));
+  const row = (await tx.select().from(profiles).where(eq(profiles.userId, userId))).at(0);
   const profile = {
     marketDays: (row?.marketDays ?? []).map((d) => capitalised(WEEKDAY_NAMES[d] ?? '')).filter((d) => d !== ''),
     mealsPerWeek: row?.mealsPerWeek ?? null,
@@ -164,7 +166,7 @@ export async function buildPromptContext(
   let dish: PromptContext['dish'] = null;
   const slug = req.screen?.slug;
   if (slug !== undefined) {
-    const [recipeRow] = await tx.select({ source: canonRecipes.source }).from(canonRecipes).where(eq(canonRecipes.slug, slug));
+    const recipeRow = (await tx.select({ source: canonRecipes.source }).from(canonRecipes).where(eq(canonRecipes.slug, slug))).at(0);
     if (recipeRow) {
       const recipe = parseRecipe(recipeRow.source);
       let status: CheckStatus | null = null;
@@ -173,7 +175,7 @@ export async function buildPromptContext(
       }
       dish = {
         title: recipe.meta.title,
-        ingredients: [...new Set(recipe.ingredients.map((i) => i.name).filter((n): n is string => n !== null))],
+        ingredients: [...new Set(recipe.ingredients.map((i) => i.name))],
         status,
       };
     }

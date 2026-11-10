@@ -38,24 +38,24 @@ export const REPLACEMENT: Readonly<Record<FilterFail, string>> = Object.freeze({
 const MAX_SENTENCES = 3;
 const SENTENCE_SPLIT = /(?<=[.!?])\s+/;
 
-export const MARKDOWN = /(\*\*|__|`|^#{1,6}\s|^\s*[-*]\s|\[[^\]]+\]\([^)]+\))/m;
+const MARKDOWN = /(\*\*|__|`|^#{1,6}\s|^\s*[-*]\s|\[[^\]]+\]\([^)]+\))/m;
 /** voice.md §0.2–0.3 and §7. */
-export const BANNED_WORDS =
+const BANNED_WORDS =
   /\b(exotic|ethnic|weird|strange|unusual|discover(ed|s)?|unlock(ed|s)?|loot(ed)?|collect(ed)?|acquired?|guilt-free|cheat day|junk food|clean eating|sinful|skipped a meal|streaks?|authentic|broken english)\b/i;
-export const SAFETY_CLAIM = /\b(safe|nut-free|allergen-free|gluten-free|dairy-free|guarantee[ds]?)\b/i;
+const SAFETY_CLAIM = /\b(safe|nut-free|allergen-free|gluten-free|dairy-free|guarantee[ds]?)\b/i;
 /** The only safety sentence that passes: a refusal to call it safe. */
-export const SAFE_OK = /\b(can'?t|cannot|won'?t|never) (promise|guarantee|say|tell you|be sure)[^.?!]{0,40}\bsafe\b/i;
+const SAFE_OK = /\b(can'?t|cannot|won'?t|never) (promise|guarantee|say|tell you|be sure)[^.?!]{0,40}\bsafe\b/i;
 /** Verb forms of a write (pre-flight C3). */
-export const WRITE_CLAIM =
+const WRITE_CLAIM =
   /\b(log(ged|ging)|sav(ed|ing)|stamp(ed|ing)|fil(ed|ing)|record(ed|ing)|remov(ed|ing)|add(ed|ing)|updat(ed|ing)|schedul(ed|ing)|struck|inked|taken the liberty|on file|in the ledger)\b/i;
 /** The only write words that pass: "nothing's been saved", "once you tap …", "show you the card". */
-export const WRITE_OK =
+const WRITE_OK =
   /\b(isn'?t|not|nothing'?s?|nothing has) (been |yet )?(yet )?(saved|logged|stamped|filed|written( down)?)\b|\bonce you (tap|stamp)\b[^.?!]*|\bshow you the card\b/i;
-export const SELLS = /\b(guild|subscription|subscribe|premium|upgrade|membership)\b|\$\s?\d|£\s?\d/i;
-export const MEDICAL_DOSE = /\b\d+(\.\d+)?\s?(mg|mcg|ml|milligrams?)\b/i;
-export const PRAISE = /\b(proud|well done|good job|nice work|great)\b/i;
-export const LESS = /\b(only|skip\w*|less|light|nothing but|just (a |one )?(coffee|tea))\b/i;
-export const IM_A_PAN = /\bi'?m a pan\b/i;
+const SELLS = /\b(guild|subscription|subscribe|premium|upgrade|membership)\b|\$\s?\d|£\s?\d/i;
+const MEDICAL_DOSE = /\b\d+(\.\d+)?\s?(mg|mcg|ml|milligrams?)\b/i;
+const PRAISE = /\b(proud|well done|good job|nice work|great)\b/i;
+const LESS = /\b(only|skip\w*|less|light|nothing but|just (a |one )?(coffee|tea))\b/i;
+const IM_A_PAN = /\bi'?m a pan\b/i;
 
 const global = (re: RegExp) => new RegExp(re.source, re.flags.includes('g') ? re.flags : `${re.flags}g`);
 /** Curly apostrophes read as straight ones, so "can’t" is "can't". Same length, so match offsets agree. */

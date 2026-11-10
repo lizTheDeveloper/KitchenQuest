@@ -52,7 +52,7 @@ export function loadPanBank(file: URL = PAN_YAML): PanBank {
   return {
     persona,
     hasTrigger: (id) => Object.hasOwn(triggers, id),
-    isNever: (id) => triggers[id]?.ai === 'never',
+    isNever: (id) => Object.hasOwn(triggers, id) && triggers[id].ai === 'never',
     firstLine(ref) {
       const id = resolveTrigger(bank, ref.trigger);
       if (id === null) return '';

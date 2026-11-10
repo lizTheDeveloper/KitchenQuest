@@ -39,11 +39,11 @@ export class BudgetGuard {
   async ok(now: Date): Promise<boolean> {
     const t = now.getTime();
     if (this.cached === null || t - this.cached.at >= this.cacheMs || t < this.cached.at) {
-      const [row] = await this.db
+      const rows = await this.db
         .select({ spent: sql<number>`coalesce(sum(${usageEvents.costMicroUsd}), 0)::bigint` })
         .from(usageEvents)
         .where(gte(usageEvents.createdAt, new Date(t - DAY_MS)));
-      this.cached = { at: t, spent: Number(row?.spent ?? 0) };
+      this.cached = { at: t, spent: Number(rows.at(0)?.spent ?? 0) };
     }
     return this.cached.spent < this.budgetMicroUsd;
   }

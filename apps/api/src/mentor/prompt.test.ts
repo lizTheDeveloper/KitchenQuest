@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, test } from 'vitest';
 import { loadPanBank } from './lines.js';
-import { loadPanPrompt, promptFingerprint, renderMessages, RULES_FOR_TOOLS, SECURITY, type PromptContext } from './prompt.js';
+import { loadPanPrompt, MENTOR_PROMPT_VERSION, promptFingerprint, renderMessages, RULES_FOR_TOOLS, SECURITY, type PromptContext } from './prompt.js';
 import { MENTOR_TOOLS } from './tools.js';
 
 const bank = loadPanBank();
@@ -104,6 +104,7 @@ describe('promptFingerprint', () => {
   test('changes when the prompt, tools, model or provider order change', () => {
     const base = promptFingerprint(prompt, MENTOR_TOOLS, 'qwen/qwen3.8-27b', ['tenstorrent', 'modelrun']);
     expect(base).toMatch(/^[0-9a-f]{64}$/);
+    expect(MENTOR_PROMPT_VERSION).toBe('pan-1');
     expect(promptFingerprint(prompt, MENTOR_TOOLS, 'qwen/qwen3.8-27b', ['tenstorrent', 'modelrun'])).toBe(base);
     expect(promptFingerprint({ ...prompt, system: `${prompt.system} ` }, MENTOR_TOOLS, 'qwen/qwen3.8-27b', ['tenstorrent', 'modelrun'])).not.toBe(base);
     expect(promptFingerprint({ ...prompt, examples: prompt.examples.slice(2) }, MENTOR_TOOLS, 'qwen/qwen3.8-27b', ['tenstorrent', 'modelrun'])).not.toBe(base);
