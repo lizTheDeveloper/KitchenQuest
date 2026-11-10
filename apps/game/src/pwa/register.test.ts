@@ -1,4 +1,4 @@
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import { deleteOfflineCopy } from './register';
 
 test('deleteOfflineCopy deletes only kq- caches and unregisters every worker', async () => {
@@ -23,4 +23,21 @@ test('deleteOfflineCopy still deletes caches when unregistering fails', async ()
   const cs = { keys: () => Promise.resolve(['kq-shell-a']), delete: (k: string) => { deleted.push(k); return Promise.resolve(true); } } as unknown as CacheStorage;
   await deleteOfflineCopy(nav, cs);
   expect(deleted).toEqual(['kq-shell-a']);
+});
+
+test('deleteOfflineCopy gives up after its timeout, so the caller always gets to reload', async () => {
+  vi.useFakeTimers();
+  try {
+    const never = new Promise<never>(() => {});
+    const nav = { serviceWorker: { getRegistrations: () => never } } as unknown as Navigator;
+    const cs = { keys: () => never } as unknown as CacheStorage;
+    let done = false;
+    void deleteOfflineCopy(nav, cs).then(() => { done = true; });
+    await vi.advanceTimersByTimeAsync(2999);
+    expect(done).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(done).toBe(true);
+  } finally {
+    vi.useRealTimers();
+  }
 });

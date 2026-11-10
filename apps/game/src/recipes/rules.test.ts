@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 import type { Rule } from '@kitchenquest/core/engine';
 import { graph } from '../content';
 import { createStore, type PlayerState } from '../state/store';
-import { activeRules, localDate, watchLocalDate } from './rules';
+import { activeRules, cardInputsKey, localDate, watchLocalDate } from './rules';
 
 // vi.stubEnv sets process.env.TZ, which Node honours at runtime; unstubAllEnvs restores it.
 afterEach(() => { vi.unstubAllEnvs(); });
@@ -33,16 +33,37 @@ describe('activeRules', () => {
     expect(activeRules(player(), graph)).toEqual({ status: 'ready', rules: [], source: 'device' });
   });
 
-  test('account rules win over device rules when present', () => {
+  test('signed in, account rules replace device rules', () => {
     const local = [rule('d1', ['coconut'])];
     const account = [rule('a1', ['ghee'])];
-    expect(activeRules(player({ localRules: local, accountRules: account }), graph))
+    const signedIn = { account: { email: 'cook@example.com' } };
+    expect(activeRules(player({ ...signedIn, localRules: local, accountRules: account }), graph))
       .toEqual({ status: 'ready', rules: account, source: 'account' });
     // An empty account list is still the account's answer.
-    expect(activeRules(player({ localRules: local, accountRules: [] }), graph))
+    expect(activeRules(player({ ...signedIn, localRules: local, accountRules: [] }), graph))
       .toEqual({ status: 'ready', rules: [], source: 'account' });
     expect(activeRules(player({ localRules: local, accountRules: null }), graph))
       .toEqual({ status: 'ready', rules: local, source: 'device' });
+  });
+
+  test('signed in but the account rules have not loaded: error, never the device rules or "none"', () => {
+    const s = activeRules(player({ account: { email: 'cook@example.com' }, accountRules: null, localRules: [] }), graph);
+    expect(s.status).toBe('error');
+    if (s.status === 'error') expect(s.message).toMatch(/account/i);
+  });
+
+  test('signed out: leftover account rules are not used', () => {
+    const local = [rule('d1', ['coconut'])];
+    expect(activeRules(player({ account: null, accountRules: [rule('a1', ['ghee'])], localRules: local }), graph))
+      .toEqual({ status: 'ready', rules: local, source: 'device' });
+  });
+
+  test('signed in with loaded account rules, unreadable device data does not force an error', () => {
+    const account = [rule('a1', ['ghee'])];
+    expect(activeRules(player({ account: { email: 'cook@example.com' }, accountRules: account, rulesUnreadable: true }), graph))
+      .toEqual({ status: 'ready', rules: account, source: 'account' });
+    // ...but with the account rules not loaded it is still an error.
+    expect(activeRules(player({ account: { email: 'cook@example.com' }, accountRules: null, rulesUnreadable: true }), graph).status).toBe('error');
   });
 
   test('rules core rejects → error state', () => {
@@ -52,7 +73,7 @@ describe('activeRules', () => {
   });
 
   test('bad account rules are an error too, even when device rules are fine', () => {
-    const s = activeRules(player({ localRules: [rule('d1', ['coconut'])], accountRules: [rule('a1', ['nope_id'])] }), graph);
+    const s = activeRules(player({ account: { email: 'c@e.com' }, localRules: [rule('d1', ['coconut'])], accountRules: [rule('a1', ['nope_id'])] }), graph);
     expect(s.status).toBe('error');
     if (s.status === 'error') expect(s.message).toContain('nope_id');
   });
@@ -116,5 +137,12 @@ describe('watchLocalDate', () => {
     stop();
     vi.advanceTimersByTime(5 * 60_000);
     expect(seen).toEqual([]);
+  });
+});
+
+describe('cardInputsKey', () => {
+  test('changes when the player signs in or out', () => {
+    const out = player();
+    expect(cardInputsKey(player({ account: { email: 'c@e.com' } }))).not.toBe(cardInputsKey(out));
   });
 });

@@ -150,6 +150,12 @@ describe('installable PWA', () => {
     // No skipWaiting: the page keeps its worker.
     expect(await page.evaluate(async () => (await navigator.serviceWorker.getRegistration())!.waiting !== null)).toBe(true);
     expect(await page.evaluate(() => navigator.serviceWorker.controller!.scriptURL)).toBe(before);
+    // The note outlives route changes: the next screen render must not wipe it.
+    for (const hash of ['#/settings', '#/recipes', '#/kitchen']) {
+      await go(page, hash);
+      await page.locator('h1').first().waitFor();
+      expect(await note.count(), `after ${hash}`).toBe(1);
+    }
     await note.getByRole('button', { name: 'Got it' }).click();
     expect(await note.count()).toBe(0);
   });

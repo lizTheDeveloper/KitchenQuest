@@ -72,6 +72,7 @@ describe('createStore', () => {
     ['a setting has the wrong type', { settings: { showCalories: 'yes' } }],
     ['reducedMotion is unknown', { settings: { reducedMotion: 'sometimes' } }],
     ['accountRules is a string', { accountRules: 'x' }],
+    ['signOutPending is not a boolean', { signOutPending: 'yes' }],
     ['cookProgress is malformed', { cookProgress: { slug: 1 } }],
   ])('treats a present-but-wrong-shape key as corrupt (%s)', (_n, patch) => {
     const raw = JSON.stringify({ v: 1, ...patch });

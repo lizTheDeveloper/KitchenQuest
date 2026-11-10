@@ -9,6 +9,9 @@ export interface PlayerState {
   /** Set when stored data could not be read, so rules may have been lost. Rule checks must show ❓ until the
    *  player re-enters or confirms their rules (the only thing that clears it). Survives reloads. */
   rulesUnreadable: boolean;
+  /** The player signed out but the server never heard (offline): finish the sign-out before asking /me again,
+   *  so the old session can't sign this device back in. Cleared when logout succeeds or a new sign-in lands. */
+  signOutPending: boolean;
 }
 export const STORE_KEY = 'kq.player.v1';
 const CORRUPT_KEY = `${STORE_KEY}.corrupt`;
@@ -29,7 +32,7 @@ function freshState(): PlayerState {
     localRules: [], accountRules: null, account: null,
     toolkit: EMPTY_TOOLKIT, cookProgress: null, dialogueHistory: {},
     settings: { showCalories: false, reducedMotion: 'system', familyTable: false, iosNoteDismissed: false },
-    rulesUnreadable: false,
+    rulesUnreadable: false, signOutPending: false,
   };
 }
 
@@ -59,6 +62,7 @@ function merge(p: Record<string, unknown>): PlayerState | null {
   if (has('cookProgress') && p.cookProgress !== null && !(isObj(p.cookProgress) && typeof p.cookProgress.slug === 'string' && typeof p.cookProgress.step === 'number')) return null;
   if (has('dialogueHistory') && !isObj(p.dialogueHistory)) return null;
   if (has('rulesUnreadable') && typeof p.rulesUnreadable !== 'boolean') return null;
+  if (has('signOutPending') && typeof p.signOutPending !== 'boolean') return null;
   if (has('settings') && !isObj(p.settings)) return null;
   const s = (isObj(p.settings) ? p.settings : {});
   const ds = d.settings;
@@ -83,6 +87,7 @@ function merge(p: Record<string, unknown>): PlayerState | null {
       iosNoteDismissed: (s.iosNoteDismissed as boolean | undefined) ?? ds.iosNoteDismissed,
     },
     rulesUnreadable: (has('rulesUnreadable') ? p.rulesUnreadable : d.rulesUnreadable) as boolean,
+    signOutPending: (has('signOutPending') ? p.signOutPending : d.signOutPending) as boolean,
   };
 }
 

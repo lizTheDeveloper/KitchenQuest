@@ -17,7 +17,7 @@ export function routeFor(req: { url: string; method: string; mode: string }, ori
 export function cacheName(version: string): string;            // `kq-shell-${version}`
 export function staleCaches(keys: string[], current: string): string[];   // every 'kq-shell-*' key except current
 // build/sw-plugin.ts
-export function precacheList(bundleFileNames: string[], publicFiles: string[]): string[];   // '/'-prefixed, sorted; excludes sw.js, *.map, '/auth/verify/…'
+export function precacheList(bundleFileNames: string[], publicFiles: string[]): string[];   // '/'-prefixed, sorted; excludes sw.js, *.map, dotfiles, and anything under /api or /auth (e.g. auth/verify/index.html)
 export function kqServiceWorker(): Plugin;   // in generateBundle: replaces self.__KQ_PRECACHE__ and __KQ_VERSION__ in the 'sw' chunk
 // pwa/register.ts
 export function registerServiceWorker(nav: Navigator, prod: boolean): Promise<ServiceWorkerRegistration | null>;   // '/sw.js', scope '/'; null when !prod or unsupported

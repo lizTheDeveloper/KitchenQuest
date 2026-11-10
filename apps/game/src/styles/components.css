@@ -77,10 +77,15 @@ h1:focus { outline: none; }
 .field { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; margin: .75rem 0; }
 .field label { font-family: var(--body); }
 .field input[type="checkbox"] { width: 1.5rem; height: 1.5rem; accent-color: var(--ember); }
-select {
+select, input[type="email"] {
   font: inherit; color: var(--fg); background: var(--iron); border: 3px solid var(--iron-edge);
   border-radius: 0; min-height: 2.75rem; padding: .25rem .5rem;
 }
+
+input[type="email"] { width: min(100%, 22rem); }
+
+/* The sign-in page (/auth/verify) */
+.verify-page { max-width: 40rem; margin: 2rem auto; }
 
 /* Status chips: always text + emoji */
 .chip {
