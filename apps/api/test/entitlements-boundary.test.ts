@@ -25,3 +25,13 @@ describe('entitlements boundary', () => {
     expect(offenders).toEqual([]);
   });
 });
+
+describe('the chat allowance boundary (M4 Step 7, fix round 1 P6)', () => {
+  it('only mentor/turn.ts imports aiTurnsLeft, so the cap gates nothing but the AI chat', () => {
+    const importers = files(SRC)
+      .map((f) => relative(SRC, f))
+      .filter((f) => f !== 'mentor/allowance.ts')
+      .filter((f) => /\baiTurnsLeft\b/.test(readFileSync(join(SRC, f), 'utf8')));
+    expect(importers).toEqual(['mentor/turn.ts']);
+  });
+});

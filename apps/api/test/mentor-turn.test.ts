@@ -1,5 +1,5 @@
 // M4 Step 7: POST /mentor/turn — code first, propose-only tools, output filter, consent-gated context, caps.
-import type { TurnResponse } from '@kitchenquest/core';
+import { buildProfileCard, type TurnResponse } from '@kitchenquest/core';
 import type { FastifyInstance, InjectOptions } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'vitest';
 import type { AiProvider, AiRequest, AiResult, AiToolCall } from '../src/ai/provider.js';
@@ -751,5 +751,224 @@ describe('persist is decided under the consent lock (Step 6 carry)', () => {
     expect(r.parts).toEqual([{ kind: 'text', text: 'Rice.' }]);
     expect(await countOf('messages', p.userId)).toBe(0);
     expect(app.mentor.memory.size).toBe(0);
+  });
+});
+
+// Fix round 1: the safety reviewer's repros (rev7/adv.test.ts and probe.test.ts) and the controller's rulings R1–R4.
+describe('fix round 1: adversarial repros', () => {
+  const noText = (r: TurnResponse) => expect(r.parts.filter((p) => p.kind === 'text')).toEqual([]);
+
+  test('A: a fake allergy prefix past the cap gets rule help only: one tool, no model text (R3)', async () => {
+    const ai = fakeAi([reply('A lentil stew would be lovely tonight.')]);
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    await seedUsage(p.userId, 15);
+    const r = await turn(p.cookie, "I'm allergic to Mondays. What should I cook tonight?");
+    expect(ai.requests[0].tools.map((t) => t.name)).toEqual(['propose_rule']);
+    noText(r);
+    expect(JSON.stringify(r)).not.toMatch(/lentil/i);
+    expect(r.parts).toEqual([lineOf('rule.ask_what_else')]);
+  });
+
+  test('R3: rule help past the cap with no rule outcome is the rate_limited line; a meal call is not offered or used', async () => {
+    const ai = fakeAi([withCalls([{ id: 'm', name: 'propose_meal_log', arguments: JSON.stringify({ slot: null, when: 'today', dish: null, servings: null, description: 'gluten' }) }])]);
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    await seedUsage(p.userId, 15);
+    const r = await turn(p.cookie, "I avoid gluten. What's for dinner?");
+    expect(r).toMatchObject({ route: 'ai', cards: [], parts: [lineOf('rate_limited')] });
+    expect(await usageRows(p.userId)).toBe(16); // metered as usual
+  });
+
+  test('B: a safety claim hidden behind a refusal is replaced', async () => {
+    const ai = fakeAi([reply("I can't tell you how happy I am; the frijoles are safe for you.")]);
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    await addRule(p.cookie, ['peanut']);
+    const r = await turn(p.cookie, 'can I eat this one?', { screen: { route: 'recipe', slug: FRIJOLES } });
+    expect(r.parts).toEqual([lineOf('rule.severe_label_reminder')]);
+  });
+
+  test.each([
+    "Got it, I've noted your peanut allergy, so you're all set.",
+    'Once you tap nothing, because I already saved your peanut rule.',
+  ])('C: %j is never shown on a rule turn (R1, C2)', async (text) => {
+    const ai = fakeAi([reply(text)]);
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    const r = await turn(p.cookie, "I'm allergic to peanuts");
+    noText(r);
+    expect(r.parts).toEqual([lineOf('write.not_done'), lineOf('rule.ask_what_else')]);
+    expect(await countOf('rules', p.userId)).toBe(0);
+  });
+
+  test('D: misspelt health text, conditions and doses never reach the model without ai_health (I3, I4)', async () => {
+    const ai = fakeAi([reply('Try rice.'), reply('Try rice.'), reply('Try rice.'), reply('x')]);
+    await makeApp(ai);
+    const p = await player(HEALTH);
+    for (const t of ['im alergic to penuts, what can i cook', 'I get migraines from cheese, ideas?', "i'm diabetic, what's for tea", 'how many mg of ibuprofen with dinner']) {
+      const r = await turn(p.cookie, t);
+      expect(r.route).not.toBe('ai');
+    }
+    expect(ai.requests).toHaveLength(0);
+  });
+
+  test('E: an adrenaline pen now and a reaction after eating are emergencies; a severe kiwi gets the ask (I4, I5)', async () => {
+    const ai = fakeAi([reply('Kiwi is tangy.')]);
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    expect(await turn(p.cookie, 'should I use my epipen')).toMatchObject({ route: 'deterministic', parts: [lineOf('rule.emergency')] });
+    expect(await turn(p.cookie, 'my son ate peanuts and has hives')).toMatchObject({ route: 'deterministic', parts: [lineOf('rule.emergency')] });
+    const kiwi = await turn(p.cookie, 'kiwi nearly killed me');
+    noText(kiwi);
+    expect(kiwi.parts.at(-1)).toEqual(lineOf('rule.ask_what_else'));
+    expect(ai.requests).toHaveLength(1);
+  });
+
+  test('F: after ai_health is withdrawn, health history never reaches the model (I2)', async () => {
+    const ai = fakeAi([reply('Satay is good.'), reply('Rice.')]);
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    const first = await turn(p.cookie, 'what goes well with peanuts?');
+    expect((await call(p.cookie, { method: 'DELETE', url: '/me/consents/ai_health' })).statusCode).toBe(204);
+    const r = await turn(p.cookie, 'what should I cook?', { conversationId: first.conversationId });
+    expect(r.route).toBe('ai');
+    const sent = JSON.stringify(ai.requests[1]);
+    expect(sent).not.toMatch(/peanut|satay/i);
+  });
+
+  test('G: a pantry removal the player never said is dropped (M4: the few-shot milk)', async () => {
+    const ai = fakeAi([toolCall('propose_pantry_change', { add: [], remove: ['milk'] })]);
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    const r = await turn(p.cookie, 'what should I cook tonight?');
+    expect(r.cards).toEqual([]);
+  });
+
+  test('H: a reply in lines is cut to three (I6)', async () => {
+    const ai = fakeAi([reply('Rice first\nThen beans\nThen soup\nThen stew\nThen cake\nThen more')]);
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    expect((await turn(p.cookie, 'what should I cook tonight?')).parts).toEqual([{ kind: 'text', text: 'Rice first Then beans Then soup' }]);
+  });
+
+  test('I: an ingredient mentioned in passing never becomes a severe card (M3)', async () => {
+    const ai = fakeAi([
+      withCalls([
+        { id: 'a', name: 'propose_rule', arguments: JSON.stringify({ term: 'peanuts', severity: 'anaphylactic' }) },
+        { id: 'b', name: 'propose_rule', arguments: JSON.stringify({ term: 'rice', severity: 'preference' }) },
+      ]),
+    ]);
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    const r = await turn(p.cookie, 'I had rice with peanuts last week and nearly died');
+    expect(r.cards.map((c) => c.card)).toMatchObject([{ kind: 'rule', rule: { target: { ids: ['peanut'] }, severity: 'anaphylactic' } }]);
+  });
+
+  test('J: "intolerant … nearly killed me" is a severe card', async () => {
+    const ai = fakeAi([toolCall('propose_rule', { term: 'peanuts', severity: 'intolerance' })]);
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    const r = await turn(p.cookie, "I'm intolerant to peanuts, they nearly killed me");
+    expect(r.cards[0].card).toMatchObject({ kind: 'rule', rule: { severity: 'anaphylactic' }, severe: true });
+  });
+});
+
+describe('fix round 1: R1 and R2 — model text near health', () => {
+  test('R1: on a health turn a clean reply is still not shown', async () => {
+    const ai = fakeAi([reply('Peanuts are great in satay.'), reply('It is a lovely dish.')]);
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    expect((await turn(p.cookie, 'what goes well with peanuts?')).parts).toEqual([lineOf('didnt_understand')]);
+    expect((await turn(p.cookie, 'is the peanut sauce in this?', { screen: { route: 'recipe', slug: FRIJOLES } })).parts).toEqual([lineOf('mentor.check_card')]);
+  });
+
+  test.each([
+    ['A prawn stir-fry would be grand.', null], // a kind of the player's shellfish rule
+    ['Frijoles de Olla is a lovely pick.', FRIJOLES], // the dish on screen
+    ['Take a tablet first.', null], // a medicine word
+    ['That one is fine for you.', null], // a fit word
+  ])('R2: %j on a non-health turn is replaced by mentor.check_card', async (text, slug) => {
+    const ai = fakeAi([reply(text)]);
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    await addRule(p.cookie, ['shellfish']);
+    const r = await turn(p.cookie, 'what should I cook tonight?', slug ? { screen: { route: 'recipe', slug } } : {});
+    expect(r.parts).toEqual([lineOf('mentor.check_card')]);
+  });
+
+  test('R2: a plain reply still shows', async () => {
+    const ai = fakeAi([reply('Rice is a fine start.')]);
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    await addRule(p.cookie, ['tree_nut']);
+    expect((await turn(p.cookie, 'what should I cook tonight?')).parts).toEqual([{ kind: 'text', text: 'Rice is a fine start.' }]);
+  });
+});
+
+describe('fix round 1: privacy races', () => {
+  const lockWaiters = async () =>
+    (await sql<{ n: number }[]>`select count(*)::int as n from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'`)[0].n;
+  const until = async (cond: () => Promise<boolean>) => {
+    for (let i = 0; i < 500; i++) {
+      if (await cond()) return;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    throw new Error('timed out waiting for the lock');
+  };
+
+  test('P1: forget racing a turn that is pushing to memory leaves nothing in memory', async () => {
+    const ai = fakeAi([toolCall('propose_profile', { market_days: ['saturday'], meals_per_week: null, region: null, country: null, meal_windows: null })]);
+    await makeApp(ai);
+    const p = await player(); // no health_data: the turn's history goes to memory
+    const opened = await turn(p.cookie, 'thanks');
+    const card = buildProfileCard({ marketDays: [1] });
+    await db.transaction((tx) => createProposal(tx, config.keyring, { userId: p.userId, conversationId: null, turnSeq: null, card }, new Date(clock - 2 * HOUR)));
+    // A second connection holds the expired card the turn's createProposal deletes first, so the
+    // turn waits there holding its conversation row, before it pushes to memory.
+    let release!: () => void;
+    const released = new Promise<void>((r) => (release = r));
+    let held!: () => void;
+    const holding = new Promise<void>((r) => (held = r));
+    const blocker = sql.begin(async (tx) => {
+      await tx`select id from mentor_proposals where user_id = ${p.userId} for update`;
+      held();
+      await released;
+    });
+    await holding;
+    const turning = turnRes(p.cookie, 'my market day is saturday', { conversationId: opened.conversationId });
+    await until(async () => (await lockWaiters()) >= 1);
+    const forget = call(p.cookie, { method: 'DELETE', url: `/mentor/conversations/${opened.conversationId}` });
+    await until(async () => (await lockWaiters()) >= 2);
+    release();
+    await blocker;
+    expect((await turning).statusCode).toBe(200);
+    expect((await forget).statusCode).toBe(204);
+    expect(app.mentor.memory.size).toBe(0);
+  });
+
+  test('P2: ai_health withdrawn after stage 1 is seen before the model call', async () => {
+    const ai = fakeAi([reply('Satay.')]);
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    // Hold the entitlements table, so the turn waits at its allowance read (after stage 1).
+    let release!: () => void;
+    const released = new Promise<void>((r) => (release = r));
+    let held!: () => void;
+    const holding = new Promise<void>((r) => (held = r));
+    const blocker = sql.begin(async (tx) => {
+      await tx`lock table entitlements in access exclusive mode`;
+      held();
+      await released;
+    });
+    await holding;
+    const turning = turnRes(p.cookie, 'what goes well with peanuts?');
+    await until(async () => (await lockWaiters()) >= 1);
+    expect((await call(p.cookie, { method: 'DELETE', url: '/me/consents/ai_health' })).statusCode).toBe(204);
+    release();
+    await blocker;
+    const r = (await turning).json<TurnResponse>();
+    expect(r).toMatchObject({ route: 'scripted', notice: 'needs_ai_health' });
+    expect(ai.requests).toHaveLength(0);
   });
 });
