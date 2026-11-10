@@ -1,5 +1,5 @@
 // M4 Step 7: code wins where code can read the player's words (spike §6.8). Each case is a spike failure.
-import type { Severity } from '@kitchenquest/core';
+import { buildRuleCard, type Severity } from '@kitchenquest/core';
 import { describe, expect, test } from 'vitest';
 import { defaultCatalog } from '../catalog.js';
 import { applyPostChecks, severeTermsLeftOut } from './postchecks.js';
@@ -91,6 +91,21 @@ describe('severeTermsLeftOut', () => {
     // Fix round 1 (probe): a severe term the grammar parsed but the model made no card for is missed too.
     expect(severeTermsLeftOut("peanuts nearly killed me and I'm allergic to sesame", ['peanuts'], graph)).toBe('sesame');
     expect(severeTermsLeftOut('I have a severe peanut allergy', [], graph)).toBe('peanut');
+  });
+
+  // The grammar doesn't read "X nearly killed me"; the near-cue bypass keeps a term the graph
+  // knows. Cashew used to be unknown, so this got only a generic ask.
+  test('"cashews nearly killed me" keeps a cashew rule and, uncovered, names cashew', () => {
+    const text = 'cashews nearly killed me';
+    expect(post([rule('cashews', 'anaphylactic')], text)).toEqual([rule('cashews', 'anaphylactic')]);
+    expect(buildRuleCard({ term: 'cashews', severity: 'anaphylactic' }, graph, ruleTerms)).toMatchObject({
+      ok: true,
+      card: { severe: true, rule: { target: { kind: 'ingredient', ids: ['cashew'] }, severity: 'anaphylactic' } },
+    });
+    expect(severeTermsLeftOut(text, [], graph)).toBe('cashew');
+    for (const [said, id] of [['scallops', 'scallop'], ['celeriac', 'celeriac'], ['lupin', 'lupin'], ['sulphites', 'sulphites']]) {
+      expect(severeTermsLeftOut(`${said} nearly killed me`, [], graph), said).toBe(graph.get(id).name);
+    }
   });
 });
 
