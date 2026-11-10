@@ -8,7 +8,7 @@ import { createStore, type PlayerState } from '../state/store';
 import type { MentorBackend } from './backend';
 import { CLOSED_TEXT } from './cards-view';
 import { createDialogue } from './dialogue';
-import { MAX_BUBBLES, mountMentorPanel, NOT_SAVED_TEXT, THINKING_TEXT, type MentorMode } from './panel';
+import { DEVICE_ONLY_FOOTNOTE, MAX_BUBBLES, mountMentorPanel, NOT_SAVED_TEXT, THINKING_TEXT, type MentorMode } from './panel';
 import type { CardView, PanItem, PanReply, TurnContext } from './reply';
 import { createScriptedEngine } from './scripted';
 import type { CardWriter, UndoOutcome, WriteOutcome } from './writer';
@@ -43,7 +43,7 @@ const client = {
   grantConsent: vi.fn(() => Promise.resolve({ ok: true, status: 201, data: { consent: {} } })),
 } as unknown as ApiClient;
 
-function mount(opts: { mode?: MentorMode; backend?: MentorBackend; writer?: CardWriter; patch?: Partial<PlayerState>; now?: () => Date } = {}) {
+function mount(opts: { mode?: MentorMode; backend?: MentorBackend; writer?: CardWriter; patch?: Partial<PlayerState>; now?: () => Date; disclosure?: string } = {}) {
   document.body.replaceChildren();
   const root = document.createElement('div');
   document.body.append(root);
@@ -53,7 +53,7 @@ function mount(opts: { mode?: MentorMode; backend?: MentorBackend; writer?: Card
   const backend = opts.backend ?? { kind: 'scripted', reply: () => Promise.resolve(reply(['x'])) };
   const pan = mountMentorPanel(root, {
     mode: opts.mode ?? 'standard', backend, dialogue, writer, engine, client, forms: content.bureau.forms, store,
-    reducedMotion: () => true, now: opts.now ?? (() => T0),
+    reducedMotion: () => true, now: opts.now ?? (() => T0), ...(opts.disclosure === undefined ? {} : { disclosure: opts.disclosure }),
   });
   const send = async (text: string) => {
     root.querySelector<HTMLTextAreaElement>('#pan-text')!.value = text;
@@ -310,5 +310,94 @@ describe('family table', () => {
     pan.show(reply(['hello there'], { cards: [card], items: [...reply(['hello there']).items, { kind: 'consent', purpose: 'health_data' }, { kind: 'choices', options: [{ id: 'a', name: 'A' }], severity: null }] }));
     expect(panTexts(root)).toEqual(['hello there']);
     expect(root.querySelector('.pan-card, .pan-consent-item, .pan-choices')).toBeNull();
+  });
+});
+
+describe('Step 11 hooks', () => {
+  const C16 = content.bureau.disclaimers.ai_characters;
+
+  test('the AI disclosure shows once, on the first open in standard mode, and Got it sets the flag', () => {
+    const { root, pan, store } = mount({ disclosure: C16 });
+    expect(root.querySelector('.pan-disclosure')).toBeNull();
+    pan.open();
+    const note = root.querySelector('.pan-disclosure')!;
+    expect(note.querySelector('[data-content]')!.textContent).toBe(C16);
+    pan.close();
+    pan.open();
+    expect(root.querySelectorAll('.pan-disclosure')).toHaveLength(1);
+    button(note, 'Got it')!.click();
+    expect(store.get().aiDisclosureSeen).toBe(true);
+    expect(button(note, 'Got it')).toBeUndefined();
+    // Not a Pan line: the bubble count is untouched.
+    expect(panTexts(root)).toEqual([]);
+    const seen = mount({ disclosure: C16, patch: { aiDisclosureSeen: true } });
+    seen.pan.open();
+    expect(seen.root.querySelector('.pan-disclosure')).toBeNull();
+    const ft = mount({ disclosure: C16, mode: 'familyTable' });
+    ft.pan.open();
+    expect(ft.root.querySelector('.pan-disclosure')).toBeNull();
+  });
+
+  test('onOpen listeners run on each open; interceptText answers first and null falls through', async () => {
+    const backend: MentorBackend = { kind: 'scripted', reply: vi.fn(() => Promise.resolve(reply(['from the backend']))) };
+    const { root, pan, send } = mount({ backend });
+    const opened = vi.fn();
+    pan.onOpen(opened);
+    pan.open();
+    expect(opened).toHaveBeenCalledTimes(1);
+    pan.interceptText((text) => (text === 'mine' ? Promise.resolve(reply(['from the intake'])) : null));
+    await send('mine');
+    await send('other');
+    expect(panTexts(root)).toEqual(['from the intake', 'from the backend']);
+    expect(backend.reply).toHaveBeenCalledTimes(1);
+    expect(pan.turn).toBe(2);
+  });
+
+  test('onCardDone hears stamps and turn-downs; setAside shows and removes an element', async () => {
+    const { root, pan } = mount();
+    const done = vi.fn();
+    pan.onCardDone(done);
+    const a = local(buildProfileCard({ marketDays: [6] }), 'A');
+    const b = local(buildProfileCard({ mealsPerWeek: 3 }), 'B');
+    pan.show(reply([], { cards: [a, b] }));
+    button(root.querySelectorAll('.pan-card')[0], 'Ink it ✔')!.click();
+    await flush();
+    button(root.querySelector('.pan-card')!, 'Leave in pencil')!.click();
+    await flush();
+    expect(done.mock.calls).toEqual([[a, 'confirmed'], [b, 'rejected']]);
+    const aside = document.createElement('p');
+    aside.textContent = 'checklist';
+    pan.setAside(aside);
+    expect(root.querySelector('.pan-aside')!.textContent).toBe('checklist');
+    pan.setAside(null);
+    expect(root.querySelector<HTMLElement>('.pan-aside')!.hidden).toBe(true);
+  });
+
+  test('a signed-out local rule card says it is kept on this device only; signed in it does not', () => {
+    const card = local(rule('sesame', 'allergy'));
+    const out = mount();
+    out.pan.show(reply([], { cards: [card] }));
+    expect(out.root.querySelector('.pan-card')!.textContent).toContain(DEVICE_ONLY_FOOTNOTE);
+    const inn = mount({ patch: { account: { email: 'a@b.c' } } });
+    inn.pan.show(reply([], { cards: [card] }));
+    expect(inn.root.querySelector('.pan-card')!.textContent).not.toContain(DEVICE_ONLY_FOOTNOTE);
+  });
+
+  test('quick answers: a tap is a turn, shown as the player\'s words; consent onAnswer hears Not now', async () => {
+    const { root, pan } = mount();
+    const onPick = vi.fn(() => Promise.resolve(reply(['picked'])));
+    pan.show({ items: [{ kind: 'quick', label: 'Quick answers', options: [{ label: 'Saturday', value: 'saturday' }, { label: 'Skip', value: 'skip' }], onPick }], cards: [], intents: [], actions: [], notice: null });
+    button(root, 'Saturday')!.click();
+    button(root, 'Skip')!.click();
+    await flush();
+    expect(onPick).toHaveBeenCalledTimes(1);
+    expect(onPick).toHaveBeenCalledWith('saturday', expect.objectContaining({ turn: 1 }));
+    expect([...root.querySelectorAll('.bubble.you')].map((b) => b.textContent)).toEqual(['Saturday']);
+    expect(panTexts(root)).toEqual(['picked']);
+    const onAnswer = vi.fn();
+    pan.show({ items: [{ kind: 'consent', purpose: 'ai_health', onAnswer }], cards: [], intents: [], actions: [], notice: null });
+    await flush();
+    button(root.querySelector('.consent-card')!, 'Not now')!.click();
+    expect(onAnswer).toHaveBeenCalledWith(false);
   });
 });

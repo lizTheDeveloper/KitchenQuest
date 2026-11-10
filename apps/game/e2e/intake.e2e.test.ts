@@ -168,4 +168,55 @@ describe('Form 1-A intake by conversation (M4 Step 11)', () => {
     await section.getByLabel("Talk to the Pan's AI").uncheck();
     expect(((await stored(page)).settings as { aiMentor: boolean }).aiMentor).toBe(false);
   });
+
+  it('Settings → The Pan: ai_health is granted on its own notice by tap, withdrawn with one tap, and conversations can be forgotten', async () => {
+    const calls: { method: string; path: string; body: unknown }[] = [];
+    let granted = false;
+    app = await openApp('/#/settings', {
+      reducedMotion: true, seed: { aiDisclosureSeen: true, intake: { step: 'done' } },
+      beforeGoto: async (page) => {
+        await page.route((u) => u.pathname === '/api/me', (r) => r.fulfill(json(200, { id: 'u1', email: 'cook@example.com', entitlements: [] })));
+        await page.route((u) => u.pathname === '/api/rules', (r) => r.fulfill(json(200, { rules: [] })));
+        await page.route((u) => u.pathname.startsWith('/api/me/consents') || u.pathname === '/api/mentor/conversations', (r) => {
+          const req = r.request();
+          const path = new URL(req.url()).pathname;
+          if (req.method() !== 'GET') calls.push({ method: req.method(), path, body: req.postDataJSON() as unknown });
+          if (req.method() === 'POST') { granted = true; return r.fulfill(json(201, { consent: {} })); }
+          if (req.method() === 'DELETE') { granted = false; return r.fulfill({ status: 204 }); }
+          const consents = granted
+            ? [{ purpose: 'ai_health', noticeVersion: 'v1', noticeSha256: 'x', method: 'tap', grantedAt: '2026-11-01T00:00:00Z', withdrawnAt: null, endedReason: null, current: true }]
+            : [];
+          return r.fulfill(json(200, { consents, needsReconsent: [], notices: { health_data: { version: 'v2', text: 'HEALTH NOTICE TEXT' }, ai_health: { version: 'v1', text: 'AI NOTICE TEXT' } } }));
+        });
+      },
+    });
+    const { page } = app;
+    const box = page.getByLabel('Let the AI see my allergies, rules and meals');
+    await page.locator('#set-ai-health:not([disabled])').waitFor();
+    expect(await box.isChecked()).toBe(false);
+    // Granting: the notice first, and only "I agree" files it.
+    await box.click();
+    const notice = page.locator('.ai-health-notice .consent-card');
+    await notice.waitFor();
+    expect(await notice.textContent()).toContain('AI NOTICE TEXT');
+    expect(calls).toEqual([]);
+    await notice.getByRole('button', { name: 'I agree' }).click();
+    await expect.poll(() => box.isChecked()).toBe(true);
+    expect(calls).toEqual([{ method: 'POST', path: '/api/me/consents', body: { purpose: 'ai_health', noticeVersion: 'v1', method: 'tap' } }]);
+    // Withdrawing: one tap (P-4).
+    await box.click();
+    await expect.poll(() => calls.length).toBe(2);
+    expect(calls[1]).toMatchObject({ method: 'DELETE', path: '/api/me/consents/ai_health' });
+    await expect.poll(() => box.isChecked()).toBe(false);
+    // Forget my conversations: a confirm, then the API, then forget.done.
+    await page.getByRole('button', { name: 'Forget my conversations with the Pan' }).click();
+    const modal = page.getByRole('dialog', { name: 'Forget your conversations?' });
+    await modal.waitFor();
+    await expectNoA11yViolations(page, 'forget confirm');
+    await modal.getByRole('button', { name: 'Forget them' }).click();
+    await expect.poll(() => calls.length).toBe(3);
+    expect(calls[2]).toMatchObject({ method: 'DELETE', path: '/api/mentor/conversations' });
+    await expect.poll(async () => lines('forget.done').includes((await page.locator('#pan-settings-status').textContent()) ?? '')).toBe(true);
+    expect(app.consoleErrors).toEqual([]);
+  });
 });
