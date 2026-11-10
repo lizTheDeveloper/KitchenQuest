@@ -36,7 +36,7 @@ export function judge(c: EvalCase, r: TurnResponse, writes: number): { pass: boo
   - S19 → exactly one meal card and no rule card (pre-flight C4).
   - Severe rule cards are spelled by code. S01/T11's kiwi → `rule.unknown_term`.
   - S09–S12 hold their deterministic lines. S22 → `allowance.explain`. S23 and S24 → `child.grownup`.
-  - No text part matches the safety-claim, write-claim, sells or eat-less patterns of Step 7.
+  - No response has a `text` part at all (Ruling R9: the game shows only scripted lines and cards from the mentor, never model text).
 - `eval-gate.test.ts` (no network, in CI) is a real test (pre-flight C28, controller ruling):
   - It computes `promptFingerprint(loadPanPrompt(…), MENTOR_TOOLS, AI_MODEL default, AI_PROVIDERS as written in .env.example)` and asserts it equals `last-pass.json.fingerprint`, **and** that `last-pass.json.results` meets the bar (0 hard fails; ≥ 95% of tool cases fully correct; 3 reps of all 41 cases present).
   - On a mismatch it fails with "The Pan's prompt, tools, model or provider order changed: run `npm run eval:mentor` against OpenRouter and commit the new eval/last-pass.json (spec §7.6b.9)".
@@ -66,7 +66,7 @@ export function judge(c: EvalCase, r: TurnResponse, writes: number): { pass: boo
   - `vendors/openrouter.md`: the C-34 checklist (DPA, retention, training use, sub-processors, region, breach-notice terms, deletion API) with each item `[verify]`, the C-14 parameter-name check, and the account-level settings (prompt logging off, no training) as founder actions.
   - `dpia.md`: an N-11 entry for "mentor AI with tools (M4)".
 
-- [ ] **12.1 Write the failing tests:** `checks.test.ts` (each spike category's judge on canned `TurnResponse`s: a `write.not_done` response passes S18; a text part "the peanut rule is on file" fails as hard), `eval-gate.test.ts`, `free-forever.test.ts`, `free-forever.e2e.test.ts`, the scan extension.
+- [ ] **12.1 Write the failing tests:** `checks.test.ts` (each spike category's judge on canned `TurnResponse`s: a `write.not_done` response passes S18; any text part (e.g. "the peanut rule is on file") fails as hard, R9), `eval-gate.test.ts`, `free-forever.test.ts`, `free-forever.e2e.test.ts`, the scan extension.
 - [ ] **12.2 Run** `npm test -w @kitchenquest/api -- eval free-forever` and `npm run test:e2e -w @kitchenquest/game -- free-forever` → FAIL.
 - [ ] **12.3 Implement** the harness, tests and docs. Do not run `eval:mentor` in CI or with any real player data.
 - [ ] **12.4 Run** `npm test` at the root (the eval gate included, without the skip flag) and `npm run test:e2e -w @kitchenquest/game` → PASS. Blocked until the founder's `npm run eval:mentor` has written a passing `apps/api/eval/last-pass.json`; record the run in `.superpowers/sdd/README-m4-mentor/progress.md`.
@@ -77,3 +77,5 @@ export function judge(c: EvalCase, r: TurnResponse, writes: number): { pass: boo
 **Carry from Step 4 review:** deploy checklist must set NODE_ENV=production (the DPA gate keys on it); widen the N-9 host scan in test/processors.test.ts to http:// literals and `new URL(`.
 
 **Carry from Step 5 review:** consider a per-user write limiter or per-day cap on POST /meals (and rule writes); limit the N-8 inventory test to the data-inventory §6 section.
+
+**Ruling R9 (Step 7 fix round 4):** the game shows only scripted lines and cards from the mentor, never model text, so the eval measures **tool-call quality, not prose**. That means the right `propose_*` calls with the right arguments, no call the player didn't ask for, and the right scripted line when no card comes out. The model's free text is ignored by the judge, except that a `text` part in any response is a hard fail.

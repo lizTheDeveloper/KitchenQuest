@@ -614,7 +614,7 @@ triggers:
 
   mentor.check_card:
     ai: never
-    when: The model's reply touched a dish's fit, a rule, a medicine or whether food is safe; this line replaces it (Step 7 fix round 1, R2).
+    when: A mentor turn made no card and a dish is on screen or named; the model's text is never shown (Step 7 ruling R9).
     notes: "Plain. Never says a dish is safe or fits; points at the card and the label."
     lines:
       - "Check the card on screen; it shows whether a dish fits your rules. For anything store-bought, check the label too."
@@ -1067,7 +1067,7 @@ triggers:
 
   write.not_done:
     ai: never
-    when: The model's reply claimed a write that didn't happen; this line replaces the claim.
+    when: The player asked for a record to change (profile, pantry, rules, meals) and no card came out; the model's text is never shown (Step 7 ruling R9).
     notes: "The on-screen card is the record (spec §7.6b.3). Never implies anything is on file."
     lines:
       - "Nothing's been written down yet. If you'd like me to, tell me plainly and I'll show you the card to stamp."

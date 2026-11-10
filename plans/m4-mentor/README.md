@@ -124,6 +124,9 @@ Pre-flight rulings (`.superpowers/sdd/README-m4-mentor/preflight.md`; the spec w
 - **Minor fixes:** C17–C21, C31, C32, C34–C37, C39, C41, C43–C46 are applied in passing in the step named by each preflight entry.
 - **No change needed:** C26 (the age screen is consistent with §9), C27 (41 spike cases is right).
 
+Step 7 review rulings (`.superpowers/sdd/README-m4-mentor/progress.md`):
+- **R9: the model's free text is never shown in M4.** It supersedes the text logic of R1, R2, R6 and R8. On every turn the AI only proposes tool calls. The player sees cards and scripted pan.yaml lines (`didnt_understand`, `mentor.check_card` for a dish on screen or named, `write.not_done` for a write request with no card, `rule.ask_keep_off` / `rule.ask_what_else` on health turns, and the cap and consent lines). The model's text is never stored as a Pan message. R5 is kept: model strings on cards must be the player's own words and pass the screen. Free-form Q&A is deferred to a later milestone with a grounded design (ruling 10). The cost: the Pan doesn't free-chat in M4. → Steps 7, 10, 12.
+
 ## Tasks
 
 - [x] [Step 1 — Core: the deterministic mentor toolkit and wire protocol](step-1.md)

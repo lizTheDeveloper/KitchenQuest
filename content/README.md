@@ -176,9 +176,9 @@ The server agent and the client's scripted engine emit these by id, so they are 
 | `rule.tap_needed` | A typed "yes" for a severe card. Severe cards need a tap. | `ingredient` |
 | `rule.ask_what_else` | A severe statement named an ingredient no card was made for; asks for it plainly so it is never silently lost (Step 7). | `term` (optional) |
 | `rule.ask_keep_off` | A health turn ended with no card and no rule outcome (or the model's rule was dropped); asks plainly what to avoid and how badly (Step 7). | |
-| `mentor.check_card` | Replaces model text that touched a dish's fit, a rule, a medicine or food safety; points at the card and the label (Step 7). | |
+| `mentor.check_card` | A mentor turn with no card while a dish is on screen or named; points at the card and the label (Step 7, R9: model text is never shown). | |
 | `confirm.tap_card` | A typed "yes" or "no" with more than one card open. | |
-| `write.not_done` | Replaces a model reply that claimed a write that didn't happen. | |
+| `write.not_done` | The player asked for a record to change and no card came out (Step 7, R9: model text is never shown). | |
 | `consent.health_first` | A rule or meal card for a player without `health_data` consent; the 3-C/HEALTH card follows. | |
 | `child.grownup` | A child is talking. Exactly one fixed line, no joke. | |
 | `allowance.explain` | Any question about plans, prices or the chat allowance. Never names the Guild, a price, a plan or a tier (never rule 7). | |
