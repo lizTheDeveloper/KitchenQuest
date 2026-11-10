@@ -15,7 +15,8 @@
       "id": "peanut",
       "name": "peanut",
       "aliases": [
-        "groundnut"
+        "groundnut",
+        "monkey nut"
       ],
       "isA": [
         "nut"
@@ -225,6 +226,9 @@
       "isA": [
         "coconut"
       ],
+      "unsafeFor": [
+        "sulphites"
+      ],
       "per100g": {
         "energy_kcal": 354,
         "protein_g": 3.33,
@@ -234,7 +238,8 @@
         "sugars_g": 6.23,
         "sodium_mg": 20
       },
-      "fdcId": 170169
+      "fdcId": 170169,
+      "source": "FDC 170169. Shop-bought desiccated coconut is often preserved with sulphites, so it counts as sulphites for checking (unsafeFor)."
     },
     {
       "id": "cumin_seed",
@@ -278,7 +283,12 @@
       "name": "mustard seed",
       "aliases": [
         "black mustard seed",
-        "brown mustard seed"
+        "brown mustard seed",
+        "yellow mustard seed",
+        "white mustard seed",
+        "ground mustard",
+        "mustard powder",
+        "dry mustard"
       ],
       "isA": [
         "mustard"
@@ -774,7 +784,8 @@
       "unsafeFor": [
         "meat",
         "pork",
-        "fish"
+        "fish",
+        "sulphites"
       ],
       "per100g": {
         "energy_kcal": 335,
@@ -787,7 +798,7 @@
       },
       "densityGPerMl": 0.473,
       "fdcId": 169599,
-      "source": "FDC 169599 (gelatins, dry powder, unsweetened); density from its 1 envelope (1 tbsp) = 7 g portion. Made from pork, beef or fish collagen and the label rarely says which, so it counts as meat, pork and fish for checking (unsafeFor)."
+      "source": "FDC 169599 (gelatins, dry powder, unsweetened); density from its 1 envelope (1 tbsp) = 7 g portion. Made from pork, beef or fish collagen and the label rarely says which, so it counts as meat, pork and fish for checking (unsafeFor). EU law permits sulphites in gelatine, so it also counts as sulphites."
     },
     {
       "id": "whey",
@@ -837,7 +848,10 @@
         "raw shrimp"
       ],
       "isA": [
-        "shellfish"
+        "crustacean"
+      ],
+      "unsafeFor": [
+        "sulphites"
       ],
       "per100g": {
         "energy_kcal": 85,
@@ -849,7 +863,868 @@
         "sodium_mg": 119
       },
       "fdcId": 175179,
-      "source": "FDC 175179 (crustaceans, shrimp, raw). Fiber and sugars not reported, set to 0."
+      "source": "FDC 175179 (crustaceans, shrimp, raw). Fiber and sugars not reported, set to 0. EU law permits sulphites (E220-E228) on crustaceans and cephalopods, and labels rarely say, so it counts as sulphites for checking (unsafeFor)."
+    },
+    {
+      "id": "almond",
+      "name": "almond",
+      "aliases": [
+        "ground almond",
+        "flaked almond",
+        "slivered almond"
+      ],
+      "isA": [
+        "tree_nut"
+      ],
+      "per100g": {
+        "energy_kcal": 579,
+        "protein_g": 21.15,
+        "fat_g": 49.93,
+        "carb_g": 21.55,
+        "fiber_g": 12.5,
+        "sugars_g": 4.35,
+        "sodium_mg": 1
+      },
+      "fdcId": 170567,
+      "source": "FDC 170567 (Nuts, almonds)."
+    },
+    {
+      "id": "cashew",
+      "name": "cashew",
+      "aliases": [
+        "cashew nut"
+      ],
+      "isA": [
+        "tree_nut"
+      ],
+      "per100g": {
+        "energy_kcal": 553,
+        "protein_g": 18.22,
+        "fat_g": 43.85,
+        "carb_g": 30.19,
+        "fiber_g": 3.3,
+        "sugars_g": 5.91,
+        "sodium_mg": 12
+      },
+      "fdcId": 170162,
+      "source": "FDC 170162 (Nuts, cashew nuts, raw)."
+    },
+    {
+      "id": "walnut",
+      "name": "walnut",
+      "aliases": [
+        "english walnut"
+      ],
+      "isA": [
+        "tree_nut"
+      ],
+      "per100g": {
+        "energy_kcal": 654,
+        "protein_g": 15.23,
+        "fat_g": 65.21,
+        "carb_g": 13.71,
+        "fiber_g": 6.7,
+        "sugars_g": 2.61,
+        "sodium_mg": 2
+      },
+      "fdcId": 170187,
+      "source": "FDC 170187 (Nuts, walnuts, english)."
+    },
+    {
+      "id": "pecan",
+      "name": "pecan",
+      "aliases": [
+        "pecan nut"
+      ],
+      "isA": [
+        "tree_nut"
+      ],
+      "per100g": {
+        "energy_kcal": 691,
+        "protein_g": 9.17,
+        "fat_g": 71.97,
+        "carb_g": 13.86,
+        "fiber_g": 9.6,
+        "sugars_g": 3.97,
+        "sodium_mg": 0
+      },
+      "fdcId": 170182,
+      "source": "FDC 170182 (Nuts, pecans)."
+    },
+    {
+      "id": "hazelnut",
+      "name": "hazelnut",
+      "aliases": [
+        "filbert",
+        "hazel nut"
+      ],
+      "isA": [
+        "tree_nut"
+      ],
+      "per100g": {
+        "energy_kcal": 628,
+        "protein_g": 14.95,
+        "fat_g": 60.75,
+        "carb_g": 16.7,
+        "fiber_g": 9.7,
+        "sugars_g": 4.34,
+        "sodium_mg": 0
+      },
+      "fdcId": 170581,
+      "source": "FDC 170581 (Nuts, hazelnuts or filberts)."
+    },
+    {
+      "id": "pistachio",
+      "name": "pistachio",
+      "aliases": [
+        "pistachio nut"
+      ],
+      "isA": [
+        "tree_nut"
+      ],
+      "per100g": {
+        "energy_kcal": 560,
+        "protein_g": 20.16,
+        "fat_g": 45.32,
+        "carb_g": 27.17,
+        "fiber_g": 10.6,
+        "sugars_g": 7.66,
+        "sodium_mg": 1
+      },
+      "fdcId": 170184,
+      "source": "FDC 170184 (Nuts, pistachio nuts, raw)."
+    },
+    {
+      "id": "brazil_nut",
+      "name": "brazil nut",
+      "aliases": [
+        "brazilnut"
+      ],
+      "isA": [
+        "tree_nut"
+      ],
+      "per100g": {
+        "energy_kcal": 659,
+        "protein_g": 14.32,
+        "fat_g": 67.1,
+        "carb_g": 11.74,
+        "fiber_g": 7.5,
+        "sugars_g": 2.33,
+        "sodium_mg": 3
+      },
+      "fdcId": 170569,
+      "source": "FDC 170569 (Nuts, brazilnuts, dried, unblanched)."
+    },
+    {
+      "id": "macadamia",
+      "name": "macadamia nut",
+      "aliases": [
+        "macadamia",
+        "queensland nut"
+      ],
+      "isA": [
+        "tree_nut"
+      ],
+      "per100g": {
+        "energy_kcal": 718,
+        "protein_g": 7.91,
+        "fat_g": 75.77,
+        "carb_g": 13.82,
+        "fiber_g": 8.6,
+        "sugars_g": 4.57,
+        "sodium_mg": 5
+      },
+      "fdcId": 170178,
+      "source": "FDC 170178 (Nuts, macadamia nuts, raw)."
+    },
+    {
+      "id": "pine_nut",
+      "name": "pine nut",
+      "aliases": [
+        "pine kernel",
+        "pignoli",
+        "pignolia"
+      ],
+      "isA": [
+        "tree_nut"
+      ],
+      "per100g": {
+        "energy_kcal": 673,
+        "protein_g": 13.69,
+        "fat_g": 68.37,
+        "carb_g": 13.08,
+        "fiber_g": 3.7,
+        "sugars_g": 3.59,
+        "sodium_mg": 2
+      },
+      "fdcId": 170591,
+      "source": "FDC 170591 (Nuts, pine nuts, dried). Botanically a seed, not a nut, and not named in EU Annex II; the FDA lists it as a tree nut. Modelled as a tree nut so a tree-nut rule always covers it (can't verify is never safe)."
+    },
+    {
+      "id": "chestnut",
+      "name": "chestnut",
+      "aliases": [
+        "sweet chestnut"
+      ],
+      "isA": [
+        "tree_nut"
+      ],
+      "per100g": {
+        "energy_kcal": 213,
+        "protein_g": 2.42,
+        "fat_g": 2.26,
+        "carb_g": 45.54,
+        "fiber_g": 8.1,
+        "sugars_g": 0,
+        "sodium_mg": 3
+      },
+      "fdcId": 170574,
+      "source": "FDC 170574 (Nuts, chestnuts, european, raw, unpeeled). Sugars not reported, set to 0. Not named in EU Annex II; modelled as a tree nut so a tree-nut rule always covers it (can't verify is never safe). Water chestnut is a different plant and is not an alias."
+    },
+    {
+      "id": "crustacean",
+      "name": "crustacean",
+      "aliases": [
+        "crustacean shellfish"
+      ],
+      "isA": [
+        "shellfish"
+      ],
+      "source": "Allergen category, listed for rule checking. No FDC record, so no nutrition values."
+    },
+    {
+      "id": "mollusc",
+      "name": "mollusc",
+      "aliases": [
+        "mollusk"
+      ],
+      "isA": [
+        "shellfish"
+      ],
+      "source": "Allergen category (EU Annex II), listed for rule checking. Under shellfish so a shellfish rule (and vegetarian/vegan, which name shellfish) also covers molluscs; FALCPA shellfish is crustaceans only, so this is the wider, safer reading. No FDC record, so no nutrition values."
+    },
+    {
+      "id": "crab",
+      "name": "crab",
+      "aliases": [
+        "crab meat",
+        "crabmeat"
+      ],
+      "isA": [
+        "crustacean"
+      ],
+      "unsafeFor": [
+        "sulphites"
+      ],
+      "per100g": {
+        "energy_kcal": 87,
+        "protein_g": 18.06,
+        "fat_g": 1.08,
+        "carb_g": 0.04,
+        "fiber_g": 0,
+        "sugars_g": 0,
+        "sodium_mg": 293
+      },
+      "fdcId": 174204,
+      "source": "FDC 174204 (Crustaceans, crab, blue, raw). Sugars not reported, set to 0. EU law permits sulphites (E220-E228) on crustaceans and cephalopods, and labels rarely say, so it counts as sulphites for checking (unsafeFor)."
+    },
+    {
+      "id": "lobster",
+      "name": "lobster",
+      "aliases": [
+        "lobster tail"
+      ],
+      "isA": [
+        "crustacean"
+      ],
+      "unsafeFor": [
+        "sulphites"
+      ],
+      "per100g": {
+        "energy_kcal": 77,
+        "protein_g": 16.52,
+        "fat_g": 0.75,
+        "carb_g": 0,
+        "fiber_g": 0,
+        "sugars_g": 0,
+        "sodium_mg": 423
+      },
+      "fdcId": 174208,
+      "source": "FDC 174208 (Crustaceans, lobster, northern, raw). EU law permits sulphites (E220-E228) on crustaceans and cephalopods, and labels rarely say, so it counts as sulphites for checking (unsafeFor)."
+    },
+    {
+      "id": "crayfish",
+      "name": "crayfish",
+      "aliases": [
+        "crawfish"
+      ],
+      "isA": [
+        "crustacean"
+      ],
+      "unsafeFor": [
+        "sulphites"
+      ],
+      "per100g": {
+        "energy_kcal": 77,
+        "protein_g": 15.97,
+        "fat_g": 0.95,
+        "carb_g": 0,
+        "fiber_g": 0,
+        "sugars_g": 0,
+        "sodium_mg": 58
+      },
+      "fdcId": 174206,
+      "source": "FDC 174206 (Crustaceans, crayfish, mixed species, wild, raw). EU law permits sulphites (E220-E228) on crustaceans and cephalopods, and labels rarely say, so it counts as sulphites for checking (unsafeFor)."
+    },
+    {
+      "id": "clam",
+      "name": "clam",
+      "isA": [
+        "mollusc"
+      ],
+      "per100g": {
+        "energy_kcal": 86,
+        "protein_g": 14.67,
+        "fat_g": 0.96,
+        "carb_g": 3.57,
+        "fiber_g": 0,
+        "sugars_g": 0,
+        "sodium_mg": 601
+      },
+      "fdcId": 174214,
+      "source": "FDC 174214 (Mollusks, clam, mixed species, raw)."
+    },
+    {
+      "id": "mussel",
+      "name": "mussel",
+      "aliases": [
+        "blue mussel"
+      ],
+      "isA": [
+        "mollusc"
+      ],
+      "per100g": {
+        "energy_kcal": 86,
+        "protein_g": 11.9,
+        "fat_g": 2.24,
+        "carb_g": 3.69,
+        "fiber_g": 0,
+        "sugars_g": 0,
+        "sodium_mg": 286
+      },
+      "fdcId": 174216,
+      "source": "FDC 174216 (Mollusks, mussel, blue, raw)."
+    },
+    {
+      "id": "oyster",
+      "name": "oyster",
+      "isA": [
+        "mollusc"
+      ],
+      "per100g": {
+        "energy_kcal": 51,
+        "protein_g": 5.71,
+        "fat_g": 1.71,
+        "carb_g": 2.72,
+        "fiber_g": 0,
+        "sugars_g": 0.62,
+        "sodium_mg": 85
+      },
+      "fdcId": 171978,
+      "source": "FDC 171978 (Mollusks, oyster, eastern, wild, raw)."
+    },
+    {
+      "id": "scallop",
+      "name": "scallop",
+      "aliases": [
+        "sea scallop",
+        "bay scallop"
+      ],
+      "isA": [
+        "mollusc"
+      ],
+      "per100g": {
+        "energy_kcal": 69,
+        "protein_g": 12.06,
+        "fat_g": 0.49,
+        "carb_g": 3.18,
+        "fiber_g": 0,
+        "sugars_g": 0,
+        "sodium_mg": 392
+      },
+      "fdcId": 174220,
+      "source": "FDC 174220 (Mollusks, scallop, mixed species, raw)."
+    },
+    {
+      "id": "squid",
+      "name": "squid",
+      "aliases": [
+        "calamari",
+        "calamares"
+      ],
+      "isA": [
+        "mollusc"
+      ],
+      "unsafeFor": [
+        "sulphites"
+      ],
+      "per100g": {
+        "energy_kcal": 92,
+        "protein_g": 15.58,
+        "fat_g": 1.38,
+        "carb_g": 3.08,
+        "fiber_g": 0,
+        "sugars_g": 0,
+        "sodium_mg": 44
+      },
+      "fdcId": 174223,
+      "source": "FDC 174223 (Mollusks, squid, mixed species, raw). EU law permits sulphites (E220-E228) on crustaceans and cephalopods, and labels rarely say, so it counts as sulphites for checking (unsafeFor)."
+    },
+    {
+      "id": "octopus",
+      "name": "octopus",
+      "isA": [
+        "mollusc"
+      ],
+      "unsafeFor": [
+        "sulphites"
+      ],
+      "per100g": {
+        "energy_kcal": 82,
+        "protein_g": 14.91,
+        "fat_g": 1.04,
+        "carb_g": 2.2,
+        "fiber_g": 0,
+        "sugars_g": 0,
+        "sodium_mg": 230
+      },
+      "fdcId": 174218,
+      "source": "FDC 174218 (Mollusks, octopus, common, raw). EU law permits sulphites (E220-E228) on crustaceans and cephalopods, and labels rarely say, so it counts as sulphites for checking (unsafeFor)."
+    },
+    {
+      "id": "snail",
+      "name": "snail",
+      "aliases": [
+        "escargot"
+      ],
+      "isA": [
+        "mollusc"
+      ],
+      "per100g": {
+        "energy_kcal": 90,
+        "protein_g": 16.1,
+        "fat_g": 1.4,
+        "carb_g": 2,
+        "fiber_g": 0,
+        "sugars_g": 0,
+        "sodium_mg": 70
+      },
+      "fdcId": 167744,
+      "source": "FDC 167744 (Mollusks, snail, raw)."
+    },
+    {
+      "id": "cod",
+      "name": "cod",
+      "aliases": [
+        "atlantic cod"
+      ],
+      "isA": [
+        "fish"
+      ],
+      "per100g": {
+        "energy_kcal": 82,
+        "protein_g": 17.81,
+        "fat_g": 0.67,
+        "carb_g": 0,
+        "fiber_g": 0,
+        "sugars_g": 0,
+        "sodium_mg": 54
+      },
+      "fdcId": 171955,
+      "source": "FDC 171955 (Fish, cod, Atlantic, raw)."
+    },
+    {
+      "id": "salmon",
+      "name": "salmon",
+      "aliases": [
+        "atlantic salmon"
+      ],
+      "isA": [
+        "fish"
+      ],
+      "per100g": {
+        "energy_kcal": 142,
+        "protein_g": 19.84,
+        "fat_g": 6.34,
+        "carb_g": 0,
+        "fiber_g": 0,
+        "sugars_g": 0,
+        "sodium_mg": 44
+      },
+      "fdcId": 173686,
+      "source": "FDC 173686 (Fish, salmon, Atlantic, wild, raw). Sugars not reported, set to 0."
+    },
+    {
+      "id": "tuna",
+      "name": "tuna",
+      "aliases": [
+        "bluefin tuna"
+      ],
+      "isA": [
+        "fish"
+      ],
+      "per100g": {
+        "energy_kcal": 144,
+        "protein_g": 23.33,
+        "fat_g": 4.9,
+        "carb_g": 0,
+        "fiber_g": 0,
+        "sugars_g": 0,
+        "sodium_mg": 39
+      },
+      "fdcId": 173706,
+      "source": "FDC 173706 (Fish, tuna, fresh, bluefin, raw)."
+    },
+    {
+      "id": "anchovy",
+      "name": "anchovy",
+      "aliases": [
+        "anchovies",
+        "anchovy fillet"
+      ],
+      "isA": [
+        "fish"
+      ],
+      "per100g": {
+        "energy_kcal": 131,
+        "protein_g": 20.35,
+        "fat_g": 4.84,
+        "carb_g": 0,
+        "fiber_g": 0,
+        "sugars_g": 0,
+        "sodium_mg": 104
+      },
+      "fdcId": 174182,
+      "source": "FDC 174182 (Fish, anchovy, european, raw)."
+    },
+    {
+      "id": "sardine",
+      "name": "sardine",
+      "aliases": [
+        "pilchard"
+      ],
+      "isA": [
+        "fish"
+      ],
+      "per100g": {
+        "energy_kcal": 208,
+        "protein_g": 24.62,
+        "fat_g": 11.45,
+        "carb_g": 0,
+        "fiber_g": 0,
+        "sugars_g": 0,
+        "sodium_mg": 307
+      },
+      "fdcId": 175139,
+      "source": "FDC 175139 is canned in oil, drained, with bone; fresh sardines are leaner."
+    },
+    {
+      "id": "mackerel",
+      "name": "mackerel",
+      "aliases": [
+        "atlantic mackerel"
+      ],
+      "isA": [
+        "fish"
+      ],
+      "per100g": {
+        "energy_kcal": 205,
+        "protein_g": 18.6,
+        "fat_g": 13.89,
+        "carb_g": 0,
+        "fiber_g": 0,
+        "sugars_g": 0,
+        "sodium_mg": 90
+      },
+      "fdcId": 175119,
+      "source": "FDC 175119 (Fish, mackerel, Atlantic, raw)."
+    },
+    {
+      "id": "celery",
+      "name": "celery",
+      "source": "Allergen category (EU Annex II), listed for rule checking; its forms (celery stalk, celeriac, celery seed) carry nutrition. No FDC record for the category, so no nutrition values."
+    },
+    {
+      "id": "celery_stalk",
+      "name": "celery stalk",
+      "aliases": [
+        "celery stick",
+        "celery rib",
+        "stick of celery"
+      ],
+      "isA": [
+        "celery"
+      ],
+      "per100g": {
+        "energy_kcal": 14,
+        "protein_g": 0.69,
+        "fat_g": 0.17,
+        "carb_g": 2.97,
+        "fiber_g": 1.6,
+        "sugars_g": 1.34,
+        "sodium_mg": 80
+      },
+      "fdcId": 169988,
+      "source": "FDC 169988 (Celery, raw)."
+    },
+    {
+      "id": "celeriac",
+      "name": "celeriac",
+      "aliases": [
+        "celery root"
+      ],
+      "isA": [
+        "celery"
+      ],
+      "per100g": {
+        "energy_kcal": 42,
+        "protein_g": 1.5,
+        "fat_g": 0.3,
+        "carb_g": 9.2,
+        "fiber_g": 1.8,
+        "sugars_g": 1.6,
+        "sodium_mg": 100
+      },
+      "fdcId": 170400,
+      "source": "FDC 170400 (Celeriac, raw)."
+    },
+    {
+      "id": "celery_seed",
+      "name": "celery seed",
+      "isA": [
+        "celery"
+      ],
+      "per100g": {
+        "energy_kcal": 392,
+        "protein_g": 18.07,
+        "fat_g": 25.27,
+        "carb_g": 41.35,
+        "fiber_g": 11.8,
+        "sugars_g": 0.67,
+        "sodium_mg": 160
+      },
+      "fdcId": 170920,
+      "source": "FDC 170920 (Spices, celery seed)."
+    },
+    {
+      "id": "lupin",
+      "name": "lupin",
+      "aliases": [
+        "lupine"
+      ],
+      "source": "Allergen category (EU Annex II), listed for rule checking. No FDC record for the category, so no nutrition values."
+    },
+    {
+      "id": "lupin_bean",
+      "name": "lupin bean",
+      "aliases": [
+        "lupini",
+        "lupini bean",
+        "lupine bean"
+      ],
+      "isA": [
+        "lupin"
+      ],
+      "per100g": {
+        "energy_kcal": 371,
+        "protein_g": 36.17,
+        "fat_g": 9.74,
+        "carb_g": 40.37,
+        "fiber_g": 18.9,
+        "sugars_g": 0,
+        "sodium_mg": 15
+      },
+      "fdcId": 172423,
+      "source": "FDC 172423 (lupins, mature seeds, raw); brined lupini are much wetter and saltier. Sugars not reported, set to 0."
+    },
+    {
+      "id": "lupin_flour",
+      "name": "lupin flour",
+      "aliases": [
+        "lupine flour"
+      ],
+      "contains": [
+        "lupin"
+      ],
+      "source": "Flour from lupin seed, listed for rule checking. No FDC record, so no nutrition values."
+    },
+    {
+      "id": "sulphites",
+      "name": "sulphites",
+      "aliases": [
+        "sulphite",
+        "sulfites",
+        "sulfite",
+        "sulphur dioxide",
+        "sulfur dioxide",
+        "sodium metabisulphite",
+        "sodium metabisulfite",
+        "potassium metabisulphite",
+        "potassium metabisulfite",
+        "e220"
+      ],
+      "source": "Preservative class (EU Annex II above 10 mg/kg as SO2), listed for rule checking. No FDC record, so no nutrition values. Ingredients that may carry it without saying so name it in unsafeFor."
+    },
+    {
+      "id": "sesame_seed",
+      "name": "sesame seed",
+      "aliases": [
+        "white sesame seed",
+        "raw sesame seed"
+      ],
+      "isA": [
+        "sesame"
+      ],
+      "per100g": {
+        "energy_kcal": 573,
+        "protein_g": 17.73,
+        "fat_g": 49.67,
+        "carb_g": 23.45,
+        "fiber_g": 11.8,
+        "sugars_g": 0.3,
+        "sodium_mg": 11
+      },
+      "fdcId": 170150,
+      "source": "FDC 170150 (Seeds, sesame seeds, whole, dried)."
+    },
+    {
+      "id": "tahini",
+      "name": "tahini",
+      "aliases": [
+        "sesame paste"
+      ],
+      "contains": [
+        "sesame"
+      ],
+      "per100g": {
+        "energy_kcal": 570,
+        "protein_g": 17.81,
+        "fat_g": 48,
+        "carb_g": 26.19,
+        "fiber_g": 9.3,
+        "sugars_g": 0,
+        "sodium_mg": 74
+      },
+      "fdcId": 169410,
+      "source": "FDC 169410 (Seeds, sesame butter, tahini, from raw and stone ground kernels). Sugars not reported, set to 0."
+    },
+    {
+      "id": "barley",
+      "name": "barley",
+      "aliases": [
+        "pearl barley",
+        "pearled barley"
+      ],
+      "contains": [
+        "gluten"
+      ],
+      "per100g": {
+        "energy_kcal": 352,
+        "protein_g": 9.91,
+        "fat_g": 1.16,
+        "carb_g": 77.72,
+        "fiber_g": 15.6,
+        "sugars_g": 0.8,
+        "sodium_mg": 9
+      },
+      "fdcId": 170284,
+      "source": "FDC 170284 is pearled barley, raw."
+    },
+    {
+      "id": "rye",
+      "name": "rye",
+      "aliases": [
+        "rye grain"
+      ],
+      "contains": [
+        "gluten"
+      ],
+      "per100g": {
+        "energy_kcal": 338,
+        "protein_g": 10.34,
+        "fat_g": 1.63,
+        "carb_g": 75.86,
+        "fiber_g": 15.1,
+        "sugars_g": 0.98,
+        "sodium_mg": 2
+      },
+      "fdcId": 168884,
+      "source": "FDC 168884 (Rye grain)."
+    },
+    {
+      "id": "oats",
+      "name": "oats",
+      "aliases": [
+        "oat",
+        "rolled oats",
+        "porridge oats",
+        "oat flakes",
+        "oatmeal"
+      ],
+      "unsafeFor": [
+        "gluten"
+      ],
+      "per100g": {
+        "energy_kcal": 379,
+        "protein_g": 13.15,
+        "fat_g": 6.52,
+        "carb_g": 67.7,
+        "fiber_g": 10.1,
+        "sugars_g": 0.99,
+        "sodium_mg": 6
+      },
+      "fdcId": 173904,
+      "source": "FDC 173904 (oats, regular and quick, dry). Oats' own protein (avenin) is not gluten, but EU Annex II lists oats as a gluten cereal and most oats are cross-contaminated with wheat or barley, so they count as gluten for checking (unsafeFor) and are not a kind of wheat."
+    },
+    {
+      "id": "spelt",
+      "name": "spelt",
+      "isA": [
+        "wheat"
+      ],
+      "per100g": {
+        "energy_kcal": 338,
+        "protein_g": 14.57,
+        "fat_g": 2.43,
+        "carb_g": 70.19,
+        "fiber_g": 10.7,
+        "sugars_g": 6.82,
+        "sodium_mg": 8
+      },
+      "fdcId": 169745,
+      "source": "FDC 169745 (Spelt, uncooked). A wheat species (Triticum spelta), so a wheat rule covers it."
+    },
+    {
+      "id": "kamut",
+      "name": "khorasan wheat",
+      "aliases": [
+        "kamut",
+        "khorasan"
+      ],
+      "isA": [
+        "wheat"
+      ],
+      "per100g": {
+        "energy_kcal": 337,
+        "protein_g": 14.54,
+        "fat_g": 2.13,
+        "carb_g": 70.58,
+        "fiber_g": 11.1,
+        "sugars_g": 7.84,
+        "sodium_mg": 5
+      },
+      "fdcId": 169743,
+      "source": "FDC 169743 (wheat, KAMUT khorasan, uncooked). A wheat species (Triticum turanicum), so a wheat rule covers it."
     }
   ]
 }
