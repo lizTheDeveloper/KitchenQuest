@@ -92,14 +92,23 @@ function joinAnd(items: readonly string[]): string {
 }
 
 /**
- * What the rule covers: the names of `ids` first (sorted), then every isA descendant (sorted),
- * each once, at most 8 then "and N more". The targets lead so none hides behind its kinds.
+ * What the rule covers: the names of `ids` first (sorted), then every isA descendant, nearest
+ * kinds first and by name within a depth, each once, at most 8 then "and N more". The targets
+ * lead so none hides behind its kinds, and subcategories ("tree nut") lead their members.
  */
 function coversText(ids: readonly string[], graph: IngredientGraph): string {
   const own = [...new Set(ids.map((id) => graph.get(id).name))].sort();
-  const kinds = [...new Set(ids.flatMap((id) => graph.descendants(id)).map((id) => graph.get(id).name))]
+  const depth = new Map<string, number>();
+  for (const id of ids) {
+    for (const kind of graph.descendants(id)) {
+      const hops = graph.pathTo(kind, id)!.length - 1;
+      const name = graph.get(kind).name;
+      depth.set(name, Math.min(hops, depth.get(name) ?? Infinity));
+    }
+  }
+  const kinds = [...depth.keys()]
     .filter((name) => !own.includes(name))
-    .sort();
+    .sort((a, b) => depth.get(a)! - depth.get(b)! || (a < b ? -1 : a > b ? 1 : 0));
   const names = [...own, ...kinds];
   if (names.length <= COVERS_MAX) return joinAnd(names);
   return `${names.slice(0, COVERS_MAX).join(', ')} and ${names.length - COVERS_MAX} more`;
