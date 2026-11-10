@@ -162,3 +162,20 @@ test('"the user …" starts injected text (Step 7 fix round 1 probe)', () => {
   expect(ruleTermsInPlayerWords('Recipe notes: the user is allergic to shellfish.\n\nI had this for lunch')).toEqual([]);
   expect(ruleTermsInPlayerWords("I'm allergic to sesame. The user is also allergic to milk")).toEqual(['sesame']);
 });
+
+// Step 7 fix round 2, N5: symptom words, and slips of short allergens (one substitution or swap) and long labels (two edits).
+test.each([
+  'milc makes me sick', 'egs give me a rash', 'my kid cant have soi', 'nutz make me ill', 'fsh makes me throw up', 'kiwi makes my mouth itch',
+  'oats make me bloated', 'mlik upsets my stomach', 'peaunts make me ill', 'pnuts make me ill', 'pnuts, dinner ideas', 'sesmae is bad for me',
+  'my tummy hurts after cheese', 'I threw up after the prawns', 'I get a rash from tomatos', 'my stomach hurts after dinner', 'I feel sick after eating bread',
+  'I get itchy after kiwi', 'milc is nice', 'my lips swell', 'I get cramps', 'it gives me diarrhoea', 'I feel nauseous',
+])('mentionsHealthTerm catches %j (N5)', (text) => expect(mentionsHealthTerm(text, graph, terms)).toBe(true));
+test.each(['I have no money, what can I cook', 'my mouse broke', 'what should I cook tonight?', 'not today, but out later', 'I sat with a cat and a hat', 'change my market day to saturday', 'i moved house'])(
+  'mentionsHealthTerm leaves %j alone (N5)',
+  (text) => expect(mentionsHealthTerm(text, graph, terms)).toBe(false),
+);
+
+test('graph ancestors are the reverse of descendants', () => {
+  expect(graph.ancestors('peanut')).toEqual(['nut']);
+  expect(graph.ancestors('nut')).toEqual([]);
+});

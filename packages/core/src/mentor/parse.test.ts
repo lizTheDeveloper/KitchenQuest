@@ -395,3 +395,9 @@ describe('fix round 3: items naming one ingredient merge (ruling 3)', () => {
     expect(parseRuleStatement('allergic to eggs, intolerant to egg')?.terms).toEqual(['eggs', 'egg']);
   });
 });
+
+test('a pronoun is never a pantry item (Step 7 fix round 2)', () => {
+  expect(parsePantryRemovals('we finished it')).toEqual([]);
+  expect(parsePantryRemovals('ran out of them')).toEqual([]);
+  expect(parsePantryRemovals('finished the milk')).toEqual(['milk']);
+});

@@ -44,7 +44,7 @@ export const THANKS_PATTERN = /^(thanks|thank you|cheers|ta)\b[^?]{0,30}$/;
 
 /** Deliberately over-catches: it decides what may reach the model without `ai_health` (Step 7). */
 export const HEALTH_PATTERN =
-  /\b(allerg\w*|intoleran\w*|anaphyla\w*|epi-?pen|coeliac|celiac|vegan|vegetarian|pescatarian|halal|kosher|jain|diet\w*|can'?t (eat|have)|cannot (eat|have)|don'?t eat|avoid\w*|sensitive to|stomach|bloat\w*|rough after|makes me (sick|ill)|ate|eaten|had|breakfast|brekkie|lunch|dinner|supper|snack\w*)\b/;
+  /\b(can i (eat|have) (this|that|it)\w*|(ok|okay|fine|safe|alright) for me|(will|would|does|did) (it|this|that) (bother|upset|affect) me|allerg\w*|intoleran\w*|anaphyla\w*|epi-?pen|coeliac|celiac|vegan|vegetarian|pescatarian|halal|kosher|jain|diet\w*|can'?t (eat|have)|cannot (eat|have)|don'?t eat|avoid\w*|sensitive to|stomach|bloat\w*|rough after|makes me (sick|ill)|ate|eaten|had|breakfast|brekkie|lunch|dinner|supper|snack\w*)\b/;
 
 /**
  * The most a turn's text may hold (plan Global Constraint). Every exported text function in

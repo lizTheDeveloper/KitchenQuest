@@ -136,36 +136,68 @@ const pluralForms = (g: string): string[] => [g, ...(g.endsWith('es') ? [g.slice
  * conditions, symptoms and medicines. Over-catches on purpose.
  */
 export const HEALTH_WORDS =
-  /\b(al+erg|intoleran|diabet|coeliac|celiac|migraine|ibs|crohn|pregnan|epi-?pen|anaphyla|hives|reaction|symptom|medic|tablet|pill|dose|mg)\w*/i;
+  /\b(al+erg|intoleran|diabet|coeliac|celiac|migraine|ibs|crohn|pregnan|epi-?pen|anaphyla|hives|reaction|symptom|medic|tablet|pill|dose|mg|rash|itch|sick|ill|throw(n|s|ing)? up|threw up|vomit|nause|stomach|tumm(y|ies)|hurt|swell|swollen|wheez|cramp|bloat|diarrh)\w*/i;
 
-/** The shortest word checked for a one-letter slip ("penuts"); shorter ones over-match too much. */
-const FUZZY_MIN = 5;
+/** The allergen labels short enough that only a substitution or swap counts as a slip ("egs", "soi", "milc"). */
+const SHORT_ALLERGENS: readonly string[] = ['egg', 'soy', 'nut', 'fish', 'milk', 'oat'];
+/** Common words a slip away from a health label; never read as one ("not", "eat", "what" for wheat). */
+const COMMON_WORDS: ReadonlySet<string> = new Set([
+  'ego', 'boy', 'joy', 'toy', 'coy', 'say', 'sly', 'spy', 'son', 'sow', 'sod', 'but', 'cut', 'gut', 'hut', 'jut', 'put', 'rut', 'not', 'net',
+  'nit', 'nun', 'nub', 'dish', 'wish', 'fist', 'mild', 'mile', 'mill', 'mink', 'silk', 'bilk', 'out', 'eat', 'cat', 'bat', 'fat', 'hat',
+  'mat', 'pat', 'rat', 'sat', 'vat', 'oak', 'oar', 'oaf', 'opt', 'oft', 'buts', 'cuts', 'guts', 'huts', 'puts', 'nets', 'nits', 'eats',
+  'cats', 'bats', 'hats', 'mats', 'pats', 'rats', 'oaks', 'oars', 'outs', 'boys', 'toys', 'says', 'sons', 'dishes', 'wishes', 'fists',
+  'miles', 'mills', 'nuns', 'what', 'whats', 'meant', 'money', 'later', 'wheel', 'honest',
+]);
+/** The shortest word checked against the longer labels; shorter ones over-match too much. */
+const FUZZY_MIN = 4;
+/** Labels this long or longer allow two edits ("pnuts" for peanuts). */
+const TWO_EDIT_MIN = 6;
 
-/** One-word graph names, aliases and rule-term phrases of FUZZY_MIN+ letters. */
+/** One-word graph names, aliases and rule-term phrases of 5+ letters. */
 function fuzzyLabels(graph: IngredientGraph, phrases: ReadonlySet<string>): string[] {
   const labels = new Set<string>();
-  for (const p of phrases) if (!p.includes(' ') && p.length >= FUZZY_MIN) labels.add(p);
-  for (const label of graph.labels()) if (!label.includes(' ') && label.length >= FUZZY_MIN) labels.add(label);
+  for (const p of phrases) if (!p.includes(' ') && p.length >= 5) labels.add(p);
+  for (const label of graph.labels()) if (!label.includes(' ') && label.length >= 5) labels.add(label);
   return [...labels];
 }
 
-/** At most one edit (insert, delete, substitute or swap two neighbours) apart. */
-function withinOneEdit(a: string, b: string): boolean {
-  if (a === b) return true;
-  if (Math.abs(a.length - b.length) > 1) return false;
-  let i = 0;
-  while (i < a.length && i < b.length && a[i] === b[i]) i++;
-  if (a.length === b.length) {
-    if (a.slice(i + 1) === b.slice(i + 1)) return true;
-    return a[i] === b[i + 1] && a[i + 1] === b[i] && a.slice(i + 2) === b.slice(i + 2);
+/** Optimal-string-alignment distance (insert, delete, substitute, swap neighbours), stopping above `max`. */
+function editDistance(a: string, b: string, max: number): number {
+  if (Math.abs(a.length - b.length) > max) return max + 1;
+  const d: number[][] = Array.from({ length: a.length + 1 }, (_, i) => [i, ...new Array<number>(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    let rowMin = Infinity;
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+      rowMin = Math.min(rowMin, d[i][j]);
+    }
+    if (rowMin > max) return max + 1;
   }
-  return a.length > b.length ? a.slice(i + 1) === b.slice(i) : a.slice(i) === b.slice(i + 1);
+  return d[a.length][b.length];
 }
 
-/** A word (or its plural strip) one slip from a health label: "penuts", "sesmae", "glutten". */
+/** Same length, one letter changed or two neighbours swapped. */
+function oneSubstitution(a: string, b: string): boolean {
+  return a.length === b.length && a !== b && editDistance(a, b, 1) === 1;
+}
+
+/**
+ * A word (or its plural strip) that is a slip of a health label: one edit from a
+ * label of 5 letters, two from one of 6+ ("penuts", "pnuts", "sesmae"), or one
+ * substitution or swap from a short allergen ("egs", "soi", "milc", "mlik")
+ * unless it is a common word. Over-catches on purpose (fix round 2, N5).
+ */
 function nearMiss(word: string, labels: readonly string[]): boolean {
+  if (COMMON_WORDS.has(word)) return false;
+  const forms = pluralForms(word).filter((w) => !COMMON_WORDS.has(w));
+  if (forms.some((w) => w.length >= 3 && SHORT_ALLERGENS.some((l) => oneSubstitution(w, l)))) return true;
   if (word.length < FUZZY_MIN) return false;
-  return pluralForms(word).some((w) => w.length >= FUZZY_MIN - 1 && labels.some((l) => withinOneEdit(w, l)));
+  return forms.some(
+    (w) => w.length >= FUZZY_MIN && labels.some((l) => editDistance(w, l, l.length >= TWO_EDIT_MIN ? 2 : 1) <= (l.length >= TWO_EDIT_MIN ? 2 : 1)),
+  );
 }
 
 /**

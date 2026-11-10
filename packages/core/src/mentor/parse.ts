@@ -165,6 +165,8 @@ export const PANTRY_REMOVAL_MORE = /(?:\s*,\s*(?:and\s+)?|\s+and\s+|\s*&\s*)(the
 /** A continuation that is a new clause, not another item ("…and I bought eggs"). */
 const NOT_AN_ITEM = /^(i|i'm|we|you|he|she|they|it|then|also|so|but|now|got|bought|have|had|just|oh|no|finished|used|ran|run|out|chucked|threw|binned)\b/;
 
+const PRONOUN_ITEM = /^(it|them|that|this|those|these|one|some|all|everything|the lot)$/;
+
 /** Items the player has used up, lower-cased, in the order they were said. */
 export function parsePantryRemovals(text: string): string[] {
   const t = normalizeTurn(text);
@@ -191,7 +193,8 @@ export function parsePantryRemovals(text: string): string[] {
     }
   }
   found.sort((a, b) => a.index - b.index);
-  return [...new Set(found.map((f) => f.item))];
+  // "we finished it": a pronoun names no item (fix round 2).
+  return [...new Set(found.map((f) => f.item))].filter((item) => !PRONOUN_ITEM.test(item));
 }
 
 export const PANTRY_ADD_PATTERN =

@@ -174,3 +174,9 @@ test.each([
   ['I carry an EpiPen for peanuts', 'health'],
   ['I had toast and it was lovely', 'health'],
 ])('%j is %s (I4)', (text, intent) => expect(classifyTurn(text)).toBe(intent));
+
+// Step 7 fix round 2, R7: questions about whether a dish suits the player are health turns.
+test.each(['can I eat this one?', 'can I have this?', 'is this ok for me?', 'is it fine for me', 'will it bother me?', 'would this upset me'])(
+  '%j is a health turn (R7)',
+  (text) => expect(classifyTurn(text)).toBe('health'),
+);
