@@ -224,13 +224,13 @@ function replacementFor(reason: FilterFail, ctx: Pick<PromptContext, 'dish' | 'r
  * scripted line. On a pure chat turn the filtered text is still screened for
  * the player's rule words, medicines and food safety (R2).
  */
-async function textReply(
+function textReply(
   result: Extract<AiResult, { ok: true }>,
   ctx: PromptContext,
   previousPanText: string | null,
   turn: { health: boolean; hasRules: boolean; dishNamed: boolean },
   screenWords: () => string[],
-): Promise<Reply> {
+): Reply {
   const filtered = filterReply(result.text, { finish: result.finish, previousPanText });
   const lineReply = (trigger: string): Reply => ({ parts: [line(trigger)], cards: [], toolTurn: false });
   if (!filtered.ok) return lineReply(replacementFor(filtered.reason, ctx));
@@ -303,7 +303,7 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
     let reply: Reply;
     if (calls.length > 0) reply = cardsFromCalls(deps, calls, f.req, persist, recipes);
     else if (f.mode === 'rule_help') reply = { parts: [], cards: [], toolTurn: false }; // R3: the text is dropped
-    else reply = await textReply(f.result, f.ctx, f.previousPanText, { health: f.health, hasRules, dishNamed }, screenWords);
+    else reply = textReply(f.result, f.ctx, f.previousPanText, { health: f.health, hasRules, dishNamed }, screenWords);
 
     // I5: a severe statement always ends with a rule outcome, naming the missed ingredient when code knows it.
     const keptRuleTerms = calls.flatMap((c) => (c.name === 'propose_rule' ? [c.args.term] : []));

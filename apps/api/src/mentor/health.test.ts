@@ -62,3 +62,19 @@ test('ruleWords include what a target is a kind of (R7)', () => {
     expect.arrayContaining(['peanut', 'groundnut', 'nut']),
   );
 });
+
+// Fix round 3: the re-review's gate hunt (rev7c/gate.test.ts).
+test.each([
+  'is pad thai a good shout tonight?', 'should I order the satay?', 'fancy a korma, good idea for me?', 'is the curry from last night good to go?',
+  'thinking of getting a takeaway pad thai, yay or nay?', 'can I go for the pad thai', 'is it okay if I have the pad thai', 'am I ok with pad thai',
+  'is pad thai alright', 'pad thai good for me?', 'will pad thai be a problem', 'any issue with pad thai for me?', 'would I be fine with a satay',
+  'can i eat pad thai', 'can I eat it', 'can I eat these', 'can I eat that one', 'could I have this', 'may I eat this', 'is this okay', 'is it ok to eat',
+  "I'm allergic to nots", 'nots, dinner ideas?', 'no nots please', 'my kid is allergic to egs', 'egs, what can I cook', 'mild makes me ill',
+  'can I have this? nuts give me a rash', 'can I eat this, peanuts and me do not mix', 'is this ok for me, I react to sesame', 'can I eat this? I am coeliac',
+  'can I have this, I get hives from prawns', 'can I eat this? shrimp makes my throat close',
+])('%j is a health turn (fix round 3)', (text) => expect(isHealthText(text, catalog)).toBe(true));
+
+test.each(['what is a better idea for tea', 'got any ideas for the union day party', 'what shall I make tonight', 'quick weeknight meal ideas', 'I have a slow cooker'])(
+  '%j is not (fix round 3)',
+  (text) => expect(isHealthText(text, catalog)).toBe(false),
+);
