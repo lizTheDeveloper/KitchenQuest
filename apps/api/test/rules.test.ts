@@ -9,6 +9,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { buildApp } from '../src/app.js';
 import { loadCatalog } from '../src/catalog.js';
 import { NOTICES } from '../src/consent/notices.js';
+import { MAX_RULES_PER_USER, SEARCHES_PER_MINUTE } from '../src/rules/routes.js';
 import { sealFor } from '../src/crypto/userkeys.js';
 import { auditEvents, rules, selfReadCounts } from '../src/db/schema.js';
 import { CaptureMailer } from '../src/mail/mailer.js';
@@ -36,7 +37,9 @@ afterAll(async () => {
 });
 beforeEach(async () => {
   mailer = new CaptureMailer();
-  app = await buildApp({ config, db, mailer, now: () => NOW, logger: false });
+  // A clock that moves (1 ms a call), so rules created one after another have distinct, ordered times.
+  let tick = 0;
+  app = await buildApp({ config, db, mailer, now: () => new Date(NOW.getTime() + tick++), logger: false });
 });
 afterEach(async () => {
   await app?.close();
@@ -106,6 +109,16 @@ describe('GET /ingredients/search', () => {
       expect(res.statusCode, url).toBe(200);
       expect(res.json(), url).toEqual({ results: [] });
     }
+  });
+
+  it(`limits searches to ${SEARCHES_PER_MINUTE} a minute per IP (429 rate_limited)`, async () => {
+    const search = (remoteAddress: string) => app.inject({ method: 'GET', url: '/ingredients/search?q=pea', remoteAddress });
+    for (let i = 0; i < SEARCHES_PER_MINUTE; i++) expect((await search('10.9.0.1')).statusCode, `search ${i + 1}`).toBe(200);
+    const res = await search('10.9.0.1');
+    expect(res.statusCode).toBe(429);
+    expect(res.json().error.code).toBe('rate_limited');
+    expect(Number(res.headers['retry-after'])).toBeGreaterThan(0);
+    expect((await search('10.9.0.2')).statusCode).toBe(200);
   });
 
   it('rejects an over-long or repeated query', async () => {
@@ -317,6 +330,25 @@ describe('/rules', () => {
     }
   });
 
+  it(`caps rules at ${MAX_RULES_PER_USER} per player: one more is 400 too_many_rules, nothing stored (M-5)`, async () => {
+    const c = await player();
+    const uid = await userIdOf(c);
+    const values = [];
+    for (let i = 0; i < MAX_RULES_PER_USER; i++) {
+      const rowId = randomUUID();
+      values.push({ id: rowId, userId: uid, sealed: await sealFor(db, config.keyring, { table: 'rules', userId: uid, rowId }, PEANUT) });
+    }
+    await db.insert(rules).values(values);
+    const res = await post(c, { rule: DAIRY, confirmed: true });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toEqual({ code: 'too_many_rules', message: `You can save at most ${MAX_RULES_PER_USER} rules`, details: { max: MAX_RULES_PER_USER } });
+    expect(await storedCount(uid)).toBe(MAX_RULES_PER_USER);
+    // Editing and deleting still work at the cap.
+    expect((await put(c, values[0].id, { rule: DAIRY, confirmed: true })).statusCode).toBe(200);
+    expect((await del(c, values[1].id)).statusCode).toBe(204);
+    expect((await post(c, { rule: DAIRY, confirmed: true })).statusCode).toBe(201);
+  });
+
   it('counts GET /rules per user and day, content-free, without audit events (C-5)', async () => {
     const a = await player();
     const b = await player();
@@ -376,6 +408,39 @@ describe('/rules consent gate (C-11)', () => {
     expect(w.statusCode).toBe(204);
     expect(await storedCount(uid)).toBe(0);
     expect((await post(c, { rule: PEANUT, confirmed: true })).statusCode).toBe(403);
+  });
+
+  it('a POST racing an account delete does not deadlock: the write commits, then the delete removes it (M-1)', async () => {
+    const c = await player();
+    const uid = await userIdOf(c);
+    // A first rule creates the data key (whose insert would itself take the user row's key-share lock).
+    expect((await post(c, { rule: DAIRY, confirmed: true })).statusCode).toBe(201);
+    const lockWaiters = async () =>
+      (await sql<{ n: number }[]>`select count(*)::int as n from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'`)[0].n;
+    const until = async (n: number) => {
+      for (let i = 0; i < 500; i++) {
+        if ((await lockWaiters()) >= n) return;
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      throw new Error(`never saw ${n} lock waiters`);
+    };
+    // Hold the POST at its INSERT, after its locks are taken; then start the delete on a second connection.
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const blocker = sql.begin(async (tx) => {
+      await tx`lock table rules in share mode`;
+      await gate;
+    });
+    const posting = post(c, { rule: PEANUT, confirmed: true });
+    await until(1);
+    const deleting = call(c, { method: 'DELETE', url: '/me', payload: { confirm: 'delete my account' } });
+    await until(2);
+    release();
+    await blocker;
+    const [p, d] = await Promise.all([posting, deleting]);
+    expect(p.statusCode).toBe(201);
+    expect(d.statusCode).toBe(204);
+    expect(await storedCount(uid)).toBe(0);
   });
 
   it('withdrawing consent (keep) stops writes; the rules stay readable and deletable', async () => {

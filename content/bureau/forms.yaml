@@ -202,11 +202,11 @@ forms:
     purpose: "Stamped before travelling to a cook's kitchen."
     safety: false
     fields:
-      - { key: bearer, label: "Bearer", hint: "One (1) apprentice, plus pan" }
+      - { key: bearer, label: "Bearer" }
       - { key: destination, label: "Destination" }
       - { key: host, label: "Host" }
-      - { key: status, label: "Status", hint: "Guest. Invited." }
-      - { key: purpose, label: "Purpose", hint: "To learn, if taught" }
+      - { key: status, label: "Status" }
+      - { key: purpose, label: "Purpose" }
     buttons: { confirm: "Stamp it ✔", decline: "Not quite" }
     stamp: guest
     footnotes:

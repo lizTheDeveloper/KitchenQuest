@@ -1,18 +1,25 @@
 import { randomUUID } from 'node:crypto';
 import { validateRules, type Rule } from '@kitchenquest/core';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { audit } from '../audit/audit.js';
 import { countSelfRead } from '../audit/self-reads.js';
+import { lockLiveUser } from '../auth/live-user.js';
+import { ipKey, SlidingWindowLimiter, sweepPeriodically } from '../auth/rate-limit.js';
 import { requireUser } from '../auth/session.js';
 import type { Catalog } from '../catalog.js';
 import { lockConsentIn, requireConsent, type Tx } from '../consent/ledger.js';
-import type { Keyring } from '../crypto/keyring.js';
-import { openFor, sealFor } from '../crypto/userkeys.js';
+import { sealFor } from '../crypto/userkeys.js';
 import { rules } from '../db/schema.js';
 import { ApiError } from '../errors.js';
-import type { Db } from '../types.js';
+import { loadRules, ruleSealContext as sealContext, type StoredRule } from './store.js';
+
+/** At most this many rules per player (M-5; data-inventory.md §3.13). */
+export const MAX_RULES_PER_USER = 200;
+
+/** Ingredient searches per client IP per minute (M-5); the search needs no sign-in. */
+export const SEARCHES_PER_MINUTE = 120;
 
 const SearchQuery = z.object({ q: z.string().max(100).default('') }).strict();
 
@@ -53,30 +60,11 @@ const RuleBody = z
     note: z.string().max(500).optional(),
   })
   .strict();
-type StoredRule = Omit<Rule, 'id'>;
-
 const RuleWrite = z.object({ rule: RuleBody, confirmed: z.unknown() }).strict();
-
-const sealContext = (userId: string, rowId: string) => ({ table: 'rules', userId, rowId });
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const notFound = () => new ApiError(404, 'not_found', 'Rule not found');
-
-/** All of the user's rules, decrypted, oldest first, with `id` = row id. */
-export async function loadRules(db: Pick<Db, 'select'>, keyring: Keyring, userId: string): Promise<Rule[]> {
-  const rows = await db
-    .select({ id: rules.id, sealed: rules.sealed })
-    .from(rules)
-    .where(eq(rules.userId, userId))
-    .orderBy(asc(rules.createdAt), asc(rules.id));
-  const out: Rule[] = [];
-  for (const row of rows) {
-    const value = await openFor<StoredRule>(db, keyring, sealContext(userId, row.id), row.sealed);
-    out.push({ ...value, id: row.id });
-  }
-  return out;
-}
 
 /**
  * Health writes need `health_data` consent (C-11), then an explicit yes for
@@ -118,9 +106,25 @@ function ruleIdParam(req: FastifyRequest<{ Params: { id: string } }>): string {
 export async function rulesRoutes(app: FastifyInstance, catalog: Catalog): Promise<void> {
   const { db, config, now } = app.deps;
   const { keyring } = config;
+  // Per app instance, in memory only (N-2), like the sign-in limiters.
+  const searchLimiter = new SlidingWindowLimiter(SEARCHES_PER_MINUTE, 60_000);
+  const stopSweeping = sweepPeriodically([searchLimiter], () => now().getTime());
+  app.addHook('onClose', (_app, done) => {
+    stopSweeping();
+    done();
+  });
 
-  // No sign-in needed: it searches the shared catalog. The query never reaches the log (C-9).
-  app.get('/ingredients/search', async (req) => {
+  // No sign-in needed: it searches the shared catalog, so it is limited per IP.
+  // The query never reaches the log (C-9).
+  app.get('/ingredients/search', async (req, reply) => {
+    const t = now().getTime();
+    const ip = ipKey(req.ip);
+    const wait = searchLimiter.waitMs(ip, t);
+    if (wait > 0) {
+      reply.header('retry-after', String(Math.ceil(wait / 1000)));
+      throw new ApiError(429, 'rate_limited', 'Too many searches; try again shortly');
+    }
+    searchLimiter.hit(ip, t);
     const { q } = SearchQuery.parse(req.query);
     return { results: catalog.graph.search(q) };
   });
@@ -138,11 +142,17 @@ export async function rulesRoutes(app: FastifyInstance, catalog: Catalog): Promi
     const userId = req.user.id;
     // Generated before insert: the seal is bound to it (C-3).
     const rowId = randomUUID();
+    // Lock order as account delete: the user row, then consent, then rules (M-1).
     await db.transaction(async (tx: Tx) => {
+      await lockLiveUser(tx, userId);
       await lockConsentIn(tx, userId, 'health_data', at);
-      assertValid({ ...value, id: rowId }, await loadRules(tx, keyring, userId), catalog);
-      const sealed = await sealFor(tx, keyring, sealContext(userId, rowId), value);
-      await tx.insert(rules).values({ id: rowId, userId, sealed });
+      const existing = await loadRules(tx, keyring, userId);
+      if (existing.length >= MAX_RULES_PER_USER) {
+        throw new ApiError(400, 'too_many_rules', `You can save at most ${MAX_RULES_PER_USER} rules`, { max: MAX_RULES_PER_USER });
+      }
+      assertValid({ ...value, id: rowId }, existing, catalog);
+      const sealed = await sealFor(tx, keyring, sealContext(userId, rowId), value, at);
+      await tx.insert(rules).values({ id: rowId, userId, sealed, createdAt: at, updatedAt: at });
       await audit(tx, { actorKind: 'user', actorId: userId, subjectUserId: userId, action: 'rules.create', target: rowId, requestId: req.id }, at);
     });
     return reply.status(201).send({ rule: { ...value, id: rowId } });
@@ -154,6 +164,7 @@ export async function rulesRoutes(app: FastifyInstance, catalog: Catalog): Promi
     const userId = req.user.id;
     const rowId = ruleIdParam(req);
     await db.transaction(async (tx: Tx) => {
+      await lockLiveUser(tx, userId);
       await lockConsentIn(tx, userId, 'health_data', at);
       const [row] = await tx
         .select({ id: rules.id })
@@ -163,8 +174,8 @@ export async function rulesRoutes(app: FastifyInstance, catalog: Catalog): Promi
       if (!row) throw notFound();
       const others = (await loadRules(tx, keyring, userId)).filter((r) => r.id !== rowId);
       assertValid({ ...value, id: rowId }, others, catalog);
-      const sealed = await sealFor(tx, keyring, sealContext(userId, rowId), value);
-      await tx.update(rules).set({ sealed }).where(and(eq(rules.id, rowId), eq(rules.userId, userId)));
+      const sealed = await sealFor(tx, keyring, sealContext(userId, rowId), value, at);
+      await tx.update(rules).set({ sealed, updatedAt: at }).where(and(eq(rules.id, rowId), eq(rules.userId, userId)));
       await audit(tx, { actorKind: 'user', actorId: userId, subjectUserId: userId, action: 'rules.update', target: rowId, requestId: req.id }, at);
     });
     return { rule: { ...value, id: rowId } };
@@ -178,6 +189,7 @@ export async function rulesRoutes(app: FastifyInstance, catalog: Catalog): Promi
     const userId = req.user.id;
     const rowId = ruleIdParam(req);
     await db.transaction(async (tx: Tx) => {
+      await lockLiveUser(tx, userId);
       const deleted = await tx
         .delete(rules)
         .where(and(eq(rules.id, rowId), eq(rules.userId, userId)))

@@ -75,10 +75,8 @@ export const profiles = pgTable(
     mealWindows: jsonb("meal_windows")
       .notNull()
       .default(sql`'[]'::jsonb`),
-    updatedAt: ts("updated_at")
-      .notNull()
-      .defaultNow()
-      .$onUpdate(() => new Date()),
+    /** Set by every write from the app's injected clock; defaultNow() is only a fallback. */
+    updatedAt: ts("updated_at").notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.userId] })],
 );
@@ -97,10 +95,8 @@ export const rules = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     sealed: bytea("sealed").notNull(),
     createdAt: ts("created_at").notNull().defaultNow(),
-    updatedAt: ts("updated_at")
-      .notNull()
-      .defaultNow()
-      .$onUpdate(() => new Date()),
+    /** Set by every write from the app's injected clock; defaultNow() is only a fallback. */
+    updatedAt: ts("updated_at").notNull().defaultNow(),
   },
   (t) => [index("rules_user_id_idx").on(t.userId)],
 );

@@ -1,5 +1,6 @@
 import { and, asc, eq, gt, inArray, isNull, lte, or, type SQL } from 'drizzle-orm';
 import { audit } from '../audit/audit.js';
+import { lockLiveUser } from '../auth/live-user.js';
 import { consents, CONSENT_PURPOSES } from '../db/schema.js';
 import { ApiError } from '../errors.js';
 import type { Db } from '../types.js';
@@ -44,6 +45,7 @@ export type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
  * text was in force when. Safe under concurrent grants: the partial unique
  * index admits one active row, a losing insert does nothing and the loop
  * re-reads. Writes a `consent.grant` audit event in the same transaction.
+ * Takes `lockLiveUser` first: 401 if the account is gone.
  */
 export async function grantConsent(
   db: Db,
@@ -58,6 +60,7 @@ export async function grantConsent(
   if (!isConsentPurpose(purpose)) throw new Error(`unknown consent purpose: ${String(purpose)}`);
   if (noticeSha256.length !== 32) throw new Error('noticeSha256 must be 32 bytes');
   await db.transaction(async (tx) => {
+    await lockLiveUser(tx, userId);
     for (let attempt = 0; attempt < 3; attempt++) {
       // Row-locks the active grant, if any, so a concurrent supersede waits.
       const [current] = await tx.select().from(consents).where(active(userId, purpose)).for('update');
@@ -80,7 +83,10 @@ export async function grantConsent(
   });
 }
 
-/** Ends the active grant for `purpose` at `now`, inside the caller's transaction. Returns whether one was active. */
+/**
+ * Ends the active grant for `purpose` at `now`, inside the caller's
+ * transaction (which has taken `lockLiveUser` first). Returns whether one was active.
+ */
 export async function withdrawConsentIn(tx: Tx, userId: string, purpose: ConsentPurpose, now: Date, requestId?: string): Promise<boolean> {
   const ended = await tx
     .update(consents)
@@ -100,7 +106,10 @@ export async function withdrawConsent(
   now: Date,
   requestId?: string,
 ): Promise<boolean> {
-  return db.transaction((tx) => withdrawConsentIn(tx, userId, purpose, now, requestId));
+  return db.transaction(async (tx) => {
+    await lockLiveUser(tx, userId);
+    return withdrawConsentIn(tx, userId, purpose, now, requestId);
+  });
 }
 
 /**

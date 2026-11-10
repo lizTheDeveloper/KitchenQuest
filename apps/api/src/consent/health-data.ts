@@ -1,7 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { audit } from '../audit/audit.js';
 import { rules } from '../db/schema.js';
-import type { Db } from '../types.js';
 import type { Tx } from './ledger.js';
 
 /**
@@ -11,13 +10,17 @@ import type { Tx } from './ledger.js';
  */
 const HEALTH_TABLES = [rules] as const;
 
-/** Deletes all of the user's health data and writes a `health_data.delete` audit event, inside the caller's transaction. */
-export async function deleteHealthDataIn(tx: Tx, userId: string, now: Date, requestId?: string): Promise<void> {
-  for (const t of HEALTH_TABLES) await tx.delete(t).where(eq(t.userId, userId));
-  await audit(tx, { actorKind: 'user', actorId: userId, subjectUserId: userId, action: 'health_data.delete', requestId }, now);
-}
-
-/** `deleteHealthDataIn` in its own transaction. Kept as the standalone erasure entry point for callers outside a transaction. @public */
-export async function deleteHealthData(db: Db, userId: string, now: Date, requestId?: string): Promise<void> {
-  await db.transaction((tx) => deleteHealthDataIn(tx, userId, now, requestId));
+/**
+ * Deletes all of the user's health data inside the caller's transaction
+ * (which has taken `lockLiveUser` first) and returns how many rows went.
+ * Writes a `health_data.delete` audit event when `withdrew` or any row was
+ * deleted; a request that changed nothing leaves no event.
+ */
+export async function deleteHealthDataIn(tx: Tx, userId: string, now: Date, withdrew: boolean, requestId?: string): Promise<number> {
+  let deleted = 0;
+  for (const t of HEALTH_TABLES) deleted += (await tx.delete(t).where(eq(t.userId, userId)).returning({ id: t.id })).length;
+  if (withdrew || deleted > 0) {
+    await audit(tx, { actorKind: 'user', actorId: userId, subjectUserId: userId, action: 'health_data.delete', requestId }, now);
+  }
+  return deleted;
 }

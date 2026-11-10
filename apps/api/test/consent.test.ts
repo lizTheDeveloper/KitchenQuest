@@ -47,6 +47,18 @@ async function newUser(): Promise<string> {
   return u.id;
 }
 
+async function waitForLockWaiters(n: number, kind?: string): Promise<void> {
+  for (let i = 0; i < 300; i++) {
+    const [row] = await sql<{ n: number }[]>`
+      select count(*)::int as n from pg_stat_activity
+      where datname = current_database() and wait_event_type = 'Lock'
+        and (${kind ?? null}::text is null or wait_event = ${kind ?? null})`;
+    if (row.n >= n) return;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  throw new Error(`timed out waiting for ${n} lock waiter(s)`);
+}
+
 const auditFor = (userId: string) =>
   sql`select actor_kind, actor_id, action, target from audit_events where subject_user_id = ${userId} order by id`;
 
@@ -360,6 +372,40 @@ describe('consent routes (C-1)', () => {
     await db.insert(rules).values({ userId, sealed: Buffer.from('x') });
     await app.inject({ method: 'DELETE', url: '/me/consents/health_data', cookies, payload: { healthData: 'keep' } });
     expect(await sql`select 1 from rules where user_id = ${userId}`).toHaveLength(1);
+  });
+
+  it('withdraw-with-delete with nothing granted and nothing stored writes no health_data.delete event', async () => {
+    const email = `route${++seq}@example.com`;
+    const cookies = { kq_session: await signIn(app, mailer, email) };
+    const [u] = await sql`select id from users where email = ${email}`;
+    const res = await app.inject({ method: 'DELETE', url: '/me/consents/health_data', cookies, payload: { healthData: 'delete' } });
+    expect(res.statusCode).toBe(204);
+    expect((await auditFor(u.id as string)).map((r) => r.action)).toEqual(['auth.sign_in']);
+  });
+
+  it('withdraw-with-delete racing an account delete: 401, and no audit row with the raw user id (I-1)', async () => {
+    const email = `route${++seq}@example.com`;
+    const cookies = { kq_session: await signIn(app, mailer, email) };
+    const [u] = await sql`select id from users where email = ${email}`;
+    const userId = u.id as string;
+    await app.inject({ method: 'POST', url: '/me/consents', cookies, payload: { purpose: 'health_data', noticeVersion: current.version } });
+    const blocker = await sql.reserve();
+    try {
+      // An account delete in flight: the user row (and its cascade) is gone but not yet committed.
+      await blocker`begin`;
+      await blocker`delete from users where id = ${userId}`;
+      const withdrawing = app.inject({ method: 'DELETE', url: '/me/consents/health_data', cookies, payload: { healthData: 'delete' } });
+      await waitForLockWaiters(1);
+      await blocker`select audit_pseudonymize(${userId}::uuid, decode(${config.pseudonymKey.bytes.toString('hex')}, 'hex'))`;
+      await blocker`commit`;
+      const res = await withdrawing;
+      expect(res.statusCode).toBe(401);
+      expect(res.json().error.code).toBe('unauthorized');
+    } finally {
+      await blocker`rollback`.catch(() => {});
+      blocker.release();
+    }
+    expect(await auditFor(userId)).toEqual([]);
   });
 
   it('withdrawing a purpose that was never granted is a quiet no-op', async () => {

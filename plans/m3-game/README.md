@@ -53,7 +53,7 @@ Quoted from the spec unless marked. Every task's requirements include this secti
 - [x] [Step 6 — Recipe cards against the player's rules](step-6.md)
 - [x] [Step 7 — Cook mode](step-7.md)
 - [x] [Step 8 — Asset manifest, lazy Phaser, the player's kitchen and the Toolkit display](step-8.md)
-- [ ] [Step 9 — World map, travel permit, cook's kitchen](step-9.md)
+- [x] [Step 9 — World map, travel permit, cook's kitchen](step-9.md)
 - [x] [Step 10 — PWA: manifest, service worker, offline, install notes](step-10.md)
 - [x] [Step 11 — API client, sign-in pages, account rules](step-11.md)
 - [x] [Step 12 — Accessibility and never-rules sweep, CI, README](step-12.md)
