@@ -43,6 +43,15 @@ afterEach(async () => { await app?.close(); app = null; });
 const greetingText = (page: OpenedApp['page']) => page.locator('#view .dialogue .dialogue-text .typed-full');
 
 describe('home kitchen', () => {
+  // The a11y sweep flaked (scrollWidth 414 vs 400) on greetings with a long word beside the 2x portrait.
+  it('a long word in the dialogue box wraps at 400px instead of scrolling the page sideways', async () => {
+    app = await openApp('/', { reducedMotion: true, width: 400 });
+    const { page } = app;
+    await page.locator('.dialogue .dialogue-text').first().waitFor();
+    await page.evaluate(() => { for (const el of document.querySelectorAll('.dialogue-text')) el.textContent = 'Metaphoricallyandthensome, Everything\'s most-stamped.'; });
+    await expectNoHorizontalScroll(page);
+  });
+
   it('greets a first-time player with greet.first_ever, then a time-of-day line after a reload', async () => {
     app = await openApp('/', { reducedMotion: true });
     const { page } = app;
