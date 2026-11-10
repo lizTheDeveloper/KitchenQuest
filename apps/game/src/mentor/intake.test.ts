@@ -186,6 +186,16 @@ describe('createIntake', () => {
     expect(m.intake.expecting).toBe('answer');
   });
 
+  test('a step left on an earlier visit resumes there, with no second intake.open', async () => {
+    const m = setup({ patch: { intake: { step: 'region' } } });
+    m.panel.open();
+    m.intake.start();
+    await flush();
+    expect(m.panTexts()).toHaveLength(1);
+    expect(lines('intake.region.ask')).toContain(m.lastPan());
+    expect([...m.root.querySelectorAll('.intake-tick')].map((t) => t.textContent)).toEqual(['Answered earlier', 'Answered earlier', 'Not yet', 'Not yet', 'Not yet']);
+  });
+
   test('intake completes with every step skipped', async () => {
     const m = setup();
     m.panel.open();

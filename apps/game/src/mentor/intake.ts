@@ -158,7 +158,7 @@ export function createIntake(deps: {
   let expecting: Intake['expecting'] = null;
   let started = false;
   let rulesStamped = false;
-  const ticks = new Map<string, 'stamped' | 'skipped'>();
+  const ticks = new Map<string, 'stamped' | 'skipped' | 'earlier'>();
 
   const say = (trigger: string, vars: Record<string, string> = {}): PanItem => ({ kind: 'said', said: dialogue.say(trigger, vars) });
   const ref = (l: LineRef): PanItem => say(l.trigger, l.vars);
@@ -181,7 +181,7 @@ export function createIntake(deps: {
       const tick = ticks.get(f.key);
       return h('li', { class: `intake-field${tick === 'stamped' ? ' is-stamped' : ''}`, 'data-field': f.key },
         contentText('span', f.label, { class: 'intake-label' }),
-        h('span', { class: 'intake-tick' }, tick === 'stamped' ? '✔ Stamped' : tick === 'skipped' ? 'Skipped' : 'Not yet'));
+        h('span', { class: 'intake-tick' }, tick === 'stamped' ? '✔ Stamped' : tick === 'skipped' ? 'Skipped' : tick === 'earlier' ? 'Answered earlier' : 'Not yet'));
     }));
   };
   const tick = (field: string, how: 'stamped' | 'skipped') => {
@@ -327,6 +327,9 @@ export function createIntake(deps: {
   function begin(fresh: boolean): void {
     if (started || store.get().settings.familyTable || panel.mode !== 'standard') return;
     started = true;
+    // Resumed on a later visit: the steps before this one were stamped or skipped then (ticks live in memory only).
+    const at = INTAKE_ORDER.indexOf(current() as IntakeStep);
+    for (const step of INTAKE_ORDER.slice(0, Math.max(0, at))) ticks.set(FIELD[step], 'earlier');
     drawChecklist();
     panel.setAside(checklist);
     panel.interceptText((text, ctx) => (expecting !== null && isStep(current()) ? answer(text, ctx) : null));
