@@ -14,7 +14,7 @@ const config = loadConfig({
 
 function make(logger: Parameters<typeof buildApp>[0]['logger'] = false) {
   // Error handling needs no database; routes here never touch db.
-  return buildApp({ config, db: {} as Db, mailer: { async send() {} }, now: () => new Date(), logger });
+  return buildApp({ config, db: {} as Db, mailer: { async send() {} }, ai: null, now: () => new Date(), logger });
 }
 
 describe('error handler', () => {

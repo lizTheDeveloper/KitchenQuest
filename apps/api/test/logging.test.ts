@@ -18,7 +18,7 @@ beforeAll(async () => {
   const t = await testDb();
   close = t.close;
   logs = captureLogs();
-  app = await buildApp({ config: testConfig(), db: t.db, mailer, now: () => new Date('2026-06-01T12:00:00Z'), logger: logs.logger });
+  app = await buildApp({ config: testConfig(), db: t.db, mailer, ai: null, now: () => new Date('2026-06-01T12:00:00Z'), logger: logs.logger });
   // A route that fails with health content in the error, its cause and its properties.
   app.get('/test/boom', async () => {
     const err = Object.assign(new Error('boom', { cause: new Error('cause') }), {

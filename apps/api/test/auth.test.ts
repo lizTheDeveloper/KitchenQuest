@@ -42,7 +42,7 @@ afterAll(async () => {
 beforeEach(async () => {
   clock = new Date('2026-03-01T12:00:00Z');
   mailer = new CaptureMailer();
-  app = await buildApp({ config, db, mailer, now: () => clock, logger: false });
+  app = await buildApp({ config, db, mailer, ai: null, now: () => clock, logger: false });
 });
 afterEach(async () => {
   await app?.close();
@@ -393,6 +393,7 @@ describe('rate limits on /auth/request', () => {
         config: loadConfig({ ...env, ...(trustProxy === undefined ? {} : { TRUST_PROXY: trustProxy }) }),
         db,
         mailer,
+        ai: null,
         now: () => clock,
         logger: false,
       });

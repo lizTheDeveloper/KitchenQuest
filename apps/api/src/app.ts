@@ -2,6 +2,7 @@ import cookie from '@fastify/cookie';
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 import { ZodError } from 'zod';
 import { accountRoutes } from './account/routes.js';
+import type { AiProvider } from './ai/provider.js';
 import { authRoutes } from './auth/routes.js';
 import { requireUser } from './auth/session.js';
 import { defaultCatalog, type Catalog } from './catalog.js';
@@ -17,6 +18,8 @@ export interface Deps {
   config: Config;
   db: Db;
   mailer: Mailer;
+  /** The model behind the Pan; null means AI is off and the mentor runs scripted only. Tests pass fakeAi. */
+  ai: AiProvider | null;
   now: () => Date;
   /** Fastify logger option: `false` in tests, pino options/stream in the server. */
   logger: FastifyServerOptions['logger'];

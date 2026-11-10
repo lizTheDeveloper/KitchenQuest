@@ -39,7 +39,7 @@ afterAll(async () => {
 });
 beforeEach(async () => {
   mailer = new CaptureMailer();
-  app = await buildApp({ config, db, mailer, now: () => NOW, logger: false });
+  app = await buildApp({ config, db, mailer, ai: null, now: () => NOW, logger: false });
 });
 afterEach(async () => {
   await app?.close();
@@ -238,7 +238,7 @@ describe('GET /me/export', () => {
   it('stamps every created/updated time from the injected clock, not the database or wall clock (M-3)', async () => {
     const CLOCK = new Date('2021-03-04T05:06:07.000Z');
     const at = CLOCK.toISOString();
-    const own = await buildApp({ config, db, mailer, now: () => CLOCK, logger: false });
+    const own = await buildApp({ config, db, mailer, ai: null, now: () => CLOCK, logger: false });
     try {
       const req = (cookie: string | null, opts: InjectOptions) =>
         own.inject({ ...opts, ...(cookie ? { cookies: { kq_session: cookie } } : {}) });
@@ -336,7 +336,7 @@ describe('GET /me/export', () => {
   it('keeps the email and health data out of the log', async () => {
     const logs = captureLogs();
     await app.close();
-    app = await buildApp({ config, db, mailer, now: () => NOW, logger: logs.logger });
+    app = await buildApp({ config, db, mailer, ai: null, now: () => NOW, logger: logs.logger });
     const p = await fullPlayer();
     expect((await exportOf(p.cookie)).statusCode).toBe(200);
     expect((await deleteAccount(p.cookie, { confirm: PHRASE })).statusCode).toBe(204);
@@ -443,7 +443,7 @@ describe('DELETE /me', () => {
   it('is all or nothing: if pseudonymizing fails, nothing is deleted, and the log names no one', async () => {
     const logs = captureLogs();
     await app.close();
-    app = await buildApp({ config, db, mailer, now: () => NOW, logger: logs.logger });
+    app = await buildApp({ config, db, mailer, ai: null, now: () => NOW, logger: logs.logger });
     const p = await fullPlayer();
     const before = await mentions(p.id);
     await sql`create function fail_audit_update() returns trigger language plpgsql as $$

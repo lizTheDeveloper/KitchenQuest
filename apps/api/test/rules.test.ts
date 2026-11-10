@@ -63,7 +63,7 @@ beforeEach(async () => {
   mailer = new CaptureMailer();
   // A clock that moves (1 ms a call), so rules created one after another have distinct, ordered times.
   let tick = 0;
-  app = await buildApp({ config, db, mailer, now: () => new Date(NOW.getTime() + tick++), logger: false });
+  app = await buildApp({ config, db, mailer, ai: null, now: () => new Date(NOW.getTime() + tick++), logger: false });
 });
 afterEach(async () => {
   await app?.close();
@@ -118,7 +118,7 @@ describe('GET /ingredients/search', () => {
         { id: 'onion', name: 'onion' },
       ],
     });
-    const fixtureApp = await buildApp({ config, db, mailer, now: () => NOW, logger: false, catalog: { graph, substitutions: [] } });
+    const fixtureApp = await buildApp({ config, db, mailer, ai: null, now: () => NOW, logger: false, catalog: { graph, substitutions: [] } });
     try {
       const res = await fixtureApp.inject({ method: 'GET', url: '/ingredients/search?q=scal' });
       expect(res.json()).toEqual({ results: [{ id: 'green_onion', name: 'green onion', matched: 'scallion' }] });
@@ -566,7 +566,7 @@ describe('/rules under concurrency and check order (M4 Step 3)', () => {
   it('POST /rules without confirmed is 400 confirmation_required before any rules or consents query', async () => {
     const queries: string[] = [];
     const logged = drizzle(sql, { schema, logger: { logQuery: (q) => queries.push(q) } });
-    const loggedApp = await buildApp({ config, db: logged, mailer, now: () => NOW, logger: false });
+    const loggedApp = await buildApp({ config, db: logged, mailer, ai: null, now: () => NOW, logger: false });
     let sqlAfterAuth: string[] = [];
     // Every request starts a fresh record; the session lookup (requireUser) is in it, and touches neither table.
     loggedApp.addHook('onRequest', async () => {
@@ -596,7 +596,7 @@ describe('/rules under concurrency and check order (M4 Step 3)', () => {
 describe('log redaction (C-9)', () => {
   it('a "peanut" search and a peanut rule POST leave no "peanut" in the log', async () => {
     const logs = captureLogs();
-    const logged = await buildApp({ config, db, mailer, now: () => NOW, logger: logs.logger });
+    const logged = await buildApp({ config, db, mailer, ai: null, now: () => NOW, logger: logs.logger });
     try {
       const cookie = await signIn(logged, mailer, `logs${++seq}@example.com`);
       const cookies = { kq_session: cookie };

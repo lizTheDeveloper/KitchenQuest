@@ -30,7 +30,7 @@ afterAll(async () => {
 });
 beforeEach(async () => {
   mailer = new CaptureMailer();
-  app = await buildApp({ config, db, mailer, now: () => new Date('2026-03-01T12:00:00Z'), logger: false });
+  app = await buildApp({ config, db, mailer, ai: null, now: () => new Date('2026-03-01T12:00:00Z'), logger: false });
 });
 afterEach(async () => {
   await app?.close();
