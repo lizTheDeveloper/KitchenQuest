@@ -24,8 +24,8 @@ import { mountRuleForm } from './rule-form';
  * written to this device. A rule is added only through the same Form 27-B card the Pan shows, stamped by a tap
  * (`writer.confirm(…, 'tap')`); one is removed only through Form 27-B/VOID's own Remove tap.
  */
-export const BAD_RULE_TEXT = "This rule names an ingredient the ledger doesn't know any more.";
-export const UNREADABLE_CONFIRM = 'These are all my rules';
+const BAD_RULE_TEXT = "This rule names an ingredient the ledger doesn't know any more.";
+const UNREADABLE_CONFIRM = 'These are all my rules';
 const NOT_REMOVED_TEXT = "That didn't go through, so nothing was removed. Try again in a moment.";
 const RESTORED_TEXT = 'Put back. Dishes are checked for it again.';
 const COPY_WARNING = "These rules are saved on this device but not on your account. While you're signed in, dishes are checked against your account's rules only.";
@@ -47,7 +47,7 @@ function ruleName(rule: Rule, ruleTerms: readonly RuleTerm[], g: IngredientGraph
 }
 
 /** A confirm card for an existing rule (copying a device rule to the account), or null when one can't be built exactly. */
-export function cardForRule(rule: Rule, ruleTerms: readonly RuleTerm[], g: IngredientGraph): RuleCard | null {
+function cardForRule(rule: Rule, ruleTerms: readonly RuleTerm[], g: IngredientGraph): RuleCard | null {
   if (validateRules([rule], g).length > 0) return null;
   const term = ruleTerms.find((t) => sameIds(t.ids, rule.target.ids));
   const name = term ? term.name : rule.target.ids.length === 1 ? g.get(rule.target.ids[0]).name : null;

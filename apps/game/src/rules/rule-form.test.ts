@@ -47,7 +47,7 @@ describe('mountRuleForm', () => {
     expect(m.onCard.mock.calls[0][0]).toMatchObject({ severe: false, form: 'rule_intolerance', rule: { severity: 'intolerance' } });
 
     m.type('vegetar');
-    const veg = m.options().find((b) => b.textContent!.startsWith('vegetarian'))!;
+    const veg = m.options().find((b) => b.textContent.startsWith('vegetarian'))!;
     veg.click();
     // A diet word keeps its own severity when none is chosen, and says so.
     expect(m.el.textContent).toContain('If you leave this, it is filed as a preference.');

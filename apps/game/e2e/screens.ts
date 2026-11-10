@@ -200,7 +200,7 @@ export const SCREENS: ScreenCase[] = [
   {
     label: 'mentor panel: the intake consent card (signed in)', path: '/', seed: { aiDisclosureSeen: true, intake: { step: 'allergies' } }, beforeGoto: signedInApi,
     open: async (p) => {
-      await p.waitForFunction(() => (JSON.parse(localStorage.getItem('kq.player.v1') ?? '{}') as { account?: unknown }).account != null);
+      await p.waitForFunction(() => Boolean((JSON.parse(localStorage.getItem('kq.player.v1') ?? '{}') as { account?: unknown }).account));
       await p.locator('#pan-button').click();
       await p.locator('#pan-panel .consent-card').waitFor();
     },

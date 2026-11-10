@@ -23,7 +23,7 @@ const CONSENT_FAILED_TEXT = "That didn't go through. Nothing has changed. Tap 'I
 const CONSENT_DONE_TEXT = 'Permission filed. Thank you.';
 /** The footnote on a rule card a signed-out player would stamp: it is written to this device only (Step 11). */
 export const DEVICE_ONLY_FOOTNOTE = '*Kept on this device only.';
-export const DISCLOSURE_OK = 'Got it';
+const DISCLOSURE_OK = 'Got it';
 /** How long the stamp lands before a card turns into its trail entry (motion on). */
 const STAMP_MS = 650;
 
