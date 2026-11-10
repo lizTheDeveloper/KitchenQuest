@@ -1,6 +1,6 @@
 import { normalizeName, type IngredientGraph } from '../ingredients/graph';
 import type { LineRef } from './cards';
-import type { TurnIntent } from './intents';
+import { canonicalText, foldConfusables, type TurnIntent } from './intents';
 import { parseRuleStatement, weekdaysOf } from './parse';
 import type { RuleTerm } from './rule-terms';
 
@@ -106,28 +106,50 @@ export function matchDish(
 
 const MAX_NAME_WORDS = 5;
 
+/** The plural strips `resolve` uses, applied to rule-term phrases too ("vegans", "celiacs"). */
+const pluralForms = (g: string): string[] => [g, ...(g.endsWith('es') ? [g.slice(0, -2)] : []), ...(g.endsWith('s') ? [g.slice(0, -1)] : [])];
+
 /**
  * True when the text names any ingredient (graph name or alias, plurals as `resolve` strips
- * them) or any rule-term phrase, as whole words. It over-catches on purpose: it is half of
- * Step 7's consent gate (pre-flight C1).
+ * them) or any rule-term phrase, as whole words. The text is NFKC-normalised with invisible
+ * characters dropped and lookalikes folded, and read three ways: as written ("peanut-free",
+ * "gluten-free"), split at hyphens and apostrophes ("peanut", "free"; "peanut", "s"), and with
+ * them removed ("pea-nut" → "peanut"). It over-catches on purpose: it is half of Step 7's
+ * consent gate (pre-flight C1).
  */
 export function mentionsHealthTerm(text: string, graph: IngredientGraph, terms: readonly RuleTerm[]): boolean {
-  const words = normalizeName(text.replace(/[^\p{L}\p{N}'-]+/gu, ' '))
+  const clean = normalizeName(foldConfusables(canonicalText(text)).replace(/[‘’‛]/g, "'"));
+  const asWritten = clean
+    .replace(/[^\p{L}\p{N}'-]+/gu, ' ')
     .split(' ')
     .map((w) => w.replace(/^['-]+|['-]+$/g, ''))
     .filter((w) => w !== '');
-  for (let i = 0; i < words.length; i++) {
-    for (let n = 1; n <= MAX_NAME_WORDS && i + n <= words.length; n++) {
-      if (graph.resolve(words.slice(i, i + n).join(' ')) !== null) return true;
+  const readings = [
+    asWritten,
+    asWritten.flatMap((w) => w.split(/['-]/)).filter((w) => w !== ''),
+    asWritten.map((w) => w.replace(/['-]/g, '')),
+  ];
+  const phrases = new Set(
+    terms.flatMap((t) => t.phrases.map(normalizeName)).flatMap((p) => [p, p.replace(/-/g, ' '), p.replace(/-/g, '')]),
+  );
+  for (const words of readings) {
+    for (let i = 0; i < words.length; i++) {
+      for (let n = 1; n <= MAX_NAME_WORDS && i + n <= words.length; n++) {
+        const gram = words.slice(i, i + n).join(' ');
+        if (graph.resolve(gram) !== null) return true;
+        if (pluralForms(gram).some((g) => phrases.has(g))) return true;
+      }
     }
   }
-  const joined = words.join(' ');
-  return terms.some((t) => t.phrases.some((p) => occursAsWord(joined, normalizeName(p))));
+  return false;
 }
 
-/** Text after this is not the player's own words (S19 and the spike's injection cases). */
+/**
+ * Text after this is not the player's own words (S19 and the spike's injection cases): an
+ * instruction to the AI, a role prefix at the start of a line, or a role tag.
+ */
 export const INJECTION_MARKER =
-  /note to (the )?(ai|assistant)|\bassistant\s*:|the user (already )?agreed|ignore (all |the )?previous|developer override|do not mention this/i;
+  /note to (the )?(ai|assistant)|\bassistant\s*:|the user (already )?agreed|ignore (all |the )?previous|developer override|do not mention this|^[^\S\n]*(system|developer|tool|user)\s*:|<\/?\s*(system|developer|assistant|tool|user)\b/im;
 
 /** A pasted block starts at a line beginning with -, * or a digit, or a line in capitals of 6+ letters. */
 function isPastedLine(l: string): boolean {
@@ -140,9 +162,11 @@ function isPastedLine(l: string): boolean {
 /**
  * The rule terms in the player's own words only, cut at the first injection marker and the
  * first pasted block. Step 7 drops any model `propose_rule` whose term isn't here (C4).
+ * Step 7 must call this on the RAW turn text, before `stripPageEvents`: stripping removes the
+ * role prefixes and tags this cuts at, which would turn injected text into the player's own.
  */
 export function ruleTermsInPlayerWords(text: string): string[] {
-  let own = text;
+  let own = foldConfusables(canonicalText(text));
   const marker = INJECTION_MARKER.exec(own);
   if (marker) own = own.slice(0, marker.index);
   const lines = own.split('\n');

@@ -119,8 +119,8 @@ function bracketSpans(folded: string): [number, number][] {
   const stack: { at: number; close: string }[] = [];
   for (let i = 0; i < folded.length; i++) {
     const ch = folded[i];
-    const close = PAGE_EVENT_BRACKETS[ch];
-    if (close !== undefined) {
+    const close = Object.hasOwn(PAGE_EVENT_BRACKETS, ch) ? PAGE_EVENT_BRACKETS[ch] : null;
+    if (close !== null) {
       stack.push({ at: i, close });
       continue;
     }

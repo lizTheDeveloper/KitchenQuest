@@ -90,13 +90,18 @@ function joinAnd(items: readonly string[]): string {
   return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
 }
 
-/** The names of `ids` and every isA descendant, unique and sorted, at most 8 then "and N more". */
+/**
+ * What the rule covers: the names of `ids` first (sorted), then every isA descendant (sorted),
+ * each once, at most 8 then "and N more". The targets lead so none hides behind its kinds.
+ */
 function coversText(ids: readonly string[], graph: IngredientGraph): string {
-  const names = new Set<string>();
-  for (const id of ids) for (const each of [id, ...graph.descendants(id)]) names.add(graph.get(each).name);
-  const sorted = [...names].sort();
-  if (sorted.length <= COVERS_MAX) return joinAnd(sorted);
-  return `${sorted.slice(0, COVERS_MAX).join(', ')} and ${sorted.length - COVERS_MAX} more`;
+  const own = [...new Set(ids.map((id) => graph.get(id).name))].sort();
+  const kinds = [...new Set(ids.flatMap((id) => graph.descendants(id)).map((id) => graph.get(id).name))]
+    .filter((name) => !own.includes(name))
+    .sort();
+  const names = [...own, ...kinds];
+  if (names.length <= COVERS_MAX) return joinAnd(names);
+  return `${names.slice(0, COVERS_MAX).join(', ')} and ${names.length - COVERS_MAX} more`;
 }
 
 interface Resolved {

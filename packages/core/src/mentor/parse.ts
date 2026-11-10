@@ -51,7 +51,7 @@ function clockCandidates(t: string): { index: number; value: string | null }[] {
   const out: { index: number; value: string | null }[] = [];
   for (const m of t.matchAll(CLOCK_HALF)) {
     const h = hourOf(m[2]);
-    out.push({ index: m.index, value: h === null ? null : clockAt(h, HALF_OFFSETS[m[1]], m[3] as string | undefined) });
+    out.push({ index: m.index, value: h === null ? null : clockAt(h, HALF_OFFSETS[m[1]], m[3]) });
   }
   for (const m of t.matchAll(CLOCK_COLON)) {
     const h = Number(m[1]);
@@ -71,7 +71,7 @@ function clockCandidates(t: string): { index: number; value: string | null }[] {
   }
   for (const m of t.matchAll(CLOCK_OCLOCK)) {
     const h = hourOf(m[1]);
-    out.push({ index: m.index, value: h === null ? null : clockAt(h, 0, m[2] as string | undefined) });
+    out.push({ index: m.index, value: h === null ? null : clockAt(h, 0, m[2]) });
   }
   for (const m of t.matchAll(CLOCK_NAMED)) out.push({ index: m.index, value: m[1] === 'midnight' ? '00:00' : '12:00' });
   return out;
@@ -357,7 +357,8 @@ export function parseRuleStatement(
     const stop = t.slice(from, nextStart).search(TERM_STOP);
     // "allergic to peanuts, not tree nuts": a negation or exception ends the list.
     const span = t.slice(from, stop < 0 ? nextStart : from + stop).replace(SPAN_EXCEPT, '');
-    const severity = triggerSeverity(m[1] ?? m[2]);
+    const phrase: string | undefined = m[1]; // one of the two groups matched
+    const severity = triggerSeverity(phrase ?? m[2]);
     for (const part of span.replace(CLAUSE_END, '').replace(EXAMPLE_WORDS, ',').split(LIST_SPLIT)) {
       const term = cleanTerm(part);
       if (term !== '') found.push({ index: m.index, term, severity, diet: false });
