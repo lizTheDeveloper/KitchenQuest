@@ -94,3 +94,5 @@ test('cards pass axe and keep focus order', ...);   // expectNoA11yViolations wi
 **Carry from Step 2 review:** `intake.allergies.followup` ("Stamped… / Saved…") fires only after a confirmed write; `rule.readback` lines ending "Is that right?" on a severe card must be followed by `rule.tap_needed` and never accept a typed yes.
 
 **Ruling R9 (Step 7 fix round 4):** the game shows only scripted lines and cards from the mentor, never model text. `POST /mentor/turn` never returns a `text` part, and the panel must not render one if it arrives.
+
+**Carry from data task:** a recipe-level check finding has `ingredient: ""` (sulphite rule on an empty recipe) — render it as a recipe-level reminder, never a blank row.
