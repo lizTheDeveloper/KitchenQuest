@@ -9,7 +9,7 @@ import { createScriptedEngine } from './scripted';
 const recipes = Object.entries(content.recipes).map(([slug, r]) => ({ slug, title: r.meta.title }));
 const NOW = new Date(2026, 10, 10, 12, 5); // local 12:05 on 10 November
 const engine = () => createScriptedEngine({ dialogue: createDialogue(content.pan), graph, ruleTerms: content.ruleTerms, recipes, now: () => NOW });
-const ctx = (patch: Partial<TurnContext> = {}): TurnContext => ({ turn: 1, openCards: [], intakeStep: null, signedIn: true, ...patch });
+const ctx = (patch: Partial<TurnContext> = {}): TurnContext => ({ turn: 1, openCards: [], intakeStep: null, signedIn: true, trail: [], ...patch });
 
 const said = (r: PanReply) => r.items.flatMap((i) => (i.kind === 'said' ? [i.said.trigger] : []));
 const cards = (r: PanReply): ProposalCard[] => r.cards.map((c) => c.card);
@@ -197,6 +197,24 @@ describe('scripted engine', () => {
     expect(e.reply('yes', ctx({ turn: 3, openCards: profile })).intents).toEqual([]);
     expect(e.reply('no', ctx({ turn: 2, openCards: severe })).intents).toEqual([{ kind: 'reject', localId: id(severe) }]);
     expect(e.reply('undo that', ctx({ turn: 2 })).intents).toEqual([{ kind: 'undo' }]);
+  });
+
+  test('typed yes with a local and a server card both open → confirm.tap_card, never a confirm (Step 9 carry)', () => {
+    const e = engine();
+    const profile = e.reply('My market day is Saturday.', ctx({ turn: 1 })).cards;
+    const serverCard: CardView = { origin: 'server', proposalId: 'P1', expiresAt: '2099-01-01T00:00:00Z', card: profile[0].card, issuedTurn: 1 };
+    const mixed = e.reply('yes', ctx({ turn: 2, openCards: [...profile, serverCard] }));
+    expect(mixed.intents).toEqual([]);
+    expect(said(mixed)).toEqual(['confirm.tap_card']);
+    // A lone server card is never confirmed by this engine either.
+    // An older card still open counts too: never a guess between two open cards.
+    const older: CardView = { ...profile[0], localId: 'old', issuedTurn: 0 } as CardView;
+    const withOld = e.reply('yes', ctx({ turn: 2, openCards: [older, profile[0]] }));
+    expect(withOld.intents).toEqual([]);
+    expect(said(withOld)).toEqual(['confirm.tap_card']);
+    const lone = e.reply('yes', ctx({ turn: 2, openCards: [serverCard] }));
+    expect(lone.intents).toEqual([]);
+    expect(said(lone)).toEqual(['confirm.tap_card']);
   });
 
   test('a profile card from the engine is accepted by PUT /profile', () => {

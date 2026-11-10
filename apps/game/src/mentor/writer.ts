@@ -21,11 +21,18 @@ export type WriteOutcome =
   | { ok: true; trail: TrailEntry; items: PanItem[] }
   | { ok: false; reason: 'tap_required' | 'consent_required' | 'needs_account' | 'invalid' | 'closed' | 'network'; items: PanItem[] };
 
+/**
+ * What an undo did (Step 8 fix round 1 carry). `undone`: reversed, drop the trail entry. `nothing`: there was
+ * nothing to reverse (the window closed, the card vanished), drop it. `full`: the pantry is at its limit and
+ * nothing changed, keep it while the window is open. `failed`: offline or a server error, keep it to try again.
+ */
+export interface UndoOutcome { status: 'undone' | 'nothing' | 'full' | 'failed'; items: PanItem[] }
+
 export interface CardWriter {
   /** severe + typed_yes → tap_required, with no call. */
   confirm(card: CardView, via: 'tap' | 'typed_yes', edits?: { severity?: Severity }): Promise<WriteOutcome>;
   reject(card: CardView): Promise<PanItem[]>;
-  undo(entry: TrailEntry): Promise<PanItem[]>;
+  undo(entry: TrailEntry): Promise<UndoOutcome>;
 }
 
 type Row = PantryItem & { id: string };
@@ -48,7 +55,9 @@ export function partsToItems(parts: readonly ReplyPart[], dialogue: Dialogue): P
       case 'line': return [{ kind: 'said', said: dialogue.say(p.line.trigger, p.line.vars) }];
       case 'choices': return [{ kind: 'choices', options: p.options, severity: p.severity }];
       case 'consent': return [{ kind: 'consent', purpose: p.purpose }];
-      case 'text': return [];
+      case 'text':
+        if (import.meta.env.DEV) console.warn('mentor: a text part from the server was dropped (ruling R9)');
+        return [];
     }
   });
 }
@@ -254,20 +263,26 @@ export function createCardWriter(deps: {
     },
 
     async undo(entry) {
-      if (familyTable()) return [];
-      if (deps.now().getTime() > Date.parse(entry.undoUntil)) return [line('undo.nothing')];
+      if (familyTable()) return { status: 'nothing', items: [] };
+      if (deps.now().getTime() > Date.parse(entry.undoUntil)) return { status: 'nothing', items: [line('undo.nothing')] };
       if (entry.origin === 'server') {
         const r = await client.undoWrite(entry.id);
-        if (r.ok) return partsToItems(r.data.parts, dialogue);
-        return r.status === 409 || r.status === 404 ? [line('undo.nothing')] : [];
+        if (r.ok) {
+          const items = partsToItems(r.data.parts, dialogue);
+          if (r.data.undone) return { status: 'undone', items };
+          // A full pantry keeps the entry (still undoable in the window); anything else had nothing to reverse.
+          const full = r.data.parts.some((p) => p.kind === 'line' && p.line.trigger === 'pantry.undo_full');
+          return { status: full ? 'full' : 'nothing', items };
+        }
+        return r.status === 409 || r.status === 404 ? { status: 'nothing', items: [line('undo.nothing')] } : { status: 'failed', items: [] };
       }
       const u = undos.get(entry.id);
-      if (u === undefined) return [line('undo.nothing')];
+      if (u === undefined) return { status: 'nothing', items: [line('undo.nothing')] };
       const done = await reverse(u);
-      if (done === null) return [];
-      if (done.length > 0) return done; // the pantry is full: nothing changed, and the undo stays possible
+      if (done === null) return { status: 'failed', items: [] };
+      if (done.length > 0) return { status: 'full', items: done }; // the pantry is full: nothing changed, and the undo stays possible
       undos.delete(entry.id);
-      return [say(undoneLine(u.card))];
+      return { status: 'undone', items: [say(undoneLine(u.card))] };
     },
   };
 }

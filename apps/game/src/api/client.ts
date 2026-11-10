@@ -32,7 +32,7 @@ export interface ApiClient {
   /** A tap on a server card: the body is `{ channel: 'tap', edits? }`; the type has no other channel (§7.6b.1). */
   confirmProposal(id: string, edits?: { severity?: Severity }): Promise<ApiResult<ConfirmResponse>>;          // POST /mentor/proposals/:id/confirm
   rejectProposal(id: string): Promise<ApiResult<{ parts: ReplyPart[] }>>;                                      // POST /mentor/proposals/:id/reject
-  undoWrite(id: string): Promise<ApiResult<{ parts: ReplyPart[] }>>;                                           // POST /mentor/writes/:id/undo
+  undoWrite(id: string): Promise<ApiResult<{ parts: ReplyPart[]; undone: boolean }>>;                                        // POST /mentor/writes/:id/undo
   forgetConversations(): Promise<ApiResult<null>>;                                                            // DELETE /mentor/conversations (204)
   withdrawConsent(purpose: ConsentPurpose, healthData?: 'delete' | 'keep'): Promise<ApiResult<null>>;         // DELETE /me/consents/:purpose (204)
   /** Needs health_data consent (403 consent_required). */

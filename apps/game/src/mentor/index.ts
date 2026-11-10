@@ -1,11 +1,17 @@
+import type { TurnRequest } from '@kitchenquest/core/engine';
+import { createApiClient, type ApiClient } from '../api/client';
 import { content, graph } from '../content';
-import type { PlayerStore } from '../state/store';
+import type { PlayerState, PlayerStore } from '../state/store';
 import type { LineBank } from '../content/types';
 import { reducedMotion } from '../shell/motion';
-import { createScriptedBackend } from './backend';
-import { createDialogue } from './dialogue';
+import { parseRoute } from '../shell/router';
+import { createAiBackend } from './ai-backend';
+import { createScriptedBackend, type MentorBackend } from './backend';
+import { createDialogue, type Dialogue } from './dialogue';
 import { mountMentorPanel, type MentorPanel } from './panel';
-import { createScriptedEngine } from './scripted';
+import type { PanReply } from './reply';
+import { createScriptedEngine, type ScriptedEngine } from './scripted';
+import { createCardWriter } from './writer';
 
 export { createDialogue } from './dialogue';
 export type { MentorPanel } from './panel';
@@ -28,23 +34,74 @@ export function historyOptions(store: PlayerStore): { history: Record<string, nu
   return { history: dialogueHistory, onHistory: (h) => { store.update((s) => ({ ...s, dialogueHistory: h })); } };
 }
 
-/** Mount the panel once, on the scripted backend (the core toolkit, no network), with its line history kept in the player store. */
-export function mountMentor(doc: Document, store: PlayerStore, bank: LineBank): MentorPanel {
+/** Which backend a player gets: Family Table → scripted (§19); signed in with the AI mentor on → AI; otherwise scripted. */
+export function backendKind(s: Pick<PlayerState, 'account' | 'settings'>): 'scripted' | 'ai' {
+  if (s.settings.familyTable) return 'scripted';
+  return s.account !== null && s.settings.aiMentor ? 'ai' : 'scripted';
+}
+
+/** What the player is looking at, for the turn request: the route name and, on a dish, its slug. */
+export function screenOf(hash: string): TurnRequest['screen'] {
+  const r = parseRoute(hash);
+  if (r.name === 'notFound') return null;
+  return r.name === 'recipe' || r.name === 'cook' ? { route: r.name, slug: r.slug } : { route: r.name };
+}
+
+/**
+ * One backend the panel holds, rebuilt from the store when the account, the AI setting or Family Table changes. A
+ * new AI backend starts a new conversation; a reply still on its way from the old one is shown as it arrives.
+ */
+export function switchingBackend(store: PlayerStore, build: (kind: 'scripted' | 'ai') => MentorBackend): MentorBackend {
+  const listeners = new Set<(r: PanReply) => void>();
+  const make = () => {
+    const b = build(backendKind(store.get()));
+    b.onLate?.((r) => { if (current === b) for (const fn of listeners) fn(r); });
+    return b;
+  };
+  let key = '';
+  const keyOf = (s: PlayerState) => `${backendKind(s)}|${s.account?.email ?? ''}`;
+  let current: MentorBackend = make();
+  key = keyOf(store.get());
+  store.subscribe((s) => {
+    const k = keyOf(s);
+    if (k === key) return;
+    key = k;
+    current = make();
+  });
+  return {
+    get kind() { return current.kind; },
+    reply: (input, ctx) => current.reply(input, ctx),
+    onLate(fn) {
+      listeners.add(fn);
+      return () => { listeners.delete(fn); };
+    },
+  };
+}
+
+/** Mount the panel once, with its line history kept in the player store and the backend chosen from the store. */
+export function mountMentor(doc: Document, store: PlayerStore, bank: LineBank, client: ApiClient = createApiClient()): MentorPanel {
   if (mentor) return mentor;
   const win = doc.defaultView!;
   const mql = win.matchMedia('(prefers-reduced-motion: reduce)');
-  const dialogue = createDialogue(bank, historyOptions(store));
+  const now = () => new Date();
+  const dialogue: Dialogue = createDialogue(bank, historyOptions(store));
   const recipes = Object.entries(content.recipes).map(([slug, r]) => ({ slug, title: r.meta.title }));
-  const engine = createScriptedEngine({ dialogue, graph, ruleTerms: content.ruleTerms, recipes, now: () => new Date() });
+  const engine: ScriptedEngine = createScriptedEngine({ dialogue, graph, ruleTerms: content.ruleTerms, recipes, now });
+  const writer = createCardWriter({ client, store, dialogue, graph, ruleTerms: content.ruleTerms, now });
+  const backend = switchingBackend(store, (kind) => (kind === 'ai'
+    ? createAiBackend({
+      client, engine, dialogue, store, graph, ruleTerms: content.ruleTerms, now, events: win,
+      screen: () => screenOf(win.location.hash),
+      intakeStep: () => { const step = store.get().intake.step; return step === 'done' ? null : step; },
+    })
+    : createScriptedBackend(engine, dialogue)));
   const root = doc.createElement('div');
   root.id = 'pan-root';
   doc.body.append(root);
   mentor = mountMentorPanel(root, {
     mode: store.get().settings.familyTable ? 'familyTable' : 'standard',
-    backend: createScriptedBackend(engine, dialogue),
-    dialogue,
+    backend, dialogue, writer, engine, client, forms: content.bureau.forms, store, now,
     reducedMotion: () => reducedMotion(store.get().settings.reducedMotion, mql),
-    signedIn: () => store.get().account !== null,
   });
   return mentor;
 }

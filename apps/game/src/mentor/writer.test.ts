@@ -186,9 +186,9 @@ describe('card writer', () => {
     expect(store.get().localPantry.map((i) => i.name)).toEqual(['rice']);
     expect(said(pantry.items)).toEqual(['pantry.added', 'pantry.removed']);
     if (!pantry.ok || !p.ok) throw new Error('expected writes');
-    expect(said(await writer.undo(pantry.trail))).toEqual(['undo']);
+    expect(said((await writer.undo(pantry.trail)).items)).toEqual(['undo']);
     expect(store.get().localPantry).toEqual([{ id: 'e1', name: 'eggs', ingredientId: 'egg' }]);
-    expect(said(await writer.undo(p.trail))).toEqual(['undo']);
+    expect(said((await writer.undo(p.trail)).items)).toEqual(['undo']);
     expect(store.get().localProfile).toBeNull();
   });
 
@@ -218,7 +218,7 @@ describe('card writer', () => {
     const prof = await writer.confirm(local(buildProfileCard({ marketDays: [6] }), 'L2'), 'tap');
     if (!prof.ok) throw new Error('expected a write');
     expect(calls.slice(2).map((c) => [c.name, c.args[0]])).toEqual([['getProfile', undefined], ['putProfile', { marketDays: [6] }]]);
-    expect(said(await writer.undo(prof.trail))).toEqual(['undo']);
+    expect(said((await writer.undo(prof.trail)).items)).toEqual(['undo']);
     expect(calls.at(-1)).toEqual({ name: 'putProfile', args: [{ marketDays: [2] }] });
   });
 
@@ -229,15 +229,15 @@ describe('card writer', () => {
       deleteRule: () => ok(null, 204),
       me: () => ok({ id: 'u1', email: 'cook@example.com', entitlements: [] }),
       listRules: () => ok({ rules: [] }),
-      undoWrite: () => ok({ parts: [{ kind: 'line', line: { trigger: 'undo', vars: {} } }] }),
+      undoWrite: () => ok({ parts: [{ kind: 'line', line: { trigger: 'undo', vars: {} } }], undone: true }),
     }, signedIn);
     const out = await writer.confirm(local(milk()), 'tap');
     if (!out.ok) throw new Error('expected a write');
-    expect(said(await writer.undo(out.trail))).toEqual(['rule.voided']);
+    expect(said((await writer.undo(out.trail)).items)).toEqual(['rule.voided']);
     expect(calls.map((c) => c.name)).toEqual(['createRule', 'me', 'listRules', 'deleteRule', 'me', 'listRules']);
     expect(calls[3].args).toEqual(['r9']);
     const serverTrail = { id: 'P1', origin: 'server' as const, kind: 'pantry' as const, summary: 's', undoUntil: '2026-11-10T12:05:00Z' };
-    expect(said(await writer.undo(serverTrail))).toEqual(['undo']);
+    expect(said((await writer.undo(serverTrail)).items)).toEqual(['undo']);
     expect(calls.at(-1)).toEqual({ name: 'undoWrite', args: ['P1'] });
   });
 
@@ -246,10 +246,10 @@ describe('card writer', () => {
     const out = await writer.confirm(local(ruleCard('sesame', 'allergy')), 'tap');
     if (!out.ok) throw new Error('expected a write');
     later(UNDO_WINDOW_MS + 1);
-    expect(said(await writer.undo(out.trail))).toEqual(['undo.nothing']);
+    expect(said((await writer.undo(out.trail)).items)).toEqual(['undo.nothing']);
     expect(store.get().localRules).toHaveLength(1);
     const serverTrail = { id: 'P1', origin: 'server' as const, kind: 'rule' as const, summary: 's', undoUntil: T0.toISOString() };
-    expect(said(await writer.undo(serverTrail))).toEqual(['undo.nothing']);
+    expect(said((await writer.undo(serverTrail)).items)).toEqual(['undo.nothing']);
     expect(calls).toEqual([]);
   });
 
@@ -258,10 +258,10 @@ describe('card writer', () => {
     const keep = await writer.confirm(local(milk(), 'A'), 'tap');
     const out = await writer.confirm(local(ruleCard('sesame', 'allergy'), 'B'), 'tap');
     if (!out.ok || !keep.ok) throw new Error('expected writes');
-    expect(said(await writer.undo(out.trail))).toEqual(['rule.voided']);
+    expect(said((await writer.undo(out.trail)).items)).toEqual(['rule.voided']);
     expect(store.get().localRules.map((r) => r.id)).toEqual([keep.trail.id]);
     // A second undo of the same entry finds nothing.
-    expect(said(await writer.undo(out.trail))).toEqual(['undo.nothing']);
+    expect(said((await writer.undo(out.trail)).items)).toEqual(['undo.nothing']);
   });
 });
 
@@ -344,7 +344,7 @@ describe('fix round 1', () => {
     const { store, calls, writer } = setup({}, { settings: { ...createStore(null).get().settings, familyTable: true } });
     expect(await writer.confirm(local(coconutCard()), 'tap')).toMatchObject({ ok: false, items: [] });
     expect(await writer.reject(server(milk()))).toEqual([]);
-    expect(await writer.undo({ id: 'P1', origin: 'server', kind: 'rule', summary: 's', undoUntil: '2026-11-10T12:05:00Z' })).toEqual([]);
+    expect(await writer.undo({ id: 'P1', origin: 'server', kind: 'rule', summary: 's', undoUntil: '2026-11-10T12:05:00Z' })).toEqual({ status: 'nothing', items: [] });
     expect(store.get().localRules).toEqual([]);
     expect(calls).toEqual([]);
   });
@@ -364,4 +364,42 @@ test('partsToItems drops model text and keeps lines, choices and consent', () =>
     { kind: 'consent', purpose: 'ai_health' },
   ], createDialogue(content.pan));
   expect(items.map((i) => i.kind)).toEqual(['said', 'choices', 'consent']);
+});
+
+describe('undo outcomes (Step 8 fix round 1 carry)', () => {
+  const entry = { id: 'P1', origin: 'server' as const, kind: 'pantry' as const, summary: 's', undoUntil: '2026-11-10T12:05:00Z' };
+  const lineParts = (trigger: string) => [{ kind: 'line' as const, line: { trigger, vars: {} } }];
+
+  test('server undone:true → undone; undone:false with pantry.undo_full → full (kept); undone:false otherwise → nothing', async () => {
+    let answer: ApiResult<unknown> = ok({ parts: lineParts('undo'), undone: true });
+    const { writer } = setup({ undoWrite: () => answer }, signedIn);
+    expect(await writer.undo(entry)).toMatchObject({ status: 'undone' });
+    answer = ok({ parts: lineParts('pantry.undo_full'), undone: false });
+    const full = await writer.undo(entry);
+    expect(full.status).toBe('full');
+    expect(said(full.items)).toEqual(['pantry.undo_full']);
+    answer = ok({ parts: lineParts('undo.nothing'), undone: false });
+    expect(await writer.undo(entry)).toMatchObject({ status: 'nothing' });
+  });
+
+  test('offline or a server error → failed, so the entry stays to try again', async () => {
+    const { writer } = setup({ undoWrite: () => fail(0, 'network') }, signedIn);
+    expect(await writer.undo(entry)).toEqual({ status: 'failed', items: [] });
+  });
+
+  test('a local pantry undo into a full pantry is full, and a later undo still works', async () => {
+    let full = true;
+    const { writer } = setup({
+      changePantry: (change) => {
+        const c = change as { removeIds: string[] };
+        if (c.removeIds.length > 0 && full) return fail(400, 'too_many_items');
+        return ok({ items: [], removed: [], addedIds: c.removeIds.length > 0 ? [] : ['n1'] });
+      },
+    }, signedIn);
+    const out = await writer.confirm(local(buildPantryCard({ add: ['rice'], remove: [] }, graph)), 'tap');
+    if (!out.ok) throw new Error('expected a write');
+    expect(await writer.undo(out.trail)).toMatchObject({ status: 'full' });
+    full = false;
+    expect(await writer.undo(out.trail)).toMatchObject({ status: 'undone' });
+  });
 });

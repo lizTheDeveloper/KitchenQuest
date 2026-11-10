@@ -1,4 +1,4 @@
-import type { CardAction, IntakeStep, ProposalCard, Severity, TurnNotice } from '@kitchenquest/core/engine';
+import type { CardAction, IntakeStep, ProposalCard, Severity, TrailEntry, TurnNotice } from '@kitchenquest/core/engine';
 import type { Said } from './dialogue';
 
 /**
@@ -19,12 +19,17 @@ export type PanItem =
   /** Show that consent card. */
   | { kind: 'consent'; purpose: 'health_data' | 'ai_health' }
   /** The saved rules need review (API 409 `rules_need_review`): code-owned player copy and a link to Your rules. */
-  | { kind: 'rules_error'; message: string; href: string };
+  | { kind: 'rules_error'; message: string; href: string }
+  /** The AI failed twice on this text: a "Try again" button that sends it again. The text lives in memory only (N-4). */
+  | { kind: 'retry'; text: string };
 
 /** A request from the engine to the panel's writer (pre-flight C10). CardAction stays the record of a write the SERVER completed. */
 export type LocalIntent = { kind: 'confirm' | 'reject'; localId: string } | { kind: 'undo' };
 
 export interface PanReply { items: PanItem[]; cards: CardView[]; intents: LocalIntent[]; actions: CardAction[]; notice: TurnNotice }
 
-/** What the panel knows when it asks for a reply: the Pan turn number, the cards still open, the intake step. */
-export interface TurnContext { turn: number; openCards: CardView[]; intakeStep: IntakeStep | null; signedIn: boolean }
+/**
+ * What the panel knows when it asks for a reply: the Pan turn number, the cards still open, the intake step, and
+ * the trail entries whose undo window is still open (oldest first), so a typed undo goes by the newest one.
+ */
+export interface TurnContext { turn: number; openCards: CardView[]; intakeStep: IntakeStep | null; signedIn: boolean; trail: readonly TrailEntry[] }

@@ -11,7 +11,7 @@ const backend = () => {
   const engine = createScriptedEngine({ dialogue, graph, ruleTerms: content.ruleTerms, recipes: [], now: () => new Date(2026, 10, 10, 9, 0) });
   return createScriptedBackend(engine, dialogue);
 };
-const ctx: TurnContext = { turn: 1, openCards: [], intakeStep: null, signedIn: false };
+const ctx: TurnContext = { turn: 1, openCards: [], intakeStep: null, signedIn: false, trail: [] };
 const said = (r: PanReply) => r.items.flatMap((i) => (i.kind === 'said' ? [i.said.trigger] : []));
 
 test('a thin wrapper over the engine: thanks → thanks; other text → the engine; voice → voice.not_yet', async () => {

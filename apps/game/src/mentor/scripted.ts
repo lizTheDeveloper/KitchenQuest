@@ -168,14 +168,20 @@ export function createScriptedEngine(deps: {
       }
       // 3. A plain yes, no or undo: core decides which card it means. A typed yes never confirms a severe card.
       if (intent === 'yes' || intent === 'no' || intent === 'undo') {
-        const refs: OpenCardRef[] = ctx.openCards.flatMap((c) =>
-          c.origin === 'local'
-            ? [{ ref: c.localId, severe: c.card.kind === 'rule' && c.card.severe, ingredient: c.card.kind === 'rule' ? c.card.display.ingredient : null, issuedTurn: c.issuedTurn }]
-            : []);
+        // Step 9 carry: while more than one card of either origin is open, a plain yes or no never picks one.
+        const recentCount = ctx.openCards.filter((c) => c.issuedTurn === ctx.turn - 1).length;
+        if (recentCount > 0 && ctx.openCards.length > 1) return reply([line('confirm.tap_card')]);
+        // Server cards count too: with a local and a server card both open, a yes never confirms either.
+        const refs: OpenCardRef[] = ctx.openCards.map((c) => ({
+          ref: c.origin === 'local' ? c.localId : `server:${c.proposalId}`,
+          severe: c.card.kind === 'rule' && c.card.severe, ingredient: c.card.kind === 'rule' ? c.card.display.ingredient : null, issuedTurn: c.issuedTurn,
+        }));
         const target = shortReplyTarget(intent, refs, ctx.turn);
         switch (target.kind) {
           case 'confirm':
           case 'reject':
+            // A server card is answered by its own tap here: this engine never sends a typed yes for it.
+            if (target.ref.startsWith('server:')) return reply([line('confirm.tap_card')]);
             return reply([], { intents: [{ kind: target.kind, localId: target.ref }] });
           case 'undo':
             return reply([], { intents: [{ kind: 'undo' }] });
