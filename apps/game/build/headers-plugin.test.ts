@@ -14,7 +14,7 @@ describe('verifyHeaders middleware', () => {
   const run = (url: string | undefined) => {
     const set: Record<string, string> = {};
     let nexted = 0;
-    verifyHeaders({ url } as never, { setHeader: (k: string, v: string) => { set[k.toLowerCase()] = v; } } as never, () => { nexted++; });
+    verifyHeaders({ url }, { setHeader: (k: string, v: string) => { set[k.toLowerCase()] = v; } } as never, () => { nexted++; });
     return { set, nexted };
   };
   test('sets no-referrer and no-store on the verify page, ignoring the query', () => {
@@ -22,10 +22,10 @@ describe('verifyHeaders middleware', () => {
   });
   test("the emailed link's path (no slash) is served the verify page's own file, query kept", () => {
     const req = { url: '/auth/verify?token=abc' };
-    verifyHeaders(req as never, { setHeader: () => {} } as never, () => {});
+    verifyHeaders(req, { setHeader: () => {} } as never, () => {});
     expect(req.url).toBe('/auth/verify/index.html?token=abc');
     const slash = { url: '/auth/verify/?token=abc' };
-    verifyHeaders(slash as never, { setHeader: () => {} } as never, () => {});
+    verifyHeaders(slash, { setHeader: () => {} } as never, () => {});
     expect(slash.url).toBe('/auth/verify/?token=abc');
   });
   test('leaves other paths alone', () => {
@@ -39,7 +39,7 @@ describe('verifyHeaders middleware', () => {
       setHeader: (k: string, v: string) => { set[k.toLowerCase()] = v; },
       writeHead: (status: number, headers?: Record<string, string>) => { written = { status, headers }; return res; },
     };
-    verifyHeaders({ url: '/auth/verify/' } as never, res as never, () => {});
+    verifyHeaders({ url: '/auth/verify/' }, res as never, () => {});
     res.writeHead(200, { 'Cache-Control': 'no-cache', 'Content-Type': 'text/html' });
     expect(written).toEqual({ status: 200, headers: { 'Content-Type': 'text/html' } });
     expect(set['cache-control']).toBe('no-store');

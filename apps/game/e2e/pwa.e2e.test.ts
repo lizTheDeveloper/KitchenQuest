@@ -151,9 +151,9 @@ describe('installable PWA', () => {
     expect(await page.evaluate(async () => (await navigator.serviceWorker.getRegistration())!.waiting !== null)).toBe(true);
     expect(await page.evaluate(() => navigator.serviceWorker.controller!.scriptURL)).toBe(before);
     // The note outlives route changes: the next screen render must not wipe it.
-    for (const hash of ['#/settings', '#/recipes', '#/kitchen']) {
+    for (const [hash, title] of [['#/settings', 'Settings'], ['#/recipes', 'Recipe shelf'], ['#/kitchen', 'Your kitchen']]) {
       await go(page, hash);
-      await page.locator('h1').first().waitFor();
+      await page.waitForFunction((t) => document.title.startsWith(`${t} ·`) && document.querySelector('#view h1') !== null, title);
       expect(await note.count(), `after ${hash}`).toBe(1);
     }
     await note.getByRole('button', { name: 'Got it' }).click();

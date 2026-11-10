@@ -35,9 +35,11 @@ describe('mentor panel', () => {
     app = await openApp('/#/settings', { reducedMotion: true });
     const { page } = app;
     await page.locator('#pan-button').click();
-    const before = app.requests.length;
+    // The app's one start-up call (who is signed in) isn't the Pan's.
+    const others = () => app!.requests.filter((u) => new URL(u).pathname !== '/api/me').length;
+    const before = others();
     await page.locator('#pan-text').fill('thank you');
-    await page.getByRole('button', { name: 'Send' }).click();
+    await page.locator('#pan-panel').getByRole('button', { name: 'Send', exact: true }).click();
     await page.locator('#pan-panel .bubble.you').filter({ hasText: 'thank you' }).waitFor();
     await lastPan(page).waitFor();
     expect(lines('thanks')).toContain((await lastPan(page).textContent())!);
@@ -45,7 +47,7 @@ describe('mentor panel', () => {
     await page.keyboard.press('Enter');
     await page.waitForFunction(() => document.querySelectorAll('#pan-panel .bubble.pan').length === 2);
     expect(lines('ai_unavailable')).toContain((await lastPan(page).textContent())!);
-    expect(app.requests.length).toBe(before);
+    expect(others()).toBe(before);
   });
 
   it('hold-to-talk plays voice.not_yet', async () => {

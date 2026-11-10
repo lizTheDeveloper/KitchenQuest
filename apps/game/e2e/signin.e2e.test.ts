@@ -124,20 +124,24 @@ describe('/auth/verify', () => {
       (route) => route.fulfill(m2error(429, 'rate_limited')),
       (route) => route.fulfill(m2error(503, 'internal')),
       (route) => route.abort('internetdisconnected'),
+      reply(200, { unexpected: true }),
       reply(200, SIGNED_IN),
     ]);
     app = await openApp('/auth/verify?token=T0K3N', { beforeGoto: (page) => mock.install(page) });
     const { page } = app;
     const button = page.getByRole('button', { name: 'Sign me in' });
     const BUSY = "The Bureau couldn't finish that just now. Try again in a moment.";
-    for (const text of [BUSY, BUSY, "Couldn't reach the Bureau. Check your connection and try again."]) {
+    const OFFLINE = "Couldn't reach the Bureau. Check your connection and try again.";
+    // 429, 503, no network, and a 200 that isn't a sign-in answer.
+    for (const text of [BUSY, BUSY, OFFLINE, BUSY]) {
       await button.click();
       await page.getByText(text).waitFor();
+      await page.waitForFunction(() => !(document.getElementById('verify') as HTMLButtonElement).disabled);
       expect(await button.isEnabled()).toBe(true);
     }
     await button.click();
     await page.getByText('Signed in as cook@example.com.').waitFor();
-    expect(mock.seen.map((r) => JSON.parse(r.postData()!) as unknown)).toEqual(Array(4).fill({ token: 'T0K3N' }));
+    expect(mock.seen.map((r) => JSON.parse(r.postData()!) as unknown)).toEqual(Array(5).fill({ token: 'T0K3N' }));
   });
 
   it('a link without a token says it is incomplete and sends nothing', async () => {

@@ -38,7 +38,7 @@ export function verifyHeaders(req: Pick<IncomingMessage, 'url'>, res: Res, next:
         }
         apply();
         return (original as (...a: unknown[]) => ServerResponse)(status, ...rest);
-      }) as ServerResponse['writeHead'];
+      });
     }
   }
   next();

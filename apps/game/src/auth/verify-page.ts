@@ -71,14 +71,15 @@ export function startVerifyPage(opts: {
     status.textContent = 'Signing you in…';
     let r: VerifyResult;
     try { r = await client.verify(token, ageConfirmed); } finally { inFlight = false; }
-    if (r.ok) {
-      const email = r.data.user.email;
+    const email = r.ok ? (r.data as { user?: { email?: unknown } } | null)?.user?.email : undefined;
+    if (r.ok && typeof email === 'string') {
       status.textContent = '';
       finish(el('p', {}, `Signed in as ${email}.`), link('/#/kitchen', 'Into the kitchen'));
       opts.onSignedIn?.(email);
       return;
     }
-    const details = r.error.details as { code?: unknown } | undefined;
+    // A 200 we can't read is treated like a busy server: say so and let the player try again.
+    const details = (r.ok ? undefined : r.error.details) as { code?: unknown } | undefined;
     if (r.status === 400 && details?.code === 'age_confirmation_required' && !ageConfirmed) {
       status.textContent = '';
       showAgeGate();

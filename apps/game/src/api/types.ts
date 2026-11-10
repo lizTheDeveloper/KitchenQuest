@@ -19,8 +19,8 @@ export type ApiResult<T> = { ok: true; status: number; data: T } | { ok: false; 
 export interface Me { id: string; email: string; entitlements: string[] }
 
 /** N-7: a meal window's name is one of a fixed set (apps/api/src/profile/store.ts). */
-export type MealWindowName = 'breakfast' | 'lunch' | 'dinner' | 'snack' | 'other';
-export interface MealWindow { name: MealWindowName; start: string; end: string }   // HH:MM, start < end
+type MealWindowName = 'breakfast' | 'lunch' | 'dinner' | 'snack' | 'other';
+interface MealWindow { name: MealWindowName; start: string; end: string }   // HH:MM, start < end
 /** GET/PUT /profile. PUT takes any subset; omitted fields are left unchanged. */
 export interface Profile { marketDays: number[]; mealsPerWeek: number | null; country: string | null; region: string | null; mealWindows: MealWindow[] }
 
