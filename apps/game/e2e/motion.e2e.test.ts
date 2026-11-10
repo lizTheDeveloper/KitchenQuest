@@ -46,14 +46,32 @@ async function expectStill(page: Page): Promise<void> {
   await frames(page, 10);
   expect(await page.evaluate(() => (window as unknown as Hooks).__kqTweens?.() ?? 0), 'Kitchen scene tweens').toBe(0);
 
+  expect(await stampAnimations(page), 'animations while stamping the permit').toBe(0);
+  await frames(page, 5);
+  expect(await page.evaluate(() => document.getAnimations().length), 'animations a few frames after arriving').toBe(0);
+}
+
+/**
+ * Map → permit → stamp. Samples `document.getAnimations()` on every animation frame from the click until
+ * the visit has opened, and returns the most seen at once (the stamp plays before the permit closes).
+ */
+async function stampAnimations(page: Page): Promise<number> {
   await page.getByRole('button', { name: 'Go out to the world map' }).click();
   await page.getByRole('button', { name: LEELA_PIN }).click();
   await page.getByRole('dialog', { name: 'Travel Permit' }).waitFor();
+  await page.evaluate(() => {
+    const w = window as unknown as { __kqAnim: { max: number; done: boolean } };
+    w.__kqAnim = { max: 0, done: false };
+    const tick = () => {
+      w.__kqAnim.max = Math.max(w.__kqAnim.max, document.getAnimations().length);
+      if (location.hash === '#/visit/leela') { w.__kqAnim.done = true; return; }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
   await page.getByRole('button', { name: 'Stamp it ✔' }).click();
-  await page.waitForFunction(() => location.hash === '#/visit/leela');
-  expect(await page.evaluate(() => document.getAnimations().length), 'animations after stamping').toBe(0);
-  await frames(page, 5);
-  expect(await page.evaluate(() => document.getAnimations().length), 'animations a few frames later').toBe(0);
+  await page.waitForFunction(() => (window as unknown as { __kqAnim: { done: boolean } }).__kqAnim.done);
+  return page.evaluate(() => (window as unknown as { __kqAnim: { max: number } }).__kqAnim.max);
 }
 
 describe('reduced motion', () => {
@@ -79,5 +97,11 @@ describe('reduced motion', () => {
   it('control: with motion allowed, the greeting types in (so the 100 ms check means something)', async () => {
     app = await openApp('/', { initScript: GREETING_WATCH, reducedMotion: false });
     expect(await greetingTypingMs(app.page)).toBeGreaterThan(100);
+  });
+
+  it('control: with motion allowed, the stamp animates (so the 0-animations check means something)', async () => {
+    app = await openApp('/', { reducedMotion: false });
+    await app.page.locator('#view h1', { hasText: 'Your kitchen' }).waitFor();
+    expect(await stampAnimations(app.page)).toBeGreaterThan(0);
   });
 });

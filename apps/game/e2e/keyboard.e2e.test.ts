@@ -14,15 +14,33 @@ type Page = OpenedApp['page'];
 
 interface Focused { tag: string; id: string; text: string; label: string; interactive: boolean; ring: boolean; inDialog: string | null }
 
-/** What has focus, and whether it shows a focus ring (an outline or a box-shadow). */
+/**
+ * What has focus, and whether it shows a focus ring: its outline or box-shadow differs from an unfocused copy
+ * of itself (same classes, same place in the page). A `.btn` always has a box-shadow, so "has one" proves nothing,
+ * and the browser's default ring doesn't count.
+ */
 const focused = (page: Page): Promise<Focused> => page.evaluate(() => {
   const el = document.activeElement as HTMLElement | null;
   if (!el || el === document.body) return { tag: 'body', id: '', text: '', label: '', interactive: false, ring: false, inDialog: null };
-  const s = getComputedStyle(el);
+  const look = (e: Element) => {
+    const s = getComputedStyle(e);
+    // 'auto' is the browser's own default ring, which ignores the game's palette: the game must draw its own.
+    const outline = s.outlineStyle !== 'none' && s.outlineStyle !== 'auto' && parseFloat(s.outlineWidth) > 0
+      ? `${s.outlineStyle} ${s.outlineWidth} ${s.outlineColor}` : 'none';
+    return { outline, shadow: s.boxShadow };
+  };
+  const now = look(el);
+  const copy = el.cloneNode(false) as HTMLElement;
+  copy.removeAttribute('id');
+  copy.setAttribute('aria-hidden', 'true');
+  copy.inert = true;
+  el.after(copy);
+  const rest = look(copy);
+  copy.remove();
   return {
     tag: el.tagName.toLowerCase(), id: el.id, text: (el.textContent ?? '').trim(), label: el.getAttribute('aria-label') ?? '',
     interactive: el.matches('a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])'),
-    ring: (s.outlineStyle !== 'none' && parseFloat(s.outlineWidth) > 0) || s.boxShadow !== 'none',
+    ring: (now.outline !== 'none' && now.outline !== rest.outline) || now.shadow !== rest.shadow,
     inDialog: el.closest('[role="dialog"]')?.getAttribute('aria-labelledby') ?? null,
   };
 });

@@ -48,8 +48,11 @@ apps/game/                # Phaser game + HTML overlays, a PWA (@kitchenquest/ga
   index.html              # page shell: HUD, #stage (the canvas, aria-hidden) and #view (the HTML screen)
   auth/verify/            # the magic-link landing page (/auth/verify)
   build/                  # Vite plugins: content + art compilers, service worker, security headers
+  deploy/                 # production server snippets (security headers for the reverse proxy)
+  scripts/                # one-off tools (make-icons.mjs: `npm run icons -w @kitchenquest/game`)
   e2e/                    # Playwright tests against `vite build` + `vite preview` (screens.ts lists every screen)
   public/                 # icons and the web manifest (served as-is)
+  public/assets/          # static files served as-is (game art is compiled from art/ and prototype/art/)
   src/shell/              # router, screens, motion settings
   src/content/            # the compiled content, typed
   src/mentor/             # the Pan: dialogue picker and the mentor panel

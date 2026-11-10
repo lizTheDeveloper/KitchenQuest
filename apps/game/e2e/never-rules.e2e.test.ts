@@ -49,6 +49,12 @@ describe('never rules, every screen', () => {
     expect(CONTENT_BANNED.test('a streak of chili')).toBe(true);
     expect(CONTENT_BANNED.test('not HIPAA-anything')).toBe(true);
     expect(bannedPattern(['tip jar']).test('the tip jar')).toBe(true);
+    for (const t of ['Top of the leaderboard', 'Refer a friend', 'Referrals pay', 'ethnic food', 'Recipes collected: 3']) {
+      expect(CHROME_BANNED.test(t), t).toBe(true);
+    }
+    for (const t of ['See the leaderboards', 'Referral bonus', 'ethnic food', 'You collected a recipe']) expect(CONTENT_BANNED.test(t), t).toBe(true);
+    expect(CONTENT_BANNED.test('I can refer you to a clinician')).toBe(false);
+    expect(CHROME_BANNED.test('Never referred to by gender')).toBe(false);
   });
 
   for (const sc of SCREENS) {

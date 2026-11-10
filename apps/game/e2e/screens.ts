@@ -26,12 +26,16 @@ export interface ScreenCase {
 export const CHROME_BANNED_WORDS = [
   'buy', 'purchase', 'upgrade', 'subscribe', 'subscription', 'premium', 'guild', 'pro plan', 'price',
   'streak', 'in a row', 'exotic', 'unlock(ed)?', 'loot(ed)?', 'acquired', 'discovered',
+  // Never rule 9: no referral schemes or leaderboards. voice.md §0.2–0.3: never "ethnic food"; recipes are never collected.
+  'leaderboards?', 'refer', 'referrals?', 'ethnic', 'collected',
   // Compliance: never claim HIPAA compliance or medical-grade anything.
   'HIPAA', 'medical-grade',
 ];
 /** Words written content (inside `[data-content]`) may not say: the Pan and cooks never sell, nothing counts streaks. */
 export const CONTENT_BANNED_WORDS = [
   'upgrade', 'subscribe', 'subscription', 'premium', 'guild', 'pro plan', 'streak',
+  // Content may "refer you to a clinician" (voice.md §0.9), but never runs a referral scheme.
+  'leaderboards?', 'referrals?', 'ethnic', 'collected',
   'HIPAA', 'medical-grade',
 ];
 /** A banned-word list as one case-insensitive pattern; a price ("$5", "$ 5") is always banned. */

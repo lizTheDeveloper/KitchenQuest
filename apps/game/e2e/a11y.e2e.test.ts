@@ -53,7 +53,21 @@ describe('accessibility sweep, every screen', () => {
       await page.emulateMedia({ colorScheme: 'dark' });
       await page.evaluate(() => { document.documentElement.style.fontSize = '200%'; });
       expect(await page.locator('h1').filter({ visible: true }).count(), `${sc.label}: h1 at 200% text`).toBe(1);
-      expect(await sc.primary(page).isVisible(), `${sc.label}: primary action at 200% text`).toBe(true);
+      const primary = sc.primary(page);
+      expect(await primary.isVisible(), `${sc.label}: primary action at 200% text`).toBe(true);
+      await primary.scrollIntoViewIfNeeded();
+      const reach = await primary.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const x = r.left + r.width / 2, y = r.top + r.height / 2;
+        const hit = document.elementFromPoint(x, y);
+        return {
+          // 1px of slack for sub-pixel layout at 200% text.
+          inView: r.top >= -1 && r.left >= -1 && r.bottom <= innerHeight + 1 && r.right <= innerWidth + 1,
+          covered: hit !== el && !el.contains(hit) ? (hit?.outerHTML.slice(0, 100) ?? 'nothing') : null,
+        };
+      });
+      expect(reach.inView, `${sc.label}: primary action fits in the viewport at 200% text`).toBe(true);
+      expect(reach.covered, `${sc.label}: primary action is not covered at 200% text`).toBeNull();
       await expectNoHorizontalScroll(page);
       expect(app.consoleErrors).toEqual([]);
     });
