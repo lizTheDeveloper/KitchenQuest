@@ -157,6 +157,22 @@ export async function lockConsentIn(tx: Tx, userId: string, purpose: ConsentPurp
   if (!row) throw new ApiError(403, 'consent_required', `This needs your consent for ${purpose}`, { purpose });
 }
 
+/**
+ * `lockConsentIn` without the throw: share-locks the active grant for
+ * `purpose` inside the caller's transaction and returns whether there is one.
+ * The mentor turn decides `persist` and its health cards from this (Step 7),
+ * so a concurrent withdraw-with-delete either waits for the turn and deletes
+ * what it stored, or commits first and the turn stores nothing health.
+ */
+export async function consentHeldIn(tx: Tx, userId: string, purpose: ConsentPurpose, now: Date): Promise<boolean> {
+  const [row] = await tx
+    .select({ id: consents.id })
+    .from(consents)
+    .where(and(active(userId, purpose), lte(consents.grantedAt, now), acceptedVersion(purpose)))
+    .for('share');
+  return row !== undefined;
+}
+
 export interface ConsentRecord {
   purpose: ConsentPurpose;
   noticeVersion: string;

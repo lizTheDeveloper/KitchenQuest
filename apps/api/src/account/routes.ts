@@ -356,6 +356,8 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
       await tx.delete(loginTokens).where(eq(loginTokens.email, email));
       await pseudonymizeAudit(tx, config.pseudonymKey, userId);
     });
+    // The mentor's in-memory history goes too (C-12): nothing of the account is kept.
+    app.mentor.memory.delete(`${userId}:`);
     reply.clearCookie(SESSION_COOKIE, SESSION_COOKIE_OPTIONS);
     return reply.status(204).send();
   });

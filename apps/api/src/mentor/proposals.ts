@@ -64,18 +64,20 @@ export const undecidedExpired = (now: Date) =>
  * Records a card the server is about to show (sealed, open, expiring after
  * PROPOSAL_TTL_MS) and returns it as the wire's `ServerCard`. First deletes
  * the user's undecided proposals that have expired. Only a card
- * recorded here can later be confirmed (Step 8's guard).
+ * recorded here can later be confirmed (Step 8's guard). `id` may be given
+ * (a fresh uuid) so the turn can store its messages, which name it, first
+ * (README lock order: messages before mentor_proposals).
  */
 export async function createProposal(
   tx: Tx,
   keyring: Keyring,
-  p: { userId: string; conversationId: string | null; turnSeq: number | null; card: ProposalCard },
+  p: { userId: string; conversationId: string | null; turnSeq: number | null; card: ProposalCard; id?: string },
   now: Date,
 ): Promise<ServerCard> {
   // Undecided cards are not kept past their expiry (data-inventory I-4); the
   // retention job does the same for everyone, at most an hour late.
   await tx.delete(mentorProposals).where(and(eq(mentorProposals.userId, p.userId), undecidedExpired(now)));
-  const id = randomUUID();
+  const id = p.id ?? randomUUID();
   const expiresAt = new Date(now.getTime() + PROPOSAL_TTL_MS);
   await tx.insert(mentorProposals).values({
     id,
@@ -146,6 +148,51 @@ export async function openProposalsOfTurn(
         eq(mentorProposals.userId, userId),
         eq(mentorProposals.conversationId, conversationId),
         eq(mentorProposals.turnSeq, turnSeq),
+        eq(mentorProposals.status, 'open'),
+        gt(mentorProposals.expiresAt, now),
+      ),
+    )
+    .orderBy(asc(mentorProposals.createdAt), asc(mentorProposals.id));
+  const out: LoadedProposal[] = [];
+  for (const row of rows) out.push(await load(tx, keyring, row));
+  return out;
+}
+
+/** Whether the conversation has an open (unexpired) rule or meal card: half of the health gate (pre-flight C1). No lock, nothing opened. */
+export async function hasOpenHealthProposal(tx: Tx, userId: string, conversationId: string, now: Date): Promise<boolean> {
+  if (!UUID.test(conversationId)) return false;
+  const rows = await tx
+    .select({ id: mentorProposals.id })
+    .from(mentorProposals)
+    .where(
+      and(
+        eq(mentorProposals.userId, userId),
+        eq(mentorProposals.conversationId, conversationId),
+        eq(mentorProposals.status, 'open'),
+        gt(mentorProposals.expiresAt, now),
+        inArray(mentorProposals.kind, ['rule', 'meal']),
+      ),
+    )
+    .limit(1);
+  return rows.length > 0;
+}
+
+/** The caller's proposals still open (not expired at `now`) in one conversation, any turn, oldest first. No lock. */
+export async function openProposalsOfConversation(
+  tx: Tx,
+  keyring: Keyring,
+  userId: string,
+  conversationId: string,
+  now: Date,
+): Promise<LoadedProposal[]> {
+  if (!UUID.test(conversationId)) return [];
+  const rows = await tx
+    .select()
+    .from(mentorProposals)
+    .where(
+      and(
+        eq(mentorProposals.userId, userId),
+        eq(mentorProposals.conversationId, conversationId),
         eq(mentorProposals.status, 'open'),
         gt(mentorProposals.expiresAt, now),
       ),

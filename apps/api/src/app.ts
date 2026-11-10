@@ -3,11 +3,16 @@ import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastif
 import { ZodError } from 'zod';
 import { accountRoutes } from './account/routes.js';
 import type { AiProvider } from './ai/provider.js';
+import { sweepPeriodically } from './auth/rate-limit.js';
 import { authRoutes } from './auth/routes.js';
 import { requireUser } from './auth/session.js';
 import { defaultCatalog, type Catalog } from './catalog.js';
 import { consentRoutes } from './consent/routes.js';
 import { mealRoutes } from './meals/routes.js';
+import { BudgetGuard } from './mentor/allowance.js';
+import { HISTORY_MESSAGES, MEMORY_TTL_MS } from './mentor/constants.js';
+import { MemoryFlags, MemoryHistory } from './mentor/memory.js';
+import { mentorRoutes, type MentorState } from './mentor/routes.js';
 import { pantryRoutes } from './pantry/routes.js';
 import { profileRoutes } from './profile/routes.js';
 import { recipeRoutes } from './recipes/routes.js';
@@ -67,6 +72,20 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
     return reply.status(500).send(body('internal', 'Internal server error'));
   });
 
+  // The mentor's in-memory stores (history without health_data consent, child flags), never
+  // written anywhere; swept every minute. Account delete, health_data withdraw and forget clear a user's.
+  const mentor: MentorState = {
+    memory: new MemoryHistory({ ttlMs: MEMORY_TTL_MS, max: HISTORY_MESSAGES }),
+    childFlags: new MemoryFlags({ ttlMs: MEMORY_TTL_MS }),
+    budget: deps.config.ai ? new BudgetGuard(deps.db, deps.config.ai.dailyBudgetMicroUsd) : null,
+  };
+  app.decorate('mentor', mentor);
+  const stopSweeping = sweepPeriodically([mentor.memory, mentor.childFlags], () => deps.now().getTime());
+  app.addHook('onClose', (_app, done) => {
+    stopSweeping();
+    done();
+  });
+
   await app.register(cookie);
   app.decorate('requireUser', requireUser);
   app.decorateRequest('user', null as never);
@@ -80,6 +99,7 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
   await recipeRoutes(app, catalog);
   await mealRoutes(app);
   await pantryRoutes(app, catalog);
+  await mentorRoutes(app, catalog, mentor);
   await accountRoutes(app);
 
   return app;
@@ -88,5 +108,7 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
 declare module 'fastify' {
   interface FastifyInstance {
     deps: Deps;
+    /** The mentor's in-memory stores, shared with the routes that must clear them. */
+    mentor: MentorState;
   }
 }

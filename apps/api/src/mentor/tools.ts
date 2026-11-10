@@ -24,7 +24,7 @@ export const MENTOR_TOOLS: AiTool[] = [
     parameters: {
       type: 'object',
       properties: {
-        term: { type: 'string', description: 'The ingredient or diet as the player said it, e.g. "peanuts" or "vegetarian".' },
+        term: { type: 'string', description: 'The ingredient or diet as the player said it, e.g. "sesame" or "vegetarian".' },
         severity: nullable({ type: 'string', enum: [...SEVERITIES] }),
       },
       required: ['term', 'severity'],
