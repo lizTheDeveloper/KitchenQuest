@@ -5,7 +5,7 @@ import { createApiClient } from './api/client';
 import { registerCookScreen } from './cook/cook-screen';
 import { registerKitchenScreen } from './kitchen/kitchen-screen';
 import { captureInstallPrompt } from './pwa/install';
-import { noteWaitingUpdate, registerServiceWorker } from './pwa/register';
+import { noteWaitingUpdate, registerServiceWorker, skipServiceWorkerOnce, takeServiceWorkerSkip } from './pwa/register';
 import { registerRecipeScreen } from './recipes/recipe-screen';
 import { registerRecipesScreen } from './recipes/recipes-screen';
 import { registerSettingsScreen } from './settings/settings-screen';
@@ -24,7 +24,9 @@ registerCookScreen();
 registerKitchenScreen();
 registerMapScreen();
 registerVisitScreen();
-const store = createStore(safeLocalStorage(), window, () => window.location.reload());
+const session = (() => { try { return window.sessionStorage; } catch { return null; } })();
+// Wiped by "Delete everything" in another tab: reload onto the fresh state, without bringing the worker back.
+const store = createStore(safeLocalStorage(), window, () => { skipServiceWorkerOnce(session); window.location.reload(); });
 mountApp(document, { store, now: () => new Date() });
 
 // Who is signed in, and their rules: on start, when the connection comes back and when the app is shown again.
@@ -32,4 +34,5 @@ mountApp(document, { store, now: () => new Date() });
 watchAccount(api, store, window, document);
 
 captureInstallPrompt(window);
-void registerServiceWorker(navigator, import.meta.env.PROD).then((reg) => { if (reg) noteWaitingUpdate(document, reg, navigator); });
+// Right after "Delete everything" (in this tab or another) this load stays without the offline copy.
+if (!takeServiceWorkerSkip(session)) void registerServiceWorker(navigator, import.meta.env.PROD).then((reg) => { if (reg) noteWaitingUpdate(document, reg, navigator); });

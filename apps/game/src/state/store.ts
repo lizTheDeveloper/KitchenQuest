@@ -22,6 +22,11 @@ export interface PlayerStore {
   get(): PlayerState;
   update(fn: (s: PlayerState) => PlayerState): PlayerState;
   subscribe(fn: (s: PlayerState) => void): () => void;
+  /**
+   * From now on this tab never touches storage again (changes stay in memory, other tabs' writes are ignored).
+   * "Delete everything" calls it first, so nothing this tab does while deleting can write the data back.
+   */
+  stopSaving(): void;
   /** 'corrupt': stored data was unreadable. 'unsaved': a write failed, so changes live in memory only. */
   readonly notice: 'corrupt' | 'unsaved' | null;
 }
@@ -171,6 +176,7 @@ export function createStore(
   let state = freshState();
   // True when we must never write to storage: it can't be read, or the original couldn't be backed up.
   let memoryOnly = storage === null;
+  let stoppedSaving = false;
   const subs = new Set<(s: PlayerState) => void>();
   const notify = () => { for (const f of [...subs]) f(state); };
 
@@ -211,7 +217,7 @@ export function createStore(
   };
 
   events?.addEventListener('storage', (ev) => {
-    if (memoryOnly || !storage) return;
+    if (memoryOnly || stoppedSaving || !storage) return;
     const key = (ev as Event & { key?: string | null }).key;
     if (key !== STORE_KEY && key !== null) return;
     const r = readStored(storage);
@@ -260,6 +266,7 @@ export function createStore(
       return state;
     },
     subscribe(fn) { subs.add(fn); return () => { subs.delete(fn); }; },
+    stopSaving() { stoppedSaving = true; memoryOnly = true; },
     get notice() { return notice; },
   };
 }

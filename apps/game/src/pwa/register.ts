@@ -1,5 +1,22 @@
 import { h } from '../ui/dom';
 
+/** sessionStorage key: this tab's next load must not register the worker (its data was just deleted). */
+export const SKIP_SW_KEY = 'kq.sw.skip-once';
+
+/** Mark this tab so its next load skips registering the worker. Call just before reloading after a delete. */
+export function skipServiceWorkerOnce(session: Storage | null): void {
+  try { session?.setItem(SKIP_SW_KEY, '1'); } catch { /* the worker may come back; nothing else to do */ }
+}
+
+/** True (once) when this load follows a delete; the mark is removed, so the next start registers as usual. */
+export function takeServiceWorkerSkip(session: Storage | null): boolean {
+  try {
+    if (session?.getItem(SKIP_SW_KEY) !== '1') return false;
+    session.removeItem(SKIP_SW_KEY);
+    return true;
+  } catch { return false; }
+}
+
 /** Register the service worker in production builds. Null in dev, where the browser lacks support, or on failure. */
 export async function registerServiceWorker(nav: Navigator, prod: boolean): Promise<ServiceWorkerRegistration | null> {
   if (!prod || !('serviceWorker' in nav)) return null;

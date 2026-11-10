@@ -346,3 +346,21 @@ describe('prototype-named technique keys in stored data', () => {
     expect(t['__proto__']).toEqual(rec('tried', '2026-01-01'));
   });
 });
+
+describe('stopSaving', () => {
+  it('after stopSaving, updates stay in memory and storage events are ignored: deleted data is never written back', () => {
+    const st = memStorage();
+    const events = new EventTarget();
+    const s = createStore(st, events);
+    s.update((x) => ({ ...x, settings: { ...x.settings, showCalories: true } }));
+    s.stopSaving();
+    deleteDeviceData(st);
+    s.update((x) => ({ ...x, account: { email: 'cook@example.com' }, accountRules: [] }));
+    expect(st.getItem(STORE_KEY)).toBeNull();
+    expect(s.get().account).toEqual({ email: 'cook@example.com' });
+    st.setItem(STORE_KEY, JSON.stringify({ v: 1, signOutPending: true }));
+    events.dispatchEvent(Object.assign(new Event('storage'), { key: STORE_KEY }));
+    expect(s.get().signOutPending).toBe(false);
+    expect(JSON.parse(st.getItem(STORE_KEY)!)).toEqual({ v: 1, signOutPending: true });
+  });
+});

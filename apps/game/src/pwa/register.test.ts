@@ -41,3 +41,18 @@ test('deleteOfflineCopy gives up after its timeout, so the caller always gets to
     vi.useRealTimers();
   }
 });
+
+test('a delete marks the tab so its next load skips the worker, once', async () => {
+  const { SKIP_SW_KEY, skipServiceWorkerOnce, takeServiceWorkerSkip } = await import('./register');
+  const m = new Map<string, string>();
+  const session = { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => { m.set(k, v); }, removeItem: (k: string) => { m.delete(k); } } as unknown as Storage;
+  expect(takeServiceWorkerSkip(session)).toBe(false);
+  skipServiceWorkerOnce(session);
+  expect(m.get(SKIP_SW_KEY)).toBe('1');
+  expect(takeServiceWorkerSkip(session)).toBe(true);
+  expect(takeServiceWorkerSkip(session)).toBe(false);
+  const broken = { getItem: () => { throw new Error('no'); }, setItem: () => { throw new Error('no'); } } as unknown as Storage;
+  expect(() => skipServiceWorkerOnce(broken)).not.toThrow();
+  expect(takeServiceWorkerSkip(broken)).toBe(false);
+  expect(takeServiceWorkerSkip(null)).toBe(false);
+});
