@@ -8,15 +8,26 @@ import { parseRoute } from '../shell/router';
 import { createAiBackend } from './ai-backend';
 import { createScriptedBackend, type MentorBackend } from './backend';
 import { createDialogue, type Dialogue } from './dialogue';
+import { createIntake, type Intake } from './intake';
 import { mountMentorPanel, type MentorPanel } from './panel';
 import type { PanReply } from './reply';
 import { createScriptedEngine, type ScriptedEngine } from './scripted';
-import { createCardWriter } from './writer';
+import { createCardWriter, type CardWriter } from './writer';
 
 export { createDialogue } from './dialogue';
 export type { MentorPanel } from './panel';
 
 let mentor: MentorPanel | null = null;
+
+/** What the panel's own pieces are, for the screens that share them (the rules screen writes through the same writer). */
+export interface MentorServices { client: ApiClient; dialogue: Dialogue; engine: ScriptedEngine; writer: CardWriter; intake: Intake | null }
+let services: MentorServices | null = null;
+
+/** The panel's client, dialogue, engine and writer. Throws before `mountMentor`. */
+export function getMentorServices(): MentorServices {
+  if (!services) throw new Error('The mentor panel is not mounted yet');
+  return services;
+}
 
 /** The app's single panel. Throws before `mountApp` has mounted it. */
 export function getMentor(): MentorPanel {
@@ -98,10 +109,21 @@ export function mountMentor(doc: Document, store: PlayerStore, bank: LineBank, c
   const root = doc.createElement('div');
   root.id = 'pan-root';
   doc.body.append(root);
-  mentor = mountMentorPanel(root, {
+  const panel = mountMentorPanel(root, {
     mode: store.get().settings.familyTable ? 'familyTable' : 'standard',
     backend, dialogue, writer, engine, client, forms: content.bureau.forms, store, now,
     reducedMotion: () => reducedMotion(store.get().settings.reducedMotion, mql),
+    disclosure: content.bureau.disclaimers.ai_characters,
   });
-  return mentor;
+  mentor = panel;
+  // Form 1-A starts the first time the panel opens in standard mode (§19: Family Table never starts it).
+  const intake = panel.mode === 'standard'
+    ? createIntake({
+      panel, engine, ai: backend, store, client, dialogue, signedIn: () => store.get().account !== null,
+      graph, ruleTerms: content.ruleTerms, form: content.bureau.forms.intake,
+    })
+    : null;
+  if (intake) panel.onOpen(() => { intake.start(); });
+  services = { client, dialogue, engine, writer, intake };
+  return panel;
 }

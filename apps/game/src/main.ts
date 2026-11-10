@@ -8,6 +8,7 @@ import { captureInstallPrompt } from './pwa/install';
 import { deleteOfflineCopy, noteWaitingUpdate, registerServiceWorker, skipServiceWorkerOnce, takeServiceWorkerSkip } from './pwa/register';
 import { registerRecipeScreen } from './recipes/recipe-screen';
 import { registerRecipesScreen } from './recipes/recipes-screen';
+import { registerRulesScreen } from './rules/rules-screen';
 import { registerSettingsScreen } from './settings/settings-screen';
 import { mountApp } from './shell/app';
 import { registerPlaceholderScreens } from './shell/screens';
@@ -24,6 +25,7 @@ registerCookScreen();
 registerKitchenScreen();
 registerMapScreen();
 registerVisitScreen();
+registerRulesScreen(); // replaces Step 9's placeholder
 const session = (() => { try { return window.sessionStorage; } catch { return null; } })();
 // Wiped by "Delete everything" in another tab: reload onto the fresh state, without bringing the worker back.
 const store = createStore(safeLocalStorage(), window, () => { skipServiceWorkerOnce(session); window.location.reload(); });

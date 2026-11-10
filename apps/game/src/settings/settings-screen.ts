@@ -3,8 +3,10 @@ import { registerScreen, type AppContext, type Screen } from '../shell/app';
 import { deleteOfflineCopy, skipServiceWorkerOnce } from '../pwa/register';
 import { deleteDeviceData, safeLocalStorage, STORE_KEY, type PlayerSettings } from '../state/store';
 import { h } from '../ui/dom';
+import { content } from '../content';
 import { accountSection } from './account-section';
 import { installSection } from './install-section';
+import { mentorSection } from './mentor-section';
 
 /** At most this long for each network or browser step of "Delete everything", so the reload always happens. */
 const DELETE_STEP_MS = 3000;
@@ -79,6 +81,7 @@ function settingsScreen(api: ApiClient): Screen {
 
       const install = installSection(el.ownerDocument.defaultView!, ctx.store);
       const account = accountSection(ctx.store, api);
+      const pan = mentorSection(ctx.store, api, content.bureau.forms);
       const dataNote = h('p', null);
       const showDataNote = () => {
         dataNote.textContent = ctx.store.get().account
@@ -86,7 +89,7 @@ function settingsScreen(api: ApiClient): Screen {
           : 'Everything Kitchen Quest saves stays on this device.';
       };
       showDataNote();
-      stops = [install.stop, account.stop, ctx.store.subscribe(showDataNote)];
+      stops = [install.stop, account.stop, pan.stop, ctx.store.subscribe(showDataNote)];
 
       el.append(
         h('h1', null, 'Settings'),
@@ -99,6 +102,7 @@ function settingsScreen(api: ApiClient): Screen {
           dataNote,
           dataBox),
         account.el,
+        pan.el,
         install.el,
       );
     },

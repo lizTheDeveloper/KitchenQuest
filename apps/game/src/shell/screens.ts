@@ -11,7 +11,7 @@ const placeholder = (title: string): (() => Screen) => () => ({
 export function registerPlaceholderScreens(): void {
   const names: [Route['name'], string][] = [
     ['kitchen', 'Kitchen'], ['map', 'Map'], ['visit', 'Visit'], ['recipes', 'Recipes'], ['recipe', 'Recipe'], ['cook', 'Cook'],
-    ['rules', 'Your rules'], // M4 Step 11 replaces it with the rules screen
+    ['rules', 'Your rules'], // replaced by the rules screen (M4 Step 11, rules/rules-screen.ts)
   ];
   for (const [name, title] of names) registerScreen(name, placeholder(title));
 }
