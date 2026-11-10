@@ -96,3 +96,5 @@ test('cards pass axe and keep focus order', ...);   // expectNoA11yViolations wi
 **Ruling R9 (Step 7 fix round 4):** the game shows only scripted lines and cards from the mentor, never model text. `POST /mentor/turn` never returns a `text` part, and the panel must not render one if it arrives.
 
 **Carry from data task:** a recipe-level check finding has `ingredient: ""` (sulphite rule on an empty recipe) — render it as a recipe-level reminder, never a blank row.
+
+**Carry from Step 9:** with server and local cards both open, a typed "yes" must never confirm while more than one card (of either kind) is open — show confirm.tap_card; a write that fails (card closed, network) shows a scripted state line and a retry, never silence.
