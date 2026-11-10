@@ -1,4 +1,7 @@
 import { describe, expect, test } from 'vitest';
+import ingredients from '../../../../data/ingredients.json';
+import { IngredientGraph } from '../ingredients/graph';
+import { stripPageEvents } from './intents';
 import {
   MEAL_SLOTS,
   parseClock,
@@ -154,7 +157,7 @@ describe('fix round 1: a parser only keeps or raises a stated severity (C1)', ()
     ["I have a peanut allergy, I'm really sensitive to it", [['peanut', 'allergy']], 'allergy'],
     ['peanut allergy, it upsets my stomach', [['peanut', 'allergy']], 'allergy'],
     ['allergic to peanuts and sensitive to milk', [['peanuts', 'allergy'], ['milk', null]], null], // "sensitive" is not a severity word
-    ['allergic to peanuts and intolerant to milk', [['peanuts', 'allergy'], ['milk', 'intolerance']], null],
+    ['allergic to peanuts and intolerant to milk', [['peanuts', 'allergy'], ['milk', null]], null], // round 3: any allergy word voids intolerance
     ['garlic kinda wrecks my stomach, it is not an allergy, I just avoid garlic', [['garlic', null]], null], // symptoms never lower the default
     ["I can't eat milk because it upsets my stomach", [['milk', null]], null],
     ["I can't eat onions, they make me feel sick", [['onions', null]], null],
@@ -263,8 +266,9 @@ describe('fix round 2: an unattached allergy word voids intolerance (R1)', () =>
     expect(parseRuleStatement(text)?.items).toEqual([{ term: 'milk', severity: null }]);
   });
 
-  test('an allergy that names its own term leaves the intolerance alone', () => {
-    expect(severities('allergic to peanuts and intolerant to milk')).toEqual([['peanuts', 'allergy'], ['milk', 'intolerance']]);
+  test('only an exact negation phrase lets intolerance stand', () => {
+    // Round 3 ruling: any allergy word in the message voids intolerance (the accepted casualty).
+    expect(severities('allergic to peanuts and intolerant to milk')).toEqual([['peanuts', 'allergy'], ['milk', null]]);
     expect(severities("I'm not allergic, just intolerant to milk")).toEqual([['milk', 'intolerance']]);
   });
 });
@@ -294,5 +298,95 @@ describe('fix round 2: recall (R4, minor)', () => {
     expect(r.terms).toEqual(['peanuts', 'milk']);
     expect(r.items[0].severity).toBe('anaphylactic');
     expect(['anaphylactic', 'allergy', null]).toContain(r.items[1].severity); // over-raising is accepted
+  });
+});
+
+const graph = IngredientGraph.fromData(ingredients);
+const intoleranceKept = (text: string) => parseRuleStatement(text)?.items.some((i) => i.severity === 'intolerance') ?? false;
+
+describe('fix round 3: intolerance only with no allergy word at all (ruling 1)', () => {
+  // The reviewer's probe5/probe6 strings: each says "allergic" somewhere, so no intolerance survives.
+  test.each([
+    "I'm allergic and intolerant to milk", "I'm allergic & intolerant to milk", 'intolerant to milk (allergic actually)',
+    "I'm intolerant to milk... well, allergic", 'intolerant to milk, maybe allergic', "intolerant to milk - it's an allergy really",
+    "milk intolerance, it's actually an allergy", "I'm intolerant to milk and my allergist says avoid it", 'intolerant to milk; allergic',
+    'intolerant to milk + allergic to it', 'allergic to peanuts and intolerant to milk', 'intolerant to milk. allergy too',
+    'intolerant to milk, Allergic!', 'intolerant to milk, ALLERGIES', 'intolerant to milk, allergic reaction last time',
+    "intolerant to milk, it's allergic", 'intolerant to milk and I react allergically', 'intolerant to milk, i had an allergic reaction',
+    "intolerant to milk, and it's not just an intolerance, it's allergic", "intolerant to milk, but I'm not sure it's not an allergy",
+    'intolerant to milk, not an allergy... actually it is an allergy', 'intolerant to milk, my doctor said allergy',
+    'intolerant to milk, no wait allergic', 'intolerant to milk, Αllergic', 'intolerant to milk, al-lergic',
+    'intolerant to milk, allergic (no not intolerant)', "intolerant to milk, I am not intolerant, I'm allergic",
+    'intolerant to milk. Never mind, allergic.', 'lactose intolerant, allergic to milk protein', "I'm intolerant to milk, no allergies",
+    "intolerant to milk, I don't think it's an allergy but it might be allergic", 'milk - intolerant, allergic', 'milk intolerant, and allergic',
+    "intolerant to milk 'n allergic", "I'm allergic. intolerant to milk", 'intolerant to milk and peanuts allergic', 'intolerant to milk, peanut allergy',
+    'intolerant to milk and allergic to it', 'milk intolerance (allergic)', 'intolerance to milk, or rather allergic', 'intolerant to milk, allergic-ish',
+    'intolerant to milk, which never was an allergy until now it is an allergy', 'intolerant to milk and eggs, allergic to both',
+    'intolerant to milk, allergic to the same', 'intolerant to milk. allergies: yes', 'intolerant to milk, allergic: yes',
+    'intolerant to milk. no, actually allergic', 'intolerant to milk. not intolerant - allergic', "intolerant to milk, never mind I'm allergic",
+    'intolerant to milk, allergic to milk as well', 'intolerant to milk, allergic af', 'intolerant to milk, allergic tbh', 'intolerant to milk, allergic 100%',
+    'intolerant to milk, allergic x', 'intolerant to milk, allergic smh', 'intolerant to milk and allergic to dairy', 'lactose intolerant and allergic to lactose',
+    'milk intolerance... no, allergy', 'intolerant to milk. scratch that, allergic', 'intolerant to milk (well, allergic really)',
+    'intolerant to milk, not just intolerant, allergic', 'anaphylactic to peanuts, intolerant to milk', 'intolerant to milk, I carry an epipen',
+    'intolerant to milk, I had a severe reaction once', 'allergic to peanuts but only mildly intolerant to milk',
+  ])('%s', (text) => expect(intoleranceKept(text)).toBe(false));
+
+  test.each([
+    "I'm not allergic, just intolerant to milk",
+    "I'm intolerant to milk, it's not an allergy",
+    "lactose intolerant, isn't an allergy",
+    'intolerant to milk, no allergy',
+    'milk intolerance, not like an allergy',
+    'intolerant to milk rather than an allergy',
+    'lactose intolerance',
+  ])('%s keeps the intolerance (exact negation or no allergy word)', (text) => expect(intoleranceKept(text)).toBe(true));
+
+  test('junk words are never terms (ruling 4)', () => {
+    expect(parseRuleStatement('intolerant to milk and eggs, allergic to both')?.terms).toEqual(['milk', 'eggs']);
+    expect(parseRuleStatement('intolerant to milk, allergic to the same')?.terms).toEqual(['milk']);
+    expect(parseRuleStatement('intolerant to milk, allergic: yes')?.terms).toEqual(['milk']);
+    expect(parseRuleStatement('allergic to either or neither')).toBeNull();
+    expect(parseRuleStatement('intolerant to milk, my doctor said allergy')?.terms).toEqual(['milk']);
+  });
+});
+
+describe('fix round 3: a cut message asks every severity (ruling 2)', () => {
+  test('a message longer than MAX_TEXT: every severity null, the cut term dropped', () => {
+    const a = parseRuleStatement('x'.repeat(478) + ' intolerant to milk. allergic');
+    expect(a?.items.some((i) => i.severity !== null) ?? false).toBe(false);
+    expect(parseRuleStatement('x'.repeat(470) + ' allergic to peanuts and tree nuts')?.items).toEqual([{ term: 'peanuts', severity: null }]);
+    expect(parseRuleStatement('x'.repeat(490) + ' allergic to peanuts')).toBeNull(); // "p" was cut
+    expect(severityFromText('x'.repeat(478) + ' intolerant to milk. allergic')).toBeNull();
+    expect(severityFromText('intolerant to milk. allergic')).toBe('allergy');
+  });
+
+  test('strip then parse on an NFKC-expanding prefix never keeps intolerance or a cut severity', () => {
+    for (const tail of [' intolerant to milk. allergic', ' allergic to peanuts. anaphylactic', " I'm intolerant to milk.\n(allergic)", ' allergic to peanuts and tree nuts']) {
+      for (let n = 20; n <= 29; n++) {
+        for (let pad = 0; pad < 18; pad++) {
+          const raw = 'ﷺ'.repeat(n) + 'x'.repeat(pad) + tail;
+          const stripped = stripPageEvents(raw).text;
+          const r = parseRuleStatement(stripped);
+          expect(r?.items.some((i) => i.severity === 'intolerance') ?? false, raw).toBe(false);
+          if (stripped.length > 500) expect(r?.items.every((i) => i.severity === null) ?? true, raw).toBe(true);
+        }
+      }
+    }
+  });
+});
+
+describe('fix round 3: items naming one ingredient merge (ruling 3)', () => {
+  test.each([
+    ['milk allergy and lactose intolerance', 'milk'],
+    ['allergic to eggs, intolerant to egg', 'eggs'],
+    ["allergic to milk. I'm intolerant to dairy", 'milk'],
+    ["I'm lactose intolerant and have a milk allergy", 'lactose'],
+    ['allergic to Milk, intolerant to MILK.', 'milk'],
+    ['peanut allergy. intolerant to peanuts', 'peanut'],
+  ])('%s → one item, asked', (text, term) => {
+    expect(parseRuleStatement(text, graph)?.items).toEqual([{ term, severity: null }]);
+  });
+  test('without the graph only identical terms merge', () => {
+    expect(parseRuleStatement('allergic to eggs, intolerant to egg')?.terms).toEqual(['eggs', 'egg']);
   });
 });
