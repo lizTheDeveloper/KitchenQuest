@@ -1,8 +1,10 @@
 import { registerScreen, type AppContext, type Screen } from '../shell/app';
 import { deleteDeviceData, safeLocalStorage, type PlayerSettings } from '../state/store';
 import { h } from '../ui/dom';
+import { installSection } from './install-section';
 
 function settingsScreen(): Screen {
+  let stopInstall: (() => void) | null = null;
   return {
     title: 'Settings',
     mount(el, _route, ctx: AppContext) {
@@ -42,6 +44,9 @@ function settingsScreen(): Screen {
       });
       dataBox.append(askDelete);
 
+      const install = installSection(el.ownerDocument.defaultView!, ctx.store);
+      stopInstall = install.stop;
+
       el.append(
         h('h1', null, 'Settings'),
         h('section', { class: 'panel', 'aria-labelledby': 'set-display' },
@@ -52,8 +57,10 @@ function settingsScreen(): Screen {
           h('h2', { id: 'set-data' }, 'Your data'),
           h('p', null, 'Everything Kitchen Quest saves stays on this device.'),
           dataBox),
+        install.el,
       );
     },
+    unmount() { stopInstall?.(); stopInstall = null; },
   };
 }
 

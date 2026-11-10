@@ -10,10 +10,13 @@ const RESOLVED_ID = `\0${VIRTUAL_ID}`;
 /** Compiles content/, recipes/ and data/ into the `virtual:kq-content` module. Invalid input fails the build. */
 export function kqContent(opts: { repoRoot: string }): Plugin {
   const { repoRoot } = opts;
+  let version: string | null = null;
   const compile = (ctx: Rolldown.PluginContext): GameContent => {
     for (const path of contentPaths(repoRoot)) ctx.addWatchFile(join(repoRoot, path));
     try {
-      return compileContent(readContentFiles(repoRoot));
+      const compiled = compileContent(readContentFiles(repoRoot));
+      version = compiled.version;
+      return compiled;
     } catch (e) {
       if (e instanceof ContentError) ctx.error(e.problems.join('\n'));
       throw e;
@@ -21,6 +24,8 @@ export function kqContent(opts: { repoRoot: string }): Plugin {
   };
   return {
     name: 'kq-content',
+    /** The last compiled content's version, for the service worker's cache name (build/sw-plugin.ts). */
+    api: { contentVersion: () => version },
     resolveId(id) {
       return id === VIRTUAL_ID ? RESOLVED_ID : undefined;
     },
