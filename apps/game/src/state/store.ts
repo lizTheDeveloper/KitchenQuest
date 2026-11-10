@@ -95,17 +95,18 @@ const RANK: Record<Tier, number> = { seen: 0, tried: 1, yours: 2 };
 
 /** Union of two toolkits where nothing earned can go down: max tier, earliest firstAt, latest lastUsedAt. */
 function mergeToolkit(a: ToolkitState, b: ToolkitState): ToolkitState {
-  const out: ToolkitState['techniques'] = { ...a.techniques };
+  // A Map, then fromEntries: technique ids such as "__proto__" or "constructor" stay own data keys.
+  const out = new Map(Object.entries(a.techniques));
   for (const [id, r] of Object.entries(b.techniques)) {
-    const o = out[id];
-    out[id] = !o ? r : {
+    const o = out.get(id);
+    out.set(id, !o ? r : {
       tier: RANK[o.tier] >= RANK[r.tier] ? o.tier : r.tier,
       firstAt: o.firstAt < r.firstAt ? o.firstAt : r.firstAt,
       lastUsedAt: o.lastUsedAt > r.lastUsedAt ? o.lastUsedAt : r.lastUsedAt,
       recipes: [...new Set([...o.recipes, ...r.recipes])],
-    };
+    });
   }
-  return { techniques: out };
+  return { techniques: Object.fromEntries(out) };
 }
 
 /**
