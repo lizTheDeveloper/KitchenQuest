@@ -212,3 +212,9 @@ test.each(['should I try the satay', 'can I get the pad thai', 'should I order t
   '%j stays a suitability question (P5)',
   (text) => expect(isSuitabilityQuestion(text)).toBe(true),
 );
+
+// Fix round 5 (rev7e): a cooking tool word inside a dish name keeps the question a suitability question.
+test.each(['can I get the pan-fried noodles', 'can I have the pot pie', 'should I try the pot stickers', 'can I get the oven chips', 'should I try the wok-fried rice', 'can I have the pan con tomate', 'should I try the kit kat', 'can I have the tips of the asparagus', 'should I go for the pot noodle'])(
+  '%j stays a suitability question (fix round 5)',
+  (text) => expect(isSuitabilityQuestion(text)).toBe(true),
+);

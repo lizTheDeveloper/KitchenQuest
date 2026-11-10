@@ -215,9 +215,13 @@ function cardsFromCalls(
  * change, `mentor.check_card` when a dish is on screen or named, else
  * `didnt_understand`. The health asks are added after.
  */
-function scriptedReply(stripped: string, dishNamed: boolean): Reply {
-  const trigger = isWriteRequest(stripped) ? 'write.not_done' : dishNamed ? 'mentor.check_card' : 'didnt_understand';
-  return { parts: [line(trigger)], cards: [], toolTurn: false };
+function scriptedReply(stripped: string, dishNamed: boolean, writeRequest: boolean): Reply {
+  // Fix round 5: a write request that also asks whether the dish suits the player gets both lines.
+  const triggers =
+    writeRequest && dishNamed && isSuitabilityQuestion(stripped)
+      ? ['mentor.check_card', 'write.not_done']
+      : [writeRequest ? 'write.not_done' : dishNamed ? 'mentor.check_card' : 'didnt_understand'];
+  return { parts: triggers.map((t) => line(t)), cards: [], toolTurn: false };
 }
 
 /** Locks the caller's conversation row (FOR UPDATE); false when it is gone (forgotten mid-turn). */
@@ -264,6 +268,7 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
       .filter((c): c is ToolArgs => c !== null),
     f.raw,
     graph,
+    deps.catalog.ruleTerms,
   );
   return deps.db.transaction(async (tx) => {
     await lockLiveUser(tx, userId);
@@ -271,10 +276,11 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
     const persist = await consentHeldIn(tx, userId, 'health_data', now);
     const recipes = await tx.select({ slug: canonRecipes.slug, title: canonRecipes.title }).from(canonRecipes);
     const dishNamed = f.dishOnScreen || matchDish(f.stripped, recipes) !== null;
+    const writeRequest = isWriteRequest(f.stripped, graph);
     let reply: Reply;
     if (calls.length > 0) reply = cardsFromCalls(deps, calls, f.req, persist, recipes);
     else if (f.mode === 'rule_help') reply = { parts: [], cards: [], toolTurn: false }; // R3: rule help only
-    else reply = scriptedReply(f.stripped, dishNamed);
+    else reply = scriptedReply(f.stripped, dishNamed, writeRequest);
     // A bare "didn't understand" gives way to any ask that follows.
     const dropBareFallback = () => {
       if (reply.parts.length === 1 && reply.parts[0].kind === 'line' && reply.parts[0].line.trigger === 'didnt_understand') reply.parts = [];
@@ -301,7 +307,7 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
       severityFromText(f.stripped, graph) === null &&
       !isHealthText(rest, deps.catalog) &&
       dishNamed;
-    if (suitabilityOnly && reply.cards.length === 0) reply.parts = [line('mentor.check_card')];
+    if (suitabilityOnly && reply.cards.length === 0) reply.parts = [line('mentor.check_card'), ...(writeRequest ? [line('write.not_done')] : [])];
     const proposedRule = f.result.toolCalls.some((c) => c.name === 'propose_rule' && offered.has(c.name));
     const droppedRule = proposedRule && keptRuleTerms.length === 0;
     if (f.health && !suitabilityOnly && !hasRuleOutcome(reply) && (reply.cards.length === 0 || droppedRule)) {

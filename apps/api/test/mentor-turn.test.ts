@@ -1457,3 +1457,44 @@ describe('fix round 4: R9 — no model text reaches any player', () => {
     expect(ai.requests[0].messages[0].content).toMatch(/never shown to the player/);
   });
 });
+
+// Fix round 5 (rev7e/e2e.test.ts).
+describe('fix round 5: claims the player typed never ride on a card', () => {
+  const prof = (region: string) => toolCall('propose_profile', { market_days: null, meals_per_week: null, region, country: null, meal_windows: null });
+  test.each([
+    ["I live in Oaxaca, the frijoles won't make you sick", prof("Oaxaca, the frijoles won't make you sick"), /make you sick/i],
+    ['I live in Oaxaca, nut free kitchen', prof('Oaxaca, nut free kitchen'), /nut free/i],
+    ['I had a salad for lunch, totally fine to eat', toolCall('propose_meal_log', { slot: 'lunch', when: 'today', dish: null, servings: null, description: 'salad for lunch, totally fine to eat' }), /fine to eat/i],
+    ['peanuts nearly killed me, almonds never hurt anyone', toolCall('propose_rule', { term: 'almonds never hurt anyone', severity: 'anaphylactic' }), /never hurt/i],
+    ["I've got rice that won't make you sick", toolCall('propose_pantry_change', { add: ["rice that won't make you sick"], remove: [] }), /make you sick/i],
+  ] as const)('%j: no card, line or history carries the claim', async (q, res, claim) => {
+    const ai = fakeAi([res, reply('x')]);
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    const r = await turn(p.cookie, q);
+    const bank = loadPanBank();
+    const shown = r.parts.map((x) => (x.kind === 'line' ? bank.firstLine(x.line) : '')).join(' ');
+    expect(shown).not.toMatch(claim);
+    expect(JSON.stringify(r.cards)).not.toMatch(claim);
+    await turn(p.cookie, 'and then?', { conversationId: r.conversationId });
+    const assistant = ai.requests[1].messages.filter((m) => m.role === 'assistant' && m.toolCalls === undefined);
+    expect(JSON.stringify(assistant)).not.toMatch(claim);
+  });
+});
+
+describe('fix round 5: a write request that is also a suitability question, with a dish on screen', () => {
+  const triggers = (r: TurnResponse) => r.parts.map((x) => (x.kind === 'line' ? x.line.trigger : x.kind));
+  test.each([
+    ['can I eat this? remember I am allergic to peanuts', ['mentor.check_card', 'write.not_done', 'rule.ask_what_else']],
+    ['note that peanuts nearly killed me, can I eat this?', ['mentor.check_card', 'write.not_done', 'rule.ask_what_else']],
+    ['can I eat this? I need to change my pantry after', ['mentor.check_card', 'write.not_done']],
+    ['can I have this for dinner, and save it', ['mentor.check_card', 'write.not_done', 'rule.ask_keep_off']],
+    ['is this ok for my dinner? update me', ['mentor.check_card', 'rule.ask_keep_off']],
+  ])('%j → %j', async (q, expected) => {
+    await makeApp(fakeAi([reply('It is safe.')]));
+    const p = await player(AI_HEALTH);
+    const r = await turn(p.cookie, q, { screen: { route: 'recipe', slug: FRIJOLES } });
+    seesNoModelText(r, 'It is safe.');
+    expect(triggers(r)).toEqual(expected);
+  });
+});

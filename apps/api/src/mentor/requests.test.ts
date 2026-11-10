@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'vitest';
-import { isWriteRequest } from './requests.js';
+import { defaultCatalog } from '../catalog.js';
+import { isWriteRequest as isWrite } from './requests.js';
+
+const { graph } = defaultCatalog();
+const isWriteRequest = (text: string) => isWrite(text, graph);
 
 // Fix round 4 (R9): the player's own words ask for a record to change; with no card the turn says write.not_done.
 describe('isWriteRequest', () => {
@@ -17,3 +21,9 @@ describe('isWriteRequest', () => {
     'I had toast for lunch', "what's in pad thai?",
   ])('%j is not a write request', (text) => expect(isWriteRequest(text)).toBe(false));
 });
+
+// Fix round 5 (rev7e): a change verb with a rule statement is a write request too.
+test.each(['note that peanuts nearly killed me, can I eat this?', 'remember I am allergic to peanuts', "save that I'm allergic to sesame"])('%j is a write request (fix round 5)', (text) =>
+  expect(isWriteRequest(text)).toBe(true),
+);
+test.each(['peanuts nearly killed me', 'is this ok for my dinner? update me'])('%j is not (fix round 5)', (text) => expect(isWriteRequest(text)).toBe(false));

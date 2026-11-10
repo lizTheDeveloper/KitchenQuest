@@ -46,9 +46,10 @@ export const THANKS_PATTERN = /^(thanks|thank you|cheers|ta)\b[^?]{0,30}$/;
  * What "try", "order", "go for", "have the" and "get the" may take and still not ask about food
  * (Step 7 fix round 4, P5): a cooking verb ("should I try making bread") or a thing that is no
  * dish ("can I get the recipe"). Anything else stays a suitability question: the gate over-catches.
+ * No cooking-tool words (pan, pot, wok, oven, kit, tips…): they start dish names ("pot pie", fix round 5).
  */
 const NOT_FOOD =
-  "(?:(?:a|an|the|this|that|some|another|new|different|other)\\s+)*(?:making|cooking|baking|frying|roasting|grilling|boiling|steaming|poaching|using|doing|adding|swapping|chopping|cutting|learning|practi[cs]ing|prepping|recipes?|method|instructions?|steps?|ingredients? list|list|shopping list|link|page|card|timer|oven|hob|pan|pot|wok|knife|tools?|kit|technique|way|ideas?|tips?|help|details?|name|video|book)\\b";
+  "(?:(?:a|an|the|this|that|some|another|new|different|other)\\s+)*(?:making|cooking|baking|frying|roasting|grilling|boiling|steaming|poaching|using|doing|adding|swapping|chopping|cutting|learning|practi[cs]ing|prepping|recipes?|method|instructions?|steps?|ingredients? list|list|shopping list|link|page|card|timer|technique|way|ideas?|help|details?|name|video|book)\\b";
 const SUITABILITY_SOURCE = String.raw`\b((can|could|may|should|shall) i (eat\b|(try|order|go for)\b(?! ${NOT_FOOD}))|(can|could|may) i (have|get) (this|that|these|those|it\b|the\b(?! ${NOT_FOOD}))\b|`;
 
 /** A question whether a dish suits the player (fix round 2, R7): a health turn, answered by the dish card. */

@@ -63,7 +63,7 @@ const LESS = /\b(only|skip\w*|less|light|nothing but|just (a |one )?(coffee|tea)
 const MEDICINE_WORDS =
   /\b(antihistamines?|benadryl|ibuprofen|paracetamol|tablets?|pills?|epi[- ]?pens?|doses?|mg|piriton|zyrtec|claritin|cetirizine|loratadine|gaviscon|rennie|calpol|nurofen|aspirin)\b/i;
 const FIT_WORDS =
-  /\b(safe|unsafe|fine for|ok(ay)? for|alright for|good for you|[a-z]+-free|free of|allerg\w*|avoid\w*|contain\w*|react\w*|bother\w*|harm\w*|hurt\w*|in the clear|upset\w*|tuck in|dig in)\b/i;
+  /\b(safe|unsafe|fine (for|with|to eat)|ok(ay)? for|alright for|good for you|[a-z]+-free|free of|allerg\w*|avoid\w*|contain\w*|react\w*|bother\w*|harm\w*|hurt\w*|in the clear|upset\w*|tuck in|dig in|make (you|me) (sick|ill)|(won'?t|will not|wouldn'?t|never) (make|hurt|harm|kill)|kill\w*|no problem)\b/i;
 
 const global = (re: RegExp) => new RegExp(re.source, re.flags.includes('g') ? re.flags : `${re.flags}g`);
 /** Curly apostrophes read as straight ones, so "can’t" is "can't". Same length, so match offsets agree. */

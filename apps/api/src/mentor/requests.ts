@@ -1,4 +1,4 @@
-import { normalizeTurn } from '@kitchenquest/core';
+import { normalizeTurn, parseRuleStatement, severityFromText, type IngredientGraph } from '@kitchenquest/core';
 
 /** A record the game keeps for the player: profile, pantry, rules or meals. */
 const RECORD =
@@ -14,10 +14,16 @@ const MOVE_ITEM = new RegExp(String.raw`\b(add|remove|put|take|cross|tick)\b[^.!
 /**
  * The player's own words ask the game to change one of their records (fix round 4,
  * R9): a turn that made no card then says the scripted `write.not_done` line, so a
- * request is never met with silence or a made-up "done". Read per sentence.
+ * request is never met with silence or a made-up "done". Read per sentence. A change
+ * verb with a rule statement or a severity cue counts too ("note that peanuts nearly killed me", fix round 5).
  */
-export function isWriteRequest(text: string): boolean {
+export function isWriteRequest(text: string, graph: IngredientGraph): boolean {
   return normalizeTurn(text)
     .split(/[.!?;\n]+/)
-    .some((s) => (CHANGE_VERB.test(s) && RECORD_WORD.test(s)) || MAKE_MY.test(s) || MOVE_ITEM.test(s));
+    .some(
+      (s) =>
+        (CHANGE_VERB.test(s) && (RECORD_WORD.test(s) || severityFromText(s, graph) !== null || parseRuleStatement(s, graph) !== null)) ||
+        MAKE_MY.test(s) ||
+        MOVE_ITEM.test(s),
+    );
 }

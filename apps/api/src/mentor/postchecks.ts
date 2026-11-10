@@ -15,6 +15,7 @@ import {
   WEEKDAY_NAMES,
   type IngredientGraph,
   type MealSlot,
+  type RuleTerm,
   type Severity,
 } from '@kitchenquest/core';
 import { filterReply, screenText, touchesHealth } from './filter.js';
@@ -67,6 +68,26 @@ function cardString(value: string | null, text: string): string | null {
   const f = filterReply(value, { finish: 'stop' });
   return f.ok && !touchesHealth(value) ? value : null;
 }
+
+/**
+ * Fix round 5: a place or a pantry item is a short name, so a claim the player typed
+ * ("Oaxaca, the frijoles won't make you sick") can't ride in one: at most four words, no
+ * sentence punctuation.
+ */
+const shortName = (value: string | null, text: string): string | null => {
+  const v = cardString(value, text);
+  return v !== null && !/[,.;:!?]/.test(v) && v.trim().split(/\s+/).length <= 4 ? v : null;
+};
+/** Fix round 5: "a nut free brownie" names what a dish lacks, which is a claim; a meal card never carries one. */
+const MEAL_CLAIM = /\b[a-z]+[ -]free\b/i;
+const mealString = (value: string | null, text: string): string | null => {
+  const v = cardString(value, text);
+  return v !== null && !MEAL_CLAIM.test(screenText(v)) ? v : null;
+};
+
+/** The graph or a rule term knows the term, so it is an ingredient name and no claim (fix round 5). */
+const knownTerm = (term: string, graph: IngredientGraph, ruleTerms: readonly RuleTerm[]): boolean =>
+  graph.resolve(term) !== null || ruleTerms.some((t) => t.phrases.some((p) => forms(p).some((f) => forms(term).includes(f))));
 
 /** At most this many words between a severe cue and a term the model proposed (fix round 1, M3). */
 const CUE_REACH = 4;
@@ -123,7 +144,7 @@ function clockFor(own: string, slot: MealSlot): string | null {
  * - Pantry: every removal the player said is removed (T05, T12), never added,
  *   and a "meal" that is a removed item is dropped (T05).
  */
-export function applyPostChecks(calls: ToolArgs[], playerText: string, graph: IngredientGraph): ToolArgs[] {
+export function applyPostChecks(calls: ToolArgs[], playerText: string, graph: IngredientGraph, ruleTerms: readonly RuleTerm[]): ToolArgs[] {
   const own = ownWords(playerText);
   const stripped = stripPageEvents(playerText).text;
   const statement = parseRuleStatement(own, graph);
@@ -137,10 +158,13 @@ export function applyPostChecks(calls: ToolArgs[], playerText: string, graph: In
     switch (call.name) {
       case 'propose_rule': {
         const { term } = call.args;
-        // R5: a term is checked by C4 below (the player's own rule words); no claim may ride in it.
-        if (!filterReply(term, { finish: 'stop' }).ok) break;
+        // R5: a term is checked by C4 below (the player's own rule words); no claim may ride in it,
+        // since an unknown or ambiguous term is echoed in a line (fix round 5).
+        if (!filterReply(term, { finish: 'stop' }).ok || touchesHealth(term)) break;
         const own_ = ownTerms.some((t) => sameTerm(t, term, graph));
-        if (!own_ && !(isSevere(messageSeverity) && nearSevereCue(own, term))) break;
+        // The near-cue bypass keeps only a term the graph or a rule term knows (fix round 5); any
+        // other is dropped, and severeTermsLeftOut asks.
+        if (!own_ && !(isSevere(messageSeverity) && nearSevereCue(own, term) && knownTerm(term, graph, ruleTerms))) break;
         const item = statement?.items.find((i) => sameTerm(i.term, term, graph));
         const modelSevere = isSevere(call.args.severity) ? call.args.severity : null;
         const severity = item ? (item.severity ?? modelSevere) : (messageSeverity ?? modelSevere);
@@ -148,7 +172,7 @@ export function applyPostChecks(calls: ToolArgs[], playerText: string, graph: In
         break;
       }
       case 'propose_profile': {
-        const args = { ...call.args, region: cardString(call.args.region, own), country: cardString(call.args.country, own) };
+        const args = { ...call.args, region: shortName(call.args.region, own), country: shortName(call.args.country, own) };
         if (args.meal_windows !== null) args.meal_windows = args.meal_windows.map((w) => ({ ...w, start: clockFor(own, w.name) ?? w.start }));
         if (args.market_days !== null && weekdays.length > 0) args.market_days = weekdays.map((d) => WEEKDAY_NAMES[d]);
         out.push({ name: 'propose_profile', args });
@@ -156,16 +180,16 @@ export function applyPostChecks(calls: ToolArgs[], playerText: string, graph: In
       }
       case 'propose_pantry_change': {
         // M4: only items the player named in their own words (the few-shot "milk" is not theirs).
-        const add = call.args.add.filter((a) => cardString(a, own) !== null && !removals.some((r) => sameTerm(r, a, graph)));
-        const remove = call.args.remove.filter((r) => cardString(r, own) !== null);
+        const add = call.args.add.filter((a) => shortName(a, own) !== null && !removals.some((r) => sameTerm(r, a, graph)));
+        const remove = call.args.remove.filter((r) => shortName(r, own) !== null);
         out.push({ name: 'propose_pantry_change', args: { add, remove } });
         break;
       }
       case 'propose_meal_log': {
         // M4: a meal the player's text names (a pasted recipe counts: it is data, and the card asks).
         // R5: each free field must be the player's text and pass the screen, else it is dropped.
-        const description = cardString(call.args.description, stripped);
-        const dish = cardString(call.args.dish, stripped);
+        const description = mealString(call.args.description, stripped);
+        const dish = mealString(call.args.dish, stripped);
         if (description !== null || dish !== null) out.push({ name: 'propose_meal_log', args: { ...call.args, description, dish } });
         break;
       }
