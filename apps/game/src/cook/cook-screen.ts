@@ -8,6 +8,7 @@ import { registerScreen, RouteNotFound, type Screen } from '../shell/app';
 import { isReducedMotion } from '../shell/motion';
 import { routeHref } from '../shell/router';
 import { announce } from '../ui/announce';
+import { statusLabel } from '../ui/chips';
 import { showBureauForm } from '../ui/bureau-form';
 import { contentText, h } from '../ui/dom';
 import { cookedEvents } from './finish';
@@ -106,7 +107,8 @@ function cookScreen(): Screen {
       const prev = h('button', { type: 'button', class: 'btn btn-secondary' }, '◀ Previous');
       const next = h('button', { type: 'button', class: 'btn btn-primary' }, 'Next step ▶');
       const leave = h('button', { type: 'button', class: 'btn btn-secondary' }, 'Leave cook mode');
-      const progress = h('p', { class: 'cook-progress' });
+      // tabindex -1: where focus goes when a redraw removes the control that had it.
+      const progress = h('p', { class: 'cook-progress', tabindex: -1 });
       // The dish's safety status stays in view while cooking (❓ and the allergy disclaimer included).
       let strip = renderSafetyStrip(card);
       el.replaceChildren(
@@ -140,7 +142,7 @@ function cookScreen(): Screen {
             const visible = `Start ${formatClock(seconds * 1000)} timer`;
             // The accessible name must contain the visible text (WCAG 2.5.3); the words say what "20:00" means.
             const btn = h('button', {
-              type: 'button', class: 'btn btn-secondary timer-start',
+              type: 'button', class: 'btn btn-secondary timer-start', 'data-timer-start': id,
               'aria-label': `${visible}: ${formatDuration(seconds)}, for step ${stepNo}`,
             }, visible);
             btn.addEventListener('click', () => startTimerNow(id, t.name ?? `step ${stepNo}`, stepNo, seconds));
@@ -158,6 +160,19 @@ function cookScreen(): Screen {
         prev.disabled = step === 0;
         next.textContent = step === total - 1 ? 'Done ▶' : 'Next step ▶';
       };
+
+      /** Redraw the step in place for a change in the dish's findings, keeping focus where it was. */
+      const redrawStep = () => {
+        const active = doc.activeElement;
+        const hadFocus = active instanceof HTMLElement && stepBox.contains(active);
+        const timerId = hadFocus ? active.dataset.timerStart ?? null : null;
+        renderStep();
+        if (!hadFocus) return;
+        const same = timerId === null ? null : [...stepBox.querySelectorAll<HTMLElement>('[data-timer-start]')].find((b) => b.dataset.timerStart === timerId);
+        (same ?? progress).focus();
+      };
+      /** What the steps show from the findings: the swap labels per ingredient. */
+      const swapsKey = (c: RecipeCard) => JSON.stringify(c.findings.filter((f) => f.swapLabel !== null).map((f) => [f.ingredient, f.swapLabel]));
 
       // Timers
       const renderTray = () => {
@@ -260,14 +275,16 @@ function cookScreen(): Screen {
           announce(announcer, refusalText(card));
           return;
         }
-        // Still cookable, but the status or findings (swaps shown in the steps) may have changed: redraw both.
+        // Still cookable, but the status or findings may have changed: redraw the strip, and the step only when
+        // the swaps it shows changed.
         if (before.status !== card.status || before.severe !== card.severe || before.rulesError !== card.rulesError
           || JSON.stringify(before.findings) !== JSON.stringify(card.findings)) {
           const fresh = renderSafetyStrip(card);
           strip.replaceWith(fresh);
           strip = fresh;
-          renderStep();
         }
+        if (swapsKey(before) !== swapsKey(card)) redrawStep();
+        if (before.status !== card.status) announce(announcer, `Safety check now: ${statusLabel(card.status)}.`);
       };
       let key = cardInputsKey(ctx.store.get());
       const unsubscribe = ctx.store.subscribe((s) => {

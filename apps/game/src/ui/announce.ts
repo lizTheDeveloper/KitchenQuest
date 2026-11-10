@@ -1,5 +1,5 @@
 /** How long the live region stays empty before the new message, so screen readers hear a repeat as new. */
-export const ANNOUNCE_GAP_MS = 50;
+const ANNOUNCE_GAP_MS = 50;
 
 const pending = new WeakMap<HTMLElement, ReturnType<typeof setTimeout>>();
 

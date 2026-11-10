@@ -54,8 +54,8 @@ export function noteWaitingUpdate(doc: Document, reg: ServiceWorkerRegistration,
 }
 
 /**
- * "Delete everything on this device" means the offline copy too: delete every Kitchen Quest cache (kq-*) and
- * unregister the worker. Caches that aren't ours are left alone. Each half runs even if the other fails.
+ * "Delete everything on this device" means the offline copy too: unregister the worker, then delete every Kitchen
+ * Quest cache (kq-*). Caches that aren't ours are left alone. Each half runs even if the other fails.
  * Resolves after `timeoutMs` at the latest, so a stuck browser API never stops the caller's reload.
  */
 export async function deleteOfflineCopy(nav: Navigator, cacheStorage: CacheStorage | undefined, timeoutMs = 3000): Promise<void> {
@@ -70,6 +70,11 @@ export async function deleteOfflineCopy(nav: Navigator, cacheStorage: CacheStora
   };
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<void>((resolve) => { timer = setTimeout(resolve, timeoutMs); });
-  await Promise.race([Promise.allSettled([unregister(), clear()]), timeout]);
+  // The worker goes first: while it is still registered it could fill the caches again.
+  const both = (async () => {
+    try { await unregister(); } catch { /* still clear the caches */ }
+    try { await clear(); } catch { /* nothing more to do */ }
+  })();
+  await Promise.race([both, timeout]);
   clearTimeout(timer);
 }

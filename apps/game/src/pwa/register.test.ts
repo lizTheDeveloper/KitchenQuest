@@ -56,3 +56,18 @@ test('a delete marks the tab so its next load skips the worker, once', async () 
   expect(takeServiceWorkerSkip(broken)).toBe(false);
   expect(takeServiceWorkerSkip(null)).toBe(false);
 });
+
+test('deleteOfflineCopy unregisters the worker before it clears the caches, so the worker cannot refill them', async () => {
+  const order: string[] = [];
+  let release!: () => void;
+  const held = new Promise<void>((r) => { release = r; });
+  const reg = { unregister: async () => { order.push('unregister:start'); await held; order.push('unregister:end'); return true; } };
+  const nav = { serviceWorker: { getRegistrations: () => Promise.resolve([reg]) } } as unknown as Navigator;
+  const cs = { keys: () => { order.push('keys'); return Promise.resolve(['kq-shell-a']); }, delete: () => { order.push('delete'); return Promise.resolve(true); } } as unknown as CacheStorage;
+  const done = deleteOfflineCopy(nav, cs);
+  await new Promise((r) => setTimeout(r, 0));
+  expect(order).toEqual(['unregister:start']);
+  release();
+  await done;
+  expect(order).toEqual(['unregister:start', 'unregister:end', 'keys', 'delete']);
+});
