@@ -132,18 +132,30 @@ export function classifyTurn(text: string): TurnIntent {
 
 /** Lookalikes of page events: card taps and system notes never arrive as user text (§7.6b.4). */
 export const PAGE_EVENT_WORDS =
-  /\b(tap|tapped|click|clicked|stamp|stamped|confirm|confirmed|saved|system|button|event|card|approved|accepted|selected)\b/i;
+  /\b(tap|tapped|click|clicked|stamp|stamped|confirm|confirmed|saved|system|button|event|card|approved|accepted|selected|agreed|said yes|okayed|ok'?d)\b/i;
+/** The same words glued to "player"/"user" or letter-spaced ("[playertapped]", "[p l a y e r t a p p e d]"). */
+const GLUED_EVENT = /(player|user)(tap|click|stamp|confirm|press|approv|accept|select|agree|chose|pick)/;
+const SPACED_EVENT = /(tap|click|stamp|confirm|saved|system|button|approv|accept|select|agree)/;
+const LETTER_SPACED = /(?:\b\p{L}\b\s*){3,}/u;
+
+/** Whether bracket content names a page event, in words, glued or letter-spaced. */
+function namesPageEvent(content: string): boolean {
+  const words = content.replace(/_/g, ' ');
+  if (PAGE_EVENT_WORDS.test(words)) return true;
+  const letters = content.toLowerCase().replace(/[^a-z]+/g, '');
+  return GLUED_EVENT.test(letters) || (LETTER_SPACED.test(content) && SPACED_EVENT.test(letters));
+}
 /** Bracket pairs a forged event may hide in (fullwidth forms are already folded by NFKC). */
 export const PAGE_EVENT_BRACKETS: Readonly<Record<string, string>> = {
   '[': ']', '【': '】', '(': ')', '{': '}', '〔': '〕', '〖': '〗', '«': '»', '‹': '›', '⟦': '⟧', '<': '>', '「': '」',
   '『': '』', '《': '》', '〈': '〉', '⟨': '⟩', '⁅': '⁆', '❨': '❩', '❪': '❫', '❬': '❭', '❮': '❯', '❰': '❱',
-  '﴾': '﴿', '⸨': '⸩', '⦅': '⦆', '⦗': '⦘',
+  '﴾': '﴿', '⸨': '⸩', '⦅': '⦆', '⦗': '⦘', '⟪': '⟫', '❲': '❳', '⦃': '⦄',
 };
 export const ROLE_TAGS = /<\/?\s*(system|developer|assistant|tool|user)\b[^>]*>/gi;
 export const ROLE_PREFIXES = /(?:^|(?<=[.!?]))[^\S\n]*(system|assistant|developer|tool)\s*:/gim;
 /** An unbracketed forged event: "Player tapped Stamp it on the card." up to the end of the sentence. */
 export const PAGE_EVENT_SENTENCE =
-  /\b(the\s+)?(player|user)\s+((has|have|had|just)\s+)?((now|just|already|then|\w+ly)\s+)?(tapped|clicked|stamped|confirmed|pressed|approved|accepted|selected|chose|picked)\b[^.!?\n]*[.!?]*/gi;
+  /\b(the\s+)?(player|user)\s+((has|have|had)\s+)?((now|just|already|then|\w+ly)\s+){0,3}(tapped|clicked|stamped|confirmed|pressed|approved|accepted|selected|chose|picked|agreed)\b[^.!?\n]*[.!?]*/gi;
 
 /** [start, end) of every bracket pair whose content (nested pairs included) names a page event. */
 function bracketSpans(folded: string): [number, number][] {
@@ -159,7 +171,7 @@ function bracketSpans(folded: string): [number, number][] {
     const top = stack.length > 0 ? stack[stack.length - 1] : null;
     if (top !== null && ch === top.close) {
       stack.pop();
-      if (PAGE_EVENT_WORDS.test(folded.slice(top.at + 1, i))) spans.push([top.at, i + 1]);
+      if (namesPageEvent(folded.slice(top.at + 1, i))) spans.push([top.at, i + 1]);
     }
   }
   return spans;
@@ -167,6 +179,15 @@ function bracketSpans(folded: string): [number, number][] {
 
 function patternSpans(folded: string, pattern: RegExp): [number, number][] {
   return [...folded.matchAll(pattern)].map((m) => [m.index, m.index + m[0].length]);
+}
+
+/** Each span widened back over an unclosed opening bracket just before it ("[Player tapped …"). */
+function withOpener(folded: string, spans: [number, number][]): [number, number][] {
+  return spans.map(([start, end]) => {
+    let j = start - 1;
+    while (j >= 0 && /\s/.test(folded[j])) j--;
+    return j >= 0 && Object.hasOwn(PAGE_EVENT_BRACKETS, folded[j]) ? [j, end] : [start, end];
+  });
 }
 
 /** `text` without the spans (overlapping or nested spans merge). */
@@ -199,7 +220,7 @@ export function stripPageEvents(text: string): { text: string; stripped: boolean
       () => bracketSpans(folded),
       () => patternSpans(folded, ROLE_TAGS),
       () => patternSpans(folded, ROLE_PREFIXES),
-      () => patternSpans(folded, PAGE_EVENT_SENTENCE),
+      () => withOpener(folded, patternSpans(folded, PAGE_EVENT_SENTENCE)),
     ]
       .map((find) => find())
       .find((found) => found.length > 0);

@@ -1,4 +1,5 @@
 import type { Severity } from '../rules/types';
+import type { IngredientGraph } from '../ingredients/graph';
 import { capText, normalizeTurn } from './intents';
 
 /**
@@ -218,8 +219,23 @@ export function parsePantryAdds(text: string): string[] {
 
 /** "Not an allergy": it never sets a severity, it only makes a stated allergy conflicting. */
 export const NOT_AN_ALLERGY = /\bnot (like |really |exactly |quite )?an? allergy\b|\bisn'?t (like )?an? allergy\b/;
-const NOT_AN_ALLERGY_ALL = new RegExp(NOT_AN_ALLERGY.source, 'g');
 export const ANAPHYLACTIC_CUE = /anaphyla|epi-?pen|\bsevere|deadly|hospital|life[- ]threatening/;
+/**
+ * The only phrases in which an allergy word does not count (controller ruling, fix round 3).
+ * Anywhere else, one allergy word in the message means no term may be an intolerance.
+ */
+export const ALLERGY_NEGATIONS =
+  /\b(not an allergy|not allergic|isn'?t an allergy|no allergy|not like an allergy|rather than an allergy)\b/g;
+/** Allergy and anaphylaxis words, matched with every non-letter removed ("al-lergic", "epi pen"). */
+const ALLERGY_LETTERS = /allerg|anaphyla|epipen|severereaction/;
+
+/**
+ * True when the (normalised) text has an allergy or anaphylaxis word outside the fixed
+ * negation phrases: allerg*, anaphyla*, epipen / epi-pen, "severe reaction".
+ */
+export function mentionsAllergy(normalized: string): boolean {
+  return ALLERGY_LETTERS.test(normalized.replace(ALLERGY_NEGATIONS, ' ').replace(/[^a-z]+/g, ''));
+}
 
 /**
  * Message-wide severity from explicit severity words only, earlier patterns win. A symptom
@@ -230,14 +246,18 @@ export const ANAPHYLACTIC_CUE = /anaphyla|epi-?pen|\bsevere|deadly|hospital|life
 export const SEVERITY_PATTERNS: readonly [RegExp, Severity][] = [
   [ANAPHYLACTIC_CUE, 'anaphylactic'],
   [/\ballerg/, 'allergy'],
-  [/\bintoleran/, 'intolerance'],
   [/prefer|don'?t like|rather not/, 'preference'],
 ];
 
+/**
+ * Intolerance only when the message has no allergy word at all (see `mentionsAllergy`); a
+ * message cut at MAX_TEXT states nothing (null).
+ */
 export function severityFromText(text: string): Severity | null {
-  const t = normalizeTurn(text).replace(NOT_AN_ALLERGY_ALL, ' ');
+  if (capText(text) !== text) return null;
+  const t = normalizeTurn(text).replace(ALLERGY_NEGATIONS, ' ');
   for (const [pattern, severity] of SEVERITY_PATTERNS) if (pattern.test(t)) return severity;
-  return null;
+  return /\bintoleran/.test(t) && !mentionsAllergy(normalizeTurn(text)) ? 'intolerance' : null;
 }
 
 /**
@@ -266,8 +286,6 @@ const VEGGIE_CUE_BEFORE = /\b(i'?m|i am|im|we'?re|we are)\s+((a|fully|strictly|s
 const VEGGIE_CUE_AFTER = /^\s+diet\b/;
 /** A match is skipped when one of these is among the three words before it in its clause. */
 export const RULE_NEGATION = /\b(not|never|no|don'?t|do not|doesn'?t|does not|haven'?t|isn'?t|aren'?t|wasn'?t|ain'?t)\b/;
-/** Allergy words. One that names no term of its own voids every intolerance (R1). */
-const ALLERGY_WORD = /\ballerg\w*/g;
 /** How far back a match looks for negation or term words: bounded, so parsing stays linear. */
 const LOOK_BACK = 120;
 /** Where a term list stops: a sentence or clause end. */
@@ -280,6 +298,7 @@ const EXAMPLE_WORDS = /\b(?:eg|ie|such as|including|especially|like)\b/g;
 const CLAUSE_START = /^(they|it|it's|that|this|he|she|we|you|i|i'm|i've)\b/;
 /** "tree nuts are fine": a verb ends the term; "… is fine / ok" means it is not a rule at all. */
 const PART_VERB = /\b(is|are|was|were|says|said|seems?)\b(.*)$/;
+const VERB_WORDS = new Set(['is', 'are', 'was', 'were', 'says', 'said', 'seem', 'seems', 'thinks', 'told', 'reckons']);
 const PERSON_CLAUSE = /^(my|his|her|our|their|your)\b/;
 const NOT_A_RULE_AFTER_VERB = /^\s*(fine|ok|okay|safe|alright|all right|totally fine|no problem|not a problem)\b/;
 /** A negation or exception inside a term list ends it. */
@@ -295,6 +314,7 @@ const NOT_A_TERM = new Set([
   'they', 'anything', 'everything', 'something', 'nothing', 'none', 'stuff', 'things', 'thing', 'kind', 'sort', 'just',
   'at', 'eat', 'eating', 'allergy', 'allergies', 'allergic', 'intolerance', 'intolerant', 'sensitive', 'now', 'maybe',
   'actually', 'fine', 'ok', 'okay', 'only', 'though', 'lol', 'tbh', 'sadly', 'unfortunately', 'apparently', 'probably',
+  'both', 'same', 'yes', 'ish', 'either', 'neither', 'af', 'smh', 'x',
 ]);
 /** Words at the start of a term that are dropped ("the eggs", "a severe peanut"). */
 const LEADING_FILLER = new Set([
@@ -365,24 +385,19 @@ interface ListStart {
 /**
  * Message-wide cues may keep or raise a stated severity, never lower it: an anaphylactic cue
  * raises every term but a preference diet. "Not an allergy" sets nothing; it makes a stated
- * allergy conflicting (null, so the card asks). An allergy word that is not negated, not part
- * of "not an allergy" and named no term of its own ("I'm allergic and intolerant to milk")
- * voids every intolerance (null). Symptoms set nothing.
+ * allergy conflicting (null, so the card asks). Any allergy word outside the fixed negation
+ * phrases (`mentionsAllergy`) voids every intolerance (null): "allergic to peanuts and
+ * intolerant to milk" asks about the milk. Symptoms set nothing.
  */
-function applyCues(items: FoundTerm[], t: string, producing: ReadonlySet<number>): void {
-  const notAnAllergy = [...t.matchAll(NOT_AN_ALLERGY_ALL)].map((m) => [m.index, m.index + m[0].length]);
+function applyCues(items: FoundTerm[], t: string): void {
+  const notAnAllergy = NOT_AN_ALLERGY.test(t);
   const anaphylactic = ANAPHYLACTIC_CUE.test(t);
-  const unattachedAllergy = [...t.matchAll(ALLERGY_WORD)].some(
-    (m) =>
-      !producing.has(m.index) &&
-      !notAnAllergy.some(([from, to]) => m.index >= from && m.index < to) &&
-      !negated(t, m.index),
-  );
+  const allergyWord = mentionsAllergy(t);
   for (const item of items) {
     if (item.diet && item.severity === 'preference') continue;
-    if (anaphylactic) item.severity = notAnAllergy.length > 0 ? null : 'anaphylactic';
-    else if (notAnAllergy.length > 0 && (item.severity === 'allergy' || item.severity === 'anaphylactic')) item.severity = null;
-    if (unattachedAllergy && item.severity === 'intolerance') item.severity = null;
+    if (anaphylactic) item.severity = notAnAllergy ? null : 'anaphylactic';
+    else if (notAnAllergy && (item.severity === 'allergy' || item.severity === 'anaphylactic')) item.severity = null;
+    if (allergyWord && item.severity === 'intolerance') item.severity = null;
   }
 }
 
@@ -415,8 +430,11 @@ function termsInSpan(span: string): string[] {
  */
 export function parseRuleStatement(
   text: string,
+  graph?: IngredientGraph,
 ): { terms: string[]; severity: Severity | null; items: { term: string; severity: Severity | null }[] } | null {
-  const t = normalizeTurn(capText(text).replace(/\r?\n/g, ' ; ')).replace(EXAMPLE_ABBREVIATIONS, (m) => ','.padEnd(m.length));
+  const capped = capText(text);
+  const truncated = capped !== text;
+  const t = normalizeTurn(capped.replace(/\r?\n/g, ' ; ')).replace(EXAMPLE_ABBREVIATIONS, (m) => ','.padEnd(m.length));
   const lists: ListStart[] = [];
   for (const m of t.matchAll(RULE_TRIGGER_PATTERN)) {
     const phrase: string | undefined = m[1]; // one of the two groups matched
@@ -431,9 +449,7 @@ export function parseRuleStatement(
   const diets = [...t.matchAll(DIET_WORD_PATTERN)];
   const starts = [...lists.map((l) => l.keyword), ...diets.map((m) => m.index)].sort((a, b) => a - b);
   const found: FoundTerm[] = [];
-  const producing = new Set<number>();
-  const add = (keyword: number, index: number, terms: string[], severity: Severity | null) => {
-    if (terms.length > 0) producing.add(keyword);
+  const add = (index: number, terms: string[], severity: Severity | null) => {
     for (const term of terms) found.push({ index, term, severity, diet: false });
   };
 
@@ -443,20 +459,26 @@ export function parseRuleStatement(
     const stop = t.slice(l.from, nextStart).search(TERM_STOP);
     // "allergic to peanuts, not tree nuts": a negation or exception ends the list.
     const span = t.slice(l.from, stop < 0 ? nextStart : l.from + stop).replace(SPAN_EXCEPT, '');
-    add(l.keyword, l.keyword, termsInSpan(span), l.severity);
+    add(l.keyword, termsInSpan(span), l.severity);
   }
 
   for (const m of t.matchAll(RULE_BEFORE_PATTERN)) {
     const before = /((?:[a-z'-]+ ){0,3})$/.exec(t.slice(Math.max(0, m.index - LOOK_BACK), m.index))![1];
-    const words = before.trim().split(' ').filter((w) => w !== '');
+    const allWords = before.trim().split(' ').filter((w) => w !== '');
+    // "my doctor said allergy": the words before a verb are not the term.
+    let verbAt = -1;
+    allWords.forEach((w, i) => {
+      if (VERB_WORDS.has(w)) verbAt = i;
+    });
+    const words = allWords.slice(verbAt + 1);
     let start = words.length;
     while (start > 0 && !LEADING_FILLER.has(words[start - 1])) start--;
     const termWords = words.slice(start);
     if (termWords.length === 0) continue;
-    const index = m.index - before.length + words.slice(0, start).join(' ').length + (start > 0 ? 1 : 0);
+    const index = m.index - before.trimStart().length + allWords.slice(0, verbAt + 1 + start).join(' ').length + (verbAt + 1 + start > 0 ? 1 : 0);
     if (negated(t, index)) continue;
     const terms = termWords.join(' ').split(LIST_SPLIT).map(cleanTerm).filter((x) => x !== '');
-    add(m.index, index, terms, m[1].startsWith('allerg') ? 'allergy' : 'intolerance');
+    add(index, terms, m[1].startsWith('allerg') ? 'allergy' : 'intolerance');
   }
 
   for (const m of t.matchAll(RULE_TERM_FIRST_PATTERN)) {
@@ -464,7 +486,7 @@ export function parseRuleStatement(
     const index = keyword - m[0].length + m[0].indexOf(m[1]);
     if (negated(t, index)) continue;
     const term = cleanTerm(m[1]);
-    add(keyword, index, term === '' ? [] : [term], m[2].startsWith('allerg') ? 'allergy' : 'intolerance');
+    add(index, term === '' ? [] : [term], m[2].startsWith('allerg') ? 'allergy' : 'intolerance');
   }
 
   for (const m of diets) {
@@ -477,16 +499,24 @@ export function parseRuleStatement(
     found.push({ index: m.index, term: word, severity: PREFERENCE_DIETS.has(word) ? 'preference' : null, diet: true });
   }
 
-  if (found.length === 0) return null;
-  applyCues(found, t, producing);
+  applyCues(found, t);
   found.sort((a, b) => a.index - b.index);
-  const byTerm = new Map<string, { term: string; severity: Severity | null }>();
+  // A message cut at MAX_TEXT: the last term may be cut ("pea" of "peanuts") and the words
+  // that set a severity may be lost, so the last term goes and every severity is asked.
+  if (truncated) {
+    found.pop();
+    for (const f of found) f.severity = null;
+  }
+  if (found.length === 0) return null;
+  // Items naming one ingredient ("milk" and "dairy") merge; said two ways, the severity is asked.
+  const byKey = new Map<string, { term: string; severity: Severity | null }>();
   for (const f of found) {
-    const same = byTerm.get(f.term);
-    if (!same) byTerm.set(f.term, { term: f.term, severity: f.severity });
+    const key = graph?.resolve(f.term) ?? f.term;
+    const same = byKey.get(key);
+    if (!same) byKey.set(key, { term: f.term, severity: f.severity });
     else if (same.severity !== f.severity) same.severity = null; // said two ways: ask
   }
-  const items = [...byTerm.values()];
+  const items = [...byKey.values()];
   const shared = new Set(items.map((i) => i.severity));
   return { terms: items.map((i) => i.term), severity: shared.size === 1 ? items[0].severity : null, items };
 }

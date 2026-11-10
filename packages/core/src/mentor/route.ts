@@ -205,6 +205,7 @@ function isPastedLine(l: string): boolean {
  * first pasted block. Step 7 drops any model `propose_rule` whose term isn't here (C4).
  * Step 7 must call this on the RAW turn text, before `stripPageEvents`: stripping removes the
  * role prefixes and tags this cuts at, which would turn injected text into the player's own.
+ * A message longer than MAX_TEXT loses its last term.
  */
 export function ruleTermsInPlayerWords(text: string): string[] {
   let own = foldConfusables(canonicalText(text));
@@ -213,5 +214,7 @@ export function ruleTermsInPlayerWords(text: string): string[] {
   const lines = own.split('\n');
   const pasted = lines.findIndex((l, i) => i > 0 && isPastedLine(l));
   if (pasted > 0) own = lines.slice(0, pasted).join('\n');
-  return parseRuleStatement(own)?.terms ?? [];
+  const terms = parseRuleStatement(own)?.terms ?? [];
+  // Cut at MAX_TEXT: the last term may be cut ("pea" of "peanuts"), so it never counts.
+  return capText(text) !== text ? terms.slice(0, -1) : terms;
 }

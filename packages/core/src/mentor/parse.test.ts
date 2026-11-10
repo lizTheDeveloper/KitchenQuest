@@ -313,7 +313,7 @@ describe('fix round 3: intolerance only with no allergy word at all (ruling 1)',
     'intolerant to milk + allergic to it', 'allergic to peanuts and intolerant to milk', 'intolerant to milk. allergy too',
     'intolerant to milk, Allergic!', 'intolerant to milk, ALLERGIES', 'intolerant to milk, allergic reaction last time',
     "intolerant to milk, it's allergic", 'intolerant to milk and I react allergically', 'intolerant to milk, i had an allergic reaction',
-    "intolerant to milk, and it's not just an intolerance, it's allergic", "intolerant to milk, but I'm not sure it's not an allergy",
+    "intolerant to milk, and it's not just an intolerance, it's allergic",
     'intolerant to milk, not an allergy... actually it is an allergy', 'intolerant to milk, my doctor said allergy',
     'intolerant to milk, no wait allergic', 'intolerant to milk, Αllergic', 'intolerant to milk, al-lergic',
     'intolerant to milk, allergic (no not intolerant)', "intolerant to milk, I am not intolerant, I'm allergic",
@@ -339,6 +339,8 @@ describe('fix round 3: intolerance only with no allergy word at all (ruling 1)',
     'milk intolerance, not like an allergy',
     'intolerant to milk rather than an allergy',
     'lactose intolerance',
+    // The ruling's mechanism: the only allergy word sits in an exact negation phrase. Flagged in the report.
+    "intolerant to milk, but I'm not sure it's not an allergy",
   ])('%s keeps the intolerance (exact negation or no allergy word)', (text) => expect(intoleranceKept(text)).toBe(true));
 
   test('junk words are never terms (ruling 4)', () => {
