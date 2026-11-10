@@ -3,6 +3,12 @@ import { chromium, type BrowserContext, type ConsoleMessage, type Page, type Res
 import { expect, inject } from 'vitest';
 import { STORE_KEY, type PlayerState } from '../src/state/store';
 
+/**
+ * A player who has finished Form 1-A and seen the AI disclosure (M4 Step 11): the panel opens straight to the
+ * conversation. Tests about other things in the panel seed this so the intake doesn't start.
+ */
+export const PAN_READY: Partial<PlayerState> = { intake: { step: 'done' }, aiDisclosureSeen: true };
+
 export interface OpenedApp {
   page: Page; context: BrowserContext; consoleErrors: string[]; requests: string[]; close(): Promise<void>;
   /** The first navigation's response (its headers), or null. */

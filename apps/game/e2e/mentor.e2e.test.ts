@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { Page, Request } from 'playwright';
 import { buildProfileCard, UNDO_WINDOW_MS } from '@kitchenquest/core/engine';
-import { expectNoA11yViolations, openApp, type OpenedApp } from './helpers';
+import { expectNoA11yViolations, openApp, PAN_READY, type OpenedApp } from './helpers';
 
 const pan = parse(readFileSync(fileURLToPath(new URL('../../../content/dialogue/pan.yaml', import.meta.url)), 'utf8')) as {
   triggers: Record<string, { lines: string[] }>;
@@ -34,7 +34,7 @@ describe('mentor panel', () => {
   });
 
   it('answers thanks, other text and a rule statement from the script, and makes no requests', async () => {
-    app = await openApp('/#/settings', { reducedMotion: true });
+    app = await openApp('/#/settings', { reducedMotion: true, seed: PAN_READY });
     const { page } = app;
     await page.locator('#pan-button').click();
     // The app's one start-up call (who is signed in) isn't the Pan's.
@@ -85,7 +85,7 @@ describe('mentor panel', () => {
   });
 
   it('types bubbles in with motion on, and a click finishes them', async () => {
-    app = await openApp('/#/settings', { reducedMotion: false });
+    app = await openApp('/#/settings', { reducedMotion: false, seed: PAN_READY });
     const { page } = app;
     await page.locator('#pan-button').click();
     await page.locator('#pan-text').fill('hello');
@@ -140,7 +140,7 @@ const signedIn = (extra: (page: Page) => Promise<unknown>) => async (page: Page)
 
 describe('mentor cards, trail and AI backend (M4 Step 10)', () => {
   it('AI off: say an allergy, get a 27-B card, a typed yes asks for a tap, a tap stamps it, and the dish is blocked', async () => {
-    app = await openApp('/#/settings', { reducedMotion: true });
+    app = await openApp('/#/settings', { reducedMotion: true, seed: PAN_READY });
     const { page } = app;
     await page.locator('#pan-button').click();
     await tell(page, "I'm allergic to coconut");
@@ -171,6 +171,7 @@ describe('mentor cards, trail and AI backend (M4 Step 10)', () => {
     const turnBodies: unknown[] = [];
     app = await openApp('/#/settings', {
       reducedMotion: true,
+      seed: PAN_READY,
       beforeGoto: signedIn(async (page) => {
         await page.route((u) => u.pathname === '/api/mentor/turn', (r) => {
           turnBodies.push(r.request().postDataJSON());
@@ -211,6 +212,7 @@ describe('mentor cards, trail and AI backend (M4 Step 10)', () => {
     let turns = 0;
     app = await openApp('/#/settings', {
       reducedMotion: true,
+      seed: PAN_READY,
       beforeGoto: signedIn(async (page) => {
         await page.route((u) => u.pathname === '/api/mentor/turn', (r) => { turns++; return r.fulfill(json(503, { error: { code: 'unavailable', message: 'down' } })); });
       }),
@@ -251,7 +253,7 @@ describe('mentor cards, trail and AI backend (M4 Step 10)', () => {
   });
 
   it('cards pass axe and keep focus order', async () => {
-    app = await openApp('/#/settings', { reducedMotion: true });
+    app = await openApp('/#/settings', { reducedMotion: true, seed: PAN_READY });
     const { page } = app;
     await page.locator('#pan-button').click();
     await tell(page, "I'm allergic to coconut");

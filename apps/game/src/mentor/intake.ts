@@ -233,6 +233,7 @@ export function createIntake(deps: {
 
   async function skipNow(): Promise<PanItem[]> {
     const step = current();
+    expecting = null; // a consent card still on screen no longer moves the interview
     if (isStep(step)) tick(FIELD[step], 'skipped');
     return [say('intake.skip'), ...(await moveOn())];
   }
@@ -279,13 +280,15 @@ export function createIntake(deps: {
     const step = current();
     const c: TurnContext = ctx ?? { turn: panel.turn, openCards: [], intakeStep: isStep(step) ? step : null, signedIn: deps.signedIn(), trail: [] };
     const stripped = stripPageEvents(text).text.trim();
-    if (!isStep(step) || expecting === 'consent' || expecting === null) return engine.reply(text, c);
+    if (!isStep(step) || expecting === null) return engine.reply(text, c);
     // Skip words first (pre-flight C45).
     const parsed = parseIntakeAnswer(step, text, { graph, ruleTerms, rulesStamped });
     if (parsed.kind === 'skip') return reply(await skipNow());
     // Emergency, medical, child and the other fixed lines: the engine's answer (E2 keeps a stated rule), and the step waits.
     const intent = classifyTurn(stripped);
     if (preRoute(intent) !== null) return engine.reply(text, c);
+    // The consent card is answered by a tap only (C-17, P-4): typed words never grant it.
+    if (expecting === 'consent') return reply([say('consent.health_first')]);
     // A plain yes, no or undo with a card open answers the card, as anywhere else.
     if ((intent === 'yes' || intent === 'no' || intent === 'undo') && (c.openCards.length > 0 || (intent === 'undo' && c.trail.length > 0))) {
       return aiNow()?.reply({ kind: 'text', text }, c) ?? engine.reply(text, c);
@@ -326,7 +329,7 @@ export function createIntake(deps: {
     started = true;
     drawChecklist();
     panel.setAside(checklist);
-    panel.interceptText((text, ctx) => (expecting === 'answer' || expecting === 'more_rules') && isStep(current()) ? answer(text, ctx) : null);
+    panel.interceptText((text, ctx) => (expecting !== null && isStep(current()) ? answer(text, ctx) : null));
     if (fresh) setStep(INTAKE_ORDER[0]);
     const opening = fresh ? [say('intake.open')] : [];
     void enter().then((items) => { panel.show(reply([...opening, ...items])); });

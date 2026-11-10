@@ -63,10 +63,32 @@ export const RUSTY_SEED: Partial<PlayerState> = {
 };
 const coconutSevere = { id: 'r1', target: { kind: 'ingredient' as const, ids: ['coconut'] }, type: 'avoid' as const, severity: 'anaphylactic' as const };
 const settings = (familyTable: boolean) => ({ showCalories: false, reducedMotion: 'system' as const, familyTable, iosNoteDismissed: false, aiMentor: true });
-const json = (status: number, body: unknown) => ({ status, contentType: 'application/json', body: JSON.stringify(body) });
-
 const h1 = (page: Page, text: string | RegExp) => page.locator('h1', { hasText: text }).first().waitFor();
 const button = (page: Page, name: string | RegExp) => page.getByRole('button', { name });
+const json = (status: number, body: unknown) => ({ status, contentType: 'application/json', body: JSON.stringify(body) });
+/** Done with Form 1-A and the AI disclosure (M4 Step 11), so a screen opens without the intake. */
+const PAN_READY: Partial<PlayerState> = { intake: { step: 'done' }, aiDisclosureSeen: true };
+const NOTICES = { health_data: { version: 'v2', text: 'We keep your allergies and diet rules so dishes can be checked.' }, ai_health: { version: 'v1', text: 'The AI may see your rules and meals.' } };
+/** Signed in as cook@example.com with no rules and no consents. */
+async function signedInApi(page: Page): Promise<void> {
+  await page.route((u) => u.pathname === '/api/me', (r) => r.fulfill(json(200, { id: 'u1', email: 'cook@example.com', entitlements: [] })));
+  await page.route((u) => u.pathname === '/api/rules', (r) => r.fulfill(json(200, { rules: [] })));
+  await page.route((u) => u.pathname === '/api/me/consents', (r) => r.fulfill(json(200, { consents: [], needsReconsent: [], notices: NOTICES })));
+}
+const ageRequired = (page: Page) => page.route('**/api/auth/verify', (r) => r.fulfill(json(400, { error: { code: 'bad_request', message: 'x', details: { code: 'age_confirmation_required' } } })));
+async function openAgeScreen(page: Page): Promise<void> {
+  await page.locator('#verify').click();
+  await page.locator('#birth-year').waitFor();
+}
+/** The rules screen's form fallback, filled in up to the 27-B card. */
+async function openRuleCard(page: Page): Promise<void> {
+  await button(page, 'Add a rule').click();
+  await page.locator('#rule-search').fill('sesa');
+  await page.locator('.rule-form-option', { hasText: 'sesame' }).first().click();
+  await button(page, 'Fill in Form 27-B').click();
+  await page.locator('.rules-card .pan-card').waitFor();
+}
+
 
 async function openPermit(page: Page): Promise<void> {
   await button(page, LEELA_PIN).click();
@@ -130,17 +152,59 @@ export const SCREENS: ScreenCase[] = [
   { label: 'settings (signed out)', path: '/#/settings', open: (p) => button(p, 'Send me a sign-in link').waitFor(), primary: (p) => button(p, 'Send me a sign-in link') },
   {
     label: 'settings (signed in)', path: '/#/settings',
-    beforeGoto: async (page) => {
-      await page.route((u) => u.pathname === '/api/me', (r) => r.fulfill(json(200, { id: 'u1', email: 'cook@example.com', entitlements: [] })));
-      await page.route((u) => u.pathname === '/api/rules', (r) => r.fulfill(json(200, { rules: [] })));
-    },
-    open: (p) => p.getByText('Signed in as cook@example.com').waitFor(),
+    beforeGoto: signedInApi,
+    open: async (p) => { await p.getByText('Signed in as cook@example.com').waitFor(); await p.locator('#set-ai-health:not([disabled])').waitFor(); },
     primary: (p) => button(p, 'Sign out'),
   },
   {
-    label: 'mentor panel open (standard)', path: '/',
+    label: 'settings: the ai_health notice open', path: '/#/settings',
+    beforeGoto: signedInApi,
+    open: async (p) => {
+      await p.locator('#set-ai-health:not([disabled])').waitFor();
+      await p.locator('#set-ai-health').check();
+      await p.locator('.ai-health-notice .consent-card').waitFor();
+    },
+    primary: (p) => p.locator('.ai-health-notice').getByRole('button', { name: 'I agree' }),
+  },
+  { label: 'your rules', path: '/#/rules', seed: { ...PAN_READY, localRules: [coconutSevere] }, open: (p) => h1(p, 'Your rules'), primary: (p) => button(p, 'Add a rule') },
+  {
+    label: 'your rules: unreadable, with a 27-B card', path: '/#/rules', seed: { ...PAN_READY, localRules: [coconutSevere], rulesUnreadable: true },
+    open: openRuleCard,
+    primary: (p) => p.locator('.rules-card').getByRole('button', { name: 'Stamp it ✔' }),
+  },
+  {
+    label: 'your rules: removing a severe rule', path: '/#/rules', seed: { ...PAN_READY, localRules: [coconutSevere] },
+    open: async (p) => { await button(p, 'Remove').click(); await p.getByRole('dialog', { name: 'Removal of a Rule' }).waitFor(); },
+    primary: (p) => p.getByRole('dialog', { name: 'Removal of a Rule' }).getByRole('button', { name: 'Remove', exact: true }),
+  },
+  {
+    label: 'your rules (signed in, a device rule to copy)', path: '/#/rules', seed: { ...PAN_READY, localRules: [coconutSevere] }, beforeGoto: signedInApi,
+    open: (p) => p.locator('.rules-copy').waitFor(),
+    primary: (p) => button(p, 'Copy to my account'),
+  },
+  {
+    label: 'mentor panel open (standard)', path: '/', seed: PAN_READY,
     open: async (p) => { await p.locator('#pan-button').click(); await p.locator('#pan-panel').waitFor(); },
     primary: (p) => p.locator('#pan-panel').getByRole('button', { name: 'Send', exact: true }),
+  },
+  {
+    label: 'mentor panel, first open: AI disclosure and Form 1-A', path: '/',
+    open: async (p) => {
+      await p.locator('#pan-button').click();
+      await p.locator('#pan-panel .pan-disclosure').waitFor();
+      await p.locator('#pan-panel .intake-checklist').waitFor();
+      await p.waitForFunction(() => document.querySelectorAll('#pan-panel .bubble.pan').length >= 2);
+    },
+    primary: (p) => p.locator('#pan-panel').getByRole('button', { name: 'Send', exact: true }),
+  },
+  {
+    label: 'mentor panel: the intake consent card (signed in)', path: '/', seed: { aiDisclosureSeen: true, intake: { step: 'allergies' } }, beforeGoto: signedInApi,
+    open: async (p) => {
+      await p.waitForFunction(() => (JSON.parse(localStorage.getItem('kq.player.v1') ?? '{}') as { account?: unknown }).account != null);
+      await p.locator('#pan-button').click();
+      await p.locator('#pan-panel .consent-card').waitFor();
+    },
+    primary: (p) => p.locator('#pan-panel .consent-card').getByRole('button', { name: 'I agree' }),
   },
   {
     label: 'mentor panel open (Family Table)', path: '/', seed: { settings: settings(true) },
@@ -148,6 +212,20 @@ export const SCREENS: ScreenCase[] = [
     primary: (p) => p.locator('#pan-panel .pan-close'),
   },
   { label: '/auth/verify', path: '/auth/verify?token=x', open: (p) => p.locator('#verify').waitFor(), primary: (p) => p.locator('#verify') },
+  {
+    label: '/auth/verify: the age screen', path: '/auth/verify?token=x', beforeGoto: ageRequired,
+    open: openAgeScreen, primary: (p) => p.locator('#create-account'),
+  },
+  {
+    label: '/auth/verify: under 16', path: '/auth/verify?token=x', beforeGoto: ageRequired,
+    open: async (p) => {
+      await openAgeScreen(p);
+      await p.locator('#birth-year').selectOption(String(new Date().getFullYear() - 10));
+      await p.locator('#create-account').click();
+      await p.getByRole('link', { name: 'Back to the kitchen' }).waitFor();
+    },
+    primary: (p) => p.getByRole('link', { name: 'Back to the kitchen' }),
+  },
   { label: 'not found', path: '/#/no-such-page', open: (p) => h1(p, 'Not found'), primary: (p) => p.getByRole('link', { name: 'Back to the kitchen' }) },
 ];
 
