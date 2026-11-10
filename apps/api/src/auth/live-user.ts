@@ -23,6 +23,12 @@ import type { Db } from '../types.js';
  * then the consent row, then deletes rules, meals, messages and proposals,
  * which fits the order. Each service accepts locks its caller already holds (advisory
  * and row locks are re-entrant within one transaction).
+ *
+ * Outside the order on purpose: the global hourly AI cost row (`ai_cost_hours`,
+ * `recordAiCost`) is updated in its own one-statement transaction right after a
+ * model call, never inside a transaction that holds or waits for any lock
+ * above, so one turn waiting on consent or its conversation never stalls
+ * another player's turn on that shared row (M4 Step 7 fix round 2, N6).
  */
 export async function lockLiveUser(tx: Pick<Db, 'execute'>, userId: string): Promise<void> {
   const held = await tx.execute(sql`select 1 from ${users} where ${users.id} = ${userId} for key share`);

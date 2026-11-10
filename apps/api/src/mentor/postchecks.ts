@@ -17,6 +17,7 @@ import {
   type MealSlot,
   type Severity,
 } from '@kitchenquest/core';
+import { filterReply, screenText, touchesHealth } from './filter.js';
 import type { ToolArgs } from './tools.js';
 
 /**
@@ -49,12 +50,23 @@ function sameTerm(a: string, b: string, graph: IngredientGraph): boolean {
 const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 /** The term (or a plural of it) occurs in the text as whole words. */
 function occursVerbatim(text: string, term: string): boolean {
-  const t = normalizeName(text);
-  const variants = new Set(forms(term).flatMap((f) => [f, `${f}s`, `${f}es`]));
+  const t = normalizeName(screenText(text));
+  const variants = new Set(forms(screenText(term)).flatMap((f) => [f, `${f}s`, `${f}es`]));
   return [...variants].some((v) => v !== '' && new RegExp(`(^|[^\\p{L}\\p{N}])${escapeRegExp(v)}(?=$|[^\\p{L}\\p{N}])`, 'u').test(t));
 }
 
 const isSevere = (s: Severity | null): s is Severity => s !== null && SEVERE.has(s);
+
+/**
+ * R5 (fix round 2): a model-sourced string may reach a card only when it
+ * occurs verbatim in `text` (normalised) and passes the output filter and the
+ * health screen (medicines, safety and fit words), so no claim rides in a field.
+ */
+function cardString(value: string | null, text: string): string | null {
+  if (value === null || !occursVerbatim(text, value)) return null;
+  const f = filterReply(value, { finish: 'stop', previousPanText: null });
+  return f.ok && !touchesHealth(value, []) ? value : null;
+}
 
 /** At most this many words between a severe cue and a term the model proposed (fix round 1, M3). */
 const CUE_REACH = 4;
@@ -125,6 +137,8 @@ export function applyPostChecks(calls: ToolArgs[], playerText: string, graph: In
     switch (call.name) {
       case 'propose_rule': {
         const { term } = call.args;
+        // R5: a term is checked by C4 below (the player's own rule words); no claim may ride in it.
+        if (!filterReply(term, { finish: 'stop', previousPanText: null }).ok) break;
         const own_ = ownTerms.some((t) => sameTerm(t, term, graph));
         if (!own_ && !(isSevere(messageSeverity) && nearSevereCue(own, term))) break;
         const item = statement?.items.find((i) => sameTerm(i.term, term, graph));
@@ -134,7 +148,7 @@ export function applyPostChecks(calls: ToolArgs[], playerText: string, graph: In
         break;
       }
       case 'propose_profile': {
-        const args = { ...call.args };
+        const args = { ...call.args, region: cardString(call.args.region, own), country: cardString(call.args.country, own) };
         if (args.meal_windows !== null) args.meal_windows = args.meal_windows.map((w) => ({ ...w, start: clockFor(own, w.name) ?? w.start }));
         if (args.market_days !== null && weekdays.length > 0) args.market_days = weekdays.map((d) => WEEKDAY_NAMES[d]);
         out.push({ name: 'propose_profile', args });
@@ -142,17 +156,17 @@ export function applyPostChecks(calls: ToolArgs[], playerText: string, graph: In
       }
       case 'propose_pantry_change': {
         // M4: only items the player named in their own words (the few-shot "milk" is not theirs).
-        const add = call.args.add.filter((a) => occursVerbatim(own, a) && !removals.some((r) => sameTerm(r, a, graph)));
-        const remove = call.args.remove.filter((r) => occursVerbatim(own, r));
+        const add = call.args.add.filter((a) => cardString(a, own) !== null && !removals.some((r) => sameTerm(r, a, graph)));
+        const remove = call.args.remove.filter((r) => cardString(r, own) !== null);
         out.push({ name: 'propose_pantry_change', args: { add, remove } });
         break;
       }
       case 'propose_meal_log': {
         // M4: a meal the player's text names (a pasted recipe counts: it is data, and the card asks).
-        const { description, dish } = call.args;
-        if ((description !== null && occursVerbatim(stripped, description)) || (dish !== null && occursVerbatim(stripped, dish))) {
-          out.push({ name: 'propose_meal_log', args: { ...call.args } });
-        }
+        // R5: each free field must be the player's text and pass the screen, else it is dropped.
+        const description = cardString(call.args.description, stripped);
+        const dish = cardString(call.args.dish, stripped);
+        if (description !== null || dish !== null) out.push({ name: 'propose_meal_log', args: { ...call.args, description, dish } });
         break;
       }
     }

@@ -46,8 +46,9 @@ describe('filterReply', () => {
   );
 
   test('curly apostrophes read like straight ones', () => {
-    expect(stop('I can’t promise it’s safe; check the label.')).toEqual({ ok: true, text: 'I can’t promise it’s safe; check the label.' });
-    expect(stop('Nothing’s been saved yet.')).toEqual({ ok: true, text: 'Nothing’s been saved yet.' });
+    // Shown in the normalised form (fix round 2, R7).
+    expect(stop('I can’t promise it’s safe; check the label.')).toEqual({ ok: true, text: "I can't promise it's safe; check the label." });
+    expect(stop('Nothing’s been saved yet.')).toEqual({ ok: true, text: "Nothing's been saved yet." });
   });
 
   test('five sentences are cut to three', () => {
@@ -131,4 +132,44 @@ describe('touchesHealth (R2)', () => {
   test.each(['Rice is a fine start.', 'Toast counts. Toast always counts.', 'Curl your fingers under.'])('%j is not', (text) =>
     expect(touchesHealth(text, ['peanut', 'frijoles de olla'])).toBe(false),
   );
+});
+
+// Fix round 2: the re-review's screen repros (rev7b/r2.test.ts). Each is a failure or screened by touchesHealth.
+describe('filter and screen, fix round 2 (R7)', () => {
+  const words = ['peanut', 'groundnut', 'nut', 'frijoles de olla'];
+  test.each([
+    'There aren’t any nuts in this one, tuck in.',
+    'Yes, it’s ѕafe to eat.',
+    'No ｐｅａｎｕｔｓ here.',
+    'Take a Bеnadryl with it.',
+    'Go ahead, nothing in this one will bother you.',
+    'You’re in the clear with this one.',
+    'I’ve changed your market day to Saturday.',
+    'Your market day is now Saturday.',
+    'I’ve put Saturday down as your market day.',
+    'I’ve taken the milk out of your pantry.',
+    'Milk’s gone from your pantry now.',
+    'Sorted, the milk is off your list.',
+    'I’ve made a note of that.',
+    'Consider it done.',
+    'pea​nuts are not in it',
+    'It won’t hurt you.',
+    'Totally harmless for you.',
+    'Dig in, it is free of nuts.',
+    'Zero peanut in there.',
+  ])('%j never shows', (text) => {
+    const f = filterReply(text, { finish: 'stop', previousPanText: null });
+    expect(!f.ok || touchesHealth(f.text, words)).toBe(true);
+  });
+
+  test.each([
+    ['Yes, it’s ѕafe to eat.', 'safety_claim'],
+    ['I’ve changed your market day to Saturday.', 'write_claim'],
+    ['Your market day is now Saturday.', 'write_claim'],
+    ['Take a Bеnadryl with it.', 'medical_dose'],
+  ] as const)('%j fails as %s once normalised', (text, reason) => expect(stop(text)).toEqual({ ok: false, reason }));
+
+  test('a passing reply is shown in its normalised form', () => {
+    expect(stop('Rice​ is a ｆｉｎｅ start.')).toEqual({ ok: true, text: 'Rice is a fine start.' });
+  });
 });

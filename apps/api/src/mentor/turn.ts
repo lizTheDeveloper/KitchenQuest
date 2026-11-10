@@ -214,25 +214,28 @@ function replacementFor(reason: FilterFail, ctx: Pick<PromptContext, 'dish' | 'r
 }
 
 /**
- * Stage 8: no tool call. On a health turn the model's text is never shown
- * (R1): a filter failure gets its line, anything else a scripted line. On
- * other turns the filtered text is shown unless it touches the player's
- * rules, the dish on screen, a medicine or food safety (R2).
+ * Stage 8: no card-making call. The model's text is shown only on a pure chat
+ * turn (fix round 2, R6): not a health turn (R1), no dish on screen, and the
+ * model returned no tool call (one offered and dropped means the text went
+ * with it). Otherwise a filter failure gets its line and anything else a
+ * scripted line. On a pure chat turn the filtered text is still screened for
+ * the player's rule words, medicines and food safety (R2).
  */
-function textReply(
+async function textReply(
   result: Extract<AiResult, { ok: true }>,
   ctx: PromptContext,
   previousPanText: string | null,
   health: boolean,
   screenWords: () => Promise<string[]>,
-): Promise<Reply> | Reply {
+): Promise<Reply> {
   const filtered = filterReply(result.text, { finish: result.finish, previousPanText });
   const lineReply = (trigger: string): Reply => ({ parts: [line(trigger)], cards: [], toolTurn: false });
   if (!filtered.ok) return lineReply(replacementFor(filtered.reason, ctx));
-  if (health) return lineReply(ctx.dish !== null ? 'mentor.check_card' : 'didnt_understand');
-  return screenWords().then((words) =>
-    touchesHealth(filtered.text, words) ? lineReply('mentor.check_card') : { parts: [{ kind: 'text', text: filtered.text }], cards: [], toolTurn: false },
-  );
+  const pureChat = !health && ctx.dish === null && result.toolCalls.length === 0;
+  if (!pureChat) return lineReply(ctx.dish !== null ? 'mentor.check_card' : 'didnt_understand');
+  return touchesHealth(filtered.text, await screenWords())
+    ? lineReply('mentor.check_card')
+    : { parts: [{ kind: 'text', text: filtered.text }], cards: [], toolTurn: false };
 }
 
 /** Locks the caller's conversation row (FOR UPDATE); false when it is gone (forgotten mid-turn). */
@@ -264,8 +267,8 @@ interface FinishInput {
 
 /**
  * Stages 7–9 in one transaction, in the README lock order: live user (usage
- * and the global cost are recorded here, so a turn racing an account delete is
- * a 401, P5) → consent row (share-locked; `persist` and the health cards are
+ * is recorded here, so a turn racing an account delete is a 401, P5; the
+ * global cost was already counted on its own, N6) → consent row (share-locked; `persist` and the health cards are
  * decided from it, never from an earlier read) → conversation row → messages
  * → mentor_proposals. A concurrent withdraw-with-delete either waits and then
  * deletes what this stored, or commits first and this stores nothing health.
@@ -284,7 +287,6 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
   return deps.db.transaction(async (tx) => {
     await lockLiveUser(tx, userId);
     await recordUsage(tx, userId, 'mentor_text', 1, f.result.usage.costMicroUsd, now);
-    await recordAiCost(tx, f.result.usage.costMicroUsd, now);
     const persist = await consentHeldIn(tx, userId, 'health_data', now);
     const recipes = calls.some((c) => c.name === 'propose_meal_log')
       ? await tx.select({ slug: canonRecipes.slug, title: canonRecipes.title }).from(canonRecipes)
@@ -385,6 +387,8 @@ export async function runTurn(deps: TurnDeps, userId: string, req: TurnRequest, 
   const offered = toolsFor(avail.mode, aiHealth);
   const result = await deps.ai.complete({ messages: renderMessages(deps.prompt, ctx, sent, stripped, deps.bank), tools: offered });
   if (!result.ok) return respond(id, 'scripted', [], 'ai_unavailable');
+  // N6: the money is counted at once, in its own statement, outside every turn lock.
+  await recordAiCost(deps.db, result.usage.costMicroUsd, now);
 
   // 7–9. Cards or screened text, metered and stored under the consent lock.
   const lastPan = [...history].reverse().find((m) => m.role === 'pan');

@@ -786,7 +786,8 @@ describe('fix round 1: adversarial repros', () => {
     const p = await player(AI_HEALTH);
     await addRule(p.cookie, ['peanut']);
     const r = await turn(p.cookie, 'can I eat this one?', { screen: { route: 'recipe', slug: FRIJOLES } });
-    expect(r.parts).toEqual([lineOf('rule.severe_label_reminder')]);
+    // A health turn since fix round 2 (R7), so it also asks plainly.
+    expect(r.parts).toEqual([lineOf('rule.severe_label_reminder'), lineOf('rule.ask_keep_off')]);
   });
 
   test.each([
