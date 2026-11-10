@@ -43,6 +43,8 @@ triggers:
   greet.morning:
     ai: allowed
     when: The player opens the app between 05:00 and 11:00 local time.
+    vars:
+      name: "the apprentice's chosen name (default: apprentice)"
     lines:
       - "Morning. Breakfast first, philosophy later. What are we eating?"
       - "Good morning. I've been up since five. I'm always up. I'm a pan."
@@ -56,6 +58,8 @@ triggers:
   greet.afternoon:
     ai: allowed
     when: The player opens the app between 11:00 and 17:00 local time.
+    vars:
+      name: "the apprentice's chosen name (default: apprentice)"
     lines:
       - "Afternoon. Have you had lunch, or are we pretending lunch is optional? It isn't. I checked."
       - "Good afternoon. The light's good. The pan's good. I'm the pan. I'm good."
@@ -67,6 +71,8 @@ triggers:
   greet.evening:
     ai: allowed
     when: The player opens the app between 17:00 and 22:00 local time.
+    vars:
+      name: "the apprentice's chosen name (default: apprentice)"
     lines:
       - "Evening. Dinner's the one I like best. Things get properly hot."
       - "Good evening, {name}. What's for dinner? If the answer is 'I don't know', that's what I'm for."
@@ -78,6 +84,8 @@ triggers:
   greet.late_night:
     ai: allowed
     when: The player opens the app between 22:00 and 05:00 local time.
+    vars:
+      name: "the apprentice's chosen name (default: apprentice)"
     lines:
       - "It's late. Have you eaten? Toast counts. Toast always counts."
       - "Still up? So am I. I'm always up. If you're hungry, something small and then bed."
@@ -320,6 +328,8 @@ triggers:
   reminder.hours_since_meal.h6:
     ai: allowed
     when: Six hours since the last logged meal, during waking hours.
+    vars:
+      name: "the apprentice's chosen name (default: apprentice)"
     notes: "Fond concern. The signature line lives here."
     lines:
       - "It has been six hours. I am a pan, and even I am concerned."
@@ -480,7 +490,7 @@ triggers:
     lines:
       - "How serious is it? A severe allergy, an allergy, an intolerance, or a preference? If you're not sure, I'll treat it as severe."
       - "Is that an allergy, an intolerance, or something you'd just rather not eat? It changes how careful I am."
-      - "You didn't say how bad, so I've written 'severe'. Safer that way. If it's milder, tap 'Not quite' and tell me."
+      - "You didn't say how bad, so the card says 'severe' until you tell me otherwise. Safer that way. If it's milder, tap 'Not quite' and tell me."
       - "Before I write it down: how serious is it for you? Severe allergy, allergy, intolerance, or preference? Not sure is a fine answer; I'll be careful."
 
   rule.stamped:
@@ -1035,7 +1045,7 @@ triggers:
     lines:
       - "Nothing's been written down yet. If you'd like me to, tell me plainly and I'll show you the card to stamp."
       - "To be clear: nothing's been written down. If you'd like me to file something, say so plainly and I'll show you the card."
-      - "I haven't written anything down yet. The card on screen is the record, and there isn't one. Tell me what to file and I'll show you a card to stamp."
+      - "I haven't written anything down yet. Only a card you've stamped is on file. Tell me what to file and I'll show you a card to stamp."
 
   consent.health_first:
     ai: never
@@ -1056,9 +1066,9 @@ triggers:
     when: Any question about paying, limits or keeping on talking. Always this scripted line, never a model reply.
     notes: "Never rule 7: never sells, and never names a paid membership, a cost or a level of one. Honest about the daily cap. Rule help and logging are never capped (pre-flight C6)."
     lines:
-      - "I've a daily allowance of chat, and I'll tell you when it runs out. Recipes, cooking, allergy checks, logging and the market always work, every day, for nothing."
+      - "I've a daily allowance of chat, and I'll tell you when it runs out. Recipes, cooking, allergy and diet rules, logging and the market always work, every day, for nothing."
       - "There's a daily limit on how much I can chat freely, and I'll say when it's used up. Help with allergy and diet rules is never limited. Recipes, cooking, logging and the market always work, every day, for nothing."
-      - "I get a daily allowance of chat. The Bureau counts my words; I'd talk all day if it didn't. Recipes, cooking, allergy checks, logging and the market always work, every day, for nothing."
+      - "I get a daily allowance of chat. The Bureau counts my words; I'd talk all day if it didn't. Help with allergy and diet rules is never limited, and recipes, cooking, logging and the market always work, every day, for nothing."
 
   log.needs_account:
     ai: never

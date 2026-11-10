@@ -54,7 +54,7 @@ triggers:
 
 Optional keys on a trigger:
 
-- `vars:` a map of variable name → what it holds and a safe default, e.g. `hours: "whole hours since last logged meal (default: several)"`.
+- `vars:` a map of variable name → what it holds and a safe default, e.g. `hours: "whole hours since last logged meal (default: several)"`. Every `{var}` a line uses must be declared here (`name` too), and an `ai: never` trigger may not declare a variable none of its lines use. The build fails otherwise, naming the trigger and the line.
 - `notes:` writer's notes for the engine or for reviewers.
 
 **Variant counts.** Most triggers have 4–10 lines so they don't repeat. `cook.step_quip` has more (it fires often). A few safety triggers (`rule.emergency`, each stall's `medical`, Bram's `religious_rules`, the Spice Merchant's `allergen_note`) have exactly one fixed line on purpose: safety text should read the same every time.

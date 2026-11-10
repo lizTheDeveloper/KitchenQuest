@@ -174,6 +174,8 @@ describe('compileContent: each check fails with the path and the offending value
     ['a bad trigger id', (f) => (f['content/dialogue/pan.yaml'] += `  Bad-Id:\n${trigger()}`), ['pan.yaml', 'Bad-Id']],
     ['a bad ai value', (f) => (f['content/dialogue/pan.yaml'] = pan().replace('ai: never', 'ai: sometimes')), ['pan.yaml', 'ai']],
     ['an empty lines list', (f) => (f['content/dialogue/pan.yaml'] = pan().replace('      - "a line"\n', '    lines: []\n').replace('    lines:\n    lines: []', '    lines: []')), ['pan.yaml', 'lines']],
+    ['a line using an undeclared variable', (f) => (f['content/dialogue/pan.yaml'] += `  extra.vars:\n    ai: allowed\n    when: test\n    vars:\n      dish: "a dish"\n    lines:\n      - "Making {dish}."\n      - "Hello, {who}."\n`), ['content/dialogue/pan.yaml', 'extra.vars line 2 uses undeclared {who}']],
+    ['an ai: never trigger declaring a variable no line uses', (f) => (f['content/dialogue/pan.yaml'] += `  extra.unused:\n    ai: never\n    when: test\n    vars:\n      dish: "a dish"\n    lines:\n      - "Hello."\n`), ['content/dialogue/pan.yaml', 'extra.unused', '{dish}', 'no line uses']],
     ['a missing required trigger', (f) => (f['content/dialogue/pan.yaml'] = pan(['cook.start'])), ['pan.yaml', 'cook.start']],
     ['a recipe with an unknown cook', (f) => (f['recipes/x/y/z.cook'] = recipe({ cook: 'nobody' })), ['recipes/x/y/z.cook', 'nobody']],
     ['a recipe with an unknown skill', (f) => (f['recipes/x/y/z.cook'] = recipe({ skills: 'knife, wizardry' })), ['recipes/x/y/z.cook', 'wizardry']],
@@ -219,6 +221,14 @@ describe('compileContent: each check fails with the path and the offending value
     const files = valid();
     mutate(files);
     expectProblem(files, ...needles);
+  });
+});
+
+describe('compileContent: Pan variables', () => {
+  it('lets an ai: allowed trigger declare a variable its lines skip', () => {
+    const files = valid();
+    files['content/dialogue/pan.yaml'] += `  extra.spare:\n    ai: allowed\n    when: test\n    vars:\n      dish: "a dish"\n    lines:\n      - "Hello."\n`;
+    expect(() => compileContent(files)).not.toThrow();
   });
 });
 

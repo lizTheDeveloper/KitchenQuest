@@ -18,7 +18,7 @@ const NEW_TRIGGERS: Record<string, string> = {
   'child.grownup':
     "I'm glad you're cooking. I can only take notes from a grown-up, so please fetch the grown-up you cook with. And use the big knives only with them right beside you.",
   'allowance.explain':
-    "I've a daily allowance of chat, and I'll tell you when it runs out. Recipes, cooking, allergy checks, logging and the market always work, every day, for nothing.",
+    "I've a daily allowance of chat, and I'll tell you when it runs out. Recipes, cooking, allergy and diet rules, logging and the market always work, every day, for nothing.",
   'log.needs_account':
     'I can keep a food log once you\'re signed in. Settings has the sign-in. Everything else works on this device as it is.',
   'profile.readback': '{summary}. Shall I ink it?',
@@ -95,6 +95,17 @@ describe('M4 Pan triggers', () => {
     for (const id of ['allowance.explain', 'rate_limited', 'ai_unavailable', 'mentor.ai_unavailable']) {
       expect(lines(id).length, id).toBeGreaterThan(0);
       for (const line of lines(id)) expect(line, id).not.toMatch(selling);
+    }
+  });
+
+  it('says in every allowance line that allergy and diet rule help is never capped (pre-flight C6)', () => {
+    for (const line of lines('allowance.explain')) expect(line).toMatch(/allergy and diet rules/i);
+  });
+
+  it('never claims a write in lines that run before any stamp', () => {
+    const claim = /\bI(?:'ve| have) (written|saved|filed|logged|stamped|inked)\b|\bsaved it\b/i;
+    for (const id of ['write.not_done', 'rule.severity_unclear', 'rule.which_one', 'rule.tap_needed', 'confirm.tap_card', 'consent.health_first', 'rule.unknown_term']) {
+      for (const line of lines(id)) expect(line, id).not.toMatch(claim);
     }
   });
 

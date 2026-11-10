@@ -53,6 +53,7 @@ const INGREDIENTS = 'data/ingredients.json';
 const SUBSTITUTIONS = 'data/substitutions.json';
 const RULE_TERMS = 'data/rule-terms.json';
 
+const VAR = /\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
 const IGNORED_NAMES = new Set(['README.md', 'LICENSE', 'CONTRIBUTING.md']);
 
 const errorText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
@@ -161,6 +162,22 @@ export function compileContent(files: Record<string, string>): GameContent {
   if (pan) {
     for (const id of REQUIRED_PAN_TRIGGERS) {
       if (!(id in pan.triggers)) fail(PAN, `required trigger "${id}" is missing`);
+    }
+    for (const [id, trigger] of Object.entries(pan.triggers)) checkVars(id, trigger);
+  }
+
+  /** Every {var} a line uses is declared; an `ai: never` trigger declares nothing its lines don't use. */
+  function checkVars(id: string, trigger: LineTrigger): void {
+    const declared = new Set(Object.keys(trigger.vars ?? {}));
+    const used = new Set<string>();
+    trigger.lines.forEach((line, i) => {
+      for (const [, name] of line.matchAll(VAR)) {
+        used.add(name);
+        if (!declared.has(name)) fail(PAN, `${id} line ${i + 1} uses undeclared {${name}}`);
+      }
+    });
+    if (trigger.ai === 'never') {
+      for (const name of declared) if (!used.has(name)) fail(PAN, `${id} declares {${name}}, which no line uses`);
     }
   }
 
