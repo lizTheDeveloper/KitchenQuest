@@ -1,6 +1,7 @@
 import type { Severity } from '../rules/types';
 import type { IngredientGraph } from '../ingredients/graph';
 import { capText, normalizeTurn } from './intents';
+import { readNonSevere } from './nonsevere';
 
 /**
  * Deterministic parsers for what players type. Each pattern is a named constant so the eval
@@ -219,51 +220,31 @@ export function parsePantryAdds(text: string): string[] {
 
 /** "Not an allergy": it never sets a severity, it only makes a stated allergy conflicting. */
 export const NOT_AN_ALLERGY = /\bnot (like |really |exactly |quite )?an? allergy\b|\bisn'?t (like )?an? allergy\b/;
-export const ANAPHYLACTIC_CUE = /anaphyla|epi-?pen|\bsevere|deadly|hospital|life[- ]threatening/;
-/**
- * The only phrases in which an allergy word does not count (controller ruling, fix round 3).
- * Anywhere else, one allergy word in the message means no term may be an intolerance.
- */
+/** Anaphylaxis words, devices and signs: any one raises every term (but a preference diet) to anaphylactic. */
+export const ANAPHYLACTIC_CUE =
+  /anaphyla|epi-?pen|\bsevere|deadly|hospital|life[- ]threatening|adrenalin|epinephrin|auto-?injector|\bjext\b|\banapen\b|\bemerade\b|\ba&e\b|\ber\b|emergency|ambulance|\bicu\b|(nearly|almost) died|kill me|fatal|\bshock|can'?t breathe|cannot breathe|throat (closes|swells|closing|swelling)|swell(s|ing)? up|\bhives\b|wheez/;
+/** Phrases in which an allergy word states no allergy; removed before `SEVERITY_PATTERNS` run. */
 export const ALLERGY_NEGATIONS =
   /\b(not an allergy|not allergic|isn'?t an allergy|no allergy|not like an allergy|rather than an allergy)\b/g;
-/** Hedges: with one anywhere in the message, the negation phrases count as allergy words (ruling). */
-export const HEDGE_WORDS =
-  /\b(sure|think|thought|might|maybe|perhaps|possibly|probably|unsure|could be|not certain|don'?t know|dunno|actually|apparently|doctor|allergist)\b/;
-/** Allergy and anaphylaxis words, matched with every non-letter removed ("al-lergic", "epi pen"). */
-const ALLERGY_LETTERS = /allerg|anaphyla|epipen|severereaction/;
 
-/**
- * True when the (normalised) text has an allergy or anaphylaxis word outside the fixed
- * negation phrases: allerg*, anaphyla*, epipen / epi-pen, "severe reaction". The phrases are
- * exempt only when the message has no hedge word (`HEDGE_WORDS`) anywhere.
- */
-export function mentionsAllergy(normalized: string): boolean {
-  // A hedge anywhere ("not sure it's not an allergy") voids the negation exemption.
-  const exempt = HEDGE_WORDS.test(normalized) ? normalized : normalized.replace(ALLERGY_NEGATIONS, ' ');
-  return ALLERGY_LETTERS.test(exempt.replace(/[^a-z]+/g, ''));
-}
-
-/**
- * Message-wide severity from explicit severity words only, earlier patterns win. A symptom
- * ("upsets my stomach", "makes me feel sick", "sensitive") is not a severity word and never
- * sets one below the default; only "intolerant" / "intolerance" gives intolerance. Diet words
- * are not severities (a rule term carries its own). Read with "not an allergy" removed.
- */
+/** Message-wide severe levels from explicit words, earlier patterns win. Non-severe levels come only from `readNonSevere`. */
 export const SEVERITY_PATTERNS: readonly [RegExp, Severity][] = [
   [ANAPHYLACTIC_CUE, 'anaphylactic'],
   [/\ballerg/, 'allergy'],
-  [/prefer|don'?t like|rather not/, 'preference'],
 ];
 
 /**
- * Intolerance only when the message has no allergy word at all (see `mentionsAllergy`); a
- * message cut at MAX_TEXT states nothing (null).
+ * Message-wide severity. A severe level from explicit words (`SEVERITY_PATTERNS`, read with
+ * the `ALLERGY_NEGATIONS` phrases removed); intolerance or preference only when the whole
+ * message is consumed by the closed grammar (`readNonSevere`, fix round 4), and never from a
+ * diet word alone; else null. Symptoms set nothing. A message cut at MAX_TEXT states nothing.
  */
-export function severityFromText(text: string): Severity | null {
+export function severityFromText(text: string, graph?: IngredientGraph): Severity | null {
   if (capText(text) !== text) return null;
   const t = normalizeTurn(text).replace(ALLERGY_NEGATIONS, ' ');
   for (const [pattern, severity] of SEVERITY_PATTERNS) if (pattern.test(t)) return severity;
-  return /\bintoleran/.test(t) && !mentionsAllergy(normalizeTurn(text)) ? 'intolerance' : null;
+  const reading = readNonSevere(text, graph);
+  return reading?.stated ? reading.severity : null;
 }
 
 /**
@@ -271,7 +252,7 @@ export function severityFromText(text: string): Severity | null {
  * forms need a colon or dash ("Allergies: peanuts", "allergic - peanuts").
  */
 export const RULE_TRIGGER_PATTERN =
-  /\b(?:(allergic to|allergy to|anaphylactic to|intolerant to|intolerance to|sensitive to|can'?t eat|cannot eat|can'?t have|cannot have|don'?t eat|do not eat|avoid)\b\s*[:\-–—]?|(allergic|allergies|allergy|intolerances|intolerance|intolerant)\s*[:\-–—])\s*/g;
+  /\b(?:(allergic to|allergy to|anaphylactic to|reactions? to|reacts? (?:badly |severely |strongly )?to|intolerant to|intolerance to|sensitive to|can'?t eat|cannot eat|can'?t have|cannot have|don'?t eat|do not eat|avoid)\b\s*[:\-–—]?|(allergic|allergies|allergy|intolerances|intolerance|intolerant)\s*[:\-–—])\s*/g;
 /** "no allergies apart from peanuts", "allergic to nothing except peanuts": the list after the exception. */
 export const RULE_EXCEPTION_PATTERN =
   /\b(allergies|allergy|allergic to (?:nothing|none)|intolerances)\b[^.;!?()]{0,40}?\b(?:except(?: for)?|apart from|other than|besides|save for|but)\s+/g;
@@ -368,7 +349,7 @@ function firstAtLeast(xs: readonly number[], x: number, fallback: number): numbe
 /** The severity a trigger phrase states. */
 function triggerSeverity(phrase: string): Severity | null {
   if (phrase.startsWith('anaphylactic')) return 'anaphylactic';
-  if (phrase.startsWith('allerg')) return 'allergy';
+  if (phrase.startsWith('allerg') || phrase.startsWith('react')) return 'allergy'; // "reaction to" is severe-ish
   if (phrase.startsWith('intoleran')) return 'intolerance'; // "sensitive to" states none
   return null;
 }
@@ -391,19 +372,16 @@ interface ListStart {
 /**
  * Message-wide cues may keep or raise a stated severity, never lower it: an anaphylactic cue
  * raises every term but a preference diet. "Not an allergy" sets nothing; it makes a stated
- * allergy conflicting (null, so the card asks). Any allergy word outside the fixed negation
- * phrases (`mentionsAllergy`) voids every intolerance (null): "allergic to peanuts and
- * intolerant to milk" asks about the milk. Symptoms set nothing.
+ * allergy conflicting (null, so the card asks). Symptoms set nothing. Non-severe severities
+ * are then voided (`parseRuleStatement`) unless the closed grammar consumed the message.
  */
 function applyCues(items: FoundTerm[], t: string): void {
   const notAnAllergy = NOT_AN_ALLERGY.test(t);
   const anaphylactic = ANAPHYLACTIC_CUE.test(t);
-  const allergyWord = mentionsAllergy(t);
   for (const item of items) {
     if (item.diet && item.severity === 'preference') continue;
     if (anaphylactic) item.severity = notAnAllergy ? null : 'anaphylactic';
     else if (notAnAllergy && (item.severity === 'allergy' || item.severity === 'anaphylactic')) item.severity = null;
-    if (allergyWord && item.severity === 'intolerance') item.severity = null;
   }
 }
 
@@ -506,6 +484,14 @@ export function parseRuleStatement(
   }
 
   applyCues(found, t);
+  // Fix round 4: intolerance and preference only from the closed grammar, which consumed the
+  // whole message; then its terms are the items. Anything else said non-severely is asked.
+  const reading = truncated || ANAPHYLACTIC_CUE.test(t) ? null : readNonSevere(capped, graph);
+  if (reading !== null) {
+    found.length = 0;
+    reading.terms.forEach((term, index) => found.push({ index, term, severity: reading.severity, diet: false }));
+  }
+  for (const f of found) if (reading === null && (f.severity === 'intolerance' || f.severity === 'preference')) f.severity = null;
   found.sort((a, b) => a.index - b.index);
   // A message cut at MAX_TEXT: the last term may be cut ("pea" of "peanuts") and the words
   // that set a severity may be lost, so the last term goes and every severity is asked.

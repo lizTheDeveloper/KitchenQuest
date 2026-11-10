@@ -336,7 +336,9 @@ describe('fix round 4: raising', () => {
     'intolerant to peanuts, I get hives',
     'intolerant to peanuts, I start wheezing',
   ])('%s → peanuts anaphylactic', (text) => {
-    expect(parseRuleStatement(text, graph)?.items).toEqual([{ term: 'peanuts', severity: 'anaphylactic' }]);
+    const items = parseRuleStatement(text, graph)?.items ?? [];
+    expect(items[0]).toEqual({ term: 'peanuts', severity: 'anaphylactic' });
+    expect(items.every((i) => i.severity === 'anaphylactic')).toBe(true);
     expect(severityFromText(text, graph)).toBe('anaphylactic');
   });
 

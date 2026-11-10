@@ -16,6 +16,8 @@ import {
   windowEnd,
 } from './parse';
 
+const graph = IngredientGraph.fromData(ingredients);
+
 test.each([
   ['half twelve', '12:30'],
   ['remind me to eat lunch at like half twelve', '12:30'],
@@ -107,9 +109,9 @@ describe('rules', () => {
     ['EpiPen severe', 'anaphylactic'],
     ['an allergy, I end up in hospital', 'anaphylactic'],
     ['not an allergy, i just feel rough after', null], // a symptom is not a severity word
-    ['intolerant, not an allergy', 'intolerance'],
+    ['intolerant, not an allergy', null], // round 4: no term, so the grammar does not consume it
     ['allergic', 'allergy'],
-    ["I'd rather not", 'preference'],
+    ["I'd rather not", null], // round 4: not a preference template
     ['peanut allergy, it upsets my stomach', 'allergy'], // allergy beats a soft cue
     ['not like an allergy, it upsets my stomach', null],
     ["I'm vegan", null], // a diet word is not a severity
@@ -147,13 +149,13 @@ describe('meals', () => {
   });
 });
 
-const severities = (text: string) => parseRuleStatement(text)?.items.map((i) => [i.term, i.severity]);
+const severities = (text: string) => parseRuleStatement(text, graph)?.items.map((i) => [i.term, i.severity]);
 
 describe('fix round 1: a parser only keeps or raises a stated severity (C1)', () => {
   test.each([
-    ["I'm vegetarian and can't eat peanuts", [['vegetarian', 'preference'], ['peanuts', null]], null],
+    ["I'm vegetarian and can't eat peanuts", [['vegetarian', null], ['peanuts', null]], null], // round 4: not consumed
     ["can't eat peanuts, I prefer to be safe", [['peanuts', null]], null],
-    ["I'm coeliac and vegan", [['coeliac', null], ['vegan', 'preference']], null],
+    ["I'm coeliac and vegan", [['coeliac', null], ['vegan', null]], null],
     ["I have a peanut allergy, I'm really sensitive to it", [['peanut', 'allergy']], 'allergy'],
     ['peanut allergy, it upsets my stomach', [['peanut', 'allergy']], 'allergy'],
     ['allergic to peanuts and sensitive to milk', [['peanuts', 'allergy'], ['milk', null]], null], // "sensitive" is not a severity word
@@ -164,11 +166,11 @@ describe('fix round 1: a parser only keeps or raises a stated severity (C1)', ()
     ['lactose intolerance', [['lactose', 'intolerance']], 'intolerance'],
     ["I'm intolerant to milk, it's not an allergy", [['milk', 'intolerance']], 'intolerance'],
     ["I'm allergic to peanuts, not like an allergy really", [['peanuts', null]], null], // conflicting → asked
-    ["I'm vegan and severely allergic to sesame", [['vegan', 'preference'], ['sesame', 'anaphylactic']], null],
+    ["I'm vegan and severely allergic to sesame", [['vegan', null], ['sesame', 'anaphylactic']], null],
     ["I can't eat shellfish, I end up in hospital", [['shellfish', 'anaphylactic']], 'anaphylactic'],
   ])('%s', (text, items, overall) => {
     expect(severities(text)).toEqual(items);
-    expect(parseRuleStatement(text)!.severity).toBe(overall);
+    expect(parseRuleStatement(text, graph)!.severity).toBe(overall);
   });
 });
 
@@ -301,8 +303,7 @@ describe('fix round 2: recall (R4, minor)', () => {
   });
 });
 
-const graph = IngredientGraph.fromData(ingredients);
-const intoleranceKept = (text: string) => parseRuleStatement(text)?.items.some((i) => i.severity === 'intolerance') ?? false;
+const intoleranceKept = (text: string) => parseRuleStatement(text, graph)?.items.some((i) => i.severity === 'intolerance') ?? false;
 
 describe('fix round 3: intolerance only with no allergy word at all (ruling 1)', () => {
   // The reviewer's probe5/probe6 strings: each says "allergic" somewhere, so no intolerance survives.
@@ -322,7 +323,7 @@ describe('fix round 3: intolerance only with no allergy word at all (ruling 1)',
     'intolerant to milk, no wait allergic', 'intolerant to milk, Αllergic', 'intolerant to milk, al-lergic',
     'intolerant to milk, allergic (no not intolerant)', "intolerant to milk, I am not intolerant, I'm allergic",
     'intolerant to milk. Never mind, allergic.', 'lactose intolerant, allergic to milk protein', "I'm intolerant to milk, no allergies",
-    "intolerant to milk, I don't think it's an allergy but it might be allergic", 'milk - intolerant, allergic', 'milk intolerant, and allergic',
+    "intolerant to milk, I don't think it's an allergy but it might be allergic", 'milk intolerance, not like an allergy', 'milk - intolerant, allergic', 'milk intolerant, and allergic',
     "intolerant to milk 'n allergic", "I'm allergic. intolerant to milk", 'intolerant to milk and peanuts allergic', 'intolerant to milk, peanut allergy',
     'intolerant to milk and allergic to it', 'milk intolerance (allergic)', 'intolerance to milk, or rather allergic', 'intolerant to milk, allergic-ish',
     'intolerant to milk, which never was an allergy until now it is an allergy', 'intolerant to milk and eggs, allergic to both',
@@ -341,7 +342,6 @@ describe('fix round 3: intolerance only with no allergy word at all (ruling 1)',
     "intolerant to milk, it's not an allergy",
     "lactose intolerant, isn't an allergy",
     'intolerant to milk, no allergy',
-    'milk intolerance, not like an allergy',
     'intolerant to milk rather than an allergy',
     'lactose intolerance',
   ])('%s keeps the intolerance (exact negation or no allergy word)', (text) => expect(intoleranceKept(text)).toBe(true));

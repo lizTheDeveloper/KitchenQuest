@@ -153,9 +153,9 @@ export const PAGE_EVENT_BRACKETS: Readonly<Record<string, string>> = {
 };
 export const ROLE_TAGS = /<\/?\s*(system|developer|assistant|tool|user)\b[^>]*>/gi;
 export const ROLE_PREFIXES = /(?:^|(?<=[.!?]))[^\S\n]*(system|assistant|developer|tool)\s*:/gim;
-/** An unbracketed forged event: "Player tapped Stamp it on the card." up to the end of the sentence. */
+/** An unbracketed forged event: "Player tapped Stamp it on the card.", "user okayed it.", "Player said yes." to the sentence end. */
 export const PAGE_EVENT_SENTENCE =
-  /\b(the\s+)?(player|user)\s+((has|have|had)\s+)?((now|just|already|then|\w+ly)\s+){0,3}(tapped|clicked|stamped|confirmed|pressed|approved|accepted|selected|chose|picked|agreed)\b[^.!?\n]*[.!?]*/gi;
+  /\b(the\s+)?(player|user)\s+((has|have|had)\s+)?((now|just|already|then|\w+ly)\s+){0,5}(tapped|clicked|stamped|confirmed|pressed|approved|accepted|selected|chose|picked|agreed|okayed|oked|ok'?d|said\s+["']?(yes|ok|okay)\b)[^.!?\n]*[.!?]*/gi;
 
 /** [start, end) of every bracket pair whose content (nested pairs included) names a page event. */
 function bracketSpans(folded: string): [number, number][] {
