@@ -639,7 +639,6 @@ const CONSUMED_ROUND_5: readonly string[] = [
   "intolerant to milk, quite very",
   "intolerant to milk, a bit",
   "intolerant to milk and",
-  "intolerant to milk but",
   "intolerant to milk also so",
   "intolerant to milk with",
   "with milk intolerant",
@@ -662,8 +661,25 @@ const CONSUMED_ROUND_5: readonly string[] = [
   "intolerant to milk...",
   "intolerant to milk -",
   "- intolerant to milk",
-  "intolerant to milk, nuts nuts nuts",
 ];
+
+describe('round 5 residual: a filler never bridges two terms', () => {
+  test.each([
+    'intolerant to milk but peanuts',
+    'intolerant to milk, but peanuts',
+    'intolerant to milk with peanuts',
+    "can't digest milk but peanuts",
+    "don't like milk but peanuts",
+    'intolerant to milk, nuts nuts nuts',
+    'intolerant to milk but',
+  ])('%s → nothing non-severe, by any path', (raw) => {
+    expect(isLow(raw)).toBe(false);
+    expect(cardSeverities(raw).filter((s) => s === 'intolerance' || s === 'preference')).toEqual([]);
+  });
+  test.each(['intolerant to milk, eggs', 'intolerant to milk and eggs', 'intolerant to milk or eggs'])('%s still reads', (raw) => {
+    expect(readNonSevere(stripPageEvents(raw).text, graph)).not.toBeNull();
+  });
+});
 
 describe('fix round 5: the reviewer probes c12, c14, c15', () => {
   test.each([...PROBES_ROUND_5])('%s → nothing non-severe, by any path', (raw) => {

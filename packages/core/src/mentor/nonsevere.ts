@@ -11,7 +11,7 @@ import { capText, normalizeTurn } from './intents';
 
 /** Words (and two-word fillers) that may appear anywhere and are ignored. */
 export const NON_SEVERE_FILLERS: ReadonlySet<string> = new Set([
-  'i', "i'm", 'im', 'i am', 'am', 'just', 'so', 'and', 'but', 'also', 'a', 'an', 'my', "it's", 'its', 'to', 'with', 'of',
+  'i', "i'm", 'im', 'i am', 'am', 'just', 'so', 'and', 'also', 'a', 'an', 'my', "it's", 'its', 'to', 'with', 'of',
   'the', 'have', 'got', 'quite', 'very', 'mildly', 'slightly', 'a bit',
 ]);
 /**
@@ -62,7 +62,9 @@ const SYM_CHAR: Readonly<Record<ShapeSym, string>> = {
 /** Terms before a keyword: joined by and/or only ("milk and egg intolerance", never "peanuts, milk intolerant"). */
 const TERMS_BEFORE = 't(?:st)*';
 /** Terms after a keyword: a list ("intolerant to milk, eggs or soy"). */
-const TERMS_AFTER = 't(?:,?s?t)*';
+// Adjacent terms after the keyword need a separator (and/or) or a comma, so a filler like
+// "but" or "with" can't carry one term's severity onto the next.
+const TERMS_AFTER = 't(?:,?st|,t)*';
 const INTOLERANCE_GROUP = `(?:${TERMS_BEFORE},?i|i,?${TERMS_AFTER}|d${TERMS_AFTER})`;
 const PREFERENCE_GROUP = `(?:p,?${TERMS_AFTER}|a${TERMS_AFTER}b|m?gw?)`;
 /** The whole message: groups of one class, each pair split by a break. */

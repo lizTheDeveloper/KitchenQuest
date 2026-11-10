@@ -111,3 +111,5 @@ test('age screen: no year preselected; under-16 gets no account and the year is 
 - [ ] **11.3 Implement.**
 - [ ] **11.4 Run** the full game unit and e2e suites and the typecheck → PASS.
 - [ ] **11.5 Commit** `feat(game): Form 1-A intake by conversation, consent and AI disclosure cards, rules screen, neutral age screen`
+
+**Carry from Step 1:** Form 1-A allergies answers use the Step 7 ask-for-dropped-terms rule (see step-7.md "Carry from Step 1").

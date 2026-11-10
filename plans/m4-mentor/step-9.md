@@ -147,3 +147,5 @@ test('undo after the window does nothing and says so', ...);   // the trail is p
 - [ ] **9.3 Implement.** Update `card-model.ts` and `card-view.ts` to show `RulesState.message` and link to `#/rules`. The panel change is the minimal one in Files.
 - [ ] **9.4 Run** `npm test -w @kitchenquest/game` and `npm run typecheck -w @kitchenquest/game` → PASS. The M3 e2e suite stays green: `npm run test:e2e -w @kitchenquest/game`.
 - [ ] **9.5 Commit** `feat(game): scripted mentor engine with cards, card writer, one-update rule confirm, player-friendly rules errors`
+
+**Carry from Step 1:** the intake allergies answer goes through the same ask-for-dropped-terms rule as Step 7 (see step-7.md "Carry from Step 1").
