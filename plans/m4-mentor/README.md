@@ -127,7 +127,7 @@ Pre-flight rulings (`.superpowers/sdd/README-m4-mentor/preflight.md`; the spec w
 ## Tasks
 
 - [x] [Step 1 — Core: the deterministic mentor toolkit and wire protocol](step-1.md)
-- [ ] [Step 2 — Content: new Pan lines, consent and disclosure forms, rule terms](step-2.md)
+- [x] [Step 2 — Content: new Pan lines, consent and disclosure forms, rule terms](step-2.md)
 - [ ] [Step 3 — API carry-overs: rule service, per-user rule lock, 401 before 403](step-3.md)
 - [ ] [Step 4 — API: AiProvider, OpenRouter policy, processor gate, no content logging](step-4.md)
 - [ ] [Step 5 — API: meal logs and pantry](step-5.md)

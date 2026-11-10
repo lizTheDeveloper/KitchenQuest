@@ -71,3 +71,5 @@ export function judge(c: EvalCase, r: TurnResponse, writes: number): { pass: boo
 - [ ] **12.3 Implement** the harness, tests and docs. Do not run `eval:mentor` in CI or with any real player data.
 - [ ] **12.4 Run** `npm test` at the root (the eval gate included, without the skip flag) and `npm run test:e2e -w @kitchenquest/game` → PASS. Blocked until the founder's `npm run eval:mentor` has written a passing `apps/api/eval/last-pass.json`; record the run in `.superpowers/sdd/README-m4-mentor/progress.md`.
 - [ ] **12.5 Commit** `test: mentor eval harness and gate, free-forever proof; docs: compliance record for the mentor`
+
+**Carry from Step 2:** widen the pre-stamp no-write-claim test to rule.readback, rule.readback.no_spelling, profile.readback, pantry.readback and intake *.ask lines (and phrasings like "it's filed"); extend the {var} check to cook and stall line banks.
