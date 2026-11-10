@@ -536,7 +536,6 @@ describe('/rules under concurrency and check order (M4 Step 3)', () => {
     const loggedApp = await buildApp({ config, db: logged, mailer, now: () => NOW, logger: false });
     let sqlAfterAuth: string[] = [];
     // Every request starts a fresh record; the session lookup (requireUser) is in it, and touches neither table.
-    // eslint-disable-next-line @typescript-eslint/require-await -- Fastify hooks are async or take a callback
     loggedApp.addHook('onRequest', async () => {
       queries.length = 0;
     });
