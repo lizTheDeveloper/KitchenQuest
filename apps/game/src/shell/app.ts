@@ -76,6 +76,7 @@ export function mountApp(doc: Document, base: Omit<AppContext, 'navigate'>): voi
     let screen = make ? make() : notFoundScreen();
     current = screen;
     doc.title = `${screen.title} · Kitchen Quest`;
+    const focusBefore = doc.activeElement;
     try {
       await screen.mount(container, route, ctx);
     } catch (err) {
@@ -90,7 +91,9 @@ export function mountApp(doc: Document, base: Omit<AppContext, 'navigate'>): voi
       await screen.mount(container, route, ctx);
     }
     if (my !== token) return;
-    if (moveFocus) {
+    // A screen that put focus somewhere itself (a cook's intro focuses its Next button) keeps it.
+    const movedByScreen = doc.activeElement !== focusBefore && doc.activeElement !== doc.body && doc.activeElement !== null;
+    if (moveFocus && !movedByScreen) {
       const h1 = container.querySelector('h1');
       if (h1) { h1.tabIndex = -1; h1.focus(); }
     }
