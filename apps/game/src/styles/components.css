@@ -374,7 +374,7 @@ input[type="email"] { width: min(100%, 22rem); }
 .rules-status:empty { display: none; }
 .rules-status { margin: 1rem 3px; }
 .rules-card { max-width: 32rem; margin: 1rem 3px; }
-.rules-card .pan-card { margin: 6px; }
+.rules-card .pan-card { margin: 6px; overflow: hidden; } /* the stamp's box stays inside the slip, as in the panel */
 .rules-stamped { font-weight: 700; }
 .rule-form-options { list-style: none; margin: .5rem 0; padding: 0; display: flex; flex-wrap: wrap; gap: .75rem; }
 .rule-form-option[aria-pressed="true"] { background: var(--ember); color: var(--iron); }
@@ -388,6 +388,7 @@ input[type="search"] {
 .age-birthday[hidden] { display: none; }
 .age-birthday legend { padding: 0; margin-bottom: .5rem; }
 .age-radio { display: flex; align-items: center; gap: .5rem; margin: .25rem 0; }
+.age-screen a { display: inline-block; }
 .age-radio input { width: 1.5rem; height: 1.5rem; accent-color: var(--ember); }
 .confirm-modal {
   position: relative; width: 100%; max-width: 32rem;

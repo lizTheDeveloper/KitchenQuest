@@ -161,7 +161,7 @@ export const SCREENS: ScreenCase[] = [
     beforeGoto: signedInApi,
     open: async (p) => {
       await p.locator('#set-ai-health:not([disabled])').waitFor();
-      await p.locator('#set-ai-health').check();
+      await p.locator('#set-ai-health').click(); // the box stays unticked until "I agree"
       await p.locator('.ai-health-notice .consent-card').waitFor();
     },
     primary: (p) => p.locator('.ai-health-notice').getByRole('button', { name: 'I agree' }),
