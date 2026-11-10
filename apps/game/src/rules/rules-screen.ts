@@ -11,7 +11,7 @@ import { renderConsentCard } from '../mentor/consent-card';
 import { DEVICE_ONLY_FOOTNOTE, NOT_SAVED_TEXT } from '../mentor/panel';
 import type { LocalCardView, PanItem } from '../mentor/reply';
 import { ACCOUNT_NOT_LOADED_MESSAGE, activeRules, RULES_INVALID_MESSAGE, RULES_UNREADABLE_MESSAGE } from '../recipes/rules';
-import { registerScreen, type AppContext, type Screen } from '../shell/app';
+import type { AppContext, Screen } from '../shell/app';
 import { reducedMotion } from '../shell/motion';
 import type { PlayerState } from '../state/store';
 import { showBureauForm } from '../ui/bureau-form';
@@ -58,7 +58,7 @@ function cardForRule(rule: Rule, ruleTerms: readonly RuleTerm[], g: IngredientGr
 
 const rulesKey = (s: PlayerState) => JSON.stringify([s.account, s.localRules, s.accountRules, s.rulesUnreadable]);
 
-function rulesScreen(): Screen {
+export function rulesScreen(): Screen {
   let stops: (() => void)[] = [];
   let leaving: AbortController | null = null;
   return {
@@ -315,5 +315,3 @@ function rulesScreen(): Screen {
     },
   };
 }
-
-export function registerRulesScreen(): void { registerScreen('rules', rulesScreen); }

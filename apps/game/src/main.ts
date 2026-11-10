@@ -8,7 +8,7 @@ import { captureInstallPrompt } from './pwa/install';
 import { deleteOfflineCopy, noteWaitingUpdate, registerServiceWorker, skipServiceWorkerOnce, takeServiceWorkerSkip } from './pwa/register';
 import { registerRecipeScreen } from './recipes/recipe-screen';
 import { registerRecipesScreen } from './recipes/recipes-screen';
-import { registerRulesScreen } from './rules/rules-screen';
+import { registerRulesScreen } from './rules';
 import { registerSettingsScreen } from './settings/settings-screen';
 import { mountApp } from './shell/app';
 import { registerPlaceholderScreens } from './shell/screens';
