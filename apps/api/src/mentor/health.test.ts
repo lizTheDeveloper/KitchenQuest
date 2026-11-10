@@ -43,3 +43,22 @@ test('ruleWords covers names, aliases, kinds and rule-term phrases', () => {
   );
   expect(words).toEqual(expect.arrayContaining(['milk', 'dairy', 'lactose', 'shellfish', 'prawn']));
 });
+
+// Fix round 2: the re-review's gate readings (rev7b/r2 and r3).
+test.each([
+  'can I eat this one?', 'is this ok for me?', 'milc makes me sick', 'egs give me a rash', 'my kid cant have soi', 'nutz make me ill', 'fsh makes me throw up',
+  'kiwi makes my mouth itch', 'oats make me bloated', 'shrimp gives me a rash', 'mlik upsets my stomach', 'peaunts make me ill', 'pnuts make me ill',
+  'sesmae is bad for me', 'gluten makes me sick', 'my tummy hurts after cheese', 'I threw up after the prawns', 'I get a rash from tomatos',
+  'egs make me throw up', 'my stomach hurts after dinner', 'I feel sick after eating bread', 'I get itchy after kiwi',
+])('%j is a health turn (fix round 2)', (text) => expect(isHealthText(text, catalog)).toBe(true));
+
+test.each(['what should I cook tonight?', 'we finished it', 'change my market day to saturday', 'i moved house', 'I have no money, what can I cook', 'my mouse broke'])(
+  '%j is not (fix round 2)',
+  (text) => expect(isHealthText(text, catalog)).toBe(false),
+);
+
+test('ruleWords include what a target is a kind of (R7)', () => {
+  expect(ruleWords([{ id: 'p', target: { kind: 'ingredient', ids: ['peanut'] }, type: 'avoid', severity: 'allergy' }], catalog)).toEqual(
+    expect.arrayContaining(['peanut', 'groundnut', 'nut']),
+  );
+});

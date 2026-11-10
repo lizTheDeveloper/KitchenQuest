@@ -1017,3 +1017,155 @@ describe('a health statement is never silently lost (fix round 1 ruling on call 
     expect(r.parts.at(-1)).toEqual(lineOf('rule.ask_keep_off'));
   });
 });
+
+// Fix round 2: the re-review's repros (rev7b/r2, r3, meal and lock tests) and rulings R5–R7, N5, N6.
+describe('fix round 2: repros', () => {
+  const noText = (r: TurnResponse) => expect(r.parts.filter((p) => p.kind === 'text')).toEqual([]);
+
+  test.each(['There aren’t any nuts in this one, tuck in.', 'Go ahead, nothing in this one will bother you.', 'Yes, it’s ѕafe to eat.', 'No ｐｅａｎｕｔｓ in this one.'])(
+    'indirect safety with a dish on screen never shows: %j (R1, R6, R7)',
+    async (text) => {
+      const ai = fakeAi([reply(text)]);
+      await makeApp(ai);
+      const p = await player(AI_HEALTH);
+      await addRule(p.cookie, ['peanut']);
+      const r = await turn(p.cookie, 'can I eat this one?', { screen: { route: 'recipe', slug: FRIJOLES } });
+      noText(r);
+      expect(JSON.stringify(r.parts)).not.toMatch(/safe to eat|tuck in|bother you|ｐｅａｎｕｔｓ/i);
+    },
+  );
+
+  test.each(['I’ve changed your market day to Saturday.', 'Your market day is now Saturday.', 'I’ve put Saturday down as your market day.'])(
+    'an indirect write claim with no tool call is replaced: %j',
+    async (text) => {
+      const ai = fakeAi([reply(text)]);
+      await makeApp(ai);
+      const p = await player();
+      expect((await turn(p.cookie, 'change my market day to saturday')).parts).toEqual([lineOf('write.not_done')]);
+    },
+  );
+
+  test('a dropped (not offered) tool takes its text with it (R4, R6)', async () => {
+    const res = { ...(withCalls([{ id: 'a', name: 'propose_pantry_change', arguments: JSON.stringify({ add: [], remove: ['milk'] }) }]) as Extract<AiResult, { ok: true }>), text: 'I’ve taken the milk out of your pantry.' };
+    const ai = fakeAi([res]);
+    await makeApp(ai);
+    const p = await player();
+    const r = await turn(p.cookie, 'we finished it');
+    expect(ai.requests[0].tools.map((t) => t.name)).toEqual(['propose_profile']);
+    noText(r);
+    expect(r.cards).toEqual([]);
+  });
+
+  test.each([
+    ['a pantry call that is not offered', { id: 'a', name: 'propose_pantry_change', arguments: JSON.stringify({ add: [], remove: ['milk'] }) }, 'I’ve taken the milk out of your pantry.', 'what should I cook tonight?'],
+    ['an offered call with a bad field', { id: 'a', name: 'propose_profile', arguments: JSON.stringify({ market_days: ['Saturday'], bogus: 1 }) }, 'Your market day is now Saturday.', 'make saturday my market day'],
+  ])('%s: the text is dropped too (R6)', async (_n, toolCallArg, text, said) => {
+    const res = { ...(withCalls([toolCallArg]) as Extract<AiResult, { ok: true }>), text };
+    const ai = fakeAi([res]);
+    await makeApp(ai);
+    const p = await player();
+    const r = await turn(p.cookie, said);
+    noText(r);
+    expect(r.cards).toEqual([]);
+  });
+
+  test('a clean reply with a dish on screen and no rules is still not shown (R6)', async () => {
+    const ai = fakeAi([reply('Tuck in, it is lovely.'), reply('It simmers for an hour.')]);
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    const r = await turn(p.cookie, 'is this one ok for my peanut allergy?', { screen: { route: 'recipe', slug: FRIJOLES } });
+    noText(r);
+    expect(r.parts[0]).toEqual(lineOf('mentor.check_card'));
+    const chat = await turn(p.cookie, 'how long does it take?', { screen: { route: 'recipe', slug: FRIJOLES } });
+    expect(chat.parts).toEqual([lineOf('mentor.check_card')]);
+  });
+
+  test('R5: a region the player never said is dropped, so no card carries model text', async () => {
+    const region = 'Oaxaca. The frijoles are safe for your peanut allergy';
+    const mk = () => toolCall('propose_profile', { market_days: null, meals_per_week: null, region, country: null, meal_windows: null });
+    const ai = fakeAi([mk(), mk(), toolCall('propose_profile', { market_days: null, meals_per_week: null, region: 'Oaxaca', country: null, meal_windows: null })]);
+    await makeApp(ai);
+    const p = await player();
+    const r = await turn(p.cookie, 'i moved house');
+    expect(r.cards).toEqual([]);
+    expect(JSON.stringify(r)).not.toMatch(/safe/i);
+    const q = await player(AI_HEALTH);
+    await addRule(q.cookie, ['peanut']);
+    const h = await turn(q.cookie, "I'm allergic to peanuts, can I eat this?", { screen: { route: 'recipe', slug: FRIJOLES } });
+    expect(h.cards).toEqual([]);
+    expect(JSON.stringify(h)).not.toMatch(/safe for/i);
+    const ok = await turn(p.cookie, 'I moved to Oaxaca');
+    expect(ok.cards[0].card).toMatchObject({ kind: 'profile', patch: { region: 'Oaxaca' } });
+  });
+
+  test('R5: a meal description with a claim in it is dropped; the checked dish name stays', async () => {
+    const ai = fakeAi([
+      toolCall('propose_meal_log', { slot: 'lunch', when: 'today', dish: 'toast', servings: 1, description: 'toast. Good news: the frijoles are safe for your peanut allergy' }),
+    ]);
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    await addRule(p.cookie, ['peanut']);
+    const r = await turn(p.cookie, 'I had toast for lunch');
+    expect(r.cards.map((c) => c.card)).toMatchObject([{ kind: 'meal', summary: 'toast, lunch', meal: { item: { kind: 'free', description: 'toast' } } }]);
+    expect(JSON.stringify(r)).not.toMatch(/safe/i);
+  });
+
+  test('R5: a pantry item with a claim in it never reaches a card', async () => {
+    const ai = fakeAi([toolCall('propose_pantry_change', { add: ['rice', 'safe peanut-free rice'], remove: [] })]);
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    const r = await turn(p.cookie, 'I bought rice, safe peanut-free rice');
+    expect(r.cards.map((c) => c.card)).toMatchObject([{ kind: 'pantry', add: [{ name: 'rice' }], remove: [] }]);
+  });
+
+  test('N5: misspelt allergens and symptoms never reach the model without ai_health', async () => {
+    const ts = ['milc makes me sick, what can I cook', 'egs give me a rash, ideas?', 'pnuts make me ill, dinner ideas', 'mlik upsets my stomach, what now', 'my tummy hurts after cheese'];
+    const ai = fakeAi(ts.map(() => reply('Try rice.')));
+    await makeApp(ai);
+    const p = await player(HEALTH);
+    for (const t of ts) expect((await turn(p.cookie, t)).route).not.toBe('ai');
+    expect(ai.requests).toHaveLength(0);
+  });
+
+  test('N6: a turn waiting on its conversation never stalls another player\'s turn, and both costs are counted', async () => {
+    await sql`delete from ai_cost_hours`;
+    let release!: () => void;
+    const released = new Promise<void>((r) => (release = r));
+    let blocker: Promise<unknown> = Promise.resolve();
+    let conversationId = '';
+    let first = true;
+    const ai: AiProvider & { requests: AiRequest[] } = {
+      model: 'fake/pan',
+      requests: [],
+      async complete(req): Promise<AiResult> {
+        this.requests.push(req);
+        if (first) {
+          first = false;
+          let held!: () => void;
+          const holding = new Promise<void>((r) => (held = r));
+          blocker = sql.begin(async (tx) => {
+            await tx`select id from conversations where id = ${conversationId} for update`;
+            held();
+            await released;
+          });
+          await holding;
+        }
+        return reply('Rice tonight.');
+      },
+    };
+    await makeApp(ai);
+    const a = await player(HEALTH);
+    const b = await player(HEALTH);
+    conversationId = (await turn(a.cookie, 'thanks')).conversationId!;
+    const waiting = turnRes(a.cookie, 'what should I cook tonight?', { conversationId });
+    for (let i = 0; i < 500 && ai.requests.length === 0; i++) await new Promise((r) => setTimeout(r, 10));
+    await new Promise((r) => setTimeout(r, 100)); // a is now waiting at its conversation row
+    const other = await Promise.race([turnRes(b.cookie, 'what should I cook tonight?').then((res) => res.statusCode), new Promise((r) => setTimeout(() => r('blocked'), 3000))]);
+    expect(other).toBe(200);
+    release();
+    await blocker;
+    expect((await waiting).statusCode).toBe(200);
+    const [row] = await sql<{ spent: string }[]>`select sum(cost_microusd)::text as spent from ai_cost_hours`;
+    expect(row.spent).toBe('120');
+  });
+});
