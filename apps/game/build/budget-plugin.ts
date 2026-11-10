@@ -41,7 +41,7 @@ export function kqEntryBudget(entry = 'index'): Plugin {
     name: 'kq-entry-budget',
     apply: 'build',
     generateBundle(_opts, bundle) {
-      const problems = checkEntryBudget(bundle as unknown as BundleLike, entry);
+      const problems = checkEntryBudget(bundle, entry);
       if (problems.length > 0) this.error(`Entry chunk budget: ${problems.join('; ')}`);
     },
   };

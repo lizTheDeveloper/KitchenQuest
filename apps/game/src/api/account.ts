@@ -56,23 +56,21 @@ export async function refreshAccount(client: ApiClient, store: PlayerStore): Pro
     return 'offline';
   }
   // Another account's cached rules are never used for this one. Checked again on what is stored right now.
-  let dropped = false;
-  store.update((s) => {
-    if (movedOn(s, startedAs)) { dropped = true; return s; }
-    return { ...s, account: { email }, accountRules: s.account?.email === email ? s.accountRules : null };
-  });
-  if (dropped) return outcome(store);
+  const landIf = (as: string | null, fn: (s: PlayerState) => PlayerState): boolean => {
+    let landed = false;
+    store.update((s) => (movedOn(s, as) ? s : (landed = true, fn(s))));
+    return landed;
+  };
+  if (!landIf(startedAs, (s) => ({ ...s, account: { email }, accountRules: s.account?.email === email ? s.accountRules : null }))) {
+    return outcome(store);
+  }
 
   const list = await client.listRules();
   if (stale() || movedOn(store.get(), email)) return outcome(store);
   if (list.ok) {
     const rules = (list.data as { rules?: unknown } | null)?.rules;
     // A reply we can't read as rules leaves none loaded: checks fail closed.
-    store.update((s) => {
-      if (movedOn(s, email)) { dropped = true; return s; }
-      return { ...s, accountRules: isRuleList(rules) ? rules : null };
-    });
-    if (dropped) return outcome(store);
+    if (!landIf(email, (s) => ({ ...s, accountRules: isRuleList(rules) ? rules : null }))) return outcome(store);
   } else if (list.status === 401) {
     clearAccount(store);
     return 'signed-out';
