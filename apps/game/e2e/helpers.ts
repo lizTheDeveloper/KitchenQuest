@@ -46,8 +46,9 @@ async function openAt(url: string, opts: OpenOptions): Promise<OpenedApp> {
     ...(opts.userAgent ? { userAgent: opts.userAgent } : {}),
   });
   if (opts.initScript) await context.addInitScript(opts.initScript);
-  // No real API in game tests: anything not mocked by the test is "signed out".
-  await context.route('**/api/**', (r) => r.fulfill(SIGNED_OUT));
+  // No real API in game tests: anything not mocked by the test is "signed out". Match the path's start, not
+  // '**/api/**', which also catches source modules like /src/api/client.ts on the dev (fixture) server.
+  await context.route((u) => u.pathname.startsWith('/api/'), (r) => r.fulfill(SIGNED_OUT));
   if (opts.seed) {
     // Seed only when nothing is stored yet, so a reload keeps what the app saved.
     await context.addInitScript(
