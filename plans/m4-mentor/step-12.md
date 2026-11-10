@@ -83,3 +83,5 @@ export function judge(c: EvalCase, r: TurnResponse, writes: number): { pass: boo
 **Carry from Step 11:** reword rule.voided lines that say "say 'undo'" for rules-screen removals; move the new screens' code-owned copy into content.
 
 **Carry from Step 10 re-review:** panel.destroy() sets a destroyed flag so a late reply never renders into a detached panel (or marks aiHealthOffered for an unseen card).
+
+**Carry from Step 11 fix round:** main chunk is ~395 KB of 400 — do a real code split (first-paint total, not just the entry chunk) and make the budget check measure what first paint loads; a long text-only conversation list must stay axe-clean (scrollable region focusable); raising an account rule from the rules screen should get a trail entry + undo.
