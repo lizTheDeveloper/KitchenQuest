@@ -19,7 +19,7 @@ import { lockLiveUser } from '../auth/live-user.js';
 import type { Catalog } from '../catalog.js';
 import { lockConsentIn, type Tx } from '../consent/ledger.js';
 import type { Keyring } from '../crypto/keyring.js';
-import { mentorProposals } from '../db/schema.js';
+import { mealLogs, mentorProposals, rules } from '../db/schema.js';
 import { ApiError } from '../errors.js';
 import { createMealLogIn, deleteMealLogIn } from '../meals/service.js';
 import { changePantryIn, lockUserPantry, restorePantryIn } from '../pantry/service.js';
@@ -202,6 +202,12 @@ export async function undoWriteIn(
   const peeked = await peekProposal(tx, deps.keyring, userId, proposalId);
   if (peeked === null) return nothing;
   await lockForKind(tx, userId, peeked.kind, false, at);
+  // Fix round 1 (C1): the written row is locked before the proposal row, in table order
+  // (rules → meal_logs → … → mentor_proposals), as a withdraw-with-delete deletes them. Locking
+  // the proposal first and then deleting the rule deadlocked against it (40P01). A withdraw that
+  // committed first leaves no row here and no proposal below: nothing to undo. A status or window
+  // check that fails below throws and rolls back, which releases this lock.
+  if (peeked.writeRef !== null) await lockWrittenRow(tx, userId, peeked.kind, peeked.writeRef);
   const p = await lockProposal(tx, deps.keyring, userId, proposalId, at);
   if (p === null) return nothing;
   if (p.status !== 'confirmed') throw closed();
@@ -249,6 +255,17 @@ export async function undoWriteIn(
     parts: [{ kind: 'line', line: undoneLine(p.card) }],
     undone: true,
   };
+}
+
+/** Locks (FOR UPDATE) the rule or meal log a confirmed card wrote, if it is still there. Other kinds have no such row. */
+async function lockWrittenRow(tx: Tx, userId: string, kind: ProposalKind, writeRef: string): Promise<void> {
+  const table = kind === 'rule' ? rules : kind === 'meal' ? mealLogs : null;
+  if (table === null) return;
+  await tx
+    .select({ id: table.id })
+    .from(table)
+    .where(and(eq(table.id, writeRef), eq(table.userId, userId)))
+    .for('update');
 }
 
 /** The caller's newest confirmed proposal still within UNDO_WINDOW_MS at `at`, or null. No lock. */

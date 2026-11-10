@@ -119,8 +119,9 @@ export async function mentorRoutes(app: FastifyInstance, catalog: Catalog, state
   app.post<{ Params: { id: string } }>('/mentor/writes/:id/undo', { preHandler: requireUser }, async (req) => {
     EmptyBody.parse(req.body ?? {});
     const at = now();
-    const { parts } = await db.transaction((tx: Tx) => undoWriteIn(tx, deps, req.user.id, req.params.id, at, req.id));
-    return { parts };
+    // `undone` is false when nothing was reversed (vanished card, full pantry): the client keeps or drops its trail entry by it.
+    const { parts, undone } = await db.transaction((tx: Tx) => undoWriteIn(tx, deps, req.user.id, req.params.id, at, req.id));
+    return { parts, undone };
   });
 
   const forget = async (userId: string, requestId: string, conversationId?: string): Promise<number> =>

@@ -118,16 +118,26 @@ export async function lockProposal(tx: Tx, keyring: Keyring, userId: string, id:
   return load(tx, keyring, row);
 }
 
-/** The kind of the caller's proposal, without a lock and without opening it, so confirm can pick its locks first. */
-export async function peekProposal(tx: Tx, _keyring: Keyring, userId: string, id: string): Promise<{ kind: ProposalKind } | null> {
+/**
+ * The kind and write ref of the caller's proposal, without a lock and without
+ * opening it, so confirm and undo can take their locks first: the advisory
+ * lock for the kind, and for an undo the written data row (`rules` /
+ * `meal_logs`), which comes before `mentor_proposals` in the global order.
+ */
+export async function peekProposal(
+  tx: Tx,
+  _keyring: Keyring,
+  userId: string,
+  id: string,
+): Promise<{ kind: ProposalKind; writeRef: string | null } | null> {
   if (!UUID.test(id)) return null;
   const row = (
     await tx
-      .select({ kind: mentorProposals.kind })
+      .select({ kind: mentorProposals.kind, writeRef: mentorProposals.writeRef })
       .from(mentorProposals)
       .where(and(eq(mentorProposals.id, id), eq(mentorProposals.userId, userId)))
   ).at(0);
-  return row ? { kind: row.kind as ProposalKind } : null;
+  return row ? { kind: row.kind as ProposalKind, writeRef: row.writeRef } : null;
 }
 
 /** The caller's proposals still open (not expired at `now`) from one turn of one conversation, oldest first. No lock. */

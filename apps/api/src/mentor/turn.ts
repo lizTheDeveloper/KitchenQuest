@@ -30,6 +30,7 @@ import {
   type TurnResponse,
 } from '@kitchenquest/core';
 import { and, eq } from 'drizzle-orm';
+import { ZodError } from 'zod';
 import type { AiProvider, AiResult, AiTool } from '../ai/provider.js';
 import { lockLiveUser } from '../auth/live-user.js';
 import type { Catalog } from '../catalog.js';
@@ -378,6 +379,8 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
 
 /** A service's refusal as reply parts (Step 8): 403 asks for consent; anything else (400, 404, 409) is not understood. 401 is thrown. */
 function refusalParts(e: unknown): ReplyPart[] {
+  // A service's zod parse (e.g. applyProfilePatchIn) is a 400 too.
+  if (e instanceof ZodError) return [line('didnt_understand')];
   if (!(e instanceof ApiError) || e.status === 401 || e.status >= 500) throw e;
   if (e.status === 403) return [line('consent.health_first'), { kind: 'consent', purpose: 'health_data' }];
   return [line('didnt_understand')];
@@ -406,9 +409,10 @@ async function shortReply(deps: TurnDeps, userId: string, intent: TurnIntent, op
       if (undone === null) return done([line('undo.nothing')]);
       return done(undone.parts, undone.undone ? [{ kind: 'undone', id: undone.proposalId }] : []);
     } catch (e) {
-      // Decided or past its window since it was picked: nothing left to undo.
+      // Decided or past its window since it was picked: nothing left to undo. Any other
+      // refusal (a 400 from the service) is a part like confirm's, never an HTTP error.
       if (e instanceof ApiError && e.status === 409) return done([line('undo.nothing')]);
-      throw e;
+      return done(refusalParts(e));
     }
   }
   const open = await deps.db.transaction((tx) => openProposalsOfConversation(tx, deps.keyring, userId, id, now));

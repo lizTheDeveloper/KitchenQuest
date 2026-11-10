@@ -566,6 +566,21 @@ describe('typed undo', () => {
     expect((await u.turn('undo')).parts).toEqual([lineOf('undo.nothing')]);
   });
 
+  test('a typed undo the service refuses with a 400 says didnt_understand, never a 500 (fix round 1, M1)', async () => {
+    const ai = hostile([profile({ market_days: ['saturday'] })]);
+    await makeApp(ai);
+    const u = await player();
+    // A stored value the profile schema no longer accepts: the undo would write it back, and is refused.
+    expect((await call(u.cookie, { method: 'GET', url: '/profile' })).statusCode).toBe(200);
+    await sql`update profiles set market_days = '{9}' where user_id = ${u.userId}`;
+    const r1 = await u.turn(T03);
+    await u.turn('yes');
+    const r = await u.turn('undo');
+    expect(r.parts).toEqual([lineOf('didnt_understand')]);
+    expect(r.actions).toEqual([]);
+    expect(await proposal(r1.cards[0].proposalId)).toMatchObject({ status: 'confirmed' });
+  });
+
   test('past the window a typed undo has nothing to undo', async () => {
     const ai = hostile([rule('garlic', 'intolerance')]);
     await makeApp(ai);

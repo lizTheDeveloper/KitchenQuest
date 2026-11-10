@@ -456,7 +456,7 @@ describe('proposals', () => {
     expect(await tx((t) => lockProposal(t, keyring, other, id, NOW))).toBeNull();
     expect(await tx((t) => lockProposal(t, keyring, u, 'nope', NOW))).toBeNull();
     expect(await tx((t) => peekProposal(t, keyring, other, id))).toBeNull();
-    expect(await tx((t) => peekProposal(t, keyring, u, id))).toEqual({ kind: 'rule' });
+    expect(await tx((t) => peekProposal(t, keyring, u, id))).toEqual({ kind: 'rule', writeRef: null });
 
     const open = await tx((t) => lockProposal(t, keyring, u, id, at(PROPOSAL_TTL_MS - 1)));
     expect(open).toMatchObject({

@@ -320,7 +320,7 @@ describe('undo', () => {
     clock += UNDO_WINDOW_MS;
     const u = await undo(p.cookie, id);
     expect(u.statusCode).toBe(200);
-    expect(u.json()).toEqual({ parts: [lineOf('rule.voided', { ingredient: 'peanut' })] });
+    expect(u.json()).toEqual({ parts: [lineOf('rule.voided', { ingredient: 'peanut' })], undone: true });
     expect(await count('rules', p.userId)).toBe(0);
     // markDecided keeps channel and write_ref on 'undone' (COALESCE) and clears the undo payload.
     expect(await proposal(id)).toMatchObject({ status: 'undone', channel: 'tap', undo_sealed: null });
@@ -342,13 +342,13 @@ describe('undo', () => {
     const id = await seed(p.userId, PEANUT());
     expect((await undo(p.cookie, id)).json().error.code).toBe('proposal_closed');
     expect((await confirm(p.cookie, id)).statusCode).toBe(200);
-    expect((await undo(q.cookie, id)).json()).toEqual({ parts: [lineOf('undo.nothing')] });
-    expect((await undo(p.cookie, 'nope')).json()).toEqual({ parts: [lineOf('undo.nothing')] });
+    expect((await undo(q.cookie, id)).json()).toEqual({ parts: [lineOf('undo.nothing')], undone: false });
+    expect((await undo(p.cookie, 'nope')).json()).toEqual({ parts: [lineOf('undo.nothing')], undone: false });
     // Forgotten (the proposal row is deleted with the conversations): nothing to undo, the rule stays.
     expect((await call(p.cookie, { method: 'DELETE', url: '/mentor/conversations' })).statusCode).toBe(204);
     const u = await undo(p.cookie, id);
     expect(u.statusCode).toBe(200);
-    expect(u.json()).toEqual({ parts: [lineOf('undo.nothing')] });
+    expect(u.json()).toEqual({ parts: [lineOf('undo.nothing')], undone: false });
     expect(await count('rules', p.userId)).toBe(1);
   });
 
@@ -392,7 +392,7 @@ describe('undo', () => {
     expect((await call(p.cookie, { method: 'PUT', url: '/profile', payload: { mealsPerWeek: 9 } })).statusCode).toBe(
       200,
     );
-    expect((await undo(p.cookie, prof)).json()).toEqual({ parts: [lineOf('undo')] });
+    expect((await undo(p.cookie, prof)).json()).toEqual({ parts: [lineOf('undo')], undone: true });
     expect(await profile()).toMatchObject({ marketDays: [2], mealsPerWeek: 9 });
 
     const [milk] = await addPantry(p.cookie, ['milk']);
@@ -407,7 +407,7 @@ describe('undo', () => {
     ]);
     expect((await pantryOf(p.cookie)).map((i) => i.id)).toContain(laterMilk.id);
     expect((await pantryOf(p.cookie)).map((i) => i.name).sort()).toEqual(['Milk', 'eggs']);
-    expect((await undo(p.cookie, pan)).json()).toEqual({ parts: [lineOf('undo')] });
+    expect((await undo(p.cookie, pan)).json()).toEqual({ parts: [lineOf('undo')], undone: true });
     expect((await pantryOf(p.cookie)).map((i) => i.name).sort()).toEqual(['Milk', 'milk']);
   });
 
@@ -425,7 +425,7 @@ describe('undo', () => {
     );
     const full = await undo(p.cookie, pan);
     expect(full.statusCode).toBe(200);
-    expect(full.json()).toEqual({ parts: [lineOf('pantry.undo_full')] });
+    expect(full.json()).toEqual({ parts: [lineOf('pantry.undo_full')], undone: false });
     expect(await proposal(pan)).toMatchObject({ status: 'confirmed' });
     expect(await count('pantry_items', p.userId)).toBe(MAX_PANTRY_ITEMS);
     const room = await call(p.cookie, {
@@ -434,7 +434,7 @@ describe('undo', () => {
       payload: { add: [], removeNames: ['item 0'], removeIds: [], confirmed: true },
     });
     expect(room.statusCode).toBe(200);
-    expect((await undo(p.cookie, pan)).json()).toEqual({ parts: [lineOf('undo')] });
+    expect((await undo(p.cookie, pan)).json()).toEqual({ parts: [lineOf('undo')], undone: true });
     expect((await pantryOf(p.cookie)).map((i) => i.name)).toContain('milk');
   });
 
@@ -442,7 +442,7 @@ describe('undo', () => {
     const p = await player();
     const id = await seed(p.userId, buildMealCard({ eatenOn: TODAY, slot: 'lunch', description: 'toast' }));
     expect((await confirm(p.cookie, id)).statusCode).toBe(200);
-    expect((await undo(p.cookie, id)).json()).toEqual({ parts: [lineOf('undo')] });
+    expect((await undo(p.cookie, id)).json()).toEqual({ parts: [lineOf('undo')], undone: true });
     expect(await count('meal_logs', p.userId)).toBe(0);
   });
 });
@@ -522,6 +522,26 @@ describe('races on two connections', () => {
       expect(await count('mentor_proposals', p.userId)).toBe(0);
       // The confirmed rule (if any) is the player's to keep; clear it for the next round.
       await sql`delete from rules where user_id = ${p.userId}`;
+    }
+  });
+
+  test('undo and a health_data withdraw-with-delete, at once, never deadlock (20 repetitions, rule and meal)', async () => {
+    const p = await player();
+    for (let i = 0; i < 20; i++) {
+      const id = await seed(p.userId, i % 2 === 0 ? ruleCard('garlic', 'intolerance') : buildMealCard({ eatenOn: TODAY, slot: 'lunch', description: 'toast' }));
+      expect((await confirm(p.cookie, id)).statusCode).toBe(200);
+      const [u, w] = await Promise.all([
+        undo(p.cookie, id),
+        call(p.cookie, { method: 'DELETE', url: '/me/consents/health_data', payload: { healthData: 'delete' } }),
+      ]);
+      expect(w.statusCode, `rep ${i}: ${w.body}`).toBe(204);
+      expect(u.statusCode, `rep ${i}: ${u.body}`).toBe(200);
+      // Undo first (the write reversed) or the withdraw first (nothing left to undo).
+      expect([true, false]).toContain(u.json<{ undone: boolean }>().undone);
+      expect(await count('rules', p.userId)).toBe(0);
+      expect(await count('meal_logs', p.userId)).toBe(0);
+      expect(await count('mentor_proposals', p.userId)).toBe(0);
+      await grantHealth(p.cookie);
     }
   });
 
