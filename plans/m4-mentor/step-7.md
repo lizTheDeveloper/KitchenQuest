@@ -216,3 +216,5 @@ test('promptFingerprint changes when the prompt, tools, model or provider order 
 - "peanuts and lactose intolerant" reads peanuts as an intolerance by the TB grammar ("milk and egg intolerance" must pass). The card names peanuts as an intolerance before the tap/yes, so the player sees it; accepted.
 
 **Carry from Step 5 review:** pantry contents never go into a prompt without `ai_health` consent (pantry basis is contract pending the H-11 lawyer ruling; treat it like health context for the AI).
+
+**Carry from Step 6 (required):** account delete, `health_data` withdraw (both keep and delete) and forget must also clear the in-memory history (`memory.delete('${userId}:')`) once `MemoryHistory` is a dep; test each path leaves nothing in memory. Register the memory stores with `sweepPeriodically`.
