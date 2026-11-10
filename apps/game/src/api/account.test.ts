@@ -233,7 +233,7 @@ describe('watchAccount', () => {
     const store = storeWith();
     const { client, calls } = fakeClient({ me: status(401) });
     const win = new EventTarget();
-    const doc = Object.assign(new EventTarget(), { visibilityState: 'visible' as DocumentVisibilityState });
+    const doc = Object.assign(new EventTarget(), { visibilityState: 'visible' });
     watchAccount(client, store, win as unknown as Window, doc as unknown as Document);
     await Promise.resolve();
     expect(calls).toEqual(['me']);
