@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from 'vitest';
 import type { Rule } from '@kitchenquest/core/engine';
 import { createApiClient, healthConsent, type ApiClient } from './client';
-import type { Consents } from './types';
+import type { Consents, TurnRequest } from './types';
 
 interface Call { url: string; init: RequestInit & { body?: string } }
 let calls: Call[];
@@ -23,6 +23,56 @@ beforeEach(() => {
   calls = [];
   script = [];
   client = createApiClient({ fetch: fakeFetch });
+});
+
+describe('M4 mentor, meal and pantry requests', () => {
+  const body = (i: number): unknown => JSON.parse(calls[i].init.body!);
+
+  test('confirmProposal sends { channel: "tap" } and nothing else', async () => {
+    script.push(json(200, { trail: {}, parts: [] }), json(200, { trail: {}, parts: [] }));
+    await client.confirmProposal('p 1');
+    expect(calls[0]).toMatchObject({ url: '/api/mentor/proposals/p%201/confirm', init: { method: 'POST' } });
+    expect(body(0)).toEqual({ channel: 'tap' });
+    await client.confirmProposal('p2', { severity: 'allergy' });
+    expect(body(1)).toEqual({ channel: 'tap', edits: { severity: 'allergy' } });
+  });
+
+  test('mentorTurn posts the TurnRequest as JSON', async () => {
+    const req: TurnRequest = {
+      conversationId: null, input: { kind: 'text', text: "I'm allergic to sesame" }, localDate: '2026-11-10', localTime: '12:30', screen: { route: 'kitchen' }, intakeStep: null,
+    };
+    script.push(json(200, { conversationId: 'c1', route: 'scripted', parts: [], cards: [], actions: [], notice: 'ai_off', toolTurn: false }));
+    const r = await client.mentorTurn(req);
+    expect(calls[0]).toMatchObject({ url: '/api/mentor/turn', init: { method: 'POST', credentials: 'same-origin' } });
+    expect(headers(calls[0]).get('content-type')).toBe('application/json');
+    expect(body(0)).toEqual(req);
+    // The text never rides in the URL (P-5).
+    expect(calls[0].url).not.toContain('sesame');
+    expect(r.ok && r.data.notice).toBe('ai_off');
+  });
+
+  test('reject, undo, forget, withdraw, meals and pantry hit the Step 5–8 routes', async () => {
+    for (let i = 0; i < 9; i++) script.push(json(200, {}));
+    await client.rejectProposal('p1');
+    await client.undoWrite('w1');
+    await client.forgetConversations();
+    await client.withdrawConsent('health_data', 'keep');
+    await client.withdrawConsent('ai_health');
+    const meal = { eatenOn: '2026-11-10', slot: 'breakfast' as const, item: { kind: 'free' as const, description: 'toast' } };
+    await client.createMeal(meal, true);
+    await client.deleteMeal('m1');
+    await client.getPantry();
+    await client.changePantry({ add: [{ name: 'rice', ingredientId: 'rice' }], removeNames: ['milk'], removeIds: [] }, true);
+    expect(calls.map((c) => `${c.init.method} ${c.url}`)).toEqual([
+      'POST /api/mentor/proposals/p1/reject', 'POST /api/mentor/writes/w1/undo', 'DELETE /api/mentor/conversations',
+      'DELETE /api/me/consents/health_data', 'DELETE /api/me/consents/ai_health', 'POST /api/meals', 'DELETE /api/meals/m1',
+      'GET /api/pantry', 'POST /api/pantry/changes',
+    ]);
+    expect(calls.map((c) => c.init.body ?? null)).toEqual([
+      '{}', '{}', '{}', '{"healthData":"keep"}', '{}', JSON.stringify({ meal, confirmed: true }), '{}', null,
+      JSON.stringify({ add: [{ name: 'rice', ingredientId: 'rice' }], removeNames: ['milk'], removeIds: [], confirmed: true }),
+    ]);
+  });
 });
 
 describe('requests', () => {

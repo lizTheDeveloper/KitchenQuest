@@ -364,3 +364,77 @@ describe('stopSaving', () => {
     expect(JSON.parse(st.getItem(STORE_KEY)!)).toEqual({ v: 1, signOutPending: true });
   });
 });
+
+describe('M4 Step 9: new keys and confirmRules', () => {
+  const rule = (id: string, ids = ['kiwi']) => ({ id, target: { kind: 'ingredient' as const, ids }, type: 'avoid' as const, severity: 'allergy' as const });
+
+  it('confirmRules clears rulesUnreadable in one update even with conflicting versions in memory', () => {
+    const storage = memStorage();
+    const a = createStore(storage), b = createStore(storage);
+    a.update((x) => ({ ...x, localRules: [rule('r1', ['kiwi'])] }));
+    b.update((x) => x); // b holds r1 = kiwi
+    b.update((x) => ({ ...x, localRules: [rule('r1', ['kiwi', 'banana'])] })); // b rewrites r1
+    // a still holds the old r1: its next update rebases into a conflict.
+    expect(a.update((x) => x).rulesUnreadable).toBe(true);
+    const ruleX = rule('rx', ['peanut']);
+    const s = a.confirmRules([ruleX]);
+    expect(s.rulesUnreadable).toBe(false);
+    expect(s.localRules).toEqual([ruleX]);
+    expect(JSON.parse(storage.getItem(STORE_KEY)!).rulesUnreadable).toBe(false);
+    expect(JSON.parse(storage.getItem(STORE_KEY)!).localRules).toEqual([ruleX]);
+    // The other tab, stale, cannot bring a conflict back by merging its in-memory r1.
+    const later = b.update((x) => x);
+    expect(later.localRules.map((r) => r.id).sort()).toEqual(['r1', 'rx']);
+    expect(later.rulesUnreadable).toBe(false);
+  });
+
+  it('confirmRules still merges the toolkit and keeps other keys from storage', () => {
+    const storage = memStorage();
+    const a = createStore(storage), b = createStore(storage);
+    b.update((x) => ({ ...x, settings: { ...x.settings, showCalories: true } }));
+    const s = a.confirmRules([]);
+    expect(s.settings.showCalories).toBe(true);
+    expect(s.localRules).toEqual([]);
+  });
+
+  it('new keys default when absent', () => {
+    const s = createStore(memStorage({ [STORE_KEY]: JSON.stringify({ v: 1 }) })).get();
+    expect(s.localProfile).toBeNull();
+    expect(s.localPantry).toEqual([]);
+    expect(s.intake).toEqual({ step: null });
+    expect(s.aiDisclosureSeen).toBe(false);
+    expect(s.aiHealthOffered).toBe(false);
+    expect(s.settings.aiMentor).toBe(true);
+  });
+
+  it('new keys round-trip', () => {
+    const st = memStorage();
+    const profile = { marketDays: [6], mealsPerWeek: 5, country: null, region: 'Kerala', mealWindows: [{ name: 'lunch' as const, start: '12:30', end: '13:30' }] };
+    createStore(st).update((x) => ({
+      ...x, localProfile: profile, localPantry: [{ id: 'p1', name: 'rice', ingredientId: 'rice' }], intake: { step: 'allergies' },
+      aiDisclosureSeen: true, aiHealthOffered: true, settings: { ...x.settings, aiMentor: false },
+    }));
+    const s = createStore(st).get();
+    expect(s.localProfile).toEqual(profile);
+    expect(s.localPantry).toEqual([{ id: 'p1', name: 'rice', ingredientId: 'rice' }]);
+    expect(s.intake).toEqual({ step: 'allergies' });
+    expect([s.aiDisclosureSeen, s.aiHealthOffered, s.settings.aiMentor]).toEqual([true, true, false]);
+  });
+
+  it.each([
+    [{ localPantry: 'x' }],
+    [{ localPantry: [{ id: 'p1', name: 3, ingredientId: null }] }],
+    [{ localProfile: { marketDays: 'sat' } }],
+    [{ localProfile: { marketDays: [6], mealsPerWeek: null, country: null, region: null, mealWindows: [{ name: 'brunch', start: '10:00', end: '11:00' }] } }],
+    [{ intake: { step: 'nope' } }],
+    [{ intake: 'done' }],
+    [{ aiDisclosureSeen: 'yes' }],
+    [{ aiHealthOffered: 1 }],
+    [{ settings: { aiMentor: 'on' } }],
+  ])('%j marks the data corrupt', (bad) => {
+    const st = memStorage({ [STORE_KEY]: JSON.stringify({ v: 1, ...bad }) });
+    const s = createStore(st);
+    expect(s.notice).toBe('corrupt');
+    expect(s.get().rulesUnreadable).toBe(true);
+  });
+});
