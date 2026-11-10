@@ -66,3 +66,5 @@ test('undo by id never removes a same-name item that was already there', ...);  
 - [ ] **5.3 Implement.** Generate the migration with `drizzle-kit generate`. `apps/api/src/errors.ts` has no list of codes yet: add a doc comment on `ApiError` that lists every code the API returns (M2's codes, `too_many_rules`, and now `too_many_items` (400)). Steps 8 and 12 extend it.
 - [ ] **5.4 Run** `npm test -w @kitchenquest/api` → PASS.
 - [ ] **5.5 Commit** `feat(api): sealed meal logs and pantry, consented, confirmed, exported and deleted`
+
+**Carry from Step 3:** take any new advisory lock (pantry) through a new entry in `apps/api/src/db/advisory-locks.ts` (two-key form), never a hashed prefixed string.
