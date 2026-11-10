@@ -165,7 +165,15 @@ export const PANTRY_REMOVAL_MORE = /(?:\s*,\s*(?:and\s+)?|\s+and\s+|\s*&\s*)(the
 /** A continuation that is a new clause, not another item ("…and I bought eggs"). */
 const NOT_AN_ITEM = /^(i|i'm|we|you|he|she|they|it|then|also|so|but|now|got|bought|have|had|just|oh|no|finished|used|ran|run|out|chucked|threw|binned)\b/;
 
-const PRONOUN_ITEM = /^(it|them|that|this|those|these|one|some|all|everything|the lot)$/;
+const PRONOUN_ITEM = /^(it|them|that|this|those|these|one|some|all|everything|the lot|lot|both|stuff|the rest|rest)$/;
+/** "finished them off", "used it all up", "no more of that", "the last of the milk": the words around an item. */
+const itemOf = (raw: string): string =>
+  raw
+    .trim()
+    .replace(/ left$/, '')
+    .replace(/( all)? (off|up)$/, '')
+    .replace(/^((the )?last of |of )(the |my |our |some |any )?/, '')
+    .trim();
 
 /** Items the player has used up, lower-cased, in the order they were said. */
 export function parsePantryRemovals(text: string): string[] {
@@ -173,7 +181,7 @@ export function parsePantryRemovals(text: string): string[] {
   const found: { index: number; item: string }[] = [];
   for (const pattern of PANTRY_REMOVAL_PATTERNS) {
     for (const m of t.matchAll(pattern)) {
-      const item = m[m.length - 1].trim().replace(/ left$/, '');
+      const item = itemOf(m[m.length - 1]);
       if (item !== '') found.push({ index: m.index, item });
       // "a, b and c" is a list; "coffee, sadly" is not: comma items count only before an "and".
       let end = m.index + m[0].length;
@@ -183,7 +191,7 @@ export function parsePantryRemovals(text: string): string[] {
         return PANTRY_REMOVAL_MORE.exec(t);
       };
       for (let next = moreAt(end); next; next = moreAt(end)) {
-        const nextItem = next[2].trim().replace(/ left$/, '');
+        const nextItem = itemOf(next[2]);
         if (NOT_AN_ITEM.test(nextItem)) break;
         more.push({ index: end, item: nextItem, and: /\band\b|&/.test(next[0].slice(0, next[0].length - next[2].length)) });
         end += next[0].length;
@@ -194,7 +202,7 @@ export function parsePantryRemovals(text: string): string[] {
   }
   found.sort((a, b) => a.index - b.index);
   // "we finished it": a pronoun names no item (fix round 2).
-  return [...new Set(found.map((f) => f.item))].filter((item) => !PRONOUN_ITEM.test(item));
+  return [...new Set(found.map((f) => f.item))].filter((item) => item !== '' && !PRONOUN_ITEM.test(item));
 }
 
 export const PANTRY_ADD_PATTERN =

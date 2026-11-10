@@ -179,3 +179,14 @@ test('graph ancestors are the reverse of descendants', () => {
   expect(graph.ancestors('peanut')).toEqual(['nut']);
   expect(graph.ancestors('nut')).toEqual([]);
 });
+
+// Step 7 fix round 3 (D): slips and over-catch (rev7c/gate.test.ts, over.test.ts).
+test.each(["I'm allergic to nots", 'nots, dinner ideas?', 'no nots please', 'my kid is allergic to egs', 'egs, what can I cook', 'mild makes me ill'])(
+  'mentionsHealthTerm catches %j (D)',
+  (text) => expect(mentionsHealthTerm(text, graph, terms)).toBe(true),
+);
+test.each([
+  'what is a better idea for tea', 'I need a basic dinner', 'something with paper thin slices', 'help me break this down', 'what means the most', 'I am alive and hungry',
+  'I want to dream up a menu', 'which cooking pot', 'got any ideas for the union day party', 'too much paste', 'what about the beacon', 'I like letters',
+  'what shall I make tonight', 'quick weeknight meal ideas', 'something cheap and cheerful', 'I have a slow cooker', 'what about salty', 'what about shall',
+])('mentionsHealthTerm leaves %j alone (D)', (text) => expect(mentionsHealthTerm(text, graph, terms)).toBe(false));

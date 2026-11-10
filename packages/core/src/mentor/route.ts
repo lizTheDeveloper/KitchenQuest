@@ -146,7 +146,7 @@ const COMMON_WORDS: ReadonlySet<string> = new Set([
   'nit', 'nun', 'nub', 'dish', 'wish', 'fist', 'mild', 'mile', 'mill', 'mink', 'silk', 'bilk', 'out', 'eat', 'cat', 'bat', 'fat', 'hat',
   'mat', 'pat', 'rat', 'sat', 'vat', 'oak', 'oar', 'oaf', 'opt', 'oft', 'buts', 'cuts', 'guts', 'huts', 'puts', 'nets', 'nits', 'eats',
   'cats', 'bats', 'hats', 'mats', 'pats', 'rats', 'oaks', 'oars', 'outs', 'boys', 'toys', 'says', 'sons', 'dishes', 'wishes', 'fists',
-  'miles', 'mills', 'nuns', 'what', 'whats', 'meant', 'money', 'later', 'wheel', 'honest',
+  'miles', 'mills', 'nuns', 'what', 'whats', 'meant', 'money', 'later', 'wheel', 'honest', 'shall', 'union', 'unions', 'salty',
 ]);
 /** The shortest word checked against the longer labels; shorter ones over-match too much. */
 const FUZZY_MIN = 4;
@@ -191,8 +191,8 @@ function oneSubstitution(a: string, b: string): boolean {
  * unless it is a common word. Over-catches on purpose (fix round 2, N5).
  */
 function nearMiss(word: string, labels: readonly string[]): boolean {
-  if (COMMON_WORDS.has(word)) return false;
-  const forms = pluralForms(word).filter((w) => !COMMON_WORDS.has(w));
+  // Only the whole word is checked against COMMON_WORDS: "nots" is a slip of "nuts" though "not" is common.
+  const forms = pluralForms(word);
   if (forms.some((w) => w.length >= 3 && SHORT_ALLERGENS.some((l) => oneSubstitution(w, l)))) return true;
   if (word.length < FUZZY_MIN) return false;
   return forms.some(
@@ -237,6 +237,7 @@ export function mentionsHealthTerm(text: string, graph: IngredientGraph, terms: 
   };
   const fuzzyNames = fuzzyLabels(graph, phrases);
   for (const word of new Set(joined)) {
+    if (COMMON_WORDS.has(word)) continue; // "salty", "union", "shall": never a slip or a compound
     if (nearMiss(word, fuzzyNames)) return true;
     for (let k = COMPOUND_MIN; k <= word.length - 1; k++) {
       if (isExactName(word.slice(0, k))) return true;

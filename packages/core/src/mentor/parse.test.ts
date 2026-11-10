@@ -401,3 +401,14 @@ test('a pronoun is never a pantry item (Step 7 fix round 2)', () => {
   expect(parsePantryRemovals('ran out of them')).toEqual([]);
   expect(parsePantryRemovals('finished the milk')).toEqual(['milk']);
 });
+
+// Step 7 fix round 3 (E): pronouns and the words around them name no item (rev7c/pron.test.ts).
+test.each(['we finished the lot', 'used it all up', 'ran out of everything', 'finished them off', 'no more of that', 'we ate the rest', 'finished it off', 'ran out of it', 'used up the last of it', 'no more of those', 'finished both', 'ran out of stuff'])(
+  'parsePantryRemovals(%j) is empty (E)',
+  (text) => expect(parsePantryRemovals(text)).toEqual([]),
+);
+test.each([
+  ['finished the milk off', ['milk']],
+  ['used up the last of the rice', ['rice']],
+  ['no more of the oats left', ['oats']],
+])('parsePantryRemovals(%j) is %j (E)', (text, items) => expect(parsePantryRemovals(text)).toEqual(items));

@@ -185,3 +185,17 @@ test('isSuitabilityQuestion reads the suitability questions only', () => {
   for (const t of ['Can I eat this one?', 'is it OK for me', 'will it bother me?']) expect(isSuitabilityQuestion(t)).toBe(true);
   for (const t of ["I'm allergic to peanuts", 'what should I cook tonight?']) expect(isSuitabilityQuestion(t)).toBe(false);
 });
+
+// Step 7 fix round 3 (B1): the re-review's suitability questions (rev7c/gate.test.ts).
+test.each([
+  'is pad thai a good shout tonight?', 'should I order the satay?', 'fancy a korma, good idea for me?', 'is the curry from last night good to go?',
+  'thinking of getting a takeaway pad thai, yay or nay?', 'can I go for the pad thai', 'is it okay if I have the pad thai', 'am I ok with pad thai',
+  'is pad thai alright', 'pad thai good for me?', 'will pad thai be a problem', 'any issue with pad thai for me?', 'would I be fine with a satay',
+  'can i eat pad thai', 'can I eat it', 'can I eat these', 'can I eat that one', 'could I have this', 'may I eat this', 'is this okay', 'is it ok to eat',
+])('%j is a suitability question and a health turn (B1)', (text) => {
+  expect(isSuitabilityQuestion(text)).toBe(true);
+  expect(classifyTurn(text)).toBe('health');
+});
+test.each(['what should I cook tonight?', 'can I have some ideas for dinner', 'what shall I make tonight'])('%j is not a suitability question', (text) =>
+  expect(isSuitabilityQuestion(text)).toBe(false),
+);

@@ -45,10 +45,10 @@ export const THANKS_PATTERN = /^(thanks|thank you|cheers|ta)\b[^?]{0,30}$/;
 /** Deliberately over-catches: it decides what may reach the model without `ai_health` (Step 7). */
 /** A question whether a dish suits the player (fix round 2, R7): a health turn, answered by the dish card. */
 export const SUITABILITY_PATTERN =
-  /\b(can i (eat|have) (this|that|it)\w*|(ok|okay|fine|safe|alright) for me|(will|would|does|did) (it|this|that) (bother|upset|affect) me)\b/;
+  /\b((can|could|may|should|shall) i (eat|try|order|go for)\b|(can|could|may) i (have|get) (this|that|these|those|it|the)\b|is it (ok|okay|alright|fine|safe) (if i|to eat|to have|for)\b|(am|would) i be (ok|okay|fine|alright) with|am i (ok|okay|fine|alright) with|(ok|okay|fine|safe|alright|good|bad) (for|with) me|(will|would|does|did|could|might) [\w' ]{1,25}\b(be a problem|bother|upset|affect)( me)?\b|any (issue|problem)s? with|good (shout|idea|call)|good to go|yay or nay|is (this|that|it|these|those) (ok|okay|alright|fine|safe)\b|is [\w' ]{1,25} (alright|ok|okay)\??$)/;
 
 export const HEALTH_PATTERN =
-  /\b(can i (eat|have) (this|that|it)\w*|(ok|okay|fine|safe|alright) for me|(will|would|does|did) (it|this|that) (bother|upset|affect) me|allerg\w*|intoleran\w*|anaphyla\w*|epi-?pen|coeliac|celiac|vegan|vegetarian|pescatarian|halal|kosher|jain|diet\w*|can'?t (eat|have)|cannot (eat|have)|don'?t eat|avoid\w*|sensitive to|stomach|bloat\w*|rough after|makes me (sick|ill)|ate|eaten|had|breakfast|brekkie|lunch|dinner|supper|snack\w*)\b/;
+  /\b(allerg\w*|intoleran\w*|anaphyla\w*|epi-?pen|coeliac|celiac|vegan|vegetarian|pescatarian|halal|kosher|jain|diet\w*|can'?t (eat|have)|cannot (eat|have)|don'?t eat|avoid\w*|sensitive to|stomach|bloat\w*|rough after|makes me (sick|ill)|ate|eaten|had|breakfast|brekkie|lunch|dinner|supper|snack\w*)\b/;
 
 /**
  * The most a turn's text may hold (plan Global Constraint). Every exported text function in
@@ -137,7 +137,7 @@ export function classifyTurn(text: string): TurnIntent {
   if (UNDO_PATTERN.test(t)) return 'undo';
   if (ALLOWANCE_PATTERN.test(t)) return 'allowance';
   if (THANKS_PATTERN.test(t)) return 'thanks';
-  if (HEALTH_PATTERN.test(t)) return 'health';
+  if (HEALTH_PATTERN.test(t) || SUITABILITY_PATTERN.test(t)) return 'health';
   return 'other';
 }
 
