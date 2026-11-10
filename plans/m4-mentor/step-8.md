@@ -132,3 +132,5 @@ test('C-15: no player or model text in the logs across the whole suite', ...);
 - [ ] **8.3 Implement.**
 - [ ] **8.4 Run** `npm test -w @kitchenquest/api` → PASS.
 - [ ] **8.5 Commit** `feat(api): the write guard — tap or a single typed yes, severe needs a tap, undo window; adversarial suite`
+
+**Carry from Step 5 review:** a pantry removal card resolves names to item ids at proposal time, reads back those exact items, and confirms with `removeIds` (never re-matching names at confirm). Show `too_many_items` on an undo as a clear scripted line. Consider returning new ids from `restorePantryIn`.

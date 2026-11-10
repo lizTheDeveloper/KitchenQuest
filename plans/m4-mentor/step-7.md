@@ -214,3 +214,5 @@ test('promptFingerprint changes when the prompt, tools, model or provider order 
 **Carry from Step 1 (round-5 residuals, controller rulings):**
 - When `severityFromText(own, graph)` reads `allergy` or `anaphylactic` but `parseRuleStatement(own, graph)` yields no item for a term the player named (e.g. "i'm vegetarian, peanuts nearly killed me", "peanuts. and i'm lactose intolerant"), do not just show the cards that did parse: add a scripted ask (`rule.ask_what_else`-style line) so the dropped term is never silently lost, and don't let the C4 gate drop a model `propose_rule` for a term that appears verbatim in the player's words with a severe cue.
 - "peanuts and lactose intolerant" reads peanuts as an intolerance by the TB grammar ("milk and egg intolerance" must pass). The card names peanuts as an intolerance before the tap/yes, so the player sees it; accepted.
+
+**Carry from Step 5 review:** pantry contents never go into a prompt without `ai_health` consent (pantry basis is contract pending the H-11 lawyer ruling; treat it like health context for the AI).
