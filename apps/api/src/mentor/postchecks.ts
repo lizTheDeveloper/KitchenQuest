@@ -194,6 +194,6 @@ export function applyPostChecks(calls: ToolArgs[], playerText: string, graph: In
 
 /**
  * The ask-for-dropped-terms checks live in core, so the client's scripted engine uses the same
- * rule (pre-flight C14); re-exported for the turn and its tests.
+ * rule (pre-flight C14); re-exported for this module's tests.
  */
-export { severeTermsLeftOut, statesSevere } from '@kitchenquest/core';
+export { severeTermsLeftOut } from '@kitchenquest/core';

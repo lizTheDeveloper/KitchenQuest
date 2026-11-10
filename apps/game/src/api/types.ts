@@ -50,7 +50,4 @@ export interface Consents {
 
 
 /** The mentor wire protocol and card shapes, from core, so the game and the API never drift (M4). */
-export type {
-  CardAction, ConfirmRequest, ConfirmResponse, IntakeStep, MealEntry, PantryItem, ProposalCard, ReplyPart, ServerCard, TrailEntry,
-  TurnNotice, TurnRequest, TurnResponse,
-} from '@kitchenquest/core/engine';
+export type { ConfirmRequest, ConfirmResponse, MealEntry, PantryItem, ReplyPart, TurnRequest, TurnResponse } from '@kitchenquest/core/engine';

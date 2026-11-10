@@ -6,7 +6,7 @@ import { content, graph } from '../content';
 import { createStore, type PlayerState } from '../state/store';
 import { createDialogue } from './dialogue';
 import type { LocalCardView, PanItem, ServerCardView } from './reply';
-import { createCardWriter, partsToItems } from './writer';
+import { createCardWriter, partsToItems, type WriteOutcome } from './writer';
 
 const T0 = new Date('2026-11-10T12:00:00Z');
 const ok = <T>(data: T, status = 200): ApiResult<T> => ({ ok: true, status, data });
@@ -49,7 +49,7 @@ const milk = () => ruleCard('milk', 'intolerance');
 describe('card writer', () => {
   test('signed out: stamping writes a valid rule to localRules', async () => {
     const { store, calls, writer } = setup({});
-    const out = await writer.confirm(local(ruleCard('sesame', 'allergy')), 'tap');
+    const out: WriteOutcome = await writer.confirm(local(ruleCard('sesame', 'allergy')), 'tap');
     expect(calls).toEqual([]);
     expect(out.ok).toBe(true);
     const rules = store.get().localRules;
@@ -97,6 +97,8 @@ describe('card writer', () => {
     expect(said(out.items)).toEqual(['rule.tap_needed']);
     // A server card too, and a severity edit that makes a card severe.
     expect((await writer.confirm(server(ruleCard('sesame', 'allergy')), 'typed_yes')).ok).toBe(false);
+    // A typed yes to a server card is never sent as a tap: the server's own turn handles it.
+    expect(await writer.confirm(server(milk(), 'P2'), 'typed_yes')).toMatchObject({ ok: false, reason: 'tap_required' });
     expect((await writer.confirm(local(milk(), 'L2'), 'typed_yes', { severity: 'anaphylactic' }))).toMatchObject({ ok: false, reason: 'tap_required' });
     expect(calls).toEqual([]);
     expect(store.get().localRules).toEqual([]);

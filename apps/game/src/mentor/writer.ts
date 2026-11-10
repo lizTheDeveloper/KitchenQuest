@@ -197,6 +197,8 @@ export function createCardWriter(deps: { client: ApiClient; store: PlayerStore; 
       if (via !== 'tap' && (isSevereCard(card) || (severity !== undefined && SEVERE.has(severity)))) {
         return { ok: false, reason: 'tap_required', items: [tapNeeded(card)] };
       }
+      // A typed yes to a server card is the server's own turn (Step 8 runTurn); this client never sends it as a tap.
+      if (view.origin === 'server' && via !== 'tap') return { ok: false, reason: 'tap_required', items: [] };
       inFlight.add(key);
       try {
         let out: WriteOutcome;
