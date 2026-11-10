@@ -51,7 +51,7 @@ type Row = PantryItem & { id: string };
  * same player. In the global lock order (pre-flight C13) it comes after
  * `lockLiveUser` and `rules:`, before the consent row. Re-entrant within one transaction.
  */
-async function lockUserPantry(tx: Tx, userId: string): Promise<void> {
+export async function lockUserPantry(tx: Tx, userId: string): Promise<void> {
   await tx.execute(sql`select pg_advisory_xact_lock(${ADVISORY_LOCK.pantry}, hashtext(${userId}))`);
 }
 
@@ -62,6 +62,24 @@ function parseChange(change: unknown, catalog: Catalog): PantryChange {
     throw new ApiError(400, 'bad_request', 'The pantry change is not valid', { problems: ['add[].ingredientId must be null or an ingredient id'] });
   }
   return parsed;
+}
+
+/**
+ * Which pantry items a removal names: `removeNames` match case-insensitively
+ * (core's normalizeName), or by ingredient id when the name resolves in the
+ * graph; `removeIds` match exactly. The one matching rule for the service and
+ * for the mentor's pantry card, which resolves names to ids when it is
+ * proposed (Step 8: confirm then removes exactly those ids).
+ */
+export function pantryMatcher(
+  removeNames: readonly string[],
+  removeIds: readonly string[],
+  graph: Catalog['graph'],
+): (item: { id: string; name: string; ingredientId: string | null }) => boolean {
+  const names = new Set(removeNames.map(normalizeName).filter((n) => n !== ''));
+  const resolved = new Set(removeNames.map((n) => graph.resolve(n)).filter((id): id is string => id !== null));
+  const ids = new Set(removeIds.map((id) => id.toLowerCase()));
+  return (i) => ids.has(i.id) || names.has(normalizeName(i.name)) || (i.ingredientId !== null && resolved.has(i.ingredientId));
 }
 
 const byAge = (a: { createdAt: Date; id: string }, b: { createdAt: Date; id: string }) =>
@@ -75,18 +93,13 @@ async function applyChange(
   at: Date,
   action: 'pantry.change' | 'pantry.restore',
   requestId?: string,
-): Promise<{ items: Row[]; removed: Row[] }> {
+): Promise<{ items: Row[]; removed: Row[]; addedIds: string[] }> {
   const change = parseChange(input, deps.catalog);
   await lockLiveUser(tx, userId);
   await lockUserPantry(tx, userId);
   const existing = await loadPantryForExport(tx, deps.keyring, userId);
 
-  // Names match case-insensitively (core's normalizeName), or by ingredient id when the name resolves in the graph.
-  const names = new Set(change.removeNames.map(normalizeName).filter((n) => n !== ''));
-  const resolved = new Set(change.removeNames.map((n) => deps.catalog.graph.resolve(n)).filter((id): id is string => id !== null));
-  const ids = new Set(change.removeIds.map((id) => id.toLowerCase()));
-  const matches = (i: Row) =>
-    ids.has(i.id) || names.has(normalizeName(i.name)) || (i.ingredientId !== null && resolved.has(i.ingredientId));
+  const matches = pantryMatcher(change.removeNames, change.removeIds, deps.catalog.graph);
   const removed = existing.filter(matches);
   const kept = existing.filter((i) => !matches(i));
 
@@ -110,7 +123,7 @@ async function applyChange(
     await audit(tx, { actorKind: 'user', actorId: userId, subjectUserId: userId, action, requestId }, at);
   }
   const strip = ({ name, ingredientId, id }: Row): Row => ({ name, ingredientId, id });
-  return { items: [...kept, ...added].sort(byAge).map(strip), removed: removed.map(strip) };
+  return { items: [...kept, ...added].sort(byAge).map(strip), removed: removed.map(strip), addedIds: added.map((a) => a.id) };
 }
 
 /**
@@ -122,7 +135,8 @@ async function applyChange(
  * `ingredientId` when the name resolves; `removeIds` match exactly (undo uses
  * ids, so an item of the same name that was already there is never touched).
  * Unmatched names and ids are ignored and not reported. Returns the whole
- * pantry after the change, oldest first, and the removed items.
+ * pantry after the change, oldest first, the removed items and the new rows' ids
+ * (an undo removes exactly those).
  */
 export async function changePantryIn(
   tx: Tx,
@@ -131,14 +145,15 @@ export async function changePantryIn(
   change: { add: PantryItem[]; removeNames: string[]; removeIds: string[] },
   at: Date,
   requestId?: string,
-): Promise<{ items: Row[]; removed: Row[] }> {
+): Promise<{ items: Row[]; removed: Row[]; addedIds: string[] }> {
   return applyChange(tx, deps, userId, change, at, 'pantry.change', requestId);
 }
 
 /**
  * Undoes a pantry change (Step 8): removes `addedIds` and puts `removed` back
- * (as new rows), in the same order of locks and checks as `changePantryIn`.
- * Audits 'pantry.restore'.
+ * (as new rows), in the same order of locks and checks as `changePantryIn`
+ * (so 400 `too_many_items` when the pantry has filled up since). Audits
+ * 'pantry.restore'. Returns the ids of the rows put back.
  */
 export async function restorePantryIn(
   tx: Tx,
@@ -148,7 +163,8 @@ export async function restorePantryIn(
   addedIds: string[],
   at: Date,
   requestId?: string,
-): Promise<void> {
+): Promise<{ addedIds: string[] }> {
   const add = removed.map(({ name, ingredientId }) => ({ name, ingredientId }));
-  await applyChange(tx, deps, userId, { add, removeNames: [], removeIds: addedIds }, at, 'pantry.restore', requestId);
+  const { addedIds: restored } = await applyChange(tx, deps, userId, { add, removeNames: [], removeIds: addedIds }, at, 'pantry.restore', requestId);
+  return { addedIds: restored };
 }

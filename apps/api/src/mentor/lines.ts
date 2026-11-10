@@ -69,3 +69,9 @@ export function loadPanBank(file: URL = PAN_YAML): PanBank {
 export function line(trigger: string, vars?: Record<string, string>): ReplyPart {
   return { kind: 'line', line: { trigger, vars: vars ?? {} } };
 }
+
+/** "a", "a and b", "a, b and c": a list of names inside a line's variable. */
+export function listWords(items: readonly string[]): string {
+  if (items.length <= 1) return items.join('');
+  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
+}

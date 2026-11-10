@@ -727,6 +727,25 @@ triggers:
       - "Removed: {items}. I'll add them to the list if you need more."
       - "Out of the pantry: {items}. I hope they went to a good meal."
 
+  pantry.not_found:
+    ai: never
+    when: The player said they used up or threw out items that aren't in their saved pantry; no card takes them out (M4 Step 8).
+    vars:
+      items: "the names the player said, e.g. 'milk'"
+    notes: "Never implies anything was changed."
+    lines:
+      - "I can't find {items} in your pantry, so there's nothing to take out."
+      - "{items} isn't in your pantry as far as I can see. Nothing's been changed."
+      - "No {items} in your pantry list, so I've nothing to strike out."
+
+  pantry.undo_full:
+    ai: never
+    when: An undo of a pantry change can't put the items back because the pantry is at its 300-item limit (too_many_items); nothing was changed.
+    notes: "Plain. Says nothing was undone and what to do."
+    lines:
+      - "I couldn't undo that: your pantry is full, at 300 items. Nothing's changed. Take a few things out, then say 'undo' again."
+      - "The pantry's at its 300-item limit, so I can't put those back. Nothing's changed. Clear a few things out and try 'undo' again."
+
   schedule.set:
     ai: allowed
     when: Market days, meal windows or reminder times are confirmed.
@@ -952,6 +971,14 @@ triggers:
       - "There's nothing to take back. You've been flawless. Or quiet. Either way."
       - "Nothing to undo. I checked. I'm thorough. I'm a pan."
       - "Nothing to undo. You've made no mistakes. Suspicious, but congratulations."
+
+  card.rejected:
+    ai: never
+    when: The player turns down a meal, profile or pantry card ('Not quite', or a typed "no" for one card); nothing was saved. Rule cards use rule.not_quite.
+    lines:
+      - "Crossed out. Nothing's been filed. Tell me again in your own words if you'd like a fresh card."
+      - "No harm done; nothing was saved. Tell me what to change and I'll write a new card."
+      - "Struck out, unfiled. Say it again your way and I'll read it back."
 
   didnt_understand:
     ai: allowed

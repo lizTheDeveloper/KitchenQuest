@@ -35,6 +35,7 @@ export async function pantryRoutes(app: FastifyInstance, catalog: Catalog): Prom
       throw new ApiError(400, 'confirmation_required', 'Changing your pantry needs your confirmation (confirmed: true)');
     }
     const { confirmed: _confirmed, ...change } = ChangeWrite.parse(body);
-    return db.transaction((tx: Tx) => changePantryIn(tx, deps, req.user.id, change, at, req.id));
+    const { items, removed } = await db.transaction((tx: Tx) => changePantryIn(tx, deps, req.user.id, change, at, req.id));
+    return { items, removed };
   });
 }

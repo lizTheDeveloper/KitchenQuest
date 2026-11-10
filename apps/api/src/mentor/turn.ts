@@ -5,22 +5,27 @@ import {
   buildProfileCard,
   buildRuleCard,
   classifyTurn,
+  isSevereCard,
   isSuitabilityQuestion,
   matchDish,
   normalizeTurn,
   parseRuleStatement,
   preRoute,
   severityFromText,
+  shortReplyTarget,
   slotForTime,
   stripPageEvents,
   SUITABILITY_PATTERN,
   weekdayNumbers,
+  type CardAction,
+  type OpenCardRef,
   type ProfilePatchInput,
   type ProposalCard,
   type ReplyPart,
   type ServerCard,
   type TurnNotice,
   type TurnRequest,
+  type TurnIntent,
   type TurnResponse,
 } from '@kitchenquest/core';
 import { and, eq } from 'drizzle-orm';
@@ -30,19 +35,23 @@ import type { Catalog } from '../catalog.js';
 import { consentHeldIn, hasConsent, type Tx } from '../consent/ledger.js';
 import type { Keyring } from '../crypto/keyring.js';
 import { canonRecipes, conversations } from '../db/schema.js';
+import { ApiError } from '../errors.js';
 import { addDays } from '../meals/service.js';
+import { pantryMatcher } from '../pantry/service.js';
+import { loadPantry } from '../pantry/store.js';
 import type { Db } from '../types.js';
 import { recordUsage } from '../usage/usage.js';
 import { aiTurnsLeft, recordAiCost, type BudgetGuard } from './allowance.js';
 import { appendMessages, bumpTurn, openConversation, recentMessages, type StoredMessage } from './conversations.js';
 import { isHealthText } from './health.js';
-import { line, type PanBank } from './lines.js';
+import { line, listWords, type PanBank } from './lines.js';
 import type { MemoryFlags, MemoryHistory } from './memory.js';
 import { applyPostChecks, severeTermsLeftOut, statesSevere } from './postchecks.js';
 import { buildPromptContext, minimiseHistory, renderMessages, type PanPrompt } from './prompt.js';
-import { createProposal, hasOpenHealthProposal } from './proposals.js';
+import { createProposal, hasOpenHealthProposal, openProposalsOfConversation } from './proposals.js';
 import { isWriteRequest } from './requests.js';
 import { MENTOR_TOOLS, parseToolCall, type ToolArgs } from './tools.js';
+import { confirmProposalIn, latestUndoable, rejectProposalIn, undoWriteIn } from './writes.js';
 
 export interface TurnDeps {
   db: Db;
@@ -74,8 +83,8 @@ const respond = (
   route: TurnResponse['route'],
   parts: ReplyPart[],
   notice: TurnNotice = null,
-  extra: { cards?: ServerCard[]; toolTurn?: boolean } = {},
-): TurnResponse => ({ conversationId, route, parts, cards: extra.cards ?? [], actions: [], notice, toolTurn: extra.toolTurn ?? false });
+  extra: { cards?: ServerCard[]; toolTurn?: boolean; actions?: CardAction[] } = {},
+): TurnResponse => ({ conversationId, route, parts, cards: extra.cards ?? [], actions: extra.actions ?? [], notice, toolTurn: extra.toolTurn ?? false });
 
 /** Stage 1: open the conversation and bump its turn (live user → conversation row), and read what the gates need. */
 async function openTurn(deps: TurnDeps, userId: string, req: TurnRequest, now: Date): Promise<Opened> {
@@ -145,6 +154,7 @@ function cardsFromCalls(
   req: TurnRequest,
   healthData: boolean,
   recipes: readonly { slug: string; title: string }[],
+  pantry: readonly { id: string; name: string; ingredientId: string | null }[],
 ): Reply {
   const parts: ReplyPart[] = [];
   const cards: ProposalCard[] = [];
@@ -200,9 +210,28 @@ function cardsFromCalls(
         if (Object.keys(patch).length > 0) add(buildProfileCard(patch));
         break;
       }
-      case 'propose_pantry_change':
-        if (call.args.add.length > 0 || call.args.remove.length > 0) add(buildPantryCard(call.args, deps.catalog.graph));
+      case 'propose_pantry_change': {
+        // Step 5 carry: each removal is resolved to the player's own pantry rows now. The card reads
+        // back exactly those rows and the confirm removes exactly their ids; a name that matches
+        // nothing is said plainly and is on no card.
+        const removeIds: string[] = [];
+        const removeNames: string[] = [];
+        const missing: string[] = [];
+        for (const name of call.args.remove) {
+          const matches = pantry.filter(pantryMatcher([name], [], deps.catalog.graph));
+          if (matches.length === 0 && name.trim() !== '') missing.push(name.trim());
+          for (const m of matches) {
+            if (removeIds.includes(m.id)) continue;
+            removeIds.push(m.id);
+            if (!removeNames.includes(m.name)) removeNames.push(m.name);
+          }
+        }
+        if (call.args.add.length > 0 || removeNames.length > 0) {
+          add({ ...buildPantryCard({ add: call.args.add, remove: removeNames }, deps.catalog.graph), removeIds });
+        }
+        if (missing.length > 0) parts.push(line('pantry.not_found', { items: listWords(missing) }));
         break;
+      }
     }
   }
   return { parts, cards, toolTurn: true };
@@ -278,7 +307,10 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
     const dishNamed = f.dishOnScreen || matchDish(f.stripped, recipes) !== null;
     const writeRequest = isWriteRequest(f.stripped, graph);
     let reply: Reply;
-    if (calls.length > 0) reply = cardsFromCalls(deps, calls, f.req, persist, recipes);
+    // Read only when a removal needs resolving (no lock: the confirm locks the pantry and removes by id).
+    const removes = calls.some((c) => c.name === 'propose_pantry_change' && c.args.remove.length > 0);
+    const pantry = removes ? await loadPantry(tx, deps.keyring, userId) : [];
+    if (calls.length > 0) reply = cardsFromCalls(deps, calls, f.req, persist, recipes, pantry);
     else if (f.mode === 'rule_help') reply = { parts: [], cards: [], toolTurn: false }; // R3: rule help only
     else reply = scriptedReply(f.stripped, dishNamed, writeRequest);
     // A bare "didn't understand" gives way to any ask that follows.
@@ -343,14 +375,79 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
   });
 }
 
+/** A service's refusal as reply parts (Step 8): 403 asks for consent; anything else (400, 404, 409) is not understood. 401 is thrown. */
+function refusalParts(e: unknown): ReplyPart[] {
+  if (!(e instanceof ApiError) || e.status === 401 || e.status >= 500) throw e;
+  if (e.status === 403) return [line('consent.health_first'), { kind: 'consent', purpose: 'health_data' }];
+  return [line('didnt_understand')];
+}
+
+/**
+ * Stage 3b: a plain "yes", "no" or "undo" (Step 8). Core's `shortReplyTarget`
+ * decides which card it means, as the client's engine does for local cards:
+ * only a single card from the previous Pan turn, never a severe one for a
+ * typed yes, never a guess between two. Returns null when the turn goes on
+ * (no card to answer: the model, which has no write tools, takes it). Each
+ * write is its own transaction through the write guard, which never locks a
+ * conversation row (Step 6 carry); nothing of these turns is stored.
+ */
+async function shortReply(deps: TurnDeps, userId: string, intent: TurnIntent, opened: Opened, now: Date, requestId: string): Promise<TurnResponse | null> {
+  if (intent !== 'yes' && intent !== 'no' && intent !== 'undo') return null;
+  const id = opened.conversationId;
+  const done = (parts: ReplyPart[], actions: CardAction[] = []) => respond(id, 'deterministic', parts, null, { actions });
+  if (intent === 'undo') {
+    try {
+      const undone = await deps.db.transaction(async (tx) => {
+        const proposalId = await latestUndoable(tx, userId, now);
+        if (proposalId === null) return null;
+        return { proposalId, ...(await undoWriteIn(tx, deps, userId, proposalId, now, requestId)) };
+      });
+      if (undone === null) return done([line('undo.nothing')]);
+      return done(undone.parts, undone.undone ? [{ kind: 'undone', id: undone.proposalId }] : []);
+    } catch (e) {
+      // Decided or past its window since it was picked: nothing left to undo.
+      if (e instanceof ApiError && e.status === 409) return done([line('undo.nothing')]);
+      throw e;
+    }
+  }
+  const open = await deps.db.transaction((tx) => openProposalsOfConversation(tx, deps.keyring, userId, id, now));
+  const refs: OpenCardRef[] = open.map((p) => ({
+    ref: p.id,
+    severe: p.severe || isSevereCard(p.card),
+    ingredient: p.card.kind === 'rule' ? p.card.display.ingredient : null,
+    issuedTurn: p.turnSeq ?? -1,
+  }));
+  const target = shortReplyTarget(intent, refs, opened.turnSeq);
+  switch (target.kind) {
+    case 'none':
+    case 'undo':
+      return null;
+    case 'line':
+      return done([{ kind: 'line', line: target.line }]);
+    case 'confirm':
+      try {
+        const r = await deps.db.transaction((tx) => confirmProposalIn(tx, deps, userId, target.ref, 'typed_yes', undefined, now, requestId));
+        return done(r.parts, [{ kind: 'confirmed', proposalId: target.ref, trail: r.trail }]);
+      } catch (e) {
+        return done(refusalParts(e));
+      }
+    case 'reject':
+      try {
+        const r = await deps.db.transaction((tx) => rejectProposalIn(tx, deps, userId, target.ref, now, requestId));
+        return done(r.parts, [{ kind: 'rejected', proposalId: target.ref }]);
+      } catch (e) {
+        return done(refusalParts(e));
+      }
+  }
+}
+
 /**
  * One mentor turn. Code goes first and the model goes last; each stage below
  * is one function. Only `propose_*` tools are offered, so a turn can make
  * cards but never write, and the model's text is never shown (R9). Neither
- * the player's text nor the model's is ever logged (C-15). `requestId` is for audit events a later stage may add.
+ * the player's text nor the model's is ever logged (C-15). `requestId` goes on the audit events of a typed yes, no or undo.
  */
 export async function runTurn(deps: TurnDeps, userId: string, req: TurnRequest, requestId: string): Promise<TurnResponse> {
-  void requestId;
   const now = deps.now();
   // 1. The raw text is kept for the injection cut (C4); everything else reads the stripped text.
   const raw = req.input.text;
@@ -371,6 +468,10 @@ export async function runTurn(deps: TurnDeps, userId: string, req: TurnRequest, 
   if (stripped === '') return respond(id, 'deterministic', [line('didnt_understand')]);
   const fixed = preRoute(intent);
   if (fixed !== null) return respond(id, 'deterministic', [{ kind: 'line', line: fixed }]);
+
+  // 3b. A plain yes, no or undo answers a card through the write guard, before the consent gate (Step 8).
+  const short = await shortReply(deps, userId, intent, opened, now, requestId);
+  if (short !== null) return short;
 
   // 4. Health text never reaches the model without ai_health (C1, C-13, P-3).
   const health = isHealthTurn(deps, stripped, req, opened);

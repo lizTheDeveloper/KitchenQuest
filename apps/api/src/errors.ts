@@ -11,15 +11,19 @@ import { ZodError } from 'zod';
  *   (`confirmed: true`; `confirm: "delete my account"` for `DELETE /me`).
  * - 400 `too_many_rules`: at the 200-rule cap (`details.max`).
  * - 400 `too_many_items`: the pantry change would pass the 300-item cap (`details.max`).
+ * - 400 `tap_required`: a severe card (anaphylactic or allergy) is confirmed
+ *   only by a tap on it, never by a typed yes (spec §7.6).
  * - 401 `unauthorized`: no live session, or the account is gone.
  * - 403 `consent_required`: the write needs a current grant (`details.purpose`).
  * - 404 `not_found`: no such route, or a row that is not the player's.
  * - 409 `rules_need_review`: saved rules no longer validate against the catalog.
+ * - 409 `proposal_closed`: the mentor card is no longer open (confirmed,
+ *   rejected, undone or expired), or an undo of a write that is not confirmed.
+ * - 409 `undo_window_closed`: the confirmed write is older than UNDO_WINDOW_MS.
  * - 429 `rate_limited`: with a `retry-after` header.
  * - 500 `internal`: anything unexpected (logged scrubbed, never sent).
  *
- * Steps 8 and 12 add `proposal_closed` (409), `undo_window_closed` (409) and
- * `tap_required` (400); extend this list with every new code.
+ * Extend this list with every new code.
  */
 export class ApiError extends Error {
   constructor(

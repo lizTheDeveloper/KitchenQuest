@@ -15,6 +15,7 @@ import { loadPanBank } from './lines.js';
 import type { MemoryFlags, MemoryHistory } from './memory.js';
 import { loadPanPrompt } from './prompt.js';
 import { runTurn, type TurnDeps } from './turn.js';
+import { confirmProposalIn, rejectProposalIn, undoWriteIn } from './writes.js';
 
 const DAY_MS = 86_400_000;
 const INTAKE_STEPS = ['market_day', 'meals_per_week', 'region', 'allergies', 'pantry'] as const;
@@ -30,6 +31,19 @@ const TurnBody = z
     intakeStep: z.enum(INTAKE_STEPS).nullable(),
   })
   .strict();
+
+/**
+ * The confirm body (zod-strict). `channel` is only ever a tap here: a typed
+ * yes exists only inside `runTurn`, so `'typed_yes'` (or anything else) is a 400.
+ */
+const ConfirmBody = z
+  .object({
+    channel: z.literal('tap'),
+    edits: z.object({ severity: z.enum(['anaphylactic', 'allergy', 'intolerance', 'preference']).optional() }).strict().optional(),
+  })
+  .strict();
+/** Reject and undo take no body; an empty object at most. */
+const EmptyBody = z.object({}).strict();
 
 /** The in-memory state the mentor shares with the account and consent routes, which clear it. */
 export interface MentorState {
@@ -87,6 +101,26 @@ export async function mentorRoutes(app: FastifyInstance, catalog: Catalog, state
       intakeStep: body.intakeStep,
     };
     return runTurn(deps, req.user.id, turn, req.id);
+  });
+
+  // The write guard (Step 8): a card becomes a write only by a tap here, or by a typed yes inside runTurn.
+  app.post<{ Params: { id: string } }>('/mentor/proposals/:id/confirm', { preHandler: requireUser }, async (req) => {
+    const body = ConfirmBody.parse(req.body);
+    const at = now();
+    return db.transaction((tx: Tx) => confirmProposalIn(tx, deps, req.user.id, req.params.id, body.channel, body.edits, at, req.id));
+  });
+
+  app.post<{ Params: { id: string } }>('/mentor/proposals/:id/reject', { preHandler: requireUser }, async (req) => {
+    EmptyBody.parse(req.body ?? {});
+    const at = now();
+    return db.transaction((tx: Tx) => rejectProposalIn(tx, deps, req.user.id, req.params.id, at, req.id));
+  });
+
+  app.post<{ Params: { id: string } }>('/mentor/writes/:id/undo', { preHandler: requireUser }, async (req) => {
+    EmptyBody.parse(req.body ?? {});
+    const at = now();
+    const { parts } = await db.transaction((tx: Tx) => undoWriteIn(tx, deps, req.user.id, req.params.id, at, req.id));
+    return { parts };
   });
 
   const forget = async (userId: string, requestId: string, conversationId?: string): Promise<number> =>

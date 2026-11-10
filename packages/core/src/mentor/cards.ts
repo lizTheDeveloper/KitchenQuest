@@ -65,6 +65,12 @@ export interface PantryCard {
   kind: 'pantry';
   add: PantryItem[];
   remove: string[];
+  /**
+   * Server cards only: the pantry rows `remove` was resolved to when the card was proposed. The
+   * read-back names exactly those rows, and a confirm removes exactly these ids, never matching
+   * names again (M4 Step 8). Absent on cards the client builds for its own pantry.
+   */
+  removeIds?: string[];
   summary: string;
   readback: LineRef[];
 }
