@@ -201,7 +201,7 @@ export async function buildPromptContext(
 }
 
 /** A Pan message as text: written lines through the bank, model text as is; choices and consent cards are not text. */
-export function renderPanParts(parts: readonly ReplyPart[], bank: PanBank): string {
+function renderPanParts(parts: readonly ReplyPart[], bank: PanBank): string {
   return parts
     .map((p) => (p.kind === 'line' ? bank.firstLine(p.line) : p.kind === 'text' ? p.text : ''))
     .filter((s) => s !== '')
