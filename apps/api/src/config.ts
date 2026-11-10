@@ -116,15 +116,32 @@ const AiSwitch = z.object({
 
 const required = (name: string) => z.string({ error: `${name} is required when AI_ENABLED=true` }).trim().min(1, `${name} is required when AI_ENABLED=true`);
 
+/**
+ * C-14: one plain, pinned model. A variant suffix changes routing or retention
+ * (`:free` may train on prompts, `:online` adds a web search), and a router model
+ * (`openrouter/auto`) picks the model itself, so both are refused. Input is lowercased first.
+ */
+function aiModelProblem(m: string): string | null {
+  if (m.endsWith(':free')) return 'never use a :free variant for health-adjacent calls (C-14)';
+  if (m.includes(':')) return 'no variant suffix (":online", ":nitro", ...): name the plain model, e.g. qwen/qwen3.8-27b (C-14)';
+  if (!/^[a-z0-9._-]+\/[a-z0-9._-]+$/.test(m)) return 'must be a vendor/model slug, e.g. qwen/qwen3.8-27b (C-14)';
+  if (m.startsWith('openrouter/')) return 'a router model picks the model itself; pin a plain model, e.g. qwen/qwen3.8-27b (C-14)';
+  return null;
+}
+
 /** Read only when AI_ENABLED=true. The data policy itself is pinned in ai/openrouter.ts (C-14), not here. */
 const AiEnv = z.object({
   OPENROUTER_API_KEY: required('OPENROUTER_API_KEY'),
   AI_MODEL: z
     .string()
     .trim()
+    .toLowerCase()
     .min(1, 'AI_MODEL must not be empty')
     .default('qwen/qwen3.8-27b')
-    .refine((m) => !m.endsWith(':free'), { error: 'never use a :free variant for health-adjacent calls (C-14)' }),
+    .superRefine((m, ctx) => {
+      const issue = aiModelProblem(m);
+      if (issue) ctx.addIssue({ code: 'custom', message: issue });
+    }),
   // Spike §6.6: re-check the order monthly from /models/qwen/qwen3.8-27b/endpoints; exclude fp4 providers.
   AI_PROVIDERS: required('AI_PROVIDERS')
     .transform((v) => v.split(',').map((p) => p.trim()).filter(Boolean))

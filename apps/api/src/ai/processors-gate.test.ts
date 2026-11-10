@@ -55,6 +55,15 @@ describe('processorsNotReady', () => {
     expect(processorsNotReady(AI_PROCESSOR_IDS, pathToFileURL(join(dir, 'p.json')))).toEqual([...AI_PROCESSOR_IDS]);
   });
 
+  test('a duplicated id fails closed: the register is treated as malformed', () => {
+    const file = register([
+      { id: 'openrouter', dpa_status: 'signed' },
+      { id: 'openrouter', dpa_status: 'unknown' },
+      { id: 'openrouter-model-providers', dpa_status: 'signed' },
+    ]);
+    expect(processorsNotReady(AI_PROCESSOR_IDS, file)).toEqual([...AI_PROCESSOR_IDS]);
+  });
+
   test('the committed register: the AI DPAs are not signed yet', () => {
     expect(processorsNotReady(AI_PROCESSOR_IDS)).toEqual(['openrouter', 'openrouter-model-providers']);
   });

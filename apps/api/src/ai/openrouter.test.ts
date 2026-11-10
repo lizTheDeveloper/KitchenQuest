@@ -212,6 +212,34 @@ describe('createOpenRouterProvider', () => {
     }
   });
 
+  test('redirects are refused, not followed: a 307 fails as network', async () => {
+    // A real fetch with redirect: 'error' rejects with a TypeError on a 3xx; the fake mirrors that.
+    const redirecting: Responder = (init) =>
+      init.redirect === 'error'
+        ? Promise.reject(new TypeError('fetch failed: redirect'))
+        : new Response(null, { status: 307, headers: { location: 'https://elsewhere.example/' } });
+    const { provider, calls } = setup(redirecting);
+    expect(await provider.complete(HELLO)).toEqual({ ok: false, failure: 'network' });
+    expect(calls.every((c) => c.init.redirect === 'error')).toBe(true);
+  });
+
+  test('an error response body is cancelled unread', async () => {
+    let cancelled = 0;
+    const withBody = (status: number): Responder => () =>
+      new Response(
+        new ReadableStream({
+          cancel() {
+            cancelled++;
+          },
+        }),
+        { status },
+      );
+    expect(await setup(withBody(400)).provider.complete(HELLO)).toMatchObject({ failure: 'http_4xx' });
+    expect(cancelled).toBe(1);
+    expect(await setup(withBody(500)).provider.complete(HELLO)).toMatchObject({ failure: 'http_5xx' });
+    expect(cancelled).toBe(3);
+  });
+
   test('a failing call logs no content even when the error body echoes the prompt', async () => {
     const { provider, logs } = setup(json(400, '{"error":{"message":"bad request: I am allergic to peanut"}}'));
     await provider.complete({ messages: [{ role: 'user', content: 'I am allergic to peanut' }], tools: [] });

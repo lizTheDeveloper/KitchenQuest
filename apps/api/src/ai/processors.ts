@@ -16,12 +16,15 @@ const Register = z.object({
 
 /**
  * The ids whose `dpa_status` is not "signed". An id missing from the register,
- * or a register that cannot be read or parsed, counts as not ready (fail closed).
+ * or a register that cannot be read, parsed or has a duplicated id, counts as
+ * not ready (fail closed).
  */
 export function processorsNotReady(ids: readonly string[], registerPath: URL = REGISTER): string[] {
   let signed: Set<string>;
   try {
     const doc = Register.parse(JSON.parse(readFileSync(registerPath, 'utf8')));
+    // A duplicated id makes the register ambiguous: treat it as malformed.
+    if (new Set(doc.processors.map((p) => p.id)).size !== doc.processors.length) return [...ids];
     signed = new Set(doc.processors.filter((p) => p.dpa_status === 'signed').map((p) => p.id));
   } catch {
     return [...ids];

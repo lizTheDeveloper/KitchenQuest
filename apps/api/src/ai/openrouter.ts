@@ -111,14 +111,19 @@ export function createOpenRouterProvider(
           headers: { authorization: `Bearer ${cfg.apiKey}`, 'content-type': 'application/json' },
           body,
           signal: ctl.signal,
+          // A redirect could carry the prompt to an unvetted host (N-9): refuse it (fetch rejects, so `network`).
+          redirect: 'error',
         });
       } catch {
         // The error itself is never looked at beyond this: its message can echo the request.
         return ctl.signal.aborted ? { ok: false, failure: 'timeout', retry: false } : { ok: false, failure: 'network', retry: true };
       }
-      if (res.status >= 500) return { ok: false, failure: 'http_5xx', status: res.status, retry: true };
-      // Anything else that is not 2xx (fetch follows redirects) is the request's fault: no retry.
-      if (!res.ok) return { ok: false, failure: 'http_4xx', status: res.status, retry: false };
+      if (!res.ok) {
+        // The error body is never read (it can echo the prompt); cancel it so the connection is released.
+        await res.body?.cancel().catch(() => {});
+        if (res.status >= 500) return { ok: false, failure: 'http_5xx', status: res.status, retry: true };
+        return { ok: false, failure: 'http_4xx', status: res.status, retry: false };
+      }
       let raw: unknown;
       try {
         raw = await res.json();

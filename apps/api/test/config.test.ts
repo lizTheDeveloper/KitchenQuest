@@ -171,10 +171,23 @@ describe('loadConfig: AI (C-14, P-11)', () => {
     expect(loadConfig({ ...aiEnv, AI_TIMEOUT_MS: '30000' }).ai?.timeoutMs).toBe(30000);
   });
 
-  it('a :free model is refused', () => {
-    expect(() => loadConfig({ ...aiEnv, AI_MODEL: 'qwen/qwen3.8-27b:free' })).toThrow(
-      'AI_MODEL: never use a :free variant for health-adjacent calls (C-14)',
-    );
+  it('a :free model is refused, in any case', () => {
+    for (const m of ['qwen/qwen3.8-27b:free', 'qwen/qwen3.8-27b:FREE', ' Qwen/Qwen3.8-27b:Free ']) {
+      expect(() => loadConfig({ ...aiEnv, AI_MODEL: m }), m).toThrow('AI_MODEL: never use a :free variant for health-adjacent calls (C-14)');
+    }
+  });
+
+  it('refuses any other variant suffix and router models', () => {
+    expect(() => loadConfig({ ...aiEnv, AI_MODEL: 'qwen/qwen3.8-27b:online' })).toThrow(/AI_MODEL: .*variant suffix/);
+    expect(() => loadConfig({ ...aiEnv, AI_MODEL: 'qwen/qwen3.8-27b:nitro' })).toThrow(/AI_MODEL: .*variant suffix/);
+    expect(() => loadConfig({ ...aiEnv, AI_MODEL: 'openrouter/auto' })).toThrow(/AI_MODEL: .*router model/);
+    for (const bad of ['qwen3.8-27b', 'qwen/qwen 3', 'a/b/c', '/x']) {
+      expect(() => loadConfig({ ...aiEnv, AI_MODEL: bad }), bad).toThrow(/AI_MODEL: .*vendor\/model slug/);
+    }
+  });
+
+  it('lowercases AI_MODEL', () => {
+    expect(loadConfig({ ...aiEnv, AI_MODEL: ' Qwen/Qwen3.8-27B ' }).ai?.model).toBe('qwen/qwen3.8-27b');
   });
 
   it('never puts the API key in an error or in the logged config', () => {
