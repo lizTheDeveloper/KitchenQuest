@@ -87,9 +87,6 @@ export function mountMentorPanel(root: HTMLElement, opts: {
   const asideSlot = h('div', { class: 'pan-aside' });
   asideSlot.hidden = true;
   bubbles.before(asideSlot);
-  /** The C-16 disclosure is pinned here, outside the bubbles, so MAX_BUBBLES can never trim it before "Got it". */
-  const disclosureSlot = h('div', { class: 'pan-disclosure-slot' });
-  asideSlot.before(disclosureSlot);
   const openListeners = new Set<() => void>();
   const doneListeners = new Set<(view: CardView, result: 'confirmed' | 'rejected') => void>();
   const cardDone = (view: CardView, result: 'confirmed' | 'rejected') => { for (const fn of [...doneListeners]) fn(view, result); };
@@ -109,8 +106,10 @@ export function mountMentorPanel(root: HTMLElement, opts: {
   const scrollDown = () => { bubbles.scrollTop = bubbles.scrollHeight; };
   /** Removes the oldest items past MAX_BUBBLES; a card or trail entry that goes with them is no longer open. */
   const trim = () => {
-    while (bubbles.children.length > MAX_BUBBLES) {
-      const gone = bubbles.firstElementChild!;
+    // The pinned C-16 disclosure (fix round 1, M5) is not one of the bubbles: it stays until "Got it".
+    const pinned = () => (bubbles.firstElementChild?.classList.contains('pan-disclosure-item') ? 1 : 0);
+    while (bubbles.children.length - pinned() > MAX_BUBBLES) {
+      const gone = bubbles.children[pinned()];
       gone.remove();
       for (const [k, c] of cards) if (c.li === gone) cards.delete(k);
       for (let i = trail.length - 1; i >= 0; i--) if (trail[i].li === gone) trail.splice(i, 1);
@@ -493,11 +492,13 @@ export function mountMentorPanel(root: HTMLElement, opts: {
     disclosureShown = true;
     const ok = h('button', { type: 'button', class: 'btn btn-secondary pan-disclosure-ok' }, DISCLOSURE_OK);
     const box = h('div', { class: 'pan-disclosure', role: 'note' }, h('p', { 'data-content': '' }, opts.disclosure), ok);
-    disclosureSlot.replaceChildren(box);
+    // Pinned first in the conversation; MAX_BUBBLES never trims it before "Got it".
+    const li = h('li', { class: 'pan-item pan-disclosure-item' }, box);
+    bubbles.prepend(li);
     ok.addEventListener('click', () => {
       store.update((s) => ({ ...s, aiDisclosureSeen: true }));
-      const hadFocus = box.contains(doc.activeElement);
-      box.remove(); // Settings → The Pan shows the same words, always
+      const hadFocus = li.contains(doc.activeElement);
+      li.remove(); // Settings → The Pan shows the same words, always
       if (hadFocus) (textBox ?? closeBtn).focus();
     });
   };
