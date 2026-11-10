@@ -23,14 +23,7 @@ function varText(vars: Vars, name: string): string | null {
 
 /** The line with every {var} filled, or null when any is missing. */
 export function fillLine(line: string, vars: Vars): string | null {
-  let missing = false;
-  const out = line.replace(VAR, (_m, name: string) => {
-    const v = varText(vars, name);
-    if (v === null) {
-      missing = true;
-      return '';
-    }
-    return v;
-  });
-  return missing ? null : out;
+  const names = [...line.matchAll(VAR)].map((m) => m[1]);
+  if (names.some((name) => varText(vars, name) === null)) return null;
+  return line.replace(VAR, (_m, name: string) => varText(vars, name)!);
 }

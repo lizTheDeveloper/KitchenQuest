@@ -49,9 +49,10 @@ function clockCandidates(t: string): { index: number; value: string | null }[] {
   for (const m of t.matchAll(CLOCK_COLON)) {
     const h = Number(m[1]);
     const min = Number(m[2]);
+    const meridiem = m[3] as string | undefined; // the optional group
     let value: string | null = null;
     if (min <= 59) {
-      if (m[3] !== undefined) value = h >= 1 && h <= 12 ? hhmm(to24(h, m[3]), min) : null;
+      if (meridiem !== undefined) value = h >= 1 && h <= 12 ? hhmm(to24(h, meridiem), min) : null;
       else value = h <= 23 ? hhmm(h, min) : null;
     }
     out.push({ index: m.index, value });

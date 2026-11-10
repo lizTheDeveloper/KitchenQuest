@@ -2,7 +2,6 @@ import { describe, expect, test } from 'vitest';
 import ingredients from '../../../../data/ingredients.json';
 import ruleTerms from '../../../../data/rule-terms.json';
 import { IngredientGraph } from '../ingredients/graph';
-import type { IngredientData } from '../ingredients/types';
 import type { TurnIntent } from './intents';
 import type { RuleTerm } from './rule-terms';
 import {
@@ -15,7 +14,7 @@ import {
   weekdayNumbers,
 } from './route';
 
-const graph = IngredientGraph.fromData(ingredients as IngredientData);
+const graph = IngredientGraph.fromData(ingredients);
 const terms = ruleTerms as RuleTerm[];
 // The canon recipes' real slugs and titles.
 const recipes = [

@@ -2,10 +2,9 @@ import { expect, test } from 'vitest';
 import ingredients from '../../../../data/ingredients.json';
 import committed from '../../../../data/rule-terms.json';
 import { IngredientGraph } from '../ingredients/graph';
-import type { IngredientData } from '../ingredients/types';
 import { validateRuleTerms, type RuleTerm } from './rule-terms';
 
-const graph = IngredientGraph.fromData(ingredients as IngredientData);
+const graph = IngredientGraph.fromData(ingredients);
 const [veg, vegan] = committed as RuleTerm[];
 
 test.each([
