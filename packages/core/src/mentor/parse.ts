@@ -226,15 +226,21 @@ export const ANAPHYLACTIC_CUE = /anaphyla|epi-?pen|\bsevere|deadly|hospital|life
  */
 export const ALLERGY_NEGATIONS =
   /\b(not an allergy|not allergic|isn'?t an allergy|no allergy|not like an allergy|rather than an allergy)\b/g;
+/** Hedges: with one anywhere in the message, the negation phrases count as allergy words (ruling). */
+export const HEDGE_WORDS =
+  /\b(sure|think|thought|might|maybe|perhaps|possibly|probably|unsure|could be|not certain|don'?t know|dunno|actually|apparently|doctor|allergist)\b/;
 /** Allergy and anaphylaxis words, matched with every non-letter removed ("al-lergic", "epi pen"). */
 const ALLERGY_LETTERS = /allerg|anaphyla|epipen|severereaction/;
 
 /**
  * True when the (normalised) text has an allergy or anaphylaxis word outside the fixed
- * negation phrases: allerg*, anaphyla*, epipen / epi-pen, "severe reaction".
+ * negation phrases: allerg*, anaphyla*, epipen / epi-pen, "severe reaction". The phrases are
+ * exempt only when the message has no hedge word (`HEDGE_WORDS`) anywhere.
  */
 export function mentionsAllergy(normalized: string): boolean {
-  return ALLERGY_LETTERS.test(normalized.replace(ALLERGY_NEGATIONS, ' ').replace(/[^a-z]+/g, ''));
+  // A hedge anywhere ("not sure it's not an allergy") voids the negation exemption.
+  const exempt = HEDGE_WORDS.test(normalized) ? normalized : normalized.replace(ALLERGY_NEGATIONS, ' ');
+  return ALLERGY_LETTERS.test(exempt.replace(/[^a-z]+/g, ''));
 }
 
 /**
