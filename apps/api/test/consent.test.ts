@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
@@ -8,12 +8,17 @@ import { NOTICES } from '../src/consent/notices.js';
 import { sealFor } from '../src/crypto/userkeys.js';
 import { rules, users } from '../src/db/schema.js';
 import { CaptureMailer } from '../src/mail/mailer.js';
+import { appendMessages, openConversation } from '../src/mentor/conversations.js';
+import { MemoryHistory } from '../src/mentor/memory.js';
+import { createProposal } from '../src/mentor/proposals.js';
 import type { Db } from '../src/types.js';
 import { signIn } from './helpers/auth.js';
 import { testConfig } from './helpers/config.js';
 import { testDb, type Sql } from './helpers/db.js';
 
 const config = testConfig();
+/** The current health_data notice version (v2 since M4 Step 6); grants under it count. */
+const HD = NOTICES.health_data!.version;
 const sha = (s: string) => createHash('sha256').update(s, 'utf8').digest();
 
 let db: Db;
@@ -68,7 +73,7 @@ describe('consent ledger (C-1)', () => {
     const t0 = new Date('2026-06-01T00:00:00Z');
     const t1 = new Date('2026-06-02T00:00:00Z');
     expect(await hasConsent(db, userId, 'health_data', t0)).toBe(false);
-    await grantConsent(db, userId, 'health_data', 'v1', sha('notice'), 'tap', t0);
+    await grantConsent(db, userId, 'health_data', HD, sha('notice'), 'tap', t0);
     expect(await hasConsent(db, userId, 'health_data', t0)).toBe(true);
     expect(await hasConsent(db, userId, 'health_data', new Date(t0.getTime() - 1))).toBe(false);
     expect(await hasConsent(db, userId, 'ai_health', t0)).toBe(false);
@@ -79,7 +84,7 @@ describe('consent ledger (C-1)', () => {
     expect(await hasConsent(db, userId, 'health_data', new Date(t1.getTime() - 1))).toBe(true);
     const rows = await sql`select purpose, notice_version, notice_sha256, method, granted_at, withdrawn_at from consents where user_id = ${userId}`;
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ purpose: 'health_data', notice_version: 'v1', method: 'tap' });
+    expect(rows[0]).toMatchObject({ purpose: 'health_data', notice_version: HD, method: 'tap' });
     expect(new Date(rows[0].granted_at).getTime()).toBe(t0.getTime());
     expect(new Date(rows[0].withdrawn_at).getTime()).toBe(t1.getTime());
     expect(Buffer.from(rows[0].notice_sha256).equals(sha('notice'))).toBe(true);
@@ -104,10 +109,10 @@ describe('consent ledger (C-1)', () => {
   it('grant, withdraw, grant again: consent is back, with full history', async () => {
     const userId = await newUser();
     const t = (h: number) => new Date(Date.UTC(2026, 5, 1, h));
-    await grantConsent(db, userId, 'health_data', 'v1', sha('a'), 'tap', t(1));
+    await grantConsent(db, userId, 'health_data', HD, sha('a'), 'tap', t(1));
     await withdrawConsent(db, userId, 'health_data', t(2));
     expect(await hasConsent(db, userId, 'health_data', t(2))).toBe(false);
-    await grantConsent(db, userId, 'health_data', 'v1', sha('a'), 'tap', t(3));
+    await grantConsent(db, userId, 'health_data', HD, sha('a'), 'tap', t(3));
     expect(await hasConsent(db, userId, 'health_data', t(3))).toBe(true);
     expect(await hasConsent(db, userId, 'health_data', new Date(t(2).getTime() + 1))).toBe(false);
     const rows = await sql`select ended_reason from consents where user_id = ${userId} order by granted_at`;
@@ -172,7 +177,7 @@ describe('consent ledger (C-1)', () => {
   it('requireConsent throws 403 consent_required', async () => {
     const userId = await newUser();
     await expect(requireConsent(db, userId, 'health_data', clock)).rejects.toMatchObject({ status: 403, code: 'consent_required' });
-    await grantConsent(db, userId, 'health_data', 'v1', sha('a'), 'tap', clock);
+    await grantConsent(db, userId, 'health_data', HD, sha('a'), 'tap', clock);
     await expect(requireConsent(db, userId, 'health_data', clock)).resolves.toBeUndefined();
   });
 
@@ -184,23 +189,47 @@ describe('consent ledger (C-1)', () => {
   });
 });
 
-describe('health_data notice v1 (N-7)', () => {
-  const file = readFileSync(new URL('../../../docs/compliance/notices/health_data-v1.md', import.meta.url), 'utf8');
-  const notice = NOTICES.health_data!;
+const NOTICE_DIR = new URL('../../../docs/compliance/notices/', import.meta.url);
+const NOTICE_TEXT = /<!-- notice-text:start -->\n\n([\s\S]*?)\n\n<!-- notice-text:end -->/;
 
-  it('is the text of docs/compliance/notices/health_data-v1.md, version v1, with its sha256 declared there', () => {
-    expect(notice.version).toBe('v1');
-    const between = /<!-- notice-text:start -->\n\n([\s\S]*?)\n\n<!-- notice-text:end -->/.exec(file);
-    expect(between).not.toBeNull();
-    expect(notice.text).toBe(between![1]);
-    expect(file).toContain('Version: `v1`');
-    expect(file).toContain(`SHA-256 of the notice text: \`${sha(notice.text).toString('hex')}\``);
+describe('notice files', () => {
+  it('every file in docs/compliance/notices declares the SHA-256 of its text, and is marked a draft (C-30)', () => {
+    const files = readdirSync(NOTICE_DIR).filter((f) => f.endsWith('.md'));
+    expect(files).toEqual(expect.arrayContaining(['health_data-v1.md', 'health_data-v2.md', 'ai_health-v1.md']));
+    for (const f of files) {
+      const doc = readFileSync(new URL(f, NOTICE_DIR), 'utf8');
+      const text = NOTICE_TEXT.exec(doc)?.[1];
+      expect(text, f).toBeTruthy();
+      expect(doc, f).toContain(`SHA-256 of the notice text: \`${sha(text!).toString('hex')}\``);
+      expect(doc, f).toContain('Status: DRAFT wording, pending lawyer review (C-30)');
+      expect(doc, f).not.toContain('\r');
+    }
   });
+
+  it.each([
+    ['health_data', 'v2'],
+    ['ai_health', 'v1'],
+  ] as const)('%s is served from its %s file, with the hash declared there', (purpose, version) => {
+    const doc = readFileSync(new URL(`${purpose}-${version}.md`, NOTICE_DIR), 'utf8');
+    const notice = NOTICES[purpose]!;
+    expect(notice.version).toBe(version);
+    expect(notice.text).toBe(NOTICE_TEXT.exec(doc)![1]);
+    expect(doc).toContain(`Version: \`${version}\``);
+    expect(doc).toContain(`SHA-256 of the notice text: \`${sha(notice.text).toString('hex')}\``);
+  });
+});
+
+describe('health_data notice v2 (N-7, C-12)', () => {
+  const notice = NOTICES.health_data!;
 
   it('names religious and cultural dietary rules as covered (GDPR Art. 9)', () => {
     expect(notice.text).toMatch(/religious/i);
     expect(notice.text).toMatch(/cultural/i);
     expect(notice.text).toMatch(/allerg/i);
+  });
+
+  it('names the meals it keeps and the 30-day Pan conversations', () => {
+    expect(notice.text).toContain('It also keeps the meals you log, and your conversations with the Pan for 30 days unless you clear them sooner.');
   });
 
   it('a grant stores the notice version and sha256 in the ledger', async () => {
@@ -209,27 +238,40 @@ describe('health_data notice v1 (N-7)', () => {
       method: 'POST',
       url: '/me/consents',
       cookies: { kq_session: cookie },
-      payload: { purpose: 'health_data', noticeVersion: 'v1' },
+      payload: { purpose: 'health_data', noticeVersion: notice.version },
     });
     expect(res.statusCode).toBe(201);
     const userId = (await app.inject({ method: 'GET', url: '/me', cookies: { kq_session: cookie } })).json().id as string;
     const rows = await sql<{ notice_version: string; notice_sha256: Buffer }[]>`
       select notice_version, notice_sha256 from consents where user_id = ${userId} and purpose = 'health_data'`;
     expect(rows).toHaveLength(1);
-    expect(rows[0].notice_version).toBe('v1');
+    expect(rows[0].notice_version).toBe('v2');
     expect(Buffer.from(rows[0].notice_sha256).equals(sha(notice.text))).toBe(true);
   });
 });
 
-describe('a grant under an older notice (health_data before v1)', () => {
+describe('ai_health notice v1', () => {
+  const notice = NOTICES.ai_health!;
+
+  it('names the AI characters, meals and the scripted fallback', () => {
+    expect(notice.text).toMatch(/AI characters/);
+    expect(notice.text).toMatch(/meals/);
+    expect(notice.text).toMatch(/written script/);
+  });
+});
+
+describe('a grant under an older notice', () => {
   const PEANUT = { target: { kind: 'ingredient', ids: ['peanut'] }, type: 'avoid', severity: 'anaphylactic' };
 
-  it('no longer counts: writes are 403 and GET /me/consents asks again; a v1 grant restores them', async () => {
+  it.each([
+    ['the inline 2026-11-09 notice', '2026-11-09'],
+    ['notice v1', 'v1'],
+  ])('health_data under %s no longer counts: writes are 403 and GET /me/consents asks again; a v2 grant restores them', async (_label, version) => {
     const cookie = await signIn(app, mailer, `stale${++seq}@example.com`);
     const cookies = { kq_session: cookie };
     const userId = (await app.inject({ method: 'GET', url: '/me', cookies })).json().id as string;
     const old = 'Kitchen Quest can store your allergies, diet rules ...';
-    await grantConsent(db, userId, 'health_data', '2026-11-09', sha(old), 'tap', clock);
+    await grantConsent(db, userId, 'health_data', version, sha(old), 'tap', clock);
 
     expect(await hasConsent(db, userId, 'health_data', clock)).toBe(false);
     const refused = await app.inject({ method: 'POST', url: '/rules', cookies, payload: { rule: PEANUT, confirmed: true } });
@@ -237,21 +279,38 @@ describe('a grant under an older notice (health_data before v1)', () => {
     expect(refused.json().error.code).toBe('consent_required');
     const stale = (await app.inject({ method: 'GET', url: '/me/consents', cookies })).json();
     expect(stale.needsReconsent).toEqual(['health_data']);
-    expect(stale.consents.at(-1)).toMatchObject({ noticeVersion: '2026-11-09', withdrawnAt: null, current: false });
+    expect(stale.consents.at(-1)).toMatchObject({ noticeVersion: version, withdrawnAt: null, current: false });
 
     clock = new Date(clock.getTime() + 60_000);
-    const regrant = await app.inject({ method: 'POST', url: '/me/consents', cookies, payload: { purpose: 'health_data', noticeVersion: 'v1' } });
+    const regrant = await app.inject({ method: 'POST', url: '/me/consents', cookies, payload: { purpose: 'health_data', noticeVersion: HD } });
     expect(regrant.statusCode).toBe(201);
-    expect(regrant.json().consent).toMatchObject({ noticeVersion: 'v1', current: true });
+    expect(regrant.json().consent).toMatchObject({ noticeVersion: 'v2', current: true });
     const ok = await app.inject({ method: 'POST', url: '/rules', cookies, payload: { rule: PEANUT, confirmed: true } });
     expect(ok.statusCode).toBe(201);
     const fresh = (await app.inject({ method: 'GET', url: '/me/consents', cookies })).json();
     expect(fresh.needsReconsent).toEqual([]);
     // The history keeps the old grant, ended as superseded.
     expect(fresh.consents.map((c: { noticeVersion: string; endedReason: string | null }) => [c.noticeVersion, c.endedReason])).toEqual([
-      ['2026-11-09', 'superseded'],
-      ['v1', null],
+      [version, 'superseded'],
+      ['v2', null],
     ]);
+  });
+
+  it('an ai_health grant under the old inline version 2026-11-09 no longer counts', async () => {
+    const cookie = await signIn(app, mailer, `stale${++seq}@example.com`);
+    const cookies = { kq_session: cookie };
+    const userId = (await app.inject({ method: 'GET', url: '/me', cookies })).json().id as string;
+    await grantConsent(db, userId, 'ai_health', '2026-11-09', sha('Let the AI characters see ...'), 'tap', clock);
+    expect(await hasConsent(db, userId, 'ai_health', clock)).toBe(false);
+    const stale = (await app.inject({ method: 'GET', url: '/me/consents', cookies })).json();
+    expect(stale.needsReconsent).toEqual(['ai_health']);
+    expect(stale.notices.ai_health.version).toBe('v1');
+
+    clock = new Date(clock.getTime() + 60_000);
+    const regrant = await app.inject({ method: 'POST', url: '/me/consents', cookies, payload: { purpose: 'ai_health', noticeVersion: 'v1' } });
+    expect(regrant.statusCode).toBe(201);
+    expect(await hasConsent(db, userId, 'ai_health', clock)).toBe(true);
+    expect((await app.inject({ method: 'GET', url: '/me/consents', cookies })).json().needsReconsent).toEqual([]);
   });
 });
 
@@ -338,6 +397,35 @@ describe('consent routes (C-1)', () => {
       'consent.withdraw',
       'health_data.delete',
     ]);
+  });
+
+  it('withdraw health_data with delete removes messages and proposals', async () => {
+    const email = `route${++seq}@example.com`;
+    const cookies = { kq_session: await signIn(app, mailer, email) };
+    const [u] = await sql`select id from users where email = ${email}`;
+    const userId = u.id as string;
+    await app.inject({ method: 'POST', url: '/me/consents', cookies, payload: { purpose: 'health_data', noticeVersion: current.version } });
+    const memory = new MemoryHistory({ ttlMs: 60_000, max: 8 });
+    const card = {
+      kind: 'meal' as const,
+      meal: { eatenOn: '2026-06-01', slot: 'lunch' as const, item: { kind: 'free' as const, description: 'peanut soup' } },
+      summary: 'lunch: peanut soup',
+      estimate: false,
+      readback: [],
+    };
+    await db.transaction(async (tx) => {
+      const c = await openConversation(tx, userId, null, clock);
+      await appendMessages(tx, config.keyring, memory, userId, c.id, [{ role: 'player', text: 'peanut soup for lunch' }], true, clock);
+      await createProposal(tx, config.keyring, { userId, conversationId: c.id, turnSeq: 1, card }, clock);
+    });
+    expect(await sql`select 1 from messages where user_id = ${userId}`).toHaveLength(1);
+
+    const res = await app.inject({ method: 'DELETE', url: '/me/consents/health_data', cookies, payload: { healthData: 'delete' } });
+    expect(res.statusCode).toBe(204);
+    expect(await sql`select 1 from messages where user_id = ${userId}`).toHaveLength(0);
+    expect(await sql`select 1 from mentor_proposals where user_id = ${userId}`).toHaveLength(0);
+    // The content-free conversation row is not health data (P-14) and stays.
+    expect(await sql`select 1 from conversations where user_id = ${userId}`).toHaveLength(1);
   });
 
   it('withdraw-with-delete is one transaction: a failing delete leaves consent in place', async () => {

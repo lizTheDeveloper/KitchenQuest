@@ -1,6 +1,7 @@
 // Step 7: one-click export (GDPR access/portability, C-7) and account delete
 // (erasure, C-8), with crypto-shredding (C-4) and audit pseudonymization (C-5).
 import { readFileSync } from 'node:fs';
+import type { MealCard } from '@kitchenquest/core';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance, InjectOptions } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -14,6 +15,9 @@ import { auditEvents, rules, userKeys } from '../src/db/schema.js';
 import { grant } from '../src/entitlements/entitlements.js';
 import { CaptureMailer } from '../src/mail/mailer.js';
 import { recordUsage } from '../src/usage/usage.js';
+import { appendMessages, openConversation, type StoredMessage } from '../src/mentor/conversations.js';
+import { MemoryHistory } from '../src/mentor/memory.js';
+import { createProposal, markDecided } from '../src/mentor/proposals.js';
 import type { Db } from '../src/types.js';
 import { signIn } from './helpers/auth.js';
 import { testConfig } from './helpers/config.js';
@@ -65,11 +69,17 @@ const PROFILE = {
   mealWindows: [{ name: 'dinner', start: '18:00', end: '20:00' }],
 };
 
+const SAID: StoredMessage = { role: 'player', text: 'I had peanut noodles for lunch' };
+const PAN_SAID: StoredMessage = { role: 'pan', parts: [{ kind: 'line', line: { trigger: 'log.confirm', vars: {} } }], proposalIds: [] };
+const MEAL_CARD: MealCard = { kind: 'meal', meal: MEAL as MealCard['meal'], summary: 'lunch: peanut noodles', estimate: false, readback: [] };
+
 interface Player {
   cookie: string;
   id: string;
   email: string;
   ruleIds: string[];
+  conversationId: string;
+  proposalId: string;
 }
 
 /** A player with a row in every user-linked table: profile, consent, rules (and so a data key), reads, entitlement, usage. */
@@ -107,7 +117,16 @@ async function fullPlayer(): Promise<Player> {
   await recordUsage(db, id, 'mentor_text', 3, 120);
   await recordUsage(db, id, 'mentor_text', 2, 80);
   await recordUsage(db, id, 'ingest', 1, 500);
-  return { cookie, id, email, ruleIds };
+  // A Pan conversation with a sealed transcript and a decided proposal (no route yet: Step 7).
+  const memory = new MemoryHistory({ ttlMs: 60_000, max: 8 });
+  const { conversationId, proposalId } = await db.transaction(async (tx) => {
+    const c = await openConversation(tx, id, null, NOW);
+    const card = await createProposal(tx, config.keyring, { userId: id, conversationId: c.id, turnSeq: 1, card: MEAL_CARD }, NOW);
+    await appendMessages(tx, config.keyring, memory, id, c.id, [SAID, { ...PAN_SAID, proposalIds: [card.proposalId] }], true, NOW);
+    await markDecided(tx, card.proposalId, 'confirmed', 'tap', null, { secret: 'undo-payload' }, config.keyring, id, NOW);
+    return { conversationId: c.id, proposalId: card.proposalId };
+  });
+  return { cookie, id, email, ruleIds, conversationId, proposalId };
 }
 
 const exportOf = (cookie: string | null) => call(cookie, { method: 'GET', url: '/me/export' });
@@ -210,6 +229,34 @@ describe('GET /me/export', () => {
       'pantry.change',
       'account.export',
     ]);
+    // Pan conversations with their messages, and proposals, decrypted (C-12).
+    expect(x.conversations).toEqual([
+      {
+        id: p.conversationId,
+        startedAt: NOW.toISOString(),
+        lastTurnAt: NOW.toISOString(),
+        turnSeq: 0,
+        messages: [
+          { seq: 1, createdAt: NOW.toISOString(), ...SAID },
+          { seq: 2, createdAt: NOW.toISOString(), ...PAN_SAID, proposalIds: [p.proposalId] },
+        ],
+      },
+    ]);
+    expect(x.proposals).toEqual([
+      {
+        id: p.proposalId,
+        conversationId: p.conversationId,
+        turnSeq: 1,
+        kind: 'meal',
+        severe: false,
+        status: 'confirmed',
+        card: MEAL_CARD,
+        createdAt: NOW.toISOString(),
+        expiresAt: expect.any(String),
+        decidedAt: NOW.toISOString(),
+      },
+    ]);
+    expect(res.body).not.toContain('undo-payload');
     // Meals and pantry, decrypted.
     expect(x.meals).toEqual([{ ...MEAL, id: expect.any(String), createdAt: NOW.toISOString() }]);
     expect(x.pantry).toEqual([{ ...PANTRY_ITEM, id: expect.any(String), createdAt: NOW.toISOString() }]);
@@ -326,6 +373,9 @@ describe('GET /me/export', () => {
       user_keys: 'dataKey',
       meal_logs: 'meals',
       pantry_items: 'pantry',
+      conversations: 'conversations',
+      messages: 'conversations',
+      mentor_proposals: 'proposals',
       audit_events: 'auditEvents',
     };
     // Linked: a foreign key to users, or a column that holds a user id or an email.
@@ -412,6 +462,10 @@ describe('DELETE /me', () => {
     // Meal logs and pantry rows go with the account (P-14).
     expect(await sql`select 1 from meal_logs where user_id = ${p.id}`).toHaveLength(0);
     expect(await sql`select 1 from pantry_items where user_id = ${p.id}`).toHaveLength(0);
+    // And every mentor row (P-14).
+    for (const t of ['conversations', 'messages', 'mentor_proposals']) {
+      expect(await sql`select 1 from ${sql(t)} where user_id = ${p.id}`, t).toHaveLength(0);
+    }
     const byEmail = await mentions(p.email);
     expect(byEmail).toEqual(nowhere(byEmail));
 
