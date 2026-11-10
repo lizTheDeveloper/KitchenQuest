@@ -64,8 +64,8 @@ const isSevere = (s: Severity | null): s is Severity => s !== null && SEVERE.has
  */
 function cardString(value: string | null, text: string): string | null {
   if (value === null || !occursVerbatim(text, value)) return null;
-  const f = filterReply(value, { finish: 'stop', previousPanText: null });
-  return f.ok && !touchesHealth(value, []) ? value : null;
+  const f = filterReply(value, { finish: 'stop' });
+  return f.ok && !touchesHealth(value) ? value : null;
 }
 
 /** At most this many words between a severe cue and a term the model proposed (fix round 1, M3). */
@@ -138,7 +138,7 @@ export function applyPostChecks(calls: ToolArgs[], playerText: string, graph: In
       case 'propose_rule': {
         const { term } = call.args;
         // R5: a term is checked by C4 below (the player's own rule words); no claim may ride in it.
-        if (!filterReply(term, { finish: 'stop', previousPanText: null }).ok) break;
+        if (!filterReply(term, { finish: 'stop' }).ok) break;
         const own_ = ownTerms.some((t) => sameTerm(t, term, graph));
         if (!own_ && !(isSevere(messageSeverity) && nearSevereCue(own, term))) break;
         const item = statement?.items.find((i) => sameTerm(i.term, term, graph));

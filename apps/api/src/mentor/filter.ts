@@ -1,13 +1,13 @@
 import { canonicalText, foldConfusables } from '@kitchenquest/core';
 
 /**
- * The output filter (spec §7.6b.5, spike §6.5, pre-flight C2/C3): every piece of
- * model text passes here before the player sees it. A failure is replaced by a
- * written line (`REPLACEMENT`), never shown. The model can never write and can
- * never verify a dish, so a claim of either fails, except in a short fixed list
- * of negated phrasings; a loose "any negation in the sentence" test is never used.
- * Since fix round 1 the turn shows no model text at all on a health turn (R1)
- * and screens the rest with `touchesHealth` (R2); this filter is the second layer.
+ * The screen for model-sourced strings on cards (spec §7.6b.5, spike §6.5,
+ * pre-flight C2/C3, fix round 2 R5). Ruling R9 (fix round 4): the model's free
+ * text is never shown to any player, so the only model strings a player can see
+ * are card fields (a rule term, a region, a meal description, a pantry item),
+ * and each must pass `filterReply` and `touchesHealth`. The model can never
+ * write and can never verify a dish, so a claim of either fails, except in a
+ * short fixed list of negated phrasings; a loose "any negation" test is never used.
  */
 
 export type FilterFail =
@@ -21,26 +21,7 @@ export type FilterFail =
   | 'medical_dose'
   | 'eat_less_praise';
 
-/**
- * The trigger that replaces a failed reply. `safety_claim` falls back to
- * `didnt_understand` when the context has no dish and no rule (pre-flight
- * C34); the turn decides that.
- */
-export const REPLACEMENT: Readonly<Record<FilterFail, string>> = Object.freeze({
-  empty: 'didnt_understand',
-  truncated: 'didnt_understand',
-  markdown: 'didnt_understand',
-  banned_word: 'didnt_understand',
-  safety_claim: 'rule.severe_label_reminder',
-  write_claim: 'write.not_done',
-  sells: 'allowance.explain',
-  medical_dose: 'rule.medical_deflect',
-  eat_less_praise: 'didnt_understand',
-});
-
-/** 7.6b.5's limit. */
-const MAX_SENTENCES = 3;
-/** A longer reply loses sentences from the end until it fits (fix round 1, I6). */
+/** A longer string fails as `truncated` (fix round 1, I6). */
 const MAX_CHARS = 400;
 const SENTENCE_SPLIT = /(?<=[.!?])\s+|\n+/;
 
@@ -77,9 +58,8 @@ const SELLS = /\b(gu[i1l!|]ld|subscription|subscribe|premium|upgrade|membership)
 const MEDICAL_DOSE = /\b\d+(\.\d+)?\s?(mg|mcg|ml|milligrams?)\b|\b(antihistamines?|benadryl|ibuprofen|paracetamol|acetaminophen|aspirin|piriton|cetirizine|loratadine|zyrtec|claritin|gaviscon|rennie|calpol|nurofen|epi[- ]?pens?)\b/i;
 const PRAISE = /\b(proud|well done|good job|nice work|great)\b/i;
 const LESS = /\b(only|skip\w*|less|light|nothing but|just (a |one )?(coffee|tea))\b/i;
-const IM_A_PAN = /\bi'?m a pan\b/i;
 
-/** R2: medicines, and words about whether food is safe or fits a rule. */
+/** Medicines, and words about whether food is safe or fits a rule. */
 const MEDICINE_WORDS =
   /\b(antihistamines?|benadryl|ibuprofen|paracetamol|tablets?|pills?|epi[- ]?pens?|doses?|mg|piriton|zyrtec|claritin|cetirizine|loratadine|gaviscon|rennie|calpol|nurofen|aspirin)\b/i;
 const FIT_WORDS =
@@ -125,14 +105,10 @@ const SENTENCE_CHECKS: readonly [FilterFail, (s: string) => boolean][] = [
   ['eat_less_praise', (s) => PRAISE.test(s) && LESS.test(s)],
 ];
 
-/**
- * Checks the model's reply, sentence by sentence (every sentence, before any is
- * cut). A reply that passes keeps at most three sentences, and loses those
- * saying "I'm a pan" when the previous Pan reply said it too.
- */
+/** Checks a model-sourced string, sentence by sentence; one that passes comes back in its normalised form. */
 export function filterReply(
   text: string,
-  opts: { finish: 'stop' | 'tool_calls' | 'length' | 'other'; previousPanText: string | null },
+  opts: { finish: 'stop' | 'tool_calls' | 'length' | 'other' },
 ): { ok: true; text: string } | { ok: false; reason: FilterFail } {
   const trimmed = screenText(text).trim();
   if (trimmed === '') return { ok: false, reason: 'empty' };
@@ -142,31 +118,12 @@ export function filterReply(
   for (const [reason, fails] of SENTENCE_CHECKS) {
     if (sentences.some((s) => fails(straight(s)))) return { ok: false, reason };
   }
-  let kept = sentences;
-  if (opts.previousPanText !== null && IM_A_PAN.test(straight(opts.previousPanText)) && IM_A_PAN.test(straight(trimmed))) {
-    kept = kept.filter((s) => !IM_A_PAN.test(straight(s)));
-  }
-  kept = kept.slice(0, MAX_SENTENCES);
-  while (kept.length > 1 && kept.join(' ').length > MAX_CHARS) kept = kept.slice(0, -1);
-  if (kept.length === 0) return { ok: false, reason: 'empty' };
-  if (kept[0].length > MAX_CHARS) return { ok: false, reason: 'truncated' };
-  return { ok: true, text: kept.join(' ') };
+  if (trimmed.length > MAX_CHARS) return { ok: false, reason: 'truncated' };
+  return { ok: true, text: sentences.join(' ') };
 }
 
-const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-/**
- * R2 (fix round 1): on a turn that is not a health turn, model text that names
- * one of the player's rule words, the dish on screen, a medicine, or whether
- * food is safe or fits is never shown; the turn says the scripted
- * `mentor.check_card` line instead. `words` are lower-case names (rule
- * targets, their kinds and aliases, rule-term phrases, the dish title).
- */
-export function touchesHealth(text: string, words: readonly string[]): boolean {
+/** R5: a card string that names a medicine, or whether food is safe or fits, never reaches a card. */
+export function touchesHealth(text: string): boolean {
   const t = screenText(text).toLowerCase();
-  if (MEDICINE_WORDS.test(t) || FIT_WORDS.test(t)) return true;
-  return words.some((w) => {
-    const forms = [w, `${w}s`, `${w}es`, ...(w.endsWith('s') ? [w.slice(0, -1)] : [])].filter((f) => f.trim() !== '');
-    return forms.some((f) => new RegExp(`(^|[^\\p{L}\\p{N}])${escapeRegExp(f)}(?=$|[^\\p{L}\\p{N}])`, 'u').test(t));
-  });
+  return MEDICINE_WORDS.test(t) || FIT_WORDS.test(t);
 }

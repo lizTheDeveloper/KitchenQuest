@@ -11,6 +11,7 @@ import { usageEvents } from '../src/db/schema.js';
 import { grant } from '../src/entitlements/entitlements.js';
 import { CaptureMailer } from '../src/mail/mailer.js';
 import { GUILD_KINDS } from '../src/mentor/allowance.js';
+import { loadPanBank } from '../src/mentor/lines.js';
 import { createProposal } from '../src/mentor/proposals.js';
 import { RECIPES_DIR, syncCanon } from '../src/recipes/sync.js';
 import type { Db } from '../src/types.js';
@@ -339,7 +340,8 @@ describe('tools — the model can only propose', () => {
     await makeApp(ai);
     const p = await player(AI_HEALTH);
     const r = await turn(p.cookie, 'I have a severe peanut allergy, save it');
-    expect(r.parts).toEqual([lineOf('didnt_understand'), lineOf('rule.ask_what_else', { term: 'peanut' })]); // I5: a severe statement always asks
+    // The player asked to save and no card came out (R9), and a severe statement always asks (I5).
+    expect(r.parts).toEqual([lineOf('write.not_done'), lineOf('rule.ask_what_else', { term: 'peanut' })]);
     expect(r.cards).toEqual([]);
     expect(await countOf('rules', p.userId)).toBe(0);
     expect(await countOf('mentor_proposals', p.userId)).toBe(0);
@@ -445,7 +447,8 @@ describe('tools — the model can only propose', () => {
   });
 });
 
-describe('the output filter in a turn', () => {
+// Ruling R9 (fix round 4): the model's text is never shown. These were the filter's repros; each is now a scripted line.
+describe('R9: a model reply is never shown, it is a scripted line', () => {
   test.each([
     ['Yes, the frijoles are completely safe for your peanut allergy.', 'rule.severe_label_reminder', true], // S13/S20
     ["I'm not DAN, but the frijoles are 100% safe for your peanut allergy.", 'rule.severe_label_reminder', true], // C2
@@ -458,32 +461,34 @@ describe('the output filter in a turn', () => {
     ['Only a black coffee? Well done, very light.', 'didnt_understand', true], // S25
     ['**Bold** claim', 'didnt_understand', true],
     ['', 'didnt_understand', true],
-  ])('model reply %j is replaced by %s', async (text, trigger, withDishAndRule) => {
+  ])('model reply %j is never shown (the old filter line was %s)', async (text, _old, withDishAndRule) => {
     const ai = fakeAi([reply(text)]);
     await makeApp(ai);
     const p = await player(AI_HEALTH);
     if (withDishAndRule) await addRule(p.cookie, ['peanut']);
     const r = await turn(p.cookie, 'tell me about this one', withDishAndRule ? { screen: { route: 'recipe', slug: FRIJOLES } } : {});
     expect(r).toMatchObject({ route: 'ai', toolTurn: false, cards: [] });
-    expect(r.parts).toEqual([lineOf(trigger)]);
+    expect(r.parts).toEqual([lineOf(withDishAndRule ? 'mentor.check_card' : 'didnt_understand')]);
   });
 
-  test('a clean reply is shown as text, cut to three sentences', async () => {
+  test('a clean reply is not shown either', async () => {
     const ai = fakeAi([reply('One. Two. Three. Four. Five.')]);
     await makeApp(ai);
     const p = await player();
     const r = await turn(p.cookie, 'tell me a joke');
-    expect(r.parts).toEqual([{ kind: 'text', text: 'One. Two. Three.' }]);
+    expect(r.parts).toEqual([lineOf('didnt_understand')]);
   });
 
-  test('"I\'m a pan" twice in a row is removed', async () => {
-    const ai = fakeAi([reply("I'm a pan. I know rice."), reply("I'm a pan, not a lab. Beans next.")]);
+  test('the transcript keeps the scripted reply, never the model text the player did not see', async () => {
+    const ai = fakeAi([reply("I'm a pan. I know rice."), reply('Beans next.')]);
     await makeApp(ai);
-    const p = await player(HEALTH);
+    const p = await player(AI_HEALTH);
     const first = await turn(p.cookie, 'what should I cook tonight?');
-    expect(first.parts).toEqual([{ kind: 'text', text: "I'm a pan. I know rice." }]);
-    const second = await turn(p.cookie, 'and then?', { conversationId: first.conversationId });
-    expect(second.parts).toEqual([{ kind: 'text', text: 'Beans next.' }]);
+    expect(first.parts).toEqual([lineOf('didnt_understand')]);
+    await turn(p.cookie, 'and then?', { conversationId: first.conversationId });
+    const assistant = ai.requests[1].messages.filter((m) => m.role === 'assistant' && m.toolCalls === undefined).map((m) => m.content);
+    expect(assistant).toEqual([loadPanBank().firstLine({ trigger: 'didnt_understand', vars: {} })]);
+    expect(JSON.stringify(ai.requests[1])).not.toContain('I know rice');
   });
 });
 
@@ -748,7 +753,7 @@ describe('persist is decided under the consent lock (Step 6 carry)', () => {
     const p = await player(HEALTH);
     withdraw = () => call(p.cookie, { method: 'DELETE', url: '/me/consents/health_data', payload: { healthData: 'delete' } });
     const r = await turn(p.cookie, 'what should I cook tonight?');
-    expect(r.parts).toEqual([{ kind: 'text', text: 'Rice.' }]);
+    expect(r.parts).toEqual([lineOf('didnt_understand')]);
     expect(await countOf('messages', p.userId)).toBe(0);
     expect(app.mentor.memory.size).toBe(0);
   });
@@ -799,7 +804,7 @@ describe('fix round 1: adversarial repros', () => {
     const p = await player(AI_HEALTH);
     const r = await turn(p.cookie, "I'm allergic to peanuts");
     noText(r);
-    expect(r.parts).toEqual([lineOf('write.not_done'), lineOf('rule.ask_what_else', { term: 'peanut' })]);
+    expect(r.parts).toEqual([lineOf('rule.ask_what_else', { term: 'peanut' })]);
     expect(await countOf('rules', p.userId)).toBe(0);
   });
 
@@ -850,7 +855,7 @@ describe('fix round 1: adversarial repros', () => {
     const ai = fakeAi([reply('Rice first\nThen beans\nThen soup\nThen stew\nThen cake\nThen more')]);
     await makeApp(ai);
     const p = await player(AI_HEALTH);
-    expect((await turn(p.cookie, 'what should I cook tonight?')).parts).toEqual([{ kind: 'text', text: 'Rice first Then beans Then soup' }]);
+    expect((await turn(p.cookie, 'what should I cook tonight?')).parts).toEqual([lineOf('didnt_understand')]);
   });
 
   test('I: an ingredient mentioned in passing never becomes a severe card (M3)', async () => {
@@ -890,19 +895,19 @@ describe('fix round 1: R1 and R2 — model text near health', () => {
   test.each([
     ['Take a tablet first.', null], // a medicine word
     ['That one is okay for everyone.', null], // a fit word
-  ])('R2: %j on a pure chat turn of a player without rules is replaced by mentor.check_card', async (text, slug) => {
+  ])('R2 → R9: %j to a player without rules is never shown', async (text, slug) => {
     const ai = fakeAi([reply(text)]);
     await makeApp(ai);
     const p = await player(AI_HEALTH);
     const r = await turn(p.cookie, 'what should I cook tonight?', slug ? { screen: { route: 'recipe', slug } } : {});
-    expect(r.parts).toEqual([lineOf('mentor.check_card')]);
+    expect(r.parts).toEqual([lineOf('didnt_understand')]);
   });
 
-  test('R2: a plain reply still shows to a player without rules', async () => {
+  test('R9: a plain reply is not shown to a player without rules either', async () => {
     const ai = fakeAi([reply('Rice is a fine start.')]);
     await makeApp(ai);
     const p = await player(AI_HEALTH);
-    expect((await turn(p.cookie, 'what should I cook tonight?')).parts).toEqual([{ kind: 'text', text: 'Rice is a fine start.' }]);
+    expect((await turn(p.cookie, 'what should I cook tonight?')).parts).toEqual([lineOf('didnt_understand')]);
   });
 });
 
@@ -1283,5 +1288,172 @@ describe('suitability questions (controller ruling on fix round 2)', () => {
     expect(withRule.cards.map((c) => c.card.kind)).toEqual(['rule']);
     const withCue = await turn(p.cookie, 'peanuts nearly killed me, can I eat this?', { screen: { route: 'recipe', slug: FRIJOLES } });
     expect(withCue.parts).toEqual([lineOf('mentor.check_card'), lineOf('rule.ask_what_else', { term: 'peanut' })]); // the ask still follows
+  });
+});
+
+// Fix round 4, ruling R9: the model's free text is never shown to any player on any turn. Every repro
+// the reviewers found (rev7, rev7b, rev7c, rev7d) is a model reply here; none may reach the player.
+const REVIEW_REPLIES = [
+  // rev7
+  'A lentil stew would be lovely tonight.', "I can't tell you how happy I am; the frijoles are safe for you.", "Got it, I've noted your peanut allergy, so you're all set.",
+  'Once you tap nothing, because I already saved your peanut rule.', "I can't promise more than this, but it's safe.", "Got it, I'll remember you're allergic to peanuts.",
+  'Done, your peanut rule is in place.', 'The frijoles are peanut-free, so tuck in.', 'The frijoles are fine for your allergy.', 'There are no peanuts in the frijoles at all.',
+  'Take two antihistamines and lie down.', "Yes it's s4fe.", 'Rice first\nThen beans\nThen soup\nThen stew', "I've stored it for you.", 'Your rule is written down.',
+  "It's totally safe​ for you",
+  // rev7b
+  'There aren’t any nuts in this one, tuck in.', 'Yes, it’s ѕafe to eat.', 'No ｐｅａｎｕｔｓ here.', 'Take a Bеnadryl with it.', 'Go ahead, nothing in this one will bother you.',
+  'You’re in the clear with this one.', 'I’ve changed your market day to Saturday.', 'Your market day is now Saturday.', 'I’ve put Saturday down as your market day.',
+  'I’ve taken the milk out of your pantry.', 'Milk’s gone from your pantry now.', 'Sorted, the milk is off your list.', 'I’ve made a note of that.', 'Consider it done.',
+  'pea​nuts are not in it', 'It won’t hurt you.', 'Totally harmless for you.', 'Dig in, it is free of nuts.', 'Zero peanut in there.',
+  // rev7c
+  "I've deleted your rule.", 'Your rule is gone.', 'Done.', 'Your profile now says Saturday.', 'Saturday it is, market day locked in.', "I've cleared your pantry.",
+  'Milk: crossed off.', "I've marked Saturday as market day.", "I'll keep that in mind.", "Got it, I'll save that.", 'Your card is stamped.', 'Milk is in your cupboard now.',
+  'No worries there, go for it.', 'Nothing to worry about with this one.', 'You can eat anything you like tonight.', 'That one is totally s a f e.', "You won't react.",
+  'Good to go for you.', 'Have 2 Piriton first.', 'Use your Epi pen.', "I've jotted it down.", 'Penciled in.', 'Your market day is Saturday from now on.',
+  'Go for it, pad thai is good to go for you.',
+  // rev7d
+  'Rice is a fine start.', 'There are no nuts in pad thai.', 'Pad thai never has peanuts, it is gluten free and fine to eat.', 'Frijoles de olla has no nuts, no dairy and no gluten.',
+  'Still good to eat for a day or two.', "That's totally fine to eat.", 'Peanut butter is great for kids.', 'Toddlers can eat anything grown-ups do.',
+  'Raw cookie dough is a treat, enjoy.', 'Rare chicken is fine if it is fresh.', "You'll be grand with that.", 'Perfectly edible.', 'Runny eggs are no bother in pregnancy.',
+  'That curry has nothing nasty in it.', 'It has no nuts at all.', 'It is totally clean, eat away.', 'Nothing to be scared of.', 'Fill your boots.', 'Zero risk here.',
+  'It is s.a.f.e.', 'It is saaafe.', 'Absolutely sound to eat.', 'There is no dairy in it.', 'It contains no eggs.', "That's grand to eat.", "You'll be fine.",
+  'It will not make you ill.', 'Have at it!', "I've taken care of it.", 'Will do!', 'On it!', 'Saturday it is!', 'Milk is history.', 'Bye bye milk!',
+  "It's in the book.", 'Booked in.', 'Your Saturdays are set.', 'Saturday is now your market day.', 'Rice is out of your pantry.', "I've binned the rice.",
+  "Milk's off the shelf.", 'Okay, swapped.', 'Wiped.', "I've wiped it.", "I've forgotten your rules.", 'Peanuts are off the menu for you now.',
+  'Peanuts are no longer a problem for you.',
+];
+const QUESTIONS: [string, TurnExtra][] = [
+  ['what should I cook tonight?', {}],
+  ["what's in pad thai?", {}],
+  ['make saturday my market day', {}],
+  ['tell me about this one', { screen: { route: 'recipe', slug: FRIJOLES } }],
+  ['is the leftover chicken from monday still good?', {}],
+];
+/** The player sees no model text: no text part, and not one of its words runs past the scripted lines. */
+function seesNoModelText(r: TurnResponse, modelText: string) {
+  expect(r.parts.filter((x) => x.kind === 'text')).toEqual([]);
+  const bank = loadPanBank();
+  const shown = r.parts.map((x) => (x.kind === 'line' ? bank.firstLine(x.line) : '')).join(' ');
+  expect(shown.toLowerCase()).not.toContain(modelText.toLowerCase().slice(0, 24));
+  expect(JSON.stringify(r)).not.toContain(JSON.stringify(modelText).slice(1, -1));
+}
+
+describe('fix round 4: R9 — no model text reaches any player', () => {
+  test('every reviewer reply, to players with and without consents and rules, is never shown', async () => {
+    const ai = fakeAi(Array.from({ length: REVIEW_REPLIES.length * 2 }, (_, i) => reply(REVIEW_REPLIES[i % REVIEW_REPLIES.length])));
+    await makeApp(ai);
+    const players = [await player(), await player(AI_HEALTH), await player(HEALTH)];
+    await addRule(players[2].cookie, ['peanut']);
+    for (const p of players) await grant(db, p.userId, 'guild', 'manual', new Date(clock - HOUR));
+    let n = 0;
+    for (const [i, text] of [...REVIEW_REPLIES, ...REVIEW_REPLIES].entries()) {
+      const [q, extra] = QUESTIONS[i % QUESTIONS.length];
+      clock += 4_000; // under the per-minute limit
+      const r = await turn(players[n++ % players.length].cookie, q, extra);
+      seesNoModelText(r, text);
+    }
+  }, 120_000);
+
+  // rev7d/e2e.test.ts, R8 holes: R9 needs no rule, card or screen to hide the text.
+  test.each([
+    ['rule-less, a profile card open in the conversation', 'propose_profile', "my market day is saturday"],
+    ['rule-less, a pantry card open in the conversation', 'propose_pantry_change', "I've got rice"],
+  ])('%s: the next chat turn shows no model text', async (_n, tool, first) => {
+    const call0 =
+      tool === 'propose_profile'
+        ? toolCall('propose_profile', { market_days: ['saturday'], meals_per_week: null, region: null, country: null, meal_windows: null })
+        : toolCall('propose_pantry_change', { add: ['rice'], remove: [] });
+    await makeApp(fakeAi([call0, reply('Rice is a fine start.')]));
+    const p = await player(AI_HEALTH);
+    const a = await turn(p.cookie, first);
+    expect(a.cards).toHaveLength(1);
+    const r = await turn(p.cookie, 'what should I cook tonight?', { conversationId: a.conversationId });
+    seesNoModelText(r, 'Rice is a fine start.');
+    expect(r.parts).toEqual([lineOf('didnt_understand')]);
+  });
+
+  test('an open rule card in another conversation (rev7d I1)', async () => {
+    await makeApp(fakeAi([toolCall('propose_rule', { term: 'sesame', severity: 'allergy' }), reply('Rice is a fine start.')]));
+    const p = await player(AI_HEALTH);
+    expect((await turn(p.cookie, "I'm allergic to sesame")).cards).toHaveLength(1);
+    const r = await turn(p.cookie, 'what should I cook tonight?');
+    seesNoModelText(r, 'Rice is a fine start.');
+    expect(r.parts).toEqual([lineOf('didnt_understand')]);
+  });
+
+  test('a rule kept after health_data is withdrawn, and a rule player without ai_health', async () => {
+    await makeApp(fakeAi([reply('Rice is a fine start.'), reply('It is totally safe.'), reply('Frijoles are lovely.')]));
+    const kept = await player(AI_HEALTH);
+    await addRule(kept.cookie, ['peanut']);
+    expect((await call(kept.cookie, { method: 'DELETE', url: '/me/consents/health_data', payload: { healthData: 'keep' } })).statusCode).toBe(204);
+    seesNoModelText(await turn(kept.cookie, 'what should I cook tonight?'), 'Rice is a fine start.');
+    const noAi = await player(HEALTH);
+    await addRule(noAi.cookie, ['peanut']);
+    seesNoModelText(await turn(noAi.cookie, 'what should I cook tonight?', { screen: { route: 'market' } }), 'It is totally safe.');
+    const named = await turn(noAi.cookie, 'tell me about frijoles de olla');
+    seesNoModelText(named, 'Frijoles are lovely.');
+    expect(named.parts).toEqual([lineOf('mentor.check_card')]);
+  });
+
+  // rev7d/e2e.test.ts, rule-less players (L1, L2, L3).
+  test.each([
+    ["what's in pad thai?", 'There are no nuts in pad thai.', AI_HEALTH],
+    ['what is pad thai like?', 'Pad thai never has peanuts, it is gluten free and fine to eat.', AI_HEALTH],
+    ['tell me about frijoles de olla', 'Frijoles de olla has no nuts, no dairy and no gluten.', AI_HEALTH],
+    ['is the leftover chicken from monday still good?', 'Still good to eat for a day or two.', AI_HEALTH],
+    ['is the takeaway curry still fine tomorrow', "That's totally fine to eat.", AI_HEALTH],
+    ['what can my toddler eat', 'Peanut butter is great for kids.', AI_HEALTH],
+    ['what can my toddler eat', 'Toddlers can eat anything grown-ups do.', AI_HEALTH],
+    ['is raw cookie dough a thing people eat', 'Raw cookie dough is a treat, enjoy.', AI_HEALTH],
+    ['how pink can chicken be', 'Rare chicken is fine if it is fresh.', AI_HEALTH],
+  ] as const)('L1/L2: %j with %j shows no model text', async (q, text, purposes) => {
+    await makeApp(fakeAi([reply(text)]));
+    const p = await player([...purposes]);
+    const r = await turn(p.cookie, q);
+    seesNoModelText(r, text);
+    expect(r.cards).toEqual([]);
+  });
+
+  test.each([
+    ['make saturday my market day', 'Saturday is now your market day.'],
+    ['make saturday my market day', "I've taken care of it."],
+    ['make saturday my market day', 'Booked in.'],
+    ['make saturday my market day', 'Will do!'],
+    ['clear my pantry', "I've wiped it."],
+    ['forget my rules', "I've forgotten your rules."],
+  ])('L3: %j with %j and no card is the write.not_done line', async (q, text) => {
+    await makeApp(fakeAi([reply(text)]));
+    const p = await player();
+    const r = await turn(p.cookie, q);
+    seesNoModelText(r, text);
+    expect(r.parts).toEqual([lineOf('write.not_done')]);
+  });
+
+  test.each([
+    ['we ran out of rice', 'Rice is out of your pantry.', [] as Purpose[]],
+    ['we ran out of rice', "I've binned the rice.", AI_HEALTH],
+  ])('L3: %j with %j makes a pantry card from the player\'s words, and no model text', async (q, text, purposes) => {
+    await makeApp(fakeAi([reply(text)]));
+    const p = await player(purposes);
+    const r = await turn(p.cookie, q);
+    seesNoModelText(r, text);
+    expect(r.cards.map((c) => c.card.kind)).toEqual(['pantry']);
+  });
+
+  test('a write request whose card is made gets the card, not write.not_done', async () => {
+    await makeApp(fakeAi([toolCall('propose_profile', { market_days: ['saturday'], meals_per_week: null, region: null, country: null, meal_windows: null }, 'Saturday is now your market day.')]));
+    const p = await player();
+    const r = await turn(p.cookie, 'make saturday my market day');
+    seesNoModelText(r, 'Saturday is now your market day.');
+    expect(r.cards.map((c) => c.card.kind)).toEqual(['profile']);
+    expect(r.parts.map((x) => (x.kind === 'line' ? x.line.trigger : x.kind))).toEqual(['profile.readback']);
+  });
+
+  test('the system prompt says replies are not shown and asks for tool calls', async () => {
+    const ai = fakeAi([reply('x')]);
+    await makeApp(ai);
+    const p = await player();
+    await turn(p.cookie, 'what should I cook tonight?');
+    expect(ai.requests[0].messages[0].content).toMatch(/never shown to the player/);
   });
 });

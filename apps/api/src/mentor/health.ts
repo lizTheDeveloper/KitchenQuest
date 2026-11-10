@@ -1,4 +1,4 @@
-import { classifyTurn, mentionsHealthTerm, normalizeName, parseRuleStatement, severityFromText, type Rule } from '@kitchenquest/core';
+import { classifyTurn, mentionsHealthTerm, parseRuleStatement, severityFromText } from '@kitchenquest/core';
 import type { Catalog } from '../catalog.js';
 
 /**
@@ -20,27 +20,3 @@ export function isHealthText(text: string, catalog: Catalog): boolean {
   );
 }
 
-/**
- * Every word that names one of the player's rules, lower-case: each target's
- * name and aliases, every kind of it (isA descendants) and everything it is a
- * kind of (isA ancestors) with theirs, and the
- * phrases of a rule term with the same targets. R2 screens model text with them.
- */
-export function ruleWords(rules: readonly Rule[], catalog: Catalog): string[] {
-  const { graph } = catalog;
-  const words = new Set<string>();
-  for (const rule of rules) {
-    const ids = rule.target.ids.filter((id) => graph.has(id));
-    // Its kinds and what it is a kind of (fix round 2, R7: "there aren't any nuts in this" for a peanut rule).
-    for (const id of [...ids, ...ids.flatMap((id) => graph.descendants(id)), ...ids.flatMap((id) => graph.ancestors(id))]) {
-      const node = graph.get(id);
-      for (const label of [node.name, ...(node.aliases ?? [])]) words.add(normalizeName(label));
-    }
-    const sorted = [...rule.target.ids].sort();
-    for (const term of catalog.ruleTerms) {
-      const t = [...term.ids].sort();
-      if (t.length === sorted.length && t.every((id, i) => id === sorted[i])) for (const p of term.phrases) words.add(normalizeName(p));
-    }
-  }
-  return [...words];
-}

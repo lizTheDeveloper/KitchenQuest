@@ -2,7 +2,7 @@
 import { classifyTurn } from '@kitchenquest/core';
 import { expect, test } from 'vitest';
 import { defaultCatalog } from '../catalog.js';
-import { isHealthText, ruleWords } from './health.js';
+import { isHealthText } from './health.js';
 
 const catalog = defaultCatalog();
 
@@ -33,17 +33,6 @@ test.each(['what should I cook tonight?', 'tell me a joke', 'my market day is sa
   expect(isHealthText(text, catalog)).toBe(false),
 );
 
-test('ruleWords covers names, aliases, kinds and rule-term phrases', () => {
-  const words = ruleWords(
-    [
-      { id: 'a', target: { kind: 'ingredient', ids: ['milk'] }, type: 'avoid', severity: 'intolerance' },
-      { id: 'b', target: { kind: 'category', ids: ['shellfish'] }, type: 'avoid', severity: 'allergy' },
-    ],
-    catalog,
-  );
-  expect(words).toEqual(expect.arrayContaining(['milk', 'dairy', 'lactose', 'shellfish', 'prawn']));
-});
-
 // Fix round 2: the re-review's gate readings (rev7b/r2 and r3).
 test.each([
   'can I eat this one?', 'is this ok for me?', 'milc makes me sick', 'egs give me a rash', 'my kid cant have soi', 'nutz make me ill', 'fsh makes me throw up',
@@ -56,12 +45,6 @@ test.each(['what should I cook tonight?', 'we finished it', 'change my market da
   '%j is not (fix round 2)',
   (text) => expect(isHealthText(text, catalog)).toBe(false),
 );
-
-test('ruleWords include what a target is a kind of (R7)', () => {
-  expect(ruleWords([{ id: 'p', target: { kind: 'ingredient', ids: ['peanut'] }, type: 'avoid', severity: 'allergy' }], catalog)).toEqual(
-    expect.arrayContaining(['peanut', 'groundnut', 'nut']),
-  );
-});
 
 // Fix round 3: the re-review's gate hunt (rev7c/gate.test.ts).
 test.each([

@@ -8,7 +8,6 @@ import {
   isSuitabilityQuestion,
   matchDish,
   normalizeTurn,
-  normalizeName,
   parseRuleStatement,
   preRoute,
   severityFromText,
@@ -32,18 +31,17 @@ import { consentHeldIn, hasConsent, type Tx } from '../consent/ledger.js';
 import type { Keyring } from '../crypto/keyring.js';
 import { canonRecipes, conversations } from '../db/schema.js';
 import { addDays } from '../meals/service.js';
-import { loadRules } from '../rules/store.js';
 import type { Db } from '../types.js';
 import { recordUsage } from '../usage/usage.js';
 import { aiTurnsLeft, recordAiCost, type BudgetGuard } from './allowance.js';
 import { appendMessages, bumpTurn, openConversation, recentMessages, type StoredMessage } from './conversations.js';
-import { filterReply, REPLACEMENT, touchesHealth, type FilterFail } from './filter.js';
-import { isHealthText, ruleWords } from './health.js';
+import { isHealthText } from './health.js';
 import { line, type PanBank } from './lines.js';
 import type { MemoryFlags, MemoryHistory } from './memory.js';
 import { applyPostChecks, severeTermsLeftOut, statesSevere } from './postchecks.js';
-import { buildPromptContext, minimiseHistory, renderMessages, renderPanParts, type PanPrompt, type PromptContext } from './prompt.js';
+import { buildPromptContext, minimiseHistory, renderMessages, type PanPrompt } from './prompt.js';
 import { createProposal, hasOpenHealthProposal } from './proposals.js';
+import { isWriteRequest } from './requests.js';
 import { MENTOR_TOOLS, parseToolCall, type ToolArgs } from './tools.js';
 
 export interface TurnDeps {
@@ -67,7 +65,7 @@ type Opened = { conversationId: string; turnSeq: number; healthData: boolean; ai
  * How much of the model a turn may use. `full`: every propose tool (with
  * `ai_health`) or `propose_profile` only (without, fix round 1 R4).
  * `rule_help`: the C6 exemption let a capped turn through, so only
- * `propose_rule` is offered and the model's text is dropped (R3).
+ * `propose_rule` is offered (R3).
  */
 type Mode = 'full' | 'rule_help';
 
@@ -131,7 +129,7 @@ async function promptInputs(deps: TurnDeps, userId: string, req: TurnRequest, op
   });
   const history = await recentMessages(deps.db, deps.keyring, deps.memory, userId, opened.conversationId, opened.healthData, now);
   const sent = aiHealth ? history : minimiseHistory(history, deps.bank, deps.catalog);
-  return { ctx, history, sent, aiHealth };
+  return { ctx, sent, aiHealth };
 }
 
 interface Reply {
@@ -140,7 +138,7 @@ interface Reply {
   toolTurn: boolean;
 }
 
-/** Stage 7: each validated, post-checked call becomes a card or a refusal line. The model's text is dropped. */
+/** Stage 7: each validated, post-checked call becomes a card or a refusal line. The model's text is never used (R9). */
 function cardsFromCalls(
   deps: TurnDeps,
   calls: ToolArgs[],
@@ -210,36 +208,16 @@ function cardsFromCalls(
   return { parts, cards, toolTurn: true };
 }
 
-/** The written line for a filter failure; a safety claim gets the label reminder only when there is a dish or a rule (pre-flight C34). */
-function replacementFor(reason: FilterFail, ctx: Pick<PromptContext, 'dish' | 'rules'>): string {
-  if (reason === 'safety_claim' && ctx.dish === null && (ctx.rules?.length ?? 0) === 0) return 'didnt_understand';
-  return REPLACEMENT[reason];
-}
-
 /**
- * Stage 8: no card-making call. The model's text is shown only on a pure chat
- * turn (fix round 2, R6; round 3, R8): not a health turn (R1), a player with
- * no rule and no rule card open, no dish on screen, and the model returned no tool call (one offered and dropped means the text went
- * with it). Otherwise a filter failure gets its line and anything else a
- * scripted line. On a pure chat turn the filtered text is still screened for
- * the player's rule words, medicines and food safety (R2).
+ * Stage 8: no card came out. Ruling R9 (fix round 4): the model's free text is
+ * never shown to any player on any turn, so the reply is a scripted line read
+ * from the player's own words: `write.not_done` when they asked for a record to
+ * change, `mentor.check_card` when a dish is on screen or named, else
+ * `didnt_understand`. The health asks are added after.
  */
-function textReply(
-  result: Extract<AiResult, { ok: true }>,
-  ctx: PromptContext,
-  previousPanText: string | null,
-  turn: { health: boolean; hasRules: boolean; dishNamed: boolean },
-  screenWords: () => string[],
-): Reply {
-  const filtered = filterReply(result.text, { finish: result.finish, previousPanText });
-  const lineReply = (trigger: string): Reply => ({ parts: [line(trigger)], cards: [], toolTurn: false });
-  if (!filtered.ok) return lineReply(replacementFor(filtered.reason, ctx));
-  // R8 (fix round 3): a player with any rule, or with a rule card open, never sees model text.
-  const pureChat = !turn.health && !turn.hasRules && ctx.dish === null && result.toolCalls.length === 0;
-  if (!pureChat) return lineReply(turn.dishNamed ? 'mentor.check_card' : 'didnt_understand');
-  return touchesHealth(filtered.text, screenWords())
-    ? lineReply('mentor.check_card')
-    : { parts: [{ kind: 'text', text: filtered.text }], cards: [], toolTurn: false };
+function scriptedReply(stripped: string, dishNamed: boolean): Reply {
+  const trigger = isWriteRequest(stripped) ? 'write.not_done' : dishNamed ? 'mentor.check_card' : 'didnt_understand';
+  return { parts: [line(trigger)], cards: [], toolTurn: false };
 }
 
 /** Locks the caller's conversation row (FOR UPDATE); false when it is gone (forgotten mid-turn). */
@@ -262,8 +240,7 @@ interface FinishInput {
   raw: string;
   stripped: string;
   result: Extract<AiResult, { ok: true }>;
-  ctx: PromptContext;
-  previousPanText: string | null;
+  dishOnScreen: boolean;
   health: boolean;
   mode: Mode;
   offered: readonly AiTool[];
@@ -293,27 +270,26 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
     await recordUsage(tx, userId, 'mentor_text', 1, f.result.usage.costMicroUsd, now);
     const persist = await consentHeldIn(tx, userId, 'health_data', now);
     const recipes = await tx.select({ slug: canonRecipes.slug, title: canonRecipes.title }).from(canonRecipes);
-    const rules = await loadRules(tx, deps.keyring, userId);
-    const hasRules = rules.length > 0 || f.opened.openHealthCard;
-    const dishNamed = f.ctx.dish !== null || matchDish(f.stripped, recipes) !== null;
-    const screenWords = () => [
-      ...ruleWords(rules, deps.catalog),
-      ...(f.ctx.dish === null ? [] : [normalizeName(f.ctx.dish.title), normalizeName(f.ctx.dish.title.replace(/\s*\([^)]*\)\s*$/, ''))]),
-    ];
+    const dishNamed = f.dishOnScreen || matchDish(f.stripped, recipes) !== null;
     let reply: Reply;
     if (calls.length > 0) reply = cardsFromCalls(deps, calls, f.req, persist, recipes);
-    else if (f.mode === 'rule_help') reply = { parts: [], cards: [], toolTurn: false }; // R3: the text is dropped
-    else reply = textReply(f.result, f.ctx, f.previousPanText, { health: f.health, hasRules, dishNamed }, screenWords);
+    else if (f.mode === 'rule_help') reply = { parts: [], cards: [], toolTurn: false }; // R3: rule help only
+    else reply = scriptedReply(f.stripped, dishNamed);
+    // A bare "didn't understand" gives way to any ask that follows.
+    const dropBareFallback = () => {
+      if (reply.parts.length === 1 && reply.parts[0].kind === 'line' && reply.parts[0].line.trigger === 'didnt_understand') reply.parts = [];
+    };
 
     // I5: a severe statement always ends with a rule outcome, naming the missed ingredient when code knows it.
     const keptRuleTerms = calls.flatMap((c) => (c.name === 'propose_rule' ? [c.args.term] : []));
     const missed = severeTermsLeftOut(f.raw, keptRuleTerms, graph);
     if (missed !== null || (statesSevere(f.raw, graph) && !hasRuleOutcome(reply))) {
+      dropBareFallback();
       reply.parts.push(line('rule.ask_what_else', missed === null ? {} : { term: missed }));
     }
     // A health statement is never silently lost (fix round 1 ruling on call 3): a health turn
     // that made no card at all, or whose model rule was dropped (C4), with no rule outcome,
-    // asks plainly. A bare "didn't understand" gives way to the ask.
+    // asks plainly.
     // A question whether a dish suits the player, with no rule statement and no severity cue, is
     // answered by the dish card alone: it is a question, not a health statement (controller ruling).
     // Fix round 3 (A): only when nothing else in the message is health, and only for a dish on
@@ -329,8 +305,7 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
     const proposedRule = f.result.toolCalls.some((c) => c.name === 'propose_rule' && offered.has(c.name));
     const droppedRule = proposedRule && keptRuleTerms.length === 0;
     if (f.health && !suitabilityOnly && !hasRuleOutcome(reply) && (reply.cards.length === 0 || droppedRule)) {
-      const onlyFallback = reply.parts.length === 1 && reply.parts[0].kind === 'line' && reply.parts[0].line.trigger === 'didnt_understand';
-      if (onlyFallback) reply.parts = [];
+      dropBareFallback();
       reply.parts.push(line('rule.ask_keep_off'));
     }
     if (f.mode === 'rule_help' && !hasRuleOutcome(reply)) reply = { parts: [line('rate_limited')], cards: [], toolTurn: false };
@@ -338,11 +313,12 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
 
     if (!(await lockConversation(tx, userId, f.opened.conversationId))) {
       // Forgotten while the model ran: nothing is stored and no card is offered.
-      return respond(f.opened.conversationId, 'ai', reply.parts.filter((p) => p.kind === 'text' || p.kind === 'line'), null, {
+      return respond(f.opened.conversationId, 'ai', reply.parts.filter((p) => p.kind === 'line'), null, {
         toolTurn: reply.toolTurn,
       });
     }
     const ids = reply.cards.map(() => randomUUID());
+    // The transcript holds what the player saw: the scripted reply, never the model's text (R9).
     const msgs: StoredMessage[] = [
       { role: 'player', text: f.stripped },
       { role: 'pan', parts: reply.parts, proposalIds: ids },
@@ -364,8 +340,8 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
 /**
  * One mentor turn. Code goes first and the model goes last; each stage below
  * is one function. Only `propose_*` tools are offered, so a turn can make
- * cards but never write. Neither the player's text nor the model's is ever
- * logged (C-15). `requestId` is for audit events a later stage may add.
+ * cards but never write, and the model's text is never shown (R9). Neither
+ * the player's text nor the model's is ever logged (C-15). `requestId` is for audit events a later stage may add.
  */
 export async function runTurn(deps: TurnDeps, userId: string, req: TurnRequest, requestId: string): Promise<TurnResponse> {
   void requestId;
@@ -399,7 +375,7 @@ export async function runTurn(deps: TurnDeps, userId: string, req: TurnRequest, 
   if ('notice' in avail || deps.ai === null) return respond(id, 'scripted', [], 'notice' in avail ? avail.notice : 'ai_off');
 
   // 6. The model, with minimised context and only the tools this turn may use.
-  const { ctx, history, sent, aiHealth } = await promptInputs(deps, userId, req, opened, now);
+  const { ctx, sent, aiHealth } = await promptInputs(deps, userId, req, opened, now);
   if (health && !aiHealth) return respond(id, 'scripted', [], 'needs_ai_health');
   const offered = toolsFor(avail.mode, aiHealth);
   const result = await deps.ai.complete({ messages: renderMessages(deps.prompt, ctx, sent, stripped, deps.bank), tools: offered });
@@ -407,8 +383,6 @@ export async function runTurn(deps: TurnDeps, userId: string, req: TurnRequest, 
   // N6: the money is counted at once, in its own statement, outside every turn lock.
   await recordAiCost(deps.db, result.usage.costMicroUsd, now);
 
-  // 7–9. Cards or screened text, metered and stored under the consent lock.
-  const lastPan = [...history].reverse().find((m) => m.role === 'pan');
-  const previousPanText = lastPan ? renderPanParts(lastPan.parts, deps.bank) : null;
-  return finishTurn(deps, userId, { opened, req, raw, stripped, result, ctx, previousPanText, health, mode: avail.mode, offered }, now);
+  // 7–9. Cards and scripted lines (never the model's text, R9), metered and stored under the consent lock.
+  return finishTurn(deps, userId, { opened, req, raw, stripped, result, dishOnScreen: ctx.dish !== null, health, mode: avail.mode, offered }, now);
 }
