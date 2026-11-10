@@ -13,17 +13,18 @@ import {
 import { and, desc, eq, gte } from 'drizzle-orm';
 import { audit } from '../audit/audit.js';
 import { lockLiveUser } from '../auth/live-user.js';
+import type { Catalog } from '../catalog.js';
 import { lockConsentIn, type Tx } from '../consent/ledger.js';
+import type { Keyring } from '../crypto/keyring.js';
 import { mentorProposals } from '../db/schema.js';
 import { ApiError } from '../errors.js';
 import { createMealLogIn, deleteMealLogIn } from '../meals/service.js';
 import { changePantryIn, lockUserPantry, restorePantryIn } from '../pantry/service.js';
-import { applyProfilePatchIn, type ProfilePatch } from '../profile/routes.js';
+import { applyProfilePatchIn } from '../profile/routes.js';
 import { createRuleIn, deleteRuleIn, lockUserRules } from '../rules/service.js';
 import { UNDO_WINDOW_MS } from './constants.js';
 import { line, listWords } from './lines.js';
 import { lockProposal, markDecided, peekProposal } from './proposals.js';
-import type { TurnDeps } from './turn.js';
 
 /**
  * The write guard (spec §7.6b.1). A proposal card becomes a write only here,
@@ -39,13 +40,23 @@ import type { TurnDeps } from './turn.js';
  * ever taken (Step 6 carry), and the services re-take only locks already held.
  */
 
-type ConfirmDeps = Pick<TurnDeps, 'keyring' | 'catalog'>;
+/** What the guard needs of the turn's deps (`TurnDeps` has both): sealing, and the graph and rule terms. */
+export interface ConfirmDeps {
+  keyring: Keyring;
+  catalog: Catalog;
+}
 
 const notFound = () => new ApiError(404, 'not_found', 'Proposal not found');
 const closed = () => new ApiError(409, 'proposal_closed', 'This card is no longer open');
 
 /** The log.logged `{meal}` values (pre-flight C39). */
-const MEAL_WORD: Readonly<Record<MealSlot, string>> = { breakfast: 'breakfast', lunch: 'lunch', dinner: 'dinner', snack: 'a snack', other: 'meal' };
+const MEAL_WORD: Readonly<Record<MealSlot, string>> = {
+  breakfast: 'breakfast',
+  lunch: 'lunch',
+  dinner: 'dinner',
+  snack: 'a snack',
+  other: 'meal',
+};
 
 /** Takes the locks a proposal of `kind` needs before its row: the advisory lock, then consent when `withConsent`. */
 async function lockForKind(tx: Tx, userId: string, kind: ProposalKind, withConsent: boolean, at: Date): Promise<void> {
@@ -92,7 +103,8 @@ export async function confirmProposalIn(
   if (p === null) throw notFound();
   if (p.status !== 'open') throw closed();
   // The stored flag and the card itself: either one makes it severe.
-  if ((p.severe || isSevereCard(p.card)) && channel !== 'tap') throw new ApiError(400, 'tap_required', 'A severe rule needs a tap on its card');
+  if ((p.severe || isSevereCard(p.card)) && channel !== 'tap')
+    throw new ApiError(400, 'tap_required', 'A severe rule needs a tap on its card');
 
   let card = p.card;
   if (edits?.severity !== undefined) {
@@ -119,7 +131,7 @@ export async function confirmProposalIn(
       break;
     }
     case 'profile': {
-      const { before } = await applyProfilePatchIn(tx, userId, card.patch as ProfilePatch, at);
+      const { before } = await applyProfilePatchIn(tx, userId, card.patch, at);
       // Only the keys the card changed are put back on undo.
       undo = Object.fromEntries(Object.keys(card.patch).map((k) => [k, before[k as keyof typeof before]]));
       parts = [line('schedule.set', { summary: card.summary })];
@@ -127,17 +139,29 @@ export async function confirmProposalIn(
     }
     case 'pantry': {
       // Exactly the rows resolved when the card was proposed; names are never matched again (Step 5 carry).
-      const { removed, addedIds } = await changePantryIn(tx, deps, userId, { add: card.add, removeNames: [], removeIds: card.removeIds ?? [] }, at, requestId);
+      const { removed, addedIds } = await changePantryIn(
+        tx,
+        deps,
+        userId,
+        { add: card.add, removeNames: [], removeIds: card.removeIds ?? [] },
+        at,
+        requestId,
+      );
       undo = { removed, addedIds } satisfies PantryUndo;
       parts = [];
       if (card.add.length > 0) parts.push(line('pantry.added', { items: listWords(card.add.map((a) => a.name)) }));
-      if (removed.length > 0) parts.push(line('pantry.removed', { items: listWords([...new Set(removed.map((r) => r.name))]) }));
+      if (removed.length > 0)
+        parts.push(line('pantry.removed', { items: listWords([...new Set(removed.map((r) => r.name))]) }));
       if (parts.length === 0) parts.push(line('pantry.not_found', { items: listWords(card.remove) }));
       break;
     }
   }
   await markDecided(tx, p.id, 'confirmed', channel, writeRef, undo, deps.keyring, userId, at);
-  await audit(tx, { actorKind: 'user', actorId: userId, subjectUserId: userId, action: 'mentor.confirm', target: p.id, requestId }, at);
+  await audit(
+    tx,
+    { actorKind: 'user', actorId: userId, subjectUserId: userId, action: 'mentor.confirm', target: p.id, requestId },
+    at,
+  );
   const trail: TrailEntry = {
     id: p.id,
     origin: 'server',
@@ -153,13 +177,24 @@ export async function confirmProposalIn(
  * `not_found`, 409 `proposal_closed` as confirm. No advisory or consent lock:
  * nothing health is written (user row → proposal row, in the global order).
  */
-export async function rejectProposalIn(tx: Tx, deps: ConfirmDeps, userId: string, proposalId: string, at: Date, requestId?: string): Promise<{ parts: ReplyPart[] }> {
+export async function rejectProposalIn(
+  tx: Tx,
+  deps: ConfirmDeps,
+  userId: string,
+  proposalId: string,
+  at: Date,
+  requestId?: string,
+): Promise<{ parts: ReplyPart[] }> {
   await lockLiveUser(tx, userId);
   const p = await lockProposal(tx, deps.keyring, userId, proposalId, at);
   if (p === null) throw notFound();
   if (p.status !== 'open') throw closed();
   await markDecided(tx, p.id, 'rejected', null, null, null, deps.keyring, userId, at);
-  await audit(tx, { actorKind: 'user', actorId: userId, subjectUserId: userId, action: 'mentor.reject', target: p.id, requestId }, at);
+  await audit(
+    tx,
+    { actorKind: 'user', actorId: userId, subjectUserId: userId, action: 'mentor.reject', target: p.id, requestId },
+    at,
+  );
   return { parts: [line(p.kind === 'rule' ? 'rule.not_quite' : 'card.rejected')] };
 }
 
@@ -208,7 +243,7 @@ export async function undoWriteIn(
       if (p.writeRef !== null) await goneIsFine(() => deleteMealLogIn(tx, userId, p.writeRef!, at, requestId));
       break;
     case 'profile':
-      await applyProfilePatchIn(tx, userId, (p.undo ?? {}) as ProfilePatch, at);
+      await applyProfilePatchIn(tx, userId, p.undo ?? {}, at);
       break;
     case 'pantry': {
       const u = (p.undo ?? { removed: [], addedIds: [] }) as PantryUndo;
@@ -216,20 +251,28 @@ export async function undoWriteIn(
         await restorePantryIn(tx, deps, userId, u.removed, u.addedIds, at, requestId);
       } catch (e) {
         // Thrown before anything is deleted or inserted, so the transaction is still clean.
-        if (e instanceof ApiError && e.code === 'too_many_items') return { parts: [line('pantry.undo_full')], undone: false };
+        if (e instanceof ApiError && e.code === 'too_many_items')
+          return { parts: [line('pantry.undo_full')], undone: false };
         throw e;
       }
       break;
     }
   }
   await markDecided(tx, p.id, 'undone', null, null, null, deps.keyring, userId, at);
-  await audit(tx, { actorKind: 'user', actorId: userId, subjectUserId: userId, action: 'mentor.undo', target: p.id, requestId }, at);
-  return { parts: [p.card.kind === 'rule' ? line('rule.voided', { ingredient: p.card.display.ingredient }) : line('undo')], undone: true };
+  await audit(
+    tx,
+    { actorKind: 'user', actorId: userId, subjectUserId: userId, action: 'mentor.undo', target: p.id, requestId },
+    at,
+  );
+  return {
+    parts: [p.card.kind === 'rule' ? line('rule.voided', { ingredient: p.card.display.ingredient }) : line('undo')],
+    undone: true,
+  };
 }
 
 /** The caller's newest confirmed proposal still within UNDO_WINDOW_MS at `at`, or null. No lock. */
 export async function latestUndoable(tx: Tx, userId: string, at: Date): Promise<string | null> {
-  const [row] = await tx
+  const rows = await tx
     .select({ id: mentorProposals.id })
     .from(mentorProposals)
     .where(
@@ -241,5 +284,5 @@ export async function latestUndoable(tx: Tx, userId: string, at: Date): Promise<
     )
     .orderBy(desc(mentorProposals.decidedAt), desc(mentorProposals.id))
     .limit(1);
-  return row?.id ?? null;
+  return rows.at(0)?.id ?? null;
 }

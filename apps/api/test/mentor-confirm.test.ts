@@ -1,5 +1,13 @@
 // M4 Step 8: the write guard — tap confirm, reject, undo; locks and races on real Postgres.
-import { buildMealCard, buildPantryCard, buildProfileCard, buildRuleCard, type ConfirmResponse, type ProposalCard, type RuleCard } from '@kitchenquest/core';
+import {
+  buildMealCard,
+  buildPantryCard,
+  buildProfileCard,
+  buildRuleCard,
+  type ConfirmResponse,
+  type ProposalCard,
+  type RuleCard,
+} from '@kitchenquest/core';
 import type { FastifyInstance, InjectOptions } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'vitest';
 import { buildApp } from '../src/app.js';
@@ -48,7 +56,11 @@ afterEach(async () => {
 const call = (cookie: string, opts: InjectOptions) => app.inject({ ...opts, cookies: { kq_session: cookie } });
 
 async function grantHealth(cookie: string) {
-  const res = await call(cookie, { method: 'POST', url: '/me/consents', payload: { purpose: 'health_data', noticeVersion: NOTICES.health_data!.version } });
+  const res = await call(cookie, {
+    method: 'POST',
+    url: '/me/consents',
+    payload: { purpose: 'health_data', noticeVersion: NOTICES.health_data!.version },
+  });
   expect(res.statusCode).toBe(201);
 }
 
@@ -67,27 +79,42 @@ const ruleCard = (term: string, severity: 'anaphylactic' | 'allergy' | 'intolera
 const PEANUT = () => ruleCard('peanut', 'anaphylactic');
 
 async function seed(userId: string, card: ProposalCard): Promise<string> {
-  return (await db.transaction((tx) => createProposal(tx, config.keyring, { userId, conversationId: null, turnSeq: null, card }, new Date(clock)))).proposalId;
+  return (
+    await db.transaction((tx) =>
+      createProposal(tx, config.keyring, { userId, conversationId: null, turnSeq: null, card }, new Date(clock)),
+    )
+  ).proposalId;
 }
 
 const confirm = (cookie: string, id: string, payload: object = { channel: 'tap' }) =>
   call(cookie, { method: 'POST', url: `/mentor/proposals/${id}/confirm`, payload });
-const reject = (cookie: string, id: string) => call(cookie, { method: 'POST', url: `/mentor/proposals/${id}/reject`, payload: {} });
-const undo = (cookie: string, id: string) => call(cookie, { method: 'POST', url: `/mentor/writes/${id}/undo`, payload: {} });
+const reject = (cookie: string, id: string) =>
+  call(cookie, { method: 'POST', url: `/mentor/proposals/${id}/reject`, payload: {} });
+const undo = (cookie: string, id: string) =>
+  call(cookie, { method: 'POST', url: `/mentor/writes/${id}/undo`, payload: {} });
 
 const count = async (table: string, userId: string) =>
   (await sql<{ n: number }[]>`select count(*)::int as n from ${sql(table)} where user_id = ${userId}`)[0].n;
 const proposal = async (id: string) =>
-  (await sql<{ status: string; channel: string | null; write_ref: string | null; undo_sealed: Buffer | null }[]>`
-    select status, channel, write_ref, undo_sealed from mentor_proposals where id = ${id}`)[0];
+  (
+    await sql<{ status: string; channel: string | null; write_ref: string | null; undo_sealed: Buffer | null }[]>`
+    select status, channel, write_ref, undo_sealed from mentor_proposals where id = ${id}`
+  )[0];
 const lineOf = (trigger: string, vars: Record<string, string> = {}) => ({ kind: 'line', line: { trigger, vars } });
-const rulesOf = async (cookie: string) => (await call(cookie, { method: 'GET', url: '/rules' })).json<{ rules: { severity: string }[] }>().rules;
-const pantryOf = async (cookie: string) => (await call(cookie, { method: 'GET', url: '/pantry' })).json<{ items: { id: string; name: string }[] }>().items;
+const rulesOf = async (cookie: string) =>
+  (await call(cookie, { method: 'GET', url: '/rules' })).json<{ rules: { severity: string }[] }>().rules;
+const pantryOf = async (cookie: string) =>
+  (await call(cookie, { method: 'GET', url: '/pantry' })).json<{ items: { id: string; name: string }[] }>().items;
 async function addPantry(cookie: string, names: string[]) {
   const res = await call(cookie, {
     method: 'POST',
     url: '/pantry/changes',
-    payload: { add: names.map((name) => ({ name, ingredientId: null })), removeNames: [], removeIds: [], confirmed: true },
+    payload: {
+      add: names.map((name) => ({ name, ingredientId: null })),
+      removeNames: [],
+      removeIds: [],
+      confirmed: true,
+    },
   });
   expect(res.statusCode).toBe(200);
   return res.json<{ items: { id: string; name: string }[] }>().items;
@@ -120,7 +147,17 @@ describe('confirm by tap', () => {
     for (const card of [PEANUT(), ruleCard('sesame', 'allergy')]) {
       const id = await seed(p.userId, card);
       const err = await db
-        .transaction((tx) => confirmProposalIn(tx, { keyring: config.keyring, catalog }, p.userId, id, 'typed_yes', undefined, new Date(clock)))
+        .transaction((tx) =>
+          confirmProposalIn(
+            tx,
+            { keyring: config.keyring, catalog },
+            p.userId,
+            id,
+            'typed_yes',
+            undefined,
+            new Date(clock),
+          ),
+        )
         .catch((e: unknown) => e);
       expect(err).toBeInstanceOf(ApiError);
       expect(err).toMatchObject({ status: 400, code: 'tap_required' });
@@ -130,7 +167,17 @@ describe('confirm by tap', () => {
     const garlic = await seed(p.userId, ruleCard('garlic', 'intolerance'));
     await sql`update mentor_proposals set severe = true where id = ${garlic}`;
     const err = await db
-      .transaction((tx) => confirmProposalIn(tx, { keyring: config.keyring, catalog }, p.userId, garlic, 'typed_yes', undefined, new Date(clock)))
+      .transaction((tx) =>
+        confirmProposalIn(
+          tx,
+          { keyring: config.keyring, catalog },
+          p.userId,
+          garlic,
+          'typed_yes',
+          undefined,
+          new Date(clock),
+        ),
+      )
       .catch((e: unknown) => e);
     expect(err).toMatchObject({ code: 'tap_required' });
     expect(await count('rules', p.userId)).toBe(0);
@@ -139,7 +186,13 @@ describe('confirm by tap', () => {
   test('channel typed_yes over HTTP → 400, nothing written; the body is strict', async () => {
     const p = await player();
     const id = await seed(p.userId, ruleCard('garlic', 'intolerance'));
-    for (const payload of [{ channel: 'typed_yes' }, {}, { channel: 'tap', extra: 1 }, { channel: 'tap', edits: { severity: 'mild' } }, { channel: 'tap', edits: { note: 'x' } }]) {
+    for (const payload of [
+      { channel: 'typed_yes' },
+      {},
+      { channel: 'tap', extra: 1 },
+      { channel: 'tap', edits: { severity: 'mild' } },
+      { channel: 'tap', edits: { note: 'x' } },
+    ]) {
       const res = await confirm(p.cookie, id, payload);
       expect(res.statusCode, JSON.stringify(payload)).toBe(400);
       expect(res.json().error.code).toBe('bad_request');
@@ -195,7 +248,9 @@ describe('confirm by tap', () => {
   test('deleted account → 401', async () => {
     const p = await player();
     const id = await seed(p.userId, PEANUT());
-    expect((await call(p.cookie, { method: 'DELETE', url: '/me', payload: { confirm: 'delete my account' } })).statusCode).toBe(204);
+    expect(
+      (await call(p.cookie, { method: 'DELETE', url: '/me', payload: { confirm: 'delete my account' } })).statusCode,
+    ).toBe(204);
     const res = await confirm(p.cookie, id);
     expect(res.statusCode).toBe(401);
   });
@@ -217,9 +272,14 @@ describe('confirm by tap', () => {
     const p = await player();
     const snack = await seed(p.userId, buildMealCard({ eatenOn: TODAY, slot: 'snack', description: 'toast' }));
     const r = await confirm(p.cookie, snack);
-    expect(r.json<ConfirmResponse>().parts).toEqual([lineOf('log.logged', { meal: 'a snack' }), lineOf('log.estimate_note')]);
+    expect(r.json<ConfirmResponse>().parts).toEqual([
+      lineOf('log.logged', { meal: 'a snack' }),
+      lineOf('log.estimate_note'),
+    ]);
     const other = await seed(p.userId, buildMealCard({ eatenOn: TODAY, slot: 'other', description: 'soup' }));
-    expect((await confirm(p.cookie, other)).json<ConfirmResponse>().parts[0]).toEqual(lineOf('log.logged', { meal: 'meal' }));
+    expect((await confirm(p.cookie, other)).json<ConfirmResponse>().parts[0]).toEqual(
+      lineOf('log.logged', { meal: 'meal' }),
+    );
     expect(await count('meal_logs', p.userId)).toBe(2);
   });
 
@@ -296,7 +356,10 @@ describe('undo', () => {
     const p = await player();
     const id = await seed(p.userId, PEANUT());
     expect((await confirm(p.cookie, id)).statusCode).toBe(200);
-    expect((await call(p.cookie, { method: 'DELETE', url: '/me/consents/health_data', payload: { healthData: 'keep' } })).statusCode).toBe(204);
+    expect(
+      (await call(p.cookie, { method: 'DELETE', url: '/me/consents/health_data', payload: { healthData: 'keep' } }))
+        .statusCode,
+    ).toBe(204);
     expect((await undo(p.cookie, id)).statusCode).toBe(200);
     expect(await count('rules', p.userId)).toBe(0);
   });
@@ -313,13 +376,22 @@ describe('undo', () => {
 
   test('profile undo restores the previous market days; pantry undo restores the milk', async () => {
     const p = await player();
-    expect((await call(p.cookie, { method: 'PUT', url: '/profile', payload: { marketDays: [2], mealsPerWeek: 5 } })).statusCode).toBe(200);
+    expect(
+      (await call(p.cookie, { method: 'PUT', url: '/profile', payload: { marketDays: [2], mealsPerWeek: 5 } }))
+        .statusCode,
+    ).toBe(200);
     const prof = await seed(p.userId, buildProfileCard({ marketDays: [6] }));
     expect((await confirm(p.cookie, prof)).statusCode).toBe(200);
-    const profile = async () => (await call(p.cookie, { method: 'GET', url: '/profile' })).json<{ marketDays: number[]; mealsPerWeek: number | null }>();
+    const profile = async () =>
+      (await call(p.cookie, { method: 'GET', url: '/profile' })).json<{
+        marketDays: number[];
+        mealsPerWeek: number | null;
+      }>();
     expect(await profile()).toMatchObject({ marketDays: [6], mealsPerWeek: 5 });
     // A change made after the confirm to a key the card did not touch survives the undo.
-    expect((await call(p.cookie, { method: 'PUT', url: '/profile', payload: { mealsPerWeek: 9 } })).statusCode).toBe(200);
+    expect((await call(p.cookie, { method: 'PUT', url: '/profile', payload: { mealsPerWeek: 9 } })).statusCode).toBe(
+      200,
+    );
     expect((await undo(p.cookie, prof)).json()).toEqual({ parts: [lineOf('undo')] });
     expect(await profile()).toMatchObject({ marketDays: [2], mealsPerWeek: 9 });
 
@@ -329,7 +401,10 @@ describe('undo', () => {
     const laterMilk = (await addPantry(p.cookie, ['Milk'])).find((i) => i.name === 'Milk')!;
     const pan = await seed(p.userId, card);
     const c = await confirm(p.cookie, pan);
-    expect(c.json<ConfirmResponse>().parts).toEqual([lineOf('pantry.added', { items: 'eggs' }), lineOf('pantry.removed', { items: 'milk' })]);
+    expect(c.json<ConfirmResponse>().parts).toEqual([
+      lineOf('pantry.added', { items: 'eggs' }),
+      lineOf('pantry.removed', { items: 'milk' }),
+    ]);
     expect((await pantryOf(p.cookie)).map((i) => i.id)).toContain(laterMilk.id);
     expect((await pantryOf(p.cookie)).map((i) => i.name).sort()).toEqual(['Milk', 'eggs']);
     expect((await undo(p.cookie, pan)).json()).toEqual({ parts: [lineOf('undo')] });
@@ -339,15 +414,25 @@ describe('undo', () => {
   test('a pantry undo past the item cap says so plainly and changes nothing; it works once there is room', async () => {
     const p = await player(false);
     const [milk] = await addPantry(p.cookie, ['milk']);
-    const pan = await seed(p.userId, { ...buildPantryCard({ add: [], remove: ['milk'] }, catalog.graph), removeIds: [milk.id] });
+    const pan = await seed(p.userId, {
+      ...buildPantryCard({ add: [], remove: ['milk'] }, catalog.graph),
+      removeIds: [milk.id],
+    });
     expect((await confirm(p.cookie, pan)).statusCode).toBe(200);
-    await addPantry(p.cookie, Array.from({ length: MAX_PANTRY_ITEMS }, (_, i) => `item ${i}`));
+    await addPantry(
+      p.cookie,
+      Array.from({ length: MAX_PANTRY_ITEMS }, (_, i) => `item ${i}`),
+    );
     const full = await undo(p.cookie, pan);
     expect(full.statusCode).toBe(200);
     expect(full.json()).toEqual({ parts: [lineOf('pantry.undo_full')] });
     expect(await proposal(pan)).toMatchObject({ status: 'confirmed' });
     expect(await count('pantry_items', p.userId)).toBe(MAX_PANTRY_ITEMS);
-    const room = await call(p.cookie, { method: 'POST', url: '/pantry/changes', payload: { add: [], removeNames: ['item 0'], removeIds: [], confirmed: true } });
+    const room = await call(p.cookie, {
+      method: 'POST',
+      url: '/pantry/changes',
+      payload: { add: [], removeNames: ['item 0'], removeIds: [], confirmed: true },
+    });
     expect(room.statusCode).toBe(200);
     expect((await undo(p.cookie, pan)).json()).toEqual({ parts: [lineOf('undo')] });
     expect((await pantryOf(p.cookie)).map((i) => i.name)).toContain('milk');
@@ -373,7 +458,9 @@ describe('audit and logs', () => {
     expect((await undo(p.cookie, id)).statusCode).toBe(200);
     const rej = await seed(p.userId, ruleCard('garlic', 'intolerance'));
     expect((await reject(p.cookie, rej)).statusCode).toBe(200);
-    const rows = await sql<{ action: string; target: string | null }[]>`select action, target from audit_events where subject_user_id = ${p.userId} and action like 'mentor.%' order by at, action`;
+    const rows = await sql<
+      { action: string; target: string | null }[]
+    >`select action, target from audit_events where subject_user_id = ${p.userId} and action like 'mentor.%' order by at, action`;
     expect(rows).toHaveLength(3);
     expect(rows).toEqual(
       expect.arrayContaining([
@@ -392,12 +479,22 @@ describe('races on two connections', () => {
   test('confirm and a health_data withdraw-with-delete, at once, never deadlock (20 repetitions)', async () => {
     const p = await player();
     for (let i = 0; i < 20; i++) {
-      const id = await seed(p.userId, i % 2 === 0 ? PEANUT() : buildMealCard({ eatenOn: TODAY, slot: 'lunch', description: 'toast' }));
+      const id = await seed(
+        p.userId,
+        i % 2 === 0 ? PEANUT() : buildMealCard({ eatenOn: TODAY, slot: 'lunch', description: 'toast' }),
+      );
       const [c, w] = await Promise.all([
         confirm(p.cookie, id),
         call(p.cookie, { method: 'DELETE', url: '/me/consents/health_data', payload: { healthData: 'delete' } }),
       ]);
-      expect([[200, 204], [403, 204], [404, 204]], `rep ${i}: ${c.body}`).toContainEqual([c.statusCode, w.statusCode]);
+      expect(
+        [
+          [200, 204],
+          [403, 204],
+          [404, 204],
+        ],
+        `rep ${i}: ${c.body}`,
+      ).toContainEqual([c.statusCode, w.statusCode]);
       expect(await count('rules', p.userId)).toBe(0);
       expect(await count('meal_logs', p.userId)).toBe(0);
       expect(await count('mentor_proposals', p.userId)).toBe(0);
@@ -410,8 +507,17 @@ describe('races on two connections', () => {
     for (let i = 0; i < 10; i++) {
       const id = await seed(p.userId, ruleCard('garlic', 'intolerance'));
       const before = await count('rules', p.userId);
-      const [c, f] = await Promise.all([confirm(p.cookie, id), call(p.cookie, { method: 'DELETE', url: '/mentor/conversations' })]);
-      expect([[200, 204], [404, 204]], `rep ${i}`).toContainEqual([c.statusCode, f.statusCode]);
+      const [c, f] = await Promise.all([
+        confirm(p.cookie, id),
+        call(p.cookie, { method: 'DELETE', url: '/mentor/conversations' }),
+      ]);
+      expect(
+        [
+          [200, 204],
+          [404, 204],
+        ],
+        `rep ${i}`,
+      ).toContainEqual([c.statusCode, f.statusCode]);
       expect(await count('rules', p.userId)).toBe(before + (c.statusCode === 200 ? 1 : 0));
       expect(await count('mentor_proposals', p.userId)).toBe(0);
       // The confirmed rule (if any) is the player's to keep; clear it for the next round.
