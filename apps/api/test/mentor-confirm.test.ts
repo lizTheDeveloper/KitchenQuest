@@ -411,6 +411,20 @@ describe('undo', () => {
     expect((await pantryOf(p.cookie)).map((i) => i.name).sort()).toEqual(['Milk', 'milk']);
   });
 
+  test('undo restores the pre-confirm value even when the patched key was edited since (fix round 1, M2)', async () => {
+    const p = await player(false);
+    expect((await call(p.cookie, { method: 'PUT', url: '/profile', payload: { marketDays: [2] } })).statusCode).toBe(
+      200,
+    );
+    const prof = await seed(p.userId, buildProfileCard({ marketDays: [6] }));
+    expect((await confirm(p.cookie, prof)).statusCode).toBe(200);
+    expect((await call(p.cookie, { method: 'PUT', url: '/profile', payload: { marketDays: [3] } })).statusCode).toBe(
+      200,
+    );
+    expect((await undo(p.cookie, prof)).json()).toEqual({ parts: [lineOf('undo')], undone: true });
+    expect((await call(p.cookie, { method: 'GET', url: '/profile' })).json()).toMatchObject({ marketDays: [2] });
+  });
+
   test('a pantry undo past the item cap says so plainly and changes nothing; it works once there is room', async () => {
     const p = await player(false);
     const [milk] = await addPantry(p.cookie, ['milk']);
@@ -528,7 +542,12 @@ describe('races on two connections', () => {
   test('undo and a health_data withdraw-with-delete, at once, never deadlock (20 repetitions, rule and meal)', async () => {
     const p = await player();
     for (let i = 0; i < 20; i++) {
-      const id = await seed(p.userId, i % 2 === 0 ? ruleCard('garlic', 'intolerance') : buildMealCard({ eatenOn: TODAY, slot: 'lunch', description: 'toast' }));
+      const id = await seed(
+        p.userId,
+        i % 2 === 0
+          ? ruleCard('garlic', 'intolerance')
+          : buildMealCard({ eatenOn: TODAY, slot: 'lunch', description: 'toast' }),
+      );
       expect((await confirm(p.cookie, id)).statusCode).toBe(200);
       const [u, w] = await Promise.all([
         undo(p.cookie, id),

@@ -140,3 +140,9 @@ test('C-15: no player or model text in the logs across the whole suite', ...);
 - Undecided proposals are deleted as soon as `expires_at` passes (retention job, and `createProposal` purges the user's own expired ones), so a late tap usually finds no row: 404 `not_found`, which the client shows like `proposal_closed`. `lockProposal` still reports 'expired' for a row the purge has not reached yet.
 - A confirm (tap or typed yes) and an undo never lock a conversation row after `lockProposal`: if they touch the conversation at all, they take it first (conversation, then proposal), per the README lock order.
 - `markDecided('undone', null, null, null, …)` keeps `channel` and `write_ref` (COALESCE) and clears the undo payload.
+
+**Fix round 1 notes:**
+- An undo of a rule or meal locks the written row (`rules` / `meal_logs`, `FOR UPDATE` by `write_ref`) before `lockProposal`, in table order, as a withdraw-with-delete deletes them. Locking the proposal first deadlocked (40P01).
+- An undo puts back the value from **before the confirm**, even if the player changed it again since. For a profile card that means the patched keys only; keys the card did not touch are left alone. For a pantry card it puts back exactly the removed rows and removes exactly the added ids; items added since are untouched. The window is short (UNDO_WINDOW_MS), and that is the trade-off.
+- `POST /mentor/writes/:id/undo` returns `{ parts, undone }`. `undone: false` means nothing was reversed (a vanished card → `undo.nothing`, a full pantry → `pantry.undo_full`).
+- A typed undo the service refuses with a 400 (or a zod 400) answers `didnt_understand`, like confirm.

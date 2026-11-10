@@ -38,7 +38,8 @@ import { lockProposal, markDecided, peekProposal } from './proposals.js';
  *
  * Lock order (README, pre-flight C13): live user → the kind's advisory lock
  * (`rules:` or `pantry:`) → `health_data` consent (rule and meal cards; never
- * for an undo) → the proposal row (`lockProposal`). No conversation row is
+ * for an undo) → for an undo of a rule or meal, the written row (`rules` /
+ * `meal_logs`, fix round 1 C1) → the proposal row (`lockProposal`). No conversation row is
  * ever taken (Step 6 carry), and the services re-take only locks already held.
  */
 
@@ -188,6 +189,12 @@ export async function rejectProposalIn(
  * is needed. A pantry that has filled up since (too_many_items) answers
  * `pantry.undo_full` and changes nothing, and the write stays undoable.
  * Nothing earned is touched (§6). `undone` says whether a write was reversed.
+ *
+ * It restores the value from BEFORE the confirm, even if the player edited it
+ * since (fix round 1, M2): a profile card puts back its patched keys only (keys
+ * it did not touch stay as they are now); a pantry card puts back exactly the
+ * rows it removed and removes exactly the ids it added, so items added since
+ * stay. The short window (UNDO_WINDOW_MS) bounds this.
  */
 export async function undoWriteIn(
   tx: Tx,

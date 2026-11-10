@@ -98,3 +98,5 @@ test('cards pass axe and keep focus order', ...);   // expectNoA11yViolations wi
 **Carry from data task:** a recipe-level check finding has `ingredient: ""` (sulphite rule on an empty recipe) — render it as a recipe-level reminder, never a blank row.
 
 **Carry from Step 9:** with server and local cards both open, a typed "yes" must never confirm while more than one card (of either kind) is open — show confirm.tap_card; a write that fails (card closed, network) shows a scripted state line and a retry, never silence.
+
+**Carry from Step 8 fix round 1:** `POST /mentor/writes/:id/undo` returns `{ parts, undone }`. Drop the trail entry only when `undone` is true. With `undone: false` (a vanished card → `undo.nothing`; a full pantry → `pantry.undo_full`, still undoable within the window) show the parts. Keep the entry while `pantry.undo_full` applies and the window is open, and drop it for `undo.nothing`. An undo restores the pre-confirm value even if it was edited since, so the trail's Edit-via-undo re-shows the card built from the confirmed values.
