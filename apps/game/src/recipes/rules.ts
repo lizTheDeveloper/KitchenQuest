@@ -8,15 +8,22 @@ export type RulesState =
 const UNREADABLE_MESSAGE =
   "The rules saved on this device couldn't be read, so some may be missing. Tell the Bureau your rules again to clear this.";
 
+const ACCOUNT_NOT_LOADED_MESSAGE =
+  "Your account's rules couldn't be loaded, so dishes can't be checked. Try again in a moment.";
+
 /**
- * The rules to check dishes against: account rules when the account has answered, else device rules.
+ * The rules to check dishes against. Signed in, the account's rules replace the device's: once they have
+ * loaded they are the source of truth (unreadable device data no longer matters), and until they have, every
+ * check is an error, never the device rules or "no rules". Signed out, account rules are never used.
  * Any doubt is an error, never an empty "ready": saved data that couldn't be read (`rulesUnreadable`),
  * or rules core's `validateRules` rejects (e.g. an ingredient id that was renamed).
  */
 export function activeRules(state: PlayerState, graph: IngredientGraph): RulesState {
-  if (state.rulesUnreadable) return { status: 'error', message: UNREADABLE_MESSAGE };
-  const source = state.accountRules !== null ? 'account' : 'device';
-  const rules = state.accountRules ?? state.localRules;
+  const signedIn = state.account !== null;
+  if (signedIn && state.accountRules === null) return { status: 'error', message: ACCOUNT_NOT_LOADED_MESSAGE };
+  if (!signedIn && state.rulesUnreadable) return { status: 'error', message: UNREADABLE_MESSAGE };
+  const source = signedIn ? 'account' : 'device';
+  const rules = signedIn ? state.accountRules! : state.localRules;
   const problems = validateRules(rules, graph);
   if (problems.length > 0) return { status: 'error', message: problems.join('; ') };
   return { status: 'ready', rules, source };
@@ -30,7 +37,7 @@ export function localDate(now: Date): string {
 
 /** What a card depends on in the player state, as a comparable key: re-render only when this changes. */
 export function cardInputsKey(state: PlayerState): string {
-  return JSON.stringify([state.localRules, state.accountRules, state.rulesUnreadable, state.settings.showCalories]);
+  return JSON.stringify([state.account, state.localRules, state.accountRules, state.rulesUnreadable, state.settings.showCalories]);
 }
 
 /**

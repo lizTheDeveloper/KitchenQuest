@@ -41,7 +41,8 @@ function requireDate(value: string, what: string): string {
  */
 export function recordTechnique(state: ToolkitState, event: TechniqueEvent): ToolkitState {
   const at = requireDate(event.at, 'event date');
-  const old = state.techniques[event.technique];
+  // Own keys only: a technique id such as "__proto__" or "constructor" is data, never an inherited property.
+  const old = Object.hasOwn(state.techniques, event.technique) ? state.techniques[event.technique] : undefined;
   const recipes = old ? [...old.recipes] : [];
   if (event.kind === 'cooked' && !recipes.includes(event.recipe)) recipes.push(event.recipe);
 
@@ -54,7 +55,8 @@ export function recordTechnique(state: ToolkitState, event: TechniqueEvent): Too
     lastUsedAt: old && old.lastUsedAt > at ? old.lastUsedAt : at,
     recipes,
   };
-  return { techniques: { ...state.techniques, [event.technique]: record } };
+  // fromEntries defines own properties, so "__proto__" is stored as a key, not used as a prototype setter.
+  return { techniques: Object.fromEntries([...Object.entries(state.techniques).filter(([k]) => k !== event.technique), [event.technique, record]]) };
 }
 
 function dayNumber(date: string): number {
@@ -76,7 +78,7 @@ export function toolkitRows(state: ToolkitState, today: string, t: FreshnessThre
   return Object.keys(state.techniques)
     .sort()
     .map((technique) => {
-      const r = state.techniques[technique];
+      const r = state.techniques[technique]; // an own key: it came from Object.keys
       return {
         technique,
         tier: r.tier,

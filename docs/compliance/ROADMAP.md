@@ -23,6 +23,7 @@ Tick each item when it lands. Full requirement text is in `2026-11-09-health-dat
 - [x] **C-10** Org/health separation constraint — *M2 (constraint); M12 or the org plan (tables)* — `plans/m2-api/README.md` Global Constraints
 - [ ] **C-10b** Session hygiene — *M2 (Step 3) or M12* — amend `plans/m2-api/step-3.md`
 - [ ] **C-11** E2E consent and free-forever test — *M2* — amend `plans/m2-api/step-8.md`, Step 5, README error codes
+- [ ] **M4 mentor** — *M4* — `plans/m4-mentor/README.md` (Step 12 ticks the items it lands): C-12–C-17, C-34 (code gate and review checklist; the DPA is a founder action), C-39 (neutral age screen, chat child guard; the M12 parts stay open), N-4, N-9
 - [ ] **C-12** Conversation storage — *M3* — `plans/m3-mentor/README.md`
 - [ ] **C-13** AI gateway minimization and consent — *M3* — `plans/m3-mentor/README.md`
 - [ ] **C-14** OpenRouter data policy pinned in code — *M3* — `plans/m3-mentor/README.md`; `apps/api/src/ai/`

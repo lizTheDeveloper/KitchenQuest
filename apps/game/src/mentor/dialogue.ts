@@ -1,7 +1,8 @@
+import { fillLine, resolveTrigger, type Vars } from '@kitchenquest/core/engine';
 import type { LineBank, LineTrigger } from '../content/types';
 
-/** `undefined`, `null` and `''` count as missing, so a line never reads "Hi ." or "Hi null.". */
-export type Vars = Record<string, string | number | null | undefined>;
+// Line filling and trigger fallback live in core (the API's lines use them too).
+export { fillLine, resolveTrigger, type Vars };
 /** `trigger` is the resolved id actually used, which may be a parent of the one asked for. */
 export interface Said { trigger: string; text: string; ai: 'never' | 'allowed' }
 export class DialogueError extends Error {}
@@ -10,35 +11,6 @@ export class DialogueError extends Error {}
 export const COMMON_DEFAULTS: Readonly<Record<string, string>> = { name: 'apprentice' };
 
 const VAR = /\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
-
-/** The trigger to use for `id`: itself, else its nearest dotted ancestor that exists. */
-export function resolveTrigger(bank: LineBank, id: string): string | null {
-  let cur = id;
-  for (;;) {
-    if (Object.hasOwn(bank.triggers, cur)) return cur;
-    const dot = cur.lastIndexOf('.');
-    if (dot < 0) return null;
-    cur = cur.slice(0, dot);
-  }
-}
-
-/** The value of `name` as text, or null when it is absent, `undefined`, `null` or `''`. */
-function varText(vars: Vars, name: string): string | null {
-  if (!Object.hasOwn(vars, name)) return null;
-  const v = vars[name];
-  return v === undefined || v === null || v === '' ? null : String(v);
-}
-
-/** The line with every {var} filled, or null when any is missing. */
-export function fillLine(line: string, vars: Vars): string | null {
-  let missing = false;
-  const out = line.replace(VAR, (_m, name: string) => {
-    const v = varText(vars, name);
-    if (v === null) { missing = true; return ''; }
-    return v;
-  });
-  return missing ? null : out;
-}
 
 /** A safe default for a variable: `(default: X)` / `(default: 'X')` in the trigger's `vars`, else the common one. */
 export function defaultFor(trigger: LineTrigger, name: string): string | null {
@@ -91,7 +63,7 @@ export function createDialogue(
       } else {
         index = 0;
         text = trigger.lines[0].replace(VAR, (_m, name: string) => {
-          const v = varText(vars, name);
+          const v = fillLine(`{${name}}`, vars);
           if (v !== null) return v;
           const d = defaultFor(trigger, name);
           if (d === null) throw new DialogueError(`Dialogue trigger "${resolved}" needs {${name}} and has no default for it`);

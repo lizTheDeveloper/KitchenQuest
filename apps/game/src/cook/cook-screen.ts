@@ -2,10 +2,13 @@ import { recordTechnique, timerSeconds, type ParsedRecipe, type RecipeIngredient
 import { content, graph, techniqueName } from '../content';
 import { getMentor } from '../mentor';
 import { buildRecipeCard, type RecipeCard } from '../recipes/card-model';
+import { renderSafetyStrip } from '../recipes/card-view';
 import { activeRules, cardInputsKey, localDate, watchLocalDate } from '../recipes/rules';
 import { registerScreen, RouteNotFound, type Screen } from '../shell/app';
-import { reducedMotion } from '../shell/motion';
+import { isReducedMotion } from '../shell/motion';
 import { routeHref } from '../shell/router';
+import { announce } from '../ui/announce';
+import { statusLabel } from '../ui/chips';
 import { showBureauForm } from '../ui/bureau-form';
 import { contentText, h } from '../ui/dom';
 import { cookedEvents } from './finish';
@@ -36,10 +39,12 @@ function beep(win: Window): void {
   } catch { /* sound is a nicety */ }
 }
 
+const refusalText = (card: RecipeCard): string => (card.notCookableReason === 'sacred' ? SACRED_TEXT : NOT_COOKABLE_TEXT);
+
 function refusal(card: RecipeCard): HTMLElement {
   return h('section', { class: 'cook-refusal' },
-    contentText('h1', card.title),
-    h('p', { class: 'not-cookable' }, card.notCookableReason === 'sacred' ? SACRED_TEXT : NOT_COOKABLE_TEXT),
+    contentText('h1', card.title, { tabindex: -1 }),
+    h('p', { class: 'not-cookable' }, refusalText(card)),
     h('p', null, h('a', { href: routeHref({ name: 'recipe', slug: card.slug }) }, 'Back to the recipe card')));
 }
 
@@ -78,6 +83,7 @@ function cookScreen(): Screen {
       let forwardMoves = 0;
       let finished = false;
       let stopped = false;
+      const leaving = new AbortController(); // declines the certificate if the player leaves (the back button)
 
       // Wake lock
       const wakeBtn = h('button', { type: 'button', class: 'btn btn-secondary wake-toggle', 'aria-pressed': 'false' }, '☀ Keep screen awake');
@@ -101,11 +107,15 @@ function cookScreen(): Screen {
       const prev = h('button', { type: 'button', class: 'btn btn-secondary' }, '◀ Previous');
       const next = h('button', { type: 'button', class: 'btn btn-primary' }, 'Next step ▶');
       const leave = h('button', { type: 'button', class: 'btn btn-secondary' }, 'Leave cook mode');
-      const progress = h('p', { class: 'cook-progress' });
+      // tabindex -1: where focus goes when a redraw removes the control that had it.
+      const progress = h('p', { class: 'cook-progress', tabindex: -1 });
+      // The dish's safety status stays in view while cooking (❓ and the allergy disclaimer included).
+      let strip = renderSafetyStrip(card);
       el.replaceChildren(
         h('header', { class: 'cook-head' },
           contentText('h1', card.title),
           card.draft ? h('span', { class: 'draft-badge' }, 'Draft recipe') : null,
+          strip,
           h('div', { class: 'cook-head-row' }, progress, wakeBtn),
           wakeNote),
         stepBox, tray,
@@ -132,7 +142,7 @@ function cookScreen(): Screen {
             const visible = `Start ${formatClock(seconds * 1000)} timer`;
             // The accessible name must contain the visible text (WCAG 2.5.3); the words say what "20:00" means.
             const btn = h('button', {
-              type: 'button', class: 'btn btn-secondary timer-start',
+              type: 'button', class: 'btn btn-secondary timer-start', 'data-timer-start': id,
               'aria-label': `${visible}: ${formatDuration(seconds)}, for step ${stepNo}`,
             }, visible);
             btn.addEventListener('click', () => startTimerNow(id, t.name ?? `step ${stepNo}`, stepNo, seconds));
@@ -150,6 +160,19 @@ function cookScreen(): Screen {
         prev.disabled = step === 0;
         next.textContent = step === total - 1 ? 'Done ▶' : 'Next step ▶';
       };
+
+      /** Redraw the step in place for a change in the dish's findings, keeping focus where it was. */
+      const redrawStep = () => {
+        const active = doc.activeElement;
+        const hadFocus = active instanceof HTMLElement && stepBox.contains(active);
+        const timerId = hadFocus ? active.dataset.timerStart ?? null : null;
+        renderStep();
+        if (!hadFocus) return;
+        const same = timerId === null ? null : [...stepBox.querySelectorAll<HTMLElement>('[data-timer-start]')].find((b) => b.dataset.timerStart === timerId);
+        (same ?? progress).focus();
+      };
+      /** What the steps show from the findings: the swap labels per ingredient. */
+      const swapsKey = (c: RecipeCard) => JSON.stringify(c.findings.filter((f) => f.swapLabel !== null).map((f) => [f.ingredient, f.swapLabel]));
 
       // Timers
       const renderTray = () => {
@@ -178,10 +201,9 @@ function cookScreen(): Screen {
         const r = tick(timers, ctx.now().getTime());
         timers = r.timers;
         // Timers follow the wall clock (Date-based), so after a sleep several can finish in one tick: one message.
-        if (announcer && r.finished.length > 0) {
-          const msg = r.finished.map((t) => `Timer finished: ${formatDuration(t.durationMs / 1000)} for step ${t.step}`).join('. ');
-          announcer.textContent = ''; // cleared first so an identical message is announced again
-          announcer.textContent = msg;
+        if (r.finished.length > 0) {
+          // Cleared, then set a moment later, so an identical message is announced again.
+          announce(announcer, r.finished.map((t) => `Timer finished: ${formatDuration(t.durationMs / 1000)} for step ${t.step}`).join('. '));
         }
         for (const t of r.finished) {
           say('cook.timer_done', { step: `step ${t.step}` });
@@ -213,13 +235,14 @@ function cookScreen(): Screen {
         say('cook.done', { dish: cook.dish || card.title, cook: cook.name });
         const form = content.bureau.forms.certificate;
         const names = card.skills.map((s) => techniqueName(s.id)).join(', ');
-        const mql = win.matchMedia('(prefers-reduced-motion: reduce)');
         await showBureauForm(doc.getElementById('overlay-root') ?? doc.body, {
           form: { ...form, fields: form.fields.map((f) => (f.hint ? { ...f, hint: f.hint.replace('{place}', cook.place) } : f)) },
           values: { dish: card.title, taught_by: cook.name, rewards: `Techniques tried: ${names}` },
           stamps: content.bureau.stamps,
-          reducedMotion: reducedMotion(ctx.store.get().settings.reducedMotion, mql),
+          reducedMotion: isReducedMotion(ctx.store, win),
+          signal: leaving.signal,
         });
+        if (leaving.signal.aborted) return; // left during the certificate: the new screen stays
         ctx.navigate({ name: 'kitchen' });
       };
 
@@ -242,8 +265,26 @@ function cookScreen(): Screen {
       // (a rule's phase can start at midnight). Either way a dish that is no longer cookable is refused at once.
       const recheck = () => {
         if (finished || stopped) return;
+        const before = card;
         card = buildCard();
-        if (!card.cookable) { teardown(); el.replaceChildren(refusal(card)); }
+        if (!card.cookable) {
+          teardown();
+          const view = refusal(card);
+          el.replaceChildren(view);
+          view.querySelector<HTMLElement>('h1')!.focus();
+          announce(announcer, refusalText(card));
+          return;
+        }
+        // Still cookable, but the status or findings may have changed: redraw the strip, and the step only when
+        // the swaps it shows changed.
+        if (before.status !== card.status || before.severe !== card.severe || before.rulesError !== card.rulesError
+          || JSON.stringify(before.findings) !== JSON.stringify(card.findings)) {
+          const fresh = renderSafetyStrip(card);
+          strip.replaceWith(fresh);
+          strip = fresh;
+        }
+        if (swapsKey(before) !== swapsKey(card)) redrawStep();
+        if (before.status !== card.status) announce(announcer, `Safety check now: ${statusLabel(card.status)}.`);
       };
       let key = cardInputsKey(ctx.store.get());
       const unsubscribe = ctx.store.subscribe((s) => {
@@ -256,6 +297,7 @@ function cookScreen(): Screen {
 
       function teardown() {
         stopped = true;
+        leaving.abort();
         clearInterval(interval);
         doc.removeEventListener('visibilitychange', tickNow);
         doc.removeEventListener('keydown', onKey);

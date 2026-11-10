@@ -9,6 +9,9 @@ export interface PlayerState {
   /** Set when stored data could not be read, so rules may have been lost. Rule checks must show ❓ until the
    *  player re-enters or confirms their rules (the only thing that clears it). Survives reloads. */
   rulesUnreadable: boolean;
+  /** The player signed out but the server never heard (offline): finish the sign-out before asking /me again,
+   *  so the old session can't sign this device back in. Cleared when logout succeeds or a new sign-in lands. */
+  signOutPending: boolean;
 }
 export const STORE_KEY = 'kq.player.v1';
 const CORRUPT_KEY = `${STORE_KEY}.corrupt`;
@@ -19,6 +22,11 @@ export interface PlayerStore {
   get(): PlayerState;
   update(fn: (s: PlayerState) => PlayerState): PlayerState;
   subscribe(fn: (s: PlayerState) => void): () => void;
+  /**
+   * From now on this tab never touches storage again (changes stay in memory, other tabs' writes are ignored).
+   * "Delete everything" calls it first, so nothing this tab does while deleting can write the data back.
+   */
+  stopSaving(): void;
   /** 'corrupt': stored data was unreadable. 'unsaved': a write failed, so changes live in memory only. */
   readonly notice: 'corrupt' | 'unsaved' | null;
 }
@@ -29,7 +37,7 @@ function freshState(): PlayerState {
     localRules: [], accountRules: null, account: null,
     toolkit: EMPTY_TOOLKIT, cookProgress: null, dialogueHistory: {},
     settings: { showCalories: false, reducedMotion: 'system', familyTable: false, iosNoteDismissed: false },
-    rulesUnreadable: false,
+    rulesUnreadable: false, signOutPending: false,
   };
 }
 
@@ -59,6 +67,7 @@ function merge(p: Record<string, unknown>): PlayerState | null {
   if (has('cookProgress') && p.cookProgress !== null && !(isObj(p.cookProgress) && typeof p.cookProgress.slug === 'string' && typeof p.cookProgress.step === 'number')) return null;
   if (has('dialogueHistory') && !isObj(p.dialogueHistory)) return null;
   if (has('rulesUnreadable') && typeof p.rulesUnreadable !== 'boolean') return null;
+  if (has('signOutPending') && typeof p.signOutPending !== 'boolean') return null;
   if (has('settings') && !isObj(p.settings)) return null;
   const s = (isObj(p.settings) ? p.settings : {});
   const ds = d.settings;
@@ -83,6 +92,7 @@ function merge(p: Record<string, unknown>): PlayerState | null {
       iosNoteDismissed: (s.iosNoteDismissed as boolean | undefined) ?? ds.iosNoteDismissed,
     },
     rulesUnreadable: (has('rulesUnreadable') ? p.rulesUnreadable : d.rulesUnreadable) as boolean,
+    signOutPending: (has('signOutPending') ? p.signOutPending : d.signOutPending) as boolean,
   };
 }
 
@@ -90,17 +100,18 @@ const RANK: Record<Tier, number> = { seen: 0, tried: 1, yours: 2 };
 
 /** Union of two toolkits where nothing earned can go down: max tier, earliest firstAt, latest lastUsedAt. */
 function mergeToolkit(a: ToolkitState, b: ToolkitState): ToolkitState {
-  const out: ToolkitState['techniques'] = { ...a.techniques };
+  // A Map, then fromEntries: technique ids such as "__proto__" or "constructor" stay own data keys.
+  const out = new Map(Object.entries(a.techniques));
   for (const [id, r] of Object.entries(b.techniques)) {
-    const o = out[id];
-    out[id] = !o ? r : {
+    const o = out.get(id);
+    out.set(id, !o ? r : {
       tier: RANK[o.tier] >= RANK[r.tier] ? o.tier : r.tier,
       firstAt: o.firstAt < r.firstAt ? o.firstAt : r.firstAt,
       lastUsedAt: o.lastUsedAt > r.lastUsedAt ? o.lastUsedAt : r.lastUsedAt,
       recipes: [...new Set([...o.recipes, ...r.recipes])],
-    };
+    });
   }
-  return { techniques: out };
+  return { techniques: Object.fromEntries(out) };
 }
 
 /**
@@ -165,6 +176,7 @@ export function createStore(
   let state = freshState();
   // True when we must never write to storage: it can't be read, or the original couldn't be backed up.
   let memoryOnly = storage === null;
+  let stoppedSaving = false;
   const subs = new Set<(s: PlayerState) => void>();
   const notify = () => { for (const f of [...subs]) f(state); };
 
@@ -205,7 +217,7 @@ export function createStore(
   };
 
   events?.addEventListener('storage', (ev) => {
-    if (memoryOnly || !storage) return;
+    if (memoryOnly || stoppedSaving || !storage) return;
     const key = (ev as Event & { key?: string | null }).key;
     if (key !== STORE_KEY && key !== null) return;
     const r = readStored(storage);
@@ -254,6 +266,7 @@ export function createStore(
       return state;
     },
     subscribe(fn) { subs.add(fn); return () => { subs.delete(fn); }; },
+    stopSaving() { stoppedSaving = true; memoryOnly = true; },
     get notice() { return notice; },
   };
 }

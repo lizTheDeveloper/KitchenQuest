@@ -150,6 +150,31 @@ describe('world map', () => {
     expect(await card.textContent()).toContain("Kitchen Quest can't guarantee a dish is safe for your allergy. Always check labels.");
   });
 
+  it('the open visit card follows a rule change from another tab (it never goes stale)', async () => {
+    app = await openApp('/#/map', { reducedMotion: true, seed: { v: 1, localRules: [] } });
+    const { page } = app;
+    await visitLeela(page);
+    await page.getByRole('button', { name: 'See the recipe: Parippu' }).click();
+    const card = page.getByRole('dialog', { name: PARIPPU_TITLE });
+    await card.waitFor();
+    expect(await card.getByRole('button', { name: /Cook it/ }).isDisabled()).toBe(false);
+    // Another tab adds a severe coconut rule: storage changes and this tab hears a storage event.
+    await page.evaluate(({ key, rule }) => {
+      const s = JSON.parse(localStorage.getItem(key)!) as { localRules: unknown[] };
+      s.localRules = [rule];
+      localStorage.setItem(key, JSON.stringify(s));
+      window.dispatchEvent(new StorageEvent('storage', { key }));
+    }, { key: 'kq.player.v1', rule: coconutSevere });
+    await card.getByRole('button', { name: /Cook it/ }).and(page.locator(':disabled')).waitFor();
+    expect(await card.textContent()).toContain("Kitchen Quest can't guarantee a dish is safe for your allergy. Always check labels.");
+    // Still one labelled dialog, its heading focusable, and focus kept inside it.
+    expect(await page.getByRole('dialog').count()).toBe(1);
+    expect(await page.evaluate(() => document.querySelector('.visit-card')!.contains(document.activeElement))).toBe(true);
+    await page.keyboard.press('Escape');
+    await card.waitFor({ state: 'detached' });
+    expect(app.consoleErrors).toEqual([]);
+  });
+
   it('keyboard: Tab reaches the Leela pin, Enter opens the permit, Escape returns focus to the pin', async () => {
     app = await openApp('/#/map', { reducedMotion: true });
     const { page } = app;
@@ -166,6 +191,28 @@ describe('world map', () => {
     expect(await page.getByRole('dialog', { name: 'Travel Permit' }).count()).toBe(0);
     expect(await page.evaluate(() => document.activeElement?.textContent)).toBe(LEELA_PIN);
   });
+
+  for (const from of ['its button', 'the canvas hotspot'] as const) {
+    it(`when an intro replayed from ${from} ends, focus goes to "Hear the intro again"`, async () => {
+      app = await openApp('/#/map', { reducedMotion: true });
+      const { page } = app;
+      await visitLeela(page);
+      if (from === 'its button') {
+        await page.getByRole('button', { name: 'Hear the intro again' }).focus();
+        await page.keyboard.press('Enter');
+      } else {
+        // A canvas click leaves focus on the body, then the scene emits the action.
+        await page.evaluate(() => {
+          (document.activeElement as HTMLElement | null)?.blur();
+          window.dispatchEvent(new CustomEvent('kq:action', { detail: { id: 'intro' } }));
+        });
+      }
+      await dialogueText(page).waitFor();
+      for (let i = 0; i < leela.intro.length; i += 1) await page.keyboard.press('Enter');
+      expect(await page.locator('.dialogue').count()).toBe(0);
+      expect(await page.evaluate(() => document.activeElement?.textContent)).toBe('Hear the intro again');
+    });
+  }
 
   it('while the intro replays, "See the recipe" cannot open the card over it', async () => {
     app = await openApp('/#/map', { reducedMotion: true });

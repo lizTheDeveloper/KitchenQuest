@@ -1,5 +1,22 @@
 import { h } from '../ui/dom';
 
+/** sessionStorage key: this tab's next load must not register the worker (its data was just deleted). */
+export const SKIP_SW_KEY = 'kq.sw.skip-once';
+
+/** Mark this tab so its next load skips registering the worker. Call just before reloading after a delete. */
+export function skipServiceWorkerOnce(session: Storage | null): void {
+  try { session?.setItem(SKIP_SW_KEY, '1'); } catch { /* the worker may come back; nothing else to do */ }
+}
+
+/** True (once) when this load follows a delete; the mark is removed, so the next start registers as usual. */
+export function takeServiceWorkerSkip(session: Storage | null): boolean {
+  try {
+    if (session?.getItem(SKIP_SW_KEY) !== '1') return false;
+    session.removeItem(SKIP_SW_KEY);
+    return true;
+  } catch { return false; }
+}
+
 /** Register the service worker in production builds. Null in dev, where the browser lacks support, or on failure. */
 export async function registerServiceWorker(nav: Navigator, prod: boolean): Promise<ServiceWorkerRegistration | null> {
   if (!prod || !('serviceWorker' in nav)) return null;
@@ -37,10 +54,11 @@ export function noteWaitingUpdate(doc: Document, reg: ServiceWorkerRegistration,
 }
 
 /**
- * "Delete everything on this device" means the offline copy too: delete every Kitchen Quest cache (kq-*) and
- * unregister the worker. Caches that aren't ours are left alone. Each half runs even if the other fails.
+ * "Delete everything on this device" means the offline copy too: unregister the worker, then delete every Kitchen
+ * Quest cache (kq-*). Caches that aren't ours are left alone. Each half runs even if the other fails.
+ * Resolves after `timeoutMs` at the latest, so a stuck browser API never stops the caller's reload.
  */
-export async function deleteOfflineCopy(nav: Navigator, cacheStorage: CacheStorage | undefined): Promise<void> {
+export async function deleteOfflineCopy(nav: Navigator, cacheStorage: CacheStorage | undefined, timeoutMs = 3000): Promise<void> {
   const unregister = async () => {
     if (!('serviceWorker' in nav)) return;
     for (const reg of await nav.serviceWorker.getRegistrations()) await reg.unregister();
@@ -50,5 +68,13 @@ export async function deleteOfflineCopy(nav: Navigator, cacheStorage: CacheStora
     const keys = (await cacheStorage.keys()).filter((k) => k.startsWith('kq-'));
     await Promise.all(keys.map((k) => cacheStorage.delete(k)));
   };
-  await Promise.allSettled([unregister(), clear()]);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<void>((resolve) => { timer = setTimeout(resolve, timeoutMs); });
+  // The worker goes first: while it is still registered it could fill the caches again.
+  const both = (async () => {
+    try { await unregister(); } catch { /* still clear the caches */ }
+    try { await clear(); } catch { /* nothing more to do */ }
+  })();
+  await Promise.race([both, timeout]);
+  clearTimeout(timer);
 }

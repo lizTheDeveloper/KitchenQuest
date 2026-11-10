@@ -1,7 +1,6 @@
 import type { BureauForm } from '../content/types';
 import { contentText, h } from './dom';
-
-const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+import { inertOthers, trapFocus } from './focus-trap';
 
 export function showBureauForm(
   root: HTMLElement,
@@ -9,31 +8,32 @@ export function showBureauForm(
     form: BureauForm; values: Record<string, string>; footnote?: string; reducedMotion: boolean;
     /** The Bureau file's `stamps` map; the stamp text is `stamps[form.stamp]`. */
     stamps?: Record<string, string>;
+    /** Aborted when the screen behind it goes away (the back button): the form is declined and removed. */
+    signal?: AbortSignal;
   },
 ): Promise<'confirm' | 'decline'> {
   const { form } = opts;
-  const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  if (opts.signal?.aborted) return Promise.resolve('decline');
+  const doc = root.ownerDocument;
+  const opener = doc.activeElement instanceof HTMLElement ? doc.activeElement : null;
   // Everything outside the dialog becomes inert (no focus, no clicks, hidden from screen readers).
-  const inerted: HTMLElement[] = [];
-  for (const el of Array.from(root.ownerDocument.body.children)) {
-    if (el instanceof HTMLElement && !el.contains(root) && !el.inert && el.tagName !== 'SCRIPT' && el.id !== 'announcer') {
-      el.inert = true;
-      inerted.push(el);
-    }
-  }
+  const restoreInert = inertOthers(root);
   const titleId = 'bureau-form-title';
 
   return new Promise((resolve) => {
     let settled = false;
-    const finish = (answer: 'confirm' | 'decline') => {
+    const finish = (answer: 'confirm' | 'decline', aborted = false) => {
       if (settled) return;
       settled = true;
       doc.removeEventListener('keydown', onKey, true);
+      opts.signal?.removeEventListener('abort', onAbort);
       backdrop.remove();
-      for (const el of inerted) el.inert = false;
-      opener?.focus();
+      restoreInert();
+      if (!aborted) opener?.focus(); // leaving: the next screen owns focus
       resolve(answer);
     };
+    const onAbort = () => finish('decline', true);
+    opts.signal?.addEventListener('abort', onAbort);
 
     const confirmBtn = contentText('button', form.buttons.confirm, { type: 'button', class: 'btn btn-primary' });
     const declineBtn = form.buttons.decline
@@ -72,19 +72,11 @@ export function showBureauForm(
       stampEl,
     );
     const backdrop = h('div', { class: 'overlay-backdrop' }, dialog);
-    const doc = root.ownerDocument;
 
     function onKey(ev: KeyboardEvent) {
       if (settled) return;
       if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); finish('decline'); return; }
-      if (ev.key !== 'Tab') return;
-      const items = [...dialog.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((e) => !(e as HTMLButtonElement).disabled);
-      if (items.length === 0) { ev.preventDefault(); return; }
-      const first = items[0], last = items[items.length - 1];
-      const active = doc.activeElement;
-      if (!dialog.contains(active)) { ev.preventDefault(); first.focus(); }
-      else if (ev.shiftKey && active === first) { ev.preventDefault(); last.focus(); }
-      else if (!ev.shiftKey && active === last) { ev.preventDefault(); first.focus(); }
+      trapFocus(dialog, ev);
     }
 
     doc.addEventListener('keydown', onKey, true);

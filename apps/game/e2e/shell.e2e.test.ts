@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, inject, it } from 'vitest';
-import { expectNoA11yViolations, expectNoHorizontalScroll, offOrigin, openApp, type OpenedApp } from './helpers';
+import { expectNoA11yViolations, expectNoHorizontalScroll, offOrigin, openApp, openFixture, type OpenedApp } from './helpers';
 
 let app: OpenedApp | null = null;
 afterEach(async () => { await app?.close(); app = null; });
@@ -10,6 +10,19 @@ describe('app shell', () => {
     const { page } = app;
     expect(await page.locator('#view h1').textContent()).toBe('Your kitchen');
     expect(await page.title()).toBe('Your kitchen · Kitchen Quest');
+    expect(app.consoleErrors).toEqual([]);
+  });
+
+  it('`vite dev` serves the game from source: the kitchen and the sign-in page load without errors', async () => {
+    // The app's sprite manifest (step 8) once answered 500 in dev, so the app never started.
+    app = await openFixture('/');
+    const { page } = app;
+    await page.locator('#view h1', { hasText: 'Your kitchen' }).waitFor();
+    const verify = await page.goto(new URL('/auth/verify?token=T0K3N', inject('fixtureUrl')).toString());
+    expect(verify!.headers()['x-frame-options']).toBe('DENY');
+    await page.getByRole('button', { name: 'Sign me in' }).waitFor();
+    // The referrer <meta> stays head's first child even after dev injects /@vite/client.
+    expect(await page.evaluate(() => document.head.firstElementChild?.getAttribute('name'))).toBe('referrer');
     expect(app.consoleErrors).toEqual([]);
   });
 
