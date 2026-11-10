@@ -25,6 +25,7 @@ export const REQUIRED_PAN_TRIGGERS: readonly string[] = [
   'rule.tap_needed',
   'rule.ask_what_else',
   'mentor.check_card',
+  'rule.ask_keep_off',
   'confirm.tap_card',
   'write.not_done',
   'consent.health_first',

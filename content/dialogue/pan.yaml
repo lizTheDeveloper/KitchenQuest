@@ -604,6 +604,14 @@ triggers:
       - "I may have missed {term}. If you need me to watch for it, tell me plainly and I'll read it back."
       - "Before we go on: I may not have caught every ingredient you mentioned. If there's another one to avoid, tell me plainly and I'll read it back."
 
+  rule.ask_keep_off:
+    ai: never
+    when: A health turn ended with no card and no rule read-back (or the model's rule was not the player's own words); this asks plainly so a health statement is never silently lost.
+    notes: "Plain. No jokes. Nothing is saved."
+    lines:
+      - "Tell me what to keep off your plate and how bad it is, and I'll make you a card to stamp."
+      - "If there's something you need to avoid, tell me what it is and how serious, and I'll make you a card to stamp. Nothing's been filed yet."
+
   mentor.check_card:
     ai: never
     when: The model's reply touched a dish's fit, a rule, a medicine or whether food is safe; this line replaces it (Step 7 fix round 1, R2).

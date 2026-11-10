@@ -770,13 +770,13 @@ describe('fix round 1: adversarial repros', () => {
     expect(r.parts).toEqual([lineOf('rule.ask_what_else')]);
   });
 
-  test('R3: rule help past the cap with no rule outcome is the rate_limited line; a meal call is not offered or used', async () => {
+  test('R3: rule help past the cap with no rule card asks plainly; a meal call is not offered or used', async () => {
     const ai = fakeAi([withCalls([{ id: 'm', name: 'propose_meal_log', arguments: JSON.stringify({ slot: null, when: 'today', dish: null, servings: null, description: 'gluten' }) }])]);
     await makeApp(ai);
     const p = await player(AI_HEALTH);
     await seedUsage(p.userId, 15);
     const r = await turn(p.cookie, "I avoid gluten. What's for dinner?");
-    expect(r).toMatchObject({ route: 'ai', cards: [], parts: [lineOf('rate_limited')] });
+    expect(r).toMatchObject({ route: 'ai', cards: [], parts: [lineOf('rule.ask_keep_off')] }); // a health statement is never lost
     expect(await usageRows(p.userId)).toBe(16); // metered as usual
   });
 
@@ -879,8 +879,11 @@ describe('fix round 1: R1 and R2 — model text near health', () => {
     const ai = fakeAi([reply('Peanuts are great in satay.'), reply('It is a lovely dish.')]);
     await makeApp(ai);
     const p = await player(AI_HEALTH);
-    expect((await turn(p.cookie, 'what goes well with peanuts?')).parts).toEqual([lineOf('didnt_understand')]);
-    expect((await turn(p.cookie, 'is the peanut sauce in this?', { screen: { route: 'recipe', slug: FRIJOLES } })).parts).toEqual([lineOf('mentor.check_card')]);
+    expect((await turn(p.cookie, 'what goes well with peanuts?')).parts).toEqual([lineOf('rule.ask_keep_off')]);
+    expect((await turn(p.cookie, 'is the peanut sauce in this?', { screen: { route: 'recipe', slug: FRIJOLES } })).parts).toEqual([
+      lineOf('mentor.check_card'),
+      lineOf('rule.ask_keep_off'),
+    ]);
   });
 
   test.each([
@@ -970,5 +973,46 @@ describe('fix round 1: privacy races', () => {
     const r = (await turning).json<TurnResponse>();
     expect(r).toMatchObject({ route: 'scripted', notice: 'needs_ai_health' });
     expect(ai.requests).toHaveLength(0);
+  });
+});
+
+describe('a health statement is never silently lost (fix round 1 ruling on call 3)', () => {
+  test.each([
+    ['no peanuts for me ever', true],
+    ['no peanuts for me ever', false],
+    ['peanuts make me ill', true],
+    ['peanuts make me ill', false],
+  ])('%j (model proposes a rule: %s) gets a scripted ask and no card', async (text, proposes) => {
+    const ai = fakeAi([proposes ? toolCall('propose_rule', { term: 'peanuts', severity: 'allergy' }, 'Saved!') : reply('Peanuts are tricky.')]);
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    const r = await turn(p.cookie, text);
+    expect(r.cards).toEqual([]);
+    expect(r.parts.filter((x) => x.kind === 'text')).toEqual([]);
+    expect(r.parts.at(-1)).toEqual(lineOf('rule.ask_keep_off'));
+    expect(await countOf('mentor_proposals', p.userId)).toBe(0);
+  });
+
+  test('a meal card on a health turn needs no ask', async () => {
+    const ai = fakeAi([toolCall('propose_meal_log', { slot: 'breakfast', when: 'today', dish: null, servings: null, description: 'toast' })]);
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    const r = await turn(p.cookie, 'I had toast for breakfast');
+    expect(r.cards.map((c) => c.card.kind)).toEqual(['meal']);
+    expect(r.parts).toEqual([lineOf('log.confirm_readback', { summary: 'toast, breakfast' })]);
+  });
+
+  test('a dropped model rule beside another card still asks', async () => {
+    const ai = fakeAi([
+      withCalls([
+        { id: 'a', name: 'propose_meal_log', arguments: JSON.stringify({ slot: 'lunch', when: 'today', dish: null, servings: null, description: 'toast' }) },
+        { id: 'b', name: 'propose_rule', arguments: JSON.stringify({ term: 'peanuts', severity: 'allergy' }) },
+      ]),
+    ]);
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    const r = await turn(p.cookie, 'I had toast for lunch, and peanuts make me ill');
+    expect(r.cards.map((c) => c.card.kind)).toEqual(['meal']);
+    expect(r.parts.at(-1)).toEqual(lineOf('rule.ask_keep_off'));
   });
 });

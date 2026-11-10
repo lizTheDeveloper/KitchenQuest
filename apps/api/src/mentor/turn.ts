@@ -245,7 +245,7 @@ async function lockConversation(tx: Tx, userId: string, conversationId: string):
   return rows.length > 0;
 }
 
-const RULE_OUTCOME_LINES = new Set(['rule.unknown_term', 'rule.which_one', 'consent.health_first', 'rule.ask_what_else']);
+const RULE_OUTCOME_LINES = new Set(['rule.unknown_term', 'rule.which_one', 'consent.health_first', 'rule.ask_what_else', 'rule.ask_keep_off']);
 const hasRuleOutcome = (reply: Reply) =>
   reply.cards.some((c) => c.kind === 'rule') || reply.parts.some((p) => p.kind === 'line' && RULE_OUTCOME_LINES.has(p.line.trigger));
 
@@ -303,6 +303,16 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
     const missed = severeTermsLeftOut(f.raw, keptRuleTerms, graph);
     if (missed !== null || (statesSevere(f.raw, graph) && !hasRuleOutcome(reply))) {
       reply.parts.push(line('rule.ask_what_else', missed === null ? {} : { term: missed }));
+    }
+    // A health statement is never silently lost (fix round 1 ruling on call 3): a health turn
+    // that made no card at all, or whose model rule was dropped (C4), with no rule outcome,
+    // asks plainly. A bare "didn't understand" gives way to the ask.
+    const proposedRule = f.result.toolCalls.some((c) => c.name === 'propose_rule' && offered.has(c.name));
+    const droppedRule = proposedRule && keptRuleTerms.length === 0;
+    if (f.health && !hasRuleOutcome(reply) && (reply.cards.length === 0 || droppedRule)) {
+      const onlyFallback = reply.parts.length === 1 && reply.parts[0].kind === 'line' && reply.parts[0].line.trigger === 'didnt_understand';
+      if (onlyFallback) reply.parts = [];
+      reply.parts.push(line('rule.ask_keep_off'));
     }
     if (f.mode === 'rule_help' && !hasRuleOutcome(reply)) reply = { parts: [line('rate_limited')], cards: [], toolTurn: false };
     if (reply.parts.length === 0) reply.parts.push(line('didnt_understand'));

@@ -175,6 +175,7 @@ The server agent and the client's scripted engine emit these by id, so they are 
 | `rule.which_one` | Several ingredients match; the player taps one. Nothing is picked for them. | `term` |
 | `rule.tap_needed` | A typed "yes" for a severe card. Severe cards need a tap. | `ingredient` |
 | `rule.ask_what_else` | A severe statement named an ingredient no card was made for; asks for it plainly so it is never silently lost (Step 7). | `term` (optional) |
+| `rule.ask_keep_off` | A health turn ended with no card and no rule outcome (or the model's rule was dropped); asks plainly what to avoid and how badly (Step 7). | |
 | `mentor.check_card` | Replaces model text that touched a dish's fit, a rule, a medicine or food safety; points at the card and the label (Step 7). | |
 | `confirm.tap_card` | A typed "yes" or "no" with more than one card open. | |
 | `write.not_done` | Replaces a model reply that claimed a write that didn't happen. | |
