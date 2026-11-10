@@ -18,7 +18,7 @@ test('a thin wrapper over the engine: thanks → thanks; other text → the engi
   const b = backend();
   expect(b.kind).toBe('scripted');
   for (const text of ['thanks', 'Thank you!', 'cheers mate', 'ta']) expect(said(await b.reply({ kind: 'text', text }, ctx))).toEqual(['thanks']);
-  expect(said(await b.reply({ kind: 'text', text: "what's for dinner" }, ctx))).toEqual(['didnt_understand']);
+  expect(said(await b.reply({ kind: 'text', text: 'tell me a joke' }, ctx))).toEqual(['didnt_understand']);
   const rule = await b.reply({ kind: 'text', text: "I'm allergic to sesame" }, ctx);
   expect(rule.cards.map((c) => c.card.kind)).toEqual(['rule']);
   const voice = await b.reply({ kind: 'voice' }, ctx);

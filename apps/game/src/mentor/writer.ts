@@ -73,8 +73,10 @@ export function createCardWriter(deps: {
    * Fix round 1 (I1): the change lands in the cached account rules at once, so a refresh that is rate-limited or
    * offline (which keeps the cache) can't leave a stamped allergen out. Rules that never loaded stay unloaded (fail closed).
    */
-  const editAccountRules = (fn: (rules: Rule[]) => Rule[]) =>
-    store.update((s) => (s.accountRules === null ? s : { ...s, accountRules: fn(s.accountRules) }));
+  const editAccountRules = (email: string | undefined, fn: (rules: Rule[]) => Rule[]) =>
+    // Fix round 2 (E5): only on the account the call was made for; a sign-out or another sign-in meanwhile wins.
+    store.update((s) => (s.accountRules === null || email === undefined || s.account?.email !== email ? s : { ...s, accountRules: fn(s.accountRules) }));
+  const accountEmail = () => store.get().account?.email;
   const trail = (id: string, origin: TrailEntry['origin'], card: ProposalCard): TrailEntry =>
     ({ id, origin, kind: card.kind, summary: trailSummary(card), undoUntil: new Date(deps.now().getTime() + UNDO_WINDOW_MS).toISOString() });
 
@@ -104,10 +106,11 @@ export function createCardWriter(deps: {
     switch (card.kind) {
       case 'rule': {
         if (account) {
+          const email = accountEmail();
           const r = await client.createRule(card.rule, true);
           if (!r.ok) return refused(r, card);
           const saved = r.data.rule;
-          editAccountRules((rules) => [...rules.filter((x) => x.id !== saved.id), saved]);
+          editAccountRules(email, (rules) => [...rules.filter((x) => x.id !== saved.id), saved]);
           await refreshAccount(client, store);
           undos.set(r.data.rule.id, { kind: 'rule', card, where: 'account', id: r.data.rule.id });
           return { ok: true, trail: trail(r.data.rule.id, 'local', card), items: confirmedLines(card).map(say) };
@@ -177,8 +180,9 @@ export function createCardWriter(deps: {
           store.update((s) => ({ ...s, localRules: s.localRules.filter((r) => r.id !== u.id) }));
           return [];
         }
+        const email = accountEmail();
         if (!goneIsFine(await client.deleteRule(u.id))) return null;
-        editAccountRules((rules) => rules.filter((x) => x.id !== u.id));
+        editAccountRules(email, (rules) => rules.filter((x) => x.id !== u.id));
         await refreshAccount(client, store);
         return [];
       case 'meal':

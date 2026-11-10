@@ -43,7 +43,7 @@ describe('mentor panel', () => {
     await page.locator('#pan-panel .bubble.you').filter({ hasText: 'thank you' }).waitFor();
     await lastPan(page).waitFor();
     expect(lines('thanks')).toContain((await lastPan(page).textContent())!);
-    await page.locator('#pan-text').fill("what's for dinner");
+    await page.locator('#pan-text').fill('tell me a joke');
     await page.keyboard.press('Enter');
     await page.waitForFunction(() => document.querySelectorAll('#pan-panel .bubble.pan').length === 2);
     // M4: the scripted engine answers what it can't read with didnt_understand.

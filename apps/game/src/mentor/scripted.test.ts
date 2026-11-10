@@ -56,15 +56,48 @@ describe('scripted engine', () => {
     expect(text).toContain('S-E-S-A-M-E');
   });
 
+  // The reviewer's engine probes (rev9b): every emergency turn starts with the emergency line, and carries no
+  // meal, profile or pantry card; a rule it states follows as a rule card or an ask (fix round 2, E2).
   test.each([
-    "I had prawns and now I've got hives",
-    'my daughter had sesame, her lips are swelling',
-    "I finished the milk, had peanuts and now I'm wheezing",
-    'had a reaction to prawns, I bought rice',
-  ])('an emergency turn is the emergency line only, with no meal or pantry card: %s', (text) => {
+    "I had prawns and now I've got hives", 'my daughter had sesame, her lips are swelling', "I finished the milk, had peanuts and now I'm wheezing",
+    'had a reaction to prawns, I bought rice', "I've got hives", 'I got a rash on my arm', "i've got a swollen lip",
+    'after eating cashews i got hives', 'got hives after eating fish', 'my mouth is itchy after eating kiwi', 'eating peanuts made my tongue swell',
+    "I swallowed a peanut and now I'm wheezing", 'my throats closing', "my throat's closing", 'I ate nuts and have hivs', "ate shrimp, can't swallow",
+    'kid accidentally ate nuts, help!', "I think I'm having an allergic reaction", 'picazón después de comer cacahuete',
+    "we gave him peanut butter and he's covered in welts", "I'm eating shrimp and my face is puffy", 'touched peanuts and my hand is red',
+    'i have hives after lunch', "I've just eaten shrimp, face is puffy", 'had a sick day so ate soup', 'I had a reaction to shrimp, finished the milk',
+    'had a rash, bought rice',
+  ])('an emergency turn: the emergency line first, no meal, profile or pantry card: %s', (text) => {
     const r = engine().reply(text, ctx());
-    expect(said(r)).toEqual(['rule.emergency']);
-    expect(r.cards).toEqual([]);
+    expect(said(r)[0]).toBe('rule.emergency');
+    expect(cards(r).filter((c) => c.kind !== 'rule')).toEqual([]);
+    expect(said(r).slice(1).every((t) => t.startsWith('rule.'))).toBe(true);
+  });
+
+  test.each([
+    ["I'm allergic to peanuts, I had anaphylaxis once", 'peanut'],
+    ['my son is allergic to egg, he had hives as a baby', 'egg'],
+    ['allergic to sesame - last time I had it my lips swelled', 'sesame'],
+  ])('an emergency that states a rule keeps the allergy: %s', (text, ingredient) => {
+    const r = engine().reply(text, ctx());
+    expect(said(r)[0]).toBe('rule.emergency');
+    // A card, or the ask: never dropped.
+    const carded = cards(r).some((c) => c.kind === 'rule' && c.display.ingredient === ingredient);
+    expect(carded || said(r).includes('rule.ask_what_else')).toBe(true);
+    expect(cards(r).filter((c) => c.kind !== 'rule')).toEqual([]);
+  });
+
+  test('a plain emergency with nothing named is the emergency line alone', () => {
+    expect(said(engine().reply("I think I'm having an allergic reaction", ctx()))).toEqual(['rule.emergency']);
+    expect(said(engine().reply('my throat is closing', ctx()))).toEqual(['rule.emergency']);
+  });
+
+  test('plain meals are still meals', () => {
+    expect(cards(engine().reply('I had toast for breakfast', ctx()))).toMatchObject([{ kind: 'meal' }]);
+  });
+
+  test('a health turn with no card gets the plain ask, offline as on the server (E4)', () => {
+    expect(said(engine().reply('can I eat this? shrimp makes my throat close', ctx()))).toEqual(['rule.ask_keep_off']);
   });
 
   test('signed out: a meal gets log.needs_account and no card', () => {
@@ -120,7 +153,9 @@ describe('scripted engine', () => {
 
   test('a slot word with a time cue but no time → schedule.bad_time; no time cue → no window', () => {
     expect(said(engine().reply('lunch at lunchtime-ish', ctx()))).toEqual(['schedule.bad_time']);
-    expect(said(engine().reply("what's for dinner", ctx()))).toEqual(['didnt_understand']);
+    // "dinner" makes it a health turn, as on the server: with nothing read, the plain ask (fix round 2, E4).
+    expect(said(engine().reply("what's for dinner", ctx()))).toEqual(['rule.ask_keep_off']);
+    expect(said(engine().reply('what can I cook tonight', ctx()))).toEqual(['didnt_understand']);
   });
 
   test('nothing found → didnt_understand; only page events → didnt_understand', () => {

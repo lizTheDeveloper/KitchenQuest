@@ -1,5 +1,5 @@
 import {
-  askForDroppedTerms, buildMealCard, buildPantryCard, buildProfileCard, buildRuleCard, classifyTurn, dropMealsMatchingRemovals,
+  askForDroppedTerms, buildMealCard, emergencyStatesRule, isHealthText, buildPantryCard, buildProfileCard, buildRuleCard, classifyTurn, dropMealsMatchingRemovals,
   matchDish, MEAL_SLOTS, MEAL_VERB_PATTERN, normalizeName, normalizeTurn, PANTRY_ADD_PATTERN, PANTRY_REMOVAL_PATTERNS,
   parseClock, parseMealStatement, parsePantryAdds, parsePantryRemovals, parseRuleStatement, parseWeekdays, preRoute,
   shortReplyTarget, slotClause, slotForTime, stripPageEvents,
@@ -53,7 +53,7 @@ export function createScriptedEngine(deps: {
   const withReadback = (at: number, card: ProposalCard): Found => ({ at, card, items: card.readback.map(say) });
 
   /** Step 4 of the reply: every parser runs, so a multi-intent turn yields several items. */
-  function parseAll(raw: string, text: string, ctx: TurnContext): { items: PanItem[]; cards: ProposalCard[] } {
+  function parseAll(raw: string, text: string, ctx: TurnContext, rulesOnly = false): { items: PanItem[]; cards: ProposalCard[] } {
     const t = normalizeTurn(text);
     const found: Found[] = [];
     const now = deps.now();
@@ -71,6 +71,9 @@ export function createScriptedEngine(deps: {
       else if (built.reason === 'unknown_term') found.push({ at: where, items: [say(built.line)] });
       else found.push({ at: where, items: [say(built.line), { kind: 'choices', options: built.options, severity: item.severity }] });
     }
+
+    // An emergency turn keeps only the rule path (fix round 2, E2): no meal, profile or pantry card.
+    if (rulesOnly) return finish(found, raw, statement?.terms ?? [], ruleOutcome);
 
     const removals = parsePantryRemovals(text);
 
@@ -126,13 +129,16 @@ export function createScriptedEngine(deps: {
       found.push(withReadback(starts.length > 0 ? Math.min(...starts) : t.length, buildPantryCard({ add: adds, remove: removals }, graph)));
     }
 
+    return finish(found, raw, statement?.terms ?? [], ruleOutcome);
+  }
+
+  function finish(found: Found[], raw: string, ruleTermsSaid: string[], ruleOutcome: boolean): { items: PanItem[]; cards: ProposalCard[] } {
     // Items in the order their match starts in the text, whatever order the parsers ran in (stable for ties).
     found.sort((a, b) => a.at - b.at);
     const items = found.flatMap((f) => f.items);
     const cards = found.flatMap((f) => (f.card ? [f.card] : []));
-
     // The ask-for-dropped-terms rule, the server's own (Step 7 "Carry from Step 1"): intake answers included.
-    const ask = askForDroppedTerms(raw, statement?.terms ?? [], ruleOutcome, graph);
+    const ask = askForDroppedTerms(raw, ruleTermsSaid, ruleOutcome, graph);
     if (ask !== null) items.push(say(ask));
     return { items, cards };
   }
@@ -145,7 +151,13 @@ export function createScriptedEngine(deps: {
       const intent = classifyTurn(stripped);
       // 2. The fixed lines (emergency, medical, child, allowance, thanks): the server's own function.
       const fixed = preRoute(intent);
-      if (fixed !== null) return reply([say(fixed)]);
+      if (fixed !== null) {
+        // E2: an emergency that also states a rule gets the emergency line first, then the rule path; never a meal or pantry card.
+        if (intent !== 'emergency' || !emergencyStatesRule(text, graph)) return reply([say(fixed)]);
+        const rules = parseAll(text, stripped, ctx, true);
+        const follow = rules.items.length > 0 ? rules.items : [line('rule.ask_keep_off')];
+        return reply([say(fixed), ...follow], { cards: rules.cards.map((c) => view(c, ctx.turn)) });
+      }
       // 3. A plain yes, no or undo: core decides which card it means. A typed yes never confirms a severe card.
       if (intent === 'yes' || intent === 'no' || intent === 'undo') {
         const refs: OpenCardRef[] = ctx.openCards.flatMap((c) =>
@@ -167,7 +179,12 @@ export function createScriptedEngine(deps: {
       }
       // 4. Every parser; 5. nothing found.
       const { items, cards } = parseAll(text, stripped, ctx);
-      if (items.length === 0) return reply([line('didnt_understand')]);
+      // A health turn is never silently lost: with nothing read, the plain ask, as the server does (fix round 2, E4).
+      if (items.length === 0) {
+        const health = isHealthText(stripped, graph, ruleTerms) || ctx.intakeStep === 'allergies' ||
+          ctx.openCards.some((c) => c.card.kind === 'rule' || c.card.kind === 'meal');
+        return reply([line(health ? 'rule.ask_keep_off' : 'didnt_understand')]);
+      }
       return reply(items, { cards: cards.map((c) => view(c, ctx.turn)) });
     },
 
