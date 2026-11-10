@@ -6,7 +6,27 @@ import { IngredientGraph } from '@kitchenquest/core';
 import { and, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import type { FastifyInstance, InjectOptions } from 'fastify';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+
+/**
+ * Core has no cross-rule check today beyond duplicate ids (and row ids never
+ * repeat), so the concurrency test below needs a pair core rejects together.
+ * This stand-in delegates to core's real `validateRules` and adds one
+ * cross-rule problem only for rules carrying the test-only note EXCLUSIVE:
+ * at most one of those may be saved.
+ */
+const EXCLUSIVE = 'test-only: at most one of these';
+vi.mock('@kitchenquest/core', async (importOriginal) => {
+  const core = await importOriginal<typeof import('@kitchenquest/core')>();
+  return {
+    ...core,
+    validateRules: (list: Parameters<typeof core.validateRules>[0], graph: Parameters<typeof core.validateRules>[1]) => {
+      const problems = core.validateRules(list, graph);
+      if (list.filter((r) => r.note === EXCLUSIVE).length > 1) problems.push(`more than one rule notes "${EXCLUSIVE}"`);
+      return problems;
+    },
+  };
+});
 import { buildApp } from '../src/app.js';
 import { loadCatalog } from '../src/catalog.js';
 import { NOTICES } from '../src/consent/notices.js';
@@ -482,7 +502,19 @@ describe('/rules under concurrency and check order (M4 Step 3)', () => {
     expect(await storedCount(uid)).toBe(MAX_RULES_PER_USER);
   });
 
-  it('two concurrent creates both see each other for validation: both stored, no lost write', async () => {
+  it('two concurrent creates both see each other for validation: a pair core rejects together → [201, 400]', async () => {
+    const c = await player();
+    const uid = await userIdOf(c);
+    const exclusive = (rule: object) => ({ rule: { ...rule, note: EXCLUSIVE }, confirmed: true });
+    const res = await Promise.all([post(c, exclusive(PEANUT)), post(c, exclusive(DAIRY))]);
+    expect(res.map((r) => r.statusCode).sort()).toEqual([201, 400]);
+    const err = res.find((r) => r.statusCode === 400)!.json().error;
+    expect(err.code).toBe('bad_request');
+    expect(err.details.problems).toEqual([`more than one rule notes "${EXCLUSIVE}"`]);
+    expect(await storedCount(uid)).toBe(1);
+  });
+
+  it('two concurrent creates of compatible rules: both stored, no lost write', async () => {
     const c = await player();
     const uid = await userIdOf(c);
     const res = await Promise.all([post(c, { rule: PEANUT, confirmed: true }), post(c, { rule: DAIRY, confirmed: true })]);
