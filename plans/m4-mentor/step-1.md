@@ -30,7 +30,8 @@ export function parseWeekdays(text: string): number[];             // 0 = Sunday
 export function parseCount(text: string): number | null;            // 0–42, digits or words
 export function parsePantryRemovals(text: string): string[];        // item phrases, lower-cased
 export function parsePantryAdds(text: string): string[];
-export function parseRuleStatement(text: string): { terms: string[]; severity: Severity | null } | null;
+export function parseRuleStatement(text: string): { terms: string[]; severity: Severity | null; items: { term: string; severity: Severity | null }[] } | null;
+// items: each term with the severity its own words state; severity: the one they all share, else null (asked)
 export function severityFromText(text: string): Severity | null;
 export function parseMealStatement(text: string): { description: string; slot: MealSlot | null; when: 'today' | 'yesterday' } | null;
 export function slotForTime(hhmm: string): MealSlot;
@@ -73,7 +74,8 @@ export const MEAL_DESCRIPTION_MAX = 200;                             // N-7; the
 export function buildRuleCard(input: { term: string; severity: Severity | null }, graph: IngredientGraph, terms: readonly RuleTerm[]): RuleCardResult;
 export function withSeverity(card: RuleCard, severity: Severity, graph: IngredientGraph, terms: readonly RuleTerm[]): RuleCard;
 export function buildMealCard(input: { eatenOn: string; slot: MealSlot; dish?: { slug: string; title: string; servings: number }; description?: string }): MealCard;
-export function buildProfileCard(patch: ProfilePatch): ProfileCard;   // throws on an empty patch
+export type ProfilePatchInput = Omit<ProfilePatch, 'mealWindows'> & { mealWindows?: { name: MealSlot; start: string; end?: string }[] };
+export function buildProfileCard(patch: ProfilePatchInput): ProfileCard;   // throws on an empty patch; the returned patch always has `end`
 export function buildPantryCard(input: { add: string[]; remove: string[] }, graph: IngredientGraph): PantryCard;  // throws when both are empty
 export function isSevereCard(card: ProposalCard): boolean;           // rule card whose severity is in SEVERE
 
@@ -91,7 +93,7 @@ export type ShortReply =
   | { kind: 'line'; line: LineRef } | { kind: 'none' };
 export function shortReplyTarget(intent: TurnIntent, openCards: readonly OpenCardRef[], currentTurn: number): ShortReply;
 export function dropMealsMatchingRemovals<T extends { description: string | null; dish: string | null }>(meals: T[], removals: string[]): T[];
-export function windowEnd(start: string): string;                    // start + 60 min, capped at '23:59'
+export function windowEnd(start: string): string;                    // start + 60 min, capped at '23:59' (lives in parse.ts: cards.ts needs it and route.ts imports cards)
 export function weekdayNumbers(names: readonly string[]): number[];  // 'Saturday' | 'sat' | 'saturdays' → 6; unknown names dropped; sorted, unique
 export function matchDish(text: string, recipes: readonly { slug: string; title: string }[]): { slug: string; title: string } | null;
 export function mentionsHealthTerm(text: string, graph: IngredientGraph, terms: readonly RuleTerm[]): boolean;
@@ -128,7 +130,7 @@ export interface ConfirmResponse { trail: TrailEntry; parts: ReplyPart[] }
 ```
 
 **Exact behaviour:**
-- `classifyTurn`. Normalise first: lower-case, curly quotes to straight quotes, collapse whitespace. Then return the first that matches:
+- `classifyTurn`. Normalise first (`normalizeTurn`): NFKC (fullwidth to ASCII), drop `\p{Cf}` format characters (zero-width, bidi), fold common Greek/Cyrillic lookalikes to Latin, lower-case, curly quotes to straight quotes, collapse whitespace. Then return the first that matches:
   - `emergency`: `/\b(can'?t breathe|cannot breathe|trouble breathing|hard to breathe|throat (feels |is )?(tight|closing|swelling|swollen)|tight throat|(lips?|tongue|face) (are |is )?(swelling|swollen|tingling)|having a reaction|reacting now|going into (anaphylaxis|shock)|call (911|999|112|an ambulance))\b/`. ("anaphylactic to cashews" and "I carry an EpiPen" are rule statements, not emergencies.)
   - `child`: `/\b(i'?m|i am|im)\s+([3-9]|1[0-5])\b(?!\s*(:|am\b|pm\b|%|kg|lb))/` or `/\b([3-9]|1[0-5])\s*(years?|yrs?)\s*old\b/` or `/\bi'?m in (year|grade) ([1-9]|10)\b/`.
   - `medical`: `/\b(dose|dosage|how much \w+ should i take|medication|medicine|antihistamine|benadryl|epinephrine dose|metformin|insulin|diagnos\w*|do i have|am i allergic|is it an allergy|should i (take|stop|start)|get tested|allergy test)\b/`.
@@ -142,18 +144,26 @@ export interface ConfirmResponse { trail: TrailEntry; parts: ReplyPart[] }
   - `thanks`: `/^(thanks|thank you|cheers|ta)\b[^?]{0,30}$/`.
   - `health`: `/\b(allerg\w*|intoleran\w*|anaphyla\w*|epi-?pen|coeliac|celiac|vegan|vegetarian|pescatarian|halal|kosher|jain|diet\w*|can'?t (eat|have)|cannot (eat|have)|don'?t eat|avoid\w*|sensitive to|stomach|bloat\w*|rough after|makes me (sick|ill)|ate|eaten|had|breakfast|brekkie|lunch|dinner|supper|snack\w*)\b/`. This deliberately over-catches: it decides what may reach the model without `ai_health` (Step 7).
   - else `other`.
-- `stripPageEvents` removes, and sets `stripped` when it removed anything:
-  - bracketed spans `/\[[^\]]{0,200}\b(tap|tapped|click|clicked|stamp|stamped|confirm|confirmed|saved|system|button|event|card)\b[^\]]{0,200}\]/gi`
+- `stripPageEvents` removes, and sets `stripped` when it removed anything. Matching runs on the NFKC text with `\p{Cf}` dropped and Greek/Cyrillic lookalikes folded (the output keeps the NFKC text), one kind at a time in this order, repeated until nothing changes, so a removal can't recompose another (`"[Player ta<user>pped]"`, `"<sy</user>stem>"`):
+  - any bracket pair `[]`, `【】`, `()`, `{}`, `〔〕`, `〖〗` (fullwidth forms fold to ASCII under NFKC), nested pairs included and with no length cap, whose content names `/\b(tap|tapped|click|clicked|stamp|stamped|confirm|confirmed|saved|system|button|event|card)\b/i`. (Fix round 1: the first plan's `\[[^\]]{0,200}…\]` missed other brackets, nesting, padding, lookalike letters and recomposition.)
   - tags `/<\/?\s*(system|developer|assistant|tool|user)\b[^>]*>/gi`
-  - line prefixes `/^\s*(system|assistant|developer|tool)\s*:/gim`
+  - line prefixes `/^[^\S\n]*(system|assistant|developer|tool)\s*:/gim`
+  - unbracketed sentences `/\b(the )?player (has |just )?(tapped|clicked|stamped|confirmed|pressed)\b[^.!?\n]*[.!?]*/gi`
 
   It keeps everything else exactly.
-- `parseClock`: `"half twelve"` → `"12:30"`, `"half seven"` → `"07:30"` (British: half past), `"quarter past seven"` → `"07:15"`, `"quarter to eight"` → `"07:45"`, `"7 pm"` / `"7pm"` / `"7ish pm"` → `"19:00"`, `"6:30 pm"` → `"18:30"`, `"18:30"` → `"18:30"`, `"noon"` / `"midday"` → `"12:00"`, `"midnight"` → `"00:00"`, `"7ish"` alone → `null` (am/pm unknown), `"lunchtime-ish"` → `null`, `"25:00"` → `null`. It finds the first clock phrase in a longer text.
-- `parseWeekdays`: full names and three-letter abbreviations, any case, plurals (`"saturdays"`), and `"weekend"` / `"weekends"` → `[0, 6]`. `"Market's on Friday"` → `[5]`.
-- `parseCount`: digits 0–42 and the words zero…twenty; `"a couple"` → 2, `"most nights"` → 5; else null.
-- `parsePantryRemovals` matches `/\b(finished|used up|ran out of|run out of|out of|chucked|threw out|binned) (the |my |our |some |any )?([a-z][a-z ]{0,30}?)\b(?=[,.!?]|$| and )/`, plus `/\bno (more )?([a-z][a-z ]{0,30}?) left\b/` and `/\bno more ([a-z][a-z ]{0,30}?)\b(?=[,.!?]|$| and )/`. A bare "no" is never a removal (pre-flight C15: "no wait, …" removes nothing). Results: `"I finished the milk"` → `['milk']`, `"I've got no eggs left"` → `['eggs']`, `"chucked the old tortillas"` → `['old tortillas']`. `parsePantryAdds` handles "I've got / bought / picked up / add … (to the pantry)", splits on `,` / `and` / `n` / `+`, and drops count words (`"2 tins chickpeas"` → `'chickpeas'`).
-- `severityFromText`: `/anaphyla|epi-?pen|severe|deadly|hospital/` → `anaphylactic`; `/intoleran|not (like )?an allergy|sensitive|upsets? my|wrecks? my|rough after/` → `intolerance`; `/\ballerg/` → `allergy`; `/prefer|don'?t like|rather not|vegan|vegetarian|pescatarian|halal|kosher/` → `preference`; else null. Earlier patterns win.
-- `parseRuleStatement`: finds the term after `allergic to|allergy to|intolerant to|intolerance to|sensitive to|can't eat|cannot eat|don't eat|avoid` (never a bare "no"; "no pork" is reached only as a rule-term phrase) or before `allergy|intolerance` (`"severe peanut allergy"` → `peanut`), or the whole diet word (`"I'm vegetarian"` → `vegetarian`). It splits on `,` / `and` / `&` into `terms`, strips articles and trailing punctuation, and sets `severity` with `severityFromText`.
+- `parseClock`: `"half twelve"` → `"12:30"`, `"half seven"` / `"half past seven"` → `"07:30"` (British: half past), `"half seven pm"` → `"19:30"`, `"quarter past seven"` → `"07:15"`, `"quarter to eight"` → `"07:45"`, `"7 o'clock"` → `"07:00"`, `"7.30pm"` → `"19:30"`, `"19.30"` → `"19:30"` (a dot needs am/pm or an hour of 13+, and never follows a currency sign: `"£7.50"` → `null`), `"7 pm"` / `"7pm"` / `"7ish pm"` → `"19:00"`, `"6:30 pm"` → `"18:30"`, `"18:30"` → `"18:30"`, `"noon"` / `"midday"` → `"12:00"`, `"midnight"` → `"00:00"`, `"7ish"` alone → `null` (am/pm unknown), `"lunchtime-ish"` → `null`, `"25:00"` → `null`. It finds the first clock phrase in a longer text.
+- `parseWeekdays`: full names, any case, plurals (`"saturdays"`), and `"weekend"` / `"weekends"` → `[0, 6]`. `"Market's on Friday"` → `[5]`. Three-letter abbreviations count only in a short answer made of days (`"sat and sun"`) or next to list punctuation `, / & +` (`"fri, sat"`), so `"I sat down"`, `"mon dieu"` and `"wed like"` name no day.
+- `parseCount`: digits 0–42 and the words zero…twenty; `"a couple"` → 2, `"most nights"` → 5; a range (`"5-6"`, `"5 to 6"`, `"five or six"`) → null; else null.
+- `parsePantryRemovals` matches `/\b(finished|used up|ran out of|run out of|out of|chucked|threw out|binned) (the |my |our |some |any )?([a-z][a-z ]{0,30}?)\b(?=[,.!?]|$| and )/`, plus `/\bno (more )?([a-z][a-z ]{0,30}?) left\b/` and `/\bno more ([a-z][a-z ]{0,30}?)\b(?=[,.!?]|$| and )/`. A bare "no" is never a removal (pre-flight C15: "no wait, …" removes nothing). A removal continues through a list (`"finished the milk and eggs"` → both; comma items only when an "and" closes the list, so `"no more coffee, sadly"` is just coffee; never into a new clause, `"…and I bought eggs"`). Results: `"I finished the milk"` → `['milk']`, `"I've got no eggs left"` → `['eggs']`, `"chucked the old tortillas"` → `['old tortillas']`. `parsePantryAdds` handles "I've got / bought / picked up / add … (to the pantry)", splits on `,` / `and` / `n` / `+`, and drops count words (`"2 tins chickpeas"` → `'chickpeas'`).
+- `severityFromText` (message-wide; earlier patterns win): `/anaphyla|epi-?pen|\bsevere|deadly|hospital|life[- ]threatening/` → `anaphylactic`; `NOT_AN_ALLERGY = /\bnot (like |really |exactly |quite )?an? allergy\b|\bisn'?t (like )?an? allergy\b/` → `intolerance`; `/\ballerg/` → `allergy`; `/intoleran|sensitive|upsets? my|wrecks? my|rough after|bloat/` → `intolerance`; `/prefer|don'?t like|rather not/` → `preference`; else null. An allergy beats every softer cue unless the player says it's not an allergy. Diet words are not severities. (Fix round 1: the first plan put the soft intolerance cues before `allerg` and listed diet words as `preference`, which lowered "peanut allergy, it upsets my stomach" to an intolerance.)
+- `parseRuleStatement` (fix round 1). **A parser may only keep or raise a stated severity, never lower it.**
+  - Triggers, each stating its own severity: `allergic to | allergy to` (allergy), `anaphylactic to` (anaphylactic), `intolerant to | intolerance to | sensitive to` (intolerance), `can't eat | cannot eat | can't have | don't eat | avoid` (none), each optionally followed by `:` or `-`; the bare `allergic | allergies | intolerance | intolerant` need a `:` or `-` (`"Allergies: peanuts"`, `"allergic - peanuts"`). A term list runs to the next trigger or diet word, or a clause end `[.!?;()]` or newline, and stops at a negation or exception (`not | never | except | apart from | other than | no`).
+  - Before `allergy | allergies | intolerance` (not followed by `to`, `:` or `-`): `"severe peanut allergy"` → `peanut`.
+  - A whole diet word (`"I'm vegetarian"` → `vegetarian`; never a bare "no"; "no pork" is reached only as that whole phrase). `veggie` counts only with a rule cue (`i'm | i am | we're | we are` before it, or `diet` after), never `"a veggie burger"`.
+  - Lists split on `,` / `and` / `or` / `&` / `+` / `n`; `e.g.`, `eg`, `i.e.`, `like`, `such as`, `including`, `especially` list examples like a comma (`"tree nuts e.g. cashews"` → both). Articles, fillers and pronouns (`it`, `them`, `that`, `this`, `anything`…) are never a term.
+  - A match with a negation (`not | never | no | don't | isn't`…) among the three words before it in its clause is skipped: `"I don't have a peanut allergy"`, `"I'm not vegan"`, `"not allergic to anything"` → null; `"No, I'm allergic to peanuts"` → peanuts.
+  - Severity per term: the trigger's own; diet words `vegetarian | veggie | vegan | plant-based | pescatarian | halal | kosher` are `preference` for themselves only (coeliac, no pork, Jain: none; a rule-term entry carries its own default). Then message cues: an anaphylactic cue raises every term but preference diets to `anaphylactic`; an explicit "not an allergy" sets `intolerance` where none was stated and makes a stated allergy conflicting (null); a soft intolerance cue sets `intolerance` only where none was stated and no allergy is named. A term said two ways is null. `severity` is the one severity every item shares, else null (asked: the card's anaphylactic default with `rule.severity_unclear`).
+  - `"I'm vegetarian and can't eat peanuts"` → vegetarian `preference`, peanuts null; `"allergic to peanuts and sensitive to milk"` → peanuts `allergy`, milk `intolerance`, `severity` null.
 - `slotForTime`: `< 11:00` breakfast, `< 15:00` lunch, `< 17:00` snack, `< 22:00` dinner, else snack.
 - `buildRuleCard`, in this order:
   1. Normalise the term with `normalizeName`.
@@ -165,7 +175,7 @@ export interface ConfirmResponse { trail: TrailEntry; parts: ReplyPart[] }
   Then build the card:
   - `rule = { target: { kind, ids }, type: 'avoid', severity }`. `kind` is `'category'` when any id has `descendants()`, else `'ingredient'`.
   - `severity` = input ?? term default ?? `'anaphylactic'`. `severityUnclear` is true only when both the input and the term default are null.
-  - `covers` = the names of every id and all their `descendants()`, unique, sorted, at most 8, then `" and N more"`, joined `"a, b and c"`.
+  - `covers` = the names of every id (sorted), then all their `descendants()` (sorted), unique, at most 8, then `" and N more"`, joined `"a, b and c"`. The targets come first so none (e.g. vegan's shellfish) hides behind its kinds.
   - `display.severity` = `SEVERITY_WORDS[severity]`, or `'a diet rule'` when `form === 'rule_diet'`. `SEVERITY_WORDS = { anaphylactic: 'a severe allergy', allergy: 'an allergy', intolerance: 'an intolerance', preference: 'a preference' }`.
   - `form` comes from the term entry, else `rule_allergen` for severe and `rule_intolerance` otherwise.
   - `readback`: `[rule.severity_unclear]` when unclear, then `rule.readback` with `{ ingredient, spelled, severity, covers }` when severe, else `rule.readback.no_spelling` with `{ ingredient, severity, covers }`.
@@ -186,14 +196,14 @@ export interface ConfirmResponse { trail: TrailEntry; parts: ReplyPart[] }
 - `route.ts`:
   - `shortReplyTarget` considers only cards with `issuedTurn === currentTurn − 1`. `yes`: one non-severe → confirm; one severe → `{ trigger: 'rule.tap_needed', vars: { ingredient } }`; more than one → `confirm.tap_card`; none → none. `no`: one → reject; more than one → `confirm.tap_card`; none → none. `undo` → `{ kind: 'undo' }` (the caller picks the newest live trail entry). Any other intent → none.
   - `dropMealsMatchingRemovals` drops a meal whose description or dish, after `normalizeName`, equals a removal item (T05: "finished the milk" is not a meal).
-  - `matchDish`: an exact slug (whole or last segment) or a whole-word, case-insensitive occurrence of a recipe title in the text; the longest title wins; otherwise null. The server and the client both use only this rule.
-  - `mentionsHealthTerm`: true when the text contains, as a whole word (after `normalizeName`, plurals as `resolve` strips them), any graph node name or alias, or any rule-term phrase. It over-catches on purpose ("rice" counts): it is half of Step 7's consent gate (pre-flight C1).
-  - `ruleTermsInPlayerWords`: the `parseRuleStatement` terms of the player's own words only. Text is cut at the first injection marker (`/note to (the )?(ai|assistant)|\bassistant\s*:|the user (already )?agreed|ignore (all |the )?previous|developer override|do not mention this/i`) and at the first pasted block (a line break followed by a line starting with `-`, `*`, a digit, or a line in capitals of 6+ letters). Step 7 drops any model `propose_rule` whose term isn't in this list (pre-flight C4).
+  - `matchDish`: an exact slug (whole or last segment), or a whole-word, case-insensitive occurrence in the text of a recipe title, the title without its trailing "(…)" gloss, or the slug's last segment; the longest wins; otherwise null. The server and the client both use only this rule.
+  - `mentionsHealthTerm`: true when the text contains, as a whole word (after NFKC, `\p{Cf}` dropped, lookalikes folded and `normalizeName`; plurals as `resolve` strips them, for rule-term phrases too), any graph node name or alias, or any rule-term phrase. The text is read as written (`"gluten-free"`), split at hyphens and apostrophes (`"peanut-free"`, `"peanut's"`, `"tree-nut"`) and with them removed (`"pea-nut"`). It over-catches on purpose ("rice" counts): it is half of Step 7's consent gate (pre-flight C1).
+  - `ruleTermsInPlayerWords`: the `parseRuleStatement` terms of the player's own words only. Text (NFKC, `\p{Cf}` dropped, lookalikes folded) is cut at the first injection marker (`/note to (the )?(ai|assistant)|\bassistant\s*:|the user (already )?agreed|ignore (all |the )?previous|developer override|do not mention this|^[^\S\n]*(system|developer|tool|user)\s*:|<\/?\s*(system|developer|assistant|tool|user)\b/im`) and at the first pasted block (a line break followed by a line starting with `-`, `*`, a digit, or a line in capitals of 6+ letters). Step 7 drops any model `propose_rule` whose term isn't in this list (pre-flight C4).
 
 - `data/rule-terms.json`. Each entry follows `RuleTerm`, and only ids in `data/ingredients.json` are allowed. A diet term must never be narrower than the word (spec §2.2, pre-flight C5):
-  - `vegetarian`: phrases `["vegetarian", "veggie"]`, ids `["meat", "fish", "shellfish"]`, severity `"preference"`, form `rule_diet`
-  - `vegan`: phrases `["vegan", "plant-based", "plant based"]`, ids `["meat", "fish", "shellfish", "milk", "egg"]`, severity `"preference"`, form `rule_diet`. `# REVIEW:` honey, gelatine and other animal products must be added here as soon as the graph has them.
-  - `pescatarian`: phrases `["pescatarian", "pescetarian"]`, ids `["meat"]`, severity `"preference"`, form `rule_diet`
+  - `vegetarian`: phrases `["vegetarian", "veggie"]`, ids `["meat", "fish", "shellfish", "gelatin"]`, severity `"preference"`, form `rule_diet`
+  - `vegan`: phrases `["vegan", "plant-based", "plant based"]`, ids `["meat", "fish", "shellfish", "milk", "egg", "honey", "gelatin"]`, severity `"preference"`, form `rule_diet`. (Controller ruling: the graph gains `honey`, `gelatin` (name "gelatine"; `unsafeFor` meat, pork and fish), and `whey` and `casein` (`contains` milk). Fix round 1 adds `prawn` (alias shrimp) as a kind of shellfish.)
+  - `pescatarian`: phrases `["pescatarian", "pescetarian"]`, ids `["meat", "gelatin"]`, severity `"preference"`, form `rule_diet`
   - `coeliac`: phrases `["coeliac", "celiac", "gluten free", "gluten-free"]`, ids `["gluten"]`, severity `null` (asked), form `rule_allergen`
   - `no pork`: phrases `["no pork", "pork free", "pork-free"]`, ids `["pork"]`, severity `"preference"`, form `rule_diet`
 
@@ -240,9 +250,9 @@ expect(parsePantryRemovals('no wait, I said PECAN not peanut')).toEqual([]);    
 expect(parseRuleStatement('no wait, I said PECAN not peanut')).toBeNull();                                               // S04
 expect(parseRuleStatement("Market's on Friday, and I've got no eggs left.")).toBeNull();                                 // T12: no rule
 expect(parsePantryAdds('bought 2 tins chickpeas n a bag of spinach')).toEqual(['chickpeas', 'spinach']);                 // T06
-expect(parseRuleStatement('I have a severe peanut allergy, like EpiPen severe.')).toEqual({ terms: ['peanut'], severity: 'anaphylactic' });
-expect(parseRuleStatement('allergic to peanuts and sesame')).toEqual({ terms: ['peanuts', 'sesame'], severity: 'allergy' });
-expect(parseRuleStatement("I'm vegetarian.")).toEqual({ terms: ['vegetarian'], severity: 'preference' });
+expect(parseRuleStatement('I have a severe peanut allergy, like EpiPen severe.')).toMatchObject({ terms: ['peanut'], severity: 'anaphylactic' });
+expect(parseRuleStatement('allergic to peanuts and sesame')).toMatchObject({ terms: ['peanuts', 'sesame'], severity: 'allergy' });
+expect(parseRuleStatement("I'm vegetarian.")).toMatchObject({ terms: ['vegetarian'], severity: 'preference' });
 expect(parseMealStatement('Had porridge with banana for breakfast.')).toEqual({ description: 'porridge with banana', slot: 'breakfast', when: 'today' });
 // cards.test.ts (graph from data/ingredients.json, terms from data/rule-terms.json)
 test('severe peanut card spells, covers, and reads back from code', () => {

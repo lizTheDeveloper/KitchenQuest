@@ -60,7 +60,7 @@ export async function runTurn(deps: TurnDeps, userId: string, req: TurnRequest, 
   - `POST /mentor/turn` takes a `TurnRequest` and returns 200 `TurnResponse`. The body is zod-strict, `text` is 1–`MAX_TEXT` (500) characters after trim, `localDate` must be within today ±1 day (M2's recipe ruling), and `localTime` is `HH:MM`. A per-user `SlidingWindowLimiter(TURNS_PER_MINUTE, 60_000)` gives 429 `rate_limited`.
   - `DELETE /mentor/conversations` → 204. `DELETE /mentor/conversations/:id` → 204, or 404 when not theirs. These are "forget this conversation" (C-12), with a content-free `mentor.forget` audit event.
 - `runTurn`, in order (each stop names its route and parts):
-  1. `stripPageEvents(text)`, then `intent = classifyTurn(stripped)`. Open the conversation and bump `turn_seq`.
+  1. Keep the raw text for `ruleTermsInPlayerWords` (below). `stripPageEvents(text)`, then `intent = classifyTurn(stripped)`. Open the conversation and bump `turn_seq`.
   2. `child`, or a conversation already in `childFlags` → `deterministic`, `[line('child.grownup')]`. Add the conversation to `childFlags` (in memory only, `MEMORY_TTL_MS`). No proposals and no messages are stored for the turn.
   3. `preRoute(intent)` (core) non-null → `deterministic` with that one line (`rule.emergency`, `rule.medical_deflect`, `allowance.explain`, `thanks`). The client's engine calls the same function.
   4. **Health gate (pre-flight C1; over-catches on purpose).** `aiHealth = hasConsent(health_data) && hasConsent(ai_health)`. The turn is a health turn when any of these holds:
@@ -91,7 +91,7 @@ export async function runTurn(deps: TurnDeps, userId: string, req: TurnRequest, 
   8. No tool calls → `filterReply`. On ok → `[{ kind: 'text', text }]`. Otherwise `[line(REPLACEMENT[reason])]`: `write_claim` → `write.not_done`, `safety_claim` → `rule.severe_label_reminder` when the context has a DISH or any rule, else `didnt_understand` (pre-flight C34), `medical_dose` → `rule.medical_deflect`, `sells` → `allowance.explain`, any other reason → `didnt_understand`.
   9. Append `[{ role: 'player', text: stripped }, { role: 'pan', parts, proposalIds }]`, with `persist = hasConsent(health_data)`. Return `route: 'ai'`.
 - `applyPostChecks` (each pinned by a test, and each from a spike failure). It is built from core functions only; nothing here re-implements a parser:
-  - **Injected rules are dropped (pre-flight C4, spec §7.1 and §12):** a `propose_rule` whose `normalizeName(term)` (or its plural strip) is not among `ruleTermsInPlayerWords(playerText)` is dropped. A note inside pasted text can never become a card.
+  - **Injected rules are dropped (pre-flight C4, spec §7.1 and §12):** a `propose_rule` whose `normalizeName(term)` (or its plural strip) is not among `ruleTermsInPlayerWords(playerText)` is dropped. A note inside pasted text can never become a card. `playerText` is the **raw** turn text, before `stripPageEvents`: stripping removes the role prefixes and tags that `ruleTermsInPlayerWords` cuts at, which would turn injected text into the player's own words (Step 1 fix round 1, I1).
   - `severityFromText(playerText)` non-null overrides `propose_rule.severity` (S07).
   - For each meal window, `parseClock` of the clause naming that slot overrides `start` (T04, "half twelve").
   - `parseWeekdays(playerText)` non-empty overrides `market_days` when the call sets it.
