@@ -95,7 +95,16 @@ describe('buildRuleCard', () => {
   test('vegan covers honey, gelatine and milk; the list is capped at 8', () => {
     const c = card('plant based');
     expect(c.rule.target.ids).toEqual(expect.arrayContaining(['honey', 'gelatin', 'milk', 'egg']));
-    expect(c.display.covers).toBe('bonito flakes, egg, fish, gelatine, honey, meat, milk, pork and 1 more');
+    // The term's own targets come first, so shellfish is never hidden behind its kinds (M1).
+    expect(c.display.covers).toBe('egg, fish, gelatine, honey, meat, milk, shellfish, bonito flakes and 2 more');
+  });
+
+  test('shrimp and prawns are shellfish (M7)', () => {
+    for (const t of ['shrimp', 'prawns', 'Shrimps', 'king prawn']) {
+      expect(card(t, 'allergy').rule.target.ids, t).toEqual(['prawn']);
+      expect(graph.pathTo('prawn', 'shellfish')).toEqual(['prawn', 'shellfish']);
+    }
+    expect(card('shellfish', 'allergy').display.covers).toBe('shellfish and prawn');
   });
 
   test('coeliac asks for a severity and uses the allergen form', () => {

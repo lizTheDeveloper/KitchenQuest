@@ -80,20 +80,24 @@ describe('rules', () => {
   test('statements', () => {
     expect(parseRuleStatement('no wait, I said PECAN not peanut')).toBeNull(); // S04
     expect(parseRuleStatement("Market's on Friday, and I've got no eggs left.")).toBeNull(); // T12: no rule
-    expect(parseRuleStatement('no pork please')).toEqual({ terms: ['no pork'], severity: null });
-    expect(parseRuleStatement('I have a severe peanut allergy, like EpiPen severe.')).toEqual({ terms: ['peanut'], severity: 'anaphylactic' });
-    expect(parseRuleStatement('allergic to peanuts and sesame')).toEqual({ terms: ['peanuts', 'sesame'], severity: 'allergy' });
-    expect(parseRuleStatement("I'm vegetarian.")).toEqual({ terms: ['vegetarian'], severity: 'preference' });
-    expect(parseRuleStatement("I'm allergic to shellfish. Just save it")).toEqual({ terms: ['shellfish'], severity: 'allergy' });
-    expect(parseRuleStatement("I can't eat the eggs, milk & wheat because they upset my stomach")).toEqual({
+    expect(parseRuleStatement('no pork please')).toMatchObject({ terms: ['no pork'], severity: null });
+    expect(parseRuleStatement('I have a severe peanut allergy, like EpiPen severe.')).toMatchObject({ terms: ['peanut'], severity: 'anaphylactic' });
+    expect(parseRuleStatement('allergic to peanuts and sesame')).toMatchObject({ terms: ['peanuts', 'sesame'], severity: 'allergy' });
+    expect(parseRuleStatement("I'm vegetarian.")).toMatchObject({ terms: ['vegetarian'], severity: 'preference' });
+    expect(parseRuleStatement("I'm allergic to shellfish. Just save it")).toMatchObject({ terms: ['shellfish'], severity: 'allergy' });
+    expect(parseRuleStatement("I can't eat the eggs, milk & wheat because they upset my stomach")).toMatchObject({
       terms: ['eggs', 'milk', 'wheat'],
       severity: 'intolerance',
     });
-    expect(parseRuleStatement('I have a tree nut allergy')).toEqual({ terms: ['tree nut'], severity: 'allergy' });
-    expect(parseRuleStatement('anaphylactic to cashews')).toEqual({ terms: ['cashews'], severity: 'anaphylactic' });
-    expect(parseRuleStatement('peanut and sesame allergy')).toEqual({ terms: ['peanut', 'sesame'], severity: 'allergy' });
+    expect(parseRuleStatement('I have a tree nut allergy')).toMatchObject({ terms: ['tree nut'], severity: 'allergy' });
+    expect(parseRuleStatement('anaphylactic to cashews')).toMatchObject({ terms: ['cashews'], severity: 'anaphylactic' });
+    expect(parseRuleStatement('peanut and sesame allergy')).toMatchObject({ terms: ['peanut', 'sesame'], severity: 'allergy' });
     expect(parseRuleStatement('not like an allergy')).toBeNull();
-    expect(parseRuleStatement('I keep halal')).toEqual({ terms: ['halal'], severity: 'preference' });
+    expect(parseRuleStatement('I keep halal')).toMatchObject({ terms: ['halal'], severity: 'preference' });
+    expect(parseRuleStatement('allergic to peanuts and sesame')!.items).toEqual([
+      { term: 'peanuts', severity: 'allergy' },
+      { term: 'sesame', severity: 'allergy' },
+    ]);
   });
 
   test.each([
@@ -102,6 +106,9 @@ describe('rules', () => {
     ['not an allergy, i just feel rough after', 'intolerance'],
     ['allergic', 'allergy'],
     ["I'd rather not", 'preference'],
+    ['peanut allergy, it upsets my stomach', 'allergy'], // allergy beats a soft cue
+    ['not like an allergy, it upsets my stomach', 'intolerance'],
+    ["I'm vegan", null], // a diet word is not a severity
     ['hmm', null],
   ])('severityFromText(%s)', (t, v) => expect(severityFromText(t)).toBe(v));
 });
@@ -134,4 +141,103 @@ describe('meals', () => {
     expect(windowEnd('22:59')).toBe('23:59');
     expect(() => windowEnd('7pm')).toThrow(/7pm/);
   });
+});
+
+const severities = (text: string) => parseRuleStatement(text)?.items.map((i) => [i.term, i.severity]);
+
+describe('fix round 1: a parser only keeps or raises a stated severity (C1)', () => {
+  test.each([
+    ["I'm vegetarian and can't eat peanuts", [['vegetarian', 'preference'], ['peanuts', null]], null],
+    ["can't eat peanuts, I prefer to be safe", [['peanuts', null]], null],
+    ["I'm coeliac and vegan", [['coeliac', null], ['vegan', 'preference']], null],
+    ["I have a peanut allergy, I'm really sensitive to it", [['peanut', 'allergy']], 'allergy'],
+    ['peanut allergy, it upsets my stomach', [['peanut', 'allergy']], 'allergy'],
+    ['allergic to peanuts and sensitive to milk', [['peanuts', 'allergy'], ['milk', 'intolerance']], null],
+    ['garlic kinda wrecks my stomach, it is not an allergy, I just avoid garlic', [['garlic', 'intolerance']], 'intolerance'],
+    ["I'm allergic to peanuts, not like an allergy really", [['peanuts', null]], null], // conflicting → asked
+    ["I'm vegan and severely allergic to sesame", [['vegan', 'preference'], ['sesame', 'anaphylactic']], null],
+    ["I can't eat shellfish, I end up in hospital", [['shellfish', 'anaphylactic']], 'anaphylactic'],
+  ])('%s', (text, items, overall) => {
+    expect(severities(text)).toEqual(items);
+    expect(parseRuleStatement(text)!.severity).toBe(overall);
+  });
+});
+
+describe('fix round 1: term splitting (I2)', () => {
+  test.each([
+    ["I can't eat pork or shellfish", ['pork', 'shellfish']],
+    ['allergic to shellfish\nAlso allergic to sesame', ['shellfish', 'sesame']],
+    ['allergic to tree nuts e.g. cashews', ['tree nuts', 'cashews']],
+    ['allergic to tree nuts, eg cashews and pecans', ['tree nuts', 'cashews', 'pecans']],
+    ['allergic to nuts like cashews', ['nuts', 'cashews']],
+    ['Allergic to: peanuts, sesame', ['peanuts', 'sesame']],
+    ['allergic - peanuts', ['peanuts']],
+    ['Allergies: peanuts and milk', ['peanuts', 'milk']],
+    ['allergic to peanuts and sensitive to milk', ['peanuts', 'milk']],
+  ])('%s', (text, terms) => expect(parseRuleStatement(text)?.terms).toEqual(terms));
+});
+
+describe('fix round 1: negation and pronouns (I3, M6, M2)', () => {
+  test.each([
+    "I don't have a peanut allergy",
+    "I'm not vegan",
+    'not allergic to anything',
+    "I'm never allergic to anything",
+    'I avoid it',
+    'I had a veggie burger',
+    'veggies are great',
+  ])('%s → no terms', (text) => expect(parseRuleStatement(text)).toBeNull());
+
+  test('negation is per clause', () => {
+    expect(parseRuleStatement("No, I'm allergic to peanuts")?.terms).toEqual(['peanuts']);
+    expect(parseRuleStatement("I'm not vegan but I am vegetarian")?.terms).toEqual(['vegetarian']);
+    expect(parseRuleStatement("I'm not sure but I'm allergic to sesame")?.terms).toEqual(['sesame']);
+  });
+
+  test('veggie needs a rule cue', () => {
+    expect(parseRuleStatement("I'm veggie")?.terms).toEqual(['veggie']);
+    expect(parseRuleStatement('we are veggie')?.terms).toEqual(['veggie']);
+    expect(parseRuleStatement('veggie diet')?.terms).toEqual(['veggie']);
+  });
+});
+
+describe('fix round 1: clocks, counts, weekdays, pantry, meals (M3–M5)', () => {
+  test.each([
+    ['half past seven', '07:30'],
+    ['half seven pm', '19:30'],
+    ['7.30pm', '19:30'],
+    ['19.30', '19:30'],
+    ["7 o'clock", '07:00'],
+    ['seven oclock pm', '19:00'],
+    ['it costs £7.50', null],
+    ['1.50 servings', null],
+  ])('parseClock(%s)', (t, v) => expect(parseClock(t)).toBe(v));
+
+  test('parseCount refuses a range', () => {
+    expect(parseCount('5-6')).toBeNull();
+    expect(parseCount('5 to 6 a week')).toBeNull();
+    expect(parseCount('five or six')).toBeNull();
+  });
+
+  test.each([
+    ['I sat down', []],
+    ['mon dieu', []],
+    ['wed like to cook', []],
+    ['sat', [6]],
+    ['sat and sun', [0, 6]],
+    ['Fri', [5]],
+    ['the market is fri, sat', [5, 6]],
+    ['Saturday', [6]],
+    ['every saturday when the sun is out', [6]],
+  ])('parseWeekdays(%s)', (t, v) => expect(parseWeekdays(t)).toEqual(v));
+
+  test('removals keep going through a list', () => {
+    expect(parsePantryRemovals('finished the milk and eggs')).toEqual(['milk', 'eggs']);
+    expect(parsePantryRemovals('ran out of rice, lentils and the oats.')).toEqual(['rice', 'lentils', 'oats']);
+    expect(parsePantryRemovals('finished the milk and I bought eggs')).toEqual(['milk']);
+  });
+
+  test.each(['had enough', 'had a long day', 'had a go at it', 'I had it', 'had a look'])('%s is not a meal', (t) =>
+    expect(parseMealStatement(t)).toBeNull(),
+  );
 });
