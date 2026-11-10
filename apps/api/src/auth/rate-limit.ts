@@ -78,9 +78,10 @@ export class SlidingWindowLimiter {
 /**
  * Sweeps `limiters` every `everyMs` (a minute by default) on an unref'd timer,
  * so stale keys go even when no further request comes. Returns a stop function.
+ * Takes any in-memory store with a `sweep` (the mentor's `MemoryHistory` and `MemoryFlags` too).
  */
 export function sweepPeriodically(
-  limiters: readonly SlidingWindowLimiter[],
+  limiters: readonly { sweep(now: number): void }[],
   now: () => number,
   everyMs = SWEEP_EVERY_MS,
 ): () => void {

@@ -11,10 +11,10 @@ import { sealFor } from '../crypto/userkeys.js';
 import { ADVISORY_LOCK } from '../db/advisory-locks.js';
 import { pantryItems } from '../db/schema.js';
 import { ApiError } from '../errors.js';
+import { MAX_PANTRY_ITEMS } from '../mentor/constants.js';
 import { loadPantryForExport, pantrySealContext } from './store.js';
 
-/** At most this many pantry items per player (M4 README constants; data-inventory.md §3.13). */
-export const MAX_PANTRY_ITEMS = 300;
+export { MAX_PANTRY_ITEMS };
 /** A pantry item's name, after trim (N-7; the same cap as core's pantry card). */
 const PANTRY_NAME_MAX = 80;
 /** Ids are uuids; anything longer is no id of ours. */
@@ -47,7 +47,7 @@ type Row = PantryItem & { id: string };
 
 /**
  * Serializes the player's pantry writes: pg_advisory_xact_lock(ADVISORY_LOCK.pantry, hashtext(userId)),
- * held until commit, so the 300-item cap sees every committed write of the
+ * held until commit, so the MAX_PANTRY_ITEMS cap sees every committed write of the
  * same player. In the global lock order (pre-flight C13) it comes after
  * `lockLiveUser` and `rules:`, before the consent row. Re-entrant within one transaction.
  */

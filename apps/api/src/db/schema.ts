@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   bigserial,
+  boolean,
   check,
   customType,
   date,
@@ -308,4 +309,97 @@ export const pantryItems = pgTable(
     createdAt: ts("created_at").notNull().defaultNow(),
   },
   (t) => [index("pantry_items_user_id_idx").on(t.userId)],
+);
+
+/**
+ * A Pan conversation (M4 Step 6, C-12). Content-free: owner, times and the
+ * turn counter only. What was said is in `messages`, and only with
+ * `health_data` consent.
+ */
+export const conversations = pgTable(
+  "conversations",
+  {
+    id: id(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** Set from the app's injected clock; defaultNow() is only a fallback. */
+    startedAt: ts("started_at").notNull().defaultNow(),
+    lastTurnAt: ts("last_turn_at").notNull().defaultNow(),
+    turnSeq: integer("turn_seq").notNull().default(0),
+  },
+  (t) => [index("conversations_user_id_idx").on(t.userId), index("conversations_last_turn_at_idx").on(t.lastTurnAt)],
+);
+
+export const MESSAGE_ROLES = ["player", "pan"] as const;
+
+/**
+ * One transcript message (I-1, C-12): `sealed` is the mentor's `StoredMessage`,
+ * sealed S-U with AAD `{ table: 'messages', userId, rowId }`. Kept 30 days.
+ */
+export const messages = pgTable(
+  "messages",
+  {
+    id: id(),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    seq: integer("seq").notNull(),
+    role: text("role").notNull(),
+    sealed: bytea("sealed").notNull(),
+    /** Set from the app's injected clock; defaultNow() is only a fallback. */
+    createdAt: ts("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("messages_conversation_seq_idx").on(t.conversationId, t.seq),
+    index("messages_user_id_idx").on(t.userId),
+    index("messages_created_at_idx").on(t.createdAt),
+    check("messages_role_check", sql`${t.role} in (${inList(MESSAGE_ROLES)})`),
+  ],
+);
+
+/** Core's `ProposalKind`, as stored (`mentor/proposals.ts` checks the two agree). */
+export const PROPOSAL_KINDS = ["rule", "meal", "profile", "pantry"] as const;
+export const PROPOSAL_STATUSES = ["open", "confirmed", "rejected", "expired", "undone"] as const;
+export const PROPOSAL_CHANNELS = ["tap", "typed_yes"] as const;
+
+/**
+ * A proposal card the server showed (I-4, M4 Step 6): what Step 8's guard
+ * checks before any write. `sealed` is core's `ProposalCard`, sealed S-U with
+ * AAD `{ table: 'mentor_proposals', userId, rowId }`; `undo_sealed` the
+ * write's undo payload under `{ table: 'mentor_proposals.undo', userId, rowId }`.
+ * Short-lived: deleted 24 hours after it was made.
+ */
+export const mentorProposals = pgTable(
+  "mentor_proposals",
+  {
+    id: id(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+    turnSeq: integer("turn_seq"),
+    kind: text("kind").notNull(),
+    severe: boolean("severe").notNull(),
+    status: text("status").notNull(),
+    sealed: bytea("sealed").notNull(),
+    undoSealed: bytea("undo_sealed"),
+    writeRef: uuid("write_ref"),
+    channel: text("channel"),
+    /** Set from the app's injected clock; defaultNow() is only a fallback. */
+    createdAt: ts("created_at").notNull().defaultNow(),
+    expiresAt: ts("expires_at").notNull(),
+    decidedAt: ts("decided_at"),
+  },
+  (t) => [
+    index("mentor_proposals_user_id_idx").on(t.userId),
+    index("mentor_proposals_conversation_turn_idx").on(t.conversationId, t.turnSeq),
+    index("mentor_proposals_created_at_idx").on(t.createdAt),
+    check("mentor_proposals_kind_check", sql`${t.kind} in (${inList(PROPOSAL_KINDS)})`),
+    check("mentor_proposals_status_check", sql`${t.status} in (${inList(PROPOSAL_STATUSES)})`),
+    check("mentor_proposals_channel_check", sql`${t.channel} in (${inList(PROPOSAL_CHANNELS)})`),
+  ],
 );

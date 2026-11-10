@@ -70,7 +70,7 @@ const PROFILE = {
 };
 
 const SAID: StoredMessage = { role: 'player', text: 'I had peanut noodles for lunch' };
-const PAN_SAID: StoredMessage = { role: 'pan', parts: [{ kind: 'line', line: { trigger: 'log.confirm', vars: {} } }], proposalIds: [] };
+const PAN_SAID: Extract<StoredMessage, { role: 'pan' }> = { role: 'pan', parts: [{ kind: 'line', line: { trigger: 'log.confirm', vars: {} } }], proposalIds: [] };
 const MEAL_CARD: MealCard = { kind: 'meal', meal: MEAL as MealCard['meal'], summary: 'lunch: peanut noodles', estimate: false, readback: [] };
 
 interface Player {

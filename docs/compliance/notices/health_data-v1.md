@@ -4,6 +4,7 @@
 - Version: `v1`
 - SHA-256 of the notice text: `7320fd578ec315b852065cb31622479596f1662ede92e07539c0952f33a6f00a`
 - Status: DRAFT wording, pending lawyer review (C-30). In force from M2 Step 9 (N-7).
+- Superseded by: `health_data-v2.md` (M4 Step 6). Grants under v1 no longer count.
 - Replaces: the inline notice of version `2026-11-09`, which did not name religious or cultural diets.
 
 The API serves the paragraph between the two markers below (without the blank lines around it), byte for byte, as the `health_data` notice (`apps/api/src/consent/notices.ts` reads this file at boot). Each grant records this version and the SHA-256 of that text in `consents.notice_version` and `consents.notice_sha256`, so the ledger shows exactly which words the player agreed to.

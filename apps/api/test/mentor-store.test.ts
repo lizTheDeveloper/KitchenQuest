@@ -9,11 +9,18 @@ import { NOTICES } from '../src/consent/notices.js';
 import { conversations, mentorProposals, messages, users } from '../src/db/schema.js';
 import {
   CONVERSATION_IDLE_MS,
+  FREE_AI_TURNS_PER_DAY,
+  GUILD_AI_TURNS_PER_DAY,
   HISTORY_MESSAGES,
+  MAX_PANTRY_ITEMS,
+  MAX_TEXT,
   MEMORY_TTL_MS,
   PROPOSAL_TTL_MS,
   TRANSCRIPT_RETENTION_DAYS,
+  TURNS_PER_MINUTE,
+  UNDO_WINDOW_MS,
 } from '../src/mentor/constants.js';
+import { MAX_PANTRY_ITEMS as PANTRY_CAP } from '../src/pantry/service.js';
 import {
   appendMessages,
   bumpTurn,
@@ -92,10 +99,18 @@ const rowsOf = async (table: 'messages' | 'mentor_proposals' | 'conversations', 
 describe('constants', () => {
   it('are the README Global Constraints values', () => {
     expect(PROPOSAL_TTL_MS).toBe(30 * 60_000);
+    expect(UNDO_WINDOW_MS).toBe(5 * 60_000);
     expect(TRANSCRIPT_RETENTION_DAYS).toBe(30);
     expect(HISTORY_MESSAGES).toBe(8);
     expect(MEMORY_TTL_MS).toBe(30 * 60_000);
     expect(CONVERSATION_IDLE_MS).toBe(6 * 3_600_000);
+    expect(TURNS_PER_MINUTE).toBe(20);
+    expect(FREE_AI_TURNS_PER_DAY).toBe(15);
+    expect(GUILD_AI_TURNS_PER_DAY).toBe(100);
+    expect(MAX_TEXT).toBe(500);
+    expect(MAX_PANTRY_ITEMS).toBe(300);
+    // The pantry service uses this one, not an inline 300.
+    expect(PANTRY_CAP).toBe(MAX_PANTRY_ITEMS);
   });
 });
 
@@ -343,7 +358,8 @@ describe('proposals', () => {
     const undo = { removed: [{ name: 'peanut butter', ingredientId: 'peanut' }] };
     await tx((t) => markDecided(t, id, 'confirmed', 'typed_yes', ref, undo, keyring, u, at(MIN)));
     const [row] = await rowsOf('mentor_proposals', u);
-    expect(row).toMatchObject({ status: 'confirmed', channel: 'typed_yes', write_ref: ref, decided_at: at(MIN) });
+    expect(row).toMatchObject({ status: 'confirmed', channel: 'typed_yes', write_ref: ref });
+    expect(new Date(row.decided_at).getTime()).toBe(at(MIN).getTime());
     expect(Buffer.from(row.undo_sealed).toString('latin1')).not.toMatch(/peanut/i);
     const loaded = await tx((t) => lockProposal(t, keyring, u, id, at(2 * MIN)));
     expect(loaded).toMatchObject({ status: 'confirmed', writeRef: ref, undo, decidedAt: at(MIN) });

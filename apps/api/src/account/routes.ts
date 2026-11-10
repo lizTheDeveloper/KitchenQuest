@@ -23,6 +23,8 @@ import {
 } from '../db/schema.js';
 import { ApiError } from '../errors.js';
 import { loadMeals } from '../meals/store.js';
+import { loadConversationsForExport } from '../mentor/conversations.js';
+import { loadProposalsForExport } from '../mentor/proposals.js';
 import { loadPantryForExport } from '../pantry/store.js';
 import { knownMealWindows } from '../profile/store.js';
 import { loadRules } from '../rules/store.js';
@@ -102,8 +104,10 @@ const iso = (d: Date | null) => (d ? d.toISOString() : null);
  * Every table linked to a user appears here; `test/account.test.ts` enumerates
  * them from the schema, so a later table fails it until it is added.
  * Left out on purpose: token hashes, the wrapped data key and sealed blobs
- * (credentials and ciphertext, not information about the player), internal
- * row ids other than rule, meal and pantry ids, and the audit actor id (the player themselves,
+ * (credentials and ciphertext, not information about the player), a mentor
+ * proposal's undo payload and written-row ref (internal bookkeeping for undo),
+ * internal row ids other than rule, meal, pantry, conversation and proposal
+ * ids, and the audit actor id (the player themselves,
  * or a staff identifier).
  */
 async function buildExport(tx: Tx, config: Config, userId: string, now: Date, processors: Processor[]) {
@@ -156,6 +160,21 @@ async function buildExport(tx: Tx, config: Config, userId: string, now: Date, pr
     name,
     ingredientId,
     createdAt: iso(createdAt),
+  }));
+
+  // Pan conversations with their stored messages, and proposal cards, decrypted (I-1, I-4, C-12).
+  const convs = (await loadConversationsForExport(tx, config.keyring, userId)).map((c) => ({
+    id: c.id,
+    startedAt: iso(c.startedAt),
+    lastTurnAt: iso(c.lastTurnAt),
+    turnSeq: c.turnSeq,
+    messages: c.messages.map((m) => ({ ...m, createdAt: iso(m.createdAt) })),
+  }));
+  const proposals = (await loadProposalsForExport(tx, config.keyring, userId)).map((p) => ({
+    ...p,
+    createdAt: iso(p.createdAt),
+    expiresAt: iso(p.expiresAt),
+    decidedAt: iso(p.decidedAt),
   }));
 
   const ents = await tx
@@ -230,6 +249,8 @@ async function buildExport(tx: Tx, config: Config, userId: string, now: Date, pr
     rules: decrypted,
     meals,
     pantry,
+    conversations: convs,
+    proposals,
     consents: await consentHistory(tx, userId),
     entitlements: ents.map((e) => ({
       ...e,
@@ -317,8 +338,8 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
     const at = now();
     const { id: userId, email } = req.user;
     // One transaction, in this order: the delete event first (so it is pseudonymized
-    // with the rest), then the user (cascading to sessions, profile, rules, meal logs, pantry, consents,
-    // user_keys, entitlements, usage, self-read counts), then sign-in links by email,
+    // with the rest), then the user (cascading to sessions, profile, rules, meal logs, pantry,
+    // conversations, messages, mentor proposals, consents, user_keys, entitlements, usage, self-read counts), then sign-in links by email,
     // then the audit trail, which the database pseudonymizes only once the user is gone.
     // A running export holds the user row, so the delete waits for it (see above).
     await db.transaction(async (tx) => {
