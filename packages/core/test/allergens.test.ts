@@ -418,7 +418,7 @@ describe('allergen review fixes', () => {
   });
 
   it('a sulphite rule never offers a swap, even with a substitution for a sulphite carrier', () => {
-    const extra: Substitution[] = [...subs, { from: 'gelatin', to: 'rice', note: 'test' } as Substitution];
+    const extra: Substitution[] = [...subs, { from: 'gelatin', to: 'rice', note: 'test' }];
     const rule = ruleFor('sulphites');
     const res = check(dish(`Add @${graph.get('gelatin').name}{5%g}.`), [rule], graph, extra, '2026-11-10');
     expect(res.status).toBe('blocked');
