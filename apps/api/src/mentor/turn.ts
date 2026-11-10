@@ -6,7 +6,7 @@ import {
   buildRuleCard,
   classifyTurn,
   matchDish,
-  mentionsHealthTerm,
+  normalizeName,
   parseRuleStatement,
   preRoute,
   severityFromText,
@@ -22,21 +22,23 @@ import {
   type TurnResponse,
 } from '@kitchenquest/core';
 import { and, eq } from 'drizzle-orm';
-import type { AiProvider, AiResult } from '../ai/provider.js';
+import type { AiProvider, AiResult, AiTool } from '../ai/provider.js';
 import { lockLiveUser } from '../auth/live-user.js';
 import type { Catalog } from '../catalog.js';
 import { consentHeldIn, hasConsent, type Tx } from '../consent/ledger.js';
 import type { Keyring } from '../crypto/keyring.js';
 import { canonRecipes, conversations } from '../db/schema.js';
 import { addDays } from '../meals/service.js';
+import { loadRules } from '../rules/store.js';
 import type { Db } from '../types.js';
 import { recordUsage } from '../usage/usage.js';
-import { aiTurnsLeft, type BudgetGuard } from './allowance.js';
+import { aiTurnsLeft, recordAiCost, type BudgetGuard } from './allowance.js';
 import { appendMessages, bumpTurn, openConversation, recentMessages, type StoredMessage } from './conversations.js';
-import { filterReply, REPLACEMENT, type FilterFail } from './filter.js';
+import { filterReply, REPLACEMENT, touchesHealth, type FilterFail } from './filter.js';
+import { isHealthText, ruleWords } from './health.js';
 import { line, type PanBank } from './lines.js';
 import type { MemoryFlags, MemoryHistory } from './memory.js';
-import { applyPostChecks, severeTermsLeftOut } from './postchecks.js';
+import { applyPostChecks, severeTermsLeftOut, statesSevere } from './postchecks.js';
 import { buildPromptContext, minimiseHistory, renderMessages, renderPanParts, type PanPrompt, type PromptContext } from './prompt.js';
 import { createProposal, hasOpenHealthProposal } from './proposals.js';
 import { MENTOR_TOOLS, parseToolCall, type ToolArgs } from './tools.js';
@@ -57,6 +59,14 @@ export interface TurnDeps {
 }
 
 type Opened = { conversationId: string; turnSeq: number; healthData: boolean; aiHealth: boolean; openHealthCard: boolean };
+
+/**
+ * How much of the model a turn may use. `full`: every propose tool (with
+ * `ai_health`) or `propose_profile` only (without, fix round 1 R4).
+ * `rule_help`: the C6 exemption let a capped turn through, so only
+ * `propose_rule` is offered and the model's text is dropped (R3).
+ */
+type Mode = 'full' | 'rule_help';
 
 const respond = (
   conversationId: string,
@@ -79,40 +89,46 @@ async function openTurn(deps: TurnDeps, userId: string, req: TurnRequest, now: D
   });
 }
 
-/** Stage 4: the health gate (pre-flight C1). Over-catches on purpose. */
-function isHealthTurn(deps: TurnDeps, intent: string, stripped: string, req: TurnRequest, opened: Opened): boolean {
-  return (
-    intent === 'health' ||
-    req.intakeStep === 'allergies' ||
-    mentionsHealthTerm(stripped, deps.catalog.graph, deps.catalog.ruleTerms) ||
-    opened.openHealthCard
-  );
+/** Stage 4: the health gate (pre-flight C1, fix round 1 R1). Over-catches on purpose. */
+function isHealthTurn(deps: TurnDeps, stripped: string, req: TurnRequest, opened: Opened): boolean {
+  return req.intakeStep === 'allergies' || opened.openHealthCard || isHealthText(stripped, deps.catalog);
 }
 
 /**
- * Stage 5: why the model can't be used now, or null. Rule help is never
- * capped (pre-flight C6, §16): it skips the daily allowance, never the
- * AI-off or budget checks.
+ * Stage 5: why the model can't be used now, or the mode it may be used in.
+ * Rule help is never capped (pre-flight C6, §16): it skips the daily
+ * allowance, never the AI-off or budget checks, and then runs as `rule_help`.
  */
-async function unavailable(deps: TurnDeps, userId: string, health: boolean, stripped: string, now: Date): Promise<TurnNotice> {
-  if (deps.ai === null) return 'ai_off';
-  if (deps.budget !== null && !(await deps.budget.ok(now))) return 'ai_unavailable';
+async function availability(deps: TurnDeps, userId: string, health: boolean, stripped: string, now: Date): Promise<{ notice: TurnNotice } | { mode: Mode }> {
+  if (deps.ai === null) return { notice: 'ai_off' };
+  if (deps.budget !== null && !(await deps.budget.ok(now))) return { notice: 'ai_unavailable' };
+  const { left } = await aiTurnsLeft(deps.db, userId, now);
+  if (left > 0) return { mode: 'full' };
   const graph = deps.catalog.graph;
   const ruleHelp = health && (parseRuleStatement(stripped, graph) !== null || severityFromText(stripped, graph) !== null);
-  if (ruleHelp) return null;
-  const { left } = await aiTurnsLeft(deps.db, userId, now);
-  return left <= 0 ? 'rate_limited' : null;
+  return ruleHelp ? { mode: 'rule_help' } : { notice: 'rate_limited' };
 }
 
-/** Stage 6: context and history, minimised (C-13), read in their own transaction. */
+/** The tools a turn offers (R3, R4). */
+function toolsFor(mode: Mode, aiHealth: boolean): AiTool[] {
+  if (mode === 'rule_help') return MENTOR_TOOLS.filter((t) => t.name === 'propose_rule');
+  return aiHealth ? MENTOR_TOOLS : MENTOR_TOOLS.filter((t) => t.name === 'propose_profile');
+}
+
+/**
+ * Stage 6: context and history, minimised (C-13), read in one transaction that
+ * re-reads `ai_health` (fix round 1, P2): a withdrawal since stage 1 counts.
+ */
 async function promptInputs(deps: TurnDeps, userId: string, req: TurnRequest, opened: Opened, now: Date) {
   const turnsLeft = (await aiTurnsLeft(deps.db, userId, now)).left;
-  const ctx = await deps.db.transaction((tx) =>
-    buildPromptContext(tx, deps, userId, { ...req, conversationId: opened.conversationId }, opened.aiHealth, turnsLeft, now),
-  );
+  const { ctx, aiHealth } = await deps.db.transaction(async (tx) => {
+    const fresh = (await hasConsent(tx, userId, 'health_data', now)) && (await hasConsent(tx, userId, 'ai_health', now));
+    const built = await buildPromptContext(tx, deps, userId, { ...req, conversationId: opened.conversationId }, fresh, turnsLeft, now);
+    return { ctx: built, aiHealth: fresh };
+  });
   const history = await recentMessages(deps.db, deps.keyring, deps.memory, userId, opened.conversationId, opened.healthData, now);
-  const sent = opened.aiHealth ? history : minimiseHistory(history, deps.bank, deps.catalog.graph, deps.catalog.ruleTerms);
-  return { ctx, history, sent };
+  const sent = aiHealth ? history : minimiseHistory(history, deps.bank, deps.catalog);
+  return { ctx, history, sent, aiHealth };
 }
 
 interface Reply {
@@ -191,17 +207,32 @@ function cardsFromCalls(
   return { parts, cards, toolTurn: true };
 }
 
-/** Stage 8: no tool call. The filtered text, or the written line that replaces it. */
-function textReply(result: Extract<AiResult, { ok: true }>, ctx: PromptContext, previousPanText: string | null): Reply {
-  const filtered = filterReply(result.text, { finish: result.finish, previousPanText });
-  if (filtered.ok) return { parts: [{ kind: 'text', text: filtered.text }], cards: [], toolTurn: false };
-  return { parts: [line(replacementFor(filtered.reason, ctx))], cards: [], toolTurn: false };
-}
-
 /** The written line for a filter failure; a safety claim gets the label reminder only when there is a dish or a rule (pre-flight C34). */
 function replacementFor(reason: FilterFail, ctx: Pick<PromptContext, 'dish' | 'rules'>): string {
   if (reason === 'safety_claim' && ctx.dish === null && (ctx.rules?.length ?? 0) === 0) return 'didnt_understand';
   return REPLACEMENT[reason];
+}
+
+/**
+ * Stage 8: no tool call. On a health turn the model's text is never shown
+ * (R1): a filter failure gets its line, anything else a scripted line. On
+ * other turns the filtered text is shown unless it touches the player's
+ * rules, the dish on screen, a medicine or food safety (R2).
+ */
+function textReply(
+  result: Extract<AiResult, { ok: true }>,
+  ctx: PromptContext,
+  previousPanText: string | null,
+  health: boolean,
+  screenWords: () => Promise<string[]>,
+): Promise<Reply> | Reply {
+  const filtered = filterReply(result.text, { finish: result.finish, previousPanText });
+  const lineReply = (trigger: string): Reply => ({ parts: [line(trigger)], cards: [], toolTurn: false });
+  if (!filtered.ok) return lineReply(replacementFor(filtered.reason, ctx));
+  if (health) return lineReply(ctx.dish !== null ? 'mentor.check_card' : 'didnt_understand');
+  return screenWords().then((words) =>
+    touchesHealth(filtered.text, words) ? lineReply('mentor.check_card') : { parts: [{ kind: 'text', text: filtered.text }], cards: [], toolTurn: false },
+  );
 }
 
 /** Locks the caller's conversation row (FOR UPDATE); false when it is gone (forgotten mid-turn). */
@@ -214,62 +245,90 @@ async function lockConversation(tx: Tx, userId: string, conversationId: string):
   return rows.length > 0;
 }
 
+const RULE_OUTCOME_LINES = new Set(['rule.unknown_term', 'rule.which_one', 'consent.health_first', 'rule.ask_what_else']);
+const hasRuleOutcome = (reply: Reply) =>
+  reply.cards.some((c) => c.kind === 'rule') || reply.parts.some((p) => p.kind === 'line' && RULE_OUTCOME_LINES.has(p.line.trigger));
+
+interface FinishInput {
+  opened: Opened;
+  req: TurnRequest;
+  raw: string;
+  stripped: string;
+  result: Extract<AiResult, { ok: true }>;
+  ctx: PromptContext;
+  previousPanText: string | null;
+  health: boolean;
+  mode: Mode;
+  offered: readonly AiTool[];
+}
+
 /**
- * Stages 7–9 in one transaction, in the README lock order: live user →
- * consent row (share-locked; `persist` and the health cards are decided from
- * it, never from an earlier read) → conversation row → messages →
- * mentor_proposals. A concurrent withdraw-with-delete either waits and then
+ * Stages 7–9 in one transaction, in the README lock order: live user (usage
+ * and the global cost are recorded here, so a turn racing an account delete is
+ * a 401, P5) → consent row (share-locked; `persist` and the health cards are
+ * decided from it, never from an earlier read) → conversation row → messages
+ * → mentor_proposals. A concurrent withdraw-with-delete either waits and then
  * deletes what this stored, or commits first and this stores nothing health.
  */
-async function finishTurn(
-  deps: TurnDeps,
-  userId: string,
-  opened: Opened,
-  req: TurnRequest,
-  raw: string,
-  stripped: string,
-  result: Extract<AiResult, { ok: true }>,
-  ctx: PromptContext,
-  previousPanText: string | null,
-  now: Date,
-): Promise<TurnResponse> {
+async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: Date): Promise<TurnResponse> {
   const graph = deps.catalog.graph;
+  const offered = new Set(f.offered.map((t) => t.name));
   const calls = applyPostChecks(
-    result.toolCalls.map(parseToolCall).filter((c): c is ToolArgs => c !== null),
-    raw,
+    f.result.toolCalls
+      .filter((c) => offered.has(c.name))
+      .map(parseToolCall)
+      .filter((c): c is ToolArgs => c !== null),
+    f.raw,
     graph,
   );
   return deps.db.transaction(async (tx) => {
     await lockLiveUser(tx, userId);
+    await recordUsage(tx, userId, 'mentor_text', 1, f.result.usage.costMicroUsd, now);
+    await recordAiCost(tx, f.result.usage.costMicroUsd, now);
     const persist = await consentHeldIn(tx, userId, 'health_data', now);
     const recipes = calls.some((c) => c.name === 'propose_meal_log')
       ? await tx.select({ slug: canonRecipes.slug, title: canonRecipes.title }).from(canonRecipes)
       : [];
-    const reply = calls.length > 0 ? cardsFromCalls(deps, calls, req, persist, recipes) : textReply(result, ctx, previousPanText);
+    const screenWords = async () => [
+      ...ruleWords(await loadRules(tx, deps.keyring, userId), deps.catalog),
+      ...(f.ctx.dish === null ? [] : [normalizeName(f.ctx.dish.title), normalizeName(f.ctx.dish.title.replace(/\s*\([^)]*\)\s*$/, ''))]),
+    ];
+    let reply: Reply;
+    if (calls.length > 0) reply = cardsFromCalls(deps, calls, f.req, persist, recipes);
+    else if (f.mode === 'rule_help') reply = { parts: [], cards: [], toolTurn: false }; // R3: the text is dropped
+    else reply = await textReply(f.result, f.ctx, f.previousPanText, f.health, screenWords);
+
+    // I5: a severe statement always ends with a rule outcome, naming the missed ingredient when code knows it.
     const keptRuleTerms = calls.flatMap((c) => (c.name === 'propose_rule' ? [c.args.term] : []));
-    if (severeTermsLeftOut(raw, keptRuleTerms, graph)) reply.parts.push(line('rule.ask_what_else'));
+    const missed = severeTermsLeftOut(f.raw, keptRuleTerms, graph);
+    if (missed !== null || (statesSevere(f.raw, graph) && !hasRuleOutcome(reply))) {
+      reply.parts.push(line('rule.ask_what_else', missed === null ? {} : { term: missed }));
+    }
+    if (f.mode === 'rule_help' && !hasRuleOutcome(reply)) reply = { parts: [line('rate_limited')], cards: [], toolTurn: false };
     if (reply.parts.length === 0) reply.parts.push(line('didnt_understand'));
 
-    if (!(await lockConversation(tx, userId, opened.conversationId))) {
+    if (!(await lockConversation(tx, userId, f.opened.conversationId))) {
       // Forgotten while the model ran: nothing is stored and no card is offered.
-      return respond(opened.conversationId, 'ai', reply.parts.filter((p) => p.kind === 'text' || p.kind === 'line'), null, {
+      return respond(f.opened.conversationId, 'ai', reply.parts.filter((p) => p.kind === 'text' || p.kind === 'line'), null, {
         toolTurn: reply.toolTurn,
       });
     }
     const ids = reply.cards.map(() => randomUUID());
     const msgs: StoredMessage[] = [
-      { role: 'player', text: stripped },
+      { role: 'player', text: f.stripped },
       { role: 'pan', parts: reply.parts, proposalIds: ids },
     ];
-    const append = () => appendMessages(tx, deps.keyring, deps.memory, userId, opened.conversationId, msgs, persist, now);
+    const append = () => appendMessages(tx, deps.keyring, deps.memory, userId, f.opened.conversationId, msgs, persist, now);
     if (persist) await append();
     const cards: ServerCard[] = [];
     for (const [i, card] of reply.cards.entries()) {
-      cards.push(await createProposal(tx, deps.keyring, { userId, conversationId: opened.conversationId, turnSeq: opened.turnSeq, card, id: ids[i] }, now));
+      cards.push(
+        await createProposal(tx, deps.keyring, { userId, conversationId: f.opened.conversationId, turnSeq: f.opened.turnSeq, card, id: ids[i] }, now),
+      );
     }
     // Consent withdrawn while the model ran: nothing of the turn is kept, not even in memory.
-    if (!persist && !opened.healthData) await append();
-    return respond(opened.conversationId, 'ai', reply.parts, null, { cards, toolTurn: reply.toolTurn });
+    if (!persist && !f.opened.healthData) await append();
+    return respond(f.opened.conversationId, 'ai', reply.parts, null, { cards, toolTurn: reply.toolTurn });
   });
 }
 
@@ -303,21 +362,22 @@ export async function runTurn(deps: TurnDeps, userId: string, req: TurnRequest, 
   if (fixed !== null) return respond(id, 'deterministic', [{ kind: 'line', line: fixed }]);
 
   // 4. Health text never reaches the model without ai_health (C1, C-13, P-3).
-  const health = isHealthTurn(deps, intent, stripped, req, opened);
+  const health = isHealthTurn(deps, stripped, req, opened);
   if (health && !opened.aiHealth) return respond(id, 'scripted', [], 'needs_ai_health');
 
-  // 5. AI off, budget, daily allowance (rule help never capped).
-  const notice = await unavailable(deps, userId, health, stripped, now);
-  if (notice !== null || deps.ai === null) return respond(id, 'scripted', [], notice ?? 'ai_off');
+  // 5. AI off, budget, daily allowance (rule help never capped, but then only rule help).
+  const avail = await availability(deps, userId, health, stripped, now);
+  if ('notice' in avail || deps.ai === null) return respond(id, 'scripted', [], 'notice' in avail ? avail.notice : 'ai_off');
 
-  // 6. The model, with minimised context.
-  const { ctx, history, sent } = await promptInputs(deps, userId, req, opened, now);
-  const result = await deps.ai.complete({ messages: renderMessages(deps.prompt, ctx, sent, stripped, deps.bank), tools: MENTOR_TOOLS });
+  // 6. The model, with minimised context and only the tools this turn may use.
+  const { ctx, history, sent, aiHealth } = await promptInputs(deps, userId, req, opened, now);
+  if (health && !aiHealth) return respond(id, 'scripted', [], 'needs_ai_health');
+  const offered = toolsFor(avail.mode, aiHealth);
+  const result = await deps.ai.complete({ messages: renderMessages(deps.prompt, ctx, sent, stripped, deps.bank), tools: offered });
   if (!result.ok) return respond(id, 'scripted', [], 'ai_unavailable');
-  await recordUsage(deps.db, userId, 'mentor_text', 1, result.usage.costMicroUsd, now);
 
-  // 7–9. Cards or filtered text, stored under the consent lock.
+  // 7–9. Cards or screened text, metered and stored under the consent lock.
   const lastPan = [...history].reverse().find((m) => m.role === 'pan');
   const previousPanText = lastPan ? renderPanParts(lastPan.parts, deps.bank) : null;
-  return finishTurn(deps, userId, opened, req, raw, stripped, result, ctx, previousPanText, now);
+  return finishTurn(deps, userId, { opened, req, raw, stripped, result, ctx, previousPanText, health, mode: avail.mode, offered }, now);
 }

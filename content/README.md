@@ -174,7 +174,8 @@ The server agent and the client's scripted engine emit these by id, so they are 
 | `rule.unknown_term` | The term isn't in the ingredient graph or the rule terms. Nothing is saved; the player is told to check recipes and labels themselves. | `term` |
 | `rule.which_one` | Several ingredients match; the player taps one. Nothing is picked for them. | `term` |
 | `rule.tap_needed` | A typed "yes" for a severe card. Severe cards need a tap. | `ingredient` |
-| `rule.ask_what_else` | A severe statement named an ingredient no card could be made for; asks for it plainly so it is never silently lost (Step 7). | |
+| `rule.ask_what_else` | A severe statement named an ingredient no card was made for; asks for it plainly so it is never silently lost (Step 7). | `term` (optional) |
+| `mentor.check_card` | Replaces model text that touched a dish's fit, a rule, a medicine or food safety; points at the card and the label (Step 7). | |
 | `confirm.tap_card` | A typed "yes" or "no" with more than one card open. | |
 | `write.not_done` | Replaces a model reply that claimed a write that didn't happen. | |
 | `consent.health_first` | A rule or meal card for a player without `health_data` consent; the 3-C/HEALTH card follows. | |

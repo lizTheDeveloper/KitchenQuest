@@ -299,12 +299,24 @@ describe('rule help and the daily cap (pre-flight C6)', () => {
 });
 
 describe('tools — the model can only propose', () => {
-  test('only propose_* tools are offered', async () => {
-    const ai = fakeAi([reply('Rice.')]);
+  test('only propose_* tools are offered; without ai_health only propose_profile (R4)', async () => {
+    const ai = fakeAi([reply('Rice.'), reply('Rice.')]);
     await makeApp(ai);
-    const p = await player();
+    const p = await player(AI_HEALTH);
     await turn(p.cookie, 'what should I cook tonight?');
     expect(ai.requests[0].tools.map((t) => t.name)).toEqual(['propose_rule', 'propose_meal_log', 'propose_profile', 'propose_pantry_change']);
+    const q = await player(HEALTH);
+    await turn(q.cookie, 'what should I cook tonight?');
+    expect(ai.requests[1].tools.map((t) => t.name)).toEqual(['propose_profile']);
+  });
+
+  test('without ai_health a model call for a tool it was not offered is ignored (R4)', async () => {
+    const ai = fakeAi([toolCall('propose_pantry_change', { add: ['tins'], remove: [] }, 'Sure.')]);
+    await makeApp(ai);
+    const p = await player();
+    const r = await turn(p.cookie, 'I bought tins, what now?');
+    expect(ai.requests).toHaveLength(1);
+    expect(r.cards).toEqual([]);
   });
 
   test('a tool turn drops the model text and reads back from code', async () => {
@@ -327,7 +339,7 @@ describe('tools — the model can only propose', () => {
     await makeApp(ai);
     const p = await player(AI_HEALTH);
     const r = await turn(p.cookie, 'I have a severe peanut allergy, save it');
-    expect(r.parts).toEqual([lineOf('didnt_understand')]);
+    expect(r.parts).toEqual([lineOf('didnt_understand'), lineOf('rule.ask_what_else')]); // I5: a severe statement always asks
     expect(r.cards).toEqual([]);
     expect(await countOf('rules', p.userId)).toBe(0);
     expect(await countOf('mentor_proposals', p.userId)).toBe(0);
@@ -395,7 +407,7 @@ describe('tools — the model can only propose', () => {
     const p = await player(AI_HEALTH);
     const r = await turn(p.cookie, "i'm vegetarian, peanuts nearly killed me");
     expect(r.cards).toHaveLength(1);
-    expect(r.parts.at(-1)).toEqual(lineOf('rule.ask_what_else'));
+    expect(r.parts.at(-1)).toEqual(lineOf('rule.ask_what_else', { term: 'peanut' }));
   });
 
   test('an injected rule in pasted text never becomes a card', async () => {
@@ -498,19 +510,57 @@ describe('failure, caps, metering, storage', () => {
   test('global budget reached → ai_unavailable', async () => {
     const ai = fakeAi([reply('Rice.')]);
     await makeApp(ai, { config: loadConfig({ ...testAiEnv, AI_DAILY_BUDGET_USD: '0.001' }) }); // 1000 micro-USD
-    const other = await player();
     const p = await player(AI_HEALTH);
-    await seedUsage(other.userId, 1, 1000);
+    await sql`delete from ai_cost_hours`;
+    await sql`insert into ai_cost_hours (hour, cost_microusd) values (${new Date(clock - 23 * HOUR).toISOString()}, 1000)`;
     expect(await turn(p.cookie, 'what should I cook tonight?')).toMatchObject({ route: 'scripted', notice: 'ai_unavailable' });
     expect(await turn(p.cookie, "I'm allergic to sesame")).toMatchObject({ route: 'scripted', notice: 'ai_unavailable' });
     expect(ai.requests).toHaveLength(0);
   });
 
-  test('under the global budget the model is used', async () => {
+  test('under the global budget the model is used; spend older than 24 hours does not count', async () => {
     const ai = fakeAi([reply('Rice.')]);
-    await makeApp(ai, { config: loadConfig({ ...testAiEnv, AI_DAILY_BUDGET_USD: '1' }) });
+    await makeApp(ai, { config: loadConfig({ ...testAiEnv, AI_DAILY_BUDGET_USD: '0.001' }) });
     const p = await player();
+    await sql`delete from ai_cost_hours`;
+    await sql`insert into ai_cost_hours (hour, cost_microusd) values (${new Date(clock - 25 * HOUR).toISOString()}, 5000)`;
     expect((await turn(p.cookie, 'what should I cook tonight?')).route).toBe('ai');
+  });
+
+  test('P5: the global spend survives deleting the account that spent it', async () => {
+    const ai = fakeAi([reply('Rice.'), reply('Rice.')]);
+    await makeApp(ai, { config: loadConfig({ ...testAiEnv, AI_DAILY_BUDGET_USD: '0.0001' }) }); // 100 micro-USD
+    await sql`delete from ai_cost_hours`;
+    const spender = await player();
+    expect((await turn(spender.cookie, 'what should I cook tonight?')).route).toBe('ai'); // costs 60
+    expect((await turn(spender.cookie, 'and tomorrow?')).route).toBe('ai'); // 120 now
+    expect((await call(spender.cookie, { method: 'DELETE', url: '/me', payload: { confirm: 'delete my account' } })).statusCode).toBe(204);
+    const [row] = await sql<{ spent: string }[]>`select sum(cost_microusd)::text as spent from ai_cost_hours`;
+    expect(row.spent).toBe('120');
+    const columns = await sql<{ column_name: string }[]>`select column_name from information_schema.columns where table_name = 'ai_cost_hours' order by column_name`;
+    expect(columns.map((c) => c.column_name)).toEqual(['cost_microusd', 'hour']); // no user id
+    clock += 61_000; // past the guard's cache
+    const next = await player();
+    expect(await turn(next.cookie, 'what should I cook tonight?')).toMatchObject({ route: 'scripted', notice: 'ai_unavailable' });
+  });
+
+  test('P5: a turn racing an account delete is a 401, not a 500, and leaves no usage row', async () => {
+    let remove: () => Promise<unknown> = () => Promise.resolve();
+    const ai: AiProvider & { requests: AiRequest[] } = {
+      model: 'fake/pan',
+      requests: [],
+      async complete(req): Promise<AiResult> {
+        this.requests.push(req);
+        await remove();
+        return reply('Rice.');
+      },
+    };
+    await makeApp(ai);
+    const p = await player();
+    remove = () => call(p.cookie, { method: 'DELETE', url: '/me', payload: { confirm: 'delete my account' } });
+    const res = await turnRes(p.cookie, 'what should I cook tonight?');
+    expect(res.statusCode).toBe(401);
+    expect(await usageRows(p.userId)).toBe(0);
   });
 
   test('one usage row per model call, content-free', async () => {

@@ -1,6 +1,8 @@
 import {
+  ANAPHYLACTIC_CUE,
   dropMealsMatchingRemovals,
   normalizeName,
+  normalizeTurn,
   parseClock,
   parsePantryRemovals,
   parseRuleStatement,
@@ -54,6 +56,32 @@ function occursVerbatim(text: string, term: string): boolean {
 
 const isSevere = (s: Severity | null): s is Severity => s !== null && SEVERE.has(s);
 
+/** At most this many words between a severe cue and a term the model proposed (fix round 1, M3). */
+const CUE_REACH = 4;
+const ALLERGY_CUE = /\ballerg/;
+
+/**
+ * The term occurs verbatim within CUE_REACH words of a severe cue ("peanuts
+ * nearly killed me"), so an ingredient mentioned in passing ("I had rice with
+ * peanuts last week and nearly died": rice) is not kept by the Step 1 bypass.
+ */
+function nearSevereCue(text: string, term: string): boolean {
+  const t = normalizeTurn(text);
+  const tokens = [...t.matchAll(/[\p{L}\p{N}'-]+/gu)].map((m) => ({ from: m.index, to: m.index + m[0].length }));
+  const wordAt = (pos: number) => {
+    const i = tokens.findIndex((w) => w.to > pos);
+    return i < 0 ? tokens.length - 1 : i;
+  };
+  const spans = (re: RegExp) =>
+    [...t.matchAll(new RegExp(re.source, `${re.flags.replace('g', '')}g`))].map((m) => [wordAt(m.index), wordAt(m.index + Math.max(0, m[0].length - 1))] as const);
+  const cues = [...spans(ANAPHYLACTIC_CUE), ...spans(ALLERGY_CUE)];
+  const variants = [...new Set(forms(term).flatMap((f) => [f, `${f}s`, `${f}es`]))].filter((v) => v !== '');
+  const terms = variants.flatMap((v) => spans(new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(v)}(?![\\p{L}\\p{N}])`, 'u')));
+  return terms.some(([ts, te]) =>
+    cues.some(([cs, ce]) => (te < cs ? cs - te - 1 : ce < ts ? ts - ce - 1 : 0) <= CUE_REACH),
+  );
+}
+
 const SLOT_WORDS: Readonly<Record<MealSlot, RegExp | null>> = {
   breakfast: /\b(breakfast|brekkie)\b/i,
   lunch: /\blunch\b/i,
@@ -85,6 +113,7 @@ function clockFor(own: string, slot: MealSlot): string | null {
  */
 export function applyPostChecks(calls: ToolArgs[], playerText: string, graph: IngredientGraph): ToolArgs[] {
   const own = ownWords(playerText);
+  const stripped = stripPageEvents(playerText).text;
   const statement = parseRuleStatement(own, graph);
   const ownTerms = [...ruleTermsInPlayerWords(playerText), ...(statement?.terms ?? [])];
   const messageSeverity = severityFromText(own, graph);
@@ -97,7 +126,7 @@ export function applyPostChecks(calls: ToolArgs[], playerText: string, graph: In
       case 'propose_rule': {
         const { term } = call.args;
         const own_ = ownTerms.some((t) => sameTerm(t, term, graph));
-        if (!own_ && !(isSevere(messageSeverity) && occursVerbatim(own, term))) break;
+        if (!own_ && !(isSevere(messageSeverity) && nearSevereCue(own, term))) break;
         const item = statement?.items.find((i) => sameTerm(i.term, term, graph));
         const modelSevere = isSevere(call.args.severity) ? call.args.severity : null;
         const severity = item ? (item.severity ?? modelSevere) : (messageSeverity ?? modelSevere);
@@ -112,13 +141,20 @@ export function applyPostChecks(calls: ToolArgs[], playerText: string, graph: In
         break;
       }
       case 'propose_pantry_change': {
-        const add = call.args.add.filter((a) => !removals.some((r) => sameTerm(r, a, graph)));
-        out.push({ name: 'propose_pantry_change', args: { add, remove: [...call.args.remove] } });
+        // M4: only items the player named in their own words (the few-shot "milk" is not theirs).
+        const add = call.args.add.filter((a) => occursVerbatim(own, a) && !removals.some((r) => sameTerm(r, a, graph)));
+        const remove = call.args.remove.filter((r) => occursVerbatim(own, r));
+        out.push({ name: 'propose_pantry_change', args: { add, remove } });
         break;
       }
-      case 'propose_meal_log':
-        out.push({ name: 'propose_meal_log', args: { ...call.args } });
+      case 'propose_meal_log': {
+        // M4: a meal the player's text names (a pasted recipe counts: it is data, and the card asks).
+        const { description, dish } = call.args;
+        if ((description !== null && occursVerbatim(stripped, description)) || (dish !== null && occursVerbatim(stripped, dish))) {
+          out.push({ name: 'propose_meal_log', args: { ...call.args } });
+        }
         break;
+      }
     }
   }
 
@@ -131,7 +167,9 @@ export function applyPostChecks(calls: ToolArgs[], playerText: string, graph: In
 
   const meals = out.filter((c): c is Extract<ToolArgs, { name: 'propose_meal_log' }> => c.name === 'propose_meal_log');
   const keptMeals = new Set(dropMealsMatchingRemovals(meals.map((m) => m.args), removals));
-  return out.filter((c) => c.name !== 'propose_meal_log' || keptMeals.has(c.args));
+  return out.filter(
+    (c) => (c.name !== 'propose_meal_log' || keptMeals.has(c.args)) && (c.name !== 'propose_pantry_change' || c.args.add.length + c.args.remove.length > 0),
+  );
 }
 
 /** Ingredient ids named in the text, longest match first at each word (up to three words). */
@@ -157,17 +195,23 @@ function namedIngredients(text: string, graph: IngredientGraph): string[] {
 }
 
 /**
- * Step 1 carry: the player's own words state a severe allergy, but they name an
- * ingredient that neither the rule grammar nor any kept card covers ("i'm
- * vegetarian, peanuts nearly killed me"). The turn then adds a scripted ask
- * (`rule.ask_what_else`), so the dropped term is never silently lost.
- * Over-asks on purpose.
+ * Step 1 carry and fix round 1 I5: the player's own words state a severe
+ * allergy but name an ingredient that neither the rule grammar nor any kept
+ * card covers ("i'm vegetarian, peanuts nearly killed me"). Returns that
+ * ingredient's name, or null. The turn then adds `rule.ask_what_else`, so the
+ * dropped term is never silently lost. Over-asks on purpose.
  */
-export function severeTermsLeftOut(playerText: string, keptRuleTerms: readonly string[], graph: IngredientGraph): boolean {
+export function severeTermsLeftOut(playerText: string, keptRuleTerms: readonly string[], graph: IngredientGraph): string | null {
   const own = ownWords(playerText);
-  if (!isSevere(severityFromText(own, graph))) return false;
+  if (!isSevere(severityFromText(own, graph))) return null;
   const covered = new Set(
     [...(parseRuleStatement(own, graph)?.terms ?? []), ...keptRuleTerms].map((t) => graph.resolve(t)).filter((id) => id !== null),
   );
-  return namedIngredients(own, graph).some((id) => !covered.has(id));
+  const missed = namedIngredients(own, graph).find((id) => !covered.has(id));
+  return missed === undefined ? null : graph.get(missed).name;
+}
+
+/** The player's own words state a severe allergy (I5: a severe turn with no rule outcome always asks). */
+export function statesSevere(playerText: string, graph: IngredientGraph): boolean {
+  return isSevere(severityFromText(ownWords(playerText), graph));
 }

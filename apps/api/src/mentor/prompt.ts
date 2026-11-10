@@ -3,19 +3,16 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
   check,
-  mentionsHealthTerm,
   parseRecipe,
   slotForTime,
   validateRules,
   WEEKDAY_NAMES,
   type CheckStatus,
-  type IngredientGraph,
   type IntakeStep,
   type MealSlot,
   type ProposalKind,
   type ReplyPart,
   type Rule,
-  type RuleTerm,
   type Severity,
   type TurnRequest,
 } from '@kitchenquest/core';
@@ -30,6 +27,7 @@ import { loadPantry } from '../pantry/store.js';
 import { knownMealWindows } from '../profile/store.js';
 import { loadRules } from '../rules/store.js';
 import type { StoredMessage } from './conversations.js';
+import { isHealthText } from './health.js';
 import type { PanBank } from './lines.js';
 import { openProposalsOfConversation } from './proposals.js';
 
@@ -207,14 +205,24 @@ export function renderPanParts(parts: readonly ReplyPart[], bank: PanBank): stri
 }
 
 /**
- * History for a turn without `ai_health` (C-13): no message that names a
- * health term, and no Pan message that showed a card. Such turns never
- * reached the model, but `ai_health` may have been withdrawn since.
+ * History for a turn without `ai_health` (C-13, fix round 1 I2): no player
+ * message the stage-4 health predicate catches, nor the Pan reply that
+ * followed one, and no Pan message that showed a card or names a health term.
+ * Such turns never reached the model, but `ai_health` may have been withdrawn since.
  */
-export function minimiseHistory(history: StoredMessage[], bank: PanBank, graph: IngredientGraph, terms: readonly RuleTerm[]): StoredMessage[] {
-  return history.filter((m) =>
-    m.role === 'player' ? !mentionsHealthTerm(m.text, graph, terms) : m.proposalIds.length === 0 && !mentionsHealthTerm(renderPanParts(m.parts, bank), graph, terms),
-  );
+export function minimiseHistory(history: StoredMessage[], bank: PanBank, catalog: Catalog): StoredMessage[] {
+  const out: StoredMessage[] = [];
+  let droppedPlayer = false;
+  for (const m of history) {
+    if (m.role === 'player') {
+      droppedPlayer = isHealthText(m.text, catalog);
+      if (!droppedPlayer) out.push(m);
+    } else {
+      if (!droppedPlayer && m.proposalIds.length === 0 && !isHealthText(renderPanParts(m.parts, bank), catalog)) out.push(m);
+      droppedPlayer = false;
+    }
+  }
+  return out;
 }
 
 /** System prompt, examples, the context as one system message, history as user/assistant pairs, then the player's text. */

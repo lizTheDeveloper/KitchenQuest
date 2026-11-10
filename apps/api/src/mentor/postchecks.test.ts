@@ -83,10 +83,33 @@ describe('applyPostChecks', () => {
 });
 
 describe('severeTermsLeftOut', () => {
-  test('a severe statement with an ingredient no card covers asks again', () => {
-    expect(severeTermsLeftOut("i'm vegetarian, peanuts nearly killed me", ['vegetarian'], graph)).toBe(true);
-    expect(severeTermsLeftOut("i'm vegetarian, peanuts nearly killed me", ['vegetarian', 'peanuts'], graph)).toBe(false);
-    expect(severeTermsLeftOut('I have a severe peanut allergy', ['peanut'], graph)).toBe(false);
-    expect(severeTermsLeftOut('I like peanuts', [], graph)).toBe(false); // no severe cue
+  test('a severe statement with an ingredient no card covers names it', () => {
+    expect(severeTermsLeftOut("i'm vegetarian, peanuts nearly killed me", ['vegetarian'], graph)).toBe('peanut');
+    expect(severeTermsLeftOut("i'm vegetarian, peanuts nearly killed me", ['vegetarian', 'peanuts'], graph)).toBeNull();
+    expect(severeTermsLeftOut('I have a severe peanut allergy', ['peanut'], graph)).toBeNull();
+    expect(severeTermsLeftOut('I like peanuts', [], graph)).toBeNull(); // no severe cue
+  });
+});
+
+// Fix round 1: the safety reviewer's repros.
+describe('applyPostChecks, fix round 1', () => {
+  test('M3: the verbatim bypass reaches only terms near the severe cue (repro I)', () => {
+    expect(post([rule('peanuts', 'anaphylactic'), rule('rice', 'preference')], 'I had rice with peanuts last week and nearly died')).toEqual([
+      rule('peanuts', 'anaphylactic'),
+    ]);
+  });
+
+  test('M4: a pantry item the player never named is dropped (repro G: the few-shot milk)', () => {
+    expect(post([pantry([], ['milk'])], 'what should I cook tonight?')).toEqual([]);
+    expect(post([pantry(['rice', 'saffron'], [])], 'I bought rice')).toEqual([pantry(['rice'], [])]);
+  });
+
+  test('M4: a meal the text never names is dropped; a pasted one is kept', () => {
+    expect(post([meal('fish and chips')], 'what should I cook tonight?')).toEqual([]);
+    expect(post([meal('chickpea salad')], S19)).toEqual([meal('chickpea salad')]);
+  });
+
+  test('J: a severe cue raises an intolerance the player named', () => {
+    expect(post([rule('peanuts', 'intolerance')], "I'm intolerant to peanuts, they nearly killed me")).toEqual([rule('peanuts', 'anaphylactic')]);
   });
 });

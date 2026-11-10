@@ -165,19 +165,28 @@ export async function recentMessages(
  * here, and a turn that comes after waits and then finds its conversation
  * gone. A conversation started after the lock is a new one and is kept.
  *
- * Memory is cleared before commit: if the transaction then rolls back, the
- * memory history is gone while the rows stay, which errs toward forgetting.
+ * Memory is cleared after the conversation rows are locked and before commit:
+ * if the transaction then rolls back, the memory history is gone while the
+ * rows stay, which errs toward forgetting.
  */
 export async function forgetConversations(tx: Tx, memory: MemoryHistory, userId: string, conversationId?: string): Promise<number> {
-  if (conversationId === undefined) memory.delete(`${userId}:`);
-  else memory.deleteKey(memoryKey(userId, conversationId));
-  if (conversationId !== undefined && !UUID.test(conversationId)) return 0;
+  const forgetMemory = () => {
+    if (conversationId === undefined) memory.delete(`${userId}:`);
+    else memory.deleteKey(memoryKey(userId, conversationId));
+  };
+  if (conversationId !== undefined && !UUID.test(conversationId)) {
+    forgetMemory();
+    return 0;
+  }
   const locked = await tx
     .select({ id: conversations.id })
     .from(conversations)
     .where(and(eq(conversations.userId, userId), ...(conversationId === undefined ? [] : [eq(conversations.id, conversationId)])))
     .orderBy(asc(conversations.id))
     .for('update');
+  // Only once the rows are held (fix round 1, P1): a turn that held one has
+  // finished and pushed its messages, so they are forgotten here too.
+  forgetMemory();
   const ids = locked.map((r) => r.id);
   // Per-table order as HEALTH_TABLES (consent/health-data.ts): messages, then
   // mentor_proposals, so this never deadlocks with a withdraw-with-delete.
