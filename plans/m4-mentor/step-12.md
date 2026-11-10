@@ -73,3 +73,5 @@ export function judge(c: EvalCase, r: TurnResponse, writes: number): { pass: boo
 - [ ] **12.5 Commit** `test: mentor eval harness and gate, free-forever proof; docs: compliance record for the mentor`
 
 **Carry from Step 2:** widen the pre-stamp no-write-claim test to rule.readback, rule.readback.no_spelling, profile.readback, pantry.readback and intake *.ask lines (and phrasings like "it's filed"); extend the {var} check to cook and stall line banks.
+
+**Carry from Step 4 review:** deploy checklist must set NODE_ENV=production (the DPA gate keys on it); widen the N-9 host scan in test/processors.test.ts to http:// literals and `new URL(`.
