@@ -3,6 +3,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { IngredientGraph } from '@kitchenquest/core';
+import type * as Core from '@kitchenquest/core';
 import { and, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import type { FastifyInstance, InjectOptions } from 'fastify';
@@ -17,7 +18,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
  */
 const EXCLUSIVE = 'test-only: at most one of these';
 vi.mock('@kitchenquest/core', async (importOriginal) => {
-  const core = await importOriginal<typeof import('@kitchenquest/core')>();
+  const core = await importOriginal<typeof Core>();
   return {
     ...core,
     validateRules: (list: Parameters<typeof core.validateRules>[0], graph: Parameters<typeof core.validateRules>[1]) => {

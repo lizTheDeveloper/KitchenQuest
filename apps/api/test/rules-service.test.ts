@@ -1,8 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
+import { ZodError } from 'zod';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
+import { lockSignInEmail } from '../src/auth/email-lock.js';
+import { ADVISORY_LOCK } from '../src/db/advisory-locks.js';
 import { defaultCatalog } from '../src/catalog.js';
 import { NOTICES } from '../src/consent/notices.js';
 import { sealFor } from '../src/crypto/userkeys.js';
@@ -164,7 +167,10 @@ describe('rules service', () => {
     const writing = db.transaction((tx) => createRuleIn(tx, deps, a.id, PEANUT, NOW)).then(() => (done = true));
     let waiting = false;
     for (let i = 0; i < 500 && !waiting; i++) {
-      const [{ n }] = await sql<{ n: number }[]>`select count(*)::int as n from pg_locks where locktype = 'advisory' and not granted`;
+      const [{ n }] = await sql<{ n: number }[]>`
+        select count(*)::int as n from pg_locks
+        where locktype = 'advisory' and not granted
+          and database = (select oid from pg_database where datname = current_database())`;
       waiting = n >= 1;
       if (!waiting) await new Promise((r) => setTimeout(r, 10));
     }
@@ -174,6 +180,40 @@ describe('rules service', () => {
     await holder;
     await writing;
     expect(await countRules(a.id)).toBe(1);
+  });
+
+  it('lockUserRules takes the two-key advisory lock in the rules namespace, apart from the sign-in-email lock', async () => {
+    const u = await user();
+    const held = await db.transaction(async (tx) => {
+      await lockUserRules(tx, u.id);
+      await lockSignInEmail(tx, u.id);
+      return sql<{ classid: number; objsubid: number }[]>`
+        select classid::int as classid, objsubid::int as objsubid from pg_locks
+        where locktype = 'advisory' and granted
+          and database = (select oid from pg_database where datname = current_database())
+        order by classid`;
+    });
+    // objsubid 2 is the two-int4-key form; classid is the namespace.
+    expect(held).toEqual([
+      { classid: ADVISORY_LOCK.signInEmail, objsubid: 2 },
+      { classid: ADVISORY_LOCK.rules, objsubid: 2 },
+    ]);
+    expect(ADVISORY_LOCK.rules).not.toBe(ADVISORY_LOCK.signInEmail);
+  });
+
+  it('the service parses the rule shape itself: an extra key is rejected, nothing stored', async () => {
+    const u = await user();
+    const rule = await db.transaction((tx) => createRuleIn(tx, deps, u.id, PEANUT, NOW));
+    const extras = [
+      { ...PEANUT, diagnosis: 'x' },
+      { ...PEANUT, target: { kind: 'ingredient', ids: ['peanut'], clinic: 'x' } },
+      { ...PEANUT, note: 'x'.repeat(501) },
+    ] as unknown as StoredRule[];
+    for (const value of extras) {
+      await expect(db.transaction((tx) => createRuleIn(tx, deps, u.id, value, NOW))).rejects.toBeInstanceOf(ZodError);
+      await expect(db.transaction((tx) => updateRuleIn(tx, deps, u.id, rule.id, value, NOW))).rejects.toBeInstanceOf(ZodError);
+    }
+    expect(await loadRules(db, config.keyring, u.id)).toEqual([rule]);
   });
 
   it(`two concurrent createRuleIn at ${MAX_RULES_PER_USER - 1} rules: exactly one succeeds`, async () => {

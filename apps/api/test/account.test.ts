@@ -9,6 +9,7 @@ import { pseudonymFor } from '../src/audit/audit.js';
 import { NOTICES } from '../src/consent/notices.js';
 import { open } from '../src/crypto/seal.js';
 import { openFor } from '../src/crypto/userkeys.js';
+import { ADVISORY_LOCK } from '../src/db/advisory-locks.js';
 import { auditEvents, rules, userKeys } from '../src/db/schema.js';
 import { grant } from '../src/entitlements/entitlements.js';
 import { CaptureMailer } from '../src/mail/mailer.js';
@@ -545,7 +546,7 @@ describe('export and delete under concurrency', () => {
     const blocker = await sql.reserve();
     try {
       await blocker`begin`;
-      await blocker`select pg_advisory_xact_lock(hashtext(lower(${p.email})))`;
+      await blocker`select pg_advisory_xact_lock(${ADVISORY_LOCK.signInEmail}, hashtext(lower(${p.email})))`;
       const deleting = deleteAccount(p.cookie, { confirm: PHRASE });
       await waitForLockWaiters(1, 'advisory');
       const requesting = call(null, {

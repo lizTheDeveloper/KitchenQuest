@@ -6,7 +6,7 @@ import { requireUser } from '../auth/session.js';
 import type { Catalog } from '../catalog.js';
 import type { Tx } from '../consent/ledger.js';
 import { ApiError } from '../errors.js';
-import { createRuleIn, deleteRuleIn, updateRuleIn } from './service.js';
+import { createRuleIn, deleteRuleIn, RuleBody, updateRuleIn } from './service.js';
 import { loadRules, type StoredRule } from './store.js';
 
 export { MAX_RULES_PER_USER } from './service.js';
@@ -16,43 +16,7 @@ export const SEARCHES_PER_MINUTE = 120;
 
 const SearchQuery = z.object({ q: z.string().max(100).default('') }).strict();
 
-/**
- * A rule as the client sends it: `Omit<Rule, 'id'>`, the id being the row id.
- * Only the keys are fixed here; whether the values are a valid rule is core's
- * decision (`validateRules`), so they pass through as unknown.
- */
-/**
- * When `value` is an object, it may hold only `keys`, so nothing beyond the
- * rule itself is sealed into health data. Its values, and whether it is an
- * object at all, are left to core, except that a string under a key in
- * `caps` may be at most that many characters (N-7, data-inventory.md §3.13).
- */
-const keysOnly = (keys: readonly string[], caps: Readonly<Record<string, number>> = {}) =>
-  z.unknown().superRefine((v, ctx) => {
-    if (typeof v !== 'object' || v === null) return;
-    if (!Object.keys(v).every((k) => keys.includes(k))) {
-      ctx.addIssue({ code: 'custom', message: `Only these keys are allowed: ${keys.join(', ')}` });
-      return;
-    }
-    // N-7: free text sealed into health data is capped; a non-string is left to core.
-    for (const [k, max] of Object.entries(caps)) {
-      const s = (v as Record<string, unknown>)[k];
-      if (typeof s === 'string' && s.length > max) {
-        ctx.addIssue({ code: 'custom', path: [k], message: `At most ${max} characters` });
-      }
-    }
-  });
-
-const RuleBody = z
-  .object({
-    target: keysOnly(['kind', 'ids']),
-    type: z.unknown(),
-    severity: z.unknown(),
-    limit: keysOnly(['amount', 'unit', 'per'], { unit: 32 }).optional(),
-    phase: keysOnly(['start', 'end', 'journeyId'], { journeyId: 64 }).optional(),
-    note: z.string().max(500).optional(),
-  })
-  .strict();
+/** The body of POST and PUT: the rule (parsed again by the service, which owns its shape) and the player's yes. */
 const RuleWrite = z.object({ rule: RuleBody, confirmed: z.unknown() }).strict();
 
 /**
@@ -67,9 +31,9 @@ function parseWrite(req: FastifyRequest): StoredRule {
   if (typeof body !== 'object' || body === null || (body as { confirmed?: unknown }).confirmed !== true) {
     throw new ApiError(400, 'confirmation_required', 'Saving a rule needs your confirmation (confirmed: true)');
   }
+  // Parsed here too so a shape error names its path under `rule` (e.g. `rule.note`).
   const { rule } = RuleWrite.parse(body);
-  // Drop keys sent as undefined so the stored value is exactly the rule.
-  return Object.fromEntries(Object.entries(rule).filter(([, v]) => v !== undefined)) as StoredRule;
+  return rule as StoredRule;
 }
 
 /**

@@ -3,6 +3,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { buildApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
 import { NOTICES } from '../src/consent/notices.js';
+import { ADVISORY_LOCK } from '../src/db/advisory-locks.js';
 import { CaptureMailer } from '../src/mail/mailer.js';
 import { testEnv } from './helpers/config.js';
 import { testDb, type Sql } from './helpers/db.js';
@@ -256,7 +257,7 @@ describe('verify lock order (M-1)', () => {
     try {
       // Stand in for an account delete holding the email lock.
       await blocker`begin`;
-      await blocker`select pg_advisory_xact_lock(hashtext(lower(${email})))`;
+      await blocker`select pg_advisory_xact_lock(${ADVISORY_LOCK.signInEmail}, hashtext(lower(${email})))`;
       const verifying = verify(token);
       for (let i = 0; ; i++) {
         const [w] = await sql<{ n: number }[]>`
