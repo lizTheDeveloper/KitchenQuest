@@ -2,6 +2,11 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { audit } from '../src/audit/audit.js';
 import { loginTokens, selfReadCounts, sessions, usageEvents, users } from '../src/db/schema.js';
 import { registerRetention, retentionPolicies, runRetention, scheduleRetention } from '../src/jobs/retention.js';
+import { PROPOSAL_TTL_MS, TRANSCRIPT_RETENTION_DAYS } from '../src/mentor/constants.js';
+import { appendMessages, openConversation } from '../src/mentor/conversations.js';
+import { MemoryHistory } from '../src/mentor/memory.js';
+import { createProposal, markDecided } from '../src/mentor/proposals.js';
+import { testConfig } from './helpers/config.js';
 import type { Db } from '../src/types.js';
 import { testDb, type Sql } from './helpers/db.js';
 
@@ -27,6 +32,10 @@ describe('retention (C-6)', () => {
     expect(retentionPolicies()).toEqual(
       expect.arrayContaining(['login_tokens', 'sessions', 'usage_events', 'audit_events', 'self_read_counts']),
     );
+  });
+
+  it('registers the M4 mentor policies (C-12)', () => {
+    expect(retentionPolicies()).toEqual(expect.arrayContaining(['messages', 'conversations', 'mentor_proposals']));
   });
 
   it('refuses a second policy for the same table', () => {
@@ -80,6 +89,14 @@ describe('retention (C-6)', () => {
     expect(await runRetention(db, now)).toMatchObject({ login_tokens: 0, sessions: 0, usage_events: 0, audit_events: 0 });
   });
 
+  it('keeps the hourly AI cost for 48 hours (M4 Step 7, P5)', async () => {
+    const now = new Date('2026-11-09T12:00:00Z');
+    const hoursAgo = (h: number) => new Date(now.getTime() - h * 3_600_000).toISOString();
+    await sql`insert into ai_cost_hours (hour, cost_microusd) values (${hoursAgo(49)}, 5), (${hoursAgo(47)}, 7)`;
+    expect(await runRetention(db, now)).toMatchObject({ ai_cost_hours: 1 });
+    expect((await sql`select cost_microusd::int as c from ai_cost_hours`).map((r) => r.c)).toEqual([7]);
+  });
+
   it('keeps self-read counts for 24 months (C-5, Step 7)', async () => {
     const now = new Date('2026-11-09T12:00:00Z');
     const [u] = await db.insert(users).values({ email: 'reads@example.com', ageConfirmedAt: now }).returning();
@@ -91,6 +108,48 @@ describe('retention (C-6)', () => {
     expect(await runRetention(db, now)).toMatchObject({ self_read_counts: 1 });
     expect((await sql`select day::text from self_read_counts order by day`).map((r) => r.day)).toEqual(['2024-11-09', '2026-11-09']);
     expect(await runRetention(db, now)).toMatchObject({ self_read_counts: 0 });
+  });
+
+  it('retention: messages older than 30 days go, newer stay; undecided proposals go at expiry, decided ones after 24 h (C-12, I-4)', async () => {
+    const now = new Date('2026-11-09T12:00:00Z');
+    const ago = (ms: number) => new Date(now.getTime() - ms);
+    const { keyring } = testConfig();
+    const memory = new MemoryHistory({ ttlMs: 60_000, max: 8 });
+    const [u] = await db.insert(users).values({ email: 'mentor-ret@example.com', ageConfirmedAt: now }).returning();
+    const retention = TRANSCRIPT_RETENTION_DAYS * DAY;
+    const card = {
+      kind: 'meal' as const,
+      meal: { eatenOn: '2026-11-09', slot: 'lunch' as const, item: { kind: 'free' as const, description: 'soup' } },
+      summary: 'lunch: soup',
+      estimate: false,
+      readback: [],
+    };
+    // An old conversation (last turn 30 days + 1 s ago) and a live one.
+    const old = await db.transaction((tx) => openConversation(tx, u.id, null, ago(retention + 1000)));
+    const live = await db.transaction((tx) => openConversation(tx, u.id, null, ago(retention - 1000)));
+    await db.transaction(async (tx) => {
+      await appendMessages(tx, keyring, memory, u.id, old.id, [{ role: 'player', text: 'gone' }], true, ago(retention + 1000));
+      await appendMessages(tx, keyring, memory, u.id, live.id, [{ role: 'player', text: 'old in a live one' }], true, ago(retention + 500));
+      await appendMessages(tx, keyring, memory, u.id, live.id, [{ role: 'player', text: 'kept' }], true, ago(retention - 1000));
+      // Decided: kept 24 h after it was made, then deleted.
+      const gone = await createProposal(tx, keyring, { userId: u.id, conversationId: live.id, turnSeq: 1, card }, ago(24 * HOUR + 1000));
+      await markDecided(tx, gone.proposalId, 'confirmed', 'tap', null, null, keyring, u.id, ago(24 * HOUR + 1000));
+      const kept = await createProposal(tx, keyring, { userId: u.id, conversationId: live.id, turnSeq: 1, card }, ago(24 * HOUR - 1000));
+      await markDecided(tx, kept.proposalId, 'rejected', 'tap', null, null, keyring, u.id, ago(24 * HOUR - 1000));
+      // Undecided: deleted as soon as it has expired (PROPOSAL_TTL_MS after it was made).
+      await createProposal(tx, keyring, { userId: u.id, conversationId: live.id, turnSeq: 2, card }, ago(PROPOSAL_TTL_MS));
+      await createProposal(tx, keyring, { userId: u.id, conversationId: live.id, turnSeq: 3, card }, ago(PROPOSAL_TTL_MS - 1000));
+    });
+
+    const counts = await runRetention(db, now);
+    expect(counts).toMatchObject({ messages: 2, conversations: 1, mentor_proposals: 2 });
+    expect((await sql`select id from conversations`).map((r) => r.id)).toEqual([live.id]);
+    expect(await sql`select seq from messages where conversation_id = ${live.id}`).toEqual([{ seq: 2 }]);
+    expect((await sql`select status, turn_seq from mentor_proposals order by turn_seq, status`).map((r) => [r.turn_seq, r.status])).toEqual([
+      [1, 'rejected'],
+      [3, 'open'],
+    ]);
+    expect(await runRetention(db, now)).toMatchObject({ messages: 0, conversations: 0, mentor_proposals: 0 });
   });
 
   it('logs each failed table with a scrubbed error when a run fails', async () => {
@@ -108,7 +167,8 @@ describe('retention (C-6)', () => {
     const [payload, msg] = error.mock.calls[0];
     expect(msg).toBe('retention run failed');
     const failures = (payload as { failures: { table: string; error: { message: string } }[] }).failures;
-    expect(failures.map((f) => f.table).sort()).toEqual(['audit_events', 'login_tokens', 'self_read_counts', 'sessions', 'usage_events']);
+    expect(failures.map((f) => f.table).sort()).toEqual(retentionPolicies().sort());
+    expect(failures.map((f) => f.table)).toEqual(expect.arrayContaining(['audit_events', 'messages', 'mentor_proposals']));
     for (const f of failures) expect(f.error.message).toBe('boom for [email]');
     expect(JSON.stringify(payload)).not.toContain('cook@example.com');
   });

@@ -134,6 +134,27 @@ describe('meals', () => {
     expect(parseMealStatement('what should I cook?')).toBeNull();
   });
 
+  test('parseMealStatement reads the meal clause of a multi-intent turn (Step 9, T11)', () => {
+    expect(parseMealStatement("I had toast for breakfast and also I'm allergic to kiwi")).toEqual({ description: 'toast', slot: 'breakfast', when: 'today' });
+    expect(parseMealStatement('had dal and rice but I am vegan by the way')).toEqual({ description: 'dal and rice', slot: null, when: 'today' });
+    expect(parseMealStatement('I had an allergic reaction to prawns')).toBeNull();
+    // Fix round 2 (E3): a reaction word anywhere in the meal or a pantry item refuses it.
+    for (const t of ['I had toast and then my lips swelled', 'had pancakes, face went puffy', 'ate soup with hives after']) expect(parseMealStatement(t), t).toBeNull();
+    expect(parsePantryAdds("I've got hives")).toEqual([]);
+    expect(parsePantryAdds('I got a rash on my arm')).toEqual([]);
+    expect(parsePantryAdds("i've got a swollen lip and some rice")).toEqual(['rice']);
+    expect(parsePantryRemovals('ran out of breath and milk')).toEqual(['milk']);
+    // Fix round 3: a pantry removal after the meal ends its description.
+    expect(parseMealStatement('I had pancakes, finished the milk')).toEqual({ description: 'pancakes', slot: null, when: 'today' });
+    expect(parseMealStatement('had porridge and used up the oats')).toEqual({ description: 'porridge', slot: null, when: 'today' });
+    // Fix round 1 (I2): a reaction is never a meal.
+    for (const t of ['had a reaction to prawns', 'I had a bad reaction after lunch', 'had hives all night', 'had a rash on my arm', 'had swelling', 'had anaphylaxis once']) {
+      expect(parseMealStatement(t), t).toBeNull();
+    }
+    expect(parseMealStatement("I've had a peanut allergy since I was 4 and I had toast")).toBeNull();
+    expect(parseMealStatement("I'm allergic to kiwi and I had toast for lunch")).toEqual({ description: 'toast', slot: 'lunch', when: 'today' });
+  });
+
   test('slotForTime', () => {
     expect(['06:00', '10:59', '11:00', '14:59', '15:00', '16:59', '17:00', '21:59', '22:00'].map(slotForTime)).toEqual([
       'breakfast', 'breakfast', 'lunch', 'lunch', 'snack', 'snack', 'dinner', 'dinner', 'snack',
@@ -395,3 +416,20 @@ describe('fix round 3: items naming one ingredient merge (ruling 3)', () => {
     expect(parseRuleStatement('allergic to eggs, intolerant to egg')?.terms).toEqual(['eggs', 'egg']);
   });
 });
+
+test('a pronoun is never a pantry item (Step 7 fix round 2)', () => {
+  expect(parsePantryRemovals('we finished it')).toEqual([]);
+  expect(parsePantryRemovals('ran out of them')).toEqual([]);
+  expect(parsePantryRemovals('finished the milk')).toEqual(['milk']);
+});
+
+// Step 7 fix round 3 (E): pronouns and the words around them name no item (rev7c/pron.test.ts).
+test.each(['we finished the lot', 'used it all up', 'ran out of everything', 'finished them off', 'no more of that', 'we ate the rest', 'finished it off', 'ran out of it', 'used up the last of it', 'no more of those', 'finished both', 'ran out of stuff'])(
+  'parsePantryRemovals(%j) is empty (E)',
+  (text) => expect(parsePantryRemovals(text)).toEqual([]),
+);
+test.each([
+  ['finished the milk off', ['milk']],
+  ['used up the last of the rice', ['rice']],
+  ['no more of the oats left', ['oats']],
+])('parsePantryRemovals(%j) is %j (E)', (text, items) => expect(parsePantryRemovals(text)).toEqual(items));

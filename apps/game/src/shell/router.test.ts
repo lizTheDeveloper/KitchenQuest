@@ -12,6 +12,8 @@ describe('parseRoute', () => {
     expect(parseRoute('#/recipe/india/kerala/parippu')).toEqual({ name: 'recipe', slug: 'india/kerala/parippu' });
     expect(parseRoute('#/cook/india/kerala/parippu')).toEqual({ name: 'cook', slug: 'india/kerala/parippu' });
     expect(parseRoute('#/settings')).toEqual({ name: 'settings' });
+    expect(parseRoute('#/rules')).toEqual({ name: 'rules' });
+    expect(parseRoute('#/rules/x')).toEqual({ name: 'notFound', hash: '#/rules/x' });
   });
   it('ignores query strings', () => {
     expect(parseRoute('#/map?x=1')).toEqual({ name: 'map' });
@@ -25,12 +27,13 @@ describe('parseRoute', () => {
 describe('routeHref', () => {
   const routes: Exclude<Route, { name: 'notFound' }>[] = [
     { name: 'kitchen' }, { name: 'map' }, { name: 'visit', cookId: 'leela' }, { name: 'recipes' },
-    { name: 'recipe', slug: 'india/kerala/parippu' }, { name: 'cook', slug: 'india/kerala/parippu' }, { name: 'settings' },
+    { name: 'recipe', slug: 'india/kerala/parippu' }, { name: 'cook', slug: 'india/kerala/parippu' }, { name: 'settings' }, { name: 'rules' },
   ];
   it.each(routes)('round-trips %j', (r) => {
     expect(parseRoute(routeHref(r))).toEqual(r);
   });
   it('builds the documented href', () => {
     expect(routeHref({ name: 'recipe', slug: 'india/kerala/parippu' })).toBe('#/recipe/india/kerala/parippu');
+    expect(routeHref({ name: 'rules' })).toBe('#/rules');
   });
 });

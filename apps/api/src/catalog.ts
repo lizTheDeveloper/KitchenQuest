@@ -1,12 +1,21 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { IngredientGraph, validateSubstitutions, type IngredientData, type Substitution } from '@kitchenquest/core';
+import {
+  IngredientGraph,
+  validateRuleTerms,
+  validateSubstitutions,
+  type IngredientData,
+  type RuleTerm,
+  type Substitution,
+} from '@kitchenquest/core';
 
-/** The shared safety data: the ingredient graph and the substitutions checked against it. */
+/** The shared safety data: the ingredient graph, and the substitutions and rule terms checked against it. */
 export interface Catalog {
   graph: IngredientGraph;
   substitutions: readonly Substitution[];
+  /** `rule-terms.json` (pre-flight C7): words such as "vegetarian" that name a rule, not one ingredient. */
+  ruleTerms: readonly RuleTerm[];
 }
 
 /** The repository's `data/` directory. */
@@ -28,8 +37,8 @@ function readJson(dir: string, file: string): unknown {
 }
 
 /**
- * Loads `ingredients.json` and `substitutions.json` from `dir`, builds the graph
- * and checks every substitution against it. Throws, naming the file and the
+ * Loads `ingredients.json`, `substitutions.json` and `rule-terms.json` from
+ * `dir`, builds the graph and checks every substitution and rule term against it. Throws, naming the file and the
  * problem, on anything wrong: the server must not start on bad safety data.
  */
 export function loadCatalog(dir: string = DATA_DIR): Catalog {
@@ -54,7 +63,16 @@ export function loadCatalog(dir: string = DATA_DIR): Catalog {
   if (problems.length > 0) {
     throw new Error(`Catalog: ${join(dir, 'substitutions.json')}: ${problems.join('; ')}`);
   }
-  return { graph, substitutions: Object.freeze([...(substitutions as Substitution[])]) };
+  const ruleTerms = readJson(dir, 'rule-terms.json');
+  const termProblems = validateRuleTerms(ruleTerms, graph);
+  if (termProblems.length > 0) {
+    throw new Error(`Catalog: ${join(dir, 'rule-terms.json')}: ${termProblems.join('; ')}`);
+  }
+  return {
+    graph,
+    substitutions: Object.freeze([...(substitutions as Substitution[])]),
+    ruleTerms: Object.freeze([...(ruleTerms as RuleTerm[])]),
+  };
 }
 
 let loaded: Catalog | undefined;

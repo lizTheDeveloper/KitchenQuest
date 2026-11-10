@@ -54,7 +54,8 @@ describe('buildRuleCard', () => {
   test('"nuts" is the nut category and covers peanut and tree nut', () => {
     const c = card('nuts', 'allergy');
     expect(c.rule.target).toEqual({ kind: 'category', ids: ['nut'] });
-    expect(c.display.covers).toBe('nut, peanut and tree nut');
+    // Subcategories lead their members, so tree nut never hides behind "and N more".
+    expect(c.display.covers).toBe('nut, peanut, tree nut, almond, brazil nut, cashew, chestnut, hazelnut and 5 more');
     expect(c.display.severity).toBe('an allergy');
   });
 
@@ -73,7 +74,7 @@ describe('buildRuleCard', () => {
     expect(!r.ok && r.reason === 'ambiguous' && r.options.length).toBeLessThanOrEqual(5);
   });
 
-  test.each(['pecan', 'peanutt', 'halal', 'kosher', 'jain'])('"%s" is unknown, never a narrower rule', (term) => {
+  test.each(['peanutt', 'halal', 'kosher', 'jain'])('"%s" is unknown, never a narrower rule', (term) => {
     // S04, C5
     expect(buildRuleCard({ term, severity: null }, graph, terms)).toMatchObject({ ok: false, reason: 'unknown_term' });
   });
@@ -97,15 +98,15 @@ describe('buildRuleCard', () => {
     const c = card('plant based');
     expect(c.rule.target.ids).toEqual(expect.arrayContaining(['honey', 'gelatin', 'milk', 'egg']));
     // The term's own targets come first, so shellfish is never hidden behind its kinds (M1).
-    expect(c.display.covers).toBe('egg, fish, gelatine, honey, meat, milk, shellfish, bonito flakes and 2 more');
+    expect(c.display.covers).toBe('egg, fish, gelatine, honey, meat, milk, shellfish, anchovy and 20 more');
   });
 
   test('shrimp and prawns are shellfish (M7)', () => {
     for (const t of ['shrimp', 'prawns', 'Shrimps', 'king prawn']) {
       expect(card(t, 'allergy').rule.target.ids, t).toEqual(['prawn']);
-      expect(graph.pathTo('prawn', 'shellfish')).toEqual(['prawn', 'shellfish']);
+      expect(graph.pathTo('prawn', 'shellfish')).toEqual(['prawn', 'crustacean', 'shellfish']);
     }
-    expect(card('shellfish', 'allergy').display.covers).toBe('shellfish and prawn');
+    expect(card('shellfish', 'allergy').display.covers).toBe('shellfish, crustacean, mollusc, clam, crab, crayfish, lobster, mussel and 6 more');
   });
 
   test('coeliac asks for a severity and uses the allergen form', () => {

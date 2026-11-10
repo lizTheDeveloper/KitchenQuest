@@ -30,7 +30,7 @@ export interface MentorPanel { /* M3 members */ show(reply: PanReply): void; rea
   - When the text is a strict yes/no (`classifyTurn`) and `ctx.openCards` from the previous turn are **local**, answer through `engine.reply` (Step 9). A strict undo goes by the **newest live trail entry** (pre-flight C36): `origin: 'local'` → the writer, `origin: 'server'` → `client.mentorTurn`. Everything else → `client.mentorTurn`.
   - `route` `ai` or `deterministic` → map `parts`:
     - `line` → `dialogue.say(trigger, vars)`
-    - `text` → `Said { trigger: 'ai.text', text, ai: 'allowed' }`, rendered with a visible "AI" tag and the `disclaimers.ai_answers` text as its accessible description
+    - `text` → never sent in M4 (Ruling R9): the mentor shows only scripted lines and cards, never model text. A `text` part from the server is dropped and not rendered (a dev-mode warning). The "AI" tag and `ai.text` rendering wait for the grounded Q&A milestone.
     - `choices` / `consent` → items
     - `cards` → `ServerCardView`s, and `actions` pass through
   - `route: 'scripted'`, by notice:
@@ -38,7 +38,7 @@ export interface MentorPanel { /* M3 members */ show(reply: PanReply): void; rea
     - `rate_limited` → `rate_limited`, then the engine
     - `needs_ai_health` → the engine, plus an `ai_health` consent item once (`aiHealthOffered` set in the store)
     - `ai_off` → the engine only
-  - Fetch status 0, 5xx, 429 or invalid JSON → `mentor.ai_unavailable` + `engine.reply`. The backend keeps the turn **in memory only** (no store key, no storage: N-4) and retries it once by itself, after 5 s or on the next `online` event, whichever is first (spec §7.5 "queues the request, and retries", pre-flight C23). The retry's reply is shown only when it adds something the scripted reply didn't (a server card or model text). If the retry fails too, the panel shows `ai.try_again` and a "Try again" button.
+  - Fetch status 0, 5xx, 429 or invalid JSON → `mentor.ai_unavailable` + `engine.reply`. The backend keeps the turn **in memory only** (no store key, no storage: N-4) and retries it once by itself, after 5 s or on the next `online` event, whichever is first (spec §7.5 "queues the request, and retries", pre-flight C23). The retry's reply is shown only when it adds something the scripted reply didn't (a server card; never model text, R9). If the retry fails too, the panel shows `ai.try_again` and a "Try again" button.
   - 401 → `refreshAccount`, then the engine.
 - Panel:
   - Each reply renders its items in order, then its cards.
@@ -64,7 +64,7 @@ test('a scripted route runs the engine on the same text, after the notice line',
 test('a failed fetch keeps the text in memory only, retries once after 5 s, then offers Try again', ...);   // fake clock; 2 mentorTurn calls; storage.setItem never called with the text
 test('undo goes by the newest live trail entry: local → writer, server → /mentor/turn', ...);
 test('a strict yes for a local card never reaches the server', ...);
-test('model text is shown with the AI tag', ...);
+test('a text part from the server is never shown (Ruling R9: only scripted lines and cards)', ...);
 // cards-view.test.ts
 test('a severe rule card shows the spelling and has no confirm on Enter in the text box', ...);
 test('an unclear severity offers the picker, defaulting to Severe allergy', ...);
@@ -90,3 +90,13 @@ test('cards pass axe and keep focus order', ...);   // expectNoA11yViolations wi
 - [ ] **10.3 Implement.**
 - [ ] **10.4 Run** the game unit, e2e and typecheck commands → PASS.
 - [ ] **10.5 Commit** `feat(game): proposal cards, write trail with undo, AI backend with scripted fallback`
+
+**Carry from Step 2 review:** `intake.allergies.followup` ("Stamped… / Saved…") fires only after a confirmed write; `rule.readback` lines ending "Is that right?" on a severe card must be followed by `rule.tap_needed` and never accept a typed yes.
+
+**Ruling R9 (Step 7 fix round 4):** the game shows only scripted lines and cards from the mentor, never model text. `POST /mentor/turn` never returns a `text` part, and the panel must not render one if it arrives.
+
+**Carry from data task:** a recipe-level check finding has `ingredient: ""` (sulphite rule on an empty recipe) — render it as a recipe-level reminder, never a blank row.
+
+**Carry from Step 9:** with server and local cards both open, a typed "yes" must never confirm while more than one card (of either kind) is open — show confirm.tap_card; a write that fails (card closed, network) shows a scripted state line and a retry, never silence.
+
+**Carry from Step 8 fix round 1:** `POST /mentor/writes/:id/undo` returns `{ parts, undone }`. Drop the trail entry only when `undone` is true. With `undone: false` (a vanished card → `undo.nothing`; a full pantry → `pantry.undo_full`, still undoable within the window) show the parts. Keep the entry while `pantry.undo_full` applies and the window is open, and drop it for `undo.nothing`. An undo restores the pre-confirm value even if it was edited since, so the trail's Edit-via-undo re-shows the card built from the confirmed values.

@@ -1,6 +1,6 @@
 import type { Severity } from '../rules/types';
 import type { IngredientGraph } from '../ingredients/graph';
-import { capText, normalizeTurn } from './intents';
+import { capText, normalizeTurn, REACTION_STEM } from './intents';
 import { readNonSevere } from './nonsevere';
 
 /**
@@ -165,13 +165,23 @@ export const PANTRY_REMOVAL_MORE = /(?:\s*,\s*(?:and\s+)?|\s+and\s+|\s*&\s*)(the
 /** A continuation that is a new clause, not another item ("…and I bought eggs"). */
 const NOT_AN_ITEM = /^(i|i'm|we|you|he|she|they|it|then|also|so|but|now|got|bought|have|had|just|oh|no|finished|used|ran|run|out|chucked|threw|binned)\b/;
 
+const PRONOUN_ITEM = /^(it|them|that|this|those|these|one|some|all|everything|the lot|lot|both|stuff|the rest|rest)$/;
+/** "finished them off", "used it all up", "no more of that", "the last of the milk": the words around an item. */
+const itemOf = (raw: string): string =>
+  raw
+    .trim()
+    .replace(/ left$/, '')
+    .replace(/( all)? (off|up)$/, '')
+    .replace(/^((the )?last of |of )(the |my |our |some |any )?/, '')
+    .trim();
+
 /** Items the player has used up, lower-cased, in the order they were said. */
 export function parsePantryRemovals(text: string): string[] {
   const t = normalizeTurn(text);
   const found: { index: number; item: string }[] = [];
   for (const pattern of PANTRY_REMOVAL_PATTERNS) {
     for (const m of t.matchAll(pattern)) {
-      const item = m[m.length - 1].trim().replace(/ left$/, '');
+      const item = itemOf(m[m.length - 1]);
       if (item !== '') found.push({ index: m.index, item });
       // "a, b and c" is a list; "coffee, sadly" is not: comma items count only before an "and".
       let end = m.index + m[0].length;
@@ -181,7 +191,7 @@ export function parsePantryRemovals(text: string): string[] {
         return PANTRY_REMOVAL_MORE.exec(t);
       };
       for (let next = moreAt(end); next; next = moreAt(end)) {
-        const nextItem = next[2].trim().replace(/ left$/, '');
+        const nextItem = itemOf(next[2]);
         if (NOT_AN_ITEM.test(nextItem)) break;
         more.push({ index: end, item: nextItem, and: /\band\b|&/.test(next[0].slice(0, next[0].length - next[2].length)) });
         end += next[0].length;
@@ -191,7 +201,9 @@ export function parsePantryRemovals(text: string): string[] {
     }
   }
   found.sort((a, b) => a.index - b.index);
-  return [...new Set(found.map((f) => f.item))];
+  // "we finished it": a pronoun names no item (fix round 2).
+  // E3: a symptom is never a pantry item.
+  return [...new Set(found.map((f) => f.item))].filter((item) => item !== '' && !PRONOUN_ITEM.test(item) && !REACTION_STEM.test(item));
 }
 
 export const PANTRY_ADD_PATTERN =
@@ -211,7 +223,8 @@ export function parsePantryAdds(text: string): string[] {
     for (const raw of m[1].split(LIST_SPLIT)) {
       const item = raw.trim().replace(LEADING_COUNT, '').replace(LEADING_UNIT, '').trim();
       // "I've got no eggs left" is a removal, never an add.
-      if (item === '' || /^(no|none|nothing)\b/.test(item) || /\bleft$/.test(item)) continue;
+      // E3: "I got a rash on my arm", "i've got a swollen lip": a symptom is never a pantry item.
+      if (item === '' || /^(no|none|nothing)\b/.test(item) || /\bleft$/.test(item) || REACTION_STEM.test(item)) continue;
       if (!out.includes(item)) out.push(item);
     }
   }
@@ -529,30 +542,39 @@ const MEAL_WHEN_WORDS = /\b(yesterday|last night|today|this morning|tonight|earl
 const SLOT_WORD: Record<string, MealSlot> = {
   breakfast: 'breakfast', brekkie: 'breakfast', lunch: 'lunch', dinner: 'dinner', supper: 'dinner', snack: 'snack',
 };
+/** A new clause with its own subject: "… and also I'm allergic to kiwi", "… but my son had chips". */
+export const MEAL_CLAUSE_SPLIT = /\s*,?\s+(?:(?:and|but|so|then|oh|also|now)\s+)+(?=(?:i|i'm|im|i've|ive|my|we|we're|we've)\b)/;
+/** "I had pancakes, finished the milk": a pantry removal after the meal ends its description (fix round 3). */
+const MEAL_REMOVAL_TAIL = /(?:\s*,\s*|\s+and\s+|\s+)(?:i\s+|we\s+|also\s+)?(?:finished|used up|ran out of|run out of|out of|chucked|threw out|binned|no more)\b.*$/;
 const NOT_A_MEAL = /\b(allerg\w*|intoleran\w*|anaphyla\w*)\b/;
 /** "had enough", "had a long day", "had a go": the verb, not a meal. */
 export const NOT_FOOD =
-  /^(?:to|no|nothing|none|enough|it|that|this|them|fun|time|trouble|an? allergy|a (severe|bad|mild)\b|a (go|look|think|chat|word|break|nap|rest|bath|shower|laugh|cry|feeling|try|sleep|lie-in|lie in|day off)\b|a (good|great|nice|long|rough|hard|busy|lovely|bad|quiet|tough) (day|time|night|week|morning|evening|sleep|chat|one))\b/;
+  /^(?:to|no|nothing|none|enough|it|that|this|them|fun|time|trouble|an? allergy|(?:an? )?(?:allergic |bad |severe |mild |nasty )?reactions?|hives|(?:a )?rash|(?:some )?swelling|anaphyla\w*|a (severe|bad|mild)\b|a (go|look|think|chat|word|break|nap|rest|bath|shower|laugh|cry|feeling|try|sleep|lie-in|lie in|day off)\b|a (good|great|nice|long|rough|hard|busy|lovely|bad|quiet|tough) (day|time|night|week|morning|evening|sleep|chat|one))\b/;
 
 /** "Had porridge with banana for breakfast." → the description, the slot named (if any), and the day. */
 export function parseMealStatement(
   text: string,
 ): { description: string; slot: MealSlot | null; when: 'today' | 'yesterday' } | null {
   const t = normalizeTurn(text);
-  if (NOT_A_MEAL.test(t)) return null;
   const sentence = t.split(/[.!?]/).find((s) => MEAL_VERB_PATTERN.test(s));
   if (sentence === undefined) return null;
+  // Step 9 (T11): "I had toast for breakfast and also I'm allergic to kiwi" is two statements; the
+  // meal is read from its own clause, and an allergy word in that clause means it is no meal.
+  const clause = sentence.split(MEAL_CLAUSE_SPLIT).find((c) => MEAL_VERB_PATTERN.test(c))!;
+  if (NOT_A_MEAL.test(clause)) return null;
   let slot: MealSlot | null = null;
-  for (const m of sentence.matchAll(MEAL_SLOT_PATTERN)) {
+  for (const m of [...clause.matchAll(MEAL_SLOT_PATTERN), ...sentence.matchAll(MEAL_SLOT_PATTERN)]) {
     slot = SLOT_WORD[m[1]];
     break;
   }
-  const m = MEAL_VERB_PATTERN.exec(sentence)!;
+  const m = MEAL_VERB_PATTERN.exec(clause)!;
   const description = m[1]
+    .replace(MEAL_REMOVAL_TAIL, '')
     .replace(MEAL_SLOT_PATTERN, ' ')
     .replace(MEAL_WHEN_WORDS, ' ')
     .replace(/\s+/g, ' ')
     .replace(/^[\s,:-]+|[\s,:-]+$/g, '');
-  if (description === '' || NOT_FOOD.test(description)) return null;
+  // Fix round 2 (E3): a reaction or symptom word anywhere in the message means it is no meal ("toast, then my lips swelled").
+  if (description === '' || NOT_FOOD.test(description) || REACTION_STEM.test(t)) return null;
   return { description, slot, when: MEAL_YESTERDAY_PATTERN.test(t) ? 'yesterday' : 'today' };
 }

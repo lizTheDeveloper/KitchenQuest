@@ -43,6 +43,8 @@ triggers:
   greet.morning:
     ai: allowed
     when: The player opens the app between 05:00 and 11:00 local time.
+    vars:
+      name: "the apprentice's chosen name (default: apprentice)"
     lines:
       - "Morning. Breakfast first, philosophy later. What are we eating?"
       - "Good morning. I've been up since five. I'm always up. I'm a pan."
@@ -56,6 +58,8 @@ triggers:
   greet.afternoon:
     ai: allowed
     when: The player opens the app between 11:00 and 17:00 local time.
+    vars:
+      name: "the apprentice's chosen name (default: apprentice)"
     lines:
       - "Afternoon. Have you had lunch, or are we pretending lunch is optional? It isn't. I checked."
       - "Good afternoon. The light's good. The pan's good. I'm the pan. I'm good."
@@ -67,6 +71,8 @@ triggers:
   greet.evening:
     ai: allowed
     when: The player opens the app between 17:00 and 22:00 local time.
+    vars:
+      name: "the apprentice's chosen name (default: apprentice)"
     lines:
       - "Evening. Dinner's the one I like best. Things get properly hot."
       - "Good evening, {name}. What's for dinner? If the answer is 'I don't know', that's what I'm for."
@@ -78,6 +84,8 @@ triggers:
   greet.late_night:
     ai: allowed
     when: The player opens the app between 22:00 and 05:00 local time.
+    vars:
+      name: "the apprentice's chosen name (default: apprentice)"
     lines:
       - "It's late. Have you eaten? Toast counts. Toast always counts."
       - "Still up? So am I. I'm always up. If you're hungry, something small and then bed."
@@ -320,6 +328,8 @@ triggers:
   reminder.hours_since_meal.h6:
     ai: allowed
     when: Six hours since the last logged meal, during waking hours.
+    vars:
+      name: "the apprentice's chosen name (default: apprentice)"
     notes: "Fond concern. The signature line lives here."
     lines:
       - "It has been six hours. I am a pan, and even I am concerned."
@@ -480,7 +490,7 @@ triggers:
     lines:
       - "How serious is it? A severe allergy, an allergy, an intolerance, or a preference? If you're not sure, I'll treat it as severe."
       - "Is that an allergy, an intolerance, or something you'd just rather not eat? It changes how careful I am."
-      - "You didn't say how bad, so I've written 'severe'. Safer that way. If it's milder, tap 'Not quite' and tell me."
+      - "You didn't say how bad, so the card says 'severe' until you tell me otherwise. Safer that way. If it's milder, tap 'Not quite' and tell me."
       - "Before I write it down: how serious is it for you? Severe allergy, allergy, intolerance, or preference? Not sure is a fine answer; I'll be careful."
 
   rule.stamped:
@@ -550,6 +560,65 @@ triggers:
       - "I'm a pan; I can't diagnose anything except under-seasoning. Please ask a doctor or dietitian. Once they've told you what to avoid, I'll help you cook around it."
       - "That's a question for a clinician. I can help you plan meals for whatever they recommend, and I'll read any rules back to you."
       - "That's a clinician's question, not a pan's. If something's happening right now, call your local emergency number. Otherwise, a doctor or dietitian can help, and I'll help you cook whatever they suggest."
+
+  rule.unknown_term:
+    ai: never
+    when: The player named something to avoid that isn't in the ingredient graph or data/rule-terms.json (a missing ingredient, or a word such as halal, kosher or Jain that no one target can express). Nothing is saved.
+    vars:
+      term: "the player's word, as typed (default: that)"
+    notes: "Spec §2.2: 'can't verify' is never 'safe'. Never suggests a narrower rule on its own; the player may name something close and it is read back as usual. No jokes."
+    lines:
+      - "I can't find {term} in the Bureau's ingredient ledger yet, so I can't check dishes for it. Nothing's been saved. Please check every recipe and label yourself, and tell me if you'd like to file something close to it."
+      - "The Bureau's ingredient ledger doesn't have {term} yet, so I can't check dishes for it, and I haven't saved anything. Until it does, please check every recipe and label yourself. If there's a related ingredient you'd like me to file, tell me and I'll read it back."
+      - "I can't check dishes for {term} yet; it isn't in the Bureau's ingredient ledger. Nothing's been saved. Please read every recipe and label yourself, and name anything close to it you'd like on file."
+
+  rule.which_one:
+    ai: never
+    when: Several ingredients match what the player said; option buttons are on screen and none is picked for them.
+    vars:
+      term: "the player's word, as typed"
+    lines:
+      - "I found more than one thing that could be {term}. Tap the one you mean, so I file the right one."
+      - "The word {term} could mean more than one ingredient. Tap the one you mean, and I'll read it back before anything's filed."
+      - "More than one ingredient matches {term}. Please tap the right one, so I file exactly that."
+
+  rule.tap_needed:
+    ai: never
+    when: The player typed "yes" while a severe (anaphylactic or allergy) card is open. A typed yes never confirms a severe card.
+    vars:
+      ingredient: "the ingredient on the card, e.g. 'peanut'"
+    notes: "Plain. No 'I'm a pan'. Nothing is saved until the tap."
+    lines:
+      - "For an allergy, I need a tap on the card itself, not just a yes. Please check {ingredient} on the card and tap 'Stamp it'."
+      - "Thank you. For an allergy, a typed yes isn't enough. Please check {ingredient} on the card and tap 'Stamp it' yourself."
+      - "Allergies need a tap on the card, not just a yes. Nothing's saved yet. Please check {ingredient} on the card, then tap 'Stamp it'."
+
+  rule.ask_what_else:
+    ai: never
+    when: The player said an allergy is severe, but an ingredient they named could not be read as a rule (or no card came of it); the cards that did parse are shown, and this asks so nothing is lost.
+    vars:
+      term: "the ingredient that was not read, when code knows it (optional; lines without it are used otherwise)"
+    notes: "Plain. No jokes. Nothing is saved for the ingredient that was not read."
+    lines:
+      - "I may have missed one of the ingredients you named. If there's another one to avoid, tell me plainly and I'll read it back."
+      - "I may have missed {term}. If you need me to watch for it, tell me plainly and I'll read it back."
+      - "Before we go on: I may not have caught every ingredient you mentioned. If there's another one to avoid, tell me plainly and I'll read it back."
+
+  rule.ask_keep_off:
+    ai: never
+    when: A health turn ended with no card and no rule read-back (or the model's rule was not the player's own words); this asks plainly so a health statement is never silently lost.
+    notes: "Plain. No jokes. Nothing is saved."
+    lines:
+      - "Tell me what to keep off your plate and how bad it is, and I'll make you a card to stamp."
+      - "If there's something you need to avoid, tell me what it is and how serious, and I'll make you a card to stamp. Nothing's been filed yet."
+
+  mentor.check_card:
+    ai: never
+    when: A mentor turn made no card and a dish is on screen or named; the model's text is never shown (Step 7 ruling R9).
+    notes: "Plain. Never says a dish is safe or fits; points at the card and the label."
+    lines:
+      - "Check the card on screen; it shows whether a dish fits your rules. For anything store-bought, check the label too."
+      - "The dish card is the one to trust there: it's checked against your rules by the Bureau's ledger, not by me. Labels still get the last word."
 
   # ------------------------------------------------------------------
   # Planning
@@ -657,6 +726,25 @@ triggers:
       - "{items}, gone. Eaten, I hope. Not abandoned behind the cereal."
       - "Removed: {items}. I'll add them to the list if you need more."
       - "Out of the pantry: {items}. I hope they went to a good meal."
+
+  pantry.not_found:
+    ai: never
+    when: The player said they used up or threw out items that aren't in their saved pantry; no card takes them out (M4 Step 8).
+    vars:
+      items: "the names the player said, e.g. 'milk'"
+    notes: "Never implies anything was changed."
+    lines:
+      - "I can't find {items} in your pantry, so there's nothing to take out."
+      - "{items} isn't in your pantry as far as I can see. Nothing's been changed."
+      - "No {items} in your pantry list, so I've nothing to strike out."
+
+  pantry.undo_full:
+    ai: never
+    when: An undo of a pantry change can't put the items back because the pantry is at its 300-item limit (too_many_items); nothing was changed.
+    notes: "Plain. Says nothing was undone and what to do."
+    lines:
+      - "I couldn't undo that: your pantry is full, at 300 items. Nothing's changed. Take a few things out, then say 'undo' again."
+      - "The pantry's at its 300-item limit, so I can't put those back. Nothing's changed. Clear a few things out and try 'undo' again."
 
   schedule.set:
     ai: allowed
@@ -884,6 +972,14 @@ triggers:
       - "Nothing to undo. I checked. I'm thorough. I'm a pan."
       - "Nothing to undo. You've made no mistakes. Suspicious, but congratulations."
 
+  card.rejected:
+    ai: never
+    when: The player turns down a meal, profile or pantry card ('Not quite', or a typed "no" for one card); nothing was saved. Rule cards use rule.not_quite.
+    lines:
+      - "Crossed out. Nothing's been filed. Tell me again in your own words if you'd like a fresh card."
+      - "No harm done; nothing was saved. Tell me what to change and I'll write a new card."
+      - "Struck out, unfiled. Say it again your way and I'll read it back."
+
   didnt_understand:
     ai: allowed
     when: The Pan can't map what the player said to a tool or FAQ (and the AI is unavailable or also unsure).
@@ -982,6 +1078,106 @@ triggers:
       - "A new pin on the map: {place}. {friend} is expecting you, because {cook} vouched for you. Don't make {cook} regret it."
       - "{friend}, in {place}. An introduction from {cook}. In the Bureau's hierarchy of documents, this outranks a stamp."
       - "A letter of introduction: {cook} to {friend}, {place}. That's a door opened on your behalf. Walk through it politely."
+
+  # ------------------------------------------------------------------
+  # Mentor conversation (Milestone 4). Fired by code, never written by the model.
+  # All ai: never: they guard writes, consent and the AI fallback.
+  # ------------------------------------------------------------------
+
+  confirm.tap_card:
+    ai: never
+    when: The player typed "yes" or "no" while more than one card is open; nothing is confirmed or turned down.
+    lines:
+      - "There's more than one card open. Tap the one you mean, so I'm sure which."
+      - "I've more than one card open, and I'd rather not act on the wrong one. Tap the card you mean."
+      - "Several cards, one answer. Tap the card you mean and I'll go from there."
+
+  write.not_done:
+    ai: never
+    when: The player asked for a record to change (profile, pantry, rules, meals) and no card came out; the model's text is never shown (Step 7 ruling R9).
+    notes: "The on-screen card is the record (spec §7.6b.3). Never implies anything is on file."
+    lines:
+      - "Nothing's been written down yet. If you'd like me to, tell me plainly and I'll show you the card to stamp."
+      - "To be clear: nothing's been written down. If you'd like me to file something, say so plainly and I'll show you the card."
+      - "I haven't written anything down yet. Only a card you've stamped is on file. Tell me what to file and I'll show you a card to stamp."
+
+  consent.health_first:
+    ai: never
+    when: A rule or meal card would be shown to a player without health_data consent; the consent card (Form 3-C/HEALTH) is shown instead.
+    lines:
+      - "Before I can file that, the Bureau needs your say-so to keep health details. Tap the card, then tell me again."
+      - "I can't file that until you've said the Bureau may keep health details. Nothing's been filed. Tap the card if you agree, then tell me again."
+      - "Health details need your permission first. Nothing's been filed yet. Tap the card if you're happy to give it, then tell me again."
+
+  child.grownup:
+    ai: never
+    when: The player appears to be a child. Exactly one fixed line, no joke; nothing they said is kept.
+    lines:
+      - "I'm glad you're cooking. I can only take notes from a grown-up, so please fetch the grown-up you cook with. And use the big knives only with them right beside you."
+
+  allowance.explain:
+    ai: never
+    when: Any question about paying, limits or keeping on talking. Always this scripted line, never a model reply.
+    notes: "Never rule 7: never sells, and never names a paid membership, a cost or a level of one. Honest about the daily cap. Rule help and logging are never capped (pre-flight C6)."
+    lines:
+      - "I've a daily allowance of chat, and I'll tell you when it runs out. Recipes, cooking, allergy and diet rules, logging and the market always work, every day, for nothing."
+      - "There's a daily limit on how much I can chat freely, and I'll say when it's used up. Help with allergy and diet rules is never limited. Recipes, cooking, logging and the market always work, every day, for nothing."
+      - "I get a daily allowance of chat. The Bureau counts my words; I'd talk all day if it didn't. Help with allergy and diet rules is never limited, and recipes, cooking, logging and the market always work, every day, for nothing."
+
+  log.needs_account:
+    ai: never
+    when: The player describes a meal while signed out. Meal logs are account-only in M4.
+    lines:
+      - "I can keep a food log once you're signed in. Settings has the sign-in. Everything else works on this device as it is."
+      - "Nothing's been logged; the food log needs you signed in first. Settings has the sign-in. Everything else works on this device as it is."
+      - "Meal logs live with your account, so I'll need you signed in before I keep one. The sign-in is in Settings. Everything else works here without it."
+
+  profile.readback:
+    ai: never
+    when: Read-back of a profile or schedule card (Form 1-A/AMEND or 6-R) before it's inked.
+    vars:
+      summary: "the code-built read-back, e.g. 'market day Saturday, about five meals a week'"
+    lines:
+      - "{summary}. Shall I ink it?"
+      - "Reading it back: {summary}. Ink it?"
+      - "I heard: {summary}. Is that right?"
+      - "Let me check I've got it: {summary}. Shall I ink it, or leave it in pencil?"
+
+  pantry.readback:
+    ai: never
+    when: Read-back of a pantry card (Form 4-P) before it's stamped.
+    vars:
+      summary: "the code-built read-back, e.g. 'add rice and two onions; take out the milk'"
+    lines:
+      - "{summary}. Shall I update the pantry?"
+      - "Reading it back: {summary}. Update the pantry?"
+      - "I heard: {summary}. Is that right?"
+      - "Let me check I've got it: {summary}. Shall I update the pantry?"
+
+  ai.try_again:
+    ai: never
+    when: The AI failed on a turn; the player's message is held in memory for the 'Try again' button.
+    lines:
+      - "I've kept what you said. Tap 'Try again' in a moment, or use the buttons below."
+      - "That didn't go through. Your message is still here; tap 'Try again' shortly, or use the buttons below."
+      - "Something went wrong at the Bureau's end. I've held on to your words. Tap 'Try again' in a moment, or pick a button below."
+
+  mentor.ai_unavailable:
+    ai: never
+    when: The mentor's AI failed or is off for this turn; the scripted engine answers. Used by the mentor instead of ai_unavailable.
+    notes: "Never claims anything was saved, kept or logged, and never mentions photos (pre-flight C33)."
+    lines:
+      - "The line to the Bureau's gone quiet, so I'm answering from the script. Allergies, logging, recipes and the market all still work."
+      - "My clever half has stepped out, so you're getting the script. It's a good script. Allergy and diet rules, logging, recipes and the market all still work."
+      - "I'm on the written script for now. Allergy and diet rules, logging, recipes and the market all work as normal. Free-form chat comes back when the line does."
+
+  forget.done:
+    ai: never
+    when: The player cleared their conversations.
+    lines:
+      - "Forgotten. The conversation's gone from the Bureau's files. Your saved rules, meals and pantry are where you left them."
+      - "For once in 140 years, I've forgotten something. The conversation's gone from the Bureau's files. Your saved rules, meals and pantry are untouched."
+      - "Cleared. The conversation's gone. Your saved rules, meals and pantry stay exactly where they were."
 
   # ------------------------------------------------------------------
   # Game shell (Milestone 3)

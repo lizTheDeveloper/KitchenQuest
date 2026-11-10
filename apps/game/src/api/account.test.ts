@@ -34,6 +34,15 @@ const storeWith = (patch: Partial<PlayerState> = {}) => {
 };
 
 describe('refreshAccount', () => {
+  // Controller ruling (M4 Step 9): GET /rules 5xx fails closed; 429 and offline keep the cached copy.
+  test.each([[500, null], [503, null], [429, 'cached'], [0, 'cached']] as const)('GET /rules %i → accountRules %s', async (code, want) => {
+    const store = storeWith({ account: { email: 'cook@example.com' }, accountRules: [coconut] });
+    const { client } = fakeClient({ me: me(), listRules: status(code) });
+    expect(await refreshAccount(client, store)).toBe('signed-in');
+    expect(store.get().accountRules).toEqual(want === null ? null : [coconut]);
+    expect(activeRules(store.get(), graph).status).toBe(want === null ? 'error' : 'ready');
+  });
+
   test('signed in loads account rules', async () => {
     const store = storeWith();
     const { client, calls } = fakeClient({ me: me(), listRules: rules([coconut]) });

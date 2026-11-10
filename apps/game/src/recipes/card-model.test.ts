@@ -4,7 +4,7 @@ import { content, graph } from '../content';
 import type { GameContent } from '../content/types';
 import { buildRecipeCard } from './card-model';
 import { findingText, LABEL_RULE_TEXT, LABEL_STORE_BOUGHT_TEXT } from './card-view';
-import type { RulesState } from './rules';
+import { ACCOUNT_NOT_LOADED_MESSAGE, RULES_INVALID_MESSAGE, type RulesState } from './rules';
 
 const today = '2026-11-09';
 const SLUG = 'india/kerala/parippu';
@@ -62,12 +62,17 @@ describe('buildRecipeCard', () => {
   });
 
   test('rules error: unverified, not blocked, not ok', () => {
-    const c = card({ status: 'error', message: 'Rule "r1": target id "not_an_id" is not in the ingredient graph' });
+    const c = card({ status: 'error', reason: 'invalid', message: RULES_INVALID_MESSAGE, problems: ['Rule "r1": target id "not_an_id" is not in the ingredient graph'] });
     expect(c.status).toBe('unverified');
-    expect(c.rulesError).toContain('not_an_id');
+    // The player's message and a way to fix it; core's problem text never reaches a card.
+    expect(c.rulesError).toBe(RULES_INVALID_MESSAGE);
+    expect(c.rulesLink).toBe(true);
+    expect(JSON.stringify(c)).not.toContain('not_an_id');
     expect(c.findings).toEqual([]);
     expect(c.cookable).toBe(true);
     expect(c.notCookableReason).toBeNull();
+    // Signed in with the account rules not loaded: no rules screen fixes that, so no link.
+    expect(card({ status: 'error', reason: 'account_not_loaded', message: ACCOUNT_NOT_LOADED_MESSAGE, problems: [] }).rulesLink).toBe(false);
     // We can't know whether a severe rule is among them, so the allergy disclaimer shows.
     expect(c.severe).toBe(true);
     expect(c.disclaimer).toBe(DISCLAIMER);

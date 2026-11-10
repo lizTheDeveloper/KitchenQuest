@@ -70,6 +70,8 @@ export async function consentRoutes(app: FastifyInstance): Promise<void> {
       const withdrew = await withdrawConsentIn(tx, req.user.id, purpose, at, req.id);
       if (purpose === 'health_data' && healthData === 'delete') await deleteHealthDataIn(tx, req.user.id, at, withdrew, req.id);
     });
+    // Withdrawing health_data (keep or delete) also forgets the mentor's in-memory history (C-12).
+    if (purpose === 'health_data') app.mentor.memory.delete(`${req.user.id}:`);
     return reply.status(204).send();
   });
 }

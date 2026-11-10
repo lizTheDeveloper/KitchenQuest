@@ -32,7 +32,10 @@ const ProfileBody = z
   .partial()
   .strict();
 
-interface Profile {
+/** A profile patch as PUT /profile takes it (every key optional). */
+export type ProfilePatch = z.infer<typeof ProfileBody>;
+
+export interface Profile {
   marketDays: number[];
   mealsPerWeek: number | null;
   country: string | null;
@@ -56,6 +59,25 @@ async function loadProfile(tx: Tx, userId: string, now: Date): Promise<Profile> 
   return { ...(row as Profile), mealWindows: knownMealWindows(row.mealWindows) };
 }
 
+/**
+ * Applies `patch` to the user's profile inside the caller's transaction, after
+ * the same zod validation as PUT /profile (a ZodError is a 400): live user
+ * (401) → the profile as it was (created empty on first use) → upsert of the
+ * keys in `patch` only → the profile as it is now. The mentor's profile card
+ * confirms and undoes through here (Step 8), PUT /profile too.
+ */
+export async function applyProfilePatchIn(tx: Tx, userId: string, input: ProfilePatch, at: Date): Promise<{ before: Profile; after: Profile }> {
+  const patch = ProfileBody.parse(input);
+  await lockLiveUser(tx, userId);
+  const before = await loadProfile(tx, userId, at);
+  // Upsert: omitted fields are not in `patch`, so they are left unchanged.
+  await tx
+    .insert(profiles)
+    .values({ userId, ...patch, updatedAt: at })
+    .onConflictDoUpdate({ target: profiles.userId, set: { ...patch, updatedAt: at } });
+  return { before, after: await loadProfile(tx, userId, at) };
+}
+
 export async function profileRoutes(app: FastifyInstance): Promise<void> {
   const { db, now } = app.deps;
 
@@ -70,14 +92,6 @@ export async function profileRoutes(app: FastifyInstance): Promise<void> {
   app.put('/profile', { preHandler: requireUser }, async (req) => {
     const patch = ProfileBody.parse(req.body);
     const at = now();
-    return db.transaction(async (tx) => {
-      await lockLiveUser(tx, req.user.id);
-      // Upsert: omitted fields are not in `patch`, so they are left unchanged.
-      await tx
-        .insert(profiles)
-        .values({ userId: req.user.id, ...patch, updatedAt: at })
-        .onConflictDoUpdate({ target: profiles.userId, set: { ...patch, updatedAt: at } });
-      return loadProfile(tx, req.user.id, at);
-    });
+    return db.transaction(async (tx) => (await applyProfilePatchIn(tx, req.user.id, patch, at)).after);
   });
 }

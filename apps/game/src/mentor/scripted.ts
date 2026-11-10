@@ -1,0 +1,209 @@
+import {
+  askForDroppedTerms, buildMealCard, emergencyRuleAsk, emergencyStatesRule, isHealthText, isSevereCard, buildPantryCard, buildProfileCard, buildRuleCard, classifyTurn, dropMealsMatchingRemovals,
+  matchDish, MEAL_SLOTS, MEAL_VERB_PATTERN, normalizeName, normalizeTurn, PANTRY_ADD_PATTERN, PANTRY_REMOVAL_PATTERNS,
+  parseClock, parseMealStatement, parsePantryAdds, parsePantryRemovals, parseRuleStatement, parseWeekdays, preRoute,
+  shortReplyTarget, slotClause, slotForTime, stripPageEvents,
+  type IngredientGraph, type LineRef, type MealSlot, type OpenCardRef, type ProposalCard, type RuleTerm, type Severity,
+} from '@kitchenquest/core/engine';
+import { localDate } from '../recipes/rules';
+import type { Dialogue } from './dialogue';
+import type { CardView, LocalCardView, LocalIntent, PanItem, PanReply, TurnContext } from './reply';
+
+/**
+ * The scripted mentor: no AI, no network, no account. Every decision the server agent also makes comes from
+ * the same core functions (pre-flight C14): `preRoute`, `shortReplyTarget`, the parsers, the card builders,
+ * `matchDish`, `dropMealsMatchingRemovals`, the meal-window clock and the ask-for-dropped-terms rule. The engine
+ * builds cards and says their read-backs through the dialogue; it never builds safety text itself, and it never
+ * writes: confirming is the writer's job, on a tap or a typed yes it hands over as a LocalIntent.
+ */
+export interface ScriptedEngine {
+  reply(text: string, ctx: TurnContext): PanReply;
+  /** A local rule card for the option the player tapped in a `choices` item. */
+  cardFromChoice(id: string, severity: Severity | null, turn: number): LocalCardView;
+}
+
+/** The player says when they shop: a profile `marketDays` card, with the days named. */
+const MARKET_WORD = /\b(market|shop|shopping)\b/;
+/** Words that make a slot word a schedule ("lunch at …", "remind me … dinner"); "what's for dinner" has none. */
+const SCHEDULE_CUE = /\b(remind|reminder|usually|normally|always|schedule|window|at|around|about|by|from|o'?clock|am|pm|noon|midday|midnight|half|quarter)\b|\d/;
+const WINDOW_SLOTS: readonly MealSlot[] = MEAL_SLOTS.filter((s) => s !== 'other');
+const DAY_MS = 86_400_000;
+
+/** Where `re` first matches `t`, or -1. */
+function indexOf(re: RegExp, t: string): number {
+  const m = new RegExp(re.source, re.flags.replace('g', '')).exec(t);
+  return m ? m.index : -1;
+}
+
+const hhmm = (d: Date): string => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+
+/** One reply item and the card that goes with it, placed where its match starts in the text (pre-flight C31). */
+interface Found { at: number; items: PanItem[]; card?: ProposalCard }
+
+export function createScriptedEngine(deps: {
+  dialogue: Dialogue; graph: IngredientGraph; ruleTerms: RuleTerm[]; recipes: { slug: string; title: string }[]; now: () => Date;
+}): ScriptedEngine {
+  const { dialogue, graph, ruleTerms, recipes } = deps;
+  const say = (l: LineRef): PanItem => ({ kind: 'said', said: dialogue.say(l.trigger, l.vars) });
+  const line = (trigger: string, vars: Record<string, string> = {}): PanItem => say({ trigger, vars });
+  const view = (card: ProposalCard, turn: number): LocalCardView => ({ origin: 'local', localId: crypto.randomUUID(), card, issuedTurn: turn });
+  const reply = (items: PanItem[], extra: { cards?: CardView[]; intents?: LocalIntent[] } = {}): PanReply =>
+    ({ items, cards: extra.cards ?? [], intents: extra.intents ?? [], actions: [], notice: null });
+  /** A card and its read-back, spoken from the card's own LineRefs (§7.6b.2). */
+  const withReadback = (at: number, card: ProposalCard): Found => ({ at, card, items: card.readback.map(say) });
+
+  /** Step 4 of the reply: every parser runs, so a multi-intent turn yields several items. */
+  function parseAll(raw: string, text: string, ctx: TurnContext, rulesOnly = false): { items: PanItem[]; cards: ProposalCard[] } {
+    const t = normalizeTurn(text);
+    const found: Found[] = [];
+    const now = deps.now();
+
+    // Rules: one card per term, or why there is none.
+    const statement = parseRuleStatement(text, graph);
+    const ruleFallback = Math.max(0, indexOf(/allerg|intoleran|anaphyla|can'?t|cannot|avoid|don'?t eat/, t));
+    let ruleOutcome = false;
+    for (const item of statement?.items ?? []) {
+      const at = t.indexOf(item.term);
+      const where = at < 0 ? ruleFallback : at;
+      const built = buildRuleCard({ term: item.term, severity: item.severity }, graph, ruleTerms);
+      ruleOutcome = true;
+      if (built.ok) found.push(withReadback(where, built.card));
+      else if (built.reason === 'unknown_term') found.push({ at: where, items: [say(built.line)] });
+      else found.push({ at: where, items: [say(built.line), { kind: 'choices', options: built.options, severity: item.severity }] });
+    }
+
+    // An emergency turn keeps only the rule path (fix round 2, E2): no meal, profile or pantry card. As on the
+    // server, only severe rule cards stay; anything else (a diet card, an unknown term) gives way to the ask (fix round 3).
+    if (rulesOnly) {
+      const severe = found.filter((f) => f.card !== undefined && isSevereCard(f.card));
+      const kept = severe.flatMap((f) => (f.card?.kind === 'rule' ? [f.card.display.ingredient] : []));
+      severe.sort((a, b) => a.at - b.at);
+      const items = severe.flatMap((f) => f.items);
+      const ask = emergencyRuleAsk(raw, kept, graph);
+      if (ask !== null) items.push(say(ask));
+      return { items, cards: severe.flatMap((f) => (f.card ? [f.card] : [])) };
+    }
+
+    const removals = parsePantryRemovals(text);
+
+    // A meal: an account write (M4), so signed out it gets the plain line. A "meal" that is a removed pantry item is no meal (T05).
+    const meal = parseMealStatement(text);
+    if (meal !== null) {
+      const dish = matchDish(meal.description, recipes);
+      const kept = dropMealsMatchingRemovals([{ description: meal.description, dish: dish?.title ?? null }], removals);
+      if (kept.length > 0) {
+        const at = Math.max(0, indexOf(MEAL_VERB_PATTERN, t));
+        if (!ctx.signedIn) found.push({ at, items: [line('log.needs_account')] });
+        else {
+          const eatenOn = localDate(meal.when === 'yesterday' ? new Date(now.getTime() - DAY_MS) : now);
+          const slot = meal.slot ?? slotForTime(hhmm(now));
+          const card = dish
+            ? buildMealCard({ eatenOn, slot, dish: { slug: dish.slug, title: dish.title, servings: 1 } })
+            : buildMealCard({ eatenOn, slot, description: meal.description });
+          found.push(withReadback(at, card));
+        }
+      }
+    }
+
+    // Market days.
+    const market = indexOf(MARKET_WORD, t);
+    if (market >= 0) {
+      const days = parseWeekdays(text);
+      if (days.length > 0) found.push(withReadback(market, buildProfileCard({ marketDays: days })));
+    }
+
+    // Meal windows: the clock in the clause naming each slot; `end` comes from core (`windowEnd`), so PUT /profile takes it.
+    if (meal === null) {
+      const windows: { at: number; name: MealSlot; start: string }[] = [];
+      let badAt = -1;
+      for (const slot of WINDOW_SLOTS) {
+        const clause = slotClause(t, slot);
+        if (clause === null || !SCHEDULE_CUE.test(clause)) continue;
+        const start = parseClock(clause);
+        const at = t.indexOf(clause);
+        if (start !== null) windows.push({ at, name: slot, start });
+        else if (badAt < 0) badAt = at;
+      }
+      windows.sort((a, b) => a.at - b.at);
+      if (windows.length > 0) {
+        found.push(withReadback(windows[0].at, buildProfileCard({ mealWindows: windows.map(({ name, start }) => ({ name, start })) })));
+      }
+      if (badAt >= 0) found.push({ at: badAt, items: [line('schedule.bad_time')] });
+    }
+
+    // Pantry: one card for everything added and used up.
+    const adds = parsePantryAdds(text).filter((a) => !removals.some((r) => normalizeName(r) === normalizeName(a)));
+    if (adds.length + removals.length > 0) {
+      const starts = [PANTRY_ADD_PATTERN, ...PANTRY_REMOVAL_PATTERNS].map((re) => indexOf(re, t)).filter((i) => i >= 0);
+      found.push(withReadback(starts.length > 0 ? Math.min(...starts) : t.length, buildPantryCard({ add: adds, remove: removals }, graph)));
+    }
+
+    return finish(found, raw, statement?.terms ?? [], ruleOutcome);
+  }
+
+  function finish(found: Found[], raw: string, ruleTermsSaid: string[], ruleOutcome: boolean): { items: PanItem[]; cards: ProposalCard[] } {
+    // Items in the order their match starts in the text, whatever order the parsers ran in (stable for ties).
+    found.sort((a, b) => a.at - b.at);
+    const items = found.flatMap((f) => f.items);
+    const cards = found.flatMap((f) => (f.card ? [f.card] : []));
+    // The ask-for-dropped-terms rule, the server's own (Step 7 "Carry from Step 1"): intake answers included.
+    const ask = askForDroppedTerms(raw, ruleTermsSaid, ruleOutcome, graph);
+    if (ask !== null) items.push(say(ask));
+    return { items, cards };
+  }
+
+  return {
+    reply(text, ctx) {
+      // 1. Page-event lookalikes never arrive as the player's words (§7.6b.4).
+      const stripped = stripPageEvents(text).text.trim();
+      if (stripped === '') return reply([line('didnt_understand')]);
+      const intent = classifyTurn(stripped);
+      // 2. The fixed lines (emergency, medical, child, allowance, thanks): the server's own function.
+      const fixed = preRoute(intent);
+      if (fixed !== null) {
+        // E2: an emergency that also states a rule gets the emergency line first, then the rule path; never a meal or pantry card.
+        if (intent !== 'emergency' || !emergencyStatesRule(text, graph)) return reply([say(fixed)]);
+        const rules = parseAll(text, stripped, ctx, true);
+        return reply([say(fixed), ...rules.items], { cards: rules.cards.map((c) => view(c, ctx.turn)) });
+      }
+      // 3. A plain yes, no or undo: core decides which card it means. A typed yes never confirms a severe card.
+      if (intent === 'yes' || intent === 'no' || intent === 'undo') {
+        const refs: OpenCardRef[] = ctx.openCards.flatMap((c) =>
+          c.origin === 'local'
+            ? [{ ref: c.localId, severe: c.card.kind === 'rule' && c.card.severe, ingredient: c.card.kind === 'rule' ? c.card.display.ingredient : null, issuedTurn: c.issuedTurn }]
+            : []);
+        const target = shortReplyTarget(intent, refs, ctx.turn);
+        switch (target.kind) {
+          case 'confirm':
+          case 'reject':
+            return reply([], { intents: [{ kind: target.kind, localId: target.ref }] });
+          case 'undo':
+            return reply([], { intents: [{ kind: 'undo' }] });
+          case 'line':
+            return reply([say(target.line)]);
+          case 'none':
+            break;
+        }
+      }
+      // 4. Every parser; 5. nothing found.
+      const { items, cards } = parseAll(text, stripped, ctx);
+      // A health turn is never silently lost: with nothing read, the plain ask, as the server does (fix round 2, E4).
+      if (items.length === 0) {
+        const health = isHealthText(stripped, graph, ruleTerms) || ctx.intakeStep === 'allergies' ||
+          ctx.openCards.some((c) => c.card.kind === 'rule' || c.card.kind === 'meal');
+        return reply([line(health ? 'rule.ask_keep_off' : 'didnt_understand')]);
+      }
+      return reply(items, { cards: cards.map((c) => view(c, ctx.turn)) });
+    },
+
+    cardFromChoice(id, severity, turn) {
+      if (!graph.has(id)) throw new Error(`cardFromChoice: "${id}" is not in the ingredient graph`);
+      const built = buildRuleCard({ term: graph.get(id).name, severity }, graph, ruleTerms);
+      // The tapped option, exactly: never a wider or narrower reading of its name.
+      if (!built.ok || built.card.rule.target.ids.length !== 1 || built.card.rule.target.ids[0] !== id) {
+        throw new Error(`cardFromChoice: "${id}" did not build a card for itself`);
+      }
+      return view(built.card, turn);
+    },
+  };
+}

@@ -3,15 +3,39 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { IngredientGraph } from '@kitchenquest/core';
+import type * as Core from '@kitchenquest/core';
 import { and, eq } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/postgres-js';
 import type { FastifyInstance, InjectOptions } from 'fastify';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+
+/**
+ * Core has no cross-rule check today beyond duplicate ids (and row ids never
+ * repeat), so the concurrency test below needs a pair core rejects together.
+ * This stand-in delegates to core's real `validateRules` and adds one
+ * cross-rule problem only for rules carrying the test-only note EXCLUSIVE:
+ * at most one of those may be saved.
+ */
+const EXCLUSIVE = 'test-only: at most one of these';
+vi.mock('@kitchenquest/core', async (importOriginal) => {
+  const core = await importOriginal<typeof Core>();
+  return {
+    ...core,
+    validateRules: (list: Parameters<typeof core.validateRules>[0], graph: Parameters<typeof core.validateRules>[1]) => {
+      const problems = core.validateRules(list, graph);
+      if (list.filter((r) => r.note === EXCLUSIVE).length > 1) problems.push(`more than one rule notes "${EXCLUSIVE}"`);
+      return problems;
+    },
+  };
+});
 import { buildApp } from '../src/app.js';
 import { loadCatalog } from '../src/catalog.js';
 import { NOTICES } from '../src/consent/notices.js';
 import { MAX_RULES_PER_USER, SEARCHES_PER_MINUTE } from '../src/rules/routes.js';
 import { sealFor } from '../src/crypto/userkeys.js';
+import * as schema from '../src/db/schema.js';
 import { auditEvents, rules, selfReadCounts } from '../src/db/schema.js';
+import { loadRules } from '../src/rules/store.js';
 import { CaptureMailer } from '../src/mail/mailer.js';
 import type { Db } from '../src/types.js';
 import { signIn } from './helpers/auth.js';
@@ -39,7 +63,7 @@ beforeEach(async () => {
   mailer = new CaptureMailer();
   // A clock that moves (1 ms a call), so rules created one after another have distinct, ordered times.
   let tick = 0;
-  app = await buildApp({ config, db, mailer, now: () => new Date(NOW.getTime() + tick++), logger: false });
+  app = await buildApp({ config, db, mailer, ai: null, now: () => new Date(NOW.getTime() + tick++), logger: false });
 });
 afterEach(async () => {
   await app?.close();
@@ -94,7 +118,7 @@ describe('GET /ingredients/search', () => {
         { id: 'onion', name: 'onion' },
       ],
     });
-    const fixtureApp = await buildApp({ config, db, mailer, now: () => NOW, logger: false, catalog: { graph, substitutions: [] } });
+    const fixtureApp = await buildApp({ config, db, mailer, ai: null, now: () => NOW, logger: false, catalog: { graph, substitutions: [], ruleTerms: [] } });
     try {
       const res = await fixtureApp.inject({ method: 'GET', url: '/ingredients/search?q=scal' });
       expect(res.json()).toEqual({ results: [{ id: 'green_onion', name: 'green onion', matched: 'scallion' }] });
@@ -457,10 +481,122 @@ describe('/rules consent gate (C-11)', () => {
   });
 });
 
+describe('/rules under concurrency and check order (M4 Step 3)', () => {
+  const seed = async (uid: string, n: number) => {
+    const values = [];
+    for (let i = 0; i < n; i++) {
+      const rowId = randomUUID();
+      values.push({ id: rowId, userId: uid, sealed: await sealFor(db, config.keyring, { table: 'rules', userId: uid, rowId }, PEANUT) });
+    }
+    if (values.length > 0) await db.insert(rules).values(values);
+  };
+
+  it(`two concurrent creates at ${MAX_RULES_PER_USER - 1} rules: exactly one succeeds, the cap holds`, async () => {
+    const c = await player();
+    const uid = await userIdOf(c);
+    await seed(uid, MAX_RULES_PER_USER - 1);
+    const res = await Promise.all([post(c, { rule: DAIRY, confirmed: true }), post(c, { rule: DAIRY, confirmed: true })]);
+    const statuses = res.map((r) => r.statusCode);
+    const bodies = res.map((r) => r.json());
+    expect(statuses.sort()).toEqual([201, 400]);
+    expect(bodies.find((b) => b.error)?.error.code).toBe('too_many_rules');
+    expect(await storedCount(uid)).toBe(MAX_RULES_PER_USER);
+  });
+
+  it('two concurrent creates both see each other for validation: a pair core rejects together → [201, 400]', async () => {
+    const c = await player();
+    const uid = await userIdOf(c);
+    const exclusive = (rule: object) => ({ rule: { ...rule, note: EXCLUSIVE }, confirmed: true });
+    const res = await Promise.all([post(c, exclusive(PEANUT)), post(c, exclusive(DAIRY))]);
+    expect(res.map((r) => r.statusCode).sort()).toEqual([201, 400]);
+    const err = res.find((r) => r.statusCode === 400)!.json().error;
+    expect(err.code).toBe('bad_request');
+    expect(err.details.problems).toEqual([`more than one rule notes "${EXCLUSIVE}"`]);
+    expect(await storedCount(uid)).toBe(1);
+  });
+
+  it('two concurrent creates of compatible rules: both stored, no lost write', async () => {
+    const c = await player();
+    const uid = await userIdOf(c);
+    const res = await Promise.all([post(c, { rule: PEANUT, confirmed: true }), post(c, { rule: DAIRY, confirmed: true })]);
+    expect(res.map((r) => r.statusCode)).toEqual([201, 201]);
+    const stored = await loadRules(db, config.keyring, uid);
+    expect(stored).toHaveLength(2);
+    expect(new Set(stored.map((r) => r.id)).size).toBe(2);
+    expect(new Set(stored.map((r) => r.id))).toEqual(new Set(res.map((r) => r.json().rule.id)));
+  });
+
+  it('an account deleted while a POST or PUT waits on the user row → 401, never 403 (no consent either)', async () => {
+    for (const write of ['POST', 'PUT'] as const) {
+      // No health_data consent: before M4 the fast consent check answered 403 first.
+      const c = await signIn(app, mailer, `gone${++seq}@example.com`);
+      const uid = await userIdOf(c);
+      let release!: () => void;
+      const gate = new Promise<void>((r) => (release = r));
+      let locked!: () => void;
+      const held = new Promise<void>((r) => (locked = r));
+      // Another connection takes the user row and deletes the account once the write waits on it.
+      const deleter = sql.begin(async (tx) => {
+        await tx`select 1 from users where id = ${uid} for update`;
+        locked();
+        await gate;
+        await tx`delete from users where id = ${uid}`;
+      });
+      await held;
+      const writing =
+        write === 'POST'
+          ? post(c, { rule: PEANUT, confirmed: true })
+          : put(c, '00000000-0000-4000-8000-000000000000', { rule: PEANUT, confirmed: true });
+      let settled = false;
+      void writing.then(() => (settled = true));
+      for (let i = 0; i < 500 && !settled; i++) {
+        const [{ n }] = await sql<{ n: number }[]>`select count(*)::int as n from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'`;
+        if (n >= 1) break;
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      release();
+      await deleter;
+      const res = await writing;
+      expect(res.statusCode, write).toBe(401);
+      expect(res.json().error.code, write).toBe('unauthorized');
+      expect(await storedCount(uid)).toBe(0);
+    }
+  });
+
+  it('POST /rules without confirmed is 400 confirmation_required before any rules or consents query', async () => {
+    const queries: string[] = [];
+    const logged = drizzle(sql, { schema, logger: { logQuery: (q) => queries.push(q) } });
+    const loggedApp = await buildApp({ config, db: logged, mailer, ai: null, now: () => NOW, logger: false });
+    let sqlAfterAuth: string[] = [];
+    // Every request starts a fresh record; the session lookup (requireUser) is in it, and touches neither table.
+    loggedApp.addHook('onRequest', async () => {
+      queries.length = 0;
+    });
+    try {
+      const cookie = await signIn(loggedApp, mailer, `sqllog${++seq}@example.com`);
+      const cookies = { kq_session: cookie };
+      for (const req of [
+        { method: 'POST' as const, url: '/rules', payload: { rule: PEANUT } },
+        { method: 'PUT' as const, url: '/rules/00000000-0000-4000-8000-000000000000', payload: { rule: PEANUT, confirmed: false } },
+      ]) {
+        const res = await loggedApp.inject({ ...req, cookies });
+        sqlAfterAuth = [...queries];
+        expect(res.statusCode).toBe(400);
+        expect(res.json().error.code).toBe('confirmation_required');
+        // The session lookup ran (the request was authenticated), and nothing touched rules or consents.
+        expect(sqlAfterAuth.length).toBeGreaterThan(0);
+        expect(sqlAfterAuth.filter((q) => /\b(rules|consents)\b/.test(q))).toEqual([]);
+      }
+    } finally {
+      await loggedApp.close();
+    }
+  });
+});
+
 describe('log redaction (C-9)', () => {
   it('a "peanut" search and a peanut rule POST leave no "peanut" in the log', async () => {
     const logs = captureLogs();
-    const logged = await buildApp({ config, db, mailer, now: () => NOW, logger: logs.logger });
+    const logged = await buildApp({ config, db, mailer, ai: null, now: () => NOW, logger: logs.logger });
     try {
       const cookie = await signIn(logged, mailer, `logs${++seq}@example.com`);
       const cookies = { kq_session: cookie };
@@ -494,17 +630,26 @@ describe('log redaction (C-9)', () => {
 });
 
 describe('catalog (boot data)', () => {
-  const dirWith = (ingredients: unknown, substitutions: unknown) => {
+  const dirWith = (ingredients: unknown, substitutions: unknown, ruleTerms: unknown = []) => {
     const dir = mkdtempSync(join(tmpdir(), 'kq-catalog-'));
     writeFileSync(join(dir, 'ingredients.json'), typeof ingredients === 'string' ? ingredients : JSON.stringify(ingredients));
     writeFileSync(join(dir, 'substitutions.json'), JSON.stringify(substitutions));
+    writeFileSync(join(dir, 'rule-terms.json'), JSON.stringify(ruleTerms));
     return dir;
   };
 
   it('loads the repository data', () => {
-    const { graph, substitutions } = loadCatalog();
+    const { graph, substitutions, ruleTerms } = loadCatalog();
     expect(graph.has('peanut')).toBe(true);
     expect(substitutions.length).toBeGreaterThan(0);
+    expect(ruleTerms.map((t) => t.name)).toContain('vegetarian'); // C7
+  });
+
+  it('fails loudly on bad rule terms, naming the file (C7)', () => {
+    const ok = { ingredients: [{ id: 'garlic', name: 'garlic' }] };
+    const term = { name: 'no garlic', phrases: ['no garlic'], ids: ['ghost'], severity: null, form: 'rule_diet' };
+    expect(() => loadCatalog(dirWith(ok, [], [term]))).toThrow(/rule-terms\.json.*ghost/);
+    expect(() => loadCatalog(dirWith(ok, [], {}))).toThrow(/rule-terms\.json.*must be an array/);
   });
 
   it('fails loudly on bad data, naming the file', () => {

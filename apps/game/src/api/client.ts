@@ -1,5 +1,8 @@
-import type { Rule } from '@kitchenquest/core/engine';
-import type { ApiErrorBody, ApiResult, ConsentPurpose, Consents, ConsentRecord, Me, Profile, RecipeDetail, RecipeSummary } from './types';
+import type { Rule, Severity } from '@kitchenquest/core/engine';
+import type {
+  ApiErrorBody, ApiResult, ConfirmRequest, ConfirmResponse, ConsentPurpose, Consents, ConsentRecord, MealEntry, Me, PantryItem, Profile,
+  RecipeDetail, RecipeSummary, ReplyPart, TurnRequest, TurnResponse,
+} from './types';
 
 /**
  * A typed client for the M2 API, reached same-origin under `/api` (the Vite servers proxy it; in production
@@ -24,6 +27,21 @@ export interface ApiClient {
   grantConsent(purpose: ConsentPurpose, noticeVersion: string): Promise<ApiResult<{ consent: ConsentRecord }>>; // POST /me/consents (201)
   exportAccount(): Promise<ApiResult<unknown>>;                                                               // GET /me/export
   deleteAccount(confirm: 'delete my account'): Promise<ApiResult<null>>;                                     // DELETE /me (204)
+  /** M4. The player's text rides in the POST body only, never in the URL (P-5). */
+  mentorTurn(req: TurnRequest): Promise<ApiResult<TurnResponse>>;                                              // POST /mentor/turn
+  /** A tap on a server card: the body is `{ channel: 'tap', edits? }`; the type has no other channel (§7.6b.1). */
+  confirmProposal(id: string, edits?: { severity?: Severity }): Promise<ApiResult<ConfirmResponse>>;          // POST /mentor/proposals/:id/confirm
+  rejectProposal(id: string): Promise<ApiResult<{ parts: ReplyPart[] }>>;                                      // POST /mentor/proposals/:id/reject
+  undoWrite(id: string): Promise<ApiResult<{ parts: ReplyPart[] }>>;                                           // POST /mentor/writes/:id/undo
+  forgetConversations(): Promise<ApiResult<null>>;                                                            // DELETE /mentor/conversations (204)
+  withdrawConsent(purpose: ConsentPurpose, healthData?: 'delete' | 'keep'): Promise<ApiResult<null>>;         // DELETE /me/consents/:purpose (204)
+  /** Needs health_data consent (403 consent_required). */
+  createMeal(meal: MealEntry, confirmed: true): Promise<ApiResult<{ meal: MealEntry & { id: string } }>>;    // POST /meals (201)
+  deleteMeal(id: string): Promise<ApiResult<null>>;                                                           // DELETE /meals/:id (204)
+  getPantry(): Promise<ApiResult<{ items: (PantryItem & { id: string })[] }>>;                                // GET /pantry
+  changePantry(
+    change: { add: PantryItem[]; removeNames: string[]; removeIds: string[] }, confirmed: true,
+  ): Promise<ApiResult<{ items: (PantryItem & { id: string })[]; removed: (PantryItem & { id: string })[]; addedIds: string[] }>>; // POST /pantry/changes
 }
 
 const isObj = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x);
@@ -91,6 +109,19 @@ export function createApiClient(opts: { baseUrl?: string; fetch?: typeof fetch }
     grantConsent: (purpose, noticeVersion) => call('POST', '/me/consents', { purpose, noticeVersion, method: 'tap' }),
     exportAccount: () => call('GET', '/me/export'),
     deleteAccount: (confirm) => call('DELETE', '/me', { confirm }),
+    mentorTurn: (req) => call('POST', '/mentor/turn', req),
+    confirmProposal: (id, edits) => {
+      const body: ConfirmRequest = edits === undefined ? { channel: 'tap' } : { channel: 'tap', edits };
+      return call('POST', `/mentor/proposals/${enc(id)}/confirm`, body);
+    },
+    rejectProposal: (id) => call('POST', `/mentor/proposals/${enc(id)}/reject`),
+    undoWrite: (id) => call('POST', `/mentor/writes/${enc(id)}/undo`),
+    forgetConversations: () => call('DELETE', '/mentor/conversations'),
+    withdrawConsent: (purpose, healthData) => call('DELETE', `/me/consents/${enc(purpose)}`, healthData === undefined ? {} : { healthData }),
+    createMeal: (meal, confirmed) => call('POST', '/meals', { meal, confirmed }),
+    deleteMeal: (id) => call('DELETE', `/meals/${enc(id)}`),
+    getPantry: () => call('GET', '/pantry'),
+    changePantry: (change, confirmed) => call('POST', '/pantry/changes', { ...change, confirmed }),
   };
 }
 

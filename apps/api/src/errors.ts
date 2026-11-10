@@ -1,5 +1,30 @@
 import { ZodError } from 'zod';
 
+/**
+ * An error the API returns to the client as `{ error: { code, message, details? } }`
+ * with `status` (M2's body shape). Every code the API returns:
+ *
+ * - 400 `bad_request`: the body, query or params fail their shape or a check
+ *   (zod issues, or `details.problems` from core or a service). Also Fastify's
+ *   own 4xx (malformed JSON, payload too large, 415), which keep their status.
+ * - 400 `confirmation_required`: a write needs the player's explicit yes
+ *   (`confirmed: true`; `confirm: "delete my account"` for `DELETE /me`).
+ * - 400 `too_many_rules`: at the 200-rule cap (`details.max`).
+ * - 400 `too_many_items`: the pantry change would pass the 300-item cap (`details.max`).
+ * - 400 `tap_required`: a severe card (anaphylactic or allergy) is confirmed
+ *   only by a tap on it, never by a typed yes (spec §7.6).
+ * - 401 `unauthorized`: no live session, or the account is gone.
+ * - 403 `consent_required`: the write needs a current grant (`details.purpose`).
+ * - 404 `not_found`: no such route, or a row that is not the player's.
+ * - 409 `rules_need_review`: saved rules no longer validate against the catalog.
+ * - 409 `proposal_closed`: the mentor card is no longer open (confirmed,
+ *   rejected, undone or expired), or an undo of a write that is not confirmed.
+ * - 409 `undo_window_closed`: the confirmed write is older than UNDO_WINDOW_MS.
+ * - 429 `rate_limited`: with a `retry-after` header.
+ * - 500 `internal`: anything unexpected (logged scrubbed, never sent).
+ *
+ * Extend this list with every new code.
+ */
 export class ApiError extends Error {
   constructor(
     public readonly status: number,

@@ -1,11 +1,20 @@
-import { EMPTY_TOOLKIT, isValidDate, type Rule, type Tier, type ToolkitState } from '@kitchenquest/core/engine';
+import {
+  EMPTY_TOOLKIT, isValidDate, MEAL_SLOTS, type IntakeStep, type MealSlot, type PantryItem, type Rule, type Tier, type ToolkitState,
+} from '@kitchenquest/core/engine';
 
 export interface PlayerSettings { showCalories: boolean; reducedMotion: 'system' | 'on' | 'off'; familyTable: boolean; iosNoteDismissed: boolean }
+/** A signed-out player's profile, kept on this device (the same fields as M2's `/profile`). */
+export interface LocalProfile { marketDays: number[]; mealsPerWeek: number | null; country: string | null; region: string | null; mealWindows: { name: MealSlot; start: string; end: string }[] }
 export interface PlayerState {
   v: 1; firstOpenedAt: string | null; lastOpenedAt: string | null; // ISO datetimes
   localRules: Rule[]; accountRules: Rule[] | null; account: { email: string } | null;
   toolkit: ToolkitState; cookProgress: { slug: string; step: number } | null;
-  dialogueHistory: Record<string, number[]>; settings: PlayerSettings;
+  dialogueHistory: Record<string, number[]>; settings: PlayerSettings & { aiMentor: boolean };
+  /** Signed out, the Pan's profile and pantry cards are written here (M4). */
+  localProfile: LocalProfile | null; localPantry: (PantryItem & { id: string })[];
+  /** Form 1-A: null = not started. */
+  intake: { step: IntakeStep | 'done' | null };
+  aiDisclosureSeen: boolean; aiHealthOffered: boolean;
   /** Set when stored data could not be read, so rules may have been lost. Rule checks must show ❓ until the
    *  player re-enters or confirms their rules (the only thing that clears it). Survives reloads. */
   rulesUnreadable: boolean;
@@ -21,6 +30,9 @@ const RESCUE_KEYS = [CORRUPT_KEY, `${CORRUPT_KEY}.1`, `${CORRUPT_KEY}.2`];
 export interface PlayerStore {
   get(): PlayerState;
   update(fn: (s: PlayerState) => PlayerState): PlayerState;
+  /** Replace device rules with `rules` and clear rulesUnreadable in ONE update. This write is authoritative for localRules:
+   *  the rebase does not merge this tab's in-memory rule versions back in (toolkit is still merged). */
+  confirmRules(rules: Rule[]): PlayerState;
   subscribe(fn: (s: PlayerState) => void): () => void;
   /**
    * From now on this tab never touches storage again (changes stay in memory, other tabs' writes are ignored).
@@ -36,8 +48,9 @@ function freshState(): PlayerState {
     v: 1, firstOpenedAt: null, lastOpenedAt: null,
     localRules: [], accountRules: null, account: null,
     toolkit: EMPTY_TOOLKIT, cookProgress: null, dialogueHistory: {},
-    settings: { showCalories: false, reducedMotion: 'system', familyTable: false, iosNoteDismissed: false },
+    settings: { showCalories: false, reducedMotion: 'system', familyTable: false, iosNoteDismissed: false, aiMentor: true },
     rulesUnreadable: false, signOutPending: false,
+    localProfile: null, localPantry: [], intake: { step: null }, aiDisclosureSeen: false, aiHealthOffered: false,
   };
 }
 
@@ -48,6 +61,19 @@ const isTechniqueRecord = (r: unknown): boolean =>
   typeof r.firstAt === 'string' && isValidDate(r.firstAt) && typeof r.lastUsedAt === 'string' && isValidDate(r.lastUsedAt) &&
   Array.isArray(r.recipes) && r.recipes.every((x) => typeof x === 'string');
 const isObjArray = (x: unknown) => Array.isArray(x) && x.every(isObj);
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+/** Every core `IntakeStep`: a step core adds fails to compile here until it is listed. */
+const INTAKE_STEP_SET: Readonly<Record<IntakeStep, true>> = { market_day: true, meals_per_week: true, region: true, allergies: true, pantry: true };
+const isIntakeStep = (x: unknown): boolean => x === null || x === 'done' || (typeof x === 'string' && Object.hasOwn(INTAKE_STEP_SET, x));
+const isPantryRow = (x: unknown): boolean =>
+  isObj(x) && typeof x.id === 'string' && typeof x.name === 'string' && isStrOrNull(x.ingredientId);
+const isMealWindow = (x: unknown): boolean =>
+  isObj(x) && (MEAL_SLOTS as readonly unknown[]).includes(x.name) && typeof x.start === 'string' && HHMM.test(x.start) &&
+  typeof x.end === 'string' && HHMM.test(x.end);
+const isLocalProfile = (x: unknown): boolean =>
+  isObj(x) && Array.isArray(x.marketDays) && x.marketDays.every((d) => Number.isInteger(d) && (d as number) >= 0 && (d as number) <= 6) &&
+  (x.mealsPerWeek === null || (typeof x.mealsPerWeek === 'number' && Number.isInteger(x.mealsPerWeek))) &&
+  isStrOrNull(x.country) && isStrOrNull(x.region) && Array.isArray(x.mealWindows) && x.mealWindows.every(isMealWindow);
 
 /**
  * Merge a parsed object over defaults key by key. A key that is ABSENT takes its default (older or partial
@@ -68,10 +94,15 @@ function merge(p: Record<string, unknown>): PlayerState | null {
   if (has('dialogueHistory') && !isObj(p.dialogueHistory)) return null;
   if (has('rulesUnreadable') && typeof p.rulesUnreadable !== 'boolean') return null;
   if (has('signOutPending') && typeof p.signOutPending !== 'boolean') return null;
+  if (has('localProfile') && p.localProfile !== null && !isLocalProfile(p.localProfile)) return null;
+  if (has('localPantry') && !(Array.isArray(p.localPantry) && p.localPantry.every(isPantryRow))) return null;
+  if (has('intake') && !(isObj(p.intake) && Object.hasOwn(p.intake, 'step') && isIntakeStep(p.intake.step))) return null;
+  if (has('aiDisclosureSeen') && typeof p.aiDisclosureSeen !== 'boolean') return null;
+  if (has('aiHealthOffered') && typeof p.aiHealthOffered !== 'boolean') return null;
   if (has('settings') && !isObj(p.settings)) return null;
   const s = (isObj(p.settings) ? p.settings : {});
   const ds = d.settings;
-  for (const k of ['showCalories', 'familyTable', 'iosNoteDismissed'] as const) {
+  for (const k of ['showCalories', 'familyTable', 'iosNoteDismissed', 'aiMentor'] as const) {
     if (s[k] !== undefined && typeof s[k] !== 'boolean') return null;
   }
   if (s.reducedMotion !== undefined && s.reducedMotion !== 'system' && s.reducedMotion !== 'on' && s.reducedMotion !== 'off') return null;
@@ -90,9 +121,15 @@ function merge(p: Record<string, unknown>): PlayerState | null {
       reducedMotion: (s.reducedMotion) ?? ds.reducedMotion,
       familyTable: (s.familyTable as boolean | undefined) ?? ds.familyTable,
       iosNoteDismissed: (s.iosNoteDismissed as boolean | undefined) ?? ds.iosNoteDismissed,
+      aiMentor: (s.aiMentor as boolean | undefined) ?? ds.aiMentor,
     },
     rulesUnreadable: (has('rulesUnreadable') ? p.rulesUnreadable : d.rulesUnreadable) as boolean,
     signOutPending: (has('signOutPending') ? p.signOutPending : d.signOutPending) as boolean,
+    localProfile: has('localProfile') ? (p.localProfile as LocalProfile | null) : d.localProfile,
+    localPantry: has('localPantry') ? (p.localPantry as (PantryItem & { id: string })[]) : d.localPantry,
+    intake: has('intake') ? { step: (p.intake as { step: IntakeStep | 'done' | null }).step } : d.intake,
+    aiDisclosureSeen: (has('aiDisclosureSeen') ? p.aiDisclosureSeen : d.aiDisclosureSeen) as boolean,
+    aiHealthOffered: (has('aiHealthOffered') ? p.aiHealthOffered : d.aiHealthOffered) as boolean,
   };
 }
 
@@ -133,8 +170,9 @@ function mergeRules(stored: Rule[], mine: Rule[]): { rules: Rule[]; conflict: bo
  * What is stored now, plus anything this tab holds that storage lacks. Nothing earned or declared is dropped.
  * `conflict` is true when this rebase itself found two versions of one rule.
  */
-function rebase(stored: PlayerState, mine: PlayerState): { state: PlayerState; conflict: boolean } {
-  const { rules, conflict } = mergeRules(stored.localRules, mine.localRules);
+function rebase(stored: PlayerState, mine: PlayerState, rulesAuthoritative = false): { state: PlayerState; conflict: boolean } {
+  // confirmRules replaces the rules outright: this tab's in-memory versions are not merged back in.
+  const { rules, conflict } = rulesAuthoritative ? { rules: stored.localRules, conflict: false } : mergeRules(stored.localRules, mine.localRules);
   return {
     state: {
       ...stored,
@@ -227,9 +265,7 @@ export function createStore(
     notify();
   });
 
-  return {
-    get: () => state,
-    update(fn) {
+  const apply = (fn: (s: PlayerState) => PlayerState, rulesAuthoritative: boolean): PlayerState => {
       let base = state;
       let conflict = false;
       let wiped = false;
@@ -237,7 +273,7 @@ export function createStore(
       if (!memoryOnly && storage) {
         // Another tab may have written since we last looked: build on what is stored now.
         const r = readStored(storage);
-        if (r.kind === 'ok') ({ state: base, conflict } = rebase(r.state, state));
+        if (r.kind === 'ok') ({ state: base, conflict } = rebase(r.state, state, rulesAuthoritative));
         else if (r.kind === 'none' && persisted) {
           // Deleted in another tab: never resurrect the old data. But a rule declared in this change must not
           // vanish silently, so apply the change to a fresh state and keep it when it declares rules.
@@ -264,7 +300,14 @@ export function createStore(
       notify();
       if (wiped && !memoryOnly) onWiped?.(); // reload onto what was just saved; if the write failed, stay put
       return state;
-    },
+  };
+
+  return {
+    get: () => state,
+    update: (fn) => apply(fn, false),
+    // One update: the rules are replaced and the flag cleared together, so a conflict this tab still holds in memory
+    // (the M3 carry-over) can't be rebased back in and re-set rulesUnreadable.
+    confirmRules: (rules) => apply((s) => ({ ...s, localRules: [...rules], rulesUnreadable: false }), true),
     subscribe(fn) { subs.add(fn); return () => { subs.delete(fn); }; },
     stopSaving() { stoppedSaving = true; memoryOnly = true; },
     get notice() { return notice; },

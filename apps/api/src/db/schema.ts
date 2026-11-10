@@ -1,6 +1,8 @@
 import { sql } from "drizzle-orm";
 import {
+  bigint,
   bigserial,
+  boolean,
   check,
   customType,
   date,
@@ -152,6 +154,16 @@ export const usageEvents = pgTable(
 );
 
 /**
+ * The AI's spend per hour, across all players, for the global daily budget
+ * (`BudgetGuard`, M4 Step 7 fix round 1, P5). No user id and no content: an
+ * account delete never takes its spend out of the budget. Kept 48 hours.
+ */
+export const aiCostHours = pgTable("ai_cost_hours", {
+  hour: ts("hour").primaryKey(),
+  costMicroUsd: bigint("cost_microusd", { mode: "number" }).notNull(),
+});
+
+/**
  * C-4: one random data key per user, wrapped (AES-256-GCM) by the key ring key
  * `key_id`. Health columns are sealed with it, so deleting this row (cascade on
  * account delete) makes every copy of that user's health data unreadable,
@@ -235,7 +247,7 @@ export const auditEvents = pgTable(
   ],
 );
 
-export const SELF_READ_RESOURCES = ["rules"] as const;
+export const SELF_READ_RESOURCES = ["rules", "meals", "pantry"] as const;
 
 /**
  * C-5: the player's routine reads of their own health data, counted per user,
@@ -257,5 +269,148 @@ export const selfReadCounts = pgTable(
     primaryKey({ columns: [t.userId, t.resource, t.day] }),
     check("self_read_counts_resource_check", sql`${t.resource} in (${inList(SELF_READ_RESOURCES)})`),
     check("self_read_counts_count_check", sql`${t.count} > 0`),
+  ],
+);
+
+/** Core's `MEAL_SLOTS` (= M2's meal-window names); `test/meals.test.ts` checks they are equal. */
+export const MEAL_LOG_SLOTS = ["breakfast", "lunch", "dinner", "snack", "other"] as const;
+
+/**
+ * H-7 / C-23: what the player ate. `sealed` is core's `MealItem` (the dish
+ * slug and servings, or the free description), sealed with `sealFor` under
+ * { table: 'meal_logs', userId, rowId: id }. The date and slot stay plain:
+ * C-23 allows it, and the range read and the prompt context need them.
+ * Health data (`HEALTH_TABLES`): deleted by a withdraw-with-delete of `health_data`.
+ */
+export const mealLogs = pgTable(
+  "meal_logs",
+  {
+    id: id(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    eatenOn: date("eaten_on", { mode: "string" }).notNull(),
+    slot: text("slot").notNull(),
+    sealed: bytea("sealed").notNull(),
+    /** Set from the app's injected clock; defaultNow() is only a fallback. */
+    createdAt: ts("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("meal_logs_user_eaten_on_idx").on(t.userId, t.eatenOn),
+    check("meal_logs_slot_check", sql`${t.slot} in (${inList(MEAL_LOG_SLOTS)})`),
+  ],
+);
+
+/**
+ * H-11: what is in the player's pantry. `sealed` is core's `PantryItem`
+ * (name and ingredient id), sealed with `sealFor` under
+ * { table: 'pantry_items', userId, rowId: id }. Sealed although its basis is
+ * contract, since contents can imply a diet ([lawyer] whether it needs
+ * `health_data`); not in `HEALTH_TABLES`, so a health-data withdrawal keeps it.
+ */
+export const pantryItems = pgTable(
+  "pantry_items",
+  {
+    id: id(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    sealed: bytea("sealed").notNull(),
+    /** Set from the app's injected clock; defaultNow() is only a fallback. */
+    createdAt: ts("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("pantry_items_user_id_idx").on(t.userId)],
+);
+
+/**
+ * A Pan conversation (M4 Step 6, C-12). Content-free: owner, times and the
+ * turn counter only. What was said is in `messages`, and only with
+ * `health_data` consent.
+ */
+export const conversations = pgTable(
+  "conversations",
+  {
+    id: id(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** Set from the app's injected clock; defaultNow() is only a fallback. */
+    startedAt: ts("started_at").notNull().defaultNow(),
+    lastTurnAt: ts("last_turn_at").notNull().defaultNow(),
+    turnSeq: integer("turn_seq").notNull().default(0),
+  },
+  (t) => [index("conversations_user_id_idx").on(t.userId), index("conversations_last_turn_at_idx").on(t.lastTurnAt)],
+);
+
+export const MESSAGE_ROLES = ["player", "pan"] as const;
+
+/**
+ * One transcript message (I-1, C-12): `sealed` is the mentor's `StoredMessage`,
+ * sealed S-U with AAD `{ table: 'messages', userId, rowId }`. Kept 30 days.
+ */
+export const messages = pgTable(
+  "messages",
+  {
+    id: id(),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    seq: integer("seq").notNull(),
+    role: text("role").notNull(),
+    sealed: bytea("sealed").notNull(),
+    /** Set from the app's injected clock; defaultNow() is only a fallback. */
+    createdAt: ts("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("messages_conversation_seq_idx").on(t.conversationId, t.seq),
+    index("messages_user_id_idx").on(t.userId),
+    index("messages_created_at_idx").on(t.createdAt),
+    check("messages_role_check", sql`${t.role} in (${inList(MESSAGE_ROLES)})`),
+  ],
+);
+
+/** Core's `ProposalKind`, as stored (`mentor/proposals.ts` checks the two agree). */
+export const PROPOSAL_KINDS = ["rule", "meal", "profile", "pantry"] as const;
+export const PROPOSAL_STATUSES = ["open", "confirmed", "rejected", "expired", "undone"] as const;
+export const PROPOSAL_CHANNELS = ["tap", "typed_yes"] as const;
+
+/**
+ * A proposal card the server showed (I-4, M4 Step 6): what Step 8's guard
+ * checks before any write. `sealed` is core's `ProposalCard`, sealed S-U with
+ * AAD `{ table: 'mentor_proposals', userId, rowId }`; `undo_sealed` the
+ * write's undo payload under `{ table: 'mentor_proposals.undo', userId, rowId }`.
+ * Short-lived: deleted 24 hours after it was made.
+ */
+export const mentorProposals = pgTable(
+  "mentor_proposals",
+  {
+    id: id(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+    turnSeq: integer("turn_seq"),
+    kind: text("kind").notNull(),
+    severe: boolean("severe").notNull(),
+    status: text("status").notNull(),
+    sealed: bytea("sealed").notNull(),
+    undoSealed: bytea("undo_sealed"),
+    writeRef: uuid("write_ref"),
+    channel: text("channel"),
+    /** Set from the app's injected clock; defaultNow() is only a fallback. */
+    createdAt: ts("created_at").notNull().defaultNow(),
+    expiresAt: ts("expires_at").notNull(),
+    decidedAt: ts("decided_at"),
+  },
+  (t) => [
+    index("mentor_proposals_user_id_idx").on(t.userId),
+    index("mentor_proposals_conversation_turn_idx").on(t.conversationId, t.turnSeq),
+    index("mentor_proposals_created_at_idx").on(t.createdAt),
+    check("mentor_proposals_kind_check", sql`${t.kind} in (${inList(PROPOSAL_KINDS)})`),
+    check("mentor_proposals_status_check", sql`${t.status} in (${inList(PROPOSAL_STATUSES)})`),
+    check("mentor_proposals_channel_check", sql`${t.channel} in (${inList(PROPOSAL_CHANNELS)})`),
   ],
 );

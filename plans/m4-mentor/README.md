@@ -46,7 +46,7 @@ Quoted from the spec unless marked. Every task's requirements include this secti
   - P-14: every new table is in export and account delete. The health tables (`meal_logs`, `messages`, `mentor_proposals`) are also in `HEALTH_TABLES`. `pantry_items` (H-11, [lawyer]) and the content-free `conversations` are not (Steps 5, 6).
   - P-1, P-2, P-8 and P-13 are untouched: no organisation, clinician or region code here.
 - Error body shape is M2's. New codes: `too_many_items` (400), `proposal_closed` (409), `undo_window_closed` (409), `tap_required` (400). They are listed in a doc comment on `ApiError` in `apps/api/src/errors.ts` (created in Step 5).
-- **One lock order, everywhere (pre-flight C13):** user row (`lockLiveUser`) → per-user advisory locks (`rules:`, then `pantry:`) → consent row (`lockConsentIn`) → proposal row (`lockProposal`).
+- **One lock order, everywhere (pre-flight C13):** user row (`lockLiveUser`) → per-user advisory locks (`rules:`, then `pantry:`) → consent row (`lockConsentIn`) → conversation row (`bumpTurn`, `appendMessages`, `forgetConversations`, which locks the user's conversation rows `FOR UPDATE` by id before deleting anything) → data rows in table order `rules` → `meal_logs` → `messages` → `mentor_proposals` (the `HEALTH_TABLES` order; `lockProposal` is the proposal row). A turn takes its advisory and consent locks before it touches its conversation row.
 - **No mentor logic is written twice (pre-flight C14):** what the server agent and the client's scripted engine both decide lives in `packages/core/src/mentor/` and both import it.
 - Tests never touch the network. The model is a fake `AiProvider` (`apps/api/test/helpers/fake-ai.ts`). OpenRouter calls are tested through an injected `fetch`. API tests use real Postgres (M2 harness). Game e2e mocks `/api/**` with `page.route`.
 - Constants (tunable, one place each): `PROPOSAL_TTL_MS = 30 * 60_000`, `UNDO_WINDOW_MS = 5 * 60_000`, `TRANSCRIPT_RETENTION_DAYS = 30` (C-12), `HISTORY_MESSAGES = 8`, `MEMORY_TTL_MS = 30 * 60_000`, `CONVERSATION_IDLE_MS = 6 * 3_600_000`, `TURNS_PER_MINUTE = 20`, `FREE_AI_TURNS_PER_DAY = 15` and `GUILD_AI_TURNS_PER_DAY = 100` (business doc §C "~15" and "~100"), `MAX_TEXT = 500` chars, `MAX_PANTRY_ITEMS = 300`.
@@ -124,17 +124,20 @@ Pre-flight rulings (`.superpowers/sdd/README-m4-mentor/preflight.md`; the spec w
 - **Minor fixes:** C17–C21, C31, C32, C34–C37, C39, C41, C43–C46 are applied in passing in the step named by each preflight entry.
 - **No change needed:** C26 (the age screen is consistent with §9), C27 (41 spike cases is right).
 
+Step 7 review rulings (`.superpowers/sdd/README-m4-mentor/progress.md`):
+- **R9: the model's free text is never shown in M4.** It supersedes the text logic of R1, R2, R6 and R8. On every turn the AI only proposes tool calls. The player sees cards and scripted pan.yaml lines (`didnt_understand`, `mentor.check_card` for a dish on screen or named, `write.not_done` for a write request with no card, `rule.ask_keep_off` / `rule.ask_what_else` on health turns, and the cap and consent lines). The model's text is never stored as a Pan message. R5 is kept: model strings on cards must be the player's own words and pass the screen. Free-form Q&A is deferred to a later milestone with a grounded design (ruling 10). The cost: the Pan doesn't free-chat in M4. → Steps 7, 10, 12.
+
 ## Tasks
 
 - [x] [Step 1 — Core: the deterministic mentor toolkit and wire protocol](step-1.md)
-- [ ] [Step 2 — Content: new Pan lines, consent and disclosure forms, rule terms](step-2.md)
-- [ ] [Step 3 — API carry-overs: rule service, per-user rule lock, 401 before 403](step-3.md)
-- [ ] [Step 4 — API: AiProvider, OpenRouter policy, processor gate, no content logging](step-4.md)
-- [ ] [Step 5 — API: meal logs and pantry](step-5.md)
-- [ ] [Step 6 — API: conversations, transcripts, proposals, notices](step-6.md)
-- [ ] [Step 7 — API: the turn endpoint (pre-route, consent, prompt, tools, filter, allowance)](step-7.md)
-- [ ] [Step 8 — API: confirm, reject, undo, typed yes; the adversarial suite](step-8.md)
-- [ ] [Step 9 — Game: store and rules carry-overs, API client, scripted engine with cards](step-9.md)
+- [x] [Step 2 — Content: new Pan lines, consent and disclosure forms, rule terms](step-2.md)
+- [x] [Step 3 — API carry-overs: rule service, per-user rule lock, 401 before 403](step-3.md)
+- [x] [Step 4 — API: AiProvider, OpenRouter policy, processor gate, no content logging](step-4.md)
+- [x] [Step 5 — API: meal logs and pantry](step-5.md)
+- [x] [Step 6 — API: conversations, transcripts, proposals, notices](step-6.md)
+- [x] [Step 7 — API: the turn endpoint (pre-route, consent, prompt, tools, filter, allowance)](step-7.md)
+- [x] [Step 8 — API: confirm, reject, undo, typed yes; the adversarial suite](step-8.md)
+- [x] [Step 9 — Game: store and rules carry-overs, API client, scripted engine with cards](step-9.md)
 - [ ] [Step 10 — Game: cards in the panel, the AI backend, trail and undo](step-10.md)
 - [ ] [Step 11 — Game: Form 1-A intake, consent and disclosure cards, rules screen, age screen, settings](step-11.md)
 - [ ] [Step 12 — Eval harness, free-forever and never-rules sweep, compliance docs](step-12.md)

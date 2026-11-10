@@ -1,14 +1,17 @@
 import { eq } from 'drizzle-orm';
 import { audit } from '../audit/audit.js';
-import { rules } from '../db/schema.js';
+import { mealLogs, mentorProposals, messages, rules } from '../db/schema.js';
 import type { Tx } from './ledger.js';
 
 /**
  * Every table holding a user's health data (C-1 "delete health data now").
- * Each later milestone that adds one (journeys, symptoms, meal logs,
- * transcripts) must add it here; the C-10 architecture test lists them too.
+ * `pantry_items` is not one (H-11: contract basis, [lawyer]), so it stays,
+ * nor are the content-free `conversations` (P-14). Each later milestone that
+ * adds one (journeys, symptoms) must add it here; the C-10 architecture test
+ * lists them too. Deleted in this order (README lock order):
+ * `forgetConversations` deletes messages before mentor_proposals too.
  */
-const HEALTH_TABLES = [rules] as const;
+const HEALTH_TABLES = [rules, mealLogs, messages, mentorProposals] as const;
 
 /**
  * Deletes all of the user's health data inside the caller's transaction

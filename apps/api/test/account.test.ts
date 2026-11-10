@@ -1,6 +1,7 @@
 // Step 7: one-click export (GDPR access/portability, C-7) and account delete
 // (erasure, C-8), with crypto-shredding (C-4) and audit pseudonymization (C-5).
 import { readFileSync } from 'node:fs';
+import type { MealCard } from '@kitchenquest/core';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance, InjectOptions } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -9,10 +10,14 @@ import { pseudonymFor } from '../src/audit/audit.js';
 import { NOTICES } from '../src/consent/notices.js';
 import { open } from '../src/crypto/seal.js';
 import { openFor } from '../src/crypto/userkeys.js';
+import { ADVISORY_LOCK } from '../src/db/advisory-locks.js';
 import { auditEvents, rules, userKeys } from '../src/db/schema.js';
 import { grant } from '../src/entitlements/entitlements.js';
 import { CaptureMailer } from '../src/mail/mailer.js';
 import { recordUsage } from '../src/usage/usage.js';
+import { appendMessages, openConversation, type StoredMessage } from '../src/mentor/conversations.js';
+import { MemoryHistory } from '../src/mentor/memory.js';
+import { createProposal, markDecided } from '../src/mentor/proposals.js';
 import type { Db } from '../src/types.js';
 import { signIn } from './helpers/auth.js';
 import { testConfig } from './helpers/config.js';
@@ -38,7 +43,7 @@ afterAll(async () => {
 });
 beforeEach(async () => {
   mailer = new CaptureMailer();
-  app = await buildApp({ config, db, mailer, now: () => NOW, logger: false });
+  app = await buildApp({ config, db, mailer, ai: null, now: () => NOW, logger: false });
 });
 afterEach(async () => {
   await app?.close();
@@ -54,6 +59,8 @@ const DAIRY = {
   severity: 'intolerance',
   note: 'lactose',
 };
+const MEAL = { eatenOn: '2026-11-09', slot: 'lunch', item: { kind: 'free', description: 'peanut noodles' } };
+const PANTRY_ITEM = { name: 'Lactose-free milk', ingredientId: 'milk' };
 const PROFILE = {
   marketDays: [2, 6],
   mealsPerWeek: 10,
@@ -62,11 +69,17 @@ const PROFILE = {
   mealWindows: [{ name: 'dinner', start: '18:00', end: '20:00' }],
 };
 
+const SAID: StoredMessage = { role: 'player', text: 'I had peanut noodles for lunch' };
+const PAN_SAID: Extract<StoredMessage, { role: 'pan' }> = { role: 'pan', parts: [{ kind: 'line', line: { trigger: 'log.confirm', vars: {} } }], proposalIds: [] };
+const MEAL_CARD: MealCard = { kind: 'meal', meal: MEAL as MealCard['meal'], summary: 'lunch: peanut noodles', estimate: false, readback: [] };
+
 interface Player {
   cookie: string;
   id: string;
   email: string;
   ruleIds: string[];
+  conversationId: string;
+  proposalId: string;
 }
 
 /** A player with a row in every user-linked table: profile, consent, rules (and so a data key), reads, entitlement, usage. */
@@ -91,12 +104,29 @@ async function fullPlayer(): Promise<Player> {
     expect(res.statusCode).toBe(201);
     ruleIds.push(res.json<{ rule: { id: string } }>().rule.id);
   }
+  const meal = await call(cookie, { method: 'POST', url: '/meals', payload: { meal: MEAL, confirmed: true } });
+  expect(meal.statusCode).toBe(201);
+  const pantry = await call(cookie, {
+    method: 'POST',
+    url: '/pantry/changes',
+    payload: { add: [PANTRY_ITEM], removeNames: [], removeIds: [], confirmed: true },
+  });
+  expect(pantry.statusCode).toBe(200);
   expect((await call(cookie, { method: 'GET', url: '/rules' })).statusCode).toBe(200);
   await grant(db, id, 'founding', 'manual', new Date('2026-01-01T00:00:00Z'));
   await recordUsage(db, id, 'mentor_text', 3, 120);
   await recordUsage(db, id, 'mentor_text', 2, 80);
   await recordUsage(db, id, 'ingest', 1, 500);
-  return { cookie, id, email, ruleIds };
+  // A Pan conversation with a sealed transcript and a decided proposal (no route yet: Step 7).
+  const memory = new MemoryHistory({ ttlMs: 60_000, max: 8 });
+  const { conversationId, proposalId } = await db.transaction(async (tx) => {
+    const c = await openConversation(tx, id, null, NOW);
+    const card = await createProposal(tx, config.keyring, { userId: id, conversationId: c.id, turnSeq: 1, card: MEAL_CARD }, NOW);
+    await appendMessages(tx, config.keyring, memory, id, c.id, [SAID, { ...PAN_SAID, proposalIds: [card.proposalId] }], true, NOW);
+    await markDecided(tx, card.proposalId, 'confirmed', 'tap', null, { secret: 'undo-payload' }, config.keyring, id, NOW);
+    return { conversationId: c.id, proposalId: card.proposalId };
+  });
+  return { cookie, id, email, ruleIds, conversationId, proposalId };
 }
 
 const exportOf = (cookie: string | null) => call(cookie, { method: 'GET', url: '/me/export' });
@@ -190,7 +220,46 @@ describe('GET /me/export', () => {
     expect(x.dataKey).toEqual({ keyId: config.keyring.activeId, createdAt: expect.any(String) });
 
     const actions = (x.auditEvents as { action: string }[]).map((e) => e.action);
-    expect(actions).toEqual(['auth.sign_in', 'consent.grant', 'rules.create', 'rules.create', 'account.export']);
+    expect(actions).toEqual([
+      'auth.sign_in',
+      'consent.grant',
+      'rules.create',
+      'rules.create',
+      'meals.create',
+      'pantry.change',
+      'account.export',
+    ]);
+    // Pan conversations with their messages, and proposals, decrypted (C-12).
+    expect(x.conversations).toEqual([
+      {
+        id: p.conversationId,
+        startedAt: NOW.toISOString(),
+        lastTurnAt: NOW.toISOString(),
+        turnSeq: 0,
+        messages: [
+          { seq: 1, createdAt: NOW.toISOString(), ...SAID },
+          { seq: 2, createdAt: NOW.toISOString(), ...PAN_SAID, proposalIds: [p.proposalId] },
+        ],
+      },
+    ]);
+    expect(x.proposals).toEqual([
+      {
+        id: p.proposalId,
+        conversationId: p.conversationId,
+        turnSeq: 1,
+        kind: 'meal',
+        severe: false,
+        status: 'confirmed',
+        card: MEAL_CARD,
+        createdAt: NOW.toISOString(),
+        expiresAt: expect.any(String),
+        decidedAt: NOW.toISOString(),
+      },
+    ]);
+    expect(res.body).not.toContain('undo-payload');
+    // Meals and pantry, decrypted.
+    expect(x.meals).toEqual([{ ...MEAL, id: expect.any(String), createdAt: NOW.toISOString() }]);
+    expect(x.pantry).toEqual([{ ...PANTRY_ITEM, id: expect.any(String), createdAt: NOW.toISOString() }]);
     expect(x.auditEvents[0]).toEqual({
       at: NOW.toISOString(),
       actorKind: 'user',
@@ -237,7 +306,7 @@ describe('GET /me/export', () => {
   it('stamps every created/updated time from the injected clock, not the database or wall clock (M-3)', async () => {
     const CLOCK = new Date('2021-03-04T05:06:07.000Z');
     const at = CLOCK.toISOString();
-    const own = await buildApp({ config, db, mailer, now: () => CLOCK, logger: false });
+    const own = await buildApp({ config, db, mailer, ai: null, now: () => CLOCK, logger: false });
     try {
       const req = (cookie: string | null, opts: InjectOptions) =>
         own.inject({ ...opts, ...(cookie ? { cookies: { kq_session: cookie } } : {}) });
@@ -302,6 +371,11 @@ describe('GET /me/export', () => {
       sessions: 'sessions',
       login_tokens: 'loginTokens',
       user_keys: 'dataKey',
+      meal_logs: 'meals',
+      pantry_items: 'pantry',
+      conversations: 'conversations',
+      messages: 'conversations',
+      mentor_proposals: 'proposals',
       audit_events: 'auditEvents',
     };
     // Linked: a foreign key to users, or a column that holds a user id or an email.
@@ -335,7 +409,7 @@ describe('GET /me/export', () => {
   it('keeps the email and health data out of the log', async () => {
     const logs = captureLogs();
     await app.close();
-    app = await buildApp({ config, db, mailer, now: () => NOW, logger: logs.logger });
+    app = await buildApp({ config, db, mailer, ai: null, now: () => NOW, logger: logs.logger });
     const p = await fullPlayer();
     expect((await exportOf(p.cookie)).statusCode).toBe(200);
     expect((await deleteAccount(p.cookie, { confirm: PHRASE })).statusCode).toBe(204);
@@ -385,6 +459,13 @@ describe('DELETE /me', () => {
 
     const byId = await mentions(p.id);
     expect(byId).toEqual(nowhere(byId));
+    // Meal logs and pantry rows go with the account (P-14).
+    expect(await sql`select 1 from meal_logs where user_id = ${p.id}`).toHaveLength(0);
+    expect(await sql`select 1 from pantry_items where user_id = ${p.id}`).toHaveLength(0);
+    // And every mentor row (P-14).
+    for (const t of ['conversations', 'messages', 'mentor_proposals']) {
+      expect(await sql`select 1 from ${sql(t)} where user_id = ${p.id}`, t).toHaveLength(0);
+    }
     const byEmail = await mentions(p.email);
     expect(byEmail).toEqual(nowhere(byEmail));
 
@@ -442,7 +523,7 @@ describe('DELETE /me', () => {
   it('is all or nothing: if pseudonymizing fails, nothing is deleted, and the log names no one', async () => {
     const logs = captureLogs();
     await app.close();
-    app = await buildApp({ config, db, mailer, now: () => NOW, logger: logs.logger });
+    app = await buildApp({ config, db, mailer, ai: null, now: () => NOW, logger: logs.logger });
     const p = await fullPlayer();
     const before = await mentions(p.id);
     await sql`create function fail_audit_update() returns trigger language plpgsql as $$
@@ -545,7 +626,7 @@ describe('export and delete under concurrency', () => {
     const blocker = await sql.reserve();
     try {
       await blocker`begin`;
-      await blocker`select pg_advisory_xact_lock(hashtext(lower(${p.email})))`;
+      await blocker`select pg_advisory_xact_lock(${ADVISORY_LOCK.signInEmail}, hashtext(lower(${p.email})))`;
       const deleting = deleteAccount(p.cookie, { confirm: PHRASE });
       await waitForLockWaiters(1, 'advisory');
       const requesting = call(null, {

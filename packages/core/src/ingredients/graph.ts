@@ -152,6 +152,17 @@ export class IngredientGraph {
     return this.nodes.has(id);
   }
 
+  /** Every ingredient `id` is a kind of, through isA edges only (the reverse of `descendants`). */
+  ancestors(id: string): string[] {
+    this.get(id);
+    return [...this.subkinds].filter(([, kinds]) => kinds.includes(id)).map(([ancestor]) => ancestor);
+  }
+
+  /** Every normalised name and alias the graph resolves, each once. */
+  labels(): string[] {
+    return [...this.names.keys()];
+  }
+
   /**
    * Ingredients whose name or an alias matches `query` (normalized like `resolve`), at most
    * `limit` of them, each once. Prefix matches come before substring matches, then by name, so

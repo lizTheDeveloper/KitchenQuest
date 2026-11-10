@@ -133,7 +133,7 @@ export async function hasConsent(db: Pick<Db, 'select'>, userId: string, purpose
   return row !== undefined;
 }
 
-/** Throws 403 `consent_required` unless `purpose` is granted. Health-data writes call this first. */
+/** Throws 403 `consent_required` unless `purpose` is granted. A read-only check: health writes use `lockConsentIn` inside their transaction, after `lockLiveUser`. */
 export async function requireConsent(db: Pick<Db, 'select'>, userId: string, purpose: ConsentPurpose, now: Date): Promise<void> {
   if (!(await hasConsent(db, userId, purpose, now))) {
     throw new ApiError(403, 'consent_required', `This needs your consent for ${purpose}`, { purpose });
@@ -155,6 +155,22 @@ export async function lockConsentIn(tx: Tx, userId: string, purpose: ConsentPurp
     .where(and(active(userId, purpose), lte(consents.grantedAt, now), acceptedVersion(purpose)))
     .for('share');
   if (!row) throw new ApiError(403, 'consent_required', `This needs your consent for ${purpose}`, { purpose });
+}
+
+/**
+ * `lockConsentIn` without the throw: share-locks the active grant for
+ * `purpose` inside the caller's transaction and returns whether there is one.
+ * The mentor turn decides `persist` and its health cards from this (Step 7),
+ * so a concurrent withdraw-with-delete either waits for the turn and deletes
+ * what it stored, or commits first and the turn stores nothing health.
+ */
+export async function consentHeldIn(tx: Tx, userId: string, purpose: ConsentPurpose, now: Date): Promise<boolean> {
+  const [row] = await tx
+    .select({ id: consents.id })
+    .from(consents)
+    .where(and(active(userId, purpose), lte(consents.grantedAt, now), acceptedVersion(purpose)))
+    .for('share');
+  return row !== undefined;
 }
 
 export interface ConsentRecord {

@@ -16,8 +16,45 @@ export type TurnIntent =
   | 'other';
 
 // "anaphylactic to cashews" and "I carry an EpiPen" are rule statements, not emergencies.
+// Using an adrenaline pen now, or someone who ate something and now has hives or swelling, is (Step 7 fix round 1, I4).
 export const EMERGENCY_PATTERN =
-  /\b(can'?t breathe|cannot breathe|trouble breathing|hard to breathe|throat (feels |is )?(tight|closing|swelling|swollen)|tight throat|(lips?|tongue|face) (are |is )?(swelling|swollen|tingling)|having a reaction|reacting now|going into (anaphylaxis|shock)|call (911|999|112|an ambulance))\b/;
+  /\b(can'?t breathe|cannot breathe|trouble breathing|hard to breathe|throat (feels |is )?(tight|closing|swelling|swollen)|tight throat|(lips?|tongue|face) (are |is )?(swelling|swollen|tingling)|having a reaction|reacting now|going into (anaphylaxis|shock)|call (911|999|112|an ambulance)|(use|used|using|give|inject|need) (my |his |her |their |the |an |our )?epi-?pens?|(ate|eaten|had)\b[^.!?]{0,60}\b(and|now) (now )?((i|he|she|they|we|it|my \w+) )?(has|have|got|is getting|am getting|getting|is covered in|broke out in) (hives|swelling|a rash|rash|welts|swollen \w+))\b/;
+
+/**
+ * Fix round 1 (C1, structural): an eating or exposure verb and a reaction or symptom word anywhere in the
+ * message is an emergency, whatever the subject wording or tense ("I've got a rash", "he's got hives",
+ * "my daughter had sesame, her lips are swelling"). Over-catches on purpose ("had a sick day so ate soup").
+ * Fix round 2 (E1) widens both lists, and adds a few Spanish words.
+ */
+export const EXPOSURE_VERB =
+  /\b(ate|eaten|eating|had|tried|tasted|touched|drank|drunk|licked|bit|bitten|swallow\w*|consum\w*|ingest\w*|fed|gave|given|chew\w*|accidentally|comi|comio|comer|comiendo)\b/;
+export const REACTION_STEM =
+  /\b(hives|hivs?|welts?|blotch\w*|puff\w*|rash\w*|swell\w*|swollen|wheez\w*|itch\w*|tingl\w*|throat\w*|breath\w*|vomit\w*|throw(n|s|ing)? up|threw up|sick|faint\w*|dizz\w*|collaps\w*|lips?|tongue|mouth|face|can'?t swallow|reaction\w*|epi-?pens?|anaphyla\w*|feel(s|ing)? (funny|weird|strange|odd)|(is|are|gone|went|turn\w*) (all )?red|picazon|garganta|hinchad\w*|ronchas|urticaria)\b/;
+/** Present symptoms with no verb at all (E1): "my throat's closing", "I've got hives", "I'm having an allergic reaction". */
+export const PRESENT_SYMPTOM =
+  /\b((throat'?s?|throats) (is |feels |getting )?(tight|closing|swell\w*)|(i'?ve got|i have|i got|getting|breaking out in) (hives|a rash|welts|swelling|a swollen \w+)|having an? (allergic |bad |anaphylactic )?reaction|can'?t breathe|no puedo respirar)\b/;
+/** Common allergens, for "help" with an exposure verb ("kid accidentally ate nuts, help!"). */
+const HELP_ALLERGEN =
+  /\b(nuts?|peanuts?|cashews?|almonds?|walnuts?|pecans?|hazelnuts?|pistachios?|sesame|shellfish|shrimps?|prawns?|crabs?|lobsters?|fish|eggs?|milk|dairy|soy|wheat|gluten|kiwi|mustard|celery|lupin|cacahuetes?)\b/;
+
+/**
+ * Fix round 3 (E6, structural, the primary net): a strong symptom word anywhere is an emergency, with no verb
+ * or subject needed. Over-catches on purpose: "I'm anaphylactic to cashews and carry an epipen" and "a swell
+ * dinner" are accepted on the safe side (the rule path still follows the emergency line, E2).
+ */
+export const STRONG_SYMPTOM =
+  /\b(anaphyla\w*|epi[- ]?pens?|adrenalin\w*|auto-?injectors?|hives?|hivs|welts?|wheez\w*|can'?t breathe?|cannot breathe?|(struggling|trouble|hard) (to )?breath\w*|not breathing|throat (is |'?s |feels )?(tight|clos\w*|swell\w*)|swell\w*|swollen|tingl\w*|puff\w* up|numb|collaps\w*|faint\w*|vomit\w*|throwing up|passed out|turning blue|(lips?|face) (is |are |went |going |gone |turned )?blue|blue lips|chest (is |'?s |feels )?tight|chok\w*|can'?t stop cough\w*|(hard|trouble) to swallow|can'?t swallow|anafila\w*|urticar\w*|atemnot)\b/;
+/** Weaker words on a body part ("my mouth is tingling", "her eyes went all red"). */
+export const BODY_PART_SYMPTOM =
+  /\b(mouth|lips?|tongue|face|eyes?|throat)('?s)? (is |are |feels? |went |gone |going |turned |looks? )?([a-z']+ ){0,2}(red|funny|weird|burning|itch\w*|tingl\w*)\b/;
+
+/** The emergency pre-route: the listed phrasings, present symptoms, strong symptom words, an exposure verb with a reaction word, or "help" after an exposure. */
+export function isEmergency(normalized: string): boolean {
+  if (EMERGENCY_PATTERN.test(normalized) || PRESENT_SYMPTOM.test(normalized)) return true;
+  if (STRONG_SYMPTOM.test(normalized) || BODY_PART_SYMPTOM.test(normalized)) return true;
+  if (!EXPOSURE_VERB.test(normalized)) return false;
+  return REACTION_STEM.test(normalized) || (/\bhelp\b/.test(normalized) && HELP_ALLERGEN.test(normalized));
+}
 
 export const CHILD_PATTERNS: readonly RegExp[] = [
   /\b(i'?m|i am|im)\s+([3-9]|1[0-5])\b(?!\s*(:|am\b|pm\b|%|kg|lb))/,
@@ -25,8 +62,9 @@ export const CHILD_PATTERNS: readonly RegExp[] = [
   /\bi'?m in (year|grade) ([1-9]|10)\b/,
 ];
 
+// Medicines and milligram doses too (I4): "how many mg of ibuprofen with dinner".
 export const MEDICAL_PATTERN =
-  /\b(dose|dosage|how much \w+ should i take|medication|medicine|antihistamine|benadryl|epinephrine dose|metformin|insulin|diagnos\w*|do i have|am i allergic|is it an allergy|should i (take|stop|start)|get tested|allergy test)\b/;
+  /\b(dose|dosage|doses|how (much|many) (mg|milligrams?|tablets?|pills?)|\d+(\.\d+)? ?(mg|milligrams?)|ibuprofen|paracetamol|acetaminophen|aspirin|antihistamines?|piriton|cetirizine|loratadine|tablets?|pills?|how much \w+ should i take|medication|medicine|antihistamine|benadryl|epinephrine dose|metformin|insulin|diagnos\w*|do i have|am i allergic|is it an allergy|should i (take|stop|start)|get tested|allergy test)\b/;
 
 /** A strict yes: every word is one of these, and at least one is in `YES_STRONG`. */
 export const YES_WORDS: ReadonlySet<string> = new Set([
@@ -39,6 +77,22 @@ export const UNDO_PATTERN = /^((wait,? )?undo( that)?|take that back|scratch tha
 export const ALLOWANCE_PATTERN =
   /\b(guild|subscription|subscribe|premium|upgrade|pricing|price|how much does (it|this|the app) cost|pay for|free (tier|plan|version)|keep using you)\b/;
 export const THANKS_PATTERN = /^(thanks|thank you|cheers|ta)\b[^?]{0,30}$/;
+
+/**
+ * What "try", "order", "go for", "have the" and "get the" may take and still not ask about food
+ * (Step 7 fix round 4, P5): a cooking verb ("should I try making bread") or a thing that is no
+ * dish ("can I get the recipe"). Anything else stays a suitability question: the gate over-catches.
+ * No cooking-tool words (pan, pot, wok, oven, kit, tips…): they start dish names ("pot pie", fix round 5).
+ */
+const NOT_FOOD =
+  "(?:(?:a|an|the|this|that|some|another|new|different|other)\\s+)*(?:making|cooking|baking|frying|roasting|grilling|boiling|steaming|poaching|using|doing|adding|swapping|chopping|cutting|learning|practi[cs]ing|prepping|recipes?|method|instructions?|steps?|ingredients? list|list|shopping list|link|page|card|timer|technique|way|ideas?|help|details?|name|video|book)\\b";
+const SUITABILITY_SOURCE = String.raw`\b((can|could|may|should|shall) i (eat\b|(try|order|go for)\b(?! ${NOT_FOOD}))|(can|could|may) i (have|get) (this|that|these|those|it\b|the\b(?! ${NOT_FOOD}))\b|`;
+
+/** A question whether a dish suits the player (fix round 2, R7): a health turn, answered by the dish card. */
+export const SUITABILITY_PATTERN = new RegExp(
+  SUITABILITY_SOURCE +
+    String.raw`is it (ok|okay|alright|fine|safe) (if i|to eat|to have|for)\b|(am|would) i be (ok|okay|fine|alright) with|am i (ok|okay|fine|alright) with|(ok|okay|fine|safe|alright|good|bad) (for|with) me|(will|would|does|did|could|might) [\w' ]{1,25}\b(be a problem|bother|upset|affect)( me)?\b|any (issue|problem)s? with|good (shout|idea|call)|good to go|yay or nay|is (this|that|it|these|those) (ok|okay|alright|fine|safe)\b|is [\w' ]{1,25} (alright|ok|okay)\??$)`,
+);
 
 /** Deliberately over-catches: it decides what may reach the model without `ai_health` (Step 7). */
 export const HEALTH_PATTERN =
@@ -116,9 +170,14 @@ function isStrictYes(t: string): boolean {
   return words.length > 0 && words.every((w) => YES_WORDS.has(w)) && words.some((w) => YES_STRONG.has(w));
 }
 
+/** The text asks whether a dish suits the player ("can I eat this?", "is it ok for me?"). */
+export function isSuitabilityQuestion(text: string): boolean {
+  return SUITABILITY_PATTERN.test(normalizeTurn(text));
+}
+
 export function classifyTurn(text: string): TurnIntent {
   const t = normalizeTurn(text);
-  if (EMERGENCY_PATTERN.test(t)) return 'emergency';
+  if (isEmergency(t)) return 'emergency';
   if (CHILD_PATTERNS.some((p) => p.test(t))) return 'child';
   if (MEDICAL_PATTERN.test(t)) return 'medical';
   if (isStrictYes(t)) return 'yes';
@@ -126,7 +185,7 @@ export function classifyTurn(text: string): TurnIntent {
   if (UNDO_PATTERN.test(t)) return 'undo';
   if (ALLOWANCE_PATTERN.test(t)) return 'allowance';
   if (THANKS_PATTERN.test(t)) return 'thanks';
-  if (HEALTH_PATTERN.test(t)) return 'health';
+  if (HEALTH_PATTERN.test(t) || SUITABILITY_PATTERN.test(t)) return 'health';
   return 'other';
 }
 

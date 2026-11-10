@@ -1,4 +1,5 @@
 import { content } from '../content';
+import { routeHref } from '../shell/router';
 import { statusChip } from '../ui/chips';
 import { contentText, h } from '../ui/dom';
 import type { CardFinding, RecipeCard } from './card-model';
@@ -38,7 +39,8 @@ function rulesErrorNote(card: RecipeCard): HTMLElement | null {
   if (card.rulesError === null) return null;
   return h('div', { class: 'rules-error', role: 'note' },
     h('p', null, h('strong', null, RULES_ERROR_TEXT)),
-    h('p', { class: 'rules-error-detail' }, card.rulesError));
+    h('p', { class: 'rules-error-detail' }, card.rulesError),
+    card.rulesLink ? h('p', null, h('a', { href: routeHref({ name: 'rules' }), class: 'rules-error-link' }, 'Open Your rules')) : null);
 }
 
 /** The allergy disclaimer and the cross-contact note. Always visible, never collapsible (§4.4). */

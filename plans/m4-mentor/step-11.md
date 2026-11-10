@@ -113,3 +113,5 @@ test('age screen: no year preselected; under-16 gets no account and the year is 
 - [ ] **11.5 Commit** `feat(game): Form 1-A intake by conversation, consent and AI disclosure cards, rules screen, neutral age screen`
 
 **Carry from Step 1:** Form 1-A allergies answers use the Step 7 ask-for-dropped-terms rule (see step-7.md "Carry from Step 1").
+
+**Carry from Step 9:** the rules screen warns when device rules exist that the signed-in account lacks, and offers to copy them (each through a confirm card).

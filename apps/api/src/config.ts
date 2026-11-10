@@ -1,5 +1,7 @@
 import { isIP } from 'node:net';
 import { z } from 'zod';
+import { AI_PROCESSOR_IDS, processorsNotReady } from './ai/processors.js';
+import type { AiConfig } from './ai/openrouter.js';
 import { Keyring, parseDataKeys, parseKey, type SecretKey } from './crypto/keyring.js';
 
 /** Fastify `trustProxy`: off, all proxies, a hop count, or the proxies' addresses/CIDRs. */
@@ -20,6 +22,8 @@ export interface Config {
   mailFrom?: string;
   trustProxy: TrustProxy;
   port: number;
+  /** null when AI_ENABLED is not true: the mentor runs scripted only. The API key is left out of JSON. */
+  ai: AiConfig | null;
 }
 
 const dataKeys = z
@@ -106,11 +110,94 @@ const Env = z
     error: 'MAILER=log writes sign-in links to the log; set MAILER=smtp in production',
   });
 
+const AiSwitch = z.object({
+  AI_ENABLED: z.enum(['true', 'false'], { error: 'AI_ENABLED must be "true" or "false"' }).default('false'),
+});
+
+const required = (name: string) => z.string({ error: `${name} is required when AI_ENABLED=true` }).trim().min(1, `${name} is required when AI_ENABLED=true`);
+
+/**
+ * C-14: one plain, pinned model. A variant suffix changes routing or retention
+ * (`:free` may train on prompts, `:online` adds a web search), and a router model
+ * (`openrouter/auto`) picks the model itself, so both are refused. Input is lowercased first.
+ */
+function aiModelProblem(m: string): string | null {
+  if (m.endsWith(':free')) return 'never use a :free variant for health-adjacent calls (C-14)';
+  if (m.includes(':')) return 'no variant suffix (":online", ":nitro", ...): name the plain model, e.g. qwen/qwen3.8-27b (C-14)';
+  if (!/^[a-z0-9._-]+\/[a-z0-9._-]+$/.test(m)) return 'must be a vendor/model slug, e.g. qwen/qwen3.8-27b (C-14)';
+  if (m.startsWith('openrouter/')) return 'a router model picks the model itself; pin a plain model, e.g. qwen/qwen3.8-27b (C-14)';
+  return null;
+}
+
+/** Read only when AI_ENABLED=true. The data policy itself is pinned in ai/openrouter.ts (C-14), not here. */
+const AiEnv = z.object({
+  OPENROUTER_API_KEY: required('OPENROUTER_API_KEY'),
+  AI_MODEL: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .min(1, 'AI_MODEL must not be empty')
+    .default('qwen/qwen3.8-27b')
+    .superRefine((m, ctx) => {
+      const issue = aiModelProblem(m);
+      if (issue) ctx.addIssue({ code: 'custom', message: issue });
+    }),
+  // Spike §6.6: re-check the order monthly from /models/qwen/qwen3.8-27b/endpoints; exclude fp4 providers.
+  AI_PROVIDERS: required('AI_PROVIDERS')
+    .transform((v) => v.split(',').map((p) => p.trim()).filter(Boolean))
+    .refine((list) => list.length > 0, { error: 'AI_PROVIDERS must list at least one OpenRouter provider slug, e.g. tenstorrent,modelrun' }),
+  AI_DAILY_BUDGET_USD: required('AI_DAILY_BUDGET_USD').pipe(
+    z.coerce.number<string>({ error: 'AI_DAILY_BUDGET_USD must be a number of US dollars' }).positive('AI_DAILY_BUDGET_USD must be greater than 0'),
+  ),
+  AI_TIMEOUT_MS: z.coerce
+    .number({ error: 'AI_TIMEOUT_MS must be a number of milliseconds' })
+    .int()
+    .min(1000, 'AI_TIMEOUT_MS must be 1000–30000')
+    .max(30000, 'AI_TIMEOUT_MS must be 1000–30000')
+    .default(10000),
+});
+
+const DPA_NOT_SIGNED =
+  "OpenRouter's DPA is not signed in docs/compliance/processors.json (P-11, C-34). Leave AI_ENABLED=false until it is.";
+
+type Issue = { path: PropertyKey[]; message: string };
+
+/** AI config, or null when AI is off; with AI off no other AI variable is read. */
+function loadAi(env: NodeJS.ProcessEnv, issues: Issue[]): AiConfig | null {
+  const sw = AiSwitch.safeParse(env);
+  if (!sw.success) {
+    issues.push(...sw.error.issues);
+    return null;
+  }
+  if (sw.data.AI_ENABLED !== 'true') return null;
+  // P-11 / N-9: in production AI stays off until the AI processors' DPAs are signed.
+  if (env.NODE_ENV === 'production' && processorsNotReady(AI_PROCESSOR_IDS).length > 0) {
+    issues.push({ path: ['AI_ENABLED'], message: DPA_NOT_SIGNED });
+  }
+  const r = AiEnv.safeParse(env);
+  if (!r.success) {
+    issues.push(...r.error.issues);
+    return null;
+  }
+  const ai: AiConfig = {
+    apiKey: r.data.OPENROUTER_API_KEY,
+    model: r.data.AI_MODEL,
+    providers: r.data.AI_PROVIDERS,
+    timeoutMs: r.data.AI_TIMEOUT_MS,
+    dailyBudgetMicroUsd: Math.round(r.data.AI_DAILY_BUDGET_USD * 1e6),
+  };
+  // Kept off JSON so a logged config never carries the key.
+  Object.defineProperty(ai, 'apiKey', { enumerable: false });
+  return ai;
+}
+
 /** Throws an Error whose message names every bad variable. */
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
   const r = Env.safeParse(env);
-  if (!r.success) {
-    const lines = r.error.issues.map((i) => `${String(i.path[0] ?? 'env')}: ${i.message}`);
+  const issues: Issue[] = r.success ? [] : [...r.error.issues];
+  const ai = loadAi(env, issues);
+  if (!r.success || issues.length > 0) {
+    const lines = issues.map((i) => `${String(i.path[0] ?? 'env')}: ${i.message}`);
     throw new Error(`Invalid configuration:\n${lines.join('\n')}`);
   }
   const e = r.data;
@@ -124,5 +211,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     mailFrom: e.MAIL_FROM,
     trustProxy: e.TRUST_PROXY,
     port: e.PORT,
+    ai,
   };
 }

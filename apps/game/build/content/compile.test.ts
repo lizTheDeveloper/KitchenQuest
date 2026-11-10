@@ -64,7 +64,7 @@ variants:
         explain: "E"
 `;
 
-const bureau = (over: { stamp?: string; noTravel?: boolean; tag?: string; noCrossContact?: boolean } = {}) => {
+const bureau = (over: { stamp?: string; noTravel?: boolean; tag?: string; noCrossContact?: boolean; noAiCharacters?: boolean } = {}) => {
   const form = (stamp: string) =>
     `    number: "1"\n    title: "T"\n    fields: []\n    buttons: { confirm: "ok" }\n    stamp: ${stamp}\n`;
   return `forms:
@@ -77,7 +77,7 @@ footnotes:
 disclaimers:
   allergy: "plain"
 ${over.noCrossContact ? '' : '  cross_contact: "boards"\n'}  unverified: "label"
-`;
+${over.noAiCharacters ? '' : '  ai_characters: "AI"\n'}`;
 };
 
 const recipe = (over: { cook?: string; skills?: string; timer?: string } = {}) => `---
@@ -95,6 +95,9 @@ status: draft
 Chop @onion{1} and wait. ${over.timer ?? '~{5%minutes}'}
 `;
 
+const ruleTerm = (name: string, phrases: string[], ids: string[]) => ({ name, phrases, ids, severity: null, form: 'rule_diet' });
+const ruleTerms = (terms = [ruleTerm('no onion', ['no onion', 'onion free'], ['onion'])]) => JSON.stringify(terms);
+
 const techniques = (warm = 42, rusty = 120) =>
   `freshness: { warm_after_days: ${warm}, rusty_after_days: ${rusty} }\ntechniques:\n  - { id: knife, name: "Knife" }\n`;
 
@@ -108,6 +111,7 @@ function valid(): Record<string, string> {
     'data/ingredients.json': JSON.stringify({ ingredients: [{ id: 'onion', name: 'onion' }, { id: 'shallot', name: 'shallot' }] }),
     'data/substitutions.json': JSON.stringify([{ from: 'onion', to: 'shallot' }]),
     'data/techniques.yaml': techniques(),
+    'data/rule-terms.json': ruleTerms(),
   };
 }
 
@@ -147,11 +151,19 @@ describe('compileContent: the real repo', () => {
     expect(Object.keys(content.stalls).sort()).toEqual(['bram', 'okafor-sato', 'spice', 'wen']);
     for (const id of REQUIRED_PAN_TRIGGERS) expect(content.pan.triggers[id]).toBeDefined();
   });
+
+  it('compiles data/rule-terms.json', () => {
+    expect(content.ruleTerms.map((t) => t.name)).toContain('vegetarian');
+  });
 });
 
 describe('compileContent: a minimal valid set', () => {
   it('compiles', () => {
     expect(compileContent(valid()).recipes['x/y/z'].steps.length).toBe(1);
+  });
+
+  it('carries the rule terms through', () => {
+    expect(compileContent(valid()).ruleTerms).toEqual([ruleTerm('no onion', ['no onion', 'onion free'], ['onion'])]);
   });
 });
 
@@ -162,6 +174,8 @@ describe('compileContent: each check fails with the path and the offending value
     ['a bad trigger id', (f) => (f['content/dialogue/pan.yaml'] += `  Bad-Id:\n${trigger()}`), ['pan.yaml', 'Bad-Id']],
     ['a bad ai value', (f) => (f['content/dialogue/pan.yaml'] = pan().replace('ai: never', 'ai: sometimes')), ['pan.yaml', 'ai']],
     ['an empty lines list', (f) => (f['content/dialogue/pan.yaml'] = pan().replace('      - "a line"\n', '    lines: []\n').replace('    lines:\n    lines: []', '    lines: []')), ['pan.yaml', 'lines']],
+    ['a line using an undeclared variable', (f) => (f['content/dialogue/pan.yaml'] += `  extra.vars:\n    ai: allowed\n    when: test\n    vars:\n      dish: "a dish"\n    lines:\n      - "Making {dish}."\n      - "Hello, {who}."\n`), ['content/dialogue/pan.yaml', 'extra.vars line 2 uses undeclared {who}']],
+    ['an ai: never trigger declaring a variable no line uses', (f) => (f['content/dialogue/pan.yaml'] += `  extra.unused:\n    ai: never\n    when: test\n    vars:\n      dish: "a dish"\n    lines:\n      - "Hello."\n`), ['content/dialogue/pan.yaml', 'extra.unused', '{dish}', 'no line uses']],
     ['a missing required trigger', (f) => (f['content/dialogue/pan.yaml'] = pan(['cook.start'])), ['pan.yaml', 'cook.start']],
     ['a recipe with an unknown cook', (f) => (f['recipes/x/y/z.cook'] = recipe({ cook: 'nobody' })), ['recipes/x/y/z.cook', 'nobody']],
     ['a recipe with an unknown skill', (f) => (f['recipes/x/y/z.cook'] = recipe({ skills: 'knife, wizardry' })), ['recipes/x/y/z.cook', 'wizardry']],
@@ -189,6 +203,12 @@ describe('compileContent: each check fails with the path and the offending value
     ['a freshness threshold out of order', (f) => (f['data/techniques.yaml'] = techniques(200, 120)), ['data/techniques.yaml', 'rustyAfterDays']],
     ['a duplicate technique id', (f) => (f['data/techniques.yaml'] = techniques() + '  - { id: knife, name: "Again" }\n'), ['data/techniques.yaml', 'knife']],
     ['a missing file', (f) => delete f['data/techniques.yaml'], ['data/techniques.yaml', 'missing']],
+    ['a missing AI-characters disclaimer', (f) => (f['content/bureau/forms.yaml'] = bureau({ noAiCharacters: true })), ['content/bureau/forms.yaml', 'ai_characters']],
+    ['a missing rule-terms file', (f) => delete f['data/rule-terms.json'], ['data/rule-terms.json', 'missing']],
+    ['rule terms that do not parse', (f) => (f['data/rule-terms.json'] = '[{'), ['data/rule-terms.json', 'JSON']],
+    ['a rule term naming an id missing from the graph', (f) => (f['data/rule-terms.json'] = ruleTerms([ruleTerm('no garlic', ['no garlic'], ['onion', 'garlic'])])), ['data/rule-terms.json', 'no garlic', 'id "garlic"']],
+    ['a phrase used by two rule terms', (f) => (f['data/rule-terms.json'] = ruleTerms([ruleTerm('no onion', ['no onion'], ['onion']), ruleTerm('no alliums', ['no alliums', 'No Onion'], ['onion', 'shallot'])])), ['data/rule-terms.json', 'no alliums', 'no onion']],
+    ['a rule term with an unknown form', (f) => (f['data/rule-terms.json'] = ruleTerms([{ ...ruleTerm('no onion', ['no onion'], ['onion']), form: 'rule_whim' }])), ['data/rule-terms.json', 'no onion', 'rule_whim']],
     ['a stall id that differs from its file name', (f) => (f['content/market/wen.yaml'] = stall().replace('id: wen', 'id: ben')), ['content/market/wen.yaml', 'ben']],
     ['no cooks', (f) => delete f['content/cooks/ann.yaml'], ['cooks', 'no cooks']],
     ['no stalls', (f) => delete f['content/market/wen.yaml'], ['market', 'no stalls']],
@@ -201,6 +221,14 @@ describe('compileContent: each check fails with the path and the offending value
     const files = valid();
     mutate(files);
     expectProblem(files, ...needles);
+  });
+});
+
+describe('compileContent: Pan variables', () => {
+  it('lets an ai: allowed trigger declare a variable its lines skip', () => {
+    const files = valid();
+    files['content/dialogue/pan.yaml'] += `  extra.spare:\n    ai: allowed\n    when: test\n    vars:\n      dish: "a dish"\n    lines:\n      - "Hello."\n`;
+    expect(() => compileContent(files)).not.toThrow();
   });
 });
 

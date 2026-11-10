@@ -4,6 +4,7 @@ import type {
   FreshnessThresholds,
   IngredientData,
   ParsedRecipe,
+  RuleTerm,
   Substitution,
 } from '@kitchenquest/core/engine';
 
@@ -15,7 +16,7 @@ export interface BureauForm {
   title_aside?: string;
   safety?: boolean;
   fields: BureauFormField[];
-  buttons: { confirm: string; decline?: string };
+  buttons: { confirm: string; decline?: string; undo?: string };
   /** Key into the Bureau file's `stamps` map. */
   stamp: string;
   footnotes?: string[];
@@ -111,4 +112,6 @@ export interface GameContent {
   ingredients: IngredientData;
   substitutions: Substitution[];
   techniques: TechniqueData;
+  /** data/rule-terms.json: words that name a rule rather than one ingredient ("vegetarian"). */
+  ruleTerms: RuleTerm[];
 }

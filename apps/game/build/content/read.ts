@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const DATA_FILES = ['data/ingredients.json', 'data/substitutions.json', 'data/techniques.yaml'];
+const DATA_FILES = ['data/ingredients.json', 'data/rule-terms.json', 'data/substitutions.json', 'data/techniques.yaml'];
 // Every file under content/ and recipes/ is read, whatever its name, so the compiler can refuse
 // the ones no loader claims instead of silently skipping them.
 

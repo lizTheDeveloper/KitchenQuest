@@ -7,7 +7,8 @@ export type UsageFeature = (typeof USAGE_FEATURES)[number];
 
 /** Records counts and cost only. Never pass prompt, transcript or response content. */
 export async function recordUsage(
-  db: Db,
+  /** The database or the caller's transaction. */
+  db: Pick<Db, 'insert'>,
   userId: string,
   feature: UsageFeature,
   units: number,

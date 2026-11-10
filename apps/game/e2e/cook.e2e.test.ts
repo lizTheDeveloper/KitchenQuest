@@ -211,7 +211,7 @@ describe('cook mode', () => {
   });
 
   it('Family Table: the Pan still opens with its script and there is no text box', async () => {
-    app = await openApp(COOK, { seed: { v: 1, settings: { showCalories: false, reducedMotion: 'system', familyTable: true, iosNoteDismissed: false } }, reducedMotion: true });
+    app = await openApp(COOK, { seed: { v: 1, settings: { showCalories: false, reducedMotion: 'system', familyTable: true, iosNoteDismissed: false, aiMentor: true } }, reducedMotion: true });
     const { page } = app;
     await progress(app).waitFor();
     const said = await lastPan(app).textContent();

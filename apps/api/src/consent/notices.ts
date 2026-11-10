@@ -39,20 +39,16 @@ function noticeFile(purpose: ConsentPurpose, version: string): Notice {
 /**
  * The current consent notice per purpose (C-1). A grant must name the current
  * version, so the ledger records exactly which text the player agreed to.
- * Changing a text means a new version. `health_data` is v1, read from its
- * file (N-7: it names religious and cultural diets); the others are still
- * inline. `research` is reserved and has no notice, so it cannot be granted.
+ * Changing a text means a new version. `health_data` is v2 (it names the
+ * meals kept and the 30-day Pan conversations, C-12; v1 named religious and
+ * cultural diets, N-7) and `ai_health` is v1 (it names the Pan, meals and the
+ * scripted fallback), each read from its file; the others are still inline.
+ * `research` is reserved and has no notice, so it cannot be granted.
  * DRAFT wording, pending lawyer review (C-30).
  */
 export const NOTICES: Partial<Record<ConsentPurpose, Notice>> = {
-  health_data: noticeFile('health_data', 'v1'),
-  ai_health: {
-    version: '2026-11-09',
-    text:
-      'Let the AI characters see your allergies and diet rules so their suggestions fit you. Only what a reply ' +
-      'needs is sent, without your email or name, to an AI provider that may not keep or train on it. Without ' +
-      'this, the AI works without your rules and every suggestion is still checked against them on our side.',
-  },
+  health_data: noticeFile('health_data', 'v2'),
+  ai_health: noticeFile('ai_health', 'v1'),
   voice: {
     version: '2026-11-09',
     text:
@@ -68,13 +64,15 @@ export const NOTICES: Partial<Record<ConsentPurpose, Notice>> = {
 /**
  * The notice versions whose grants still count, per purpose. A purpose listed
  * here counts only grants under one of these versions: when its notice changes
- * in substance (health_data v1 named religious and cultural diets for the first
- * time), older grants stop counting and the player is asked again
+ * in substance (health_data v2 names the meals and Pan conversations kept;
+ * ai_health v1 names the Pan and meals), older grants stop counting and the
+ * player is asked again
  * (`needsReconsent` in GET /me/consents). A purpose not listed counts a grant
  * under any version. Keep the current version in the list.
  */
 const ACCEPTED_VERSIONS: Partial<Record<ConsentPurpose, readonly string[]>> = {
-  health_data: ['v1'],
+  health_data: ['v2'],
+  ai_health: ['v1'],
 };
 
 /** The versions that count for `purpose`, or `undefined` when any version does. */

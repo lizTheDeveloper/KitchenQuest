@@ -2,7 +2,9 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 import type { Rule } from '@kitchenquest/core/engine';
 import { graph } from '../content';
 import { createStore, type PlayerState } from '../state/store';
-import { activeRules, cardInputsKey, localDate, watchLocalDate } from './rules';
+import {
+  ACCOUNT_NOT_LOADED_MESSAGE, activeRules, cardInputsKey, localDate, RULES_INVALID_MESSAGE, RULES_UNREADABLE_MESSAGE, rulesStateForApiError, watchLocalDate,
+} from './rules';
 
 // vi.stubEnv sets process.env.TZ, which Node honours at runtime; unstubAllEnvs restores it.
 afterEach(() => { vi.unstubAllEnvs(); });
@@ -69,13 +71,41 @@ describe('activeRules', () => {
   test('rules core rejects → error state', () => {
     const s = activeRules(player({ localRules: [rule('r1', ['not_an_id'])] }), graph);
     expect(s.status).toBe('error');
-    if (s.status === 'error') expect(s.message).toContain('not_an_id');
+    if (s.status === 'error') expect(s.problems.join(' ')).toContain('not_an_id');
+  });
+
+  test("invalid rules give the player message, never core's text", () => {
+    const s = activeRules(player({ localRules: [rule('r1', ['not_an_id'])] }), graph);
+    expect(s).toMatchObject({ status: 'error', reason: 'invalid', message: RULES_INVALID_MESSAGE });
+    if (s.status === 'error') {
+      expect(s.message).not.toContain('not_an_id');
+      expect(s.problems.some((p) => p.includes('not_an_id'))).toBe(true);
+    }
+    expect(RULES_INVALID_MESSAGE).toBe("One of your saved rules names something the Bureau's ingredient ledger no longer knows, so I can't check dishes against it. Open Your rules to fix it.");
+  });
+
+  test('unreadable device rules give the player message', () => {
+    const s = activeRules(player({ rulesUnreadable: true }), graph);
+    expect(s).toEqual({ status: 'error', reason: 'unreadable', message: RULES_UNREADABLE_MESSAGE, problems: [] });
+    expect(RULES_UNREADABLE_MESSAGE).toBe("Some of the rules saved on this device couldn't be read, so I can't be sure what to check for. Open Your rules to look them over and confirm them.");
+  });
+
+  test('signed in with accountRules null → account_not_loaded, ACCOUNT_NOT_LOADED_MESSAGE', () => {
+    const s = activeRules(player({ account: { email: 'c@e.com' }, accountRules: null }), graph);
+    expect(s).toEqual({ status: 'error', reason: 'account_not_loaded', message: ACCOUNT_NOT_LOADED_MESSAGE, problems: [] });
+    expect(ACCOUNT_NOT_LOADED_MESSAGE).toBe("Your account's rules couldn't be loaded, so dishes can't be checked. Try again in a moment.");
+  });
+
+  test('API 409 rules_need_review reads as the invalid message', () => {
+    expect(rulesStateForApiError({ code: 'rules_need_review', message: 'Some of your saved rules need review.' }, 409))
+      .toEqual({ status: 'error', reason: 'invalid', message: RULES_INVALID_MESSAGE, problems: ['Some of your saved rules need review.'] });
+    expect(rulesStateForApiError({ code: 'network', message: 'x' }, 0)).toBeNull();
   });
 
   test('bad account rules are an error too, even when device rules are fine', () => {
     const s = activeRules(player({ account: { email: 'c@e.com' }, localRules: [rule('d1', ['coconut'])], accountRules: [rule('a1', ['nope_id'])] }), graph);
     expect(s.status).toBe('error');
-    if (s.status === 'error') expect(s.message).toContain('nope_id');
+    if (s.status === 'error') expect(s.problems.join(' ')).toContain('nope_id');
   });
 
   test('unreadable saved rules are an error, never ready', () => {

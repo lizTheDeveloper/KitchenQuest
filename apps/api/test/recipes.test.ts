@@ -129,7 +129,7 @@ describe('recipe endpoints', () => {
   });
   beforeEach(async () => {
     mailer = new CaptureMailer();
-    app = await buildApp({ config, db, mailer, now: () => NOW, logger: false });
+    app = await buildApp({ config, db, mailer, ai: null, now: () => NOW, logger: false });
   });
   afterEach(async () => {
     await app?.close();
@@ -248,7 +248,7 @@ describe('recipe endpoints', () => {
     await addRule(cookie, COCONUT);
     const logs = captureLogs();
     const small = IngredientGraph.fromData({ ingredients: [{ id: 'salt', name: 'salt' }] });
-    const other = await buildApp({ config, db, mailer, now: () => NOW, logger: logs.logger, catalog: { graph: small, substitutions: [] } });
+    const other = await buildApp({ config, db, mailer, ai: null, now: () => NOW, logger: logs.logger, catalog: { graph: small, substitutions: [], ruleTerms: [] } });
     try {
       for (const url of ['/recipes', '/recipes/india/kerala/parippu']) {
         const res = await other.inject({ method: 'GET', url, cookies: { kq_session: cookie } });
@@ -273,7 +273,7 @@ describe('recipe endpoints', () => {
   describe('?date= (the player\'s local date)', () => {
     const LATE = new Date('2026-12-02T01:00:00Z');
     const phased = { ...COCONUT, phase: { start: '2026-11-01', end: '2026-12-01' } };
-    const at = async (now: Date) => buildApp({ config, db, mailer, now: () => now, logger: false });
+    const at = async (now: Date) => buildApp({ config, db, mailer, ai: null, now: () => now, logger: false });
 
     it('a rule ending 12-01 still applies on the player\'s date 12-01 when server UTC is 12-02', async () => {
       const cookie = await withConsent();
@@ -317,7 +317,7 @@ describe('recipe endpoints', () => {
         const userId = (await call(cookie, { method: 'GET', url: '/me' })).json().id as string;
         await breakIt(userId);
         const logs = captureLogs();
-        const logged = await buildApp({ config, db, mailer, now: () => NOW, logger: logs.logger });
+        const logged = await buildApp({ config, db, mailer, ai: null, now: () => NOW, logger: logs.logger });
         try {
           for (const url of ['/recipes', '/recipes/india/kerala/parippu', '/recipes/japan/osaka/onigiri']) {
             const res = await logged.inject({ method: 'GET', url, cookies: { kq_session: cookie } });

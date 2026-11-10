@@ -1,7 +1,9 @@
 import { and, isNotNull, lt, lte, or } from 'drizzle-orm';
 import { purgeAuditBefore } from '../audit/audit.js';
 import { loggableError } from '../errors.js';
-import { loginTokens, selfReadCounts, sessions, usageEvents } from '../db/schema.js';
+import { aiCostHours, conversations, loginTokens, mentorProposals, messages, selfReadCounts, sessions, usageEvents } from '../db/schema.js';
+import { TRANSCRIPT_RETENTION_DAYS } from '../mentor/constants.js';
+import { undecidedExpired } from '../mentor/proposals.js';
 import type { Db } from '../types.js';
 
 /** One table's retention rule (C-6): `run` deletes what has expired at `now` and returns how many rows. */
@@ -23,7 +25,7 @@ class RetentionError extends Error {
   }
 }
 
-/** Each table declares its policy once; later milestones register theirs (transcripts, Pantry posts, photos). */
+/** Each table declares its policy once; later milestones register theirs (Pantry posts, photos). */
 export function registerRetention(policy: RetentionPolicy): void {
   if (policies.has(policy.table)) throw new Error(`retention policy for ${policy.table} is already registered`);
   policies.set(policy.table, policy);
@@ -99,6 +101,13 @@ registerRetention({
     deleted(db.delete(usageEvents).where(lt(usageEvents.createdAt, monthsBefore(now, 13))).returning({ id: usageEvents.id })),
 });
 
+// ai_cost_hours: 48 hours; the global budget reads only the last 24 (M4 Step 7, P5).
+registerRetention({
+  table: 'ai_cost_hours',
+  run: (db, now) =>
+    deleted(db.delete(aiCostHours).where(lt(aiCostHours.hour, new Date(now.getTime() - 48 * 3_600_000))).returning({ hour: aiCostHours.hour })),
+});
+
 // audit_events: 24 months, through the append-only trigger's purge function.
 registerRetention({
   table: 'audit_events',
@@ -115,6 +124,39 @@ registerRetention({
         .delete(selfReadCounts)
         .where(lt(selfReadCounts.day, monthsBefore(now, 24).toISOString().slice(0, 10)))
         .returning({ day: selfReadCounts.day }),
+    ),
+});
+
+// Mentor transcripts (C-12): messages 30 days after they were written, then
+// conversations 30 days after their last turn (taking any messages left with them).
+const TRANSCRIPT_RETENTION_MS = TRANSCRIPT_RETENTION_DAYS * 24 * HOUR;
+registerRetention({
+  table: 'messages',
+  run: (db, now) =>
+    deleted(db.delete(messages).where(lt(messages.createdAt, new Date(now.getTime() - TRANSCRIPT_RETENTION_MS))).returning({ id: messages.id })),
+});
+registerRetention({
+  table: 'conversations',
+  run: (db, now) =>
+    deleted(
+      db
+        .delete(conversations)
+        .where(lt(conversations.lastTurnAt, new Date(now.getTime() - TRANSCRIPT_RETENTION_MS)))
+        .returning({ id: conversations.id }),
+    ),
+});
+
+// mentor_proposals: an undecided card ('open' or 'expired') as soon as its
+// expires_at has passed; a decided one 24 hours after it was made, well past
+// UNDO_WINDOW_MS (the undo and audit period). data-inventory I-4.
+registerRetention({
+  table: 'mentor_proposals',
+  run: (db, now) =>
+    deleted(
+      db
+        .delete(mentorProposals)
+        .where(or(undecidedExpired(now), lt(mentorProposals.createdAt, new Date(now.getTime() - 24 * HOUR))))
+        .returning({ id: mentorProposals.id }),
     ),
 });
 
