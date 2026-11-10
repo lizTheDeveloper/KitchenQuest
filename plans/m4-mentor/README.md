@@ -135,7 +135,7 @@ Step 7 review rulings (`.superpowers/sdd/README-m4-mentor/progress.md`):
 - [x] [Step 4 — API: AiProvider, OpenRouter policy, processor gate, no content logging](step-4.md)
 - [x] [Step 5 — API: meal logs and pantry](step-5.md)
 - [x] [Step 6 — API: conversations, transcripts, proposals, notices](step-6.md)
-- [ ] [Step 7 — API: the turn endpoint (pre-route, consent, prompt, tools, filter, allowance)](step-7.md)
+- [x] [Step 7 — API: the turn endpoint (pre-route, consent, prompt, tools, filter, allowance)](step-7.md)
 - [ ] [Step 8 — API: confirm, reject, undo, typed yes; the adversarial suite](step-8.md)
 - [ ] [Step 9 — Game: store and rules carry-overs, API client, scripted engine with cards](step-9.md)
 - [ ] [Step 10 — Game: cards in the panel, the AI backend, trail and undo](step-10.md)
