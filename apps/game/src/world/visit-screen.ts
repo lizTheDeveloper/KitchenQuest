@@ -2,7 +2,7 @@ import assets from 'virtual:kq-assets';
 import { content, graph } from '../content';
 import { buildRecipeCard } from '../recipes/card-model';
 import { renderRecipeCard } from '../recipes/card-view';
-import { activeRules, localDate } from '../recipes/rules';
+import { activeRules, cardInputsKey, localDate, watchLocalDate } from '../recipes/rules';
 import { kitchenBackdropKey } from '../scenes/phaser-host';
 import { registerScreen, RouteNotFound, type Screen } from '../shell/app';
 import { isReducedMotion } from '../shell/motion';
@@ -61,16 +61,40 @@ function visitScreen(): Screen {
 
       const openCard = (opener: HTMLElement | null) => {
         if (closeCard || dialogueSlot) return; // never over the cook's intro
-        const state = ctx.store.get();
-        const card = buildRecipeCard({
-          slug: cook.recipe, content, graph, rules: activeRules(state, graph), today: localDate(ctx.now()), showCalories: state.settings.showCalories,
-        });
-        const view = renderRecipeCard(card, {
-          headingLevel: 2,
-          onCook: () => { closeCard?.(); ctx.navigate({ name: 'cook', slug: cook.recipe }); },
-        });
+        const drawCard = () => {
+          const state = ctx.store.get();
+          const card = buildRecipeCard({
+            slug: cook.recipe, content, graph, rules: activeRules(state, graph), today: localDate(ctx.now()), showCalories: state.settings.showCalories,
+          });
+          return renderRecipeCard(card, {
+            headingLevel: 2,
+            onCook: () => { closeCard?.(); ctx.navigate({ name: 'cook', slug: cook.recipe }); },
+          });
+        };
+        const view = drawCard();
+        const body = h('div', { class: 'visit-card-body' }, view);
         const title = view.querySelector('h2')!;
-        closeCard = openModal(doc, { className: 'visit-card', title, body: view, opener, onClose: () => { closeCard = null; } });
+        // While open, the card follows its inputs (rules from another tab, sign-in, the local date), like the
+        // recipe screen: a stale ✅ or an enabled Cook button must never outlive the rule that changed it.
+        const redraw = () => {
+          const hadFocus = body.contains(doc.activeElement);
+          const fresh = drawCard();
+          const freshTitle = fresh.querySelector('h2')!;
+          freshTitle.id = title.id;
+          freshTitle.tabIndex = -1;
+          body.replaceChildren(fresh);
+          if (hadFocus) freshTitle.focus();
+        };
+        let key = cardInputsKey(ctx.store.get());
+        const unsubscribe = ctx.store.subscribe((s) => {
+          const k = cardInputsKey(s);
+          if (k !== key) { key = k; redraw(); }
+        });
+        const stopDate = watchLocalDate(doc, ctx.now, redraw);
+        closeCard = openModal(doc, {
+          className: 'visit-card', title, body, opener,
+          onClose: () => { closeCard = null; unsubscribe(); stopDate(); },
+        });
       };
 
       const showBar = () => {

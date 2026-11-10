@@ -150,6 +150,31 @@ describe('world map', () => {
     expect(await card.textContent()).toContain("Kitchen Quest can't guarantee a dish is safe for your allergy. Always check labels.");
   });
 
+  it('the open visit card follows a rule change from another tab (it never goes stale)', async () => {
+    app = await openApp('/#/map', { reducedMotion: true, seed: { v: 1, localRules: [] } });
+    const { page } = app;
+    await visitLeela(page);
+    await page.getByRole('button', { name: 'See the recipe: Parippu' }).click();
+    const card = page.getByRole('dialog', { name: PARIPPU_TITLE });
+    await card.waitFor();
+    expect(await card.getByRole('button', { name: /Cook it/ }).isDisabled()).toBe(false);
+    // Another tab adds a severe coconut rule: storage changes and this tab hears a storage event.
+    await page.evaluate(({ key, rule }) => {
+      const s = JSON.parse(localStorage.getItem(key)!) as { localRules: unknown[] };
+      s.localRules = [rule];
+      localStorage.setItem(key, JSON.stringify(s));
+      window.dispatchEvent(new StorageEvent('storage', { key }));
+    }, { key: 'kq.player.v1', rule: coconutSevere });
+    await card.getByRole('button', { name: /Cook it/ }).and(page.locator(':disabled')).waitFor();
+    expect(await card.textContent()).toContain("Kitchen Quest can't guarantee a dish is safe for your allergy. Always check labels.");
+    // Still one labelled dialog, its heading focusable, and focus kept inside it.
+    expect(await page.getByRole('dialog').count()).toBe(1);
+    expect(await page.evaluate(() => document.querySelector('.visit-card')!.contains(document.activeElement))).toBe(true);
+    await page.keyboard.press('Escape');
+    await card.waitFor({ state: 'detached' });
+    expect(app.consoleErrors).toEqual([]);
+  });
+
   it('keyboard: Tab reaches the Leela pin, Enter opens the permit, Escape returns focus to the pin', async () => {
     app = await openApp('/#/map', { reducedMotion: true });
     const { page } = app;
