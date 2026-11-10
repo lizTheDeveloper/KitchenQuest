@@ -22,7 +22,7 @@ try {
   const endsAt = n === undefined ? undefined : new Date(now.getTime() + n * 86_400_000);
   // C-5: an admin script that changes a user's data writes an audit event, in the same transaction.
   await db.transaction(async (tx) => {
-    await grant(tx, u.id, kind as EntitlementKind, 'manual', now, endsAt);
+    await grant(tx, u.id, kind as EntitlementKind, 'manual', now, endsAt, now);
     await audit(
       tx,
       { actorKind: 'script', actorId: `grant:${userInfo().username}`, subjectUserId: u.id, action: 'entitlement.grant', target: kind },

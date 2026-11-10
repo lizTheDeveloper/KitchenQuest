@@ -59,9 +59,9 @@ function readCanon(dir: string, graph: IngredientGraph): CanonFile[] {
  * Makes `canon_recipes` match the `*.cook` files under `recipesDir`, in one
  * transaction: any bad file aborts the whole sync with nothing changed. Rows
  * for deleted files are removed. A row counts as unchanged when both the
- * source hash and the stored contributor ids match.
+ * source hash and the stored contributor ids match. `now` stamps `synced_at`.
  */
-export async function syncCanon(db: Db, recipesDir: string, graph: IngredientGraph): Promise<SyncResult> {
+export async function syncCanon(db: Db, recipesDir: string, graph: IngredientGraph, now: Date): Promise<SyncResult> {
   const files = readCanon(recipesDir, graph);
   const result: SyncResult = { added: 0, updated: 0, removed: 0, unchanged: 0 };
   await db.transaction(async (tx) => {
@@ -91,7 +91,7 @@ export async function syncCanon(db: Db, recipesDir: string, graph: IngredientGra
         source: f.source,
         contentHash: f.hash,
         contributors,
-        syncedAt: new Date(),
+        syncedAt: now,
       };
       await tx.insert(canonRecipes).values({ path: f.path, ...row }).onConflictDoUpdate({ target: canonRecipes.path, set: row });
       if (prev) result.updated++;

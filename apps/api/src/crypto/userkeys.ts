@@ -50,13 +50,13 @@ async function loadUserKey(db: Reader, keyring: Keyring, userId: string): Promis
 }
 
 /** The user's data key, created (and wrapped by the active ring key) on first use. Safe under concurrency. */
-async function userKey(db: ReadWriter, keyring: Keyring, userId: string): Promise<Buffer> {
+async function userKey(db: ReadWriter, keyring: Keyring, userId: string, now?: Date): Promise<Buffer> {
   const existing = await loadUserKey(db, keyring, userId);
   if (existing) return existing;
   const fresh = randomBytes(32);
   await db
     .insert(userKeys)
-    .values({ userId, keyId: keyring.activeId, wrapped: wrap(keyring, userId, fresh) })
+    .values({ userId, keyId: keyring.activeId, wrapped: wrap(keyring, userId, fresh), ...(now ? { createdAt: now } : {}) })
     .onConflictDoNothing({ target: userKeys.userId });
   // Another request may have created it first; whichever row won is the key.
   const key = await loadUserKey(db, keyring, userId);
@@ -64,10 +64,13 @@ async function userKey(db: ReadWriter, keyring: Keyring, userId: string): Promis
   return key;
 }
 
-/** Seals `value` with the owner's data key, bound to `ctx` (C-3, C-4). */
-export async function sealFor(db: ReadWriter, keyring: Keyring, ctx: SealContext, value: unknown): Promise<Buffer> {
+/**
+ * Seals `value` with the owner's data key, bound to `ctx` (C-3, C-4). `now`
+ * stamps a data key created here (routes pass their injected clock).
+ */
+export async function sealFor(db: ReadWriter, keyring: Keyring, ctx: SealContext, value: unknown, now?: Date): Promise<Buffer> {
   const aad = contextFor(ctx);
-  return seal(value, await userKey(db, keyring, ctx.userId), USER_KEY_ID, aad);
+  return seal(value, await userKey(db, keyring, ctx.userId, now), USER_KEY_ID, aad);
 }
 
 /**

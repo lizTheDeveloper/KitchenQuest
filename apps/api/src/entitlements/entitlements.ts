@@ -38,9 +38,11 @@ export async function grant(
   source: EntitlementSource,
   startsAt: Date,
   endsAt?: Date,
+  /** When the grant is recorded (`created_at`); the database's clock when omitted. */
+  now?: Date,
 ): Promise<void> {
   if (!ENTITLEMENT_KINDS.includes(kind)) throw new Error(`unknown entitlement kind: ${kind}`);
   if (!ENTITLEMENT_SOURCES.includes(source)) throw new Error(`unknown entitlement source: ${source}`);
   if (endsAt && endsAt <= startsAt) throw new Error('endsAt must be after startsAt');
-  await db.insert(entitlements).values({ userId, kind, source, startsAt, endsAt: endsAt ?? null });
+  await db.insert(entitlements).values({ userId, kind, source, startsAt, endsAt: endsAt ?? null, ...(now ? { createdAt: now } : {}) });
 }

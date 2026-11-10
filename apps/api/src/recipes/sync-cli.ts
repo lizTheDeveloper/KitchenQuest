@@ -9,7 +9,7 @@ if (!url) throw new Error('DATABASE_URL is required');
 const { graph } = loadCatalog();
 const { db, sql } = createDb(url, { max: 1 });
 try {
-  const r = await syncCanon(db, RECIPES_DIR, graph);
+  const r = await syncCanon(db, RECIPES_DIR, graph, new Date());
   console.log(`recipes synced: ${r.added} added, ${r.updated} updated, ${r.removed} removed, ${r.unchanged} unchanged`);
 } finally {
   await sql.end({ timeout: 5 });

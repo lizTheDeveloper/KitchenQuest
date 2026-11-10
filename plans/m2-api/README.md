@@ -6,7 +6,7 @@
 
 **Architecture:** Fastify app built by a factory `buildApp(deps)` so tests inject a real Postgres connection, a capturing mailer and a fixed clock. Drizzle ORM over `postgres` (postgres.js) with committed SQL migrations. All allergy/diet logic stays in `@kitchenquest/core`; the API only stores, validates through core, and serves. The ingredient graph and substitutions load once from `data/` at startup.
 
-**Tech Stack:** Node 22, TypeScript, Fastify 5.12, `@fastify/cookie`, `@fastify/rate-limit`, zod 4, drizzle-orm 0.45 + drizzle-kit 0.31, `postgres` driver, Vitest, Postgres 16.
+**Tech Stack:** Node 22, TypeScript, Fastify 5.12, `@fastify/cookie`, zod 4, drizzle-orm 0.45 + drizzle-kit 0.31, `postgres` driver, Vitest, Postgres 16.
 
 **Spec:** `docs/superpowers/specs/2026-11-09-kitchenquest-design.md` (§2 principles, §4.4 rules, §7.0 confirmations, §9 architecture/privacy, §10 canon, §12 testing).
 

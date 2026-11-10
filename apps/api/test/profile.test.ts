@@ -8,7 +8,7 @@ import { CaptureMailer } from '../src/mail/mailer.js';
 import type { Db } from '../src/types.js';
 import { signIn } from './helpers/auth.js';
 import { testEnv } from './helpers/config.js';
-import { testDb } from './helpers/db.js';
+import { testDb, type Sql } from './helpers/db.js';
 
 const config = loadConfig({
   ...testEnv,
@@ -16,13 +16,14 @@ const config = loadConfig({
 });
 
 let db: Db;
+let sql: Sql;
 let closeDb: () => Promise<void>;
 let app: FastifyInstance;
 let mailer: CaptureMailer;
 let seq = 0;
 
 beforeAll(async () => {
-  ({ db, close: closeDb } = await testDb());
+  ({ db, sql, close: closeDb } = await testDb());
 });
 afterAll(async () => {
   await closeDb?.();
@@ -156,5 +157,32 @@ describe('profile', () => {
     expect(exported.statusCode).toBe(200);
     expect(exported.json().profile.mealWindows).toEqual(expected);
     expect(exported.body).not.toContain('Ramadan');
+  });
+
+  it('a user deleted after sign-in check gets 401, not 500, on GET and PUT (M-2)', async () => {
+    for (const method of ['GET', 'PUT'] as const) {
+      const cookie = await user();
+      const id = (await app.inject({ method: 'GET', url: '/me', cookies: { kq_session: cookie } })).json().id as string;
+      const blocker = await sql.reserve();
+      try {
+        // An account delete in flight: the request passes requireUser, then the delete commits.
+        await blocker`begin`;
+        await blocker`delete from users where id = ${id}`;
+        const res = method === 'GET' ? get(cookie) : put(cookie, { mealsPerWeek: 3 });
+        for (let i = 0; ; i++) {
+          const [w] = await sql<{ n: number }[]>`select count(*)::int as n from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'`;
+          if (w.n >= 1) break;
+          if (i > 300) throw new Error('the request never waited on the delete');
+          await new Promise((r) => setTimeout(r, 10));
+        }
+        await blocker`commit`;
+        const done = await res;
+        expect(done.statusCode, method).toBe(401);
+        expect(done.json().error.code).toBe('unauthorized');
+      } finally {
+        await blocker`rollback`.catch(() => {});
+        blocker.release();
+      }
+    }
   });
 });
