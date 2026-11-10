@@ -167,6 +167,28 @@ describe('world map', () => {
     expect(await page.evaluate(() => document.activeElement?.textContent)).toBe(LEELA_PIN);
   });
 
+  for (const from of ['its button', 'the canvas hotspot'] as const) {
+    it(`when an intro replayed from ${from} ends, focus goes to "Hear the intro again"`, async () => {
+      app = await openApp('/#/map', { reducedMotion: true });
+      const { page } = app;
+      await visitLeela(page);
+      if (from === 'its button') {
+        await page.getByRole('button', { name: 'Hear the intro again' }).focus();
+        await page.keyboard.press('Enter');
+      } else {
+        // A canvas click leaves focus on the body, then the scene emits the action.
+        await page.evaluate(() => {
+          (document.activeElement as HTMLElement | null)?.blur();
+          window.dispatchEvent(new CustomEvent('kq:action', { detail: { id: 'intro' } }));
+        });
+      }
+      await dialogueText(page).waitFor();
+      for (let i = 0; i < leela.intro.length; i += 1) await page.keyboard.press('Enter');
+      expect(await page.locator('.dialogue').count()).toBe(0);
+      expect(await page.evaluate(() => document.activeElement?.textContent)).toBe('Hear the intro again');
+    });
+  }
+
   it('while the intro replays, "See the recipe" cannot open the card over it', async () => {
     app = await openApp('/#/map', { reducedMotion: true });
     const { page } = app;

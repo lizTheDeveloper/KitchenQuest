@@ -99,7 +99,12 @@ function visitScreen(): Screen {
           slot.remove();
           dialogueSlot = null;
           if (seeRecipe) seeRecipe.disabled = false;
-          if (!alive || !first) return;
+          if (!alive) return;
+          if (!first) {
+            // A replay ends on the button that started it, even from a canvas hotspot (focus was on the body).
+            bar.querySelector<HTMLElement>('[data-action="intro"]')?.focus();
+            return;
+          }
           showBar();
           bar.querySelector<HTMLElement>('[data-action="recipe"]')?.focus();
         });
