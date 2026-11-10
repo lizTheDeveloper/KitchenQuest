@@ -247,6 +247,7 @@ Every string the API accepts from a player, with its maximum. A field not listed
 - **API request log (L-1)** holds route patterns only (C-9), so it carries no identifier. Keep it **14 days** at the log host; 30 days is the ceiling. It is not in the export, because nothing in it links to a player.
 - **Reverse-proxy access log (L-3)** holds IPs, full URLs and user agents. Keep it **14 days**, at most 30. Configure the proxy (M12, C-38) to log the path without the query string, and not to log request bodies or cookies. It is not in the export; a data-rights request is answered by expiry.
 - **Error reports (L-2):** proposed **30 days** at GlitchTip, set when it is deployed (M2/M12).
+- **`TRUST_PROXY`:** the search, export and mentor turn limiters key on `req.ip`, so `TRUST_PROXY` must name the reverse proxy in deploy (hop count or its addresses); otherwise every player shares the proxy's address.
 - The privacy notice (C-30, M12) states these periods. Any new log, proxy or limiter store adds a row here in the same PR.
 
 ## 4. Observations that drive the risk register

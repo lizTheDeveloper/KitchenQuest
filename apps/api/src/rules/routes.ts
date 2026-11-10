@@ -1,22 +1,15 @@
-import { randomUUID } from 'node:crypto';
-import { validateRules, type Rule } from '@kitchenquest/core';
-import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { audit } from '../audit/audit.js';
 import { countSelfRead } from '../audit/self-reads.js';
-import { lockLiveUser } from '../auth/live-user.js';
 import { ipKey, SlidingWindowLimiter, sweepPeriodically } from '../auth/rate-limit.js';
 import { requireUser } from '../auth/session.js';
 import type { Catalog } from '../catalog.js';
-import { lockConsentIn, requireConsent, type Tx } from '../consent/ledger.js';
-import { sealFor } from '../crypto/userkeys.js';
-import { rules } from '../db/schema.js';
+import type { Tx } from '../consent/ledger.js';
 import { ApiError } from '../errors.js';
-import { loadRules, ruleSealContext as sealContext, type StoredRule } from './store.js';
+import { createRuleIn, deleteRuleIn, updateRuleIn } from './service.js';
+import { loadRules, type StoredRule } from './store.js';
 
-/** At most this many rules per player (M-5; data-inventory.md §3.13). */
-export const MAX_RULES_PER_USER = 200;
+export { MAX_RULES_PER_USER } from './service.js';
 
 /** Ingredient searches per client IP per minute (M-5); the search needs no sign-in. */
 export const SEARCHES_PER_MINUTE = 120;
@@ -62,18 +55,14 @@ const RuleBody = z
   .strict();
 const RuleWrite = z.object({ rule: RuleBody, confirmed: z.unknown() }).strict();
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-const notFound = () => new ApiError(404, 'not_found', 'Rule not found');
-
 /**
- * Health writes need `health_data` consent (C-11), then an explicit yes for
- * this rule (spec §7.0), then a body of the rule's shape. This consent check
- * is the fast 403; the write's transaction checks again under a row lock
- * (`lockConsentIn`), which is what makes it atomic with a withdrawal.
+ * A rule write needs an explicit yes for this rule (spec §7.0), then a body of
+ * the rule's shape; both are checked here, before any query. Consent (C-11)
+ * is checked once, inside the write's transaction under a row lock
+ * (`lockConsentIn`, via the service), after the live-user check: so a deleted
+ * account gets 401, not 403, and the check is atomic with a withdrawal.
  */
-async function parseWrite(req: FastifyRequest, at: Date): Promise<StoredRule> {
-  await requireConsent(req.server.deps.db, req.user.id, 'health_data', at);
+function parseWrite(req: FastifyRequest): StoredRule {
   const body = req.body;
   if (typeof body !== 'object' || body === null || (body as { confirmed?: unknown }).confirmed !== true) {
     throw new ApiError(400, 'confirmation_required', 'Saving a rule needs your confirmation (confirmed: true)');
@@ -81,19 +70,6 @@ async function parseWrite(req: FastifyRequest, at: Date): Promise<StoredRule> {
   const { rule } = RuleWrite.parse(body);
   // Drop keys sent as undefined so the stored value is exactly the rule.
   return Object.fromEntries(Object.entries(rule).filter(([, v]) => v !== undefined)) as StoredRule;
-}
-
-/** Throws 400 `bad_request` with core's problems unless the user's rules, with `rule` in place, are valid. */
-function assertValid(rule: Rule, others: Rule[], catalog: Catalog): void {
-  const problems = validateRules([rule, ...others], catalog.graph);
-  if (problems.length > 0) throw new ApiError(400, 'bad_request', 'The rule is not valid', { problems });
-}
-
-/** The caller's row id from the path, or 404 (another user's id and a malformed one look the same). */
-function ruleIdParam(req: FastifyRequest<{ Params: { id: string } }>): string {
-  const { id } = req.params;
-  if (!UUID.test(id)) throw notFound();
-  return id.toLowerCase();
 }
 
 /**
@@ -106,6 +82,7 @@ function ruleIdParam(req: FastifyRequest<{ Params: { id: string } }>): string {
 export async function rulesRoutes(app: FastifyInstance, catalog: Catalog): Promise<void> {
   const { db, config, now } = app.deps;
   const { keyring } = config;
+  const deps = { keyring, catalog };
   // Per app instance, in memory only (N-2), like the sign-in limiters.
   const searchLimiter = new SlidingWindowLimiter(SEARCHES_PER_MINUTE, 60_000);
   const stopSweeping = sweepPeriodically([searchLimiter], () => now().getTime());
@@ -138,47 +115,17 @@ export async function rulesRoutes(app: FastifyInstance, catalog: Catalog): Promi
 
   app.post('/rules', { preHandler: requireUser }, async (req, reply) => {
     const at = now();
-    const value = await parseWrite(req, at);
-    const userId = req.user.id;
-    // Generated before insert: the seal is bound to it (C-3).
-    const rowId = randomUUID();
-    // Lock order as account delete: the user row, then consent, then rules (M-1).
-    await db.transaction(async (tx: Tx) => {
-      await lockLiveUser(tx, userId);
-      await lockConsentIn(tx, userId, 'health_data', at);
-      const existing = await loadRules(tx, keyring, userId);
-      if (existing.length >= MAX_RULES_PER_USER) {
-        throw new ApiError(400, 'too_many_rules', `You can save at most ${MAX_RULES_PER_USER} rules`, { max: MAX_RULES_PER_USER });
-      }
-      assertValid({ ...value, id: rowId }, existing, catalog);
-      const sealed = await sealFor(tx, keyring, sealContext(userId, rowId), value, at);
-      await tx.insert(rules).values({ id: rowId, userId, sealed, createdAt: at, updatedAt: at });
-      await audit(tx, { actorKind: 'user', actorId: userId, subjectUserId: userId, action: 'rules.create', target: rowId, requestId: req.id }, at);
-    });
-    return reply.status(201).send({ rule: { ...value, id: rowId } });
+    const value = parseWrite(req);
+    const rule = await db.transaction((tx: Tx) => createRuleIn(tx, deps, req.user.id, value, at, req.id));
+    return reply.status(201).send({ rule });
   });
 
   app.put<{ Params: { id: string } }>('/rules/:id', { preHandler: requireUser }, async (req) => {
     const at = now();
-    const value = await parseWrite(req, at);
-    const userId = req.user.id;
-    const rowId = ruleIdParam(req);
-    await db.transaction(async (tx: Tx) => {
-      await lockLiveUser(tx, userId);
-      await lockConsentIn(tx, userId, 'health_data', at);
-      const [row] = await tx
-        .select({ id: rules.id })
-        .from(rules)
-        .where(and(eq(rules.id, rowId), eq(rules.userId, userId)))
-        .for('update');
-      if (!row) throw notFound();
-      const others = (await loadRules(tx, keyring, userId)).filter((r) => r.id !== rowId);
-      assertValid({ ...value, id: rowId }, others, catalog);
-      const sealed = await sealFor(tx, keyring, sealContext(userId, rowId), value, at);
-      await tx.update(rules).set({ sealed, updatedAt: at }).where(and(eq(rules.id, rowId), eq(rules.userId, userId)));
-      await audit(tx, { actorKind: 'user', actorId: userId, subjectUserId: userId, action: 'rules.update', target: rowId, requestId: req.id }, at);
-    });
-    return { rule: { ...value, id: rowId } };
+    const value = parseWrite(req);
+    // A malformed id is a 404 from the service, after the same locks as any other.
+    const rule = await db.transaction((tx: Tx) => updateRuleIn(tx, deps, req.user.id, req.params.id, value, at, req.id));
+    return { rule };
   });
 
   // No consent and no `confirmed` needed: deleting a rule only makes the
@@ -186,17 +133,7 @@ export async function rulesRoutes(app: FastifyInstance, catalog: Catalog): Promi
   // It must also work after consent is withdrawn, so the player can clear kept data.
   app.delete<{ Params: { id: string } }>('/rules/:id', { preHandler: requireUser }, async (req, reply) => {
     const at = now();
-    const userId = req.user.id;
-    const rowId = ruleIdParam(req);
-    await db.transaction(async (tx: Tx) => {
-      await lockLiveUser(tx, userId);
-      const deleted = await tx
-        .delete(rules)
-        .where(and(eq(rules.id, rowId), eq(rules.userId, userId)))
-        .returning({ id: rules.id });
-      if (deleted.length === 0) throw notFound();
-      await audit(tx, { actorKind: 'user', actorId: userId, subjectUserId: userId, action: 'rules.delete', target: rowId, requestId: req.id }, at);
-    });
+    await db.transaction((tx: Tx) => deleteRuleIn(tx, req.user.id, req.params.id, at, req.id));
     return reply.status(204).send();
   });
 }

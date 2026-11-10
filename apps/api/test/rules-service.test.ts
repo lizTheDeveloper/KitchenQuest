@@ -5,11 +5,12 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { buildApp } from '../src/app.js';
 import { defaultCatalog } from '../src/catalog.js';
 import { NOTICES } from '../src/consent/notices.js';
+import { sealFor } from '../src/crypto/userkeys.js';
 import { auditEvents, rules } from '../src/db/schema.js';
 import { CaptureMailer } from '../src/mail/mailer.js';
 import { createRuleIn, deleteRuleIn, lockUserRules, MAX_RULES_PER_USER, updateRuleIn } from '../src/rules/service.js';
 import { MAX_RULES_PER_USER as ROUTES_MAX } from '../src/rules/routes.js';
-import { loadRules, type StoredRule } from '../src/rules/store.js';
+import { loadRules, ruleSealContext, type StoredRule } from '../src/rules/store.js';
 import type { Db } from '../src/types.js';
 import { signIn } from './helpers/auth.js';
 import { testConfig } from './helpers/config.js';
@@ -161,11 +162,13 @@ describe('rules service', () => {
     await db.transaction((tx) => createRuleIn(tx, deps, b.id, PEANUT, NOW));
     let done = false;
     const writing = db.transaction((tx) => createRuleIn(tx, deps, a.id, PEANUT, NOW)).then(() => (done = true));
-    for (let i = 0; i < 500; i++) {
+    let waiting = false;
+    for (let i = 0; i < 500 && !waiting; i++) {
       const [{ n }] = await sql<{ n: number }[]>`select count(*)::int as n from pg_locks where locktype = 'advisory' and not granted`;
-      if (n >= 1) break;
-      await new Promise((r) => setTimeout(r, 10));
+      waiting = n >= 1;
+      if (!waiting) await new Promise((r) => setTimeout(r, 10));
     }
+    expect(waiting).toBe(true);
     expect(done).toBe(false);
     release();
     await holder;
@@ -175,9 +178,12 @@ describe('rules service', () => {
 
   it(`two concurrent createRuleIn at ${MAX_RULES_PER_USER - 1} rules: exactly one succeeds`, async () => {
     const u = await user();
-    await db.transaction(async (tx) => {
-      for (let i = 0; i < MAX_RULES_PER_USER - 1; i++) await createRuleIn(tx, deps, u.id, PEANUT, NOW);
-    });
+    const values = [];
+    for (let i = 0; i < MAX_RULES_PER_USER - 1; i++) {
+      const rowId = randomUUID();
+      values.push({ id: rowId, userId: u.id, sealed: await sealFor(db, config.keyring, ruleSealContext(u.id, rowId), PEANUT) });
+    }
+    await db.insert(rules).values(values);
     const results = await Promise.allSettled([
       db.transaction((tx) => createRuleIn(tx, deps, u.id, DAIRY, NOW)),
       db.transaction((tx) => createRuleIn(tx, deps, u.id, DAIRY, NOW)),

@@ -133,7 +133,7 @@ export async function hasConsent(db: Pick<Db, 'select'>, userId: string, purpose
   return row !== undefined;
 }
 
-/** Throws 403 `consent_required` unless `purpose` is granted. Health-data writes call this first. */
+/** Throws 403 `consent_required` unless `purpose` is granted. A read-only check: health writes use `lockConsentIn` inside their transaction, after `lockLiveUser`. */
 export async function requireConsent(db: Pick<Db, 'select'>, userId: string, purpose: ConsentPurpose, now: Date): Promise<void> {
   if (!(await hasConsent(db, userId, purpose, now))) {
     throw new ApiError(403, 'consent_required', `This needs your consent for ${purpose}`, { purpose });
