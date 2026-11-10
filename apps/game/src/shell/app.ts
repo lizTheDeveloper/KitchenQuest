@@ -91,9 +91,11 @@ export function mountApp(doc: Document, base: Omit<AppContext, 'navigate'>): voi
       await screen.mount(container, route, ctx);
     }
     if (my !== token) return;
-    // A screen that put focus somewhere itself (a cook's intro focuses its Next button) keeps it.
-    const movedByScreen = doc.activeElement !== focusBefore && doc.activeElement !== doc.body && doc.activeElement !== null;
-    if (moveFocus && !movedByScreen) {
+    // A screen that opened an overlay and focused it (a cook's intro focuses its Next button) keeps that focus;
+    // anything inline in the view (the kitchen's greeting) yields to the h1.
+    const active = doc.activeElement;
+    const overlayFocused = active !== focusBefore && !!doc.getElementById('overlay-root')?.contains(active);
+    if (moveFocus && !overlayFocused) {
       const h1 = container.querySelector('h1');
       if (h1) { h1.tabIndex = -1; h1.focus(); }
     }
