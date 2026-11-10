@@ -114,12 +114,9 @@ export function createCardWriter(deps: {
         }
         const rule = { ...card.rule, id: crypto.randomUUID() };
         // Validated against the rules this update builds on (another tab's writes included), not this tab's memory.
-        let valid = true;
-        store.update((s) => {
-          valid = validateRules([...s.localRules, rule], graph).length === 0;
-          return valid ? { ...s, localRules: [...s.localRules, rule] } : s;
-        });
-        if (!valid) return { ok: false, reason: 'invalid', items: [line('write.not_done')] };
+        const after = store.update((s) =>
+          (validateRules([...s.localRules, rule], graph).length === 0 ? { ...s, localRules: [...s.localRules, rule] } : s));
+        if (!after.localRules.some((r) => r.id === rule.id)) return { ok: false, reason: 'invalid', items: [line('write.not_done')] };
         undos.set(rule.id, { kind: 'rule', card, where: 'device', id: rule.id });
         return { ok: true, trail: trail(rule.id, 'local', card), items: confirmedLines(card).map(say) };
       }
