@@ -235,3 +235,13 @@ test('promptFingerprint changes when the prompt, tools, model or provider order 
 - Core P5: the suitability branches `(try|order|go for)` and `(have|get) the` no longer match a cooking verb or a thing that is no dish. So "can I get the recipe" and "should I try making bread" are not health turns.
 - Tests: every reviewer repro (rev7, rev7b, rev7c, rev7d) is a model reply in a sweep test asserting no text part and no model words in any response. The rev7d R8 holes and the rule-less L1/L2/L3 cases are their own tests. L3 write requests get `write.not_done`. The filter-line tests now assert the scripted line.
 - Interface changes: `filterReply(text, opts: { finish })`, `touchesHealth(text)`. `REPLACEMENT` is removed, and `isWriteRequest(text): boolean` is added (`mentor/requests.ts`). The server never emits a `text` reply part; the protocol keeps the kind for transcripts stored before R9.
+
+**Fix round 5 (R5 tightened):**
+- Region, country and pantry items must be at most 4 words with none of `, . ; : ! ?`.
+- Meal descriptions and dishes also fail on `[a-z]+[ -]free`.
+- `touchesHealth` adds `fine with` / `fine to eat`, `make (you|me) (sick|ill)`, `won't / will not / never (make|hurt|harm|kill)`, `kill*` and `no problem`.
+- Every rule term passes `touchesHealth` before it can be echoed in `rule.unknown_term` or `rule.which_one`.
+- The near-severe-cue bypass keeps only a term that `graph.resolve` or a rule-term phrase knows. Any other term is dropped, and `severeTermsLeftOut` asks.
+- Signatures: `applyPostChecks(calls, text, graph, ruleTerms)` and `isWriteRequest(text, graph)`. A change verb with a rule statement or a severity cue now also counts as a write request.
+- With a dish on screen or named, a write request that is also a suitability question gets `mentor.check_card` and `write.not_done`, then the ask.
+- Core `NOT_FOOD` no longer lists cooking-tool words (pan, pot, wok, oven, hob, knife, kit, tips), so "pot pie" and "pan con tomate" stay suitability questions.
