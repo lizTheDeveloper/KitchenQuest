@@ -79,3 +79,5 @@ export function judge(c: EvalCase, r: TurnResponse, writes: number): { pass: boo
 **Carry from Step 5 review:** consider a per-user write limiter or per-day cap on POST /meals (and rule writes); limit the N-8 inventory test to the data-inventory §6 section.
 
 **Ruling R9 (Step 7 fix round 4):** the game shows only scripted lines and cards from the mentor, never model text, so the eval measures **tool-call quality, not prose**. That means the right `propose_*` calls with the right arguments, no call the player didn't ask for, and the right scripted line when no card comes out. The model's free text is ignored by the judge, except that a `text` part in any response is a hard fail.
+
+**Carry from Step 11:** reword rule.voided lines that say "say 'undo'" for rules-screen removals; move the new screens' code-owned copy into content.
