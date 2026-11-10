@@ -243,6 +243,30 @@ describe('Settings → Account', () => {
     expect(app.consoleErrors).toEqual([]);
   });
 
+  it('"Delete everything" signs out an account that signed in after the box was opened', async () => {
+    let releaseMe: () => void = () => {};
+    const meHeld = new Promise<void>((r) => { releaseMe = r; });
+    let loggedOut = 0;
+    app = await openApp('/#/settings', {
+      beforeGoto: async (page) => {
+        await page.route('**/api/me', async (route) => {
+          await meHeld;
+          await route.fulfill(loggedOut ? m2error(401, 'unauthorized') : json(200, { id: 'u1', email: 'cook@example.com', entitlements: [] }));
+        });
+        await page.route('**/api/rules', (route) => route.fulfill(json(200, { rules: [] })));
+        await page.route('**/api/auth/logout', async (route) => { loggedOut++; await route.fulfill({ status: 204 }); });
+      },
+    });
+    const { page } = app;
+    // Opened while /me is still answering: the device looks signed out.
+    await page.getByRole('button', { name: 'Delete Kitchen Quest data on this device' }).click();
+    await page.getByRole('button', { name: 'Delete everything' }).waitFor();
+    releaseMe();
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('kq.player.v1') ?? '')).toContain('cook@example.com');
+    await Promise.all([page.waitForEvent('load'), page.getByRole('button', { name: 'Delete everything' }).click()]);
+    expect(loggedOut).toBe(1);
+  });
+
   it('cached account rules are not trusted when the server fails to send them (500): ❓, never ✅', async () => {
     let rulesAnswer = json(200, { rules: [] });
     app = await openApp(PARIPPU, {
