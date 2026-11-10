@@ -786,8 +786,8 @@ describe('fix round 1: adversarial repros', () => {
     const p = await player(AI_HEALTH);
     await addRule(p.cookie, ['peanut']);
     const r = await turn(p.cookie, 'can I eat this one?', { screen: { route: 'recipe', slug: FRIJOLES } });
-    // A health turn since fix round 2 (R7), so it also asks plainly.
-    expect(r.parts).toEqual([lineOf('rule.severe_label_reminder'), lineOf('rule.ask_keep_off')]);
+    // A suitability question with no rule statement: the dish card answers it (controller ruling).
+    expect(r.parts).toEqual([lineOf('mentor.check_card')]);
   });
 
   test.each([
@@ -1167,5 +1167,27 @@ describe('fix round 2: repros', () => {
     expect((await waiting).statusCode).toBe(200);
     const [row] = await sql<{ spent: string }[]>`select sum(cost_microusd)::text as spent from ai_cost_hours`;
     expect(row.spent).toBe('120');
+  });
+});
+
+describe('suitability questions (controller ruling on fix round 2)', () => {
+  test.each(['can I eat this one?', 'is this ok for me?', 'will it bother me?'])('%j is answered with mentor.check_card only', async (text) => {
+    const ai = fakeAi([reply('Tuck in, it is safe.')]);
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    await addRule(p.cookie, ['peanut']);
+    const r = await turn(p.cookie, text, { screen: { route: 'recipe', slug: FRIJOLES } });
+    expect(r.parts).toEqual([lineOf('mentor.check_card')]);
+    expect(r.cards).toEqual([]);
+  });
+
+  test('with a rule statement or a severity cue the normal path applies', async () => {
+    const ai = fakeAi([toolCall('propose_rule', { term: 'peanuts', severity: 'allergy' }), reply('Tuck in.')]);
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    const withRule = await turn(p.cookie, "I'm allergic to peanuts, can I eat this?", { screen: { route: 'recipe', slug: FRIJOLES } });
+    expect(withRule.cards.map((c) => c.card.kind)).toEqual(['rule']);
+    const withCue = await turn(p.cookie, 'peanuts nearly killed me, can I eat this?', { screen: { route: 'recipe', slug: FRIJOLES } });
+    expect(withCue.parts).toEqual([lineOf('mentor.check_card'), lineOf('rule.ask_what_else', { term: 'peanut' })]); // the ask still follows
   });
 });

@@ -5,6 +5,7 @@ import {
   buildProfileCard,
   buildRuleCard,
   classifyTurn,
+  isSuitabilityQuestion,
   matchDish,
   normalizeName,
   parseRuleStatement,
@@ -309,9 +310,14 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
     // A health statement is never silently lost (fix round 1 ruling on call 3): a health turn
     // that made no card at all, or whose model rule was dropped (C4), with no rule outcome,
     // asks plainly. A bare "didn't understand" gives way to the ask.
+    // A question whether a dish suits the player, with no rule statement and no severity cue, is
+    // answered by the dish card alone: it is a question, not a health statement (controller ruling).
+    const suitabilityOnly =
+      isSuitabilityQuestion(f.stripped) && parseRuleStatement(f.stripped, graph) === null && severityFromText(f.stripped, graph) === null;
+    if (suitabilityOnly && reply.cards.length === 0) reply.parts = [line('mentor.check_card')];
     const proposedRule = f.result.toolCalls.some((c) => c.name === 'propose_rule' && offered.has(c.name));
     const droppedRule = proposedRule && keptRuleTerms.length === 0;
-    if (f.health && !hasRuleOutcome(reply) && (reply.cards.length === 0 || droppedRule)) {
+    if (f.health && !suitabilityOnly && !hasRuleOutcome(reply) && (reply.cards.length === 0 || droppedRule)) {
       const onlyFallback = reply.parts.length === 1 && reply.parts[0].kind === 'line' && reply.parts[0].line.trigger === 'didnt_understand';
       if (onlyFallback) reply.parts = [];
       reply.parts.push(line('rule.ask_keep_off'));

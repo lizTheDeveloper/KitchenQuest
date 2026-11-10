@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { classifyTurn, stripPageEvents } from './intents';
+import { classifyTurn, isSuitabilityQuestion, stripPageEvents } from './intents';
 
 describe('classifyTurn', () => {
   // The spike's inputs (docs/spikes/2026-11-09-qwen-as-pan.md)
@@ -180,3 +180,8 @@ test.each(['can I eat this one?', 'can I have this?', 'is this ok for me?', 'is 
   '%j is a health turn (R7)',
   (text) => expect(classifyTurn(text)).toBe('health'),
 );
+
+test('isSuitabilityQuestion reads the suitability questions only', () => {
+  for (const t of ['Can I eat this one?', 'is it OK for me', 'will it bother me?']) expect(isSuitabilityQuestion(t)).toBe(true);
+  for (const t of ["I'm allergic to peanuts", 'what should I cook tonight?']) expect(isSuitabilityQuestion(t)).toBe(false);
+});

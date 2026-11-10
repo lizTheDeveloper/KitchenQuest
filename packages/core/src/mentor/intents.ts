@@ -43,6 +43,10 @@ export const ALLOWANCE_PATTERN =
 export const THANKS_PATTERN = /^(thanks|thank you|cheers|ta)\b[^?]{0,30}$/;
 
 /** Deliberately over-catches: it decides what may reach the model without `ai_health` (Step 7). */
+/** A question whether a dish suits the player (fix round 2, R7): a health turn, answered by the dish card. */
+export const SUITABILITY_PATTERN =
+  /\b(can i (eat|have) (this|that|it)\w*|(ok|okay|fine|safe|alright) for me|(will|would|does|did) (it|this|that) (bother|upset|affect) me)\b/;
+
 export const HEALTH_PATTERN =
   /\b(can i (eat|have) (this|that|it)\w*|(ok|okay|fine|safe|alright) for me|(will|would|does|did) (it|this|that) (bother|upset|affect) me|allerg\w*|intoleran\w*|anaphyla\w*|epi-?pen|coeliac|celiac|vegan|vegetarian|pescatarian|halal|kosher|jain|diet\w*|can'?t (eat|have)|cannot (eat|have)|don'?t eat|avoid\w*|sensitive to|stomach|bloat\w*|rough after|makes me (sick|ill)|ate|eaten|had|breakfast|brekkie|lunch|dinner|supper|snack\w*)\b/;
 
@@ -116,6 +120,11 @@ function isStrictYes(t: string): boolean {
     .split(/\s+/)
     .filter((w) => w !== '');
   return words.length > 0 && words.every((w) => YES_WORDS.has(w)) && words.some((w) => YES_STRONG.has(w));
+}
+
+/** The text asks whether a dish suits the player ("can I eat this?", "is it ok for me?"). */
+export function isSuitabilityQuestion(text: string): boolean {
+  return SUITABILITY_PATTERN.test(normalizeTurn(text));
 }
 
 export function classifyTurn(text: string): TurnIntent {
