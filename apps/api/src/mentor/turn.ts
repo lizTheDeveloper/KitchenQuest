@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
+  askForDroppedTerms,
   buildMealCard,
   buildPantryCard,
   buildProfileCard,
@@ -46,7 +47,7 @@ import { appendMessages, bumpTurn, openConversation, recentMessages, type Stored
 import { isHealthText } from './health.js';
 import { line, listWords, type PanBank } from './lines.js';
 import type { MemoryFlags, MemoryHistory } from './memory.js';
-import { applyPostChecks, severeTermsLeftOut, statesSevere } from './postchecks.js';
+import { applyPostChecks } from './postchecks.js';
 import { buildPromptContext, minimiseHistory, renderMessages, type PanPrompt } from './prompt.js';
 import { createProposal, hasOpenHealthProposal, openProposalsOfConversation } from './proposals.js';
 import { isWriteRequest } from './requests.js';
@@ -320,10 +321,10 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
 
     // I5: a severe statement always ends with a rule outcome, naming the missed ingredient when code knows it.
     const keptRuleTerms = calls.flatMap((c) => (c.name === 'propose_rule' ? [c.args.term] : []));
-    const missed = severeTermsLeftOut(f.raw, keptRuleTerms, graph);
-    if (missed !== null || (statesSevere(f.raw, graph) && !hasRuleOutcome(reply))) {
+    const ask = askForDroppedTerms(f.raw, keptRuleTerms, hasRuleOutcome(reply), graph);
+    if (ask !== null) {
       dropBareFallback();
-      reply.parts.push(line('rule.ask_what_else', missed === null ? {} : { term: missed }));
+      reply.parts.push({ kind: 'line', line: ask });
     }
     // A health statement is never silently lost (fix round 1 ruling on call 3): a health turn
     // that made no card at all, or whose model rule was dropped (C4), with no rule outcome,

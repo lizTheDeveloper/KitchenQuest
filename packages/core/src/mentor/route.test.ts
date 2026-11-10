@@ -5,13 +5,19 @@ import { IngredientGraph } from '../ingredients/graph';
 import type { TurnIntent } from './intents';
 import type { RuleTerm } from './rule-terms';
 import {
+  askForDroppedTerms,
+  clockForSlot,
   dropMealsMatchingRemovals,
   matchDish,
   mentionsHealthTerm,
+  pantryMatcher,
   playerOwnWords,
   preRoute,
   ruleTermsInPlayerWords,
+  severeTermsLeftOut,
   shortReplyTarget,
+  slotClause,
+  statesSevere,
   weekdayNumbers,
 } from './route';
 
@@ -190,3 +196,35 @@ test.each([
   'I want to dream up a menu', 'which cooking pot', 'got any ideas for the union day party', 'too much paste', 'what about the beacon', 'I like letters',
   'what shall I make tonight', 'quick weeknight meal ideas', 'something cheap and cheerful', 'I have a slow cooker', 'what about salty', 'what about shall',
 ])('mentionsHealthTerm leaves %j alone (D)', (text) => expect(mentionsHealthTerm(text, graph, terms)).toBe(false));
+
+describe('shared post-checks (moved from the API for the client engine, Step 9)', () => {
+  test('severeTermsLeftOut and askForDroppedTerms: a severe statement never silently loses a term', () => {
+    expect(severeTermsLeftOut("i'm vegetarian, peanuts nearly killed me", ['vegetarian'], graph)).toBe('peanut');
+    expect(severeTermsLeftOut('I like peanuts', [], graph)).toBeNull();
+    expect(askForDroppedTerms("i'm vegetarian, peanuts nearly killed me", ['vegetarian'], true, graph)).toEqual({
+      trigger: 'rule.ask_what_else',
+      vars: { term: 'peanut' },
+    });
+    // Severe with no rule outcome at all: the plain ask.
+    expect(askForDroppedTerms("I'm allergic to it", [], false, graph)).toEqual({ trigger: 'rule.ask_what_else', vars: {} });
+    expect(askForDroppedTerms("I'm allergic to it", [], true, graph)).toBeNull();
+    expect(askForDroppedTerms('I have a severe peanut allergy', ['peanut'], true, graph)).toBeNull();
+    expect(statesSevere('peanuts nearly killed me', graph)).toBe(true);
+  });
+
+  test('clockForSlot reads the clause naming the slot (T04)', () => {
+    const t = 'remind me to eat lunch at like half twelve and dinner around 7ish pm';
+    expect(clockForSlot(t, 'lunch')).toBe('12:30');
+    expect(clockForSlot(t, 'dinner')).toBe('19:00');
+    expect(clockForSlot(t, 'breakfast')).toBeNull();
+    expect(slotClause("what's for dinner", 'dinner')).toBe("what's for dinner");
+    expect(clockForSlot('anything', 'other')).toBeNull();
+  });
+
+  test('pantryMatcher matches names, resolved ingredients and ids', () => {
+    const m = pantryMatcher(['Eggs', 'semi-skimmed milk'], ['ID-9'], graph);
+    expect(m({ id: 'a', name: 'eggs', ingredientId: null })).toBe(true);
+    expect(m({ id: 'id-9', name: 'rice', ingredientId: null })).toBe(true);
+    expect(m({ id: 'b', name: 'rice', ingredientId: 'rice' })).toBe(false);
+  });
+});

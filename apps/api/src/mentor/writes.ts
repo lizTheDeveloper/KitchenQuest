@@ -1,10 +1,13 @@
 import {
+  confirmedLines,
   isSevereCard,
+  rejectedLine,
+  trailSummary,
+  undoneLine,
+  UNDO_WINDOW_MS,
   withSeverity,
   type ConfirmResponse,
-  type MealSlot,
   type PantryItem,
-  type ProposalCard,
   type ProposalKind,
   type ReplyPart,
   type Severity,
@@ -22,8 +25,7 @@ import { createMealLogIn, deleteMealLogIn } from '../meals/service.js';
 import { changePantryIn, lockUserPantry, restorePantryIn } from '../pantry/service.js';
 import { applyProfilePatchIn } from '../profile/routes.js';
 import { createRuleIn, deleteRuleIn, lockUserRules } from '../rules/service.js';
-import { UNDO_WINDOW_MS } from './constants.js';
-import { line, listWords } from './lines.js';
+import { line } from './lines.js';
 import { lockProposal, markDecided, peekProposal } from './proposals.js';
 
 /**
@@ -49,25 +51,11 @@ export interface ConfirmDeps {
 const notFound = () => new ApiError(404, 'not_found', 'Proposal not found');
 const closed = () => new ApiError(409, 'proposal_closed', 'This card is no longer open');
 
-/** The log.logged `{meal}` values (pre-flight C39). */
-const MEAL_WORD: Readonly<Record<MealSlot, string>> = {
-  breakfast: 'breakfast',
-  lunch: 'lunch',
-  dinner: 'dinner',
-  snack: 'a snack',
-  other: 'meal',
-};
-
 /** Takes the locks a proposal of `kind` needs before its row: the advisory lock, then consent when `withConsent`. */
 async function lockForKind(tx: Tx, userId: string, kind: ProposalKind, withConsent: boolean, at: Date): Promise<void> {
   if (kind === 'rule') await lockUserRules(tx, userId);
   if (kind === 'pantry') await lockUserPantry(tx, userId);
   if (withConsent && (kind === 'rule' || kind === 'meal')) await lockConsentIn(tx, userId, 'health_data', at);
-}
-
-/** A short summary for the trail entry. */
-function summaryOf(card: ProposalCard): string {
-  return card.kind === 'rule' ? `${card.display.ingredient}, ${card.display.severity}` : card.summary;
 }
 
 /** The pantry undo payload: the rows the confirm removed (put back on undo) and the ids it added (removed on undo). */
@@ -112,29 +100,24 @@ export async function confirmProposalIn(
     card = withSeverity(card, edits.severity, deps.catalog.graph, deps.catalog.ruleTerms);
   }
 
-  let parts: ReplyPart[];
   let writeRef: string | null = null;
   let undo: unknown = null;
+  let removedNames: string[] = [];
   switch (card.kind) {
     case 'rule': {
       const rule = await createRuleIn(tx, deps, userId, card.rule, at, requestId);
       writeRef = rule.id;
-      parts = [line('rule.stamped', { ingredient: card.display.ingredient })];
-      if (isSevereCard(card)) parts.push(line('rule.severe_label_reminder'));
       break;
     }
     case 'meal': {
       const meal = await createMealLogIn(tx, deps, userId, card.meal, at, requestId);
       writeRef = meal.id;
-      parts = [line('log.logged', { meal: MEAL_WORD[card.meal.slot] })];
-      if (card.estimate) parts.push(line('log.estimate_note'));
       break;
     }
     case 'profile': {
       const { before } = await applyProfilePatchIn(tx, userId, card.patch, at);
       // Only the keys the card changed are put back on undo.
       undo = Object.fromEntries(Object.keys(card.patch).map((k) => [k, before[k as keyof typeof before]]));
-      parts = [line('schedule.set', { summary: card.summary })];
       break;
     }
     case 'pantry': {
@@ -148,14 +131,12 @@ export async function confirmProposalIn(
         requestId,
       );
       undo = { removed, addedIds } satisfies PantryUndo;
-      parts = [];
-      if (card.add.length > 0) parts.push(line('pantry.added', { items: listWords(card.add.map((a) => a.name)) }));
-      if (removed.length > 0)
-        parts.push(line('pantry.removed', { items: listWords([...new Set(removed.map((r) => r.name))]) }));
-      if (parts.length === 0) parts.push(line('pantry.not_found', { items: listWords(card.remove) }));
+      removedNames = removed.map((r) => r.name);
       break;
     }
   }
+  // The lines come from core, as the client's card writer says them (pre-flight C14).
+  const parts: ReplyPart[] = confirmedLines(card, removedNames).map((l) => ({ kind: 'line', line: l }));
   await markDecided(tx, p.id, 'confirmed', channel, writeRef, undo, deps.keyring, userId, at);
   await audit(
     tx,
@@ -166,7 +147,7 @@ export async function confirmProposalIn(
     id: p.id,
     origin: 'server',
     kind: card.kind,
-    summary: summaryOf(card),
+    summary: trailSummary(card),
     undoUntil: new Date(at.getTime() + UNDO_WINDOW_MS).toISOString(),
   };
   return { trail, parts };
@@ -195,7 +176,7 @@ export async function rejectProposalIn(
     { actorKind: 'user', actorId: userId, subjectUserId: userId, action: 'mentor.reject', target: p.id, requestId },
     at,
   );
-  return { parts: [line(p.kind === 'rule' ? 'rule.not_quite' : 'card.rejected')] };
+  return { parts: [{ kind: 'line', line: rejectedLine(p.kind) }] };
 }
 
 /**
@@ -265,7 +246,7 @@ export async function undoWriteIn(
     at,
   );
   return {
-    parts: [p.card.kind === 'rule' ? line('rule.voided', { ingredient: p.card.display.ingredient }) : line('undo')],
+    parts: [{ kind: 'line', line: undoneLine(p.card) }],
     undone: true,
   };
 }

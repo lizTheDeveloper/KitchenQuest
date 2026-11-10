@@ -8,8 +8,8 @@ const HOUR = 60 * MINUTE;
 
 /** A proposal card can be confirmed for this long after the server showed it. */
 export const PROPOSAL_TTL_MS = 30 * MINUTE;
-/** A confirmed write can be undone for this long after it was made. */
-export const UNDO_WINDOW_MS = 5 * MINUTE;
+/** A confirmed write can be undone for this long after it was made: one place, in core (the client's writer uses it too). */
+export { UNDO_WINDOW_MS } from '@kitchenquest/core';
 /** Stored transcripts (`messages`) and idle `conversations` are kept this many days (C-12). */
 export const TRANSCRIPT_RETENTION_DAYS = 30;
 /** At most this many earlier messages are read back as a turn's history. */

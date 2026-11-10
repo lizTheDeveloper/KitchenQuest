@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { normalizeName, type PantryItem } from '@kitchenquest/core';
+import { pantryMatcher, type PantryItem } from '@kitchenquest/core';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { audit } from '../audit/audit.js';
@@ -64,23 +64,8 @@ function parseChange(change: unknown, catalog: Catalog): PantryChange {
   return parsed;
 }
 
-/**
- * Which pantry items a removal names: `removeNames` match case-insensitively
- * (core's normalizeName), or by ingredient id when the name resolves in the
- * graph; `removeIds` match exactly. The one matching rule for the service and
- * for the mentor's pantry card, which resolves names to ids when it is
- * proposed (Step 8: confirm then removes exactly those ids).
- */
-export function pantryMatcher(
-  removeNames: readonly string[],
-  removeIds: readonly string[],
-  graph: Catalog['graph'],
-): (item: { id: string; name: string; ingredientId: string | null }) => boolean {
-  const names = new Set(removeNames.map(normalizeName).filter((n) => n !== ''));
-  const resolved = new Set(removeNames.map((n) => graph.resolve(n)).filter((id): id is string => id !== null));
-  const ids = new Set(removeIds.map((id) => id.toLowerCase()));
-  return (i) => ids.has(i.id) || names.has(normalizeName(i.name)) || (i.ingredientId !== null && resolved.has(i.ingredientId));
-}
+/** The one matching rule for the service, the mentor's pantry card and the client's device pantry (core). */
+export { pantryMatcher };
 
 const byAge = (a: { createdAt: Date; id: string }, b: { createdAt: Date; id: string }) =>
   a.createdAt.getTime() - b.createdAt.getTime() || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);

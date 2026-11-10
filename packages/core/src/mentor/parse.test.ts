@@ -134,6 +134,14 @@ describe('meals', () => {
     expect(parseMealStatement('what should I cook?')).toBeNull();
   });
 
+  test('parseMealStatement reads the meal clause of a multi-intent turn (Step 9, T11)', () => {
+    expect(parseMealStatement("I had toast for breakfast and also I'm allergic to kiwi")).toEqual({ description: 'toast', slot: 'breakfast', when: 'today' });
+    expect(parseMealStatement('had dal and rice but I am vegan by the way')).toEqual({ description: 'dal and rice', slot: null, when: 'today' });
+    expect(parseMealStatement('I had an allergic reaction to prawns')).toBeNull();
+    expect(parseMealStatement("I've had a peanut allergy since I was 4 and I had toast")).toBeNull();
+    expect(parseMealStatement("I'm allergic to kiwi and I had toast for lunch")).toEqual({ description: 'toast', slot: 'lunch', when: 'today' });
+  });
+
   test('slotForTime', () => {
     expect(['06:00', '10:59', '11:00', '14:59', '15:00', '16:59', '17:00', '21:59', '22:00'].map(slotForTime)).toEqual([
       'breakfast', 'breakfast', 'lunch', 'lunch', 'snack', 'snack', 'dinner', 'dinner', 'snack',

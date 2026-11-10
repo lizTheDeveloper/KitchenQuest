@@ -1,9 +1,9 @@
 import {
   ANAPHYLACTIC_CUE,
+  clockForSlot,
   dropMealsMatchingRemovals,
   normalizeName,
   normalizeTurn,
-  parseClock,
   parsePantryRemovals,
   parseRuleStatement,
   parseWeekdays,
@@ -14,7 +14,6 @@ import {
   stripPageEvents,
   WEEKDAY_NAMES,
   type IngredientGraph,
-  type MealSlot,
   type RuleTerm,
   type Severity,
 } from '@kitchenquest/core';
@@ -115,23 +114,6 @@ function nearSevereCue(text: string, term: string): boolean {
   );
 }
 
-const SLOT_WORDS: Readonly<Record<MealSlot, RegExp | null>> = {
-  breakfast: /\b(breakfast|brekkie)\b/i,
-  lunch: /\blunch\b/i,
-  dinner: /\b(dinner|supper)\b/i,
-  snack: /\bsnacks?\b/i,
-  other: null,
-};
-const CLAUSE_SPLIT = /[,;.!?]|\band\b|\bthen\b/i;
-
-/** The clock time in the first clause naming `slot`, or null. */
-function clockFor(own: string, slot: MealSlot): string | null {
-  const word = SLOT_WORDS[slot];
-  if (word === null) return null;
-  const clause = own.split(CLAUSE_SPLIT).find((c) => word.test(c));
-  return clause === undefined ? null : parseClock(clause);
-}
-
 /**
  * The model's calls corrected by what the player's own words say:
  * - C4: a rule whose term is not in the player's own rule statement is dropped,
@@ -173,7 +155,7 @@ export function applyPostChecks(calls: ToolArgs[], playerText: string, graph: In
       }
       case 'propose_profile': {
         const args = { ...call.args, region: shortName(call.args.region, own), country: shortName(call.args.country, own) };
-        if (args.meal_windows !== null) args.meal_windows = args.meal_windows.map((w) => ({ ...w, start: clockFor(own, w.name) ?? w.start }));
+        if (args.meal_windows !== null) args.meal_windows = args.meal_windows.map((w) => ({ ...w, start: clockForSlot(own, w.name) ?? w.start }));
         if (args.market_days !== null && weekdays.length > 0) args.market_days = weekdays.map((d) => WEEKDAY_NAMES[d]);
         out.push({ name: 'propose_profile', args });
         break;
@@ -210,45 +192,8 @@ export function applyPostChecks(calls: ToolArgs[], playerText: string, graph: In
   );
 }
 
-/** Ingredient ids named in the text, longest match first at each word (up to three words). */
-function namedIngredients(text: string, graph: IngredientGraph): string[] {
-  const words = normalizeName(text)
-    .split(/[^\p{L}\p{N}'-]+/u)
-    .map((w) => w.replace(/^['-]+|['-]+$/g, ''))
-    .filter((w) => w !== '');
-  const ids: string[] = [];
-  for (let i = 0; i < words.length; ) {
-    let step = 1;
-    for (let n = Math.min(3, words.length - i); n >= 1; n--) {
-      const id = graph.resolve(words.slice(i, i + n).join(' '));
-      if (id !== null) {
-        ids.push(id);
-        step = n;
-        break;
-      }
-    }
-    i += step;
-  }
-  return ids;
-}
-
 /**
- * Step 1 carry and fix round 1 I5: the player's own words state a severe
- * allergy but name an ingredient that no kept rule call covers (whether or
- * not the grammar parsed it) ("i'm vegetarian, peanuts nearly killed me"). Returns that
- * ingredient's name, or null. The turn then adds `rule.ask_what_else`, so the
- * dropped term is never silently lost. Over-asks on purpose.
+ * The ask-for-dropped-terms checks live in core, so the client's scripted engine uses the same
+ * rule (pre-flight C14); re-exported for the turn and its tests.
  */
-export function severeTermsLeftOut(playerText: string, keptRuleTerms: readonly string[], graph: IngredientGraph): string | null {
-  const own = ownWords(playerText);
-  if (!isSevere(severityFromText(own, graph))) return null;
-  // Only the turn's rule calls cover a term: a term the grammar parsed but no card was made for is still missed.
-  const covered = new Set(keptRuleTerms.map((t) => graph.resolve(t)).filter((id) => id !== null));
-  const missed = namedIngredients(own, graph).find((id) => !covered.has(id));
-  return missed === undefined ? null : graph.get(missed).name;
-}
-
-/** The player's own words state a severe allergy (I5: a severe turn with no rule outcome always asks). */
-export function statesSevere(playerText: string, graph: IngredientGraph): boolean {
-  return isSevere(severityFromText(ownWords(playerText), graph));
-}
+export { severeTermsLeftOut, statesSevere } from '@kitchenquest/core';

@@ -540,6 +540,8 @@ const MEAL_WHEN_WORDS = /\b(yesterday|last night|today|this morning|tonight|earl
 const SLOT_WORD: Record<string, MealSlot> = {
   breakfast: 'breakfast', brekkie: 'breakfast', lunch: 'lunch', dinner: 'dinner', supper: 'dinner', snack: 'snack',
 };
+/** A new clause with its own subject: "… and also I'm allergic to kiwi", "… but my son had chips". */
+export const MEAL_CLAUSE_SPLIT = /\s*,?\s+(?:(?:and|but|so|then|oh|also)\s+)+(?=(?:i|i'm|im|i've|ive|my|we|we're|we've)\b)/;
 const NOT_A_MEAL = /\b(allerg\w*|intoleran\w*|anaphyla\w*)\b/;
 /** "had enough", "had a long day", "had a go": the verb, not a meal. */
 export const NOT_FOOD =
@@ -550,15 +552,18 @@ export function parseMealStatement(
   text: string,
 ): { description: string; slot: MealSlot | null; when: 'today' | 'yesterday' } | null {
   const t = normalizeTurn(text);
-  if (NOT_A_MEAL.test(t)) return null;
   const sentence = t.split(/[.!?]/).find((s) => MEAL_VERB_PATTERN.test(s));
   if (sentence === undefined) return null;
+  // Step 9 (T11): "I had toast for breakfast and also I'm allergic to kiwi" is two statements; the
+  // meal is read from its own clause, and an allergy word in that clause means it is no meal.
+  const clause = sentence.split(MEAL_CLAUSE_SPLIT).find((c) => MEAL_VERB_PATTERN.test(c))!;
+  if (NOT_A_MEAL.test(clause)) return null;
   let slot: MealSlot | null = null;
-  for (const m of sentence.matchAll(MEAL_SLOT_PATTERN)) {
+  for (const m of [...clause.matchAll(MEAL_SLOT_PATTERN), ...sentence.matchAll(MEAL_SLOT_PATTERN)]) {
     slot = SLOT_WORD[m[1]];
     break;
   }
-  const m = MEAL_VERB_PATTERN.exec(sentence)!;
+  const m = MEAL_VERB_PATTERN.exec(clause)!;
   const description = m[1]
     .replace(MEAL_SLOT_PATTERN, ' ')
     .replace(MEAL_WHEN_WORDS, ' ')

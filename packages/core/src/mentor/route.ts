@@ -1,7 +1,8 @@
 import { normalizeName, type IngredientGraph } from '../ingredients/graph';
+import { SEVERE, type Severity } from '../rules/types';
 import type { LineRef } from './cards';
-import { canonicalText, capText, foldConfusables, type TurnIntent } from './intents';
-import { parseRuleStatement, weekdaysOf } from './parse';
+import { canonicalText, capText, foldConfusables, stripPageEvents, type TurnIntent } from './intents';
+import { parseClock, parseRuleStatement, severityFromText, weekdaysOf, type MealSlot } from './parse';
 import type { RuleTerm } from './rule-terms';
 
 /**
@@ -304,4 +305,105 @@ export function ruleTermsInPlayerWords(text: string): string[] {
   const terms = parseRuleStatement(playerOwnWords(text))?.terms ?? [];
   // Cut at MAX_TEXT: the last term may be cut ("pea" of "peanuts"), so it never counts.
   return capText(text) !== text ? terms.slice(0, -1) : terms;
+}
+
+/** The player's own words, cut at injected or pasted text, with page events stripped. */
+const ownWords = (raw: string): string => stripPageEvents(playerOwnWords(raw)).text;
+const isSevere = (s: Severity | null): s is Severity => s !== null && SEVERE.has(s);
+
+/** Ingredient ids named in the text, longest match first at each word (up to three words). */
+function namedIngredients(text: string, graph: IngredientGraph): string[] {
+  const words = normalizeName(text)
+    .split(/[^\p{L}\p{N}'-]+/u)
+    .map((w) => w.replace(/^['-]+|['-]+$/g, ''))
+    .filter((w) => w !== '');
+  const ids: string[] = [];
+  for (let i = 0; i < words.length; ) {
+    let step = 1;
+    for (let n = Math.min(3, words.length - i); n >= 1; n--) {
+      const id = graph.resolve(words.slice(i, i + n).join(' '));
+      if (id !== null) {
+        ids.push(id);
+        step = n;
+        break;
+      }
+    }
+    i += step;
+  }
+  return ids;
+}
+
+/**
+ * Step 1 carry and Step 7 fix round 1 I5: the player's own words (`playerText` is the RAW turn
+ * text) state a severe allergy but name an ingredient that no kept rule term covers (whether or
+ * not the grammar parsed it) ("i'm vegetarian, peanuts nearly killed me"). Returns that
+ * ingredient's name, or null. Over-asks on purpose.
+ */
+export function severeTermsLeftOut(playerText: string, keptRuleTerms: readonly string[], graph: IngredientGraph): string | null {
+  const own = ownWords(playerText);
+  if (!isSevere(severityFromText(own, graph))) return null;
+  // Only the turn's rule terms cover a term: a term the grammar parsed but no card was made for is still missed.
+  const covered = new Set(keptRuleTerms.map((t) => graph.resolve(t)).filter((id) => id !== null));
+  const missed = namedIngredients(own, graph).find((id) => !covered.has(id));
+  return missed === undefined ? null : graph.get(missed).name;
+}
+
+/** The player's own words (RAW turn text) state a severe allergy (I5: a severe turn with no rule outcome always asks). */
+export function statesSevere(playerText: string, graph: IngredientGraph): boolean {
+  return isSevere(severityFromText(ownWords(playerText), graph));
+}
+
+/**
+ * The ask-for-dropped-terms rule (Step 7, "Carry from Step 1"; the client's scripted engine and
+ * intake answers use it too): `rule.ask_what_else`, naming the missed ingredient when code knows
+ * it, when a severe statement left a named ingredient out or produced no rule outcome at all.
+ * `hasRuleOutcome`: the reply already holds a rule card or a rule line. Null when nothing is missed.
+ */
+export function askForDroppedTerms(
+  playerText: string,
+  keptRuleTerms: readonly string[],
+  hasRuleOutcome: boolean,
+  graph: IngredientGraph,
+): LineRef | null {
+  const missed = severeTermsLeftOut(playerText, keptRuleTerms, graph);
+  if (missed === null && !(statesSevere(playerText, graph) && !hasRuleOutcome)) return null;
+  return line('rule.ask_what_else', missed === null ? {} : { term: missed });
+}
+
+const SLOT_WORDS: Readonly<Record<MealSlot, RegExp | null>> = {
+  breakfast: /\b(breakfast|brekkie)\b/i,
+  lunch: /\blunch\b/i,
+  dinner: /\b(dinner|supper)\b/i,
+  snack: /\bsnacks?\b/i,
+  other: null,
+};
+const CLAUSE_SPLIT = /[,;.!?]|\band\b|\bthen\b/i;
+
+/** The first clause of `text` naming `slot` ("lunch at half twelve and dinner at 7" → lunch's clause), or null. */
+export function slotClause(text: string, slot: MealSlot): string | null {
+  const word = SLOT_WORDS[slot];
+  if (word === null) return null;
+  return text.split(CLAUSE_SPLIT).find((c) => word.test(c)) ?? null;
+}
+
+/** The clock time in the first clause naming `slot`, or null (T04: "lunch at half twelve" is 12:30). */
+export function clockForSlot(text: string, slot: MealSlot): string | null {
+  const clause = slotClause(text, slot);
+  return clause === null ? null : parseClock(clause);
+}
+
+/**
+ * Which pantry items a removal names: `removeNames` match case-insensitively (normalizeName), or
+ * by ingredient id when the name resolves in the graph; `removeIds` match exactly. The one
+ * matching rule for the API's pantry service and the client's device pantry.
+ */
+export function pantryMatcher(
+  removeNames: readonly string[],
+  removeIds: readonly string[],
+  graph: IngredientGraph,
+): (item: { id: string; name: string; ingredientId: string | null }) => boolean {
+  const names = new Set(removeNames.map(normalizeName).filter((n) => n !== ''));
+  const resolved = new Set(removeNames.map((n) => graph.resolve(n)).filter((id): id is string => id !== null));
+  const ids = new Set(removeIds.map((id) => id.toLowerCase()));
+  return (i) => ids.has(i.id) || names.has(normalizeName(i.name)) || (i.ingredientId !== null && resolved.has(i.ingredientId));
 }
