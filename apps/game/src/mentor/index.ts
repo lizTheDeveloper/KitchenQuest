@@ -73,10 +73,12 @@ export function switchingBackend(store: PlayerStore, build: (kind: 'scripted' | 
   const keyOf = (s: PlayerState) => `${backendKind(s)}|${s.account?.email ?? ''}`;
   let current: MentorBackend = make();
   key = keyOf(store.get());
-  store.subscribe((s) => {
+  const stop = store.subscribe((s) => {
     const k = keyOf(s);
     if (k === key) return;
     key = k;
+    // The old backend's queued retry never sends once the player turned the AI off, Family Table on, or switched account.
+    current.dispose?.();
     current = make();
   });
   return {
@@ -86,6 +88,33 @@ export function switchingBackend(store: PlayerStore, build: (kind: 'scripted' | 
       listeners.add(fn);
       return () => { listeners.delete(fn); };
     },
+    dispose() {
+      stop();
+      current.dispose?.();
+      listeners.clear();
+    },
+  };
+}
+
+/**
+ * The app's panel as one stable object: every call goes to the panel mounted now. When Family Table is turned on
+ * or off (here or in another tab), the panel and everything under it is rebuilt in that mode (fix round 1, M6),
+ * so a Family Table panel never has a text box and a standard one never keeps Family Table's history rules.
+ */
+function stablePanel(cur: () => MentorPanel): MentorPanel {
+  return {
+    get mode() { return cur().mode; },
+    get turn() { return cur().turn; },
+    open: () => { cur().open(); },
+    close: () => { cur().close(); },
+    isOpen: () => cur().isOpen(),
+    say: (id, vars) => cur().say(id, vars),
+    show: (r) => { cur().show(r); },
+    onOpen: (fn) => cur().onOpen(fn),
+    onCardDone: (fn) => cur().onCardDone(fn),
+    setAside: (el) => { cur().setAside(el); },
+    interceptText: (fn) => { cur().interceptText(fn); },
+    destroy: () => { cur().destroy(); },
   };
 }
 
@@ -95,35 +124,50 @@ export function mountMentor(doc: Document, store: PlayerStore, bank: LineBank, c
   const win = doc.defaultView!;
   const mql = win.matchMedia('(prefers-reduced-motion: reduce)');
   const now = () => new Date();
-  const dialogue: Dialogue = createDialogue(bank, historyOptions(store));
-  const recipes = Object.entries(content.recipes).map(([slug, r]) => ({ slug, title: r.meta.title }));
-  const engine: ScriptedEngine = createScriptedEngine({ dialogue, graph, ruleTerms: content.ruleTerms, recipes, now });
-  const writer = createCardWriter({ client, store, dialogue, graph, ruleTerms: content.ruleTerms, now });
-  const backend = switchingBackend(store, (kind) => (kind === 'ai'
-    ? createAiBackend({
-      client, engine, dialogue, store, graph, ruleTerms: content.ruleTerms, now, events: win,
-      screen: () => screenOf(win.location.hash),
-      intakeStep: () => { const step = store.get().intake.step; return step === 'done' ? null : step; },
-    })
-    : createScriptedBackend(engine, dialogue)));
   const root = doc.createElement('div');
   root.id = 'pan-root';
   doc.body.append(root);
-  const panel = mountMentorPanel(root, {
-    mode: store.get().settings.familyTable ? 'familyTable' : 'standard',
-    backend, dialogue, writer, engine, client, forms: content.bureau.forms, store, now,
-    reducedMotion: () => reducedMotion(store.get().settings.reducedMotion, mql),
-    disclosure: content.bureau.disclaimers.ai_characters,
+
+  let current: { panel: MentorPanel; backend: MentorBackend; familyTable: boolean } | null = null;
+  const build = () => {
+    const familyTable = store.get().settings.familyTable;
+    const dialogue: Dialogue = createDialogue(bank, historyOptions(store));
+    const recipes = Object.entries(content.recipes).map(([slug, r]) => ({ slug, title: r.meta.title }));
+    const engine: ScriptedEngine = createScriptedEngine({ dialogue, graph, ruleTerms: content.ruleTerms, recipes, now });
+    const writer = createCardWriter({ client, store, dialogue, graph, ruleTerms: content.ruleTerms, now });
+    const backend = switchingBackend(store, (kind) => (kind === 'ai'
+      ? createAiBackend({
+        client, engine, dialogue, store, graph, ruleTerms: content.ruleTerms, now, events: win,
+        screen: () => screenOf(win.location.hash),
+        intakeStep: () => { const step = store.get().intake.step; return step === 'done' ? null : step; },
+      })
+      : createScriptedBackend(engine, dialogue)));
+    const panel = mountMentorPanel(root, {
+      mode: familyTable ? 'familyTable' : 'standard',
+      backend, dialogue, writer, engine, client, forms: content.bureau.forms, store, now,
+      reducedMotion: () => reducedMotion(store.get().settings.reducedMotion, mql),
+      disclosure: content.bureau.disclaimers.ai_characters,
+    });
+    // Form 1-A starts the first time the panel opens in standard mode (§19: Family Table never starts it).
+    const intake = panel.mode === 'standard'
+      ? createIntake({
+        panel, engine, ai: backend, store, client, dialogue, signedIn: () => store.get().account !== null,
+        graph, ruleTerms: content.ruleTerms, form: content.bureau.forms.intake,
+      })
+      : null;
+    if (intake) panel.onOpen(() => { intake.start(); });
+    services = { client, dialogue, engine, writer, intake };
+    current = { panel, backend, familyTable };
+  };
+  build();
+  store.subscribe((s) => {
+    if (current === null || s.settings.familyTable === current.familyTable) return;
+    const wasOpen = current.panel.isOpen();
+    current.panel.destroy();
+    current.backend.dispose?.();
+    build();
+    if (wasOpen) current!.panel.open();
   });
-  mentor = panel;
-  // Form 1-A starts the first time the panel opens in standard mode (§19: Family Table never starts it).
-  const intake = panel.mode === 'standard'
-    ? createIntake({
-      panel, engine, ai: backend, store, client, dialogue, signedIn: () => store.get().account !== null,
-      graph, ruleTerms: content.ruleTerms, form: content.bureau.forms.intake,
-    })
-    : null;
-  if (intake) panel.onOpen(() => { intake.start(); });
-  services = { client, dialogue, engine, writer, intake };
-  return panel;
+  mentor = stablePanel(() => current!.panel);
+  return mentor;
 }

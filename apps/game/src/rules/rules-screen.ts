@@ -118,6 +118,7 @@ export function rulesScreen(): Screen {
                 setCardNote(cardEl, NOT_SAVED_TEXT);
                 return;
               case 'tap_required':
+              case 'busy':
                 return;
               case 'invalid':
               case 'closed':

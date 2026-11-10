@@ -17,6 +17,7 @@ import type { CardWriter, UndoOutcome, WriteOutcome } from './writer';
 export const MAX_BUBBLES = 50;
 export const THINKING_TEXT = 'The Pan is thinking…';
 export const NOT_SAVED_TEXT = "That didn't go through, so nothing was saved. Tap the button again to try again.";
+export const REJECT_FAILED_TEXT = "That didn't go through, so the card is still open. Tap 'Not quite' again to turn it down.";
 const UNDO_FAILED_TEXT = "That didn't go through, so nothing was undone. Tap Undo to try again.";
 const CONSENT_UNAVAILABLE_TEXT = "The permission form couldn't load just now. Nothing has changed.";
 const CONSENT_FAILED_TEXT = "That didn't go through. Nothing has changed. Tap 'I agree' to try again.";
@@ -47,6 +48,8 @@ export interface MentorPanel {
   setAside(el: HTMLElement | null): void;
   /** Typed text goes to `fn` first; when it returns null the backend answers as usual. Null removes it. */
   interceptText(fn: ((text: string, ctx: TurnContext) => Promise<PanReply> | null) | null): void;
+  /** Takes the panel out of the page and drops every listener it added (a remount when Family Table changes). */
+  destroy(): void;
 }
 
 interface OpenCard { view: CardView; el: HTMLElement; li: HTMLElement }
@@ -96,6 +99,8 @@ export function mountMentorPanel(root: HTMLElement, opts: {
   let turn = 0;
   let pending = false;
   const cards = new Map<string, OpenCard>();
+  /** Cards whose write or turn-down is in flight: a typed yes or no meanwhile is ignored (the tap answers). */
+  const busyCards = new Set<string>();
   const trail: Trail[] = [];
 
   const scrollDown = () => { bubbles.scrollTop = bubbles.scrollHeight; };
@@ -153,11 +158,19 @@ export function mountMentorPanel(root: HTMLElement, opts: {
 
   function addCard(view: CardView): void {
     const deviceOnly = view.origin === 'local' && view.card.kind === 'rule' && store.get().account === null;
-    const el = renderCard(view, {
-      forms, now: opts.now, ...(deviceOnly ? { footnote: DEVICE_ONLY_FOOTNOTE } : {}),
-      onConfirm: (edits) => confirm(view, 'tap', edits),
-      onReject: () => reject(view),
-    });
+    let el: HTMLElement;
+    try {
+      el = renderCard(view, {
+        forms, now: opts.now, ...(deviceOnly ? { footnote: DEVICE_ONLY_FOOTNOTE } : {}),
+        onConfirm: (edits) => confirm(view, 'tap', edits),
+        onReject: () => reject(view),
+      });
+    } catch (err) {
+      // A card that can't be drawn is never half-shown: it is dropped, and the Pan says it didn't follow.
+      console.error(err);
+      sayLine('didnt_understand');
+      return;
+    }
     const li = addLi('pan-item pan-card-item', el);
     cards.set(keyOf(view), { view, el, li });
   }
@@ -173,8 +186,8 @@ export function mountMentorPanel(root: HTMLElement, opts: {
     }
     const hadFocus = c.li.contains(doc.activeElement);
     addTrail(entry, c.view.card, c.li);
-    // The pressed button is gone: focus stays in the same place in the panel, on the entry that replaced it.
-    if (hadFocus) (c.li.querySelector('button') ?? textBox ?? closeBtn).focus();
+    // The pressed button is gone: focus stays in the same place in the panel, on the entry text that replaced it.
+    if (hadFocus) (c.li.querySelector<HTMLElement>('.trail-text') ?? textBox ?? closeBtn).focus();
   }
 
   /** A card element that leaves the panel takes no focus with it. */
@@ -201,14 +214,19 @@ export function mountMentorPanel(root: HTMLElement, opts: {
   async function confirm(view: CardView, via: 'tap' | 'typed_yes', edits?: { severity?: Severity }): Promise<void> {
     const key = keyOf(view);
     const c = cards.get(key);
-    if (c === undefined) return;
+    if (c === undefined || busyCards.has(key)) return;
     let out: WriteOutcome;
+    busyCards.add(key);
     try {
       out = await writer.confirm(view, via, edits);
     } catch (err) {
       console.error(err);
       out = { ok: false, reason: 'network', items: [] };
+    } finally {
+      busyCards.delete(key);
     }
+    // Another confirm of this card is answering (fix round 1, I1): nothing to show here.
+    if (!out.ok && out.reason === 'busy') return;
     if (out.ok) {
       await toTrail(key, out.trail);
       renderItems(out.items, []);
@@ -220,6 +238,8 @@ export function mountMentorPanel(root: HTMLElement, opts: {
     // A failed write is never silent (Step 9 carry): a scripted line, and a way to try again.
     const said = out.items.length > 0 ? out.items : [{ kind: 'said', said: dialogue.say('write.not_done') } satisfies PanItem];
     switch (out.reason) {
+      case 'busy':
+        return;
       case 'tap_required':
       case 'consent_required':
         renderItems(out.items, []);
@@ -241,9 +261,18 @@ export function mountMentorPanel(root: HTMLElement, opts: {
   async function reject(view: CardView): Promise<void> {
     const key = keyOf(view);
     const c = cards.get(key);
-    if (c === undefined) return;
-    const items = await writer.reject(view);
-    if (items.length === 0) { setCardNote(c.el, NOT_SAVED_TEXT); return; }
+    if (c === undefined || busyCards.has(key)) return;
+    busyCards.add(key);
+    let items: PanItem[];
+    try {
+      items = await writer.reject(view);
+    } catch (err) {
+      console.error(err);
+      items = [];
+    } finally {
+      busyCards.delete(key);
+    }
+    if (items.length === 0) { setCardNote(c.el, REJECT_FAILED_TEXT); return; }
     cards.delete(key);
     removeLi(c.li);
     renderItems(items, []);
@@ -258,6 +287,7 @@ export function mountMentorPanel(root: HTMLElement, opts: {
       console.error(err);
       out = { status: 'failed', items: [] };
     }
+    if (out.status === 'busy') return out;
     // Carry from Step 8 fix round 1: drop the entry only when it was undone, or there is nothing left to undo.
     if (out.status === 'undone' || out.status === 'nothing') dropTrail(t);
     const note = t.li.querySelector<HTMLElement>('.trail-entry');
@@ -310,7 +340,8 @@ export function mountMentorPanel(root: HTMLElement, opts: {
       return;
     }
     const c = cards.get(`local:${i.localId}`);
-    if (c === undefined) return;
+    // A typed yes or no while this card's tap is in flight is ignored: the tap answers (fix round 1, I1).
+    if (c === undefined || busyCards.has(`local:${i.localId}`)) return;
     if (i.kind === 'confirm') await confirm(c.view, 'typed_yes');
     else await reject(c.view);
   }
@@ -341,6 +372,8 @@ export function mountMentorPanel(root: HTMLElement, opts: {
         onDecline: () => { removeLi(li); onAnswer?.(false); },
       });
       li.replaceChildren(el);
+      // The ai_health card is offered once ever, counted only when it is actually on screen (fix round 1, M5).
+      if (purpose === 'ai_health' && !store.get().aiHealthOffered) store.update((s) => ({ ...s, aiHealthOffered: true }));
     });
   }
 
@@ -464,7 +497,7 @@ export function mountMentorPanel(root: HTMLElement, opts: {
       if (hadFocus) (textBox ?? closeBtn).focus();
     });
   };
-  backend.onLate?.((r) => { render(r); });
+  const stopLate = backend.onLate?.((r) => { render(r); });
 
   if (standard) {
     textBox = h('textarea', { id: 'pan-text', rows: 2, maxlength: 500, class: 'pan-text' });
@@ -551,13 +584,23 @@ export function mountMentorPanel(root: HTMLElement, opts: {
       asideSlot.hidden = el === null;
     },
     interceptText(fn) { intercept = standard ? fn : null; },
+    destroy() {
+      doc.removeEventListener('keydown', onDocKey);
+      opener?.removeEventListener('click', onOpener);
+      stopLate?.();
+      openListeners.clear();
+      doneListeners.clear();
+      intercept = null;
+      panel.remove();
+    },
   };
 
   closeBtn.addEventListener('click', () => api.close());
+  const onOpener = () => { if (open) api.close(); else api.open(); };
   if (opener) {
     opener.setAttribute('aria-expanded', 'false');
     opener.setAttribute('aria-controls', 'pan-panel');
-    opener.addEventListener('click', () => (open ? api.close() : api.open()));
+    opener.addEventListener('click', onOpener);
   }
   root.append(panel);
   return api;

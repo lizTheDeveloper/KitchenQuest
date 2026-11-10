@@ -8,6 +8,8 @@ export interface MentorBackend {
   reply(input: MentorInput, ctx: TurnContext): Promise<PanReply>;
   /** Replies that arrive after their turn (the AI backend's one retry, pre-flight C23). Returns the unsubscribe. */
   onLate?(fn: (reply: PanReply) => void): () => void;
+  /** The backend is being replaced: cancel anything queued (a retry) and send nothing more. */
+  dispose?(): void;
 }
 
 /** The path that always works: written lines and code-built cards, no network (M4 Step 9). */

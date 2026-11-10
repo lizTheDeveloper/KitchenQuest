@@ -170,7 +170,8 @@ export function createScriptedEngine(deps: {
       if (intent === 'yes' || intent === 'no' || intent === 'undo') {
         // Step 9 carry: while more than one card of either origin is open, a plain yes or no never picks one.
         const recentCount = ctx.openCards.filter((c) => c.issuedTurn === ctx.turn - 1).length;
-        if (recentCount > 0 && ctx.openCards.length > 1) return reply([line('confirm.tap_card')]);
+        // Undo goes by the trail, not the cards (fix round 1, M1).
+        if (intent !== 'undo' && recentCount > 0 && ctx.openCards.length > 1) return reply([line('confirm.tap_card')]);
         // Server cards count too: with a local and a server card both open, a yes never confirms either.
         const refs: OpenCardRef[] = ctx.openCards.map((c) => ({
           ref: c.origin === 'local' ? c.localId : `server:${c.proposalId}`,

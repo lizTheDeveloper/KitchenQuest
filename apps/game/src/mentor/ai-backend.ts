@@ -1,6 +1,6 @@
 import {
   classifyTurn, isHealthText, stripPageEvents,
-  type IngredientGraph, type IntakeStep, type RuleTerm, type TurnRequest, type TurnResponse,
+  type CardAction, type IngredientGraph, type IntakeStep, type ReplyPart, type RuleTerm, type ServerCard, type TurnRequest, type TurnResponse,
 } from '@kitchenquest/core/engine';
 import { refreshAccount } from '../api/account';
 import type { ApiClient } from '../api/client';
@@ -24,6 +24,50 @@ function isTurnResponse(x: unknown): x is TurnResponse {
   return isObj(x) && (x.route === 'ai' || x.route === 'deterministic' || x.route === 'scripted') &&
     Array.isArray(x.parts) && Array.isArray(x.cards) && Array.isArray(x.actions) && (x.conversationId === null || typeof x.conversationId === 'string');
 }
+
+const isStr = (x: unknown): x is string => typeof x === 'string';
+const isStrArr = (x: unknown): x is string[] => Array.isArray(x) && x.every(isStr);
+const isDate = (x: unknown): x is string => isStr(x) && Number.isFinite(Date.parse(x));
+const isLineRef = (x: unknown): boolean => isObj(x) && isStr(x.trigger) && isObj(x.vars) && Object.values(x.vars).every(isStr);
+const RULE_FORMS: readonly unknown[] = ['rule_allergen', 'rule_intolerance', 'rule_diet'];
+const KINDS: readonly unknown[] = ['rule', 'meal', 'profile', 'pantry'];
+
+/** A proposal card with every field the panel draws (fix round 1, M8): anything else is dropped, never rendered. */
+function isProposalCard(c: unknown): boolean {
+  if (!isObj(c) || !Array.isArray(c.readback) || !c.readback.every(isLineRef)) return false;
+  switch (c.kind) {
+    case 'rule': {
+      const d = c.display;
+      const r = c.rule;
+      return RULE_FORMS.includes(c.form) && typeof c.severe === 'boolean' && typeof c.severityUnclear === 'boolean' &&
+        isObj(d) && isStr(d.ingredient) && isStr(d.spelled) && isStr(d.severity) && isStr(d.covers) &&
+        isObj(r) && isObj(r.target) && isStrArr(r.target.ids) && isStr(r.severity);
+    }
+    case 'meal': {
+      const m = c.meal;
+      if (!isObj(m) || !isStr(m.eatenOn) || !isStr(m.slot) || !isObj(m.item) || !isStr(c.summary) || typeof c.estimate !== 'boolean') return false;
+      return m.item.kind === 'dish' ? isStr(m.item.slug) && typeof m.item.servings === 'number' : m.item.kind === 'free' && isStr(m.item.description);
+    }
+    case 'profile': {
+      const p = c.patch;
+      if (!isObj(p) || !isStr(c.summary)) return false;
+      return (p.marketDays === undefined || (Array.isArray(p.marketDays) && p.marketDays.every((d) => Number.isInteger(d)))) &&
+        (p.mealsPerWeek === undefined || p.mealsPerWeek === null || typeof p.mealsPerWeek === 'number') &&
+        (p.country === undefined || p.country === null || isStr(p.country)) && (p.region === undefined || p.region === null || isStr(p.region)) &&
+        (p.mealWindows === undefined || (Array.isArray(p.mealWindows) && p.mealWindows.every((w) => isObj(w) && isStr(w.name) && isStr(w.start) && isStr(w.end))));
+    }
+    case 'pantry':
+      return Array.isArray(c.add) && c.add.every((a) => isObj(a) && isStr(a.name) && (a.ingredientId === null || isStr(a.ingredientId))) &&
+        isStrArr(c.remove) && isStr(c.summary) && (c.removeIds === undefined || isStrArr(c.removeIds));
+    default:
+      return false;
+  }
+}
+const isServerCard = (x: unknown): x is ServerCard => isObj(x) && isStr(x.proposalId) && isDate(x.expiresAt) && isProposalCard(x.card);
+const isTrail = (x: unknown): boolean =>
+  isObj(x) && isStr(x.id) && (x.origin === 'server' || x.origin === 'local') && KINDS.includes(x.kind) && isStr(x.summary) && isDate(x.undoUntil);
+const isAction = (x: unknown): x is CardAction => isObj(x) && (
+  (x.kind === 'confirmed' && isStr(x.proposalId) && isTrail(x.trail)) || (x.kind === 'rejected' && isStr(x.proposalId)) || (x.kind === 'undone' && isStr(x.id)));
 
 /** The server would not answer this turn: the script answers and the turn is tried again once (spec §7.5). */
 const isOutage = (r: Extract<ApiResult<unknown>, { ok: false }>) => r.status === 0 || r.status === 429 || r.status >= 500 || r.error.code === 'bad_response';
@@ -53,12 +97,38 @@ export function createAiBackend(deps: {
   const say = (trigger: string): PanItem => ({ kind: 'said', said: dialogue.say(trigger) });
   const lines = (...triggers: string[]): PanReply => ({ items: triggers.map(say), cards: [], intents: [], actions: [], notice: null });
   const prefixed = (items: PanItem[], r: PanReply): PanReply => ({ ...r, items: [...items, ...r.items] });
+  /** Retries and late replies end here once the backend is replaced (fix round 1, I2). */
+  let disposed = false;
+  const cancels = new Set<() => void>();
 
-  /** The ai_health card, once ever (`aiHealthOffered`), after the engine's answer. */
+  /**
+   * The ai_health card, once ever, after the engine's answer. `aiHealthOffered` is set by the panel when the card
+   * is actually on screen (fix round 1, M5).
+   */
   function offerAiHealth(r: PanReply): PanReply {
     if (store.get().aiHealthOffered) return r;
-    store.update((s) => ({ ...s, aiHealthOffered: true }));
     return { ...r, items: [...r.items, { kind: 'consent', purpose: 'ai_health' }] };
+  }
+
+  /** Lines, choices and consent from the server; a part that isn't one of ours (or names no line) is dropped. */
+  const itemsOf = (parts: readonly ReplyPart[]): PanItem[] => parts.flatMap((p) => {
+    try {
+      return partsToItems([p], dialogue);
+    } catch (err) {
+      console.error(err);
+      return [];
+    }
+  });
+
+  /** The server's reply as panel items and cards. Never empty (§7.6b.5): nothing usable gives didnt_understand. */
+  function mapServer(res: TurnResponse, turn: number): PanReply {
+    const good = res.cards.filter(isServerCard);
+    const actions = res.actions.filter(isAction);
+    const items = itemsOf(res.parts);
+    // A malformed card is dropped with didnt_understand; a reply of only model text (dropped, R9) gets it too (M4).
+    if (good.length < res.cards.length || (items.length === 0 && good.length === 0 && actions.length === 0)) items.push(say('didnt_understand'));
+    const cards: ServerCardView[] = good.map((c) => ({ origin: 'server', proposalId: c.proposalId, expiresAt: c.expiresAt, card: c.card, issuedTurn: turn }));
+    return { items, cards, intents: [], actions, notice: res.notice };
   }
 
   async function hasAiHealth(): Promise<boolean> {
@@ -67,13 +137,8 @@ export function createAiBackend(deps: {
     return r.ok && granted(r.data, 'health_data') && granted(r.data, 'ai_health');
   }
 
-  const serverViews = (res: TurnResponse, turn: number): ServerCardView[] =>
-    res.cards.map((c) => ({ origin: 'server', proposalId: c.proposalId, expiresAt: c.expiresAt, card: c.card, issuedTurn: turn }));
-
   function fromResponse(res: TurnResponse, text: string, ctx: TurnContext): PanReply {
-    if (res.route !== 'scripted') {
-      return { items: partsToItems(res.parts, dialogue), cards: serverViews(res, ctx.turn), intents: [], actions: res.actions, notice: res.notice };
-    }
+    if (res.route !== 'scripted') return mapServer(res, ctx.turn);
     const scripted = { ...engine.reply(text, ctx), notice: res.notice };
     switch (res.notice) {
       case 'ai_unavailable': return prefixed([say('mentor.ai_unavailable')], scripted);
@@ -88,28 +153,35 @@ export function createAiBackend(deps: {
   /** One retry, held in memory: after RETRY_AFTER_MS or on `online`, whichever comes first. */
   function scheduleRetry(req: TurnRequest, ctx: TurnContext, scripted: PanReply): void {
     let fired = false;
-    const fire = () => {
-      if (fired) return;
+    const cancel = () => {
       fired = true;
       clearTimeout(timer);
       deps.events.removeEventListener('online', fire);
+      cancels.delete(cancel);
+    };
+    const fire = () => {
+      if (fired) return;
+      cancel();
+      if (disposed) return;
       retry(req, ctx, scripted).catch((err: unknown) => { console.error(err); });
     };
     const timer = setTimeout(fire, RETRY_AFTER_MS);
     deps.events.addEventListener('online', fire);
+    cancels.add(cancel);
   }
 
   async function retry(req: TurnRequest, ctx: TurnContext, scripted: PanReply): Promise<void> {
+    if (disposed) return;
     const r = await client.mentorTurn({ ...req, conversationId });
-    const emit = (reply: PanReply) => { for (const fn of listeners) fn(reply); };
+    const emit = (reply: PanReply) => { if (!disposed) for (const fn of listeners) fn(reply); };
+    if (disposed) return;
     if (r.ok && isTurnResponse(r.data)) {
       conversationId = r.data.conversationId;
-      const res = r.data;
+      if (r.data.route === 'scripted') return;
+      const mapped = mapServer(r.data, ctx.turn);
       // Shown only when it adds what the script didn't: a server card or a server write. Never model text (R9).
-      const addsCards = res.cards.length > 0 && scripted.cards.length === 0;
-      if (res.route !== 'scripted' && (addsCards || res.actions.length > 0)) {
-        emit({ items: partsToItems(res.parts, dialogue), cards: addsCards ? serverViews(res, ctx.turn) : [], intents: [], actions: res.actions, notice: res.notice });
-      }
+      const addsCards = mapped.cards.length > 0 && scripted.cards.length === 0;
+      if (addsCards || mapped.actions.length > 0) emit({ ...mapped, cards: addsCards ? mapped.cards : [] });
       return;
     }
     if (!r.ok && r.status === 401) { await refreshAccount(client, store); return; }
@@ -138,6 +210,11 @@ export function createAiBackend(deps: {
   return {
     kind: 'ai',
     get conversationId() { return conversationId; },
+    dispose() {
+      disposed = true;
+      for (const c of [...cancels]) c();
+      listeners.clear();
+    },
     onLate(fn) {
       listeners.add(fn);
       return () => { listeners.delete(fn); };

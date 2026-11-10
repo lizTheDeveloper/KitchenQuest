@@ -167,12 +167,15 @@ export function renderTrail(entry: TrailEntry, opts: { now: () => Date; onUndo()
   const undoBtn = h('button', { type: 'button', class: 'btn btn-secondary trail-undo', 'aria-describedby': textId }, 'Undo');
   const editBtn = h('button', { type: 'button', class: 'btn btn-secondary trail-edit', 'aria-describedby': textId }, 'Edit');
   const el = h('div', { class: 'trail-entry', 'data-kind': entry.kind },
-    h('p', { class: 'trail-text', id: textId }, `${TRAIL_LABEL[entry.kind]}: ${entry.summary}`),
+    h('p', { class: 'trail-text', id: textId, tabindex: -1 }, `${TRAIL_LABEL[entry.kind]}: ${entry.summary}`),
     h('div', { class: 'button-row' }, undoBtn, editBtn));
+  const text = el.querySelector<HTMLElement>('.trail-text')!;
   const editOutlivesWindow = entry.kind === 'rule' || entry.kind === 'profile';
   const closeWindow = () => {
-    undoBtn.remove();
-    if (!editOutlivesWindow) editBtn.remove();
+    const going = editOutlivesWindow ? [undoBtn] : [undoBtn, editBtn];
+    // Focus never falls to the page: a focused button that goes hands it to the entry text first (fix round 1, M3).
+    if (going.some((b) => b === b.ownerDocument.activeElement)) text.focus();
+    for (const b of going) b.remove();
   };
   const left = Date.parse(entry.undoUntil) - opts.now().getTime();
   if (left <= 0) closeWindow();

@@ -151,7 +151,7 @@ describe('card writer', () => {
     const card = server(milk());
     const a = writer.confirm(card, 'tap');
     const b = writer.confirm(card, 'tap');
-    expect(await b).toMatchObject({ ok: false, reason: 'closed' });
+    expect(await b).toMatchObject({ ok: false, reason: 'busy' });
     release();
     expect((await a).ok).toBe(true);
     expect(await writer.confirm(card, 'tap')).toMatchObject({ ok: false, reason: 'closed' });
@@ -401,5 +401,32 @@ describe('undo outcomes (Step 8 fix round 1 carry)', () => {
     expect(await writer.undo(out.trail)).toMatchObject({ status: 'full' });
     full = false;
     expect(await writer.undo(out.trail)).toMatchObject({ status: 'undone' });
+  });
+});
+
+describe('fix round 1', () => {
+  test('I1: a typed yes while the tap is in flight is busy, never closed; the tap still writes', async () => {
+    let finish!: (r: ApiResult<unknown>) => void;
+    const { writer, calls } = setup({ getProfile: () => ok({ marketDays: [], mealsPerWeek: null, country: null, region: null, mealWindows: [] }), putProfile: () => new Promise((r) => { finish = r; }) }, signedIn);
+    const view = local(buildProfileCard({ marketDays: [6] }));
+    const tap = writer.confirm(view, 'tap');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(await writer.confirm(view, 'typed_yes')).toEqual({ ok: false, reason: 'busy', items: [] });
+    finish(ok({ marketDays: [6], mealsPerWeek: null, country: null, region: null, mealWindows: [] }));
+    expect((await tap).ok).toBe(true);
+    expect(calls.filter((c) => c.name === 'putProfile')).toHaveLength(1);
+    // Once written, it is closed.
+    expect(await writer.confirm(view, 'tap')).toMatchObject({ ok: false, reason: 'closed' });
+  });
+
+  test('M2: a second undo while one is in flight is busy; the write is reversed once', async () => {
+    let finish!: (r: ApiResult<unknown>) => void;
+    const { writer, calls } = setup({ undoWrite: () => new Promise((r) => { finish = r; }) }, signedIn);
+    const entry = { id: 'P1', origin: 'server' as const, kind: 'meal' as const, summary: 's', undoUntil: '2026-11-10T12:05:00Z' };
+    const first = writer.undo(entry);
+    expect(await writer.undo(entry)).toEqual({ status: 'busy', items: [] });
+    finish(ok({ parts: [{ kind: 'line', line: { trigger: 'undo', vars: {} } }], undone: true }));
+    expect((await first).status).toBe('undone');
+    expect(calls.filter((c) => c.name === 'undoWrite')).toHaveLength(1);
   });
 });
