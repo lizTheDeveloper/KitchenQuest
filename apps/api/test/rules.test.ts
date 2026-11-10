@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { IngredientGraph } from '@kitchenquest/core';
 import { and, eq } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/postgres-js';
 import type { FastifyInstance, InjectOptions } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
@@ -11,7 +12,9 @@ import { loadCatalog } from '../src/catalog.js';
 import { NOTICES } from '../src/consent/notices.js';
 import { MAX_RULES_PER_USER, SEARCHES_PER_MINUTE } from '../src/rules/routes.js';
 import { sealFor } from '../src/crypto/userkeys.js';
+import * as schema from '../src/db/schema.js';
 import { auditEvents, rules, selfReadCounts } from '../src/db/schema.js';
+import { loadRules } from '../src/rules/store.js';
 import { CaptureMailer } from '../src/mail/mailer.js';
 import type { Db } from '../src/types.js';
 import { signIn } from './helpers/auth.js';
@@ -454,6 +457,107 @@ describe('/rules consent gate (C-11)', () => {
     expect((await list(c)).json().rules).toEqual([{ ...PEANUT, id }]);
     expect((await del(c, id)).statusCode).toBe(204);
     expect((await list(c)).json().rules).toEqual([]);
+  });
+});
+
+describe('/rules under concurrency and check order (M4 Step 3)', () => {
+  const seed = async (uid: string, n: number) => {
+    const values = [];
+    for (let i = 0; i < n; i++) {
+      const rowId = randomUUID();
+      values.push({ id: rowId, userId: uid, sealed: await sealFor(db, config.keyring, { table: 'rules', userId: uid, rowId }, PEANUT) });
+    }
+    if (values.length > 0) await db.insert(rules).values(values);
+  };
+
+  it(`two concurrent creates at ${MAX_RULES_PER_USER - 1} rules: exactly one succeeds, the cap holds`, async () => {
+    const c = await player();
+    const uid = await userIdOf(c);
+    await seed(uid, MAX_RULES_PER_USER - 1);
+    const res = await Promise.all([post(c, { rule: DAIRY, confirmed: true }), post(c, { rule: DAIRY, confirmed: true })]);
+    const statuses = res.map((r) => r.statusCode);
+    const bodies = res.map((r) => r.json());
+    expect(statuses.sort()).toEqual([201, 400]);
+    expect(bodies.find((b) => b.error)?.error.code).toBe('too_many_rules');
+    expect(await storedCount(uid)).toBe(MAX_RULES_PER_USER);
+  });
+
+  it('two concurrent creates both see each other for validation: both stored, no lost write', async () => {
+    const c = await player();
+    const uid = await userIdOf(c);
+    const res = await Promise.all([post(c, { rule: PEANUT, confirmed: true }), post(c, { rule: DAIRY, confirmed: true })]);
+    expect(res.map((r) => r.statusCode)).toEqual([201, 201]);
+    const stored = await loadRules(db, config.keyring, uid);
+    expect(stored).toHaveLength(2);
+    expect(new Set(stored.map((r) => r.id)).size).toBe(2);
+    expect(new Set(stored.map((r) => r.id))).toEqual(new Set(res.map((r) => r.json().rule.id)));
+  });
+
+  it('an account deleted while a POST or PUT waits on the user row → 401, never 403 (no consent either)', async () => {
+    for (const write of ['POST', 'PUT'] as const) {
+      // No health_data consent: before M4 the fast consent check answered 403 first.
+      const c = await signIn(app, mailer, `gone${++seq}@example.com`);
+      const uid = await userIdOf(c);
+      let release!: () => void;
+      const gate = new Promise<void>((r) => (release = r));
+      let locked!: () => void;
+      const held = new Promise<void>((r) => (locked = r));
+      // Another connection takes the user row and deletes the account once the write waits on it.
+      const deleter = sql.begin(async (tx) => {
+        await tx`select 1 from users where id = ${uid} for update`;
+        locked();
+        await gate;
+        await tx`delete from users where id = ${uid}`;
+      });
+      await held;
+      const writing =
+        write === 'POST'
+          ? post(c, { rule: PEANUT, confirmed: true })
+          : put(c, '00000000-0000-4000-8000-000000000000', { rule: PEANUT, confirmed: true });
+      let settled = false;
+      void writing.then(() => (settled = true));
+      for (let i = 0; i < 500 && !settled; i++) {
+        const [{ n }] = await sql<{ n: number }[]>`select count(*)::int as n from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'`;
+        if (n >= 1) break;
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      release();
+      await deleter;
+      const res = await writing;
+      expect(res.statusCode, write).toBe(401);
+      expect(res.json().error.code, write).toBe('unauthorized');
+      expect(await storedCount(uid)).toBe(0);
+    }
+  });
+
+  it('POST /rules without confirmed is 400 confirmation_required before any rules or consents query', async () => {
+    const queries: string[] = [];
+    const logged = drizzle(sql, { schema, logger: { logQuery: (q) => queries.push(q) } });
+    const loggedApp = await buildApp({ config, db: logged, mailer, now: () => NOW, logger: false });
+    let sqlAfterAuth: string[] = [];
+    // Every request starts a fresh record; the session lookup (requireUser) is in it, and touches neither table.
+    // eslint-disable-next-line @typescript-eslint/require-await -- Fastify hooks are async or take a callback
+    loggedApp.addHook('onRequest', async () => {
+      queries.length = 0;
+    });
+    try {
+      const cookie = await signIn(loggedApp, mailer, `sqllog${++seq}@example.com`);
+      const cookies = { kq_session: cookie };
+      for (const req of [
+        { method: 'POST' as const, url: '/rules', payload: { rule: PEANUT } },
+        { method: 'PUT' as const, url: '/rules/00000000-0000-4000-8000-000000000000', payload: { rule: PEANUT, confirmed: false } },
+      ]) {
+        const res = await loggedApp.inject({ ...req, cookies });
+        sqlAfterAuth = [...queries];
+        expect(res.statusCode).toBe(400);
+        expect(res.json().error.code).toBe('confirmation_required');
+        // The session lookup ran (the request was authenticated), and nothing touched rules or consents.
+        expect(sqlAfterAuth.length).toBeGreaterThan(0);
+        expect(sqlAfterAuth.filter((q) => /\b(rules|consents)\b/.test(q))).toEqual([]);
+      }
+    } finally {
+      await loggedApp.close();
+    }
   });
 });
 
