@@ -90,7 +90,8 @@ describe('rules', () => {
       severity: 'intolerance',
     });
     expect(parseRuleStatement('I have a tree nut allergy')).toEqual({ terms: ['tree nut'], severity: 'allergy' });
-    expect(parseRuleStatement('anaphylactic to cashews')).toBeNull(); // no trigger phrase: the model or a card handles it
+    expect(parseRuleStatement('anaphylactic to cashews')).toEqual({ terms: ['cashews'], severity: 'anaphylactic' });
+    expect(parseRuleStatement('peanut and sesame allergy')).toEqual({ terms: ['peanut', 'sesame'], severity: 'allergy' });
     expect(parseRuleStatement('not like an allergy')).toBeNull();
     expect(parseRuleStatement('I keep halal')).toEqual({ terms: ['halal'], severity: 'preference' });
   });

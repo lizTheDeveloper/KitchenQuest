@@ -95,7 +95,7 @@ describe('buildRuleCard', () => {
   test('vegan covers honey, gelatine and milk; the list is capped at 8', () => {
     const c = card('plant based');
     expect(c.rule.target.ids).toEqual(expect.arrayContaining(['honey', 'gelatin', 'milk', 'egg']));
-    expect(c.display.covers).toBe('egg, fish, gelatine, honey, meat, milk, pork and shellfish');
+    expect(c.display.covers).toBe('bonito flakes, egg, fish, gelatine, honey, meat, milk, pork and 1 more');
   });
 
   test('coeliac asks for a severity and uses the allergen form', () => {
