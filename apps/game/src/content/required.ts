@@ -16,6 +16,7 @@ export const REQUIRED_PAN_TRIGGERS: readonly string[] = [
   'ai_unavailable',
   'thanks',
   'intake.ios_home_screen',
+  'intake.ios_install',
   'voice.not_yet',
   'toolkit.rusty_invite',
 ];

@@ -297,3 +297,15 @@ select {
 .visit-card .recipe-card { margin-top: .5rem; }
 .visit-card .recipe-card h2:focus { outline: none; }
 .visit-card-buttons { display: flex; justify-content: flex-end; margin: .5rem 3px; }
+
+/* PWA: the Bureau's Add to Home Screen slip, and the waiting-update note */
+.ios-note {
+  max-width: 32rem; margin: 1.5rem 6px; padding: 1rem;
+  background: var(--parchment); color: var(--parchment-ink);
+  box-shadow: 0 0 0 3px var(--parchment-ink), 0 0 0 6px var(--iron);
+}
+.ios-note-title { margin: 0 0 .5rem; color: var(--parchment-ink); }
+.ios-note-speaker { font-family: var(--display); margin: 0; }
+.ios-note-line { margin: .25rem 0 1rem; }
+.update-note { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; }
+.update-note p { margin: 0; flex: 1 1 16rem; }

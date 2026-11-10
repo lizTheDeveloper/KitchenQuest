@@ -268,6 +268,15 @@ triggers:
       - "Quick note for iPhone and iPad: notifications only work once Kitchen Quest is on your home screen. Share, then 'Add to Home Screen', then open me from the new icon."
       - "If you're on iOS: add me to your home screen (Share, then 'Add to Home Screen') and open me from there, or my reminders can't reach you."
 
+  intake.ios_install:
+    ai: never
+    when: Player is on an iPhone or iPad in the browser; explains Add to Home Screen and offline play. No reminders (M3 sends none).
+    lines:
+      - "On an iPhone or iPad, tap Share, then 'Add to Home Screen'. I'll open full screen, and the recipes keep working when the signal doesn't."
+      - "Put me on your home screen: Share, then 'Add to Home Screen'. Then open me from the new icon. Recipes and cook mode work offline. I've been off the grid since 1891."
+      - "Quick note for iPhone and iPad: Share, then 'Add to Home Screen'. I take up one square. I'm a pan; I'm used to cupboards."
+      - "If you're on iOS, add me to your home screen. Share, then 'Add to Home Screen'. Cook mode still works in a kitchen with no signal. Most kitchens I've known had none."
+
   # ------------------------------------------------------------------
   # Reminders (written for Web Push: short, fit in a notification)
   # ------------------------------------------------------------------

@@ -1,8 +1,11 @@
 import { registerScreen, type AppContext, type Screen } from '../shell/app';
+import { deleteOfflineCopy } from '../pwa/register';
 import { deleteDeviceData, safeLocalStorage, type PlayerSettings } from '../state/store';
 import { h } from '../ui/dom';
+import { installSection } from './install-section';
 
 function settingsScreen(): Screen {
+  let stopInstall: (() => void) | null = null;
   return {
     title: 'Settings',
     mount(el, _route, ctx: AppContext) {
@@ -27,20 +30,28 @@ function settingsScreen(): Screen {
         const no = h('button', { type: 'button', class: 'btn btn-secondary', id: 'delete-cancel' }, 'Keep my data');
         const box = h('div', { class: 'confirm-box', role: 'group', 'aria-labelledby': 'delete-heading' },
           heading,
-          h('p', null, "This removes your rules, progress and settings from this device, including any recovery copies. It can't be undone."),
+          h('p', null, "This removes your rules, progress and settings from this device, including any recovery copies, and the game's offline copy. It can't be undone."),
           h('div', { class: 'button-row' }, yes, no));
         no.addEventListener('click', () => { box.remove(); askDelete.hidden = false; askDelete.focus(); });
         yes.addEventListener('click', () => {
+          yes.disabled = true;
+          no.disabled = true;
           const storage = safeLocalStorage();
           if (storage) { try { deleteDeviceData(storage); } catch { /* reload anyway */ } }
-          window.location.hash = '#/kitchen';
-          window.location.reload(); // start from a fresh in-memory store too
+          // The offline copy too: Kitchen Quest's caches and its service worker.
+          void deleteOfflineCopy(navigator, 'caches' in window ? window.caches : undefined).finally(() => {
+            window.location.hash = '#/kitchen';
+            window.location.reload(); // start from a fresh in-memory store too
+          });
         });
         askDelete.hidden = true;
         dataBox.append(box);
         heading.focus();
       });
       dataBox.append(askDelete);
+
+      const install = installSection(el.ownerDocument.defaultView!, ctx.store);
+      stopInstall = install.stop;
 
       el.append(
         h('h1', null, 'Settings'),
@@ -52,8 +63,10 @@ function settingsScreen(): Screen {
           h('h2', { id: 'set-data' }, 'Your data'),
           h('p', null, 'Everything Kitchen Quest saves stays on this device.'),
           dataBox),
+        install.el,
       );
     },
+    unmount() { stopInstall?.(); stopInstall = null; },
   };
 }
 
