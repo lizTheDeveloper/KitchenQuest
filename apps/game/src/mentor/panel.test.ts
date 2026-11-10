@@ -486,3 +486,15 @@ describe('fix round 1', () => {
     expect(root.querySelector('#pan-panel')).toBeNull();
   });
 });
+
+test('clearConversation removes bubbles, cards and trail entries; the unacknowledged disclosure stays (fix round 2)', async () => {
+  const { root, pan } = mount({ disclosure: content.bureau.disclaimers.ai_characters });
+  pan.open();
+  pan.say('thanks');
+  pan.show(reply(['a line'], { cards: [local(buildProfileCard({ marketDays: [6] }))] }));
+  expect(root.querySelectorAll('.bubbles > li').length).toBe(4);
+  pan.clearConversation();
+  expect([...root.querySelectorAll('.bubbles > li')].map((li) => li.className)).toEqual(['pan-item pan-disclosure-item']);
+  // A typed yes no longer finds the old card.
+  await flush();
+});

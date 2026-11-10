@@ -428,6 +428,23 @@ describe('consent routes (C-1)', () => {
     expect(await sql`select 1 from conversations where user_id = ${userId}`).toHaveLength(1);
   });
 
+  it('after a keep, a later delete still erases the health data (Step 11 fix round 2: the Settings erase button)', async () => {
+    const email = `route${++seq}@example.com`;
+    const cookies = { kq_session: await signIn(app, mailer, email) };
+    const [u] = await sql`select id from users where email = ${email}`;
+    const userId = u.id as string;
+    await app.inject({ method: 'POST', url: '/me/consents', cookies, payload: { purpose: 'health_data', noticeVersion: current.version } });
+    const rowId = randomUUID();
+    await db.insert(rules).values({ id: rowId, userId, sealed: await sealFor(db, config.keyring, { table: 'rules', userId, rowId }, { t: 1 }) });
+    const keep = await app.inject({ method: 'DELETE', url: '/me/consents/health_data', cookies, payload: { healthData: 'keep' } });
+    expect(keep.statusCode).toBe(204);
+    expect(await sql`select 1 from rules where user_id = ${userId}`).toHaveLength(1);
+    const del = await app.inject({ method: 'DELETE', url: '/me/consents/health_data', cookies, payload: { healthData: 'delete' } });
+    expect(del.statusCode).toBe(204);
+    expect(await sql`select 1 from rules where user_id = ${userId}`).toHaveLength(0);
+    expect((await auditFor(userId)).map((r) => r.action)).toEqual(['auth.sign_in', 'consent.grant', 'consent.withdraw', 'health_data.delete']);
+  });
+
   it('withdraw-with-delete is one transaction: a failing delete leaves consent in place', async () => {
     const email = `route${++seq}@example.com`;
     const cookies = { kq_session: await signIn(app, mailer, email) };

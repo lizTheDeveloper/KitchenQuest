@@ -50,6 +50,11 @@ export interface MentorPanel {
   interceptText(fn: ((text: string, ctx: TurnContext) => Promise<PanReply> | null) | null): void;
   /** Takes the panel out of the page and drops every listener it added (a remount when Family Table changes). */
   destroy(): void;
+  /**
+   * Remove everything shown in the conversation: bubbles, cards, trail entries (Step 11 fix round 2: after the player's
+   * health details are deleted, none of them stays on screen). The pinned disclosure stays until acknowledged.
+   */
+  clearConversation(): void;
 }
 
 interface OpenCard { view: CardView; el: HTMLElement; li: HTMLElement }
@@ -589,6 +594,14 @@ export function mountMentorPanel(root: HTMLElement, opts: {
       asideSlot.hidden = el === null;
     },
     interceptText(fn) { intercept = standard ? fn : null; },
+    clearConversation() {
+      const hadFocus = bubbles.contains(doc.activeElement);
+      for (const li of [...bubbles.children]) if (!li.classList.contains('pan-disclosure-item')) li.remove();
+      cards.clear();
+      busyCards.clear();
+      trail.splice(0, trail.length);
+      if (hadFocus && open) (textBox ?? closeBtn).focus();
+    },
     destroy() {
       doc.removeEventListener('keydown', onDocKey);
       opener?.removeEventListener('click', onOpener);

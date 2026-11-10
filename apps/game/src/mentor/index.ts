@@ -115,6 +115,7 @@ function stablePanel(cur: () => MentorPanel): MentorPanel {
     setAside: (el) => { cur().setAside(el); },
     interceptText: (fn) => { cur().interceptText(fn); },
     destroy: () => { cur().destroy(); },
+    clearConversation: () => { cur().clearConversation(); },
   };
 }
 

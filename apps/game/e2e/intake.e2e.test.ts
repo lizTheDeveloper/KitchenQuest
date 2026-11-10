@@ -271,4 +271,47 @@ describe('Form 1-A intake by conversation (M4 Step 11)', () => {
     await expect.poll(() => box.isChecked()).toBe(false);
     expect(app.consoleErrors).toEqual([]);
   });
+
+  it('Settings → The Pan: with the grant not counting (stale or after keep), saved health details can still be deleted; the conversation clears and offline rules fail closed', async () => {
+    const calls: { method: string; path: string; body: unknown }[] = [];
+    let rulesDown = false;
+    app = await openApp('/#/settings', {
+      reducedMotion: true, seed: { aiDisclosureSeen: true, intake: { step: 'done' } },
+      beforeGoto: async (page) => {
+        await page.route((u) => u.pathname === '/api/me', (r) => r.fulfill(json(200, { id: 'u1', email: 'cook@example.com', entitlements: [] })));
+        await page.route((u) => u.pathname === '/api/rules', (r) => (rulesDown ? r.abort() : r.fulfill(json(200, { rules: [{ id: 's1', target: { kind: 'ingredient', ids: ['peanut'] }, type: 'avoid', severity: 'anaphylactic' }] }))));
+        await page.route((u) => u.pathname === '/api/mentor/turn', (r) => r.fulfill(json(503, { error: { code: 'unavailable', message: 'down' } })));
+        await page.route((u) => u.pathname.startsWith('/api/me/consents'), (r) => {
+          const req = r.request();
+          if (req.method() !== 'GET') {
+            calls.push({ method: req.method(), path: new URL(req.url()).pathname, body: req.postDataJSON() as unknown });
+            rulesDown = true; // the next rules refresh can't reach the API
+            return r.fulfill({ status: 204 });
+          }
+          // Withdrawn earlier with "keep": no active grant.
+          return r.fulfill(json(200, { consents: [], needsReconsent: [], notices: { health_data: { version: 'v2', text: 'HEALTH NOTICE V2' }, ai_health: { version: 'v1', text: 'AI NOTICE TEXT' } } }));
+        });
+      },
+    });
+    const { page } = app;
+    await expect.poll(async () => ((await stored(page)).accountRules as unknown[] | null)?.length ?? 0).toBe(1);
+    // Something said to the Pan first.
+    await page.locator('#pan-button').click();
+    await tell(page, "I'm allergic to peanuts");
+    expect(await page.locator('#pan-panel .bubble').count()).toBeGreaterThan(0);
+    await page.keyboard.press('Escape');
+    const erase = page.getByRole('button', { name: 'Delete my saved health details' });
+    await erase.waitFor();
+    await erase.click();
+    const modal = page.getByRole('dialog', { name: 'Delete your saved health details?' });
+    await modal.waitFor();
+    expect(calls).toEqual([]);
+    await modal.getByRole('button', { name: 'Delete them' }).click();
+    await expect.poll(() => calls.length).toBe(1);
+    expect(calls[0]).toEqual({ method: 'DELETE', path: '/api/me/consents/health_data', body: { healthData: 'delete' } });
+    await expect.poll(() => page.locator('#pan-panel .bubble, #pan-panel .pan-card').count()).toBe(0);
+    // The refresh couldn't reach the rules: no stale copy is trusted.
+    await expect.poll(async () => (await stored(page)).accountRules).toBeNull();
+    expect(app.consoleErrors).toEqual([]);
+  });
 });

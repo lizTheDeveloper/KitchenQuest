@@ -3,6 +3,7 @@ import type { ApiClient } from '../api/client';
 import type { Consents } from '../api/types';
 import { content } from '../content';
 import type { BureauForm } from '../content/types';
+import { getMentor } from '../mentor';
 import { createDialogue } from '../mentor/dialogue';
 import { renderConsentCard } from '../mentor/consent-card';
 import type { PlayerStore } from '../state/store';
@@ -80,6 +81,17 @@ export function mentorSection(store: PlayerStore, client: ApiClient, forms: Reco
     });
 
     /**
+     * After the account's health details are deleted: nothing of them stays in the Pan's conversation on screen, and
+     * the cached account rules are dropped until a refresh loads them again (fail closed while offline).
+     */
+    const afterDelete = async () => {
+      try { getMentor().clearConversation(); } catch { /* the panel isn't mounted (tests) */ }
+      // The cached copy is now stale: drop it first, so an offline or rate-limited refresh leaves checks failing closed.
+      store.update((st) => (st.accountRules === null ? st : { ...st, accountRules: null }));
+      await refreshAccount(client, store);
+    };
+
+    /**
      * One permission, as a box. Ticking shows its notice; only "I agree" files it. Unticking is one tap (P-4). For
      * health_data that tap opens the keep-or-delete choice the API needs (GDPR Art. 7(3)). [lawyer] P-4, C-30.
      */
@@ -92,10 +104,41 @@ export function mentorSection(store: PlayerStore, client: ApiClient, forms: Reco
       box.setAttribute('aria-describedby', note.id);
       const slot = h('div', { class: purpose === 'ai_health' ? 'ai-health-notice' : 'health-data-notice' });
       let grant: Grant = 'missing';
+      // Fix round 2 (erasure): whenever the grant doesn't count (a stale notice, or after "keep"), the saved health
+      // details can still be deleted, behind a confirm. [lawyer] GDPR Art. 17.
+      const erase = purpose === 'health_data'
+        ? h('button', { type: 'button', class: 'btn btn-secondary', id: 'health-erase' }, 'Delete my saved health details')
+        : null;
+      if (erase) {
+        erase.hidden = true;
+        erase.addEventListener('click', () => {
+          const yes = h('button', { type: 'button', class: 'btn btn-secondary', id: 'health-erase-confirm' }, 'Delete them');
+          const close = openModal(el.ownerDocument, {
+            className: 'confirm-modal',
+            title: h('h2', null, 'Delete your saved health details?'),
+            body: h('div', null,
+              h('p', null, 'This removes the allergies, diet rules, meals and conversations kept with your account. It can\'t be undone. Rules on this device are untouched.'),
+              h('div', { class: 'button-row' }, yes)),
+            opener: erase,
+            onClose: () => undefined,
+          });
+          yes.addEventListener('click', () => {
+            yes.disabled = true;
+            void client.withdrawConsent('health_data', 'delete').then((r) => {
+              close();
+              if (!(r.ok || r.status === 404)) { status.textContent = OFFLINE; return; }
+              status.textContent = 'Done. Your health details have been deleted from your account.';
+              void afterDelete();
+              void load();
+            });
+          });
+        });
+      }
       const show = (g: Grant) => {
         grant = g;
         box.checked = g === 'granted';
         note.textContent = g === 'granted' ? copy.on : g === 'stale' ? copy.stale : copy.off;
+        if (erase) erase.hidden = g === 'granted';
       };
       toggles.push({ purpose, show, box });
 
@@ -111,7 +154,8 @@ export function mentorSection(store: PlayerStore, client: ApiClient, forms: Reco
               ? 'Done. Your health details have been deleted from your account.'
               : 'Done. Nothing new is kept; what was saved stays, read-only.';
           // Deleted rules (or a withdraw that ended the AI permission too) show at once.
-          if (purpose === 'health_data') void refreshAccount(client, store);
+          if (healthData === 'delete') void afterDelete();
+          else if (purpose === 'health_data') void refreshAccount(client, store);
           void load();
           box.focus();
         });
@@ -160,7 +204,7 @@ export function mentorSection(store: PlayerStore, client: ApiClient, forms: Reco
           card.querySelector<HTMLButtonElement>('.consent-agree')?.focus();
         });
       });
-      return [h('div', { class: 'field' }, box, h('label', { for: id }, copy.label)), note, slot];
+      return [h('div', { class: 'field' }, box, h('label', { for: id }, copy.label)), note, slot, ...(erase ? [h('div', { class: 'button-row' }, erase)] : [])];
     };
     const health = toggle('health_data');
     const ai = toggle('ai_health');
