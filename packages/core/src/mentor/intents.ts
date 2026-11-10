@@ -42,11 +42,22 @@ export const ALLOWANCE_PATTERN =
   /\b(guild|subscription|subscribe|premium|upgrade|pricing|price|how much does (it|this|the app) cost|pay for|free (tier|plan|version)|keep using you)\b/;
 export const THANKS_PATTERN = /^(thanks|thank you|cheers|ta)\b[^?]{0,30}$/;
 
-/** Deliberately over-catches: it decides what may reach the model without `ai_health` (Step 7). */
-/** A question whether a dish suits the player (fix round 2, R7): a health turn, answered by the dish card. */
-export const SUITABILITY_PATTERN =
-  /\b((can|could|may|should|shall) i (eat|try|order|go for)\b|(can|could|may) i (have|get) (this|that|these|those|it|the)\b|is it (ok|okay|alright|fine|safe) (if i|to eat|to have|for)\b|(am|would) i be (ok|okay|fine|alright) with|am i (ok|okay|fine|alright) with|(ok|okay|fine|safe|alright|good|bad) (for|with) me|(will|would|does|did|could|might) [\w' ]{1,25}\b(be a problem|bother|upset|affect)( me)?\b|any (issue|problem)s? with|good (shout|idea|call)|good to go|yay or nay|is (this|that|it|these|those) (ok|okay|alright|fine|safe)\b|is [\w' ]{1,25} (alright|ok|okay)\??$)/;
+/**
+ * What "try", "order", "go for", "have the" and "get the" may take and still not ask about food
+ * (Step 7 fix round 4, P5): a cooking verb ("should I try making bread") or a thing that is no
+ * dish ("can I get the recipe"). Anything else stays a suitability question: the gate over-catches.
+ */
+const NOT_FOOD =
+  "(?:(?:a|an|the|this|that|some|another|new|different|other)\\s+)*(?:making|cooking|baking|frying|roasting|grilling|boiling|steaming|poaching|using|doing|adding|swapping|chopping|cutting|learning|practi[cs]ing|prepping|recipes?|method|instructions?|steps?|ingredients? list|list|shopping list|link|page|card|timer|oven|hob|pan|pot|wok|knife|tools?|kit|technique|way|ideas?|tips?|help|details?|name|video|book)\\b";
+const SUITABILITY_SOURCE = String.raw`\b((can|could|may|should|shall) i (eat\b|(try|order|go for)\b(?! ${NOT_FOOD}))|(can|could|may) i (have|get) (this|that|these|those|it\b|the\b(?! ${NOT_FOOD}))\b|`;
 
+/** A question whether a dish suits the player (fix round 2, R7): a health turn, answered by the dish card. */
+export const SUITABILITY_PATTERN = new RegExp(
+  SUITABILITY_SOURCE +
+    String.raw`is it (ok|okay|alright|fine|safe) (if i|to eat|to have|for)\b|(am|would) i be (ok|okay|fine|alright) with|am i (ok|okay|fine|alright) with|(ok|okay|fine|safe|alright|good|bad) (for|with) me|(will|would|does|did|could|might) [\w' ]{1,25}\b(be a problem|bother|upset|affect)( me)?\b|any (issue|problem)s? with|good (shout|idea|call)|good to go|yay or nay|is (this|that|it|these|those) (ok|okay|alright|fine|safe)\b|is [\w' ]{1,25} (alright|ok|okay)\??$)`,
+);
+
+/** Deliberately over-catches: it decides what may reach the model without `ai_health` (Step 7). */
 export const HEALTH_PATTERN =
   /\b(allerg\w*|intoleran\w*|anaphyla\w*|epi-?pen|coeliac|celiac|vegan|vegetarian|pescatarian|halal|kosher|jain|diet\w*|can'?t (eat|have)|cannot (eat|have)|don'?t eat|avoid\w*|sensitive to|stomach|bloat\w*|rough after|makes me (sick|ill)|ate|eaten|had|breakfast|brekkie|lunch|dinner|supper|snack\w*)\b/;
 

@@ -199,3 +199,16 @@ test.each([
 test.each(['what should I cook tonight?', 'can I have some ideas for dinner', 'what shall I make tonight'])('%j is not a suitability question', (text) =>
   expect(isSuitabilityQuestion(text)).toBe(false),
 );
+
+// Step 7 fix round 4 (P5): "try / order / go for" and "have / get the" only ask about food.
+test.each([
+  'can I get the recipe', 'could I have the method', 'can I get the shopping list', 'should I try making bread', 'should I try baking a cake',
+  'can I try cooking it in the oven', 'should I try a different way', 'could I get the steps again', 'may I have the ingredients list',
+])('%j is not a suitability question and not a health turn (P5)', (text) => {
+  expect(isSuitabilityQuestion(text)).toBe(false);
+  expect(classifyTurn(text)).toBe('other');
+});
+test.each(['should I try the satay', 'can I get the pad thai', 'should I order the korma', 'can I try a new dish', 'can I have the leftovers', 'should I try it'])(
+  '%j stays a suitability question (P5)',
+  (text) => expect(isSuitabilityQuestion(text)).toBe(true),
+);
