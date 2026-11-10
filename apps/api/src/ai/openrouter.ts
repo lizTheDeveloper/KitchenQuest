@@ -1,6 +1,6 @@
 import type { FastifyBaseLogger } from 'fastify';
 import { z } from 'zod';
-import type { AiFailure, AiMessage, AiProvider, AiRequest, AiResult, AiToolCall } from './provider.js';
+import type { AiFailure, AiMessage, AiProvider, AiRequest, AiResult, AiTool, AiToolCall } from './provider.js';
 
 /**
  * OpenRouter chat completions (spec §7). The data policy is pinned here, not in
@@ -44,7 +44,7 @@ export function buildRequestBody(cfg: AiConfig, req: AiRequest): Record<string, 
     messages: req.messages.map(wireMessage),
     ...(req.tools.length > 0
       ? {
-          tools: req.tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } })),
+          tools: req.tools.map((t: AiTool) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } })),
           tool_choice: 'auto',
         }
       : {}),
@@ -129,7 +129,7 @@ export function createOpenRouterProvider(
       }
       const parsed = Completion.safeParse(raw);
       if (!parsed.success) return { ok: false, failure: 'invalid_response', status: res.status, retry: false };
-      const choice = parsed.data.choices[0]!;
+      const choice = parsed.data.choices[0];
       const usage = parsed.data.usage;
       const toolCalls: AiToolCall[] = (choice.message.tool_calls ?? []).map((c) => ({
         id: c.id,

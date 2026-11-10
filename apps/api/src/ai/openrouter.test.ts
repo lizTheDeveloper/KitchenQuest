@@ -22,7 +22,7 @@ function fakeFetch(...responders: Responder[]) {
   const calls: Call[] = [];
   let i = 0;
   const f = (async (url: string | URL | Request, init?: RequestInit) => {
-    calls.push({ url: String(url), init: init as Call['init'] });
+    calls.push({ url: url as string, init: init as Call['init'] });
     const r = responders[Math.min(i++, responders.length - 1)];
     return r(init ?? {});
   }) as typeof fetch;
@@ -174,7 +174,7 @@ describe('createOpenRouterProvider', () => {
   test('timeout fails once, without retry', async () => {
     const hang: Responder = (init) =>
       new Promise<Response>((_resolve, reject) => {
-        init.signal?.addEventListener('abort', () => reject(init.signal?.reason ?? new Error('aborted')));
+        init.signal?.addEventListener('abort', () => reject(new Error('aborted')));
       });
     const { provider, calls } = setup(hang);
     const started = Date.now();

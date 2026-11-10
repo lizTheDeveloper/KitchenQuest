@@ -20,7 +20,7 @@ const db = drizzle(sql, { schema });
 // loadConfig sets config.ai only with AI_ENABLED=true and, in production, signed DPAs (P-11).
 // The provider logs through app.log, which exists once the app is built; it is only called after that.
 const aiLog: Pick<FastifyBaseLogger, 'warn'> = {
-  warn: ((...args: Parameters<FastifyBaseLogger['warn']>) => app.log.warn(...args)) as FastifyBaseLogger['warn'],
+  warn: (...args: Parameters<FastifyBaseLogger['warn']>) => app.log.warn(...args),
 };
 const ai = config.ai ? createOpenRouterProvider(config.ai, { fetch, log: aiLog }) : null;
 const app = await buildApp({
