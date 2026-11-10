@@ -8,6 +8,8 @@ import { NOTICES } from '../src/consent/notices.js';
 import { CaptureMailer } from '../src/mail/mailer.js';
 import { PROPOSAL_TTL_MS, UNDO_WINDOW_MS } from '../src/mentor/constants.js';
 import { createProposal } from '../src/mentor/proposals.js';
+import { confirmProposalIn } from '../src/mentor/writes.js';
+import { ApiError } from '../src/errors.js';
 import { MAX_PANTRY_ITEMS } from '../src/pantry/service.js';
 import type { Db } from '../src/types.js';
 import { signIn } from './helpers/auth.js';
@@ -111,6 +113,27 @@ describe('confirm by tap', () => {
       undoUntil: new Date(clock + UNDO_WINDOW_MS).toISOString(),
     });
     expect((await proposal(id)).write_ref).not.toBeNull();
+  });
+
+  test('the guard itself: a typed yes on a severe card → 400 tap_required, the card stays open (§7.6)', async () => {
+    const p = await player();
+    for (const card of [PEANUT(), ruleCard('sesame', 'allergy')]) {
+      const id = await seed(p.userId, card);
+      const err = await db
+        .transaction((tx) => confirmProposalIn(tx, { keyring: config.keyring, catalog }, p.userId, id, 'typed_yes', undefined, new Date(clock)))
+        .catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ApiError);
+      expect(err).toMatchObject({ status: 400, code: 'tap_required' });
+      expect(await proposal(id)).toMatchObject({ status: 'open' });
+    }
+    // Even a severe card whose stored flag alone says severe.
+    const garlic = await seed(p.userId, ruleCard('garlic', 'intolerance'));
+    await sql`update mentor_proposals set severe = true where id = ${garlic}`;
+    const err = await db
+      .transaction((tx) => confirmProposalIn(tx, { keyring: config.keyring, catalog }, p.userId, garlic, 'typed_yes', undefined, new Date(clock)))
+      .catch((e: unknown) => e);
+    expect(err).toMatchObject({ code: 'tap_required' });
+    expect(await count('rules', p.userId)).toBe(0);
   });
 
   test('channel typed_yes over HTTP → 400, nothing written; the body is strict', async () => {
