@@ -3,6 +3,9 @@ import { h } from '../ui/dom';
 import type { MentorBackend } from './backend';
 import type { Dialogue, Said, Vars } from './dialogue';
 
+/** The panel keeps the last this-many bubbles; older ones are removed so a long session can't grow without end. */
+export const MAX_BUBBLES = 50;
+
 export type MentorMode = 'standard' | 'familyTable';
 export interface MentorPanel {
   readonly mode: MentorMode;
@@ -44,6 +47,7 @@ export function mountMentorPanel(
   const addBubble = (who: 'pan' | 'you', text: string): void => {
     const body = h('span', { class: 'bubble-text' });
     bubbles.append(h('li', { class: `bubble ${who}` }, body));
+    while (bubbles.children.length > MAX_BUBBLES) bubbles.firstElementChild!.remove();
     if (who === 'pan') {
       body.setAttribute('data-content', '');
       typers.set(body, typeInto(body, text, opts.reducedMotion()));
