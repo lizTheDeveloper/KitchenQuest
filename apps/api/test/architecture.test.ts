@@ -10,8 +10,8 @@ const SRC = fileURLToPath(new URL('../src', import.meta.url));
 /** Modules that read or write health data, relative to src/ (a directory covers everything in it). */
 const HEALTH_MODULES = ['rules', 'consent', 'crypto/userkeys', 'journeys', 'symptoms', 'meals', 'mentor', 'voice'];
 /** Health tables: schema exports and SQL names. Extend both when a milestone adds one. */
-const HEALTH_SCHEMA_EXPORTS = ['rules', 'userKeys', 'consents'];
-const HEALTH_SQL_TABLES = ['rules', 'user_keys', 'consents'];
+const HEALTH_SCHEMA_EXPORTS = ['rules', 'userKeys', 'consents', 'mealLogs'];
+const HEALTH_SQL_TABLES = ['rules', 'user_keys', 'consents', 'meal_logs'];
 
 interface Violation {
   file: string;
@@ -67,6 +67,9 @@ describe('org/health separation (C-10)', () => {
       `import * as schema from '../db/schema.js';`,
       'const q = sql`select count(*) from orgs join rules on true`;',
       'const q = sql`select * from "user_keys"`;',
+      `import { mealLogs } from '../db/schema.js';`,
+      `import { mealSlotsOn } from '../meals/store.js';`,
+      'const q = sql`select count(*) from meal_logs`;',
     ];
     for (const line of bad) expect(healthViolations('org/seats.ts', line), line).not.toHaveLength(0);
   });

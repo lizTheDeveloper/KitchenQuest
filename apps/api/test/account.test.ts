@@ -55,6 +55,8 @@ const DAIRY = {
   severity: 'intolerance',
   note: 'lactose',
 };
+const MEAL = { eatenOn: '2026-11-09', slot: 'lunch', item: { kind: 'free', description: 'peanut noodles' } };
+const PANTRY_ITEM = { name: 'Lactose-free milk', ingredientId: 'milk' };
 const PROFILE = {
   marketDays: [2, 6],
   mealsPerWeek: 10,
@@ -92,6 +94,14 @@ async function fullPlayer(): Promise<Player> {
     expect(res.statusCode).toBe(201);
     ruleIds.push(res.json<{ rule: { id: string } }>().rule.id);
   }
+  const meal = await call(cookie, { method: 'POST', url: '/meals', payload: { meal: MEAL, confirmed: true } });
+  expect(meal.statusCode).toBe(201);
+  const pantry = await call(cookie, {
+    method: 'POST',
+    url: '/pantry/changes',
+    payload: { add: [PANTRY_ITEM], removeNames: [], removeIds: [], confirmed: true },
+  });
+  expect(pantry.statusCode).toBe(200);
   expect((await call(cookie, { method: 'GET', url: '/rules' })).statusCode).toBe(200);
   await grant(db, id, 'founding', 'manual', new Date('2026-01-01T00:00:00Z'));
   await recordUsage(db, id, 'mentor_text', 3, 120);
@@ -191,7 +201,18 @@ describe('GET /me/export', () => {
     expect(x.dataKey).toEqual({ keyId: config.keyring.activeId, createdAt: expect.any(String) });
 
     const actions = (x.auditEvents as { action: string }[]).map((e) => e.action);
-    expect(actions).toEqual(['auth.sign_in', 'consent.grant', 'rules.create', 'rules.create', 'account.export']);
+    expect(actions).toEqual([
+      'auth.sign_in',
+      'consent.grant',
+      'rules.create',
+      'rules.create',
+      'meals.create',
+      'pantry.change',
+      'account.export',
+    ]);
+    // Meals and pantry, decrypted.
+    expect(x.meals).toEqual([{ ...MEAL, id: expect.any(String), createdAt: NOW.toISOString() }]);
+    expect(x.pantry).toEqual([{ ...PANTRY_ITEM, id: expect.any(String), createdAt: NOW.toISOString() }]);
     expect(x.auditEvents[0]).toEqual({
       at: NOW.toISOString(),
       actorKind: 'user',
@@ -303,6 +324,8 @@ describe('GET /me/export', () => {
       sessions: 'sessions',
       login_tokens: 'loginTokens',
       user_keys: 'dataKey',
+      meal_logs: 'meals',
+      pantry_items: 'pantry',
       audit_events: 'auditEvents',
     };
     // Linked: a foreign key to users, or a column that holds a user id or an email.
@@ -386,6 +409,9 @@ describe('DELETE /me', () => {
 
     const byId = await mentions(p.id);
     expect(byId).toEqual(nowhere(byId));
+    // Meal logs and pantry rows go with the account (P-14).
+    expect(await sql`select 1 from meal_logs where user_id = ${p.id}`).toHaveLength(0);
+    expect(await sql`select 1 from pantry_items where user_id = ${p.id}`).toHaveLength(0);
     const byEmail = await mentions(p.email);
     expect(byEmail).toEqual(nowhere(byEmail));
 
