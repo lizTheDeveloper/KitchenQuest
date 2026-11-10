@@ -31,7 +31,7 @@
     "name": "no pork",
     "phrases": ["no pork", "pork free", "pork-free"],
     "ids": ["pork"],
-    "severity": "preference",
+    "severity": null,
     "form": "rule_diet"
   }
 ]

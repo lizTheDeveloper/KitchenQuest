@@ -80,7 +80,8 @@ describe('buildRuleCard', () => {
 
   test('"no pork" is the pork diet rule', () => {
     const c = card('No  Pork');
-    expect(c).toMatchObject({ form: 'rule_diet', severe: false, severityUnclear: false, rule: { target: { ids: ['pork'] }, severity: 'preference' } });
+    // Fix round 5 ruling (a): the term states no severity, so the card asks (anaphylactic default).
+    expect(c).toMatchObject({ form: 'rule_diet', severe: true, severityUnclear: true, rule: { target: { ids: ['pork'] }, severity: 'anaphylactic' } });
     expect(c.display).toMatchObject({ ingredient: 'no pork', severity: 'a diet rule' });
   });
 

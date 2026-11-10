@@ -36,26 +36,38 @@ const BY_CHOICE = 'by choice';
 const PREFERENCE_DIET_WORDS = ['vegetarian', 'veggie', 'vegan', 'plant-based', 'plant based', 'pescatarian', 'pescetarian', 'halal', 'kosher'];
 const DIET_MODIFIERS = ['strict', 'strictly', 'fully', 'totally', 'keep'];
 const DIET_SUFFIX = 'diet';
-/** "or" joins terms only; "and" is a filler. */
-const TERM_SEPARATORS = ['or'];
+/** "and" / "or" join two terms of one stretch; anywhere else they are fillers (fix round 5). */
+const TERM_SEPARATORS = ['and', 'or'];
 
 /** Every character a consumed message may hold: lower-case Latin letters, spaces, apostrophes, list punctuation. */
 const ALLOWED_CHARS = /^[a-z' ,.!;:&/+\-–—]*$/;
-/** Punctuation that ends a phrase: no fixed phrase or term spans it ("no, allergy" is not "no allergy"). */
-const PHRASE_BREAK = /[,.!;:&/+–—]|\s-\s|^-\s|\s-$/;
-const SEGMENT_SPLIT = new RegExp(PHRASE_BREAK.source, 'g');
+/**
+ * Punctuation is a break in the shape: no phrase or term spans one ("no, allergy" is not "no
+ * allergy"). `.` for a sentence end `[.!;]`, `,` for a list break `, : / + & – —` or a spaced
+ * dash. A run of breaks is one break, a sentence end if it holds one (fix round 5).
+ */
+const BREAK_RUN = /(?:\s*(?:[,.!;:&/+–—]|(?:^|\s)-(?=\s|$)))+\s*/g;
+const SENTENCE_END = /[.!;]/;
 const WORD = /^[a-z]+(?:['-][a-z]+)*$/;
 /** Allergy and anaphylaxis stems on letters-only text (ruling 4): misspellings included. */
 export const ALLERGY_STEMS = /lerg|alerg|anaph|anaf[iy]l/;
 const MAX_PHRASE = 4;
 
 type Sym = 'term' | 'intol' | 'digest' | 'prefix' | 'avoid' | 'choice' | 'diet' | 'mod' | 'suffix' | 'sep' | 'neg' | 'fill';
-const SYM_CHAR: Readonly<Record<Exclude<Sym, 'fill' | 'neg'>, string>> = {
+type ShapeSym = Exclude<Sym, 'fill' | 'neg'> | 'stop' | 'comma';
+const SYM_CHAR: Readonly<Record<ShapeSym, string>> = {
   term: 't', intol: 'i', digest: 'd', prefix: 'p', avoid: 'a', choice: 'b', diet: 'g', mod: 'm', suffix: 'w', sep: 's',
+  stop: '.', comma: ',',
 };
-const TERMS = 't(?:s?t)*';
-const INTOLERANCE_SHAPE = new RegExp(`^(?:${TERMS}i|i${TERMS}|d${TERMS})+$`);
-const PREFERENCE_SHAPE = new RegExp(`^(?:p${TERMS}|a${TERMS}b|m?gw?)+$`);
+/** Terms before a keyword: joined by and/or only ("milk and egg intolerance", never "peanuts, milk intolerant"). */
+const TERMS_BEFORE = 't(?:st)*';
+/** Terms after a keyword: a list ("intolerant to milk, eggs or soy"). */
+const TERMS_AFTER = 't(?:,?s?t)*';
+const INTOLERANCE_GROUP = `(?:${TERMS_BEFORE},?i|i,?${TERMS_AFTER}|d${TERMS_AFTER})`;
+const PREFERENCE_GROUP = `(?:p,?${TERMS_AFTER}|a${TERMS_AFTER}b|m?gw?)`;
+/** The whole message: groups of one class, each pair split by a break. */
+const INTOLERANCE_SHAPE = new RegExp(`^${INTOLERANCE_GROUP}(?:[,.]${INTOLERANCE_GROUP})*$`);
+const PREFERENCE_SHAPE = new RegExp(`^${PREFERENCE_GROUP}(?:[,.]${PREFERENCE_GROUP})*$`);
 
 /** Fixed phrases by symbol; tried longest first, then in this order. */
 const PHRASES: readonly [Sym, readonly string[]][] = [
@@ -72,9 +84,10 @@ const PHRASES: readonly [Sym, readonly string[]][] = [
 ];
 
 interface Piece {
-  sym: Sym;
+  sym: Sym | 'stop' | 'comma';
   text: string;
 }
+const isBreak = (p: Piece | undefined): boolean => p !== undefined && (p.sym === 'stop' || p.sym === 'comma');
 
 /** One punctuation-free stretch as pieces, longest phrase first at each token; null on any token no piece covers. */
 function piecesOf(tokens: readonly string[], graph: IngredientGraph | undefined): Piece[] | null {
@@ -113,19 +126,36 @@ export function readNonSevere(text: string, graph?: IngredientGraph): NonSevereR
   const t = normalizeTurn(text);
   if (!ALLOWED_CHARS.test(t)) return null; // "?", digits, accents, other scripts, emoji, brackets
   const pieces: Piece[] = [];
-  for (const segment of t.split(SEGMENT_SPLIT)) {
-    const tokens = segment.split(/\s+/).filter((w) => w !== '');
-    if (!tokens.every((w) => WORD.test(w))) return null;
+  let at = 0;
+  const addStretch = (stretch: string): boolean => {
+    const tokens = stretch.split(/\s+/).filter((w) => w !== '');
+    if (!tokens.every((w) => WORD.test(w))) return false;
     const found = piecesOf(tokens, graph);
-    if (found === null) return null;
-    pieces.push(...found.filter((p) => p.sym !== 'fill'));
+    if (found === null) return false;
+    const kept = found.filter((p) => p.sym !== 'fill');
+    // "and" / "or" separate two terms of this stretch; anywhere else they are fillers.
+    kept.forEach((p, i) => {
+      if (p.sym !== 'sep' || (kept[i - 1]?.sym === 'term' && kept[i + 1]?.sym === 'term')) pieces.push(p);
+    });
+    return true;
+  };
+  for (const m of t.matchAll(BREAK_RUN)) {
+    if (!addStretch(t.slice(at, m.index))) return null;
+    pieces.push({ sym: SENTENCE_END.test(m[0]) ? 'stop' : 'comma', text: m[0] });
+    at = m.index + m[0].length;
   }
-  if (pieces.length === 0) return null;
-  const negs = pieces.flatMap((p, i) => (p.sym === 'neg' ? [i] : []));
-  if (negs.length > 1 || (negs.length === 1 && negs[0] !== 0 && negs[0] !== pieces.length - 1)) return null;
+  if (!addStretch(t.slice(at))) return null;
+  // One negation clause, first or last, set aside with the break that joins it.
+  const words = pieces.filter((p) => !isBreak(p));
+  const negs = words.filter((p) => p.sym === 'neg');
+  if (negs.length > 1 || (negs.length === 1 && negs[0] !== words[0] && negs[0] !== words[words.length - 1])) return null;
   const body = pieces.filter((p) => p.sym !== 'neg');
+  while (isBreak(body[0])) body.shift();
+  while (isBreak(body[body.length - 1])) body.pop();
+  if (body.length === 0) return null;
+  for (let i = body.length - 1; i > 0; i--) if (isBreak(body[i]) && isBreak(body[i - 1])) body.splice(i, 1);
   if (ALLERGY_STEMS.test(body.map((p) => p.text).join('').replace(/[^a-z]+/g, ''))) return null;
-  const shape = body.map((p) => SYM_CHAR[p.sym as keyof typeof SYM_CHAR]).join('');
+  const shape = body.map((p) => SYM_CHAR[p.sym as ShapeSym]).join('');
   const terms = body.filter((p) => p.sym === 'term' || p.sym === 'diet').map((p) => p.text);
   if (INTOLERANCE_SHAPE.test(shape)) return { severity: 'intolerance', terms, stated: true };
   if (PREFERENCE_SHAPE.test(shape)) return { severity: 'preference', terms, stated: /[pa]/.test(shape) };

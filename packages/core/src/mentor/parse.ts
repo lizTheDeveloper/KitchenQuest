@@ -222,7 +222,7 @@ export function parsePantryAdds(text: string): string[] {
 export const NOT_AN_ALLERGY = /\bnot (like |really |exactly |quite )?an? allergy\b|\bisn'?t (like )?an? allergy\b/;
 /** Anaphylaxis words, devices and signs: any one raises every term (but a preference diet) to anaphylactic. */
 export const ANAPHYLACTIC_CUE =
-  /anaphyla|epi-?pen|\bsevere|deadly|hospital|life[- ]threatening|adrenalin|epinephrin|auto-?injector|\bjext\b|\banapen\b|\bemerade\b|\ba&e\b|\ber\b|emergency|ambulance|\bicu\b|(nearly|almost) died|kill me|fatal|\bshock|can'?t breathe|cannot breathe|throat (closes|swells|closing|swelling)|swell(s|ing)? up|\bhives\b|wheez/;
+  /anaphyla|epi[- ]?pen|\bsevere|deadly|hospital|life[- ]threatening|adrenalin|epinephrin|auto-?injector|\bjext\b|\banapen\b|\bemerade\b|\ba&e\b|\ber\b|emergency|ambulance|\bicu\b|(nearly|almost) died|kill(s|ed)? me|\bdying\b|lethal|swollen|fatal|\bshock|can'?t breath|cannot breath|throat (closes|swells|closing|swelling)|swell(s|ing)? up|\bhives\b|wheez/;
 /** Phrases in which an allergy word states no allergy; removed before `SEVERITY_PATTERNS` run. */
 export const ALLERGY_NEGATIONS =
   /\b(not an allergy|not allergic|isn'?t an allergy|no allergy|not like an allergy|rather than an allergy)\b/g;
