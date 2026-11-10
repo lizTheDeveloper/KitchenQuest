@@ -736,6 +736,94 @@
       },
       "fdcId": 170151,
       "source": "FDC 170151; it has no sugars value, so sugars are from 170150 (whole, dried)."
+    },
+    {
+      "id": "honey",
+      "name": "honey",
+      "aliases": [
+        "runny honey",
+        "clear honey",
+        "set honey"
+      ],
+      "per100g": {
+        "energy_kcal": 304,
+        "protein_g": 0.3,
+        "fat_g": 0.0,
+        "carb_g": 82.4,
+        "fiber_g": 0.2,
+        "sugars_g": 82.1,
+        "sodium_mg": 4
+      },
+      "densityGPerMl": 1.42,
+      "fdcId": 169640,
+      "source": "FDC 169640; density from its 1 tbsp = 21 g portion."
+    },
+    {
+      "id": "gelatin",
+      "name": "gelatine",
+      "aliases": [
+        "gelatin",
+        "powdered gelatine",
+        "powdered gelatin",
+        "gelatine powder",
+        "gelatin powder",
+        "leaf gelatine",
+        "sheet gelatine"
+      ],
+      "unsafeFor": [
+        "meat",
+        "pork",
+        "fish"
+      ],
+      "per100g": {
+        "energy_kcal": 335,
+        "protein_g": 85.6,
+        "fat_g": 0.1,
+        "carb_g": 0.0,
+        "fiber_g": 0.0,
+        "sugars_g": 0.0,
+        "sodium_mg": 196
+      },
+      "densityGPerMl": 0.473,
+      "fdcId": 169599,
+      "source": "FDC 169599 (gelatins, dry powder, unsweetened); density from its 1 envelope (1 tbsp) = 7 g portion. Made from pork, beef or fish collagen and the label rarely says which, so it counts as meat, pork and fish for checking (unsafeFor)."
+    },
+    {
+      "id": "whey",
+      "name": "whey",
+      "aliases": [
+        "whey powder",
+        "dried whey",
+        "sweet whey"
+      ],
+      "contains": [
+        "milk"
+      ],
+      "per100g": {
+        "energy_kcal": 353,
+        "protein_g": 12.9,
+        "fat_g": 1.07,
+        "carb_g": 74.5,
+        "fiber_g": 0.0,
+        "sugars_g": 74.5,
+        "sodium_mg": 1080
+      },
+      "densityGPerMl": 0.507,
+      "fdcId": 171283,
+      "source": "FDC 171283 (whey, sweet, dried); density from its 1 tbsp = 7.5 g portion."
+    },
+    {
+      "id": "casein",
+      "name": "casein",
+      "aliases": [
+        "caseinate",
+        "sodium caseinate",
+        "calcium caseinate"
+      ],
+      "contains": [
+        "milk"
+      ],
+      "source": "Milk protein, listed for rule checking. No FDC record, so no nutrition values."
     }
   ]
 }

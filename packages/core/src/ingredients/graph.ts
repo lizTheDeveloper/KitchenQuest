@@ -1,6 +1,7 @@
 import type { IngredientData, IngredientNode } from './types';
 
-function normalize(name: string): string {
+/** How the graph compares names: trimmed, lower-cased, runs of whitespace collapsed to one space. */
+export function normalizeName(name: string): string {
   return name.trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
@@ -49,7 +50,7 @@ export class IngredientGraph {
     const names = new Map<string, string>();
     for (const node of nodes.values()) {
       for (const label of [node.name, ...(node.aliases ?? [])]) {
-        const key = normalize(label);
+        const key = normalizeName(label);
         const owner = names.get(key);
         if (owner !== undefined && owner !== node.id) {
           throw new Error(
@@ -122,7 +123,7 @@ export class IngredientGraph {
   }
 
   resolve(name: string): string | null {
-    const key = normalize(name);
+    const key = normalizeName(name);
     if (key === '') return null;
     for (const candidate of [key, ...IngredientGraph.pluralStrips(key)]) {
       const id = this.names.get(candidate);
@@ -158,13 +159,13 @@ export class IngredientGraph {
    * well as an alias does, else the first matching alias. An empty query matches nothing.
    */
   search(query: string, limit = 10): { id: string; name: string; matched: string }[] {
-    const q = normalize(query);
+    const q = normalizeName(query);
     if (q === '' || !(limit > 0)) return [];
     const hits: { id: string; name: string; matched: string; tier: number }[] = [];
     for (const node of this.nodes.values()) {
       let best: { matched: string; tier: number } | null = null;
       for (const label of [node.name, ...(node.aliases ?? [])]) {
-        const key = normalize(label);
+        const key = normalizeName(label);
         const tier = key.startsWith(q) ? 0 : key.includes(q) ? 1 : -1;
         if (tier >= 0 && (best === null || tier < best.tier)) best = { matched: label, tier };
       }
