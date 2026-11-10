@@ -5,10 +5,12 @@ import {
   IngredientGraph,
   parseRecipe,
   timerSeconds,
+  validateRuleTerms,
   validateSubstitutions,
   validateThresholds,
   type IngredientData,
   type ParsedRecipe,
+  type RuleTerm,
   type Substitution,
 } from '@kitchenquest/core';
 import { REQUIRED_DISCLAIMERS, REQUIRED_PAN_TRIGGERS } from '../../src/content/required';
@@ -29,6 +31,7 @@ import {
   FOOTNOTE_TAGS,
   ingredientsFile,
   lineBank,
+  ruleTermsFile,
   stallFile,
   substitutionsFile,
   techniquesFile,
@@ -48,6 +51,7 @@ const BUREAU = 'content/bureau/forms.yaml';
 const TECHNIQUES = 'data/techniques.yaml';
 const INGREDIENTS = 'data/ingredients.json';
 const SUBSTITUTIONS = 'data/substitutions.json';
+const RULE_TERMS = 'data/rule-terms.json';
 
 const IGNORED_NAMES = new Set(['README.md', 'LICENSE', 'CONTRIBUTING.md']);
 
@@ -146,6 +150,11 @@ export function compileContent(files: Record<string, string>): GameContent {
   if (graph && substitutions) {
     for (const p of validateSubstitutions(substitutions, graph)) fail(SUBSTITUTIONS, p);
   }
+  // Core validates each term (its problems name the term); the schema only checks for a list.
+  const rawRuleTerms = load<unknown[]>(RULE_TERMS, ruleTermsFile, true);
+  const ruleTermProblems = graph && rawRuleTerms !== null ? validateRuleTerms(rawRuleTerms, graph) : [];
+  for (const p of ruleTermProblems) fail(RULE_TERMS, p);
+  const ruleTerms = rawRuleTerms !== null && graph && ruleTermProblems.length === 0 ? (rawRuleTerms as RuleTerm[]) : null;
 
   // ---- line banks, cooks, stalls, bureau ---------------------------------
   const pan = load<LineBank>(PAN, lineBank);
@@ -301,7 +310,7 @@ export function compileContent(files: Record<string, string>): GameContent {
     }
   }
 
-  if (problems.length > 0 || !pan || !bureau || !ingredients || !substitutions || !techniques) {
+  if (problems.length > 0 || !pan || !bureau || !ingredients || !substitutions || !techniques || !ruleTerms) {
     throw new ContentError(problems);
   }
   return {
@@ -319,5 +328,6 @@ export function compileContent(files: Record<string, string>): GameContent {
     ingredients,
     substitutions,
     techniques,
+    ruleTerms,
   };
 }

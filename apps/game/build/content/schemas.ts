@@ -98,7 +98,7 @@ const bureauForm = obj({
   title_aside: z.string().optional(),
   safety: z.boolean().optional(),
   fields: z.array(obj({ key: z.string(), label: z.string(), hint: z.string().optional() })),
-  buttons: obj({ confirm: z.string(), decline: z.string().optional() }),
+  buttons: obj({ confirm: z.string(), decline: z.string().optional(), undo: z.string().optional() }),
   stamp: z.string(),
   footnotes: z.array(z.string()).optional(),
 });
@@ -119,4 +119,6 @@ export const techniquesFile = obj({
 });
 
 export const ingredientsFile = obj({ ingredients: z.array(obj({ id: z.string(), name: z.string() })) });
+/** Only "a list" here: the per-term checks are core's `validateRuleTerms`, whose messages name the term. */
+export const ruleTermsFile = z.array(z.unknown());
 export const substitutionsFile = z.array(obj({ from: z.string(), to: z.string() }));

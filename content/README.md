@@ -36,7 +36,7 @@ All files are YAML, 2-space indent, UTF-8. Strings are double-quoted. Variables 
 4. **`ai: allowed`** means the game *may* ask the model for a fresh variant in the character's voice instead (for example, every fourth firing, or when the player has seen all the written lines this week). The prompt includes the voice guide's hard rules, the persona card, a few of the written lines as examples, and the variable values. The output is checked (length, banned words, no numbers where numbers are banned) and replaced by a written line if it fails or if the AI is unavailable.
 5. **`ai: never`** means the written lines are used exactly, always. This is required for anything safety-relevant: allergy and diet read-backs, label reminders, low-intake check-ins, medical deflections, and emergency lines.
 6. **The AI is only for things writing can't reach:** free-form questions that no FAQ entry matches, photo reactions (the written `reactions` are the fallback), and turning what the player says into data (meal logs, pantry items, rule proposals). Even then, the Pan confirms with a written read-back.
-7. **If the AI is down,** everything except free-form answers still works from these files, and the Pan says so in character (`ai_unavailable` in `pan.yaml`).
+7. **If the AI is down,** everything except free-form answers still works from these files, and the Pan says so in character (`ai_unavailable` in `pan.yaml`; the mentor conversation uses `mentor.ai_unavailable`, which never claims anything was kept or saved).
 
 ## Schema
 
@@ -156,6 +156,55 @@ faq: [ ... ]
 ### Bureau (`bureau/forms.yaml`)
 
 Forms (number, title, purpose, field labels, button labels, footnotes), stamp texts, and a pool of general footnotes for UI copy. Safety fields on forms are plain; footnotes carry the jokes.
+
+The mentor's cards (Milestone 4) use these forms:
+
+- `consent_health` (3-C/HEALTH) and `consent_ai` (3-C/AI): two separate tap cards, one per consent. Their one field, `notice`, holds the API's notice text for that purpose, shown verbatim; the Bureau file never rewrites it. That notice text is a draft pending lawyer review (C-30). Saying no costs nothing, and the footnote says so.
+- `profile` (1-A/AMEND): a proposed change to market days, meals per week, region or meal times. A card shows only the fields its patch sets.
+- `rule_allergen`, `rule_intolerance`, `rule_diet`, `meal_log`, `pantry` and `schedule`, as before.
+
+`disclaimers` are plain, required text. The build fails without `cross_contact`, `unverified` and `ai_characters` (`apps/game/src/content/required.ts`). `ai_characters` is the C-16 disclosure, verbatim: "The Pan and the cooks are AI characters. Don't rely on them for medical advice." Never edit its wording here alone.
+
+### The mentor's Pan triggers (Milestone 4)
+
+The server agent and the client's scripted engine emit these by id, so they are all in `REQUIRED_PAN_TRIGGERS` and all `ai: never` (`apps/game/src/content/required.test.ts` checks both, plus the first line of each). The model is never asked to write one.
+
+| Trigger | When | Vars |
+|---|---|---|
+| `rule.unknown_term` | The term isn't in the ingredient graph or the rule terms. Nothing is saved; the player is told to check recipes and labels themselves. | `term` |
+| `rule.which_one` | Several ingredients match; the player taps one. Nothing is picked for them. | `term` |
+| `rule.tap_needed` | A typed "yes" for a severe card. Severe cards need a tap. | `ingredient` |
+| `confirm.tap_card` | A typed "yes" or "no" with more than one card open. | |
+| `write.not_done` | Replaces a model reply that claimed a write that didn't happen. | |
+| `consent.health_first` | A rule or meal card for a player without `health_data` consent; the 3-C/HEALTH card follows. | |
+| `child.grownup` | A child is talking. Exactly one fixed line, no joke. | |
+| `allowance.explain` | Any question about plans, prices or the chat allowance. Never names the Guild, a price, a plan or a tier (never rule 7). | |
+| `log.needs_account` | A meal log for a signed-out player. | |
+| `profile.readback`, `pantry.readback` | Read-back of a profile/schedule or pantry card, like `log.confirm_readback`. | `summary` |
+| `ai.try_again` | The AI failed; the player's message is held for "Try again". | |
+| `mentor.ai_unavailable` | The mentor's AI failed or is off; the script answers. Never says "saved", "kept", "logged", "stored" or "photo". | |
+| `forget.done` | The player cleared their conversations. | |
+
+The engine also emits the existing `rule.*` read-back, stamp, void, emergency and medical lines, `log.confirm_readback`, `log.logged`, `pantry.added`/`removed`, `schedule.set`/`bad_time`, `undo`, `undo.nothing`, `didnt_understand`, `rate_limited`, and every Form 1-A intake trigger (`intake.open` to `intake.complete`, listed one by one).
+
+### Rule terms (`data/rule-terms.json`)
+
+Words that name a rule rather than one ingredient: "vegetarian", "vegan", "pescatarian", "coeliac", "no pork". Each entry is a core `RuleTerm`:
+
+```json
+{ "name": "vegetarian", "phrases": ["vegetarian", "veggie"], "ids": ["meat", "fish", "shellfish", "gelatin"], "severity": "preference", "form": "rule_diet" }
+```
+
+- `phrases` are what the player might type. A phrase belongs to one term only.
+- `ids` must all be ids in `data/ingredients.json`, and together they must cover everything the word excludes. A term is never narrower than the word (spec §2.2, pre-flight C5).
+- `severity` is `anaphylactic`, `allergy`, `intolerance`, `preference`, or `null` when the card must ask. "coeliac" and "no pork" are `null` on purpose: a default would lower a stated allergy ("no pork, I'm allergic").
+- `form` is the 27-B card it uses: `rule_allergen`, `rule_intolerance` or `rule_diet`.
+
+The game build compiles the file into the content bundle (`ruleTerms`) and checks it with core `validateRuleTerms`. A bad entry fails the build, naming the file and the term: an id missing from the graph, a phrase used by two terms, an unknown severity or form. The API loads the same file into its catalog (Step 7).
+
+JSON has no comments, so its review flags live here:
+
+- `# REVIEW:` halal, kosher and Jain are deliberately absent. No one target can express them, so they resolve to `rule.unknown_term` (or an options list), never to a narrower rule. Adding a term for any of them needs a reviewer from that tradition, and the graph must first carry everything it excludes.
 
 ## Review flags
 

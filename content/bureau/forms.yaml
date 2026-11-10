@@ -39,6 +39,21 @@ forms:
       - "*Box 7, 'Not now', is a legitimate answer to every question on this form."
       - "*On completion the Bureau will send a letter of congratulation, which you must sign and return to receive it."
 
+  profile:
+    number: "1-A/AMEND"
+    title: "Amendment to Form 1-A"
+    purpose: "The profile card when the Pan proposes a change to market days, meals per week, region or meal times (pre-flight C38). A card shows only the fields its patch sets."
+    safety: false
+    fields:
+      - { key: market_days, label: "Market day(s)" }
+      - { key: meals_per_week, label: "Meals cooked per week" }
+      - { key: region, label: "Country and region", hint: "For seasonal produce. No addresses." }
+      - { key: meal_windows, label: "Meal times" }
+    buttons: { confirm: "Ink it ✔", decline: "Leave in pencil", undo: "Undo" }
+    stamp: inked
+    footnotes:
+      - "*Form 1-A may be amended as often as you like. The Bureau files each amendment behind the last, and has never once been asked to find one."
+
   rule_allergen:
     number: "27-B/ALLERGEN"
     title: "Declaration of an Allergy"
@@ -101,6 +116,30 @@ forms:
     stamp: void
     footnotes:
       - "*Removed rules can be restored at any time by telling the Pan. The shredder is reversible. The Bureau does not ask how."
+
+  consent_health:
+    number: "3-C/HEALTH"
+    title: "Permission to Keep Health Details"
+    purpose: "The consent card for health_data: shown when the Pan would file a rule or meal for a player without it (consent.health_first). The notice field is the API's health_data notice text, shown verbatim, never rewritten here. That text is DRAFT wording pending lawyer review (C-30)."
+    safety: true
+    fields:
+      - { key: notice, label: "What this covers" }
+    buttons: { confirm: "I agree", decline: "Not now" }
+    stamp: confirmed_by_apprentice
+    footnotes:
+      - "*Saying no costs nothing. You can play every part of the game without it."
+
+  consent_ai:
+    number: "3-C/AI"
+    title: "Permission for the AI to See Your Rules and Meals"
+    purpose: "The consent card for ai_health, separate from consent_health (P-4). The notice field is the API's ai_health notice text, shown verbatim, never rewritten here. That text is DRAFT wording pending lawyer review (C-30)."
+    safety: true
+    fields:
+      - { key: notice, label: "What this covers" }
+    buttons: { confirm: "I agree", decline: "Not now" }
+    stamp: confirmed_by_apprentice
+    footnotes:
+      - "*Saying no costs nothing. You can play every part of the game without it."
 
   meal_log:
     number: "2-L"
@@ -430,3 +469,5 @@ disclaimers:
   scripted_answers: "Scripted answers (AI not connected). Not medical advice."
   draft_recipe: "Draft recipe: not yet reviewed by a cook from this tradition."
   emergency: "If you're having an allergic reaction now, call your local emergency number."
+  # C-16, verbatim. Shown wherever the Pan or a cook can answer with AI.
+  ai_characters: "The Pan and the cooks are AI characters. Don't rely on them for medical advice."

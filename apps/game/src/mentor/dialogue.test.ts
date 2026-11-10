@@ -76,7 +76,12 @@ describe('dialogue engine', () => {
   });
 
   test('every required trigger renders', () => {
-    const sample = { dish: 'Parippu', cook: 'Ammachi Leela', place: 'Kochi', time: '20 minutes', step: 'step 2', technique: 'Tempering' };
+    const sample = {
+      dish: 'Parippu', cook: 'Ammachi Leela', place: 'Kochi', time: '20 minutes', step: 'step 2', technique: 'Tempering',
+      // M4: read-backs and intake follow-ups have no defaults on purpose; code always supplies them.
+      ingredient: 'peanut', spelled: 'P-E-A-N-U-T', severity: 'a severe allergy', covers: 'peanuts and peanut oil',
+      summary: 'toast, breakfast', items: 'rice', day: 'Saturday', count: '5', region: 'Kerala, India', term: 'kiwi',
+    };
     for (const id of REQUIRED_PAN_TRIGGERS) expect(createDialogue(content.pan).say(id, sample).text, id).not.toMatch(/[{}]/);
   });
 
