@@ -1,6 +1,6 @@
 // M4 Step 7: the output filter (§7.6b.5, pre-flight C2/C3, spike §6.5).
 import { describe, expect, test } from 'vitest';
-import { filterReply, REPLACEMENT, type FilterFail } from './filter.js';
+import { filterReply, REPLACEMENT, touchesHealth, type FilterFail } from './filter.js';
 
 const stop = (text: string, previousPanText: string | null = null) => filterReply(text, { finish: 'stop', previousPanText });
 
@@ -74,4 +74,54 @@ describe('filterReply', () => {
       eat_less_praise: 'didnt_understand',
     });
   });
+});
+
+// Fix round 1: the safety reviewer's repros (rev7/probe.test.ts).
+describe('filterReply, fix round 1 (C1, C2, I6)', () => {
+  test.each<[string, FilterFail]>([
+    ["I can't tell you how happy I am; the frijoles are safe for you.", 'safety_claim'], // C1: no clause break
+    ["I can't promise more than this, but it's safe.", 'safety_claim'],
+    ['Safe… for sure', 'safety_claim'],
+    ["Got it, I've noted your peanut allergy, so you're all set.", 'write_claim'], // C2
+    ["Got it, I'll remember you're allergic to peanuts.", 'write_claim'],
+    ['Done, your peanut rule is in place.', 'write_claim'],
+    ["I've stored it for you.", 'write_claim'],
+    ['Your rule is written down.', 'write_claim'],
+    ['I wrote it on your list.', 'write_claim'],
+    ['Once you tap nothing, because I already saved your peanut rule.', 'write_claim'], // C2: the once-you-tap swallow
+    ["Once you tap the card it's filed, but I already saved your peanut rule anyway.", 'write_claim'],
+  ])('%j fails as %s', (text, reason) => expect(stop(text)).toEqual({ ok: false, reason }));
+
+  test('the refusals that pass are closed phrases', () => {
+    for (const t of ["I can't promise it's safe; check the label.", "I can't say that it is safe.", "Nothing's been noted yet.", "Once you tap the card, it's filed."]) {
+      expect(stop(t)).toEqual({ ok: true, text: t });
+    }
+  });
+
+  test('newlines split sentences, so a line list is cut to three (I6)', () => {
+    expect(stop('Rice first\nThen beans\nThen soup\nThen stew\nThen cake\nThen more')).toEqual({ ok: true, text: 'Rice first Then beans Then soup' });
+  });
+
+  test('a reply over 400 characters loses sentences from the end, or fails when one sentence is that long (I6)', () => {
+    const long = `${'x'.repeat(385)}.`; // 386 characters
+    expect(stop(`${long} Short one. Another.`)).toEqual({ ok: true, text: `${long} Short one.` });
+    expect(stop(`${long} ${long}`)).toEqual({ ok: true, text: long });
+    expect(stop('x'.repeat(3000))).toEqual({ ok: false, reason: 'truncated' });
+  });
+});
+
+describe('touchesHealth (R2)', () => {
+  test.each([
+    ['The frijoles are peanut-free, so tuck in.', []],
+    ['The frijoles are fine for your allergy.', []],
+    ['Take two antihistamines and lie down.', []],
+    ['That one contains butter.', []],
+    ['It is okay for you.', []],
+    ['There are no peanuts in the frijoles at all.', ['peanut']],
+    ['Frijoles de Olla is a fine choice.', ['frijoles de olla']],
+    ['Cashews would be grand in it.', ['cashew']],
+  ])('%j is screened', (text, words) => expect(touchesHealth(text, words)).toBe(true));
+  test.each(['Rice is a fine start.', 'Toast counts. Toast always counts.', 'Curl your fingers under.'])('%j is not', (text) =>
+    expect(touchesHealth(text, ['peanut', 'frijoles de olla'])).toBe(false),
+  );
 });

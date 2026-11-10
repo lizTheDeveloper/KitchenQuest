@@ -78,6 +78,13 @@
       "when": 1794283242629,
       "tag": "0010_mentor",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1794287111273,
+      "tag": "0011_ai_cost_hours",
+      "breakpoints": true
     }
   ]
 }

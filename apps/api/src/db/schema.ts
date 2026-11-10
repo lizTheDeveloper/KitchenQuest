@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  bigint,
   bigserial,
   boolean,
   check,
@@ -151,6 +152,16 @@ export const usageEvents = pgTable(
   },
   (t) => [index("usage_events_user_feature_idx").on(t.userId, t.feature, t.createdAt)],
 );
+
+/**
+ * The AI's spend per hour, across all players, for the global daily budget
+ * (`BudgetGuard`, M4 Step 7 fix round 1, P5). No user id and no content: an
+ * account delete never takes its spend out of the budget. Kept 48 hours.
+ */
+export const aiCostHours = pgTable("ai_cost_hours", {
+  hour: ts("hour").primaryKey(),
+  costMicroUsd: bigint("cost_microusd", { mode: "number" }).notNull(),
+});
 
 /**
  * C-4: one random data key per user, wrapped (AES-256-GCM) by the key ring key

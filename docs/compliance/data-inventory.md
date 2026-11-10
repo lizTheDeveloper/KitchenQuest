@@ -2,7 +2,7 @@
 
 **Item:** C-33 (risk assessment and DPIA), first deliverable. Feeds the GDPR Art. 30 record of processing, the DPIA (`dpia.md`) and the risk register (`risk-register.md`).
 **Date:** 2026-11-09. **Status:** started at M2; the owner of each later milestone adds that milestone's rows in the same PR as its schema.
-**Sources:** `apps/api/src/db/schema.ts` and migrations `0000`–`0008` (built; §6 indexes every column, checked by `apps/api/test/inventory.test.ts`); some M2 rows still read "planned M2" where only part is built; spec §4, §5, §7, §9, §16–§20; `plans/m1-core`, `plans/m2-api`; compliance report §2–§6 (C-ids).
+**Sources:** `apps/api/src/db/schema.ts` and migrations `0000`–`0011` (built; §6 indexes every column, checked by `apps/api/test/inventory.test.ts`); some M2 rows still read "planned M2" where only part is built; spec §4, §5, §7, §9, §16–§20; `plans/m1-core`, `plans/m2-api`; compliance report §2–§6 (C-ids).
 **Caveat:** only M1 and M2 have plan files. Rows for M3 onwards come from the spec and the C-id table, so column names are proposed, not final. This is not legal advice; **[verify]** marks facts to confirm and **[lawyer]** marks questions for counsel.
 
 ## 1. How to read this
@@ -179,6 +179,7 @@ No child data is collected until counsel signs off (P-9). The rows are reserved 
 | ID | Element | Where | Category | Basis / purpose | Sealed | Retention | Processors | E / D | Status |
 |---|---|---|---|---|---|---|---|---|---|
 | U-1 | AI and voice usage events: feature, units, cost, time | `usage_events` | usage (content-free) | contract (allowances) | no | 13 months (C-6) | Hetzner | E (per-feature totals), D | built; retention planned M2 |
+| U-7 | The AI's total spend per hour across all players (no user id, no content), for the global daily budget | `ai_cost_hours` (`ai_cost_hours.hour`, `ai_cost_hours.cost_microusd`) | none (aggregate, not personal data) | legit. (cost control) | no | 48 hours (C-6 retention job) | Hetzner | n/a (no subject) | built (M4 Step 7) |
 | U-2 | Entitlements: kind, source, start and end | `entitlements` | usage; kind `bursary` or `founding` hints at financial circumstances | contract | no | life of account | Hetzner | E, D | built. See R-18 |
 | U-3 | Billing identity (name, card, address, tax) | at the Merchant of Record only; we store nothing (schema comment: "never holds price, payment or card data") | identifier, financial | contract; legal | provider-side | provider legal retention **[verify]** | Merchant of Record (TBD) | processor list in E; D partly retained by law | planned M12 |
 | U-4 | Merchant of Record customer id / subscription id | `entitlements.source` or `billing_links` | identifier | contract | no | life of account | Hetzner, Merchant of Record | E, D | proposed |
@@ -293,6 +294,7 @@ Every column the migrations create, as `table.column`, with the inventory row th
 | `canon_recipes` | `canon_recipes.path`, `canon_recipes.slug`, `canon_recipes.title`, `canon_recipes.country`, `canon_recipes.region`, `canon_recipes.status`, `canon_recipes.source`, `canon_recipes.content_hash`, `canon_recipes.contributors`, `canon_recipes.synced_at` | W-1 (`contributors`), W-2 (`source`), W-3 (the rest; no player data) |
 | `entitlements` | `entitlements.id`, `entitlements.user_id`, `entitlements.kind`, `entitlements.source`, `entitlements.starts_at`, `entitlements.ends_at`, `entitlements.created_at` | U-2 |
 | `usage_events` | `usage_events.id`, `usage_events.user_id`, `usage_events.feature`, `usage_events.units`, `usage_events.cost_microusd`, `usage_events.created_at` | U-1, V-4 |
+| `ai_cost_hours` | `ai_cost_hours.hour`, `ai_cost_hours.cost_microusd` | U-7 |
 | `user_keys` | `user_keys.user_id`, `user_keys.key_id`, `user_keys.wrapped`, `user_keys.created_at` | J-2 |
 | `consents` | `consents.id`, `consents.user_id`, `consents.purpose`, `consents.notice_version`, `consents.notice_sha256`, `consents.granted_at`, `consents.withdrawn_at`, `consents.ended_reason`, `consents.method` | J-1, P-7 |
 | `audit_events` | `audit_events.id`, `audit_events.at`, `audit_events.actor_kind`, `audit_events.actor_id`, `audit_events.subject_user_id`, `audit_events.action`, `audit_events.target`, `audit_events.request_id` | J-4 |

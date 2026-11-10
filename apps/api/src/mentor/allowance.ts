@@ -1,5 +1,5 @@
 import { gte, sql } from 'drizzle-orm';
-import { usageEvents } from '../db/schema.js';
+import { aiCostHours } from '../db/schema.js';
 import { activeEntitlements, type EntitlementKind } from '../entitlements/entitlements.js';
 import type { Db } from '../types.js';
 import { usageSince } from '../usage/usage.js';
@@ -12,7 +12,9 @@ export const GUILD_KINDS: readonly EntitlementKind[] = ['guild', 'household_memb
 
 /**
  * The player's AI turns over the last 24 hours (`mentor_text` usage units,
- * rolling). Rule help is never held back by this (pre-flight C6): the turn
+ * rolling). Read before the model call and recorded after it, so two turns
+ * racing at the cap can both pass: at most one turn per concurrent request
+ * over the cap, accepted (fix round 1, P4). Rule help is never held back by this (pre-flight C6): the turn
  * skips the check for it, though its usage still counts here.
  */
 export async function aiTurnsLeft(db: Db, userId: string, now: Date): Promise<{ limit: number; used: number; left: number }> {
@@ -22,10 +24,26 @@ export async function aiTurnsLeft(db: Db, userId: string, now: Date): Promise<{ 
   return { limit, used, left: Math.max(0, limit - used) };
 }
 
+const HOUR_MS = 60 * 60 * 1000;
+const hourOf = (t: number) => new Date(Math.floor(t / HOUR_MS) * HOUR_MS);
+
 /**
- * The global daily AI budget (`config.ai.dailyBudgetMicroUsd`): every user's
- * recorded cost over the last 24 hours must stay below it. The sum is cached
- * for `cacheMs` (60 s) so a busy minute costs one query.
+ * Adds a model call's cost to the hour's all-players total (`ai_cost_hours`):
+ * no user id and no content, so an account delete never takes its spend out
+ * of the global budget (fix round 1, P5). Pass the turn's transaction.
+ */
+export async function recordAiCost(db: Pick<Db, 'insert'>, costMicroUsd: number, now: Date): Promise<void> {
+  await db
+    .insert(aiCostHours)
+    .values({ hour: hourOf(now.getTime()), costMicroUsd })
+    .onConflictDoUpdate({ target: aiCostHours.hour, set: { costMicroUsd: sql`${aiCostHours.costMicroUsd} + ${costMicroUsd}` } });
+}
+
+/**
+ * The global daily AI budget (`config.ai.dailyBudgetMicroUsd`): the spend of
+ * the last 24 hourly buckets (`ai_cost_hours`, the current hour included)
+ * must stay below it. The sum is cached for `cacheMs` (60 s) so a busy minute
+ * costs one query.
  */
 export class BudgetGuard {
   private cached: { at: number; spent: number } | null = null;
@@ -40,9 +58,9 @@ export class BudgetGuard {
     const t = now.getTime();
     if (this.cached === null || t - this.cached.at >= this.cacheMs || t < this.cached.at) {
       const rows = await this.db
-        .select({ spent: sql<number>`coalesce(sum(${usageEvents.costMicroUsd}), 0)::bigint` })
-        .from(usageEvents)
-        .where(gte(usageEvents.createdAt, new Date(t - DAY_MS)));
+        .select({ spent: sql<number>`coalesce(sum(${aiCostHours.costMicroUsd}), 0)::bigint` })
+        .from(aiCostHours)
+        .where(gte(aiCostHours.hour, hourOf(t - DAY_MS + HOUR_MS)));
       this.cached = { at: t, spent: Number(rows.at(0)?.spent ?? 0) };
     }
     return this.cached.spent < this.budgetMicroUsd;

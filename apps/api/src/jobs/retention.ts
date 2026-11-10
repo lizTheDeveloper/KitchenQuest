@@ -1,7 +1,7 @@
 import { and, isNotNull, lt, lte, or } from 'drizzle-orm';
 import { purgeAuditBefore } from '../audit/audit.js';
 import { loggableError } from '../errors.js';
-import { conversations, loginTokens, mentorProposals, messages, selfReadCounts, sessions, usageEvents } from '../db/schema.js';
+import { aiCostHours, conversations, loginTokens, mentorProposals, messages, selfReadCounts, sessions, usageEvents } from '../db/schema.js';
 import { TRANSCRIPT_RETENTION_DAYS } from '../mentor/constants.js';
 import { undecidedExpired } from '../mentor/proposals.js';
 import type { Db } from '../types.js';
@@ -99,6 +99,13 @@ registerRetention({
   table: 'usage_events',
   run: (db, now) =>
     deleted(db.delete(usageEvents).where(lt(usageEvents.createdAt, monthsBefore(now, 13))).returning({ id: usageEvents.id })),
+});
+
+// ai_cost_hours: 48 hours; the global budget reads only the last 24 (M4 Step 7, P5).
+registerRetention({
+  table: 'ai_cost_hours',
+  run: (db, now) =>
+    deleted(db.delete(aiCostHours).where(lt(aiCostHours.hour, new Date(now.getTime() - 48 * 3_600_000))).returning({ hour: aiCostHours.hour })),
 });
 
 // audit_events: 24 months, through the append-only trigger's purge function.
