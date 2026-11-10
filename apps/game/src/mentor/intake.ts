@@ -1,7 +1,7 @@
 import {
-  askForDroppedTerms, buildPantryCard, buildProfileCard, buildRuleCard, classifyTurn, LIST_SPLIT, normalizeTurn,
-  parseCount, parsePantryAdds, parseRuleStatement, parseWeekdays, preRoute, stripPageEvents, WEEKDAY_NAMES,
-  type IngredientGraph, type IntakeStep, type LineRef, type ProposalCard, type RuleCardResult, type RuleTerm,
+  askForDroppedTerms, buildPantryCard, buildProfileCard, buildRuleCard, classifyTurn, leftoverNamedIngredients, LIST_SPLIT, normalizeName,
+  normalizeTurn, parseCount, parsePantryAdds, parseRuleStatement, parseWeekdays, preRoute, stripPageEvents, WEEKDAY_NAMES,
+  type IngredientGraph, type IntakeStep, type LineRef, type ProposalCard, type RuleCardResult, type RuleTerm, type Severity,
 } from '@kitchenquest/core/engine';
 import { healthConsent, type ApiClient } from '../api/client';
 import type { BureauForm } from '../content/types';
@@ -30,7 +30,7 @@ export type IntakeAnswer =
   | { kind: 'unparsed' }
   | { kind: 'reply'; reply: RuleCardResult }
   /** An allergies answer that names more than one term, or leaves a severe term out (the ask-for-dropped-terms rule). */
-  | { kind: 'rules'; results: RuleCardResult[]; ask: LineRef | null };
+  | { kind: 'rules'; results: RuleCardResult[]; ask: LineRef | null; notes?: LineRef[] };
 
 export interface Intake {
   start(): void;
@@ -75,9 +75,19 @@ const NAMES_NOTHING: ReadonlySet<string> = new Set(['yes', 'thanks', 'undo', 'al
 /** A list part that is only a filler word ("nope, just peanuts"). */
 const FILLER = /^(no|nope|none|nothing|yes|yeah|yep|um|erm|well|ok|okay|so)$/;
 /** The parts of a bare allergy list, each as said. */
-function bareTerms(raw: string): string[] {
+/** Core's list split, plus ; / and parentheses ("peanuts; sesame", "peanuts/sesame", "shellfish (prawns mainly)"). */
+const BARE_SPLIT = new RegExp(`${LIST_SPLIT.source}|\\s*[;/()]\\s*`);
+/**
+ * The parts of a bare allergy list that are terms of their own. A part that names a ledger entry inside other words
+ * ("prawns mainly", "peanuts but not tree nuts") is left to `leftoverNamedIngredients`, which reads exclusions;
+ * a part that names nothing the ledger knows is kept, so it gets its own unknown-term or which-one line.
+ */
+function bareTerms(raw: string, graph: IngredientGraph, ruleTerms: readonly RuleTerm[]): string[] {
   const t = normalizeTurn(raw).replace(/[.!?]+$/, '').trim().replace(BARE_LEAD, '');
-  return t.split(LIST_SPLIT).map((x) => x.trim().replace(BARE_LEAD, '').trim()).filter((x) => x !== '' && !FILLER.test(x));
+  const isTerm = (x: string) => graph.resolve(x) !== null || ruleTerms.some((rt) => rt.phrases.some((p) => normalizeName(p) === normalizeName(x)));
+  return t.split(BARE_SPLIT).map((x) => x.trim().replace(BARE_LEAD, '').trim())
+    .filter((x) => x !== '' && !FILLER.test(x))
+    .filter((x) => isTerm(x) || leftoverNamedIngredients(x, [], graph).left.length + leftoverNamedIngredients(x, [], graph).excluded.length === 0);
 }
 
 export function parseIntakeAnswer(
@@ -115,13 +125,24 @@ export function parseIntakeAnswer(
       // No rule grammar: the answer is a bare list ("peanuts and shellfish", "just peanuts", "none except peanuts").
       // Each part is its own term; naming states no severity, so each card asks and defaults to Severe allergy (a tap).
       // Can't verify is never safe: an unknown or ambiguous part gets its own line.
-      const items = statement?.items.length ? statement.items : bareTerms(raw).map((term) => ({ term, severity: null }));
-      if (items.length === 0) return { kind: 'unparsed' };
+      const items: { term: string; severity: Severity | null }[] = statement?.items.length
+        ? statement.items
+        : bareTerms(raw, graph, ruleTerms).map((term) => ({ term, severity: null }));
       const results = items.map((i) => buildRuleCard({ term: i.term, severity: i.severity }, graph, ruleTerms));
+      // Fix round 2 (structural): every named allergen gets a card or an ask. A ledger name no card covers
+      // ("vegan and peanuts") gets its own bare card: no severity stated, so it asks and defaults to Severe (a tap).
+      const covered = results.flatMap((r) => (r.ok ? r.card.rule.target.ids : []));
+      const { left, excluded } = leftoverNamedIngredients(raw, covered, graph);
+      for (const name of left) results.push(buildRuleCard({ term: name, severity: null }, graph, ruleTerms));
+      if (results.length === 0) return { kind: 'unparsed' };
+      // "peanuts but not tree nuts": the allowance is never a card, and the Pan says it isn't written down.
+      const notes = excluded.map((term): LineRef => ({ trigger: 'rule.exclusion_not_kept', vars: { term } }));
       // The Step 7 ask-for-dropped-terms rule (Carry from Step 1): a severe statement never loses a named ingredient.
-      const ask = askForDroppedTerms(raw, statement?.terms ?? items.map((i) => i.term), results.length > 0, graph);
-      if (results.length === 1 && ask === null) return results[0].ok ? { kind: 'card', card: results[0].card } : { kind: 'reply', reply: results[0] };
-      return { kind: 'rules', results, ask };
+      const ask = askForDroppedTerms(raw, [...(statement?.terms ?? items.map((i) => i.term)), ...left], results.length > 0, graph);
+      if (results.length === 1 && ask === null && notes.length === 0) {
+        return results[0].ok ? { kind: 'card', card: results[0].card } : { kind: 'reply', reply: results[0] };
+      }
+      return { kind: 'rules', results, ask, notes };
     }
     case 'pantry': {
       if (PANTRY_NONE.test(t)) return { kind: 'skip' };
@@ -293,7 +314,7 @@ export function createIntake(deps: {
     return reask(step, []);
   }
 
-  function rulesReply(results: RuleCardResult[], ask: LineRef | null, turn: number): PanReply {
+  function rulesReply(results: RuleCardResult[], ask: LineRef | null, turn: number, notes: LineRef[] = []): PanReply {
     const items: PanItem[] = [];
     const cards: CardView[] = [];
     for (const r of results) {
@@ -301,6 +322,7 @@ export function createIntake(deps: {
       else if (r.reason === 'unknown_term') items.push(ref(r.line));
       else items.push(ref(r.line), { kind: 'choices', options: r.options, severity: null });
     }
+    items.push(...notes.map(ref));
     if (ask !== null) items.push(ref(ask));
     return reply(items, cards);
   }
@@ -327,7 +349,7 @@ export function createIntake(deps: {
       case 'done': return reply(await moveOn());
       case 'card': return reply(parsed.card.readback.map(ref), [view(parsed.card, c.turn)]);
       case 'reply': return rulesReply([parsed.reply], null, c.turn);
-      case 'rules': return rulesReply(parsed.results, parsed.ask, c.turn);
+      case 'rules': return rulesReply(parsed.results, parsed.ask, c.turn, parsed.notes ?? []);
       // At allergies an answer that names nothing is never sent anywhere: the plain ask (fix round 1, M7).
       case 'unparsed': return step === 'allergies' ? reply([say('rule.ask_keep_off')]) : unparsed(step, text, c);
     }

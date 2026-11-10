@@ -57,6 +57,30 @@ describe('parseIntakeAnswer (AI off)', () => {
     for (const x of results) expect(x.ok && x.card.kind === 'rule' && x.card.severe && x.card.rule.severity).toBe('anaphylactic');
   });
 
+  test.each([
+    ['vegan and peanuts', ['vegan', 'peanut']],
+    ['peanuts and vegan', ['vegan', 'peanut']],
+    ['vegetarian, sesame', ['vegetarian', 'sesame']],
+    ['gluten free and peanuts', ['coeliac', 'peanut']],
+    ['milk intolerance and peanuts', ['milk', 'peanut']],
+    ["i'm lactose intolerant and peanuts", ['milk', 'peanut']],
+    ['peanuts; sesame', ['peanut', 'sesame']],
+    ['peanuts/sesame', ['peanut', 'sesame']],
+    ['shellfish (prawns mainly)', ['shellfish']],
+    ['peanuts but not tree nuts', ['peanut']],
+  ])('every named allergen gets a card (fix round 2): %s', (text, names) => {
+    const r = parseIntakeAnswer('allergies', text, deps);
+    const results = r.kind === 'rules' ? r.results : r.kind === 'card' ? [{ ok: true as const, card: r.card }] : [];
+    expect(results.map((x) => x.ok && x.card.kind === 'rule' && x.card.display.ingredient)).toEqual(names);
+    // A leftover name states no severity: its card asks, defaults to Severe allergy and needs a tap.
+    for (const x of results.slice(1)) expect(x.ok && x.card.kind === 'rule' && x.card.severe).toBe(true);
+  });
+
+  test('"peanuts but not tree nuts": tree nuts are never a card, and the Pan says the allowance is not filed', () => {
+    const r = parseIntakeAnswer('allergies', 'peanuts but not tree nuts', deps);
+    expect(r).toMatchObject({ kind: 'rules', notes: [{ trigger: 'rule.exclusion_not_kept', vars: { term: 'tree nut' } }] });
+  });
+
   test('an unknown part of a bare list gets its own line; the rest still get cards', () => {
     const r = parseIntakeAnswer('allergies', 'peanuts and kiwi', deps);
     expect(r).toMatchObject({ kind: 'rules', results: [{ ok: true }, { ok: false, reason: 'unknown_term', line: { vars: { term: 'kiwi' } } }] });
@@ -77,9 +101,10 @@ describe('parseIntakeAnswer (AI off)', () => {
     expect(two.kind).toBe('rules');
     if (two.kind !== 'rules') return;
     expect(two.results.map((r) => r.ok && r.card.display.ingredient)).toEqual(['peanut', 'sesame']);
+    // The dropped severe term now gets its own card (fix round 2), never only an ask.
     const dropped = parseIntakeAnswer('allergies', "i'm vegetarian, peanuts nearly killed me", deps);
     expect(dropped.kind).toBe('rules');
-    if (dropped.kind === 'rules') expect(dropped.ask).toMatchObject({ trigger: 'rule.ask_what_else' });
+    if (dropped.kind === 'rules') expect(dropped.results.map((r) => r.ok && r.card.display.ingredient)).toEqual(['vegetarian', 'peanut']);
     expect(parseIntakeAnswer('allergies', 'kiwi', deps)).toMatchObject({ kind: 'reply', reply: { ok: false, reason: 'unknown_term' } });
   });
 });

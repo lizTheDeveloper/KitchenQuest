@@ -333,6 +333,39 @@ function namedIngredients(text: string, graph: IngredientGraph): string[] {
   return ids;
 }
 
+/** Words after which, in the same clause, a named ingredient is allowed rather than to avoid ("but not tree nuts"). */
+const EXCLUSION = /\b(not|never|except|apart from|other than|besides|fine with|ok with|okay with)\b/;
+const CLAUSE_BREAK = /[,;.!?()/]|\band\b|\bbut\b(?! not)/;
+
+/**
+ * M4 Step 11 fix round 2 (structural, "every named allergen gets a card or an ask"): the graph names in the player's
+ * own words (RAW turn text) that no produced card covers. `coveredIds` are the cards' target ids; their isA kinds
+ * count as covered too ("vegan and milk" leaves nothing). A name said after an exclusion in its clause ("peanuts but
+ * not tree nuts") is never a card: it is in `excluded`. Each list holds ledger names, in order, each once. Shared
+ * by the client's intake and (Step 12 carry) the server turn's ask.
+ */
+export function leftoverNamedIngredients(
+  playerText: string,
+  coveredIds: readonly string[],
+  graph: IngredientGraph,
+): { left: string[]; excluded: string[] } {
+  const covered = new Set(coveredIds.flatMap((id) => (graph.has(id) ? [id, ...graph.descendants(id)] : [])));
+  const left: string[] = [];
+  const excluded: string[] = [];
+  for (const clause of normalizeName(ownWords(playerText)).split(CLAUSE_BREAK)) {
+    const ex = EXCLUSION.exec(clause);
+    const at = ex ? ex.index : clause.length;
+    for (const [part, list] of [[clause.slice(0, at), left], [clause.slice(at), excluded]] as const) {
+      for (const id of namedIngredients(part, graph)) {
+        const name = graph.get(id).name;
+        if (covered.has(id) || left.includes(name) || excluded.includes(name)) continue;
+        list.push(name);
+      }
+    }
+  }
+  return { left, excluded: excluded.filter((n) => !left.includes(n)) };
+}
+
 /**
  * Step 1 carry and Step 7 fix round 1 I5: the player's own words (`playerText` is the RAW turn
  * text) state a severe allergy but name an ingredient that no kept rule term covers (whether or

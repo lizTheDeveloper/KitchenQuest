@@ -614,6 +614,17 @@ triggers:
       - "I may have missed {term}. If you need me to watch for it, tell me plainly and I'll read it back."
       - "Before we go on: I may not have caught every ingredient you mentioned. If there's another one to avoid, tell me plainly and I'll read it back."
 
+  rule.exclusion_not_kept:
+    ai: never
+    when: The player named something as fine ("peanuts but not tree nuts"); only what to avoid is filed, so the allowance is not recorded (M4 Step 11).
+    vars:
+      term: "the ingredient the player said is fine"
+    notes: "Plain. No jokes. Never says the ingredient is safe."
+    lines:
+      - "One note: I only file what to keep off, so {term} isn't written down anywhere. It simply isn't on your list."
+      - "About {term}: the Bureau only records what you avoid, so that part isn't filed. Nothing blocks it, and nothing marks it as fine either."
+      - "I haven't filed anything for {term}. Your list only holds what to keep off."
+
   rule.ask_keep_off:
     ai: never
     when: A health turn ended with no card and no rule read-back (or the model's rule was not the player's own words); this asks plainly so a health statement is never silently lost.
