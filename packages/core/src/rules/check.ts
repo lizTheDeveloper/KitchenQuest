@@ -219,7 +219,9 @@ export function check(
 
     const lineHits = hits[k];
     const hitTargets = lineHits.flatMap((h) => h.rule.target.ids);
-    const swap = lineHits.some((h) => h.kind === 'match')
+    // A line that itself matches an unverifiable target (a sulphite carrier) is never swapped.
+    const carriesUnverifiable = lineHits.some((h) => h.kind === 'match' && targetsUnverifiable(h.rule));
+    const swap = lineHits.some((h) => h.kind === 'match') && !carriesUnverifiable
       ? findSwap(graph, id, subs, restricting, hitTargets)
       : undefined;
 

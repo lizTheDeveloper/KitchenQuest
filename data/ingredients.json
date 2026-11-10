@@ -734,7 +734,7 @@
         "toasted sesame"
       ],
       "isA": [
-        "sesame"
+        "sesame_seed"
       ],
       "per100g": {
         "energy_kcal": 565,
@@ -1320,7 +1320,10 @@
         "sodium_mg": 70
       },
       "fdcId": 167744,
-      "source": "FDC 167744 (Mollusks, snail, raw)."
+      "source": "FDC 167744 (Mollusks, snail, raw).",
+      "unsafeFor": [
+        "meat"
+      ]
     },
     {
       "id": "cod",
@@ -1554,7 +1557,7 @@
         "lupine flour"
       ],
       "contains": [
-        "lupin"
+        "lupin_bean"
       ],
       "source": "Flour from lupin seed, listed for rule checking. No FDC record, so no nutrition values."
     },
@@ -1571,7 +1574,19 @@
         "sodium metabisulfite",
         "potassium metabisulphite",
         "potassium metabisulfite",
-        "e220"
+        "e220",
+        "e221",
+        "e222",
+        "e223",
+        "e224",
+        "e225",
+        "e226",
+        "e227",
+        "e228",
+        "sodium sulphite",
+        "sodium sulfite",
+        "sodium bisulphite",
+        "sodium bisulfite"
       ],
       "source": "Preservative class (EU Annex II above 10 mg/kg as SO2), listed for rule checking. No FDC record, so no nutrition values. Ingredients that may carry it without saying so name it in unsafeFor."
     },
@@ -1604,7 +1619,7 @@
         "sesame paste"
       ],
       "contains": [
-        "sesame"
+        "sesame_seed"
       ],
       "per100g": {
         "energy_kcal": 570,

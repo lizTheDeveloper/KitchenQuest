@@ -149,8 +149,8 @@ const COMMON_WORDS: ReadonlySet<string> = new Set([
   'miles', 'mills', 'nuns', 'what', 'whats', 'meant', 'money', 'later', 'wheel', 'honest', 'shall', 'union', 'unions', 'salty',
   // Two edits from the EU/US allergen members (tahini, walnut, celery, oyster, lupine, barley, almond, cashew, mussel, ...).
   'think', 'thinks', 'thing', 'things', 'thin', 'want', 'wants', 'every', 'system', 'systems', 'line', 'lines', 'early', 'almost',
-  'taking', 'along', 'among', 'alone', 'spent', 'sister', 'sisters', 'master', 'masters', 'cash', 'missed', 'valley', 'squad',
-  'faster', 'marine', 'barely', 'monster', 'monsters', 'mystery', 'badly', 'muscle', 'muscles', 'rarely', 'spell', 'foster',
+  'taking', 'along', 'among', 'alone', 'spent', 'sister', 'sisters', 'master', 'masters', 'cash', 'missed', 'valley',
+  'faster', 'marine', 'monster', 'monsters', 'mystery', 'badly', 'rarely', 'foster',
   'filter', 'vessel', 'vessels', 'outer', 'nail', 'poster', 'bare', 'suite', 'barrel', 'wallet', 'easter',
 ]);
 /** The shortest word checked against the longer labels; shorter ones over-match too much. */

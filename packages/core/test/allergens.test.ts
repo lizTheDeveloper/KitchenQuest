@@ -233,7 +233,8 @@ describe('EU 14 / US 9 allergen members', () => {
       for (const diet of ['vegetarian', 'vegan']) {
         expect(runWith(id, [avoid(termIds(diet), 'preference')]).status, `${diet} ${id}`).not.toBe('ok');
       }
-      expect(runWith(id, [avoid(termIds('pescatarian'), 'preference')]).status, `pescatarian ${id}`).toBe('ok');
+      // Snail (escargot) is a land animal: not pescatarian (allergen review ruling).
+      if (id !== 'snail') expect(runWith(id, [avoid(termIds('pescatarian'), 'preference')]).status, `pescatarian ${id}`).toBe('ok');
     }
   });
 
@@ -379,5 +380,54 @@ describe('EU 14 / US 9 allergen members', () => {
     }
     const tree = buildRuleCard({ term: 'tree nuts', severity: 'anaphylactic' }, graph, terms);
     expect(tree).toMatchObject({ ok: true, card: { rule: { target: { kind: 'category', ids: ['tree_nut'] } } } });
+  });
+});
+
+describe('allergen review fixes', () => {
+  const ruleFor = (name: string): Rule => {
+    const r = graph.resolve(name);
+    if (!r) throw new Error(`unresolved ${name}`);
+    return { id: name, target: { kind: 'ingredient', ids: [r] }, type: 'avoid', severity: 'allergy' };
+  };
+
+  it('a "sesame seeds" rule blocks tahini and toasted sesame', () => {
+    const rule = ruleFor('sesame seeds');
+    expect(runWith('tahini', [rule]).status).toBe('blocked');
+    expect(runWith('toasted_sesame_seeds', [rule]).status).toBe('blocked');
+    expect(runWith('sesame_seed', [rule]).status).toBe('blocked');
+  });
+
+  it('a "sesame" rule still blocks every sesame form', () => {
+    const rule = ruleFor('sesame');
+    for (const id of ['tahini', 'toasted_sesame_seeds', 'sesame_seed']) expect(runWith(id, [rule]).status).toBe('blocked');
+  });
+
+  it('a "lupin beans" rule blocks lupin flour', () => {
+    expect(runWith('lupin_flour', [ruleFor('lupin beans')]).status).toBe('blocked');
+  });
+
+  it('snail is not pescatarian', () => {
+    const rule: Rule = { id: 'p', target: { kind: 'category', ids: termIds('pescatarian') }, type: 'avoid', severity: 'preference' };
+    expect(runWith('snail', [rule]).status).not.toBe('ok');
+  });
+
+  it('sulphite salts and E-numbers resolve to sulphites', () => {
+    for (const n of ['e221', 'e228', 'sodium sulphite', 'sodium bisulfite', 'sodium metabisulphite']) {
+      expect(graph.resolve(n)).toBe('sulphites');
+    }
+  });
+
+  it('a sulphite rule never offers a swap, even with a substitution for a sulphite carrier', () => {
+    const extra: Substitution[] = [...subs, { from: 'gelatin', to: 'rice', note: 'test' } as Substitution];
+    const rule = ruleFor('sulphites');
+    const res = check(dish(`Add @${graph.get('gelatin').name}{5%g}.`), [rule], graph, extra, '2026-11-10');
+    expect(res.status).toBe('blocked');
+  });
+});
+
+describe('consent gate keeps common allergen misspellings', () => {
+  it.each(['muscles make my throat close', 'never give me muscles', 'no barely please', 'squad rings make me ill'])('%s is health text', async (text) => {
+    const { mentionsHealthTerm } = await import('../src/mentor/route');
+    expect(mentionsHealthTerm(text, graph, terms)).toBe(true);
   });
 });
