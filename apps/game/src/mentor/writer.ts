@@ -175,7 +175,7 @@ export function createCardWriter(deps: {
   async function reverse(u: Undo): Promise<PanItem[] | null> {
     const goneIsFine = (r: ApiResult<unknown>) => r.ok || r.status === 404;
     switch (u.kind) {
-      case 'rule':
+      case 'rule': {
         if (u.where === 'device') {
           store.update((s) => ({ ...s, localRules: s.localRules.filter((r) => r.id !== u.id) }));
           return [];
@@ -185,6 +185,7 @@ export function createCardWriter(deps: {
         editAccountRules(email, (rules) => rules.filter((x) => x.id !== u.id));
         await refreshAccount(client, store);
         return [];
+      }
       case 'meal':
         return goneIsFine(await client.deleteMeal(u.id)) ? [] : null;
       case 'profile':

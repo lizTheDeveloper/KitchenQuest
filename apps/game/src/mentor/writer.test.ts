@@ -290,18 +290,18 @@ describe('fix round 1', () => {
 
   test('a sign-in to another account while the write was in flight never gets the rule in its cache (E5)', async () => {
     const other: Rule = { id: 'r-other', target: { kind: 'ingredient', ids: ['milk'] }, type: 'avoid', severity: 'intolerance' };
-    let store!: ReturnType<typeof setup>['store'];
+    const box: { store?: ReturnType<typeof setup>['store'] } = {};
     const s = setup({
       createRule: () => {
-        store.update((x) => ({ ...x, account: { email: 'other@example.com' }, accountRules: [other] }));
+        box.store!.update((x) => ({ ...x, account: { email: 'other@example.com' }, accountRules: [other] }));
         return ok({ rule: coconut }, 201);
       },
       me: () => ok({ id: 'u2', email: 'other@example.com', entitlements: [] }),
       listRules: () => fail(429, 'rate_limited'),
     }, signedIn);
-    store = s.store;
+    box.store = s.store;
     await s.writer.confirm(local(coconutCard()), 'tap');
-    expect(store.get().accountRules).toEqual([other]);
+    expect(s.store.get().accountRules).toEqual([other]);
   });
 
   test('account rules that never loaded stay unloaded after a stamp (fail closed)', async () => {
