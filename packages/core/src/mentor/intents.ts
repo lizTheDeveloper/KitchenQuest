@@ -16,8 +16,9 @@ export type TurnIntent =
   | 'other';
 
 // "anaphylactic to cashews" and "I carry an EpiPen" are rule statements, not emergencies.
+// Using an adrenaline pen now, or someone who ate something and now has hives or swelling, is (Step 7 fix round 1, I4).
 export const EMERGENCY_PATTERN =
-  /\b(can'?t breathe|cannot breathe|trouble breathing|hard to breathe|throat (feels |is )?(tight|closing|swelling|swollen)|tight throat|(lips?|tongue|face) (are |is )?(swelling|swollen|tingling)|having a reaction|reacting now|going into (anaphylaxis|shock)|call (911|999|112|an ambulance))\b/;
+  /\b(can'?t breathe|cannot breathe|trouble breathing|hard to breathe|throat (feels |is )?(tight|closing|swelling|swollen)|tight throat|(lips?|tongue|face) (are |is )?(swelling|swollen|tingling)|having a reaction|reacting now|going into (anaphylaxis|shock)|call (911|999|112|an ambulance)|(use|used|using|give|inject|need) (my |his |her |their |the |an |our )?epi-?pens?|(ate|eaten|had)\b[^.!?]{0,60}\b(and|now) (now )?(has|have|got|is getting|am getting|getting|is covered in|broke out in) (hives|swelling|a rash|rash|welts|swollen \w+))\b/;
 
 export const CHILD_PATTERNS: readonly RegExp[] = [
   /\b(i'?m|i am|im)\s+([3-9]|1[0-5])\b(?!\s*(:|am\b|pm\b|%|kg|lb))/,
@@ -25,8 +26,9 @@ export const CHILD_PATTERNS: readonly RegExp[] = [
   /\bi'?m in (year|grade) ([1-9]|10)\b/,
 ];
 
+// Medicines and milligram doses too (I4): "how many mg of ibuprofen with dinner".
 export const MEDICAL_PATTERN =
-  /\b(dose|dosage|how much \w+ should i take|medication|medicine|antihistamine|benadryl|epinephrine dose|metformin|insulin|diagnos\w*|do i have|am i allergic|is it an allergy|should i (take|stop|start)|get tested|allergy test)\b/;
+  /\b(dose|dosage|doses|how (much|many) (mg|milligrams?|tablets?|pills?)|\d+(\.\d+)? ?(mg|milligrams?)|ibuprofen|paracetamol|acetaminophen|aspirin|antihistamines?|piriton|cetirizine|loratadine|tablets?|pills?|how much \w+ should i take|medication|medicine|antihistamine|benadryl|epinephrine dose|metformin|insulin|diagnos\w*|do i have|am i allergic|is it an allergy|should i (take|stop|start)|get tested|allergy test)\b/;
 
 /** A strict yes: every word is one of these, and at least one is in `YES_STRONG`. */
 export const YES_WORDS: ReadonlySet<string> = new Set([

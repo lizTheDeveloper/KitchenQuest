@@ -161,3 +161,16 @@ describe('fix round 3: stripPageEvents extras', () => {
     expect(stripPageEvents('2 [cardamom pods] and (optional) salt').stripped).toBe(false);
   });
 });
+
+// Step 7 fix round 1, I4: using an adrenaline pen now, a reaction after eating, and medicine doses are pre-routed.
+test.each([
+  ['should I use my epipen', 'emergency'],
+  ['do I need to use the epi-pen', 'emergency'],
+  ['my son ate peanuts and has hives', 'emergency'],
+  ['she had some prawns and now has swelling on her face', 'emergency'],
+  ['how many mg of ibuprofen with dinner', 'medical'],
+  ['can I take paracetamol after this', 'medical'],
+  ['is 10 mg too much', 'medical'],
+  ['I carry an EpiPen for peanuts', 'health'],
+  ['I had toast and it was lovely', 'health'],
+])('%j is %s (I4)', (text, intent) => expect(classifyTurn(text)).toBe(intent));

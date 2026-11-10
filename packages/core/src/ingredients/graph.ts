@@ -152,6 +152,11 @@ export class IngredientGraph {
     return this.nodes.has(id);
   }
 
+  /** Every normalised name and alias the graph resolves, each once. */
+  labels(): string[] {
+    return [...this.names.keys()];
+  }
+
   /**
    * Ingredients whose name or an alias matches `query` (normalized like `resolve`), at most
    * `limit` of them, each once. Prefix matches come before substring matches, then by name, so

@@ -132,6 +132,43 @@ function joinLetterRuns(words: readonly string[]): string[] {
 const pluralForms = (g: string): string[] => [g, ...(g.endsWith('es') ? [g.slice(0, -2)] : []), ...(g.endsWith('s') ? [g.slice(0, -1)] : [])];
 
 /**
+ * Health words beyond the graph (Step 7 fix round 1, I3): allergy and its misspellings,
+ * conditions, symptoms and medicines. Over-catches on purpose.
+ */
+export const HEALTH_WORDS =
+  /\b(al+erg|intoleran|diabet|coeliac|celiac|migraine|ibs|crohn|pregnan|epi-?pen|anaphyla|hives|reaction|symptom|medic|tablet|pill|dose|mg)\w*/i;
+
+/** The shortest word checked for a one-letter slip ("penuts"); shorter ones over-match too much. */
+const FUZZY_MIN = 5;
+
+/** One-word graph names, aliases and rule-term phrases of FUZZY_MIN+ letters. */
+function fuzzyLabels(graph: IngredientGraph, phrases: ReadonlySet<string>): string[] {
+  const labels = new Set<string>();
+  for (const p of phrases) if (!p.includes(' ') && p.length >= FUZZY_MIN) labels.add(p);
+  for (const label of graph.labels()) if (!label.includes(' ') && label.length >= FUZZY_MIN) labels.add(label);
+  return [...labels];
+}
+
+/** At most one edit (insert, delete, substitute or swap two neighbours) apart. */
+function withinOneEdit(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (Math.abs(a.length - b.length) > 1) return false;
+  let i = 0;
+  while (i < a.length && i < b.length && a[i] === b[i]) i++;
+  if (a.length === b.length) {
+    if (a.slice(i + 1) === b.slice(i + 1)) return true;
+    return a[i] === b[i + 1] && a[i + 1] === b[i] && a.slice(i + 2) === b.slice(i + 2);
+  }
+  return a.length > b.length ? a.slice(i + 1) === b.slice(i) : a.slice(i) === b.slice(i + 1);
+}
+
+/** A word (or its plural strip) one slip from a health label: "penuts", "sesmae", "glutten". */
+function nearMiss(word: string, labels: readonly string[]): boolean {
+  if (word.length < FUZZY_MIN) return false;
+  return pluralForms(word).some((w) => w.length >= FUZZY_MIN - 1 && labels.some((l) => withinOneEdit(w, l)));
+}
+
+/**
  * True when the text names any ingredient (graph name or alias, plurals as `resolve` strips
  * them) or any rule-term phrase, as whole words. The text is NFKC-normalised with invisible
  * characters dropped and lookalikes folded, and read three ways: as written ("peanut-free",
@@ -143,6 +180,7 @@ const pluralForms = (g: string): string[] => [g, ...(g.endsWith('es') ? [g.slice
  */
 export function mentionsHealthTerm(text: string, graph: IngredientGraph, terms: readonly RuleTerm[]): boolean {
   const clean = normalizeName(foldConfusables(canonicalText(text)).replace(/[‘’‛]/g, "'"));
+  if (HEALTH_WORDS.test(clean)) return true;
   const asWritten = clean
     .replace(/[^\p{L}\p{N}'-]+/gu, ' ')
     .split(' ')
@@ -165,7 +203,9 @@ export function mentionsHealthTerm(text: string, graph: IngredientGraph, terms: 
     const node = graph.get(id);
     return [node.name, ...(node.aliases ?? [])].some((label) => normalizeName(label) === part);
   };
+  const fuzzyNames = fuzzyLabels(graph, phrases);
   for (const word of new Set(joined)) {
+    if (nearMiss(word, fuzzyNames)) return true;
     for (let k = COMPOUND_MIN; k <= word.length - 1; k++) {
       if (isExactName(word.slice(0, k))) return true;
       if (word.length - k >= COMPOUND_MIN && isExactName(word.slice(k))) return true;

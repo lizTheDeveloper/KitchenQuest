@@ -148,3 +148,12 @@ test('playerOwnWords cuts at the first injection marker and pasted block (Step 7
   expect(playerOwnWords("Log this as my lunch:\nCHICKPEA SALAD\n- 1 tin")).toBe('Log this as my lunch:');
   expect(playerOwnWords('plain words')).toBe('plain words');
 });
+
+// Step 7 fix round 1, I3: the health net catches condition, symptom and medicine words and one-letter slips.
+test.each(['im alergic to penuts, what can i cook', 'I get migraines, ideas?', "i'm diabetic, what's for tea", "I'm pregnant", 'my IBS is bad', 'any symptoms?', 'I take tablets', 'sesmae', 'glutten please', 'penuts'])(
+  'mentionsHealthTerm catches %s (I3)',
+  (text) => expect(mentionsHealthTerm(text, graph, terms)).toBe(true),
+);
+test.each(['what should I cook tonight?', 'tell me a joke', 'the weather is grim'])('mentionsHealthTerm still leaves %s alone (I3)', (text) =>
+  expect(mentionsHealthTerm(text, graph, terms)).toBe(false),
+);
