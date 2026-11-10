@@ -56,6 +56,17 @@ describe('scripted engine', () => {
     expect(text).toContain('S-E-S-A-M-E');
   });
 
+  test.each([
+    "I had prawns and now I've got hives",
+    'my daughter had sesame, her lips are swelling',
+    "I finished the milk, had peanuts and now I'm wheezing",
+    'had a reaction to prawns, I bought rice',
+  ])('an emergency turn is the emergency line only, with no meal or pantry card: %s', (text) => {
+    const r = engine().reply(text, ctx());
+    expect(said(r)).toEqual(['rule.emergency']);
+    expect(r.cards).toEqual([]);
+  });
+
   test('signed out: a meal gets log.needs_account and no card', () => {
     const r = engine().reply('I had porridge for breakfast', ctx({ signedIn: false }));
     expect(said(r)).toEqual(['log.needs_account']);

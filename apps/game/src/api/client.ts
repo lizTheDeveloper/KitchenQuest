@@ -41,7 +41,7 @@ export interface ApiClient {
   getPantry(): Promise<ApiResult<{ items: (PantryItem & { id: string })[] }>>;                                // GET /pantry
   changePantry(
     change: { add: PantryItem[]; removeNames: string[]; removeIds: string[] }, confirmed: true,
-  ): Promise<ApiResult<{ items: (PantryItem & { id: string })[]; removed: (PantryItem & { id: string })[] }>>; // POST /pantry/changes
+  ): Promise<ApiResult<{ items: (PantryItem & { id: string })[]; removed: (PantryItem & { id: string })[]; addedIds: string[] }>>; // POST /pantry/changes
 }
 
 const isObj = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x);

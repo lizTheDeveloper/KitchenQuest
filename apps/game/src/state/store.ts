@@ -62,7 +62,9 @@ const isTechniqueRecord = (r: unknown): boolean =>
   Array.isArray(r.recipes) && r.recipes.every((x) => typeof x === 'string');
 const isObjArray = (x: unknown) => Array.isArray(x) && x.every(isObj);
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
-const INTAKE_STEPS: readonly unknown[] = ['market_day', 'meals_per_week', 'region', 'allergies', 'pantry', 'done', null];
+/** Every core `IntakeStep`: a step core adds fails to compile here until it is listed. */
+const INTAKE_STEP_SET: Readonly<Record<IntakeStep, true>> = { market_day: true, meals_per_week: true, region: true, allergies: true, pantry: true };
+const isIntakeStep = (x: unknown): boolean => x === null || x === 'done' || (typeof x === 'string' && Object.hasOwn(INTAKE_STEP_SET, x));
 const isPantryRow = (x: unknown): boolean =>
   isObj(x) && typeof x.id === 'string' && typeof x.name === 'string' && isStrOrNull(x.ingredientId);
 const isMealWindow = (x: unknown): boolean =>
@@ -94,7 +96,7 @@ function merge(p: Record<string, unknown>): PlayerState | null {
   if (has('signOutPending') && typeof p.signOutPending !== 'boolean') return null;
   if (has('localProfile') && p.localProfile !== null && !isLocalProfile(p.localProfile)) return null;
   if (has('localPantry') && !(Array.isArray(p.localPantry) && p.localPantry.every(isPantryRow))) return null;
-  if (has('intake') && !(isObj(p.intake) && INTAKE_STEPS.includes(p.intake.step ?? null))) return null;
+  if (has('intake') && !(isObj(p.intake) && Object.hasOwn(p.intake, 'step') && isIntakeStep(p.intake.step))) return null;
   if (has('aiDisclosureSeen') && typeof p.aiDisclosureSeen !== 'boolean') return null;
   if (has('aiHealthOffered') && typeof p.aiHealthOffered !== 'boolean') return null;
   if (has('settings') && !isObj(p.settings)) return null;
@@ -125,7 +127,7 @@ function merge(p: Record<string, unknown>): PlayerState | null {
     signOutPending: (has('signOutPending') ? p.signOutPending : d.signOutPending) as boolean,
     localProfile: has('localProfile') ? (p.localProfile as LocalProfile | null) : d.localProfile,
     localPantry: has('localPantry') ? (p.localPantry as (PantryItem & { id: string })[]) : d.localPantry,
-    intake: has('intake') ? { step: ((p.intake as { step?: IntakeStep | 'done' | null }).step ?? null) } : d.intake,
+    intake: has('intake') ? { step: (p.intake as { step: IntakeStep | 'done' | null }).step } : d.intake,
     aiDisclosureSeen: (has('aiDisclosureSeen') ? p.aiDisclosureSeen : d.aiDisclosureSeen) as boolean,
     aiHealthOffered: (has('aiHealthOffered') ? p.aiHealthOffered : d.aiHealthOffered) as boolean,
   };

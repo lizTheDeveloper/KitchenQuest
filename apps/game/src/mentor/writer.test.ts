@@ -3,6 +3,8 @@ import { buildMealCard, buildPantryCard, buildProfileCard, buildRuleCard, UNDO_W
 import type { ApiClient } from '../api/client';
 import type { ApiResult } from '../api/types';
 import { content, graph } from '../content';
+import { buildRecipeCard } from '../recipes/card-model';
+import { activeRules, RULES_INVALID_MESSAGE } from '../recipes/rules';
 import { createStore, type PlayerState } from '../state/store';
 import { createDialogue } from './dialogue';
 import type { LocalCardView, PanItem, ServerCardView } from './reply';
@@ -40,7 +42,7 @@ function setup(script: Partial<Record<keyof ApiClient, Handler>>, patch: Partial
   store.update((s) => ({ ...s, ...patch }));
   let now = T0;
   const { client, calls } = fakeClient(script);
-  const writer = createCardWriter({ client, store, dialogue: createDialogue(content.pan), graph, now: () => now });
+  const writer = createCardWriter({ client, store, dialogue: createDialogue(content.pan), graph, ruleTerms: content.ruleTerms, now: () => now });
   return { store, calls, writer, later: (ms: number) => { now = new Date(T0.getTime() + ms); } };
 }
 const signedIn: Partial<PlayerState> = { account: { email: 'cook@example.com' }, accountRules: [] };
@@ -194,10 +196,11 @@ describe('card writer', () => {
     const before = [{ id: 'old-rice', name: 'rice', ingredientId: 'rice' }, { id: 'e1', name: 'eggs', ingredientId: 'egg' }];
     const profile = { marketDays: [2], mealsPerWeek: null, country: null, region: null, mealWindows: [] };
     const { calls, writer } = setup({
-      getPantry: () => ok({ items: before }),
       changePantry: (change) => {
         const c = change as { removeIds: string[] };
-        return c.removeIds.length > 0 ? ok({ items: before, removed: [] }) : ok({ items: [before[0], { id: 'new-rice', name: 'rice', ingredientId: 'rice' }], removed: [before[1]] });
+        return c.removeIds.length > 0
+          ? ok({ items: before, removed: [], addedIds: [] })
+          : ok({ items: [before[0], { id: 'new-rice', name: 'rice', ingredientId: 'rice' }], removed: [before[1]], addedIds: ['new-rice'] });
       },
       getProfile: () => ok(profile),
       putProfile: (patch) => ok({ ...profile, ...(patch as object) }),
@@ -205,14 +208,16 @@ describe('card writer', () => {
     const card = buildPantryCard({ add: ['rice'], remove: ['eggs'] }, graph);
     const pantry = await writer.confirm(local(card), 'tap');
     if (!pantry.ok) throw new Error('expected a write');
-    expect(calls[1].args).toEqual([{ add: card.add, removeNames: ['eggs'], removeIds: [] }, true]);
+    // The route names the rows it added (fix round 1): no read of the pantry first.
+    expect(calls.map((c) => c.name)).toEqual(['changePantry']);
+    expect(calls[0].args).toEqual([{ add: card.add, removeNames: ['eggs'], removeIds: [] }, true]);
     await writer.undo(pantry.trail);
     // The same-name item that was already there ('old-rice') is never touched; the route's add takes no ids.
-    expect(calls[2].args).toEqual([{ add: [{ name: 'eggs', ingredientId: 'egg' }], removeNames: [], removeIds: ['new-rice'] }, true]);
+    expect(calls[1].args).toEqual([{ add: [{ name: 'eggs', ingredientId: 'egg' }], removeNames: [], removeIds: ['new-rice'] }, true]);
 
     const prof = await writer.confirm(local(buildProfileCard({ marketDays: [6] }), 'L2'), 'tap');
     if (!prof.ok) throw new Error('expected a write');
-    expect(calls.slice(3).map((c) => [c.name, c.args[0]])).toEqual([['getProfile', undefined], ['putProfile', { marketDays: [6] }]]);
+    expect(calls.slice(2).map((c) => [c.name, c.args[0]])).toEqual([['getProfile', undefined], ['putProfile', { marketDays: [6] }]]);
     expect(said(await writer.undo(prof.trail))).toEqual(['undo']);
     expect(calls.at(-1)).toEqual({ name: 'putProfile', args: [{ marketDays: [2] }] });
   });
@@ -257,6 +262,81 @@ describe('card writer', () => {
     expect(store.get().localRules.map((r) => r.id)).toEqual([keep.trail.id]);
     // A second undo of the same entry finds nothing.
     expect(said(await writer.undo(out.trail))).toEqual(['undo.nothing']);
+  });
+});
+
+describe('fix round 1', () => {
+  const coconut: Rule = { id: 'r-coco', target: { kind: 'ingredient', ids: ['coconut'] }, type: 'avoid', severity: 'allergy' };
+  const coconutCard = () => ruleCard('coconut', 'allergy');
+
+  test.each([429, 0])('a stamped allergen is in the cached account rules even when the refresh gets %i: the dish is never ✅', async (code) => {
+    const { store, writer } = setup({
+      createRule: () => ok({ rule: coconut }, 201),
+      deleteRule: () => ok(null, 204),
+      me: () => ok({ id: 'u1', email: 'cook@example.com', entitlements: [] }),
+      listRules: () => fail(code, code === 0 ? 'network' : 'rate_limited'),
+    }, signedIn);
+    const parippu = () => buildRecipeCard({ slug: 'india/kerala/parippu', content, graph, rules: activeRules(store.get(), graph), today: '2026-11-10', showCalories: false });
+    expect(parippu().status).toBe('ok');
+    const out = await writer.confirm(local(coconutCard()), 'tap');
+    expect(out.ok).toBe(true);
+    expect(store.get().accountRules).toEqual([coconut]);
+    expect(parippu().status).not.toBe('ok');
+    // Undo takes it out the same way.
+    if (!out.ok) throw new Error();
+    await writer.undo(out.trail);
+    expect(store.get().accountRules).toEqual([]);
+  });
+
+  test('account rules that never loaded stay unloaded after a stamp (fail closed)', async () => {
+    const { store, writer } = setup({
+      createRule: () => ok({ rule: coconut }, 201),
+      me: () => ok({ id: 'u1', email: 'cook@example.com', entitlements: [] }),
+      listRules: () => fail(429, 'rate_limited'),
+    }, { account: { email: 'cook@example.com' }, accountRules: null });
+    await writer.confirm(local(coconutCard()), 'tap');
+    expect(store.get().accountRules).toBeNull();
+  });
+
+  test('a severity edit on a diet card keeps its diet form (the rule terms are used, as on the server)', async () => {
+    const { store, writer } = setup({});
+    const diet = buildRuleCard({ term: 'vegetarian', severity: null }, graph, content.ruleTerms);
+    if (!diet.ok) throw new Error();
+    expect(diet.card.form).toBe('rule_diet');
+    const out = await writer.confirm(local(diet.card), 'tap', { severity: 'preference' });
+    if (!out.ok) throw new Error('expected a write');
+    expect(out.trail.summary).toBe(`${diet.card.display.ingredient}, a diet rule`);
+    expect(store.get().localRules[0]).toMatchObject({ severity: 'preference', target: diet.card.rule.target });
+  });
+
+  test('a signed-out rule is validated against what another tab stored, not this tab\'s memory', async () => {
+    const storage = new Map<string, string>();
+    const st = { get length() { return storage.size; }, clear: () => storage.clear(), key: (i: number) => [...storage.keys()][i] ?? null,
+      getItem: (k: string) => storage.get(k) ?? null, removeItem: (k: string) => { storage.delete(k); }, setItem: (k: string, v: string) => { storage.set(k, v); } } as Storage;
+    const mine = createStore(st);
+    const other = createStore(st);
+    mine.update((x) => x);
+    // Another tab stores a rule the graph doesn't know; this tab's memory has none.
+    other.update((x) => ({ ...x, localRules: [{ id: 'bad', target: { kind: 'ingredient', ids: ['not_an_id'] }, type: 'avoid', severity: 'allergy' }] }));
+    const { client } = fakeClient({});
+    const writer = createCardWriter({ client, store: mine, dialogue: createDialogue(content.pan), graph, ruleTerms: content.ruleTerms, now: () => T0 });
+    expect(await writer.confirm(local(coconutCard()), 'tap')).toMatchObject({ ok: false, reason: 'invalid' });
+    expect(mine.get().localRules.map((r) => r.id)).toEqual(['bad']);
+  });
+
+  test('Family Table mode: nothing is written, turned down or undone, and no call is made', async () => {
+    const { store, calls, writer } = setup({}, { settings: { ...createStore(null).get().settings, familyTable: true } });
+    expect(await writer.confirm(local(coconutCard()), 'tap')).toMatchObject({ ok: false, items: [] });
+    expect(await writer.reject(server(milk()))).toEqual([]);
+    expect(await writer.undo({ id: 'P1', origin: 'server', kind: 'rule', summary: 's', undoUntil: '2026-11-10T12:05:00Z' })).toEqual([]);
+    expect(store.get().localRules).toEqual([]);
+    expect(calls).toEqual([]);
+  });
+
+  test('409 rules_need_review → the invalid-rules message with the Your rules link', async () => {
+    const { writer } = setup({ createRule: () => fail(409, 'rules_need_review') }, signedIn);
+    const out = await writer.confirm(local(milk()), 'tap');
+    expect(out).toEqual({ ok: false, reason: 'invalid', items: [{ kind: 'rules_error', message: RULES_INVALID_MESSAGE, href: '#/rules' }] });
   });
 });
 

@@ -17,7 +17,9 @@ export type PanItem =
   /** An ambiguous term: the panel shows the options and builds a local rule card from the one tapped. */
   | { kind: 'choices'; options: { id: string; name: string }[]; severity: Severity | null }
   /** Show that consent card. */
-  | { kind: 'consent'; purpose: 'health_data' | 'ai_health' };
+  | { kind: 'consent'; purpose: 'health_data' | 'ai_health' }
+  /** The saved rules need review (API 409 `rules_need_review`): code-owned player copy and a link to Your rules. */
+  | { kind: 'rules_error'; message: string; href: string };
 
 /** A request from the engine to the panel's writer (pre-flight C10). CardAction stays the record of a write the SERVER completed. */
 export type LocalIntent = { kind: 'confirm' | 'reject'; localId: string } | { kind: 'undo' };

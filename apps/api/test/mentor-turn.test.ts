@@ -838,6 +838,10 @@ describe('fix round 1: adversarial repros', () => {
     const p = await player(AI_HEALTH);
     expect(await turn(p.cookie, 'should I use my epipen')).toMatchObject({ route: 'deterministic', parts: [lineOf('rule.emergency')] });
     expect(await turn(p.cookie, 'my son ate peanuts and has hives')).toMatchObject({ route: 'deterministic', parts: [lineOf('rule.emergency')] });
+    // M4 Step 9 fix round 1 (C1): any exposure verb with a reaction word, and never a meal or pantry card.
+    for (const t of ["I ate peanuts and I've got a rash", "he had sesame and he's got hives", 'my daughter had sesame, her lips are swelling', "I finished the milk, had prawns and now I'm wheezing"]) {
+      expect(await turn(p.cookie, t), t).toMatchObject({ route: 'deterministic', parts: [lineOf('rule.emergency')], cards: [] });
+    }
     const kiwi = await turn(p.cookie, 'kiwi nearly killed me');
     noText(kiwi);
     expect(kiwi.parts.at(-1)).toEqual(lineOf('rule.ask_what_else'));

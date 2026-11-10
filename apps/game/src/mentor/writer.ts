@@ -1,10 +1,12 @@
 import {
   confirmedLines, isSevereCard, pantryMatcher, rejectedLine, SEVERE, trailSummary, undoneLine, UNDO_WINDOW_MS, validateRules, withSeverity,
-  type IngredientGraph, type LineRef, type PantryItem, type ProposalCard, type ReplyPart, type Severity, type TrailEntry,
+  type IngredientGraph, type LineRef, type PantryItem, type ProposalCard, type ReplyPart, type Rule, type RuleTerm, type Severity, type TrailEntry,
 } from '@kitchenquest/core/engine';
 import { refreshAccount } from '../api/account';
 import type { ApiClient } from '../api/client';
 import type { ApiResult, Profile } from '../api/types';
+import { rulesStateForApiError } from '../recipes/rules';
+import { routeHref } from '../shell/router';
 import type { LocalProfile, PlayerStore } from '../state/store';
 import type { Dialogue } from './dialogue';
 import type { CardView, PanItem } from './reply';
@@ -53,8 +55,10 @@ export function partsToItems(parts: readonly ReplyPart[], dialogue: Dialogue): P
 
 const isConsentPurpose = (x: unknown): x is 'health_data' | 'ai_health' => x === 'health_data' || x === 'ai_health';
 
-export function createCardWriter(deps: { client: ApiClient; store: PlayerStore; dialogue: Dialogue; graph: IngredientGraph; now: () => Date }): CardWriter {
-  const { client, store, dialogue, graph } = deps;
+export function createCardWriter(deps: {
+  client: ApiClient; store: PlayerStore; dialogue: Dialogue; graph: IngredientGraph; ruleTerms: readonly RuleTerm[]; now: () => Date;
+}): CardWriter {
+  const { client, store, dialogue, graph, ruleTerms } = deps;
   const inFlight = new Set<string>();
   const closed = new Set<string>();
   const undos = new Map<string, Undo>();
@@ -63,12 +67,24 @@ export function createCardWriter(deps: { client: ApiClient; store: PlayerStore; 
   const line = (trigger: string, vars: Record<string, string> = {}): PanItem => say({ trigger, vars });
   const keyOf = (c: CardView) => (c.origin === 'server' ? `server:${c.proposalId}` : `local:${c.localId}`);
   const signedIn = () => store.get().account !== null;
+  /** §19: in Family Table mode nothing is written or kept, whatever asks (defence in depth: the panel has no text box). */
+  const familyTable = () => store.get().settings.familyTable;
+  /**
+   * Fix round 1 (I1): the change lands in the cached account rules at once, so a refresh that is rate-limited or
+   * offline (which keeps the cache) can't leave a stamped allergen out. Rules that never loaded stay unloaded (fail closed).
+   */
+  const editAccountRules = (fn: (rules: Rule[]) => Rule[]) =>
+    store.update((s) => (s.accountRules === null ? s : { ...s, accountRules: fn(s.accountRules) }));
   const trail = (id: string, origin: TrailEntry['origin'], card: ProposalCard): TrailEntry =>
     ({ id, origin, kind: card.kind, summary: trailSummary(card), undoUntil: new Date(deps.now().getTime() + UNDO_WINDOW_MS).toISOString() });
 
   /** A refused or failed call as an outcome: 403 asks for consent (the card stays open), 409 is closed, status 0 is offline. */
   function refused(r: Extract<ApiResult<unknown>, { ok: false }>, card: ProposalCard): Extract<WriteOutcome, { ok: false }> {
     const { status, error } = r;
+    const rulesError = rulesStateForApiError(error, status);
+    if (rulesError?.status === 'error') {
+      return { ok: false, reason: 'invalid', items: [{ kind: 'rules_error', message: rulesError.message, href: routeHref({ name: 'rules' }) }] };
+    }
     if (status === 403 && error.code === 'consent_required') {
       const purpose = (error.details as { purpose?: unknown } | undefined)?.purpose;
       return { ok: false, reason: 'consent_required', items: [line('consent.health_first'), { kind: 'consent', purpose: isConsentPurpose(purpose) ? purpose : 'health_data' }] };
@@ -90,13 +106,20 @@ export function createCardWriter(deps: { client: ApiClient; store: PlayerStore; 
         if (account) {
           const r = await client.createRule(card.rule, true);
           if (!r.ok) return refused(r, card);
+          const saved = r.data.rule;
+          editAccountRules((rules) => [...rules.filter((x) => x.id !== saved.id), saved]);
           await refreshAccount(client, store);
           undos.set(r.data.rule.id, { kind: 'rule', card, where: 'account', id: r.data.rule.id });
           return { ok: true, trail: trail(r.data.rule.id, 'local', card), items: confirmedLines(card).map(say) };
         }
         const rule = { ...card.rule, id: crypto.randomUUID() };
-        if (validateRules([...store.get().localRules, rule], graph).length > 0) return { ok: false, reason: 'invalid', items: [line('write.not_done')] };
-        store.update((s) => ({ ...s, localRules: [...s.localRules, rule] }));
+        // Validated against the rules this update builds on (another tab's writes included), not this tab's memory.
+        let valid = true;
+        store.update((s) => {
+          valid = validateRules([...s.localRules, rule], graph).length === 0;
+          return valid ? { ...s, localRules: [...s.localRules, rule] } : s;
+        });
+        if (!valid) return { ok: false, reason: 'invalid', items: [line('write.not_done')] };
         undos.set(rule.id, { kind: 'rule', card, where: 'device', id: rule.id });
         return { ok: true, trail: trail(rule.id, 'local', card), items: confirmedLines(card).map(say) };
       }
@@ -130,13 +153,10 @@ export function createCardWriter(deps: { client: ApiClient; store: PlayerStore; 
         let removed: Row[];
         let addedIds: string[];
         if (account) {
-          const before = await client.getPantry();
-          if (!before.ok) return refused(before, card);
           const r = await client.changePantry({ add: card.add, removeNames: card.remove, removeIds: card.removeIds ?? [] }, true);
           if (!r.ok) return refused(r, card);
-          const had = new Set(before.data.items.map((i) => i.id));
           removed = r.data.removed;
-          addedIds = r.data.items.filter((i) => !had.has(i.id)).map((i) => i.id);
+          addedIds = r.data.addedIds;
         } else {
           const matches = pantryMatcher(card.remove, card.removeIds ?? [], graph);
           const rows = store.get().localPantry;
@@ -161,6 +181,7 @@ export function createCardWriter(deps: { client: ApiClient; store: PlayerStore; 
           return [];
         }
         if (!goneIsFine(await client.deleteRule(u.id))) return null;
+        editAccountRules((rules) => rules.filter((x) => x.id !== u.id));
         await refreshAccount(client, store);
         return [];
       case 'meal':
@@ -189,6 +210,7 @@ export function createCardWriter(deps: { client: ApiClient; store: PlayerStore; 
 
   return {
     async confirm(view, via, edits) {
+      if (familyTable()) return { ok: false, reason: 'invalid', items: [] };
       const key = keyOf(view);
       if (closed.has(key) || inFlight.has(key)) return { ok: false, reason: 'closed', items: [] };
       let card = view.card;
@@ -206,7 +228,7 @@ export function createCardWriter(deps: { client: ApiClient; store: PlayerStore; 
           const r = await client.confirmProposal(view.proposalId, edits);
           out = r.ok ? { ok: true, trail: r.data.trail, items: partsToItems(r.data.parts, dialogue) } : refused(r, card);
         } else {
-          if (severity !== undefined && card.kind === 'rule') card = withSeverity(card, severity, graph, []);
+          if (severity !== undefined && card.kind === 'rule') card = withSeverity(card, severity, graph, ruleTerms);
           out = await writeLocal(card);
         }
         if (out.ok || out.reason === 'closed') closed.add(key);
@@ -217,6 +239,7 @@ export function createCardWriter(deps: { client: ApiClient; store: PlayerStore; 
     },
 
     async reject(view) {
+      if (familyTable()) return [];
       const key = keyOf(view);
       if (closed.has(key)) return [];
       closed.add(key);
@@ -229,6 +252,7 @@ export function createCardWriter(deps: { client: ApiClient; store: PlayerStore; 
     },
 
     async undo(entry) {
+      if (familyTable()) return [];
       if (deps.now().getTime() > Date.parse(entry.undoUntil)) return [line('undo.nothing')];
       if (entry.origin === 'server') {
         const r = await client.undoWrite(entry.id);

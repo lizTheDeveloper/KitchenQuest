@@ -14,8 +14,8 @@ const ChangeWrite = PantryChangeBody.extend({ confirmed: z.unknown() }).strict()
 /**
  * The player's pantry (H-11). Sealed per user and row (C-3/C-4) although its
  * basis is contract, so no consent is asked; a change still needs an explicit
- * `confirmed: true` (light confirmation, spec §7.0). The client's undo sends
- * `{ add: removed, removeNames: [], removeIds: addedIds }`. Item names are
+ * `confirmed: true` (light confirmation, spec §7.0). The response carries the
+ * new rows' `addedIds`; the client's undo sends `{ add: removed, removeNames: [], removeIds: addedIds }`. Item names are
  * never in a URL or a log (C-9).
  */
 export async function pantryRoutes(app: FastifyInstance, catalog: Catalog): Promise<void> {
@@ -35,7 +35,8 @@ export async function pantryRoutes(app: FastifyInstance, catalog: Catalog): Prom
       throw new ApiError(400, 'confirmation_required', 'Changing your pantry needs your confirmation (confirmed: true)');
     }
     const { confirmed: _confirmed, ...change } = ChangeWrite.parse(body);
-    const { items, removed } = await db.transaction((tx: Tx) => changePantryIn(tx, deps, req.user.id, change, at, req.id));
-    return { items, removed };
+    // `addedIds`: the new rows, so the client's undo removes exactly those (M4 Step 9 fix round 1).
+    const { items, removed, addedIds } = await db.transaction((tx: Tx) => changePantryIn(tx, deps, req.user.id, change, at, req.id));
+    return { items, removed, addedIds };
   });
 }

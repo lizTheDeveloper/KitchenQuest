@@ -20,6 +20,20 @@ export type TurnIntent =
 export const EMERGENCY_PATTERN =
   /\b(can'?t breathe|cannot breathe|trouble breathing|hard to breathe|throat (feels |is )?(tight|closing|swelling|swollen)|tight throat|(lips?|tongue|face) (are |is )?(swelling|swollen|tingling)|having a reaction|reacting now|going into (anaphylaxis|shock)|call (911|999|112|an ambulance)|(use|used|using|give|inject|need) (my |his |her |their |the |an |our )?epi-?pens?|(ate|eaten|had)\b[^.!?]{0,60}\b(and|now) (now )?((i|he|she|they|we|it|my \w+) )?(has|have|got|is getting|am getting|getting|is covered in|broke out in) (hives|swelling|a rash|rash|welts|swollen \w+))\b/;
 
+/**
+ * Fix round 1 (C1, structural): an eating or exposure verb and a reaction or symptom word anywhere in the
+ * message is an emergency, whatever the subject wording or tense ("I've got a rash", "he's got hives",
+ * "my daughter had sesame, her lips are swelling"). Over-catches on purpose.
+ */
+export const EXPOSURE_VERB = /\b(ate|eaten|had|tried|tasted|touched|drank|drunk|licked|bit|bitten)\b/;
+export const REACTION_STEM =
+  /\b(hives|rash\w*|swell\w*|swollen|wheez\w*|itch\w*|tingl\w*|throat\w*|breath\w*|vomit\w*|throw(n|s|ing)? up|threw up|sick|faint\w*|dizz\w*|collaps\w*|lips?|tongue|reaction\w*|epi-?pens?|anaphyla\w*)\b/;
+
+/** The emergency pre-route: the listed phrasings, or an exposure verb with a reaction word (C1). */
+export function isEmergency(normalized: string): boolean {
+  return EMERGENCY_PATTERN.test(normalized) || (EXPOSURE_VERB.test(normalized) && REACTION_STEM.test(normalized));
+}
+
 export const CHILD_PATTERNS: readonly RegExp[] = [
   /\b(i'?m|i am|im)\s+([3-9]|1[0-5])\b(?!\s*(:|am\b|pm\b|%|kg|lb))/,
   /\b([3-9]|1[0-5])\s*(years?|yrs?)\s*old\b/,
@@ -141,7 +155,7 @@ export function isSuitabilityQuestion(text: string): boolean {
 
 export function classifyTurn(text: string): TurnIntent {
   const t = normalizeTurn(text);
-  if (EMERGENCY_PATTERN.test(t)) return 'emergency';
+  if (isEmergency(t)) return 'emergency';
   if (CHILD_PATTERNS.some((p) => p.test(t))) return 'child';
   if (MEDICAL_PATTERN.test(t)) return 'medical';
   if (isStrictYes(t)) return 'yes';

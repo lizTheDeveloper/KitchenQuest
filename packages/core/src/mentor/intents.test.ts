@@ -168,6 +168,16 @@ test.each([
   ['do I need to use the epi-pen', 'emergency'],
   ['my son ate peanuts and has hives', 'emergency'],
   ['she had some prawns and now has swelling on her face', 'emergency'],
+  // Fix round 1 (C1): an exposure verb and a reaction word anywhere, whatever the subject or tense.
+  ["I ate peanuts and I've got a rash", 'emergency'],
+  ["had prawns, I'm getting hives", 'emergency'],
+  ["he had sesame and he's got hives", 'emergency'],
+  ['she ate a cashew and is breaking out in hives', 'emergency'],
+  ["I tried the satay and now I'm wheezing", 'emergency'],
+  ['my daughter had sesame, her lips are swelling', 'emergency'],
+  ['I touched a peanut and my hands are itchy', 'emergency'],
+  // A question about eating ("can I eat …") is no exposure: it stays a health turn.
+  ['can I eat this? shrimp makes my throat close', 'health'],
   // Step 9: with the subject said again.
   ['I had peanuts and now I have hives', 'emergency'],
   ['he ate prawns and he has swelling', 'emergency'],

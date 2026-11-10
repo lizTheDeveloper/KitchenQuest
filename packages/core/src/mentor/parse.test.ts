@@ -138,6 +138,10 @@ describe('meals', () => {
     expect(parseMealStatement("I had toast for breakfast and also I'm allergic to kiwi")).toEqual({ description: 'toast', slot: 'breakfast', when: 'today' });
     expect(parseMealStatement('had dal and rice but I am vegan by the way')).toEqual({ description: 'dal and rice', slot: null, when: 'today' });
     expect(parseMealStatement('I had an allergic reaction to prawns')).toBeNull();
+    // Fix round 1 (I2): a reaction is never a meal.
+    for (const t of ['had a reaction to prawns', 'I had a bad reaction after lunch', 'had hives all night', 'had a rash on my arm', 'had swelling', 'had anaphylaxis once']) {
+      expect(parseMealStatement(t), t).toBeNull();
+    }
     expect(parseMealStatement("I've had a peanut allergy since I was 4 and I had toast")).toBeNull();
     expect(parseMealStatement("I'm allergic to kiwi and I had toast for lunch")).toEqual({ description: 'toast', slot: 'lunch', when: 'today' });
   });

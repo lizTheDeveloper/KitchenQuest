@@ -148,7 +148,7 @@ describe('pantry', () => {
     const before = (await db.select().from(auditEvents).where(eq(auditEvents.subjectUserId, uid))).length;
     const none = await change(c, { removeNames: ['kiwi'], removeIds: ['00000000-0000-4000-8000-000000000000', 'nope'] });
     expect(none.statusCode).toBe(200);
-    expect(none.json()).toEqual({ items: added, removed: [] });
+    expect(none.json()).toEqual({ items: added, removed: [], addedIds: [] });
     // Nothing changed, so nothing is audited.
     expect((await db.select().from(auditEvents).where(eq(auditEvents.subjectUserId, uid))).length).toBe(before);
     const res = await change(c, { removeNames: ['  MILK '] });
@@ -174,7 +174,17 @@ describe('pantry', () => {
     const b = after.find((i) => i.id !== a.id)!;
     const undo = await change(c, { removeIds: [b.id] });
     expect(undo.statusCode).toBe(200);
-    expect(undo.json()).toEqual({ items: [a], removed: [b] });
+    expect(undo.json()).toEqual({ items: [a], removed: [b], addedIds: [] });
+  });
+
+  it('the response names the ids of the rows it added, and only those', async () => {
+    const c = await player();
+    const a = (await change(c, { add: [item('milk')] })).json<{ items: Item[]; addedIds: string[] }>();
+    expect(a.addedIds).toEqual([a.items[0].id]);
+    const b = (await change(c, { add: [item('milk'), item('rice')], removeNames: [] })).json<{ items: Item[]; addedIds: string[] }>();
+    expect(b.addedIds).toHaveLength(2);
+    expect(b.addedIds).not.toContain(a.items[0].id);
+    expect(b.items.filter((i) => b.addedIds.includes(i.id)).map((i) => i.name).sort()).toEqual(['milk', 'rice']);
   });
 
   it("another player's ids are never touched", async () => {
@@ -182,7 +192,7 @@ describe('pantry', () => {
     const b = await player();
     const mine = (await change(a, { add: [item('Milk')] })).json<{ items: Item[] }>().items[0];
     const res = await change(b, { removeIds: [mine.id], removeNames: ['milk'] });
-    expect(res.json()).toEqual({ items: [], removed: [] });
+    expect(res.json()).toEqual({ items: [], removed: [], addedIds: [] });
     expect(await items(a)).toEqual([mine]);
   });
 

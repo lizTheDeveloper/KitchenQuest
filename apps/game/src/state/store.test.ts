@@ -418,6 +418,10 @@ describe('M4 Step 9: new keys and confirmRules', () => {
     expect(s.localProfile).toEqual(profile);
     expect(s.localPantry).toEqual([{ id: 'p1', name: 'rice', ingredientId: 'rice' }]);
     expect(s.intake).toEqual({ step: 'allergies' });
+    for (const step of [null, 'done', 'market_day'] as const) {
+      const st2 = memStorage({ [STORE_KEY]: JSON.stringify({ v: 1, intake: { step } }) });
+      expect(createStore(st2).get().intake).toEqual({ step });
+    }
     expect([s.aiDisclosureSeen, s.aiHealthOffered, s.settings.aiMentor]).toEqual([true, true, false]);
   });
 
@@ -428,6 +432,8 @@ describe('M4 Step 9: new keys and confirmRules', () => {
     [{ localProfile: { marketDays: [6], mealsPerWeek: null, country: null, region: null, mealWindows: [{ name: 'brunch', start: '10:00', end: '11:00' }] } }],
     [{ intake: { step: 'nope' } }],
     [{ intake: 'done' }],
+    [{ intake: {} }],
+    [{ intake: { step: 'toString' } }],
     [{ aiDisclosureSeen: 'yes' }],
     [{ aiHealthOffered: 1 }],
     [{ settings: { aiMentor: 'on' } }],

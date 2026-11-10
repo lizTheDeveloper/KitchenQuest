@@ -545,7 +545,7 @@ export const MEAL_CLAUSE_SPLIT = /\s*,?\s+(?:(?:and|but|so|then|oh|also|now)\s+)
 const NOT_A_MEAL = /\b(allerg\w*|intoleran\w*|anaphyla\w*)\b/;
 /** "had enough", "had a long day", "had a go": the verb, not a meal. */
 export const NOT_FOOD =
-  /^(?:to|no|nothing|none|enough|it|that|this|them|fun|time|trouble|an? allergy|a (severe|bad|mild)\b|a (go|look|think|chat|word|break|nap|rest|bath|shower|laugh|cry|feeling|try|sleep|lie-in|lie in|day off)\b|a (good|great|nice|long|rough|hard|busy|lovely|bad|quiet|tough) (day|time|night|week|morning|evening|sleep|chat|one))\b/;
+  /^(?:to|no|nothing|none|enough|it|that|this|them|fun|time|trouble|an? allergy|(?:an? )?(?:allergic |bad |severe |mild |nasty )?reactions?|hives|(?:a )?rash|(?:some )?swelling|anaphyla\w*|a (severe|bad|mild)\b|a (go|look|think|chat|word|break|nap|rest|bath|shower|laugh|cry|feeling|try|sleep|lie-in|lie in|day off)\b|a (good|great|nice|long|rough|hard|busy|lovely|bad|quiet|tough) (day|time|night|week|morning|evening|sleep|chat|one))\b/;
 
 /** "Had porridge with banana for breakfast." → the description, the slot named (if any), and the day. */
 export function parseMealStatement(
