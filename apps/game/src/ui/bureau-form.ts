@@ -1,7 +1,6 @@
 import type { BureauForm } from '../content/types';
 import { contentText, h } from './dom';
-
-const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+import { inertOthers, trapFocus } from './focus-trap';
 
 export function showBureauForm(
   root: HTMLElement,
@@ -12,15 +11,10 @@ export function showBureauForm(
   },
 ): Promise<'confirm' | 'decline'> {
   const { form } = opts;
-  const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  const doc = root.ownerDocument;
+  const opener = doc.activeElement instanceof HTMLElement ? doc.activeElement : null;
   // Everything outside the dialog becomes inert (no focus, no clicks, hidden from screen readers).
-  const inerted: HTMLElement[] = [];
-  for (const el of Array.from(root.ownerDocument.body.children)) {
-    if (el instanceof HTMLElement && !el.contains(root) && !el.inert && el.tagName !== 'SCRIPT' && el.id !== 'announcer') {
-      el.inert = true;
-      inerted.push(el);
-    }
-  }
+  const restoreInert = inertOthers(root);
   const titleId = 'bureau-form-title';
 
   return new Promise((resolve) => {
@@ -30,7 +24,7 @@ export function showBureauForm(
       settled = true;
       doc.removeEventListener('keydown', onKey, true);
       backdrop.remove();
-      for (const el of inerted) el.inert = false;
+      restoreInert();
       opener?.focus();
       resolve(answer);
     };
@@ -72,19 +66,11 @@ export function showBureauForm(
       stampEl,
     );
     const backdrop = h('div', { class: 'overlay-backdrop' }, dialog);
-    const doc = root.ownerDocument;
 
     function onKey(ev: KeyboardEvent) {
       if (settled) return;
       if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); finish('decline'); return; }
-      if (ev.key !== 'Tab') return;
-      const items = [...dialog.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((e) => !(e as HTMLButtonElement).disabled);
-      if (items.length === 0) { ev.preventDefault(); return; }
-      const first = items[0], last = items[items.length - 1];
-      const active = doc.activeElement;
-      if (!dialog.contains(active)) { ev.preventDefault(); first.focus(); }
-      else if (ev.shiftKey && active === first) { ev.preventDefault(); last.focus(); }
-      else if (!ev.shiftKey && active === last) { ev.preventDefault(); first.focus(); }
+      trapFocus(dialog, ev);
     }
 
     doc.addEventListener('keydown', onKey, true);

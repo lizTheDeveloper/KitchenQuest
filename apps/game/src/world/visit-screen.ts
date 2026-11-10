@@ -4,8 +4,8 @@ import { buildRecipeCard } from '../recipes/card-model';
 import { renderRecipeCard } from '../recipes/card-view';
 import { activeRules, localDate } from '../recipes/rules';
 import { kitchenBackdropKey } from '../scenes/phaser-host';
-import { registerScreen, RouteNotFound, type AppContext, type Screen } from '../shell/app';
-import { reducedMotion } from '../shell/motion';
+import { registerScreen, RouteNotFound, type Screen } from '../shell/app';
+import { isReducedMotion } from '../shell/motion';
 import { renderActionBar } from '../ui/action-bar';
 import { showDialogue } from '../ui/dialogue-box';
 import { contentText, h } from '../ui/dom';
@@ -14,10 +14,6 @@ import { mountBackdrop } from './backdrop';
 
 /** The kitchen backdrops are 320 wide; shown at 2x (integer), shrinking with the page. */
 const KITCHEN_WIDTH = 640;
-
-function isReduced(ctx: AppContext, win: Window): boolean {
-  return reducedMotion(ctx.store.get().settings.reducedMotion, win.matchMedia('(prefers-reduced-motion: reduce)'));
-}
 
 function visitScreen(): Screen {
   let cleanup: (() => void) | null = null;
@@ -94,7 +90,7 @@ function visitScreen(): Screen {
         const seeRecipe = bar.querySelector<HTMLButtonElement>('[data-action="recipe"]');
         if (seeRecipe) seeRecipe.disabled = true;
         void showDialogue(slot, {
-          speaker: cook.name, portrait: assets[`char.${id}`] ?? null, lines: cook.intro, reducedMotion: isReduced(ctx, win),
+          speaker: cook.name, portrait: assets[`char.${id}`] ?? null, lines: cook.intro, reducedMotion: isReducedMotion(ctx.store, win),
         }).then(() => {
           slot.remove();
           dialogueSlot = null;

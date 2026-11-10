@@ -1,6 +1,5 @@
 import { h } from './dom';
-
-const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+import { inertOthers, trapFocus } from './focus-trap';
 
 /**
  * A modal dialog over everything else: the rest of the page goes inert, Tab stays inside, Escape, the Close
@@ -12,13 +11,7 @@ export function openModal(
   opts: { className: string; title: HTMLElement; body: Node; opener: HTMLElement | null; onClose(): void },
 ): () => void {
   const root = doc.getElementById('overlay-root') ?? doc.body;
-  const inerted: HTMLElement[] = [];
-  for (const el of Array.from(doc.body.children)) {
-    if (el instanceof HTMLElement && !el.contains(root) && !el.inert && el.tagName !== 'SCRIPT' && el.id !== 'announcer') {
-      el.inert = true;
-      inerted.push(el);
-    }
-  }
+  const restoreInert = inertOthers(root);
   const titleId = `${opts.className}-title`;
   opts.title.id = titleId;
   opts.title.tabIndex = -1;
@@ -36,19 +29,13 @@ export function openModal(
     closed = true;
     doc.removeEventListener('keydown', onKey, true);
     backdrop.remove();
-    for (const el of inerted) el.inert = false;
+    restoreInert();
     if (opts.opener?.isConnected) opts.opener.focus();
     opts.onClose();
   };
   function onKey(ev: KeyboardEvent) {
     if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); close(); return; }
-    if (ev.key !== 'Tab') return;
-    const items = [...dialog.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((e) => !(e as HTMLButtonElement).disabled);
-    const first = items[0], last = items[items.length - 1];
-    const active = doc.activeElement;
-    if (!dialog.contains(active)) { ev.preventDefault(); first.focus(); }
-    else if (ev.shiftKey && active === first) { ev.preventDefault(); last.focus(); }
-    else if (!ev.shiftKey && active === last) { ev.preventDefault(); first.focus(); }
+    trapFocus(dialog, ev);
   }
   closeBtn.addEventListener('click', close);
   backdrop.addEventListener('click', (ev) => { if (ev.target === backdrop) close(); });

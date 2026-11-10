@@ -4,7 +4,7 @@ import { getMentor } from '../mentor';
 import { buildRecipeCard, type RecipeCard } from '../recipes/card-model';
 import { activeRules, cardInputsKey, localDate, watchLocalDate } from '../recipes/rules';
 import { registerScreen, RouteNotFound, type Screen } from '../shell/app';
-import { reducedMotion } from '../shell/motion';
+import { isReducedMotion } from '../shell/motion';
 import { routeHref } from '../shell/router';
 import { showBureauForm } from '../ui/bureau-form';
 import { contentText, h } from '../ui/dom';
@@ -213,12 +213,11 @@ function cookScreen(): Screen {
         say('cook.done', { dish: cook.dish || card.title, cook: cook.name });
         const form = content.bureau.forms.certificate;
         const names = card.skills.map((s) => techniqueName(s.id)).join(', ');
-        const mql = win.matchMedia('(prefers-reduced-motion: reduce)');
         await showBureauForm(doc.getElementById('overlay-root') ?? doc.body, {
           form: { ...form, fields: form.fields.map((f) => (f.hint ? { ...f, hint: f.hint.replace('{place}', cook.place) } : f)) },
           values: { dish: card.title, taught_by: cook.name, rewards: `Techniques tried: ${names}` },
           stamps: content.bureau.stamps,
-          reducedMotion: reducedMotion(ctx.store.get().settings.reducedMotion, mql),
+          reducedMotion: isReducedMotion(ctx.store, win),
         });
         ctx.navigate({ name: 'kitchen' });
       };

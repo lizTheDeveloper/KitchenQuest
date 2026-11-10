@@ -5,8 +5,7 @@ import { createDialogue, getMentor } from '../mentor';
 import { localDate } from '../recipes/rules';
 import { hideStage, showScene } from '../scenes/phaser-host';
 import { registerScreen, type AppContext, type Screen } from '../shell/app';
-import { reducedMotion } from '../shell/motion';
-import type { PlayerStore } from '../state/store';
+import { isReducedMotion } from '../shell/motion';
 import { iosNote } from '../settings/install-section';
 import { renderActionBar } from '../ui/action-bar';
 import { showDialogue } from '../ui/dialogue-box';
@@ -19,10 +18,6 @@ import { renderToolkit } from './toolkit-view';
 let greeted = false;
 /** Rusty invitations draw from their own in-memory history: the knife roll never writes to the store. */
 let invites: ReturnType<typeof createDialogue> | null = null;
-
-function isReduced(store: PlayerStore, win: Window): boolean {
-  return reducedMotion(store.get().settings.reducedMotion, win.matchMedia('(prefers-reduced-motion: reduce)'));
-}
 
 /** The knife roll: a modal dialog over everything else. Returns a function that closes it. */
 function openKnifeRoll(doc: Document, ctx: AppContext, onClose: () => void): () => void {
@@ -81,7 +76,7 @@ function kitchenScreen(): Screen {
         const said = getMentor().say(greetingTrigger(now, firstOpenedAt, lastOpenedAt));
         ctx.store.update((s) => ({ ...s, firstOpenedAt: s.firstOpenedAt ?? now.toISOString(), lastOpenedAt: now.toISOString() }));
         void showDialogue(greetingSlot, {
-          speaker: 'The Pan', portrait: assets['char.pan'] ?? null, lines: [said.text], reducedMotion: isReduced(ctx.store, win),
+          speaker: 'The Pan', portrait: assets['char.pan'] ?? null, lines: [said.text], reducedMotion: isReducedMotion(ctx.store, win),
         });
       }
 

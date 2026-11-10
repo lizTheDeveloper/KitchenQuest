@@ -3,7 +3,7 @@ import { content } from '../content';
 import type { CookFile } from '../content/types';
 import { getMentor } from '../mentor';
 import { registerScreen, type AppContext, type Screen } from '../shell/app';
-import { reducedMotion } from '../shell/motion';
+import { isReducedMotion } from '../shell/motion';
 import { renderActionBar } from '../ui/action-bar';
 import { showBureauForm } from '../ui/bureau-form';
 import { contentText, h } from '../ui/dom';
@@ -14,10 +14,6 @@ import { MAP_PINS } from './pins';
 const MAP_WIDTH = 768;
 
 const pick = <T>(xs: readonly T[]): T | undefined => (xs.length === 0 ? undefined : xs[Math.floor(Math.random() * xs.length)]);
-
-function isReduced(ctx: AppContext, win: Window): boolean {
-  return reducedMotion(ctx.store.get().settings.reducedMotion, win.matchMedia('(prefers-reduced-motion: reduce)'));
-}
 
 /** Form 9-T. Resolves true when the player stamped it. */
 async function travelPermit(doc: Document, ctx: AppContext, cook: CookFile): Promise<boolean> {
@@ -33,7 +29,7 @@ async function travelPermit(doc: Document, ctx: AppContext, cook: CookFile): Pro
       purpose: 'To learn, if taught',
     },
     footnote: pick(form.footnotes ?? []),
-    reducedMotion: isReduced(ctx, doc.defaultView!),
+    reducedMotion: isReducedMotion(ctx.store, doc.defaultView!),
     stamps: content.bureau.stamps,
   });
   return answer === 'confirm';
