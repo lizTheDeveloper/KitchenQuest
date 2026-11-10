@@ -397,4 +397,6 @@ input[type="search"] {
 }
 .confirm-modal h2:focus { outline: none; }
 .confirm-modal-buttons { display: flex; justify-content: flex-end; margin-top: 1rem; }
-.ai-health-notice .consent-card { margin: 1rem 6px; }
+.ai-health-notice .consent-card, .health-data-notice .consent-card { margin: 1rem 6px; }
+.health-withdraw { margin: 1rem 3px; padding: .75rem; background: var(--iron); box-shadow: 0 0 0 3px var(--sky); }
+.health-withdraw h3 { margin: 0 0 .5rem; }

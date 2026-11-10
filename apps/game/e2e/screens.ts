@@ -166,6 +166,22 @@ export const SCREENS: ScreenCase[] = [
     },
     primary: (p) => p.locator('.ai-health-notice').getByRole('button', { name: 'I agree' }),
   },
+  {
+    label: 'settings: stopping health details (keep or delete)', path: '/#/settings',
+    beforeGoto: async (page) => {
+      await signedInApi(page);
+      await page.route((u) => u.pathname === '/api/me/consents', (r) => r.fulfill(json(200, {
+        consents: [{ purpose: 'health_data', noticeVersion: 'v2', noticeSha256: 'x', method: 'tap', grantedAt: '2026-11-01T00:00:00Z', withdrawnAt: null, endedReason: null, current: true }],
+        needsReconsent: [], notices: NOTICES,
+      })));
+    },
+    open: async (p) => {
+      await p.locator('#set-health-data:not([disabled])').waitFor();
+      await p.locator('#set-health-data').click();
+      await p.getByRole('group', { name: 'Stop keeping health details?' }).waitFor();
+    },
+    primary: (p) => button(p, 'Stop, and keep what is saved'),
+  },
   { label: 'your rules', path: '/#/rules', seed: { ...PAN_READY, localRules: [coconutSevere] }, open: (p) => h1(p, 'Your rules'), primary: (p) => button(p, 'Add a rule') },
   {
     label: 'your rules: unreadable, with a 27-B card', path: '/#/rules', seed: { ...PAN_READY, localRules: [coconutSevere], rulesUnreadable: true },

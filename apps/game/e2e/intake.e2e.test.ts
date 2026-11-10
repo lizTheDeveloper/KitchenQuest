@@ -219,4 +219,56 @@ describe('Form 1-A intake by conversation (M4 Step 11)', () => {
     await expect.poll(async () => lines('forget.done').includes((await page.locator('#pan-settings-status').textContent()) ?? '')).toBe(true);
     expect(app.consoleErrors).toEqual([]);
   });
+
+  it('Settings → The Pan: health_data is withdrawn with one tap and a keep-or-delete choice; a stale notice asks again', async () => {
+    const calls: { method: string; path: string; body: unknown }[] = [];
+    // A grant under an old notice: it no longer counts.
+    let health: 'stale' | 'granted' | 'none' = 'stale';
+    const rec = (current: boolean) => ({ purpose: 'health_data', noticeVersion: current ? 'v2' : 'v1', noticeSha256: 'x', method: 'tap', grantedAt: '2026-11-01T00:00:00Z', withdrawnAt: null, endedReason: null, current });
+    app = await openApp('/#/settings', {
+      reducedMotion: true, seed: { aiDisclosureSeen: true, intake: { step: 'done' } },
+      beforeGoto: async (page) => {
+        await page.route((u) => u.pathname === '/api/me', (r) => r.fulfill(json(200, { id: 'u1', email: 'cook@example.com', entitlements: [] })));
+        await page.route((u) => u.pathname === '/api/rules', (r) => r.fulfill(json(200, { rules: [] })));
+        await page.route((u) => u.pathname.startsWith('/api/me/consents'), (r) => {
+          const req = r.request();
+          const path = new URL(req.url()).pathname;
+          if (req.method() !== 'GET') calls.push({ method: req.method(), path, body: req.postDataJSON() as unknown });
+          if (req.method() === 'POST') { health = 'granted'; return r.fulfill(json(201, { consent: {} })); }
+          if (req.method() === 'DELETE') { health = 'none'; return r.fulfill({ status: 204 }); }
+          return r.fulfill(json(200, {
+            consents: health === 'none' ? [] : [rec(health === 'granted')], needsReconsent: health === 'stale' ? ['health_data'] : [],
+            notices: { health_data: { version: 'v2', text: 'HEALTH NOTICE V2' }, ai_health: { version: 'v1', text: 'AI NOTICE TEXT' } },
+          }));
+        });
+      },
+    });
+    const { page } = app;
+    const box = page.getByLabel('Let the Bureau keep my health details');
+    await page.locator('#set-health-data:not([disabled])').waitFor();
+    expect(await box.isChecked()).toBe(false);
+    expect(await page.locator('#set-health-data-note').textContent()).toContain('notice for this permission has changed');
+    // Re-consent: the new notice, then the tap.
+    await box.click();
+    const notice = page.locator('.health-data-notice .consent-card');
+    await notice.waitFor();
+    expect(await notice.textContent()).toContain('HEALTH NOTICE V2');
+    await notice.getByRole('button', { name: 'I agree' }).click();
+    await expect.poll(() => box.isChecked()).toBe(true);
+    expect(calls).toEqual([{ method: 'POST', path: '/api/me/consents', body: { purpose: 'health_data', noticeVersion: 'v2', method: 'tap' } }]);
+    // Withdraw: one tap opens the choice; nothing is sent until one is picked.
+    await box.click();
+    const choice = page.getByRole('group', { name: 'Stop keeping health details?' });
+    await choice.waitFor();
+    expect(calls).toHaveLength(1);
+    await expectNoA11yViolations(page, 'health_data withdraw choice');
+    await choice.getByRole('button', { name: 'Keep my permission' }).click();
+    expect(await box.isChecked()).toBe(true);
+    await box.click();
+    await choice.getByRole('button', { name: 'Stop, and delete it now' }).click();
+    await expect.poll(() => calls.length).toBe(2);
+    expect(calls[1]).toEqual({ method: 'DELETE', path: '/api/me/consents/health_data', body: { healthData: 'delete' } });
+    await expect.poll(() => box.isChecked()).toBe(false);
+    expect(app.consoleErrors).toEqual([]);
+  });
 });
