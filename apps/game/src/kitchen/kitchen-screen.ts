@@ -43,6 +43,7 @@ function kitchenScreen(): Screen {
       const win = doc.defaultView!;
       const stage = doc.getElementById('stage');
       let alive = true;
+      const leaving = new AbortController(); // settles a greeting still on screen when the player leaves
       let closeRoll: (() => void) | null = null;
 
       const backdropSlot = h('div', { class: 'kitchen-backdrop' });
@@ -77,11 +78,13 @@ function kitchenScreen(): Screen {
         ctx.store.update((s) => ({ ...s, firstOpenedAt: s.firstOpenedAt ?? now.toISOString(), lastOpenedAt: now.toISOString() }));
         void showDialogue(greetingSlot, {
           speaker: 'The Pan', portrait: assets['char.pan'] ?? null, lines: [said.text], reducedMotion: isReducedMotion(ctx.store, win),
+          signal: leaving.signal,
         });
       }
 
       cleanup = () => {
         alive = false;
+        leaving.abort();
         stopBar();
         closeRoll?.();
         if (stage) hideStage(stage);

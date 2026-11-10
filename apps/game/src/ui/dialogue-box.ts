@@ -38,12 +38,16 @@ export function typeInto(el: HTMLElement, text: string, instant: boolean, onDone
   return { finish: complete, done: () => finished };
 }
 
-/** A parchment box for intros and greetings: nameplate, 2x pixelated portrait, typed lines, Next. */
+/**
+ * A parchment box for intros and greetings: nameplate, 2x pixelated portrait, typed lines, Next.
+ * Aborting `signal` (the screen is leaving) removes the box, stops the typing and settles the promise, without
+ * moving focus: the next screen owns it.
+ */
 export function showDialogue(
   root: HTMLElement,
-  opts: { speaker: string; portrait: string | null; lines: string[]; reducedMotion: boolean },
+  opts: { speaker: string; portrait: string | null; lines: string[]; reducedMotion: boolean; signal?: AbortSignal },
 ): Promise<void> {
-  if (opts.lines.length === 0) return Promise.resolve();
+  if (opts.lines.length === 0 || opts.signal?.aborted) return Promise.resolve();
   const doc = root.ownerDocument;
   const opener = doc.activeElement instanceof HTMLElement ? doc.activeElement : null;
 
@@ -75,13 +79,17 @@ export function showDialogue(
       typer = typeInto(text, opts.lines[index], opts.reducedMotion);
       text.setAttribute('data-content', '');
     };
-    const finish = () => {
+    const finish = (aborted = false) => {
       if (settled) return;
       settled = true;
+      opts.signal?.removeEventListener('abort', onAbort);
+      typer?.finish();
       box.remove();
-      opener?.focus();
+      if (!aborted) opener?.focus();
       resolve();
     };
+    const onAbort = () => finish(true);
+    opts.signal?.addEventListener('abort', onAbort);
     const advance = () => {
       if (typer && !typer.done()) { typer.finish(); return; }
       if (index >= opts.lines.length - 1) { finish(); return; }

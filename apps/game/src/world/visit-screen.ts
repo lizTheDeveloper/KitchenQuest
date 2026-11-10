@@ -28,6 +28,7 @@ function visitScreen(): Screen {
       const overlayRoot = doc.getElementById('overlay-root') ?? doc.body;
       doc.title = `${cook.name}'s kitchen · Kitchen Quest`;
       let alive = true;
+      const leaving = new AbortController(); // settles an intro still on screen when the player leaves
       let dialogueSlot: HTMLElement | null = null;
       let closeCard: (() => void) | null = null;
       let stopBar: (() => void) | null = null;
@@ -51,6 +52,7 @@ function visitScreen(): Screen {
       // Set before anything else can throw: #stage now lives in this screen and must go home on unmount.
       cleanup = () => {
         alive = false;
+        leaving.abort();
         stopBar?.();
         closeCard?.();
         dialogueSlot?.remove();
@@ -91,6 +93,7 @@ function visitScreen(): Screen {
         if (seeRecipe) seeRecipe.disabled = true;
         void showDialogue(slot, {
           speaker: cook.name, portrait: assets[`char.${id}`] ?? null, lines: cook.intro, reducedMotion: isReducedMotion(ctx.store, win),
+          signal: leaving.signal,
         }).then(() => {
           slot.remove();
           dialogueSlot = null;
