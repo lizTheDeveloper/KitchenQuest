@@ -593,6 +593,14 @@ triggers:
       - "Thank you. For an allergy, a typed yes isn't enough. Please check {ingredient} on the card and tap 'Stamp it' yourself."
       - "Allergies need a tap on the card, not just a yes. Nothing's saved yet. Please check {ingredient} on the card, then tap 'Stamp it'."
 
+  rule.ask_what_else:
+    ai: never
+    when: The player said an allergy is severe, but one of the ingredients they named could not be read as a rule; the cards that did parse are shown, and this asks so nothing is lost.
+    notes: "Plain. No jokes. Nothing is saved for the ingredient that was not read."
+    lines:
+      - "I want to be sure I haven't missed anything. Was there another ingredient you need me to watch for? Tell me each one plainly, and I'll read it back."
+      - "Before we go on: I may not have caught every ingredient you mentioned. If there's another one to avoid, tell me plainly and I'll read it back."
+
   # ------------------------------------------------------------------
   # Planning
   # ------------------------------------------------------------------

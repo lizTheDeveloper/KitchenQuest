@@ -23,6 +23,7 @@ export const REQUIRED_PAN_TRIGGERS: readonly string[] = [
   'rule.unknown_term',
   'rule.which_one',
   'rule.tap_needed',
+  'rule.ask_what_else',
   'confirm.tap_card',
   'write.not_done',
   'consent.health_first',

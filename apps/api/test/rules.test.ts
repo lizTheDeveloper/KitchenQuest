@@ -118,7 +118,7 @@ describe('GET /ingredients/search', () => {
         { id: 'onion', name: 'onion' },
       ],
     });
-    const fixtureApp = await buildApp({ config, db, mailer, ai: null, now: () => NOW, logger: false, catalog: { graph, substitutions: [] } });
+    const fixtureApp = await buildApp({ config, db, mailer, ai: null, now: () => NOW, logger: false, catalog: { graph, substitutions: [], ruleTerms: [] } });
     try {
       const res = await fixtureApp.inject({ method: 'GET', url: '/ingredients/search?q=scal' });
       expect(res.json()).toEqual({ results: [{ id: 'green_onion', name: 'green onion', matched: 'scallion' }] });
@@ -630,17 +630,26 @@ describe('log redaction (C-9)', () => {
 });
 
 describe('catalog (boot data)', () => {
-  const dirWith = (ingredients: unknown, substitutions: unknown) => {
+  const dirWith = (ingredients: unknown, substitutions: unknown, ruleTerms: unknown = []) => {
     const dir = mkdtempSync(join(tmpdir(), 'kq-catalog-'));
     writeFileSync(join(dir, 'ingredients.json'), typeof ingredients === 'string' ? ingredients : JSON.stringify(ingredients));
     writeFileSync(join(dir, 'substitutions.json'), JSON.stringify(substitutions));
+    writeFileSync(join(dir, 'rule-terms.json'), JSON.stringify(ruleTerms));
     return dir;
   };
 
   it('loads the repository data', () => {
-    const { graph, substitutions } = loadCatalog();
+    const { graph, substitutions, ruleTerms } = loadCatalog();
     expect(graph.has('peanut')).toBe(true);
     expect(substitutions.length).toBeGreaterThan(0);
+    expect(ruleTerms.map((t) => t.name)).toContain('vegetarian'); // C7
+  });
+
+  it('fails loudly on bad rule terms, naming the file (C7)', () => {
+    const ok = { ingredients: [{ id: 'garlic', name: 'garlic' }] };
+    const term = { name: 'no garlic', phrases: ['no garlic'], ids: ['ghost'], severity: null, form: 'rule_diet' };
+    expect(() => loadCatalog(dirWith(ok, [], [term]))).toThrow(/rule-terms\.json.*ghost/);
+    expect(() => loadCatalog(dirWith(ok, [], {}))).toThrow(/rule-terms\.json.*must be an array/);
   });
 
   it('fails loudly on bad data, naming the file', () => {

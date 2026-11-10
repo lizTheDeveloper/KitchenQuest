@@ -201,6 +201,21 @@ function isPastedLine(l: string): boolean {
 }
 
 /**
+ * The player's own words: the text (NFKC, lookalikes folded) cut at the first injection marker
+ * and the first pasted block. Call it on the RAW turn text, before `stripPageEvents` (see
+ * `ruleTermsInPlayerWords`). Step 7's post-checks read severity and the parsers from it.
+ */
+export function playerOwnWords(text: string): string {
+  let own = foldConfusables(canonicalText(text));
+  const marker = INJECTION_MARKER.exec(own);
+  if (marker) own = own.slice(0, marker.index);
+  const lines = own.split('\n');
+  const pasted = lines.findIndex((l, i) => i > 0 && isPastedLine(l));
+  if (pasted > 0) own = lines.slice(0, pasted).join('\n');
+  return own;
+}
+
+/**
  * The rule terms in the player's own words only, cut at the first injection marker and the
  * first pasted block. Step 7 drops any model `propose_rule` whose term isn't here (C4).
  * Step 7 must call this on the RAW turn text, before `stripPageEvents`: stripping removes the
@@ -208,13 +223,7 @@ function isPastedLine(l: string): boolean {
  * A message longer than MAX_TEXT loses its last term.
  */
 export function ruleTermsInPlayerWords(text: string): string[] {
-  let own = foldConfusables(canonicalText(text));
-  const marker = INJECTION_MARKER.exec(own);
-  if (marker) own = own.slice(0, marker.index);
-  const lines = own.split('\n');
-  const pasted = lines.findIndex((l, i) => i > 0 && isPastedLine(l));
-  if (pasted > 0) own = lines.slice(0, pasted).join('\n');
-  const terms = parseRuleStatement(own)?.terms ?? [];
+  const terms = parseRuleStatement(playerOwnWords(text))?.terms ?? [];
   // Cut at MAX_TEXT: the last term may be cut ("pea" of "peanuts"), so it never counts.
   return capText(text) !== text ? terms.slice(0, -1) : terms;
 }
