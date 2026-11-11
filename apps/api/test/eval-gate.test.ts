@@ -72,10 +72,14 @@ describe('the mentor eval gate', () => {
     // recipes directory. Recomputed here from the source, so a new decision module can't be missed.
     const eval_ = ['./cases.ts', './checks.ts', './run.ts', './snapshot.ts'];
     const data = ['../../../data/ingredients.json', '../../../data/rule-terms.json', '../../../recipes/'];
-    const closure = importClosure(fileURLToPath(new URL('../src/mentor/turn.ts', import.meta.url))).map((f) =>
+    // M5 final review (parked m7): the modules the turn gets through its deps are extra closure roots (the mentor
+    // routes, the memory, the recipe index and the catalog), and app.ts, which wires them, is hashed as a file.
+    const roots = ['../src/mentor/turn.ts', '../src/mentor/routes.ts', '../src/mentor/memory.ts', '../src/recipes/recipe-index.ts', '../src/catalog.ts'];
+    const closure = [...new Set(roots.flatMap((r) => importClosure(fileURLToPath(new URL(r, import.meta.url)))))].map((f) =>
       f.startsWith('apps/api/') ? `../${f.slice('apps/api/'.length)}` : `../../../${f}`,
     );
-    expect([...EVAL_FILES].sort()).toEqual([...eval_, ...data, ...closure].sort());
+    expect([...EVAL_FILES].sort()).toEqual([...new Set([...eval_, ...data, ...closure, '../src/app.ts'])].sort());
+    for (const f of ['../src/mentor/routes.ts', '../src/mentor/memory.ts', '../src/recipes/recipe-index.ts', '../src/catalog.ts', '../src/app.ts']) expect(EVAL_FILES, f).toContain(f);
     expect(new Set(EVAL_FILES).size).toBe(EVAL_FILES.length);
     // The review's named decision modules are in it (N8).
     for (const f of [
