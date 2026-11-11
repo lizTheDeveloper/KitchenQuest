@@ -30,5 +30,5 @@ test('C1 over-ask: major allergens (a root, a kind of one, or containing one) ar
   for (const id of ['peanut', 'cashew', 'prawn', 'wheat', 'tahini', 'milk', 'whey']) expect(isMajorAllergen(id, graph), id).toBe(true);
   for (const id of ['onion', 'rice', 'garlic', 'turmeric']) expect(isMajorAllergen(id, graph), id).toBe(false);
   expect(isMajorAllergen('not-a-node', graph)).toBe(true); // can't verify is never safe
-  expect(nonAllergenNamedIds('peanut butter toast with onion and rice', graph)).toEqual(['onion', 'rice']);
+  expect(nonAllergenNamedIds('peanut butter toast with onion and garlic', graph)).toEqual(['onion', 'garlic']);
 });
