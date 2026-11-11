@@ -63,12 +63,13 @@ const canonical = (p: Plan): Plan => ({
   items: p.items.map((i) => (i.kind === 'dish' ? { day: i.day, kind: 'dish', slug: i.slug, servings: i.servings } : { day: i.day, kind: 'lesson', slug: i.slug })),
   hard: p.hard,
   slot: p.slot,
+  ...(p.offer ? { offer: { technique: p.offer.technique, recipe: p.offer.recipe } } : {}),
 });
 
 /** Seals and upserts `plan` for its week (one row per week; the row id, and so its seal context, is kept). */
 async function writePlan(tx: Tx, deps: WeekDeps, userId: string, plan: Plan, existingId: string | null, at: Date): Promise<string> {
   const id = existingId ?? randomUUID();
-  const value: SealedPlan = { items: plan.items, hard: plan.hard, slot: plan.slot };
+  const value: SealedPlan = { items: plan.items, hard: plan.hard, slot: plan.slot, ...(plan.offer ? { offer: plan.offer } : {}) };
   const sealed = await sealFor(tx, deps.keyring, planSealContext(userId, id), value, at);
   if (existingId === null) {
     await tx.insert(mealPlans).values({ id, userId, weekStart: plan.weekStart, sealed, createdAt: at, updatedAt: at });
@@ -121,7 +122,7 @@ export async function savePlanIn(
   const before = await loadPlan(tx, deps.keyring, userId, p.weekStart);
   const id = await writePlan(tx, deps, userId, p, before?.id ?? null, at);
   await audit(tx, { actorKind: 'user', actorId: userId, subjectUserId: userId, action: 'plan.save', requestId }, at);
-  const previous = before === null ? null : { weekStart: before.weekStart, items: before.items, hard: before.hard, slot: before.slot };
+  const previous = before === null ? null : { weekStart: before.weekStart, items: before.items, hard: before.hard, slot: before.slot, ...(before.offer ? { offer: before.offer } : {}) };
   return { plan: { ...p, id }, previous };
 }
 

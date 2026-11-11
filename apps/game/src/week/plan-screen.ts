@@ -1,5 +1,5 @@
 import {
-  alternativesOn, blockedDishLine, checkPlan, planFlags, weeklySlot, type Plan, type PlanItem, type Rule, type SlotOffer, type ToolkitState,
+  alternativesOn, answerSlot, blockedDishLine, checkPlan, markOffered, pinnedOffer, planFlags, weeklySlot, type Plan, type PlanItem, type Rule, type SlotOffer, type ToolkitState,
 } from '@kitchenquest/core/engine';
 import type { ApiClient } from '../api/client';
 import { content, graph } from '../content';
@@ -38,14 +38,15 @@ export function acceptSlot(plan: Plan, offer: SlotOffer, day: number, today: str
   if (!items.some((i) => sameItem(i, dish))) items.push(dish);
   const lesson: PlanItem = { day: practiceDay(plan, day, today), kind: 'lesson', slug: offer.recipe };
   if (!items.some((i) => sameItem(i, lesson))) items.push(lesson);
-  return { ...plan, items, slot: 'accepted' };
+  return { ...answerSlot(plan, 'accepted'), items };
 }
 
 /** The week's slot offer, or null: none in a hard week, once declined or accepted, or with the rules unreadable. */
 export function offerFor(plan: Plan, rules: Rule[] | null, toolkit: ToolkitState | null, today: string): SlotOffer | null {
   if (rules === null || toolkit === null || plan.hard || plan.slot === 'declined' || plan.slot === 'accepted') return null;
-  // 'offered': the week's one offer, shown again until it is answered (never a second, different one).
-  return weeklySlot(slotInputFor({ ...plan, slot: 'unanswered' }, rules, toolkit, today, plan.items.map((i) => i.slug)));
+  // 'offered': the week's one offer, shown again until it is answered, and only while it is still the pinned technique
+  // and dish (M5 final m1): never a second, different one.
+  return pinnedOffer(plan, weeklySlot(slotInputFor({ ...plan, slot: 'unanswered' }, rules, toolkit, today, plan.items.map((i) => i.slug))));
 }
 
 export function planScreen(api: ApiClient, source?: WeekSource): Screen {
@@ -124,7 +125,7 @@ export function planScreen(api: ApiClient, source?: WeekSource): Screen {
           offer, day: weekdayName(weekStart, day),
           ...(familyTable ? {} : {
             onAnswer: (yes: boolean) => {
-              const next = yes ? acceptSlot(draft, offer, day, today) : { ...draft, slot: 'declined' as const };
+              const next = yes ? acceptSlot(draft, offer, day, today) : answerSlot(draft, 'declined');
               focusNext = 'plan-status';
               void save(next, yes ? writtenLine('one_more.accepted', { day: weekdayName(weekStart, practiceDay(draft, day, today)) }) : writtenLine('one_more.declined', {}));
             },
@@ -153,7 +154,7 @@ export function planScreen(api: ApiClient, source?: WeekSource): Screen {
           planIt.disabled = rules === null;
           planIt.addEventListener('click', () => {
             // An unanswered offer the player has seen is marked offered: the week's one suggestion.
-            const next = offerView !== null && draft.slot === 'unanswered' ? { ...draft, slot: 'offered' as const } : draft;
+            const next = offerView !== null ? markOffered(draft, offerView.offer) : draft;
             void save(next, null);
           });
           children.push(h('div', { class: 'field' }, hard, contentText('label', hardLabel, { for: 'plan-hard' })), h('div', { class: 'button-row' }, planIt));

@@ -49,7 +49,8 @@ function refusal<T>(r: Extract<ApiResult<unknown>, { ok: false }>): WeekResult<T
 }
 
 /** The plan without the server's row id: the shape a save and an undo send. */
-const bare = (p: (Plan & { id?: string }) | null): Plan | null => (p === null ? null : { weekStart: p.weekStart, items: p.items, hard: p.hard, slot: p.slot });
+const bare = (p: (Plan & { id?: string }) | null): Plan | null =>
+  p === null ? null : { weekStart: p.weekStart, items: p.items, hard: p.hard, slot: p.slot, ...(p.offer ? { offer: p.offer } : {}) };
 
 export function createWeekSource(deps: { store: PlayerStore; client: ApiClient; device?: WeekStore; today?: () => string }): WeekSource {
   const { store, client } = deps;

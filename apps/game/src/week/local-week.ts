@@ -62,7 +62,7 @@ export function createWeekStore(deps: { store: PlayerStore; newId?: () => string
     plan: (weekStart) => storedPlan(store.get(), weekStart),
 
     savePlan(p) {
-      const plan: Plan = { weekStart: p.weekStart, items: p.items.map((i) => ({ ...i })), hard: p.hard, slot: p.slot };
+      const plan: Plan = { weekStart: p.weekStart, items: p.items.map((i) => ({ ...i })), hard: p.hard, slot: p.slot, ...(p.offer ? { offer: { ...p.offer } } : {}) };
       const problems = validatePlan(plan, { recipes: canonRecipes() });
       if (problems.length > 0) return { ok: false, problems };
       let out: { ok: true; previous: Plan | null } | { ok: false; problems: string[] } = { ok: false, problems: ['plan: not saved'] };

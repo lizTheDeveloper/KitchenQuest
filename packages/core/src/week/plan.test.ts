@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 import { planWeekStart } from '../progress/week';
 import type { ParsedRecipe } from '../recipe/types';
 import { ALLIUM, avoid, canon, dish, MONDAY, planCtx, SATURDAY } from './fixtures';
-import { checkPlan, MAX_PLAN_ITEMS, PLAN_DISH_SACRED_TRIGGER, planFlags, resolvePlanRequest, suggestPlan, validatePlan, type Plan, type PlanItem } from './plan';
+import { answerSlot, checkPlan, markOffered, MAX_PLAN_ITEMS, pinnedOffer, PLAN_DISH_SACRED_TRIGGER, planFlags, resolvePlanRequest, suggestPlan, validatePlan, type Plan, type PlanItem } from './plan';
 
 const PARIPPU = 'india/kerala/parippu';
 const ONIGIRI = 'japan/osaka/onigiri';
@@ -219,5 +219,35 @@ describe('fix round 1', () => {
     expect(r.afterNoDay).toBe('the weekend');
     expect(resolvePlanRequest(req(null, 3, 'Saturday'), planCtx()).afterNoDay).toBeNull();
     expect(resolvePlanRequest(req(null, 3), planCtx()).afterNoDay).toBeNull();
+  });
+});
+
+// M5 final review m1: an 'offered' week remembers which technique and dish it offered, so the week's one offer is
+// shown again as it was, or not at all; never a second, different suggestion.
+describe('m1: the offered slot is pinned to its offer', () => {
+  const offer = { kind: 'new' as const, technique: 'tempering', from: 'boiling', recipe: PARIPPU, status: 'ok' as const };
+  test('markOffered pins an unanswered week; an answered one is unchanged', () => {
+    expect(markOffered(plan([]), offer)).toEqual({ ...plan([]), slot: 'offered', offer: { technique: 'tempering', recipe: PARIPPU } });
+    const declined = { ...plan([]), slot: 'declined' as const };
+    expect(markOffered(declined, offer)).toBe(declined);
+    expect(markOffered(plan([]), null)).toEqual(plan([]));
+  });
+  test('pinnedOffer: the recomputed offer only when it is the pinned one; otherwise none', () => {
+    const offered = markOffered(plan([]), offer);
+    expect(pinnedOffer(offered, offer)).toEqual(offer);
+    expect(pinnedOffer(offered, { ...offer, technique: 'steaming' })).toBeNull(); // the toolkit changed: no second offer
+    expect(pinnedOffer(offered, { ...offer, recipe: ONIGIRI })).toBeNull();
+    expect(pinnedOffer(offered, null)).toBeNull();
+    expect(pinnedOffer({ ...plan([]), slot: 'offered' }, offer)).toBeNull(); // offered before pins existed: none
+    expect(pinnedOffer(plan([]), offer)).toEqual(offer); // unanswered: the fresh offer
+  });
+  test('answering drops the pin; validatePlan takes a pin only on an offered week, naming a known dish', () => {
+    expect(answerSlot(markOffered(plan([]), offer), 'declined')).toEqual({ ...plan([]), slot: 'declined' });
+    const ctx = { recipes: canon };
+    expect(validatePlan(markOffered(plan([]), offer), ctx)).toEqual([]);
+    expect(validatePlan({ ...plan([]), offer: { technique: 'tempering', recipe: PARIPPU } }, ctx)).toContain('plan: offer is only kept on an offered week');
+    expect(validatePlan({ ...plan([]), slot: 'offered', offer: { technique: 'tempering', recipe: 'x/y/z' } }, ctx)).toContain('plan: offer names an unknown recipe');
+    expect(validatePlan({ ...plan([]), slot: 'offered', offer: { technique: 'Bad Id!', recipe: PARIPPU } }, ctx)).toContain('plan: offer technique is not an id');
+    expect(validatePlan({ ...plan([]), slot: 'offered', offer: { technique: 'tempering', recipe: PARIPPU, note: 'x' } }, ctx)).toContain('plan: offer has an unknown field');
   });
 });

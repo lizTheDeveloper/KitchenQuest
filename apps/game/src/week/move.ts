@@ -44,15 +44,17 @@ export function mergedWeek(account: Plan | null, weekStart: string, device: read
   const items: PlanItem[] = [...(account?.items ?? [])];
   let hard = account?.hard ?? false;
   let slot = account?.slot ?? 'unanswered';
+  // M5 final m1: the pin travels with the slot answer it belongs to.
+  let offer = account?.offer;
   for (const p of device) {
     for (const i of p.items) {
       const moved = keep.has(i.slug) ? null : inWeek(p, i, weekStart);
       if (moved !== null && !items.some((x) => sameItem(x, moved))) items.push(moved);
     }
     hard ||= p.hard;
-    if (slot === 'unanswered') slot = p.slot;
+    if (slot === 'unanswered') ({ slot, offer } = p);
   }
-  return { weekStart, items, hard, slot };
+  return { weekStart, items, hard, slot, ...(slot === 'offered' && offer ? { offer } : {}) };
 }
 
 /**
@@ -98,7 +100,8 @@ export async function moveWeek(store: PlayerStore, client: ApiClient, today: str
   const { weekStart } = cur.data;
   const { plans, runs } = moveCandidates(store.get(), weekStart);
   if (plans.length === 0) return result('nothing');
-  const account = cur.data.plan === null ? null : { weekStart: cur.data.plan.weekStart, items: cur.data.plan.items, hard: cur.data.plan.hard, slot: cur.data.plan.slot };
+  const p0 = cur.data.plan;
+  const account = p0 === null ? null : { weekStart: p0.weekStart, items: p0.items, hard: p0.hard, slot: p0.slot, ...(p0.offer ? { offer: p0.offer } : {}) };
   // N2: a dish the account's rules refuse (400 plan_invalid, `blocked: <slug>`) stays on the device, named; the rest moves.
   const keep = new Set<string>();
   let lines: LineRef[] = [];

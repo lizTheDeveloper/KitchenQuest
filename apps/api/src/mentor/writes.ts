@@ -1,6 +1,7 @@
 import {
   blockedDishLine,
   confirmedLines,
+  markOffered,
   planBasis,
   rebasePlanCard,
   isSevereCard,
@@ -104,8 +105,9 @@ async function planOfCard(tx: Tx, week: WeekDeps, userId: string, card: PlanCard
   const stored = await loadPlan(tx, week.keyring, userId, card.weekStart);
   // Fix round 1 M2: the week changed since the card was shown (an edit on Form 7-W): never saved over it.
   if (planBasis(stored) !== card.basis) throw new ApiError(409, 'plan_changed', 'This week changed since the card was shown');
-  const slot = stored?.slot ?? 'unanswered';
-  const plan: Plan = { weekStart: card.weekStart, items: card.items, hard: card.hard, slot: card.offer !== null && slot === 'unanswered' ? 'offered' : slot };
+  // M5 final m1: an offer the card shows marks an unanswered week 'offered', pinned to that technique and dish.
+  const kept: Plan = { weekStart: card.weekStart, items: card.items, hard: card.hard, slot: stored?.slot ?? 'unanswered', ...(stored?.offer ? { offer: stored.offer } : {}) };
+  const plan = markOffered(kept, card.offer);
   const blocked = (await checksFor(tx, week, userId, plan)).filter((c) => c.status === 'blocked');
   if (blocked.length > 0) {
     const slugs = [...new Set(blocked.map((c) => c.item.slug))];

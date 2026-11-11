@@ -1,6 +1,6 @@
 import { validateRules, type IngredientGraph, type Rule } from '@kitchenquest/core/engine';
 import type { ApiErrorBody } from '../api/types';
-import type { PlayerState } from '../state/store';
+import { localDate, type PlayerState } from '../state/store';
 
 export type RulesState =
   | { status: 'ready'; rules: Rule[]; source: 'device' | 'account' }
@@ -41,8 +41,8 @@ export function rulesStateForApiError(error: ApiErrorBody, status: number): Rule
   return { status: 'error', reason: 'invalid', message: RULES_INVALID_MESSAGE, problems: [error.message] };
 }
 
-/** The player's LOCAL calendar date as YYYY-MM-DD: at 23:30 in UTC−8 it is still today, not tomorrow. */
-export { localDate } from '../state/store';
+/** The player's LOCAL calendar date as YYYY-MM-DD: at 23:30 in UTC−8 it is still today, not tomorrow (state/store.ts). */
+export { localDate };
 
 /** What a card depends on in the player state, as a comparable key: re-render only when this changes. */
 export function cardInputsKey(state: PlayerState): string {

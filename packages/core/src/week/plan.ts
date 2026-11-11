@@ -17,6 +17,41 @@ export interface Plan {
   items: PlanItem[];
   hard: boolean;
   slot: 'unanswered' | 'offered' | 'accepted' | 'declined';
+  /**
+   * M5 final m1: which One More Technique suggestion an 'offered' week showed (only then). The week's one offer is
+   * shown again only while it is still this one; never a second, different suggestion in the week.
+   */
+  offer?: SlotPin;
+}
+
+/** The technique and dish an offered week showed (M5 final m1). */
+export interface SlotPin {
+  technique: string;
+  recipe: string;
+}
+
+/** An unanswered week after a card or screen showed `offer`: 'offered', pinned to that offer. Answered weeks are unchanged. */
+export function markOffered(plan: Plan, offer: SlotPin | null): Plan {
+  if (offer === null || plan.slot !== 'unanswered') return plan;
+  return { ...plan, slot: 'offered', offer: { technique: offer.technique, recipe: offer.recipe } };
+}
+
+/**
+ * The week's offer to show: for an unanswered week, `recomputed` (core `weeklySlot` now); for an offered week, the
+ * recomputed one only when it is the pinned technique and dish, else none (a plan offered before pins existed shows
+ * none). Never anything for an answered week.
+ */
+export function pinnedOffer<T extends SlotPin>(plan: Pick<Plan, 'slot' | 'offer'>, recomputed: T | null): T | null {
+  if (recomputed === null || plan.slot === 'accepted' || plan.slot === 'declined') return null;
+  if (plan.slot === 'unanswered') return recomputed;
+  const pin = plan.offer;
+  return pin !== undefined && pin.technique === recomputed.technique && pin.recipe === recomputed.recipe ? recomputed : null;
+}
+
+/** The week with its slot answered ('accepted' or 'declined'): the pin goes, the answer stays. */
+export function answerSlot(plan: Plan, slot: 'accepted' | 'declined'): Plan {
+  const { offer: _pin, ...rest } = plan;
+  return { ...rest, slot };
 }
 
 export interface PlanRequest {
@@ -250,7 +285,9 @@ export function planFlags(plan: Plan, ctx: PlanContext): PlanFlag {
   return null;
 }
 
-const PLAN_KEYS = new Set(['weekStart', 'items', 'hard', 'slot']);
+const PLAN_KEYS = new Set(['weekStart', 'items', 'hard', 'slot', 'offer']);
+const PIN_KEYS = new Set(['technique', 'recipe']);
+const TECHNIQUE_ID = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const DISH_KEYS = new Set(['day', 'kind', 'slug', 'servings']);
 const LESSON_KEYS = new Set(['day', 'kind', 'slug']);
 const SLOTS = new Set(['unanswered', 'offered', 'accepted', 'declined']);
@@ -268,6 +305,17 @@ export function validatePlan(plan: unknown, ctx: Pick<PlanContext, 'recipes'>): 
   if (typeof plan.weekStart !== 'string' || !isValidDate(plan.weekStart)) problems.push('plan: weekStart is not a YYYY-MM-DD date');
   if (typeof plan.hard !== 'boolean') problems.push('plan: hard is not a boolean');
   if (typeof plan.slot !== 'string' || !SLOTS.has(plan.slot)) problems.push('plan: slot is not unanswered, offered, accepted or declined');
+  if (plan.offer !== undefined) {
+    const pin = plan.offer;
+    if (plan.slot !== 'offered') problems.push('plan: offer is only kept on an offered week');
+    if (!isObject(pin)) problems.push('plan: offer is not an object');
+    else {
+      if (extraKeys(pin, PIN_KEYS).length > 0) problems.push('plan: offer has an unknown field');
+      if (typeof pin.technique !== 'string' || !TECHNIQUE_ID.test(pin.technique)) problems.push('plan: offer technique is not an id');
+      const r = typeof pin.recipe === 'string' ? ctx.recipes.get(pin.recipe) : undefined;
+      if (r === undefined || r.meta.sacred) problems.push('plan: offer names an unknown recipe');
+    }
+  }
   if (!Array.isArray(plan.items)) return [...problems, 'plan: items is not a list'];
   if (plan.items.length > MAX_PLAN_ITEMS) problems.push(`plan: more than ${MAX_PLAN_ITEMS} items`);
   plan.items.slice(0, MAX_PLAN_ITEMS + 1).forEach((item: unknown, i: number) => {

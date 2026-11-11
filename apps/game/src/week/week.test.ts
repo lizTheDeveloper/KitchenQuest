@@ -61,8 +61,16 @@ describe('weekly slot', () => {
   test('offered once; declined → never again this week; hard week → none', () => {
     const offer = offerFor(plan([]), [], toolkit, TODAY);
     expect(offer).toMatchObject({ kind: 'new', technique: 'tempering', recipe: PARIPPU });
-    // Offered and saved as 'offered': the same offer again until answered, never a different one.
-    expect(offerFor(plan([], { slot: 'offered' }), [], toolkit, TODAY)).toEqual(offer);
+    // Offered and saved as 'offered' (pinned, M5 final m1): the same offer again until answered, never a different one.
+    const pinned = plan([], { slot: 'offered', offer: { technique: 'tempering', recipe: PARIPPU } });
+    expect(offerFor(pinned, [], toolkit, TODAY)).toEqual(offer);
+    // M5 final m1: the toolkit changes mid-week (grains now Tried), so the recomputed offer would be another technique
+    // (shaping): none is shown, never a second suggestion. An offered week with no pin (saved before pins) shows none.
+    const later: ToolkitState = { techniques: { ...toolkit.techniques, grains: { tier: 'tried', firstAt: '2026-11-10', lastUsedAt: '2026-11-10', recipes: [] } } };
+    expect(offerFor(plan([]), [], later, TODAY)).not.toBeNull();
+    expect(offerFor(plan([]), [], later, TODAY)?.technique).not.toBe('tempering');
+    expect(offerFor(pinned, [], later, TODAY)).toBeNull();
+    expect(offerFor(plan([], { slot: 'offered' }), [], toolkit, TODAY)).toBeNull();
     expect(offerFor(plan([], { slot: 'declined' }), [], toolkit, TODAY)).toBeNull();
     expect(offerFor(plan([], { slot: 'accepted' }), [], toolkit, TODAY)).toBeNull();
     expect(offerFor(plan([], { hard: true }), [], toolkit, TODAY)).toBeNull();
@@ -70,8 +78,9 @@ describe('weekly slot', () => {
     expect(offerFor(plan([]), [COCONUT], toolkit, TODAY)).toBeNull();
     // Can't verify is never safe.
     expect(offerFor(plan([]), null, toolkit, TODAY)).toBeNull();
-    const yes = acceptSlot(plan([]), offer!, 3, TODAY);
+    const yes = acceptSlot(pinned, offer!, 3, TODAY);
     expect(yes.slot).toBe('accepted');
+    expect(yes.offer).toBeUndefined(); // answered: the pin goes
     expect(yes.items).toEqual(expect.arrayContaining([{ day: 3, kind: 'dish', slug: PARIPPU, servings: 3 }, { day: 2, kind: 'lesson', slug: PARIPPU }]));
   });
 });

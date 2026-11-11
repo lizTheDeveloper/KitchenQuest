@@ -1,5 +1,5 @@
 import {
-  blockedDishLine, buildPlanCard, checkPlan, navIntent, navPlace, planBasis, planFlags, planIntent, rebasePlanCard,
+  blockedDishLine, buildPlanCard, checkPlan, markOffered, navIntent, navPlace, planBasis, planFlags, planIntent, rebasePlanCard,
   normalizeTurn, type CheckStatus, type LineRef, type NavTarget, type Plan, type PlanCard, type PlanItem, type PlanRequest, type ProposalCard,
 } from '@kitchenquest/core/engine';
 import type { ApiClient } from '../api/client';
@@ -192,8 +192,9 @@ export function createWeekTurn(d: {
       if (!same()) return { kind: 'left' };
       rememberWeek(weekStart, stored, who);
       if (weekStart !== card.weekStart || planBasis(stored) !== card.basis) return reoffer(card, weekStart, stored);
-      const slot = stored?.slot ?? 'unanswered';
-      const plan: Plan = { weekStart, items: card.items, hard: card.hard, slot: card.offer !== null && slot === 'unanswered' ? 'offered' : slot };
+      // M5 final m1: an offer the card shows marks an unanswered week 'offered', pinned to that technique and dish.
+      const kept: Plan = { weekStart, items: card.items, hard: card.hard, slot: stored?.slot ?? 'unanswered', ...(stored?.offer ? { offer: stored.offer } : {}) };
+      const plan = markOffered(kept, card.offer);
       const r = await source.save(plan, day);
       if (!r.ok) {
         const slugs = r.kind === 'invalid' ? blockedSlugs(r.problems) : [];
