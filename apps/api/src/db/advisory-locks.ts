@@ -16,7 +16,8 @@ export const ADVISORY_LOCK = {
   rules: 2,
   /** `lockUserPantry`: one user's pantry writes (taken after `rules`, before the consent row). */
   pantry: 3,
-  // 4 is `plan` (M5 Step 6).
+  /** `lockUserPlan`: one user's plan and market-run writes (taken after `rules` and `pantry`, before `progress`). */
+  plan: 4,
   /** `lockUserProgress`: one user's progress ledger (taken after `rules`, `pantry` and `plan`, before the consent row). */
   progress: 5,
 } as const;
@@ -29,4 +30,14 @@ export const ADVISORY_LOCK = {
  */
 export async function lockUserProgress(tx: Pick<Db, 'execute'>, userId: string): Promise<void> {
   await tx.execute(sql`select pg_advisory_xact_lock(${ADVISORY_LOCK.progress}, hashtext(${userId}))`);
+}
+
+/**
+ * Serializes the player's plan and market-run writes: pg_advisory_xact_lock(ADVISORY_LOCK.plan, hashtext(userId)), held
+ * until commit, so a plan save, a run's recompute and its ticks see each other in turn. In the global lock order it
+ * comes after `rules:` and `pantry:` (a tick writes the pantry, so it takes `pantry:` first) and before `progress:`
+ * and the consent row. Re-entrant within one transaction.
+ */
+export async function lockUserPlan(tx: Pick<Db, 'execute'>, userId: string): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(${ADVISORY_LOCK.plan}, hashtext(${userId}))`);
 }

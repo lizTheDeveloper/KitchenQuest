@@ -17,15 +17,31 @@ async function loadRows(db: Pick<Db, 'select'>, keyring: Keyring, userId: string
     .orderBy(asc(pantryItems.createdAt), asc(pantryItems.id));
   const out: (PantryItem & { id: string; createdAt: Date })[] = [];
   for (const row of rows) {
-    const { name, ingredientId } = await openFor<PantryItem>(db, keyring, pantrySealContext(userId, row.id), row.sealed);
-    out.push({ name, ingredientId, id: row.id, createdAt: row.createdAt });
+    const item = await openFor<PantryItem>(db, keyring, pantrySealContext(userId, row.id), row.sealed);
+    out.push({ ...pantryFields(item), id: row.id, createdAt: row.createdAt });
   }
   return out;
 }
 
-/** The player's pantry items, decrypted, oldest first, with `id` = row id. Throws if any cannot be opened. */
+/**
+ * Exactly core's `PantryItem` fields of a stored item: `addedOn` and `source` only when the row has them (M5 Ruling 12;
+ * an M4 row, or food told to the Pan, has neither, and still loads).
+ */
+export function pantryFields(item: PantryItem): PantryItem {
+  return {
+    name: item.name,
+    ingredientId: item.ingredientId,
+    ...(item.addedOn === undefined ? {} : { addedOn: item.addedOn }),
+    ...(item.source === undefined ? {} : { source: item.source }),
+  };
+}
+
+/**
+ * The player's pantry items, decrypted, oldest first, with `id` = row id and each item's `addedOn` and `source` when
+ * it has them (so Use-It-Up and the frames see purchase dates; Step 5 review M4). Throws if any cannot be opened.
+ */
 export async function loadPantry(db: Pick<Db, 'select'>, keyring: Keyring, userId: string): Promise<(PantryItem & { id: string })[]> {
-  return (await loadRows(db, keyring, userId)).map(({ name, ingredientId, id }) => ({ name, ingredientId, id }));
+  return (await loadRows(db, keyring, userId)).map(({ createdAt: _createdAt, ...item }) => item);
 }
 
 /** As `loadPantry`, with each row's creation time (for the export). */

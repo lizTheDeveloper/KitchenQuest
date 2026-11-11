@@ -249,7 +249,7 @@ export const auditEvents = pgTable(
   ],
 );
 
-export const SELF_READ_RESOURCES = ["rules", "meals", "pantry", "progress"] as const;
+export const SELF_READ_RESOURCES = ["rules", "meals", "pantry", "progress", "plans"] as const;
 
 /**
  * C-5: the player's routine reads of their own health data, counted per user,
@@ -498,4 +498,53 @@ export const rewardGrants = pgTable(
     index("reward_grants_user_id_idx").on(t.userId),
     check("reward_grants_kind_check", sql`${t.kind} in (${inList(GRANT_KINDS)})`),
   ],
+);
+
+/**
+ * H-11 (M5 Step 6, Ruling 18): one weekly plan per plan week. `sealed` is core's `Plan` minus `weekStart` (dish and
+ * lesson slugs per day, servings, the hard-week flag and the One More Technique slot), sealed S-U with AAD
+ * `{ table: 'meal_plans', userId, rowId }`. `week_start` stays plain: a date only, needed for the lookup and the
+ * retention job. Health data (Step 6 ruling, conservative: the dishes chosen can reveal a diet, a religion or a
+ * condition, GDPR Art. 9, WA MHMDA): written only with `health_data`, in `HEALTH_TABLES`. Deleted 8 weeks after its
+ * week ends (`PLAN_RETENTION_WEEKS`).
+ */
+export const mealPlans = pgTable(
+  "meal_plans",
+  {
+    id: id(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    weekStart: date("week_start", { mode: "string" }).notNull(),
+    sealed: bytea("sealed").notNull(),
+    /** Set from the app's injected clock; defaultNow() is only a fallback. */
+    createdAt: ts("created_at").notNull().defaultNow(),
+    updatedAt: ts("updated_at").notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("meal_plans_user_week_idx").on(t.userId, t.weekStart)],
+);
+
+/**
+ * H-11 (M5 Step 6, Ruling 16, C20): the market run built from a plan, one per plan. `sealed` is
+ * `{ items: ListItem[], pantryIds: Record<key, pantryItemId> }` (the list rows with their ticks, and the pantry row
+ * each tick added, so an untick removes exactly that row), sealed S-U with AAD `{ table: 'market_runs', userId, rowId }`.
+ * Health data as `meal_plans` (a listed swap shows what a rule hit). Goes with its plan (cascade) and with retention.
+ */
+export const marketRuns = pgTable(
+  "market_runs",
+  {
+    id: id(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    planId: uuid("plan_id")
+      .notNull()
+      .references(() => mealPlans.id, { onDelete: "cascade" }),
+    sealed: bytea("sealed").notNull(),
+    /** Set once by "That's the shop done"; after it the run takes no ticks (409 `run_closed`). */
+    doneAt: ts("done_at"),
+    /** Set from the app's injected clock; defaultNow() is only a fallback. */
+    createdAt: ts("created_at").notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("market_runs_plan_idx").on(t.planId), index("market_runs_user_id_idx").on(t.userId)],
 );

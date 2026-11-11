@@ -51,8 +51,11 @@ const cols = {
   mealWindows: profiles.mealWindows,
 };
 
-/** The user's profile, created empty (at `now`) on first read, inside the caller's transaction. */
-async function loadProfile(tx: Tx, userId: string, now: Date): Promise<Profile> {
+/**
+ * The user's profile, created empty (at `now`) on first read, inside the caller's transaction. Exported (C8) so the
+ * week services read `marketDays` from it.
+ */
+export async function loadProfile(tx: Tx, userId: string, now: Date): Promise<Profile> {
   await tx.insert(profiles).values({ userId, updatedAt: now }).onConflictDoNothing({ target: profiles.userId });
   const [row] = await tx.select(cols).from(profiles).where(eq(profiles.userId, userId));
   if (!row) throw new Error('profile vanished after insert');
