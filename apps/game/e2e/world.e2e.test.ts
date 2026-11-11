@@ -336,6 +336,8 @@ describe('world map', () => {
     app = await openApp('/#/map', { reducedMotion: true, width });
     const { page } = app;
     await page.locator('.map-pin').first().waitFor();
+    // Measure once the art has loaded and laid out (the map mounts after progress loads, M5 Step 9).
+    await page.waitForFunction(() => [...document.images].every((i) => i.complete));
     await expectNoHorizontalScroll(page);
     const frame = (await page.locator('.map-backdrop-frame').boundingBox())!;
     expect(frame.width).toBeGreaterThan(0);
