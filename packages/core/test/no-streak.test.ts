@@ -1,17 +1,18 @@
-// No streaks, by vocabulary (M5 Step 12, spec §2.3, never rule 8, C28). A fast-check property in never-rules.test.ts
-// pins the behaviour (no reward depends on consecutive days); this pins the words: no function or identifier in the
+// No streaks, by vocabulary (M5 Step 12, spec §2.3, never rule 8, C28). A fast-check property in
+// src/progress/never-rules.test.ts pins the behaviour (no reward depends on consecutive days); this pins the words: no function or identifier in the
 // non-test source of core progress/, quests/, toolkit/ or week/ names a streak, a run of days or a combo.
 //
 // Only `*.ts` files that are not `*.test.ts` are read. Comments, string literals, template text and regular
 // expression literals are stripped first and identifiers alone are matched, so a test title ("no streak term"), a
-// doc comment that explains the rule, and this file itself are never scanned.
+// doc comment that explains the rule, and this file itself are never scanned. It lives in test/, beside
+// progress-architecture.test.ts, because core's src/ is type-checked without Node's types.
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const BANNED = /streak|consecutive|inARow|daysInARow|combo/i;
-const SRC = fileURLToPath(new URL('..', import.meta.url));
+const SRC = fileURLToPath(new URL('../src/', import.meta.url));
 const DIRS = ['progress', 'quests', 'toolkit', 'week'];
 
 /** A `/` here starts a regular expression literal, not a division (the previous significant token decides). */
