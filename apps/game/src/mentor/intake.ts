@@ -8,6 +8,7 @@ import type { BureauForm } from '../content/types';
 import type { PlayerStore } from '../state/store';
 import { contentText, h } from '../ui/dom';
 import type { MentorBackend } from './backend';
+import type { ChildFlag } from './child-flag';
 import { savedRules } from './saved-rules';
 import type { Dialogue } from './dialogue';
 import type { MentorPanel } from './panel';
@@ -194,6 +195,8 @@ export function createIntake(deps: {
   graph: IngredientGraph; ruleTerms: readonly RuleTerm[];
   /** forms.intake: the Form 1-A checklist beside the interview. */
   form: BureauForm;
+  /** The conversation's child flag (m-4), shared with the local safety check and the scripted engine. */
+  child?: ChildFlag;
 }): Intake {
   const { panel, engine, store, client, dialogue, graph, ruleTerms } = deps;
   let expecting: Intake['expecting'] = null;
@@ -343,11 +346,14 @@ export function createIntake(deps: {
     const c: TurnContext = ctx ?? { turn: panel.turn, openCards: [], intakeStep: isStep(step) ? step : null, signedIn: deps.signedIn(), trail: [] };
     const stripped = stripPageEvents(text).text.trim();
     if (!isStep(step) || expecting === null) return engine.reply(text, c);
+    // §19 / m-4: after a child turn in this conversation, no answer is read, no card made, no step moved: the grown-up
+    // line. An emergency still goes on to its own line below (it is never held back).
+    const intent = classifyTurn(stripped);
+    if (deps.child?.on === true && intent !== 'emergency') return reply([say('child.grownup')]);
     // Skip words first (pre-flight C45).
     const parsed = parseIntakeAnswer(step, text, { graph, ruleTerms, rulesStamped });
     if (parsed.kind === 'skip') return reply(await skipNow());
     // Emergency, medical, child and the other fixed lines: the engine's answer (E2 keeps a stated rule), and the step waits.
-    const intent = classifyTurn(stripped);
     // An emergency, medical or child turn goes through the backend in use (C-1): its local safety answers it and keeps
     // the conversation's child flag. (The panel already sends these past the intake; this covers a direct call.)
     if (preRoute(intent) !== null) return (SAFETY.has(intent) ? aiNow()?.reply({ kind: 'text', text }, c) : undefined) ?? engine.reply(text, c);

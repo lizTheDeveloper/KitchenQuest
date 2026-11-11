@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { beforeEach, expect, test, vi } from 'vitest';
+import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { buildProfileCard, type TurnRequest } from '@kitchenquest/core/engine';
 import { createApiClient, type ApiClient } from '../api/client';
 import type { ConsentPurpose } from '../api/types';
@@ -41,12 +41,12 @@ function harness(opts: { granted?: ConsentPurpose[]; delay?: number } = {}) {
 }
 
 let store: PlayerStore;
-async function mount(client: ApiClient, step: PlayerState['intake']['step'] = 'done'): Promise<MentorPanel> {
+async function mount(client: ApiClient, step: PlayerState['intake']['step'] = 'done', aiMentor = true): Promise<MentorPanel> {
   // index.ts mounts one panel per page: a fresh module for each test.
   vi.resetModules();
   const { mountMentor } = await import('./index');
   store = createStore(null);
-  store.update((s) => ({ ...s, account: { email: 'cook@example.com' }, accountRules: [], intake: { ...s.intake, step }, settings: { ...s.settings, aiMentor: true, reducedMotion: 'on' } }));
+  store.update((s) => ({ ...s, account: { email: 'cook@example.com' }, accountRules: [], intake: { ...s.intake, step }, settings: { ...s.settings, aiMentor, reducedMotion: 'on' } }));
   const pan = mountMentor(document, store, content.pan, client);
   pan.open();
   return pan;
@@ -87,6 +87,83 @@ test('C-1: a child turn during Form 1-A sets the sticky child flag: the intake a
   for (const line of said().slice(-3)) expect(lines('child.grownup')).toContain(line);
   // Only the child's own turn is delivered (its reply ignored); nothing after it is sent anywhere.
   expect(h.texts()).toEqual(['hello', 'hi im mia im 8 my mum lets me use it']);
+});
+
+const CHILD = 'hi im mia im 8 my mum lets me use it';
+const cardsShown = () => document.querySelectorAll('.pan-card').length;
+const grownup = (l: string | undefined) => l !== undefined && lines('child.grownup').includes(l);
+
+describe.each([
+  { ai: true, name: 'AI on' },
+  { ai: false, name: 'AI off (scripted)' },
+])('m-4: one child flag per conversation, $name', ({ ai }) => {
+  test('the reviewer probe: a child turn at market_day, then "saturday": the grown-up line, no card', async () => {
+    const h = harness();
+    await mount(h.client, 'market_day', ai);
+    await sleep(20); // the intake's first question
+    await send(CHILD, 20);
+    await send('saturday', 20);
+    expect(grownup(said().at(-1))).toBe(true);
+    expect(cardsShown()).toBe(0);
+    expect(store.get().intake.step).toBe('market_day');
+  });
+
+  test('the reviewer probe: a child turn at allergies, then "eggs": the grown-up line, no rule card', async () => {
+    const h = harness();
+    await mount(h.client, 'allergies', ai);
+    await sleep(20);
+    await send(CHILD, 20);
+    await send('eggs', 20);
+    await send('peanuts, severe', 20);
+    expect(said().slice(-3).every(grownup)).toBe(true);
+    expect(cardsShown()).toBe(0);
+  });
+
+  test('a quick answer tapped after a child turn makes no card', async () => {
+    const h = harness();
+    await mount(h.client, 'market_day', ai);
+    await sleep(20);
+    await send('whenever', 50); // unparsed: the Pan asks again with quick answers (or the AI answers nothing)
+    await send(CHILD, 20);
+    const pick = [...document.querySelectorAll<HTMLButtonElement>('.pan-quick')].find((b) => b.textContent === 'Saturday' && !b.disabled);
+    expect(pick).toBeDefined();
+    pick!.click();
+    await sleep(20);
+    expect(grownup(said().at(-1))).toBe(true);
+    expect(cardsShown()).toBe(0);
+  });
+
+  test('outside the intake: after a child turn a meal, a market day, a pantry add and a rule all get the grown-up line and no card', async () => {
+    const h = harness();
+    await mount(h.client, 'done', ai);
+    await send(CHILD, 20);
+    for (const t of ['I had porridge for breakfast', 'my market day is saturday', 'I bought eggs and milk', "I'm allergic to eggs", 'yes']) await send(t, 20);
+    expect(said().slice(-5).every(grownup)).toBe(true);
+    expect(cardsShown()).toBe(0);
+    expect(store.get().accountRules).toEqual([]);
+  });
+
+  test('an emergency after a child turn still gets the emergency line first, with no ask and no card', async () => {
+    const h = harness();
+    await mount(h.client, 'done', ai);
+    await send(CHILD, 20);
+    await send("my throat is closing, I'm allergic to peanuts", 20);
+    expect(lines('rule.emergency')).toContain(said().at(-1));
+    expect(cardsShown()).toBe(0);
+    // And the conversation stays a child's.
+    await send('my market day is saturday', 20);
+    expect(grownup(said().at(-1))).toBe(true);
+  });
+
+  test('an emergency during the intake after a child turn gets the emergency line', async () => {
+    const h = harness();
+    await mount(h.client, 'allergies', ai);
+    await sleep(20);
+    await send(CHILD, 20);
+    await send("my throat is closing, I'm allergic to peanuts", 20);
+    expect(lines('rule.emergency')).toContain(said().at(-1));
+    expect(cardsShown()).toBe(0);
+  });
 });
 
 test('G1: without the consents an emergency and a medical question are answered on the device and never posted', async () => {

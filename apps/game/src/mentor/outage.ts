@@ -1,5 +1,6 @@
 import { classifyTurn, emergencyRuleAsks, emergencyStatesRule, stripPageEvents, type IngredientGraph } from '@kitchenquest/core/engine';
 import { createScriptedBackend, type MentorInput } from './backend';
+import { createChildFlag, type ChildFlag } from './child-flag';
 import type { Dialogue } from './dialogue';
 import type { PanItem, PanReply, TurnContext } from './reply';
 import type { ScriptedEngine } from './scripted';
@@ -59,12 +60,13 @@ export interface LocalSafety {
  * to the loaded AI backend's queue (ai-backend.ts `deliver`, same consent gate, reply ignored). A turn answered only
  * because a child spoke earlier is never sent anywhere.
  */
-export function createLocalSafety(deps: { dialogue: Dialogue; graph: IngredientGraph }): LocalSafety {
+export function createLocalSafety(deps: { dialogue: Dialogue; graph: IngredientGraph; child?: ChildFlag }): LocalSafety {
   const { dialogue, graph } = deps;
-  let child = false;
+  // The conversation's one child flag (m-4), shared with the scripted engine and the intake.
+  const child = deps.child ?? createChildFlag();
   const say = (trigger: string, vars: Record<string, string> = {}): PanItem => ({ kind: 'said', said: dialogue.say(trigger, vars) });
   return {
-    reset() { child = false; },
+    reset() { child.reset(); },
     reply(input) {
       if (input.kind !== 'text') return null;
       const raw = input.text;
@@ -72,12 +74,12 @@ export function createLocalSafety(deps: { dialogue: Dialogue; graph: IngredientG
       let items: PanItem[];
       if (intent === 'emergency') {
         items = [say('rule.emergency')];
-        if (!child && emergencyStatesRule(raw, graph)) {
+        if (!child.on && emergencyStatesRule(raw, graph)) {
           // I-2: every allergen named gets its ask (it ends with rule.ask_keep_off when nothing is named), as on the server.
           for (const ask of emergencyRuleAsks(raw, [], graph)) items.push(say(ask.trigger, ask.vars));
         }
-      } else if (intent === 'child' || child) {
-        child = true;
+      } else if (intent === 'child' || child.on) {
+        child.set();
         items = [say('child.grownup')];
       } else if (intent === 'medical') {
         items = [say('rule.medical_deflect')];

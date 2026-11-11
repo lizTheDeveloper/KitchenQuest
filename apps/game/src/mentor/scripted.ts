@@ -6,6 +6,7 @@ import {
   type IngredientGraph, type LineRef, type MealSlot, type OpenCardRef, type ProposalCard, type Rule, type RuleTerm, type Severity,
 } from '@kitchenquest/core/engine';
 import { localDate } from '../recipes/rules';
+import type { ChildFlag } from './child-flag';
 import type { Dialogue } from './dialogue';
 import type { CardView, LocalCardView, LocalIntent, PanItem, PanReply, TurnContext } from './reply';
 
@@ -44,6 +45,8 @@ export function createScriptedEngine(deps: {
   dialogue: Dialogue; graph: IngredientGraph; ruleTerms: RuleTerm[]; recipes: { slug: string; title: string }[]; now: () => Date;
   /** The player's saved rules (account or device): a rule card below one of them is never offered (S13, M-5). */
   savedRules?: () => readonly Rule[];
+  /** The conversation's child flag (m-4), shared with the local safety check and the intake. */
+  child?: ChildFlag;
 }): ScriptedEngine {
   const { dialogue, graph, ruleTerms, recipes } = deps;
   const say = (l: LineRef): PanItem => ({ kind: 'said', said: dialogue.say(l.trigger, l.vars) });
@@ -148,14 +151,19 @@ export function createScriptedEngine(deps: {
     reply(text, ctx) {
       // 1. Page-event lookalikes never arrive as the player's words (§7.6b.4).
       const stripped = stripPageEvents(text).text.trim();
-      if (stripped === '') return reply([line('didnt_understand')]);
       const intent = classifyTurn(stripped);
+      // §19 / m-4: once a child spoke in this conversation, every later turn gets the grown-up line and nothing is
+      // offered or written. Only an emergency still gets its line (below), with no ask.
+      if (intent === 'child') deps.child?.set();
+      const child = intent === 'child' || deps.child?.on === true;
+      if (child && intent !== 'emergency') return reply([line('child.grownup')]);
+      if (stripped === '') return reply([line('didnt_understand')]);
       // 2. The fixed lines (emergency, medical, child, allowance, thanks): the server's own function.
       const fixed = preRoute(intent);
       if (fixed !== null) {
         // E2/F3 (ruling M-2): an emergency that also states a rule gets the emergency line first, then an ask for every
         // allergen named, exactly as the server answers it (turn.ts stage 2a). No card of any kind on an emergency turn.
-        if (intent !== 'emergency' || !emergencyStatesRule(text, graph)) return reply([say(fixed)]);
+        if (intent !== 'emergency' || child || !emergencyStatesRule(text, graph)) return reply([say(fixed)]);
         return reply([say(fixed), ...emergencyRuleAsks(text, [], graph).map(say)]);
       }
       // 3. A plain yes, no or undo: core decides which card it means. A typed yes never confirms a severe card.

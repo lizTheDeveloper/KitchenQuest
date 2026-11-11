@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import type { ProposalCard } from '@kitchenquest/core/engine';
 import { content, graph } from '../content';
+import { createChildFlag } from './child-flag';
 import { createDialogue } from './dialogue';
 import type { CardView, LocalCardView, PanReply, TurnContext } from './reply';
 import { createScriptedEngine } from './scripted';
@@ -144,6 +145,25 @@ describe('scripted engine', () => {
     expect(said(r)[0]).toBe('rule.emergency');
     expect(r.cards).toEqual([]);
     expect(said(r).slice(1).length).toBeGreaterThan(0);
+  });
+
+  test('m-4: after a child turn every later turn gets child.grownup and no card or intent; an emergency gets its line with no ask', () => {
+    const child = createChildFlag();
+    const e = createScriptedEngine({ dialogue: createDialogue(content.pan), graph, ruleTerms: content.ruleTerms, recipes, now: () => NOW, child });
+    expect(said(e.reply('My market day is Saturday.', ctx()))).not.toContain('child.grownup');
+    expect(said(e.reply('hi im mia im 8 my mum lets me use it', ctx()))).toEqual(['child.grownup']);
+    expect(child.on).toBe(true);
+    for (const t of ['My market day is Saturday.', "I'm allergic to sesame", 'I had toast for breakfast', 'I bought eggs', 'yes', 'undo that', '']) {
+      const r = e.reply(t, ctx());
+      expect(said(r), t).toEqual(['child.grownup']);
+      expect(r.cards, t).toEqual([]);
+      expect(r.intents, t).toEqual([]);
+    }
+    const em = e.reply('I ate shrimp and peanuts and my throat is closing', ctx());
+    expect(said(em)).toEqual(['rule.emergency']);
+    expect(em.cards).toEqual([]);
+    child.reset();
+    expect(cards(e.reply('My market day is Saturday.', ctx()))).toHaveLength(1);
   });
 
   test('M-5 (S13): a rule card milder than a saved rule is never offered; rule.already_saved instead; a stricter one still is', () => {

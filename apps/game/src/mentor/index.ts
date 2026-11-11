@@ -6,8 +6,9 @@ import type { LineBank } from '../content/types';
 import { reducedMotion } from '../shell/motion';
 import { parseRoute } from '../shell/router';
 import { createScriptedBackend, type MentorBackend } from './backend';
+import { createChildFlag } from './child-flag';
 import { lazyBackend } from './lazy-backend';
-import { createLocalSafety, newConversation, scriptedWhenUnavailable, type ConversationRef, type LocalSafety } from './outage';
+import { createLocalSafety, newConversation, scriptedWhenUnavailable, type ConversationRef } from './outage';
 import { createDialogue, type Dialogue } from './dialogue';
 import { createIntake, type Intake } from './intake';
 import { mountMentorPanel, type MentorPanel } from './panel';
@@ -134,20 +135,21 @@ export function mountMentor(doc: Document, store: PlayerStore, bank: LineBank, c
   let current: { panel: MentorPanel; backend: MentorBackend; familyTable: boolean; resetChild: () => void } | null = null;
   const build = () => {
     const familyTable = store.get().settings.familyTable;
-    let safety: LocalSafety | null = null;
     let conversation: ConversationRef | null = null;
+    // m-4: ONE child flag for the panel's conversation, read by the local safety check, the scripted engine, the
+    // intake and the panel. A backend switch keeps it (the conversation on screen is the same); clearing forgets it.
+    const child = createChildFlag();
     const dialogue: Dialogue = createDialogue(bank, historyOptions(store));
     const recipes = Object.entries(content.recipes).map(([slug, r]) => ({ slug, title: r.meta.title }));
-    const engine: ScriptedEngine = createScriptedEngine({ dialogue, graph, ruleTerms: content.ruleTerms, recipes, now, savedRules: () => savedRules(store.get()) });
+    const engine: ScriptedEngine = createScriptedEngine({ dialogue, graph, ruleTerms: content.ruleTerms, recipes, now, savedRules: () => savedRules(store.get()), child });
     const writer = createCardWriter({ client, store, dialogue, graph, ruleTerms: content.ruleTerms, now, conversationId: () => conversation?.id });
     const backend = switchingBackend(store, (kind) => {
       if (kind !== 'ai') return createScriptedBackend(engine, dialogue);
-      // A new AI backend is a new conversation: its own server id and a fresh child flag.
+      // A new AI backend is a new server conversation: its own server id. The child flag is the panel's (m-4).
       const ref: ConversationRef = { id: null };
       const intakeStep = () => { const step = store.get().intake.step; return step === 'done' ? null : step; };
       const screen = () => screenOf(win.location.hash);
-      const mine = createLocalSafety({ dialogue, graph });
-      safety = mine;
+      const mine = createLocalSafety({ dialogue, graph, child });
       conversation = ref;
       return lazyBackend('ai', { fallback: scriptedWhenUnavailable(engine, dialogue), local: (i, c) => mine.reply(i, c) }, async () => (await import('./ai-backend')).createAiBackend({
         client, engine, dialogue, store, graph, ruleTerms: content.ruleTerms, now, events: win, screen, intakeStep, conversation: ref,
@@ -155,7 +157,7 @@ export function mountMentor(doc: Document, store: PlayerStore, bank: LineBank, c
     });
     const panel = mountMentorPanel(root, {
       mode: familyTable ? 'familyTable' : 'standard',
-      backend, dialogue, writer, engine, client, forms: content.bureau.forms, store, now,
+      backend, dialogue, writer, engine, client, forms: content.bureau.forms, store, now, child,
       reducedMotion: () => reducedMotion(store.get().settings.reducedMotion, mql),
       disclosure: content.bureau.disclaimers.ai_characters,
     });
@@ -163,13 +165,13 @@ export function mountMentor(doc: Document, store: PlayerStore, bank: LineBank, c
     const intake = panel.mode === 'standard'
       ? createIntake({
         panel, engine, ai: backend, store, client, dialogue, signedIn: () => store.get().account !== null,
-        graph, ruleTerms: content.ruleTerms, form: content.bureau.forms.intake,
+        graph, ruleTerms: content.ruleTerms, form: content.bureau.forms.intake, child,
       })
       : null;
     if (intake) panel.onOpen(() => { intake.start(); });
     services = { client, dialogue, engine, writer, intake };
     // Clearing is a new conversation on both sides: no server id, no child flag (fix round 4, G4).
-    current = { panel, backend, familyTable, resetChild: () => { safety?.reset(); if (conversation) newConversation(conversation); } };
+    current = { panel, backend, familyTable, resetChild: () => { child.reset(); if (conversation) newConversation(conversation); } };
   };
   build();
   store.subscribe((s) => {

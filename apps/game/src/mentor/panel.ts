@@ -6,6 +6,7 @@ import type { PlayerStore } from '../state/store';
 import { typeInto } from '../ui/dialogue-box';
 import { h } from '../ui/dom';
 import type { MentorBackend, MentorInput } from './backend';
+import type { ChildFlag } from './child-flag';
 import { CLOSED_TEXT, closeCard, renderCard, renderTrail, setCardNote } from './cards-view';
 import { renderConsentCard } from './consent-card';
 import type { Dialogue, Said, Vars } from './dialogue';
@@ -73,6 +74,11 @@ export function mountMentorPanel(root: HTMLElement, opts: {
   forms: Record<string, BureauForm>; store: PlayerStore; reducedMotion: () => boolean; now: () => Date;
   /** C-16, verbatim: shown once as a notice the first time the panel opens in standard mode (`aiDisclosureSeen`). */
   disclosure?: string;
+  /**
+   * The conversation's child flag (m-4), shared with the local safety check, the engine and the intake. While it is
+   * on, the panel shows no new card, quick answer, choice or consent card and makes no write, whatever reply arrives.
+   */
+  child?: ChildFlag;
 }): MentorPanel {
   // Spec §19: in Family Table mode children never reach the AI. Refuse before touching the DOM.
   if (opts.mode === 'familyTable' && opts.backend.kind !== 'scripted') {
@@ -83,6 +89,7 @@ export function mountMentorPanel(root: HTMLElement, opts: {
   const win = doc.defaultView;
   const opener = doc.getElementById('pan-button');
   const standard = mode === 'standard';
+  const childSpoke = () => opts.child?.on === true;
 
   // Focusable and named so a keyboard can scroll a long conversation (axe: scrollable-region-focusable).
   const bubbles = h('ol', { class: 'bubbles', 'aria-live': 'polite', tabindex: 0, 'aria-label': 'Conversation with the Pan' });
@@ -233,10 +240,18 @@ export function mountMentorPanel(root: HTMLElement, opts: {
     removeLi(t.li);
   }
 
+  /** m-4: after a child turn nothing is written from this conversation: a tap gets the grown-up line. */
+  const childBlocks = (): boolean => {
+    if (!childSpoke()) return false;
+    sayLine('child.grownup');
+    return true;
+  };
+
   async function confirm(view: CardView, via: 'tap' | 'typed_yes', edits?: { severity?: Severity }): Promise<void> {
     const key = keyOf(view);
     const c = cards.get(key);
     if (c === undefined || busyCards.has(key)) return;
+    if (childBlocks()) return;
     let out: WriteOutcome;
     busyCards.add(key);
     try {
@@ -286,6 +301,7 @@ export function mountMentorPanel(root: HTMLElement, opts: {
     const key = keyOf(view);
     const c = cards.get(key);
     if (c === undefined || busyCards.has(key)) return;
+    if (childBlocks()) return;
     busyCards.add(key);
     let items: PanItem[];
     try {
@@ -305,6 +321,7 @@ export function mountMentorPanel(root: HTMLElement, opts: {
   }
 
   async function undo(t: Trail): Promise<UndoOutcome> {
+    if (childBlocks()) return { status: 'busy', items: [] };
     let out: UndoOutcome;
     const startedIn = epoch;
     try {
@@ -389,6 +406,7 @@ export function mountMentorPanel(root: HTMLElement, opts: {
       const el = renderConsentCard(purpose, {
         form, notice,
         onAgree: async () => {
+          if (childBlocks()) return;
           const g = await client.grantConsent(purpose, notice.version);
           if (g.ok) {
             li.replaceChildren(h('p', { class: 'pan-note', role: 'status' }, CONSENT_DONE_TEXT));
@@ -422,6 +440,7 @@ export function mountMentorPanel(root: HTMLElement, opts: {
     const buttons = item.options.map((o) => h('button', { type: 'button', class: 'btn btn-secondary' }, o.name));
     addLi('pan-item pan-choices', h('div', { class: 'button-row', role: 'group', 'aria-label': 'Which one do you mean?' }, ...buttons));
     buttons.forEach((b, n) => b.addEventListener('click', () => {
+      if (childBlocks()) return;
       for (const x of buttons) x.disabled = true;
       const view = engine.cardFromChoice(item.options[n].id, item.severity, turn);
       render({ items: view.card.readback.map((l) => ({ kind: 'said', said: dialogue.say(l.trigger, l.vars) })), cards: [view], intents: [], actions: [], notice: null });
@@ -474,6 +493,12 @@ export function mountMentorPanel(root: HTMLElement, opts: {
         if (!import.meta.env.PROD) throw new Error('Family Table mode shows no cards (§19)');
         replyCards = [];
       }
+      items = items.filter((i) => i.kind === 'said');
+      intents = [];
+      actions = [];
+    } else if (childSpoke()) {
+      // m-4: a child spoke in this conversation: lines only (a reply still on its way, e.g. a late AI reply, included).
+      replyCards = [];
       items = items.filter((i) => i.kind === 'said');
       intents = [];
       actions = [];
