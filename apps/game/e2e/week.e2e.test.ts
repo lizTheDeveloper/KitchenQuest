@@ -186,4 +186,34 @@ describe('the week (M5 Step 10)', () => {
     await page.locator('#pan-panel .pan-consent-item').waitFor();
     expect(new URL(page.url(), inject('baseUrl')).hash).toBe('#/plan');
   });
+
+  it('Ruling 2: signed in with a week planned on this device, "Move it" puts it on the account and takes it off the device', async () => {
+    const puts: unknown[] = [];
+    app = await openApp('/#/settings', {
+      reducedMotion: true,
+      seed: { ...PAN_READY, localWeek: { plans: [{ weekStart: '2026-11-09', items: [{ day: 6, kind: 'dish', slug: 'india/kerala/parippu', servings: 3 }], hard: false, slot: 'unanswered' }], runs: [] } },
+      beforeGoto: async (page) => {
+        await page.route((u) => u.pathname === '/api/me', (r) => r.fulfill(json(200, { id: 'u1', email: 'cook@example.com', entitlements: [] })));
+        await page.route((u) => u.pathname === '/api/rules', (r) => r.fulfill(json(200, { rules: [] })));
+        await page.route((u) => u.pathname === '/api/plans/current', (r) => r.fulfill(json(200, { plan: null, weekStart: '2026-11-09', checks: [] })));
+        await page.route((u) => u.pathname === '/api/plans/2026-11-09', (r) => {
+          const body = r.request().postDataJSON() as { plan: unknown };
+          puts.push(body);
+          return r.fulfill(json(200, { plan: { ...(body.plan as object), id: 'row' }, checks: [] }));
+        });
+      },
+    });
+    const { page } = app;
+    await expect.poll(async () => (await stored(page)).account ?? null).not.toBeNull();
+    await go(page, '#/plan');
+    const offer = page.locator('.week-move-offer');
+    await offer.waitFor();
+    // Nothing moves by itself.
+    expect(puts).toEqual([]);
+    await expectNoA11yViolations(page, 'move offer');
+    await offer.getByRole('button', { name: 'Move it' }).click();
+    await expect.poll(async () => (await stored(page)).localWeek.plans.length).toBe(0);
+    expect(puts).toHaveLength(1);
+    expect(puts[0]).toMatchObject({ confirmed: true, today: await localDay(page), plan: { weekStart: '2026-11-09', items: [{ day: 6, slug: 'india/kerala/parippu' }] } });
+  });
 });
