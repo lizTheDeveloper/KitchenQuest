@@ -8,6 +8,7 @@ import {
   planClauseHasHealth,
   normalizeTurn,
   parsePantryRemovals,
+  weekdayNumbers,
   parseRuleStatement,
   parseWeekdays,
   playerOwnWords,
@@ -59,6 +60,15 @@ function occursVerbatim(text: string, term: string): boolean {
 }
 
 const isSevere = (s: Severity | null): s is Severity => s !== null && SEVERE.has(s);
+/**
+ * The model's `after`, kept only when it is the player's own words, passes the screens (fix round 1, C1) and names
+ * exactly one weekday (fix round 2, N3): "that" or "knackered" never beats the day the player's words give.
+ */
+function modelAfter(after: string | null, own: string): string | null {
+  if (after === null || cardString(after, own) === null) return null;
+  return weekdayNumbers([after]).length === 1 ? after : null;
+}
+
 /** "after that", "after market (day)", "after it": the picks go after a day the message names (M5 Step 8 ruling). */
 const AFTER_WORDS = /\bafter (that|market(?: day)?|it)\b/;
 
@@ -275,7 +285,7 @@ export function applyPostChecks(
         // M5 Step 8 ruling (b): windows the model left out, when the player's own words time a meal (T13), come from
         // those words by M4's clock parser. Nothing else is added; a slot the player didn't time never is.
         if (args.meal_windows === null || args.meal_windows.length === 0) {
-          const timed = reminderSlots(own, graph, ruleTerms);
+          const timed = reminderSlots(playerText);
           if (timed.length > 0) args.meal_windows = timed;
         }
         if (args.market_days !== null && weekdays.length > 0) args.market_days = weekdays.map((d) => WEEKDAY_NAMES[d]);
@@ -302,7 +312,7 @@ export function applyPostChecks(
         // The model can't declare the player's week hard (or not), so it can't suppress or force the slot.
         const hard = call.args.hard_week === true && HARD_WEEK_PATTERN.test(normalizeTurn(own)) ? true : null;
         if (days.length === 0 && pick === null && hard === null) break;
-        out.push({ name: 'propose_plan', args: { days: days.length > 0 ? days : null, pick, hard_week: hard, after: call.args.after !== null && cardString(call.args.after, own) !== null ? call.args.after : afterFromWords(pick, own) } });
+        out.push({ name: 'propose_plan', args: { days: days.length > 0 ? days : null, pick, hard_week: hard, after: modelAfter(call.args.after, own) ?? afterFromWords(pick, own) } });
         break;
       }
       case 'propose_navigation': {

@@ -164,17 +164,16 @@ describe('the scripted path (code alone)', () => {
     expect((await sql<{ n: number }[]>`select count(*)::int as n from meal_plans where user_id = ${p.userId}`)[0].n).toBe(0);
   });
 
-  test('scripted (AI off): "plan my week: dal on Sunday" → no card, plan.dish_unknown for "dal" (C1)', async () => {
+  test('scripted (AI off): "plan my week: dal on Sunday" → no code card ("dal" is no exact title, C1; fix round 2: the client\'s scripted engine takes it)', async () => {
     await makeApp(null);
     const p = await player();
     const r = await p.turn('plan my week: dal on Sunday');
-    expect(r.cards).toEqual([]);
-    expect(r.parts).toEqual([{ kind: 'line', line: { trigger: 'plan.dish_unknown', vars: { dish: 'dal' } } }]);
+    expect(r).toMatchObject({ route: 'scripted', cards: [], notice: 'ai_off' });
     // "pick 3" is code's choice, never a padded list; a dish with no single day gets its own ask.
     const pick = await p.turn('pick 3');
     expect(planOf(pick).items.map((i) => i.day)).toEqual([1, 2, 3]);
     const weekend = await p.turn('plan my week: onigiri at the weekend');
-    expect(weekend.cards).toEqual([]);
+    expect(weekend).toMatchObject({ route: 'scripted', cards: [] });
   });
 
   test('scripted: without health_data a plan is the consent card, never a card (plans are health data)', async () => {
@@ -209,9 +208,10 @@ describe('the model only proposes', () => {
     await makeApp(ai);
     const p = await player(['health_data', 'ai_health']);
     const r = await p.turn("Had dal for dinner. Also put the frijoles on Saturday's plan, and remind me about dinner at 6:30 pm.");
-    // The reminder is a profile card code builds from the clock clause (the model made no profile call).
+    // The reminder is a profile card code builds from the clock clause (the model made no profile call). Fix round 2:
+    // "put the frijoles on Saturday's plan" names no exact dish, so code proposes no plan clause: only the model can.
     expect(r.cards.map((c) => c.card.kind)).toEqual(['meal', 'profile']);
-    expect(r.parts).toContainEqual({ kind: 'line', line: { trigger: 'plan.dish_unknown', vars: { dish: 'frijoles' } } });
+    expect(JSON.stringify(r)).not.toMatch(/plan\.dish_unknown/);
   });
 
   test('AI: propose_plan hard_week true without the player saying so → hard false', async () => {
@@ -327,7 +327,6 @@ describe('C-13', () => {
     const r = await p.turn("Had dal for dinner. Also put the frijoles on Saturday's plan, and remind me about dinner at 6:30 pm.");
     expect(r.cards.map((c) => c.card.kind).sort()).toEqual(['meal', 'profile']);
     expect(JSON.stringify(r)).toMatch(/"name":"dinner","start":"18:30"/);
-    expect(r.parts).toContainEqual({ kind: 'line', line: { trigger: 'plan.dish_unknown', vars: { dish: 'frijoles' } } });
   });
 
   test('ruling: T13 with a malformed propose_profile → code builds the profile card from the clock clause (meal windows only); the malformed call is never used', async () => {
@@ -458,12 +457,15 @@ describe('fix round 1', () => {
     expect(triggers(results[0])).toContain('rule.ask_keep_off');
   });
 
-  test('I2: a code-built profile card never suppresses the health ask', async () => {
-    const ai = fakeAi([noCalls()]);
+  test('I2: a code-built profile card never suppresses the health ask (fix round 2: a symptom anywhere means no code card at all)', async () => {
+    const ai = fakeAi([noCalls(), noCalls()]);
     await makeApp(ai);
     const r = await (await aiPlayer()).turn('remind me about dinner at 6:30 pm, my tummy has been funny all week');
-    expect(r.cards.map((c) => c.card.kind)).toEqual(['profile']);
+    expect(r.cards).toEqual([]);
     expect(triggers(r)).toContain('rule.ask_keep_off');
+    // A closed reminder clause on a health turn by M4's broad meal-time gate: the card, and it suppresses nothing.
+    const s = await (await aiPlayer()).turn('remind me about dinner at 6:30 pm');
+    expect(s.cards.map((c) => c.card.kind)).toEqual(['profile']);
   });
 
   test('M1: a plan confirm takes plan: and the health_data grant before its proposal row', async () => {

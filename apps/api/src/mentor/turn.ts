@@ -14,6 +14,9 @@ import {
   broadKindsAsked,
   reminderSlots,
   marketDayStated,
+  dietCue,
+  HEALTH_WORDS,
+  mentionsHealthTerm,
   WEEKDAY_NAMES,
   leftoverNamedIngredients,
   matchDish,
@@ -66,7 +69,6 @@ import type { Db } from '../types.js';
 import { completeUsage, recordSent } from '../usage/usage.js';
 import { aiTurnsLeft, recordAiCost, type BudgetGuard } from './allowance.js';
 import { appendMessages, bumpTurn, openConversation, recentMessages, type StoredMessage } from './conversations.js';
-import { filterReply, touchesHealth } from './filter.js';
 import { isHealthText } from './health.js';
 import { line, listWords, type PanBank } from './lines.js';
 import type { MemoryFlags, MemoryHistory } from './memory.js';
@@ -448,27 +450,21 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
     deps.catalog.ruleTerms,
     { cooks: deps.week.loop.cooks, slugs: new Set(index.keys()) },
   ).filter((c) => !(c.name === 'propose_rule' && fine.has(graph.resolve(c.args.term) ?? '')));
-  // M5 Step 8: a plan clause code reads in the player's own words ("put the frijoles on Saturday's plan", "pick 3")
-  // is proposed when the model made no plan call, as a removal the player said is (M4 post-checks): code wins where
-  // it can read the player's words. Only when the plan tool is offered this turn.
-  const words =
-    offered.has('propose_plan') && !calls.some((c) => c.name === 'propose_plan') ? planWordsIn(f.raw, { graph, terms: deps.catalog.ruleTerms }) : null;
+  // M5 Step 8, fix round 2 (structural ruling): code builds a card itself only from a closed grammar that consumes
+  // the whole clause (core planWordsIn, reminderSlots, marketDayStated), and only when the model made no valid call
+  // of that kind (none, or one whose arguments didn't parse: a malformed call is never used) and the tool is offered
+  // (R4; rule help). Nothing at all on a message with a health term, symptom, severity, rule statement or diet cue:
+  // that message goes down M4's health path first. A code card never suppresses its ask (`codeProfile` below).
+  const own = stripPageEvents(playerOwnWords(f.raw)).text;
+  const healthWords = mentionsHealthTerm(own, graph, deps.catalog.ruleTerms) || HEALTH_WORDS.test(normalizeTurn(own)) || severityFromText(own, graph) !== null || parseRuleStatement(own, graph) !== null || dietCue(own);
+  const dishes = [...index].map(([slug, r]) => ({ slug, title: r.meta.title }));
+  const words = !healthWords && offered.has('propose_plan') && !calls.some((c) => c.name === 'propose_plan') ? planWordsIn(f.raw, dishes) : null;
   if (words !== null) calls.push({ name: 'propose_plan', args: { days: words.days, pick: words.pick, hard_week: words.hard, after: words.after } });
-  // M5 Step 8 ruling: a meal time the player's own words set as a reminder ("remind me about dinner at 6:30 pm",
-  // "lunch at half twelve") is a profile card code builds itself, meal windows only, when the model made no valid
-  // profile call (none, or one whose arguments didn't parse: a malformed call is never used). Only when the profile
-  // tool is offered (R4: without ai_health too); the safety pre-routes ran before any of this.
-  // Fix round 1 I2: only reminder phrasing about the player, never with a symptom, a health word or another person.
-  const timed =
-    offered.has('propose_profile') && !calls.some((c) => c.name === 'propose_profile')
-      ? reminderSlots(stripPageEvents(playerOwnWords(f.raw)).text, graph, deps.catalog.ruleTerms)
-      : [];
+  const timed = !healthWords && offered.has('propose_profile') && !calls.some((c) => c.name === 'propose_profile') ? reminderSlots(f.raw) : [];
   if (timed.length > 0) calls.push({ name: 'propose_profile', args: { market_days: null, meals_per_week: null, region: null, country: null, meal_windows: timed } });
-  // M5 Step 8 market-day ruling (the I2 constraints): a market day the player states for themself, when no profile
-  // call sets one, is put on the profile card code builds (or the profile call there is).
   const market =
-    offered.has('propose_profile') && !calls.some((c) => c.name === 'propose_profile' && c.args.market_days !== null && c.args.market_days.length > 0)
-      ? marketDayStated(stripPageEvents(playerOwnWords(f.raw)).text, graph, deps.catalog.ruleTerms)
+    !healthWords && offered.has('propose_profile') && !calls.some((c) => c.name === 'propose_profile' && c.args.market_days !== null && c.args.market_days.length > 0)
+      ? marketDayStated(f.raw)
       : null;
   if (market !== null) {
     const profileCall = calls.find((c): c is Extract<ToolArgs, { name: 'propose_profile' }> => c.name === 'propose_profile');
@@ -690,12 +686,10 @@ async function shortReply(
  */
 async function codeRoute(deps: TurnDeps, userId: string, raw: string, req: TurnRequest, opened: Opened, now: Date): Promise<TurnResponse | null> {
   const id = opened.conversationId;
-  // Fix round 1 I1: a plan clause that states a health rule ("no peanuts on sunday") is never planned by code: the
-  // turn goes on to M4's health path (the model and its rule handling, or the scripted engine), and a dish word code
-  // would echo must pass the output filter and the health screen.
-  const read = planIntent(raw, { graph: deps.catalog.graph, terms: deps.catalog.ruleTerms });
-  const plan = read !== null && (read.days ?? []).every((d) => filterReply(d.dish, { finish: 'stop' }).ok && !touchesHealth(d.dish)) ? read : null;
+  // Fix round 2: only the closed grammar (planIntent: exact dish names, the whole message), and never on a health
+  // turn (the caller passes no health turn here): that message takes M4's health path first.
   const index = await deps.week.recipes.current(deps.db);
+  const plan = planIntent(raw, [...index].map(([slug, r]) => ({ slug, title: r.meta.title })));
   const nav = plan === null ? navIntent(raw, { cooks: deps.week.loop.cooks, slugs: new Set(index.keys()) }) : null;
   if (nav !== null) return respond(id, 'deterministic', [goPart(nav, deps, index)]);
   if (plan === null) return null;
@@ -774,7 +768,7 @@ export async function runTurn(deps: TurnDeps, userId: string, req: TurnRequest, 
   // after the allowance check, never ahead of it (Ruling 27, C26): at the cap the turn stays scripted, and the plan
   // screen still plans the week. The safety pre-routes above always win.
   const capped = 'notice' in avail ? avail.notice === 'rate_limited' : avail.mode === 'rule_help';
-  if (!capped) {
+  if (!capped && !health) {
     const coded = await codeRoute(deps, userId, raw, req, opened, now);
     if (coded !== null) return coded;
   }
