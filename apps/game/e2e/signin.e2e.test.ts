@@ -92,7 +92,7 @@ describe('/auth/verify', () => {
     expect(app.consoleErrors).toEqual([]);
   });
 
-  it('a new account must confirm age: the button stays off until the box is ticked', async () => {
+  it('a new account answers the neutral age screen: the button stays off until a year is chosen', async () => {
     const mock = verifyMock([
       (route) => route.fulfill(m2error(400, 'bad_request', { code: 'age_confirmation_required' })),
       reply(200, SIGNED_IN),
@@ -100,18 +100,50 @@ describe('/auth/verify', () => {
     app = await openApp('/auth/verify?token=T0K3N', { beforeGoto: (page) => mock.install(page) });
     const { page } = app;
     await page.getByRole('button', { name: 'Sign me in' }).click();
-    const box = page.getByLabel("I'm 16 or older");
-    await box.waitFor();
-    expect(await box.getAttribute('required')).not.toBeNull();
+    await page.getByRole('heading', { level: 2, name: 'Before we make your account' }).waitFor();
+    const year = page.getByLabel('What year were you born?');
     const create = page.getByRole('button', { name: 'Create my account' });
     expect(await create.isDisabled()).toBe(true);
-    await box.check();
+    await year.selectOption(String(new Date().getFullYear() - 30));
     expect(await create.isEnabled()).toBe(true);
-    await expectNoA11yViolations(page, 'age gate');
+    await expectNoA11yViolations(page, 'age screen');
     await create.click();
     await page.getByText('Signed in as cook@example.com.').waitFor();
     expect(mock.seen).toHaveLength(2);
     expect(JSON.parse(mock.seen[1].postData()!)).toEqual({ token: 'T0K3N', ageConfirmed: true });
+  });
+
+  it('age screen: no year preselected; under-16 gets no account and the year is never sent', async () => {
+    const mock = verifyMock([(route) => route.fulfill(m2error(400, 'bad_request', { code: 'age_confirmation_required' }))]);
+    app = await openApp('/auth/verify?token=T0K3N', { beforeGoto: (page) => mock.install(page) });
+    const { page } = app;
+    const storageBefore = await page.evaluate(() => JSON.stringify({ ...localStorage }));
+    await page.getByRole('button', { name: 'Sign me in' }).click();
+    const year = page.locator('#birth-year');
+    await year.waitFor();
+    // Nothing is chosen for the player: the first option is the empty "Choose a year".
+    expect(await year.inputValue()).toBe('');
+    expect(await year.locator('option').first().textContent()).toBe('Choose a year');
+    expect(await year.locator('option[selected]:not([value=""])').count()).toBe(0);
+    const thisYear = new Date().getFullYear();
+    // Exactly 16 by the year asks one more question.
+    await year.selectOption(String(thisYear - 16));
+    await page.locator('legend', { hasText: 'Have you had your birthday yet this year?' }).waitFor();
+    await page.getByLabel('No', { exact: true }).check();
+    await page.getByRole('button', { name: 'Create my account' }).click();
+    await page.getByText('Kitchen Quest accounts are for people aged 16 and over. You can still play on this device without an account.').waitFor();
+    expect(await page.getByRole('link', { name: 'Back to the kitchen' }).getAttribute('href')).toBe('/#/kitchen');
+    expect(await page.locator('#birth-year').count()).toBe(0);
+    await expectNoA11yViolations(page, 'under 16');
+    await page.waitForTimeout(300);
+    // Only the first tap reached the API, and no request ever carried the year.
+    expect(mock.seen).toHaveLength(1);
+    for (const r of mock.seen) expect(r.postData() ?? '').not.toContain(String(thisYear - 16));
+    expect(app.requests.join(' ')).not.toContain(String(thisYear - 16));
+    expect(page.url()).not.toContain(String(thisYear - 16));
+    expect(await page.evaluate(() => JSON.stringify({ ...localStorage }))).toBe(storageBefore);
+    expect(await page.evaluate(() => JSON.stringify({ ...sessionStorage }))).not.toContain(String(thisYear - 16));
+    expect(app.consoleErrors).toEqual([]);
   });
 
   it('an expired or used link says so and points to Settings', async () => {

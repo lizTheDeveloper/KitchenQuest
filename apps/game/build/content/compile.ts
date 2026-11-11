@@ -167,17 +167,17 @@ export function compileContent(files: Record<string, string>): GameContent {
   }
 
   /** Every {var} a line uses is declared; an `ai: never` trigger declares nothing its lines don't use. */
-  function checkVars(id: string, trigger: LineTrigger): void {
+  function checkVars(id: string, trigger: LineTrigger, path = PAN): void {
     const declared = new Set(Object.keys(trigger.vars ?? {}));
     const used = new Set<string>();
     trigger.lines.forEach((line, i) => {
       for (const [, name] of line.matchAll(VAR)) {
         used.add(name);
-        if (!declared.has(name)) fail(PAN, `${id} line ${i + 1} uses undeclared {${name}}`);
+        if (!declared.has(name)) fail(path, `${id} line ${i + 1} uses undeclared {${name}}`);
       }
     });
     if (trigger.ai === 'never') {
-      for (const name of declared) if (!used.has(name)) fail(PAN, `${id} declares {${name}}, which no line uses`);
+      for (const name of declared) if (!used.has(name)) fail(path, `${id} declares {${name}}, which no line uses`);
     }
   }
 
@@ -198,6 +198,27 @@ export function compileContent(files: Record<string, string>): GameContent {
   const stallPaths = Object.keys(files).filter((p) => /^content\/market\/[^/]+\.yaml$/.test(p)).sort();
   const recipePaths = Object.keys(files).filter((p) => /^recipes\/.+\.cook$/.test(p)).sort();
 
+  /**
+   * The same {var} check for a cook or stall file (carry from Step 2): in a trigger (an object with `lines`) every
+   * {var} must be declared, and an `ai: never` trigger declares none it doesn't use. Anywhere else in the file there is
+   * nothing to fill a {var} in, so a stray one would reach the player as written.
+   */
+  function checkFileVars(path: string, node: unknown, where: string): void {
+    if (typeof node === 'string') {
+      for (const [, name] of node.matchAll(VAR)) fail(path, `${where} uses {${name}}, but nothing fills it in there`);
+    } else if (Array.isArray(node)) {
+      node.forEach((x, i) => { checkFileVars(path, x, `${where}[${i}]`); });
+    } else if (typeof node === 'object' && node !== null) {
+      const o = node as Record<string, unknown>;
+      if (Array.isArray(o.lines) && o.lines.every((l) => typeof l === 'string')) {
+        checkVars(where, o as unknown as LineTrigger, path);
+        for (const [k, v] of Object.entries(o)) if (k !== 'lines' && k !== 'vars') checkFileVars(path, v, `${where}.${k}`);
+      } else {
+        for (const [k, v] of Object.entries(o)) checkFileVars(path, v, where === '' ? k : `${where}.${k}`);
+      }
+    }
+  }
+
   const cookIds = new Set(cookPaths.map((p) => p.slice('content/cooks/'.length, -'.yaml'.length)));
 
   const cooks: Record<string, CookFile> = {};
@@ -206,6 +227,7 @@ export function compileContent(files: Record<string, string>): GameContent {
     const cook = load<CookFile>(path, cookFile);
     if (!cook) continue;
     cooks[cook.id] = cook;
+    checkFileVars(path, cook, '');
     cookByPath.set(path, cook);
   }
   const stalls: Record<string, StallFile> = {};
@@ -215,6 +237,7 @@ export function compileContent(files: Record<string, string>): GameContent {
     const fileId = path.slice('content/market/'.length, -'.yaml'.length);
     if (stall.id !== fileId) fail(path, `id "${stall.id}" must equal the file name "${fileId}"`);
     stalls[stall.id] = stall;
+    checkFileVars(path, stall, '');
     checkStallQuestions(path, 'questions', stall.questions);
     const variants = (stall.variants ?? {}) as Record<string, { questions?: StallQuestion[] }>;
     for (const [name, variant] of Object.entries(variants)) {

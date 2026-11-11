@@ -1,4 +1,4 @@
-import type { Rule, Severity } from '@kitchenquest/core/engine';
+import { MENTOR_CLIENT_TIMEOUT_MS, type Rule, type Severity } from '@kitchenquest/core/engine';
 import type {
   ApiErrorBody, ApiResult, ConfirmRequest, ConfirmResponse, ConsentPurpose, Consents, ConsentRecord, MealEntry, Me, PantryItem, Profile,
   RecipeDetail, RecipeSummary, ReplyPart, TurnRequest, TurnResponse,
@@ -15,10 +15,12 @@ export interface ApiClient {
   me(): Promise<ApiResult<Me>>;
   getProfile(): Promise<ApiResult<Profile>>;
   putProfile(p: Partial<Profile>): Promise<ApiResult<Profile>>;
-  listRules(): Promise<ApiResult<{ rules: Rule[] }>>;
+  /** `versions`: each rule's write version, by id (M4 final N4), for a conditional `updateRule`. */
+  listRules(): Promise<ApiResult<{ rules: Rule[]; versions?: Record<string, number> }>>;
   /** §7.0 "Writes need a yes": `confirmed` is the literal `true`, sent only after a read-back. Needs health_data consent (403 consent_required). */
   createRule(rule: Omit<Rule, 'id'>, confirmed: true): Promise<ApiResult<{ rule: Rule }>>;
-  updateRule(id: string, rule: Omit<Rule, 'id'>, confirmed: true): Promise<ApiResult<{ rule: Rule }>>;
+  /** With `version` (If-Match, N4) the write lands only over that version: another one since is 409 `rule_changed`. */
+  updateRule(id: string, rule: Omit<Rule, 'id'>, confirmed: true, version?: number): Promise<ApiResult<{ rule: Rule; version?: number }>>;
   deleteRule(id: string): Promise<ApiResult<null>>;
   /** 409 `rules_need_review` when stored rules no longer validate: treat every dish as unchecked. */
   listRecipes(): Promise<ApiResult<{ recipes: RecipeSummary[] }>>;
@@ -30,9 +32,9 @@ export interface ApiClient {
   /** M4. The player's text rides in the POST body only, never in the URL (P-5). */
   mentorTurn(req: TurnRequest): Promise<ApiResult<TurnResponse>>;                                              // POST /mentor/turn
   /** A tap on a server card: the body is `{ channel: 'tap', edits? }`; the type has no other channel (§7.6b.1). */
-  confirmProposal(id: string, edits?: { severity?: Severity }): Promise<ApiResult<ConfirmResponse>>;          // POST /mentor/proposals/:id/confirm
+  confirmProposal(id: string, edits?: { severity?: Severity }, conversationId?: string | null): Promise<ApiResult<ConfirmResponse>>;          // POST /mentor/proposals/:id/confirm
   rejectProposal(id: string): Promise<ApiResult<{ parts: ReplyPart[] }>>;                                      // POST /mentor/proposals/:id/reject
-  undoWrite(id: string): Promise<ApiResult<{ parts: ReplyPart[] }>>;                                           // POST /mentor/writes/:id/undo
+  undoWrite(id: string): Promise<ApiResult<{ parts: ReplyPart[]; undone: boolean }>>;                                        // POST /mentor/writes/:id/undo
   forgetConversations(): Promise<ApiResult<null>>;                                                            // DELETE /mentor/conversations (204)
   withdrawConsent(purpose: ConsentPurpose, healthData?: 'delete' | 'keep'): Promise<ApiResult<null>>;         // DELETE /me/consents/:purpose (204)
   /** Needs health_data consent (403 consent_required). */
@@ -54,28 +56,43 @@ function m2Error(body: unknown): ApiErrorBody | null {
   return { code, message: typeof message === 'string' ? message : '', ...(details === undefined ? {} : { details }) };
 }
 
-export function createApiClient(opts: { baseUrl?: string; fetch?: typeof fetch } = {}): ApiClient {
+/**
+ * How long a mentor turn or a consents read may take before it counts as unreachable (status 0), so a stalled
+ * connection never holds the Pan's turn queue (fix round 5, H1). Core's MENTOR_CLIENT_TIMEOUT_MS: above the server's
+ * own turn deadline (MENTOR_TURN_DEADLINE_MS, M4 final J2), so the server always answers first.
+ */
+const MENTOR_TIMEOUT_MS = MENTOR_CLIENT_TIMEOUT_MS;
+
+export function createApiClient(opts: { baseUrl?: string; fetch?: typeof fetch; timeoutMs?: number } = {}): ApiClient {
+  const timeoutMs = opts.timeoutMs ?? MENTOR_TIMEOUT_MS;
   const base = (opts.baseUrl ?? '/api').replace(/\/+$/, '');
   // Bound, so a bare `window.fetch` reference is not called with the wrong `this`.
   const doFetch = opts.fetch ?? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init));
 
-  async function call<T>(method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, body?: unknown): Promise<ApiResult<T>> {
+  async function call<T>(
+    method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, body?: unknown, timeout?: number, headers: Record<string, string> = {},
+  ): Promise<ApiResult<T>> {
     const init: RequestInit = { method, credentials: 'same-origin' };
+    // A timed call that runs out (headers or body) reads as unreachable: status 0, never a pending promise.
+    if (timeout !== undefined) init.signal = AbortSignal.timeout(timeout);
     if (method !== 'GET') {
       // JSON only: M2 refuses text/plain. Fastify also refuses an empty application/json body, so send {}.
-      init.headers = { 'content-type': 'application/json' };
+      init.headers = { 'content-type': 'application/json', ...headers };
       init.body = JSON.stringify(body ?? {});
     }
     let res: Response;
     try {
       res = await doFetch(`${base}${path}`, init);
     } catch (err) {
-      return { ok: false, status: 0, error: { code: 'network', message: err instanceof Error ? err.message : String(err) } };
+      return { ok: false, status: 0, error: { code: init.signal?.aborted ? 'timeout' : 'network', message: err instanceof Error ? err.message : String(err) } };
     }
     if (res.status === 204) return res.ok ? { ok: true, status: 204, data: null as T } : httpError(res);
     let parsed: unknown;
     let isJson = true;
-    try { parsed = await res.json(); } catch { isJson = false; }
+    try { parsed = await res.json(); } catch {
+      if (init.signal?.aborted) return { ok: false, status: 0, error: { code: 'timeout', message: 'The response did not arrive in time' } };
+      isJson = false;
+    }
     if (res.ok) {
       return isJson
         ? { ok: true, status: res.status, data: parsed as T }
@@ -101,17 +118,20 @@ export function createApiClient(opts: { baseUrl?: string; fetch?: typeof fetch }
     putProfile: (p) => call('PUT', '/profile', p),
     listRules: () => call('GET', '/rules'),
     createRule: (rule, confirmed) => call('POST', '/rules', { rule, confirmed }),
-    updateRule: (id, rule, confirmed) => call('PUT', `/rules/${enc(id)}`, { rule, confirmed }),
+    updateRule: (id, rule, confirmed, version) =>
+      call('PUT', `/rules/${enc(id)}`, { rule, confirmed }, undefined, version === undefined ? {} : { 'if-match': `"${version}"` }),
     deleteRule: (id) => call('DELETE', `/rules/${enc(id)}`),
     listRecipes: () => call('GET', '/recipes'),
     getRecipe: (slug) => call('GET', `/recipes/${slug.split('/').map(enc).join('/')}`),
-    consents: () => call('GET', '/me/consents'),
+    consents: () => call('GET', '/me/consents', undefined, timeoutMs),
     grantConsent: (purpose, noticeVersion) => call('POST', '/me/consents', { purpose, noticeVersion, method: 'tap' }),
     exportAccount: () => call('GET', '/me/export'),
     deleteAccount: (confirm) => call('DELETE', '/me', { confirm }),
-    mentorTurn: (req) => call('POST', '/mentor/turn', req),
-    confirmProposal: (id, edits) => {
-      const body: ConfirmRequest = edits === undefined ? { channel: 'tap' } : { channel: 'tap', edits };
+    mentorTurn: (req) => call('POST', '/mentor/turn', req, timeoutMs),
+    confirmProposal: (id, edits, conversationId) => {
+      const body: ConfirmRequest = {
+        channel: 'tap', ...(edits === undefined ? {} : { edits }), ...(conversationId === undefined ? {} : { conversationId }),
+      };
       return call('POST', `/mentor/proposals/${enc(id)}/confirm`, body);
     },
     rejectProposal: (id) => call('POST', `/mentor/proposals/${enc(id)}/reject`),

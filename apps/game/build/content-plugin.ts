@@ -35,7 +35,9 @@ export function kqContent(opts: { repoRoot: string }): Plugin {
     },
     load(id) {
       if (id !== RESOLVED_ID) return undefined;
-      return `export default ${JSON.stringify(compile(this))};`;
+      // Market stalls have no screen yet: validated above, left out of the bundle (see ClientContent).
+      const { stalls: _stalls, ...client } = compile(this);
+      return `export default ${JSON.stringify(client)};`;
     },
     configureServer(server) {
       // Edits to, and new or removed, input files recompile the module and reload the page.

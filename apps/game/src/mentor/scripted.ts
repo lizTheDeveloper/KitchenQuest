@@ -1,11 +1,12 @@
 import {
-  askForDroppedTerms, buildMealCard, emergencyRuleAsk, emergencyStatesRule, isHealthText, isSevereCard, buildPantryCard, buildProfileCard, buildRuleCard, classifyTurn, dropMealsMatchingRemovals,
+  alreadySavedLine, askForDroppedTerms, buildMealCard, emergencyRuleAsks, emergencyStatesRule, isHealthText, buildPantryCard, buildProfileCard, buildRuleCard, classifyTurn, dropMealsMatchingRemovals,
   matchDish, MEAL_SLOTS, MEAL_VERB_PATTERN, normalizeName, normalizeTurn, PANTRY_ADD_PATTERN, PANTRY_REMOVAL_PATTERNS,
   parseClock, parseMealStatement, parsePantryAdds, parsePantryRemovals, parseRuleStatement, parseWeekdays, preRoute,
   shortReplyTarget, slotClause, slotForTime, stripPageEvents,
-  type IngredientGraph, type LineRef, type MealSlot, type OpenCardRef, type ProposalCard, type RuleTerm, type Severity,
+  type IngredientGraph, type LineRef, type MealSlot, type OpenCardRef, type ProposalCard, type Rule, type RuleTerm, type Severity,
 } from '@kitchenquest/core/engine';
 import { localDate } from '../recipes/rules';
+import type { ChildFlag } from './child-flag';
 import type { Dialogue } from './dialogue';
 import type { CardView, LocalCardView, LocalIntent, PanItem, PanReply, TurnContext } from './reply';
 
@@ -42,6 +43,10 @@ interface Found { at: number; items: PanItem[]; card?: ProposalCard }
 
 export function createScriptedEngine(deps: {
   dialogue: Dialogue; graph: IngredientGraph; ruleTerms: RuleTerm[]; recipes: { slug: string; title: string }[]; now: () => Date;
+  /** The player's saved rules (account or device): a rule card below one of them is never offered (S13, M-5). */
+  savedRules?: () => readonly Rule[];
+  /** The conversation's child flag (m-4), shared with the local safety check and the intake. */
+  child?: ChildFlag;
 }): ScriptedEngine {
   const { dialogue, graph, ruleTerms, recipes } = deps;
   const say = (l: LineRef): PanItem => ({ kind: 'said', said: dialogue.say(l.trigger, l.vars) });
@@ -53,7 +58,7 @@ export function createScriptedEngine(deps: {
   const withReadback = (at: number, card: ProposalCard): Found => ({ at, card, items: card.readback.map(say) });
 
   /** Step 4 of the reply: every parser runs, so a multi-intent turn yields several items. */
-  function parseAll(raw: string, text: string, ctx: TurnContext, rulesOnly = false): { items: PanItem[]; cards: ProposalCard[] } {
+  function parseAll(raw: string, text: string, ctx: TurnContext): { items: PanItem[]; cards: ProposalCard[] } {
     const t = normalizeTurn(text);
     const found: Found[] = [];
     const now = deps.now();
@@ -67,21 +72,11 @@ export function createScriptedEngine(deps: {
       const where = at < 0 ? ruleFallback : at;
       const built = buildRuleCard({ term: item.term, severity: item.severity }, graph, ruleTerms);
       ruleOutcome = true;
-      if (built.ok) found.push(withReadback(where, built.card));
+      const onFile = built.ok ? alreadySavedLine(built.card, deps.savedRules?.() ?? [], graph, ruleTerms) : null;
+      if (onFile !== null) found.push({ at: where, items: [say(onFile)] });
+      else if (built.ok) found.push(withReadback(where, built.card));
       else if (built.reason === 'unknown_term') found.push({ at: where, items: [say(built.line)] });
       else found.push({ at: where, items: [say(built.line), { kind: 'choices', options: built.options, severity: item.severity }] });
-    }
-
-    // An emergency turn keeps only the rule path (fix round 2, E2): no meal, profile or pantry card. As on the
-    // server, only severe rule cards stay; anything else (a diet card, an unknown term) gives way to the ask (fix round 3).
-    if (rulesOnly) {
-      const severe = found.filter((f) => f.card !== undefined && isSevereCard(f.card));
-      const kept = severe.flatMap((f) => (f.card?.kind === 'rule' ? [f.card.display.ingredient] : []));
-      severe.sort((a, b) => a.at - b.at);
-      const items = severe.flatMap((f) => f.items);
-      const ask = emergencyRuleAsk(raw, kept, graph);
-      if (ask !== null) items.push(say(ask));
-      return { items, cards: severe.flatMap((f) => (f.card ? [f.card] : [])) };
     }
 
     const removals = parsePantryRemovals(text);
@@ -156,26 +151,38 @@ export function createScriptedEngine(deps: {
     reply(text, ctx) {
       // 1. Page-event lookalikes never arrive as the player's words (§7.6b.4).
       const stripped = stripPageEvents(text).text.trim();
-      if (stripped === '') return reply([line('didnt_understand')]);
       const intent = classifyTurn(stripped);
+      // §19 / m-4: once a child spoke in this conversation, every later turn gets the grown-up line and nothing is
+      // offered or written. Only an emergency still gets its line (below), with no ask.
+      if (intent === 'child') deps.child?.set();
+      const child = intent === 'child' || deps.child?.on === true;
+      if (child && intent !== 'emergency') return reply([line('child.grownup')]);
+      if (stripped === '') return reply([line('didnt_understand')]);
       // 2. The fixed lines (emergency, medical, child, allowance, thanks): the server's own function.
       const fixed = preRoute(intent);
       if (fixed !== null) {
-        // E2: an emergency that also states a rule gets the emergency line first, then the rule path; never a meal or pantry card.
-        if (intent !== 'emergency' || !emergencyStatesRule(text, graph)) return reply([say(fixed)]);
-        const rules = parseAll(text, stripped, ctx, true);
-        return reply([say(fixed), ...rules.items], { cards: rules.cards.map((c) => view(c, ctx.turn)) });
+        // E2/F3 (ruling M-2): an emergency that also states a rule gets the emergency line first, then an ask for every
+        // allergen named, exactly as the server answers it (turn.ts stage 2a). No card of any kind on an emergency turn.
+        if (intent !== 'emergency' || child || !emergencyStatesRule(text, graph)) return reply([say(fixed)]);
+        return reply([say(fixed), ...emergencyRuleAsks(text, [], graph).map(say)]);
       }
       // 3. A plain yes, no or undo: core decides which card it means. A typed yes never confirms a severe card.
       if (intent === 'yes' || intent === 'no' || intent === 'undo') {
-        const refs: OpenCardRef[] = ctx.openCards.flatMap((c) =>
-          c.origin === 'local'
-            ? [{ ref: c.localId, severe: c.card.kind === 'rule' && c.card.severe, ingredient: c.card.kind === 'rule' ? c.card.display.ingredient : null, issuedTurn: c.issuedTurn }]
-            : []);
+        // Step 9 carry: while more than one card of either origin is open, a plain yes or no never picks one.
+        const recentCount = ctx.openCards.filter((c) => c.issuedTurn === ctx.turn - 1).length;
+        // Undo goes by the trail, not the cards (fix round 1, M1).
+        if (intent !== 'undo' && recentCount > 0 && ctx.openCards.length > 1) return reply([line('confirm.tap_card')]);
+        // Server cards count too: with a local and a server card both open, a yes never confirms either.
+        const refs: OpenCardRef[] = ctx.openCards.map((c) => ({
+          ref: c.origin === 'local' ? c.localId : `server:${c.proposalId}`,
+          severe: c.card.kind === 'rule' && c.card.severe, ingredient: c.card.kind === 'rule' ? c.card.display.ingredient : null, issuedTurn: c.issuedTurn,
+        }));
         const target = shortReplyTarget(intent, refs, ctx.turn);
         switch (target.kind) {
           case 'confirm':
           case 'reject':
+            // A server card is answered by its own tap here: this engine never sends a typed yes for it.
+            if (target.ref.startsWith('server:')) return reply([line('confirm.tap_card')]);
             return reply([], { intents: [{ kind: target.kind, localId: target.ref }] });
           case 'undo':
             return reply([], { intents: [{ kind: 'undo' }] });

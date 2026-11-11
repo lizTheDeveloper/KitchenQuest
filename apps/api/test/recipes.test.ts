@@ -307,7 +307,10 @@ describe('recipe endpoints', () => {
   describe('an unreadable stored rule (M-4)', () => {
     const INTERNAL = { error: { code: 'internal', message: 'Internal server error' } };
     const unreadable = {
-      'a tampered sealed blob': (userId: string) => sql`update rules set sealed = overlay(sealed placing '\\xff'::bytea from 40 for 1) where user_id = ${userId}`,
+      // Flips every bit of one ciphertext byte (0-based 39). Writing a fixed 0xff there was a no-op whenever the
+      // byte already was 0xff (1 in 256 runs, a random IV), so the blob still opened and the test flaked.
+      'a tampered sealed blob': (userId: string) =>
+        sql`update rules set sealed = set_byte(sealed, 39, get_byte(sealed, 39) # 255) where user_id = ${userId}`,
       'a missing user_keys row': (userId: string) => sql`delete from user_keys where user_id = ${userId}`,
     };
     for (const [what, breakIt] of Object.entries(unreadable)) {

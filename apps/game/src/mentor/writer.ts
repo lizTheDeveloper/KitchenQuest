@@ -19,14 +19,34 @@ import type { CardView, PanItem } from './reply';
  */
 export type WriteOutcome =
   | { ok: true; trail: TrailEntry; items: PanItem[] }
-  | { ok: false; reason: 'tap_required' | 'consent_required' | 'needs_account' | 'invalid' | 'closed' | 'network'; items: PanItem[] };
+  /** `busy`: this card's write is already in flight (a tap and a typed yes at once); nothing to show, the first one answers. */
+  /** `limited`: the daily write limit (the same for every plan, never sold): the card stays open, the line says so. */
+  | { ok: false; reason: 'tap_required' | 'consent_required' | 'needs_account' | 'invalid' | 'closed' | 'network' | 'busy' | 'limited'; items: PanItem[] };
+
+/**
+ * What an undo did (Step 8 fix round 1 carry). `undone`: reversed, drop the trail entry. `nothing`: there was
+ * nothing to reverse (the window closed, the card vanished), drop it. `busy`: an undo of this entry is already in
+ * flight; nothing changes and the first one answers. `full`: the pantry is at its limit and
+ * nothing changed, keep it while the window is open. `failed`: offline or a server error, keep it to try again.
+ */
+export interface UndoOutcome { status: 'undone' | 'nothing' | 'full' | 'failed' | 'busy'; items: PanItem[] }
 
 export interface CardWriter {
   /** severe + typed_yes → tap_required, with no call. */
   confirm(card: CardView, via: 'tap' | 'typed_yes', edits?: { severity?: Severity }): Promise<WriteOutcome>;
+  /**
+   * Raise an account rule to the stricter severity of this rule card (the rules screen's "Raise it on my account"),
+   * by the card's tap: the write has an undo that puts the account's rule back as it was. Signed-in only.
+   */
+  raiseRule(card: CardView, accountRule: Rule): Promise<WriteOutcome>;
   reject(card: CardView): Promise<PanItem[]>;
-  undo(entry: TrailEntry): Promise<PanItem[]>;
+  undo(entry: TrailEntry): Promise<UndoOutcome>;
 }
+
+/** Strictest first: a raise may only move a rule up this ranking. */
+export const SEVERITY_RANK: Readonly<Record<Rule['severity'], number>> = { anaphylactic: 3, allergy: 2, intolerance: 1, preference: 0 };
+const sameIds = (a: readonly string[], b: readonly string[]) => a.length === b.length && [...a].sort().every((id, i) => id === [...b].sort()[i]);
+const sameTarget = (a: Rule, b: Omit<Rule, 'id'>) => a.type === b.type && a.target.kind === b.target.kind && sameIds(a.target.ids, b.target.ids);
 
 type Row = PantryItem & { id: string };
 const EMPTY_PROFILE: LocalProfile = { marketDays: [], mealsPerWeek: null, country: null, region: null, mealWindows: [] };
@@ -34,6 +54,7 @@ const EMPTY_PROFILE: LocalProfile = { marketDays: [], mealsPerWeek: null, countr
 /** How to reverse a local write, kept in memory only. */
 type Undo =
   | { kind: 'rule'; card: ProposalCard; where: 'account' | 'device'; id: string }
+  | { kind: 'raise'; card: ProposalCard; id: string; before: Omit<Rule, 'id'>; wrote: Rule }
   | { kind: 'meal'; card: ProposalCard; id: string }
   | { kind: 'profile'; card: ProposalCard; where: 'account'; before: Partial<Profile> }
   | { kind: 'profile'; card: ProposalCard; where: 'device'; before: LocalProfile | null }
@@ -48,7 +69,9 @@ export function partsToItems(parts: readonly ReplyPart[], dialogue: Dialogue): P
       case 'line': return [{ kind: 'said', said: dialogue.say(p.line.trigger, p.line.vars) }];
       case 'choices': return [{ kind: 'choices', options: p.options, severity: p.severity }];
       case 'consent': return [{ kind: 'consent', purpose: p.purpose }];
-      case 'text': return [];
+      case 'text':
+        if (import.meta.env.DEV) console.warn('mentor: a text part from the server was dropped (ruling R9)');
+        return [];
     }
   });
 }
@@ -57,9 +80,15 @@ const isConsentPurpose = (x: unknown): x is 'health_data' | 'ai_health' => x ===
 
 export function createCardWriter(deps: {
   client: ApiClient; store: PlayerStore; dialogue: Dialogue; graph: IngredientGraph; ruleTerms: readonly RuleTerm[]; now: () => Date;
+  /**
+   * The AI conversation the player is in now (undefined: none). A server card's tap names it, so the server closes a
+   * card from an earlier or cleared conversation instead of writing it (fix round 5, H2).
+   */
+  conversationId?: () => string | null | undefined;
 }): CardWriter {
   const { client, store, dialogue, graph, ruleTerms } = deps;
   const inFlight = new Set<string>();
+  const undoing = new Set<string>();
   const closed = new Set<string>();
   const undos = new Map<string, Undo>();
 
@@ -94,10 +123,15 @@ export function createCardWriter(deps: {
     if ((status === 409 && error.code === 'proposal_closed') || status === 404) return { ok: false, reason: 'closed', items: [] };
     if (status === 400 && error.code === 'tap_required') return { ok: false, reason: 'tap_required', items: [tapNeeded(card)] };
     if (status === 401) return { ok: false, reason: 'needs_account', items: [] };
+    // The daily write cap (only it sets details.retryAfterSeconds; the per-minute limiters set the header only):
+    // trying again would fail for hours, so say so instead of "try again" (M4 final, 429 on the tap).
+    if (isWriteCap(r)) return { ok: false, reason: 'limited', items: [line('write.daily_limit')] };
     // Offline, rate-limited or a server error: nothing is known to be written, and the card stays open to try again.
     if (status === 0 || status === 429 || status >= 500) return { ok: false, reason: 'network', items: [] };
     return { ok: false, reason: 'invalid', items: [line('write.not_done')] };
   }
+  const isWriteCap = (r: Extract<ApiResult<unknown>, { ok: false }>) =>
+    r.status === 429 && (r.error.details as { retryAfterSeconds?: unknown } | undefined)?.retryAfterSeconds !== undefined;
   const tapNeeded = (card: ProposalCard): PanItem => line('rule.tap_needed', { ingredient: card.kind === 'rule' ? card.display.ingredient : '' });
 
   /** A local card written to the account (signed in) or the device (signed out). */
@@ -186,6 +220,8 @@ export function createCardWriter(deps: {
         await refreshAccount(client, store);
         return [];
       }
+      case 'raise': // undone by `undoRaise`, which checks the rule first
+        return null;
       case 'meal':
         return goneIsFine(await client.deleteMeal(u.id)) ? [] : null;
       case 'profile':
@@ -210,11 +246,59 @@ export function createCardWriter(deps: {
     }
   }
 
+  /**
+   * Puts a raised rule back only if the account still holds exactly what the raise wrote. A rule changed since (another
+   * tab or device) is left alone: an undo never lowers a rule below what it is now, nor below what it was before the raise.
+   */
+  async function undoRaise(entryId: string, u: Extract<Undo, { kind: 'raise' }>): Promise<UndoOutcome> {
+    const email = accountEmail();
+    const list = await client.listRules();
+    if (!list.ok) return { status: 'failed', items: [] };
+    const now = list.data.rules.find((x) => x.id === u.id);
+    const changed = (): UndoOutcome => { undos.delete(entryId); return { status: 'nothing', items: [line('undo.rule_changed')] }; };
+    if (now === undefined || now.severity !== u.wrote.severity || !sameTarget(now, u.wrote)) return changed();
+    if (SEVERITY_RANK[u.before.severity] >= SEVERITY_RANK[now.severity]) { undos.delete(entryId); return { status: 'nothing', items: [line('undo.nothing')] }; }
+    // N4: written only over the version just read, so a stricter edit another device makes meanwhile is never lowered.
+    const put = await client.updateRule(u.id, u.before, true, list.data.versions?.[u.id]);
+    if (!put.ok && put.status === 409 && put.error.code === 'rule_changed') { await refreshAccount(client, store); return changed(); }
+    if (!put.ok) return { status: 'failed', items: isWriteCap(put) ? [line('write.daily_limit')] : [] };
+    const back = put.data.rule;
+    editAccountRules(email, (rules) => rules.map((x) => (x.id === back.id ? back : x)));
+    await refreshAccount(client, store);
+    undos.delete(entryId);
+    return { status: 'undone', items: [line('undo')] };
+  }
+
+  /** Reverses `entry` once (the caller holds the in-flight guard). */
+  async function undoOnce(entry: TrailEntry): Promise<UndoOutcome> {
+    if (deps.now().getTime() > Date.parse(entry.undoUntil)) return { status: 'nothing', items: [line('undo.nothing')] };
+    if (entry.origin === 'server') {
+      const r = await client.undoWrite(entry.id);
+      if (r.ok) {
+        const items = partsToItems(r.data.parts, dialogue);
+        if (r.data.undone) return { status: 'undone', items };
+        // A full pantry keeps the entry (still undoable in the window); anything else had nothing to reverse.
+        const full = r.data.parts.some((p) => p.kind === 'line' && p.line.trigger === 'pantry.undo_full');
+        return { status: full ? 'full' : 'nothing', items };
+      }
+      return r.status === 409 || r.status === 404 ? { status: 'nothing', items: [line('undo.nothing')] } : { status: 'failed', items: [] };
+    }
+    const u = undos.get(entry.id);
+    if (u === undefined) return { status: 'nothing', items: [line('undo.nothing')] };
+    if (u.kind === 'raise') return undoRaise(entry.id, u);
+    const done = await reverse(u);
+    if (done === null) return { status: 'failed', items: [] };
+    if (done.length > 0) return { status: 'full', items: done }; // the pantry is full: nothing changed, and the undo stays possible
+    undos.delete(entry.id);
+    return { status: 'undone', items: [say(undoneLine(u.card))] };
+  }
+
   return {
     async confirm(view, via, edits) {
       if (familyTable()) return { ok: false, reason: 'invalid', items: [] };
       const key = keyOf(view);
-      if (closed.has(key) || inFlight.has(key)) return { ok: false, reason: 'closed', items: [] };
+      if (inFlight.has(key)) return { ok: false, reason: 'busy', items: [] };
+      if (closed.has(key)) return { ok: false, reason: 'closed', items: [] };
       let card = view.card;
       const severity = edits?.severity;
       // A severe card, or an edit that makes one, needs a tap on the card itself (§7.6). No call is made.
@@ -227,14 +311,68 @@ export function createCardWriter(deps: {
       try {
         let out: WriteOutcome;
         if (view.origin === 'server') {
-          const r = await client.confirmProposal(view.proposalId, edits);
+          const now = deps.conversationId?.();
+          const r = await client.confirmProposal(view.proposalId, edits, now);
           out = r.ok ? { ok: true, trail: r.data.trail, items: partsToItems(r.data.parts, dialogue) } : refused(r, card);
+          // M-6: a card from an earlier conversation (cleared, or started again since) closes with the reason, not silently.
+          if (!out.ok && out.reason === 'closed' && view.conversationId !== undefined && view.conversationId !== (now ?? null)) {
+            out = { ...out, items: [line('card.earlier_conversation')] };
+          }
         } else {
           if (severity !== undefined && card.kind === 'rule') card = withSeverity(card, severity, graph, ruleTerms);
           out = await writeLocal(card);
         }
         if (out.ok || out.reason === 'closed') closed.add(key);
         return out;
+      } finally {
+        inFlight.delete(key);
+      }
+    },
+
+    async raiseRule(view, accountRule) {
+      if (familyTable() || view.card.kind !== 'rule') return { ok: false, reason: 'invalid', items: [] };
+      const key = keyOf(view);
+      if (inFlight.has(key)) return { ok: false, reason: 'busy', items: [] };
+      if (closed.has(key)) return { ok: false, reason: 'closed', items: [] };
+      const card = view.card;
+      inFlight.add(key);
+      try {
+        const email = accountEmail();
+        // What the account holds now, from the server: the screen's copy can be stale (another tab or device).
+        const list = await client.listRules();
+        if (!list.ok) return refused(list, card);
+        const current = list.data.rules.find((x) => x.id === accountRule.id);
+        // Gone, or no longer the same rule (another type or target under that id): nothing is written.
+        if (current === undefined || !sameTarget(current, card.rule)) {
+          closed.add(key);
+          await refreshAccount(client, store);
+          return { ok: false, reason: 'closed', items: [line('rule.raise_gone')] };
+        }
+        // Not stricter than what the account has: a raise never lowers or sidesteps a rule. Nothing is written.
+        if (SEVERITY_RANK[card.rule.severity] <= SEVERITY_RANK[current.severity]) {
+          closed.add(key);
+          await refreshAccount(client, store);
+          return { ok: false, reason: 'closed', items: [line('rule.raise_not_stricter')] };
+        }
+        const { id: _id, ...before } = current;
+        // The account rule's note is kept: a raise changes the severity, nothing the player wrote beside it.
+        const raised: Omit<Rule, 'id'> = current.note === undefined ? card.rule : { ...card.rule, note: current.note };
+        // N4: written only over the version just read; another write since (another tab or device) is a 409.
+        const r = await client.updateRule(current.id, raised, true, list.data.versions?.[current.id]);
+        if (!r.ok && r.status === 409 && r.error.code === 'rule_changed') {
+          closed.add(key);
+          await refreshAccount(client, store);
+          return { ok: false, reason: 'closed', items: [line('rule.raise_gone')] };
+        }
+        if (!r.ok) return refused(r, card);
+        const saved = r.data.rule;
+        editAccountRules(email, (rules) => rules.map((x) => (x.id === saved.id ? saved : x)));
+        await refreshAccount(client, store);
+        // Its own trail id: the rule's id may already name this rule's creation in the undo memory.
+        const id = crypto.randomUUID();
+        undos.set(id, { kind: 'raise', card, id: saved.id, before, wrote: saved });
+        closed.add(key);
+        return { ok: true, trail: trail(id, 'local', card), items: confirmedLines(card).map(say) };
       } finally {
         inFlight.delete(key);
       }
@@ -254,20 +392,16 @@ export function createCardWriter(deps: {
     },
 
     async undo(entry) {
-      if (familyTable()) return [];
-      if (deps.now().getTime() > Date.parse(entry.undoUntil)) return [line('undo.nothing')];
-      if (entry.origin === 'server') {
-        const r = await client.undoWrite(entry.id);
-        if (r.ok) return partsToItems(r.data.parts, dialogue);
-        return r.status === 409 || r.status === 404 ? [line('undo.nothing')] : [];
+      if (familyTable()) return { status: 'nothing', items: [] };
+      // One reverse at a time per entry: a second tap or a typed undo meanwhile never reverses twice.
+      const key = `${entry.origin}:${entry.id}`;
+      if (undoing.has(key)) return { status: 'busy', items: [] };
+      undoing.add(key);
+      try {
+        return await undoOnce(entry);
+      } finally {
+        undoing.delete(key);
       }
-      const u = undos.get(entry.id);
-      if (u === undefined) return [line('undo.nothing')];
-      const done = await reverse(u);
-      if (done === null) return [];
-      if (done.length > 0) return done; // the pantry is full: nothing changed, and the undo stays possible
-      undos.delete(entry.id);
-      return [say(undoneLine(u.card))];
     },
   };
 }

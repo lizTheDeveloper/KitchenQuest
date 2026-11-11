@@ -138,9 +138,9 @@ Step 7 review rulings (`.superpowers/sdd/README-m4-mentor/progress.md`):
 - [x] [Step 7 — API: the turn endpoint (pre-route, consent, prompt, tools, filter, allowance)](step-7.md)
 - [x] [Step 8 — API: confirm, reject, undo, typed yes; the adversarial suite](step-8.md)
 - [x] [Step 9 — Game: store and rules carry-overs, API client, scripted engine with cards](step-9.md)
-- [ ] [Step 10 — Game: cards in the panel, the AI backend, trail and undo](step-10.md)
-- [ ] [Step 11 — Game: Form 1-A intake, consent and disclosure cards, rules screen, age screen, settings](step-11.md)
-- [ ] [Step 12 — Eval harness, free-forever and never-rules sweep, compliance docs](step-12.md)
+- [x] [Step 10 — Game: cards in the panel, the AI backend, trail and undo](step-10.md)
+- [x] [Step 11 — Game: Form 1-A intake, consent and disclosure cards, rules screen, age screen, settings](step-11.md)
+- [x] [Step 12 — Eval harness, free-forever and never-rules sweep, compliance docs](step-12.md)
 
 Order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8. Steps 9 → 10 → 11 can start after Step 2 and the M3 Step 11 gate, and they need Step 8's routes for their e2e mocks to match. Step 12 comes last, after M3 Step 12 and the founder's first eval. Steps 1 and 2 touch `packages/core` and `content/`, which the game build also compiles. Run `npm test` for the game after each.
 

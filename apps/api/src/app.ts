@@ -60,6 +60,9 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
       return reply.status(400).send(body('bad_request', 'Invalid request', details));
     }
     if (err instanceof ApiError) {
+      // A service's 429 (the daily write cap) says when to come back in its details.
+      const retry = (err.details as { retryAfterSeconds?: unknown } | undefined)?.retryAfterSeconds;
+      if (err.status === 429 && typeof retry === 'number') reply.header('retry-after', String(retry));
       return reply.status(err.status).send(body(err.code, err.message, err.details));
     }
     // Fastify's own 4xx (malformed JSON, payload too large, ...): keep its status.

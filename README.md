@@ -39,6 +39,40 @@ npm run dev -w @kitchenquest/api   # http://localhost:3000/health
 
 `scripts/dev-db.sh stop` stops the cluster. Without local Postgres binaries use `docker compose up -d db` (same port). See `.env.example` for all variables. API tests fail with a clear message when `TEST_DATABASE_URL` is unset.
 
+## The Pan (the AI mentor)
+
+The Pan is the mentor in the panel on every screen. It always works without AI: a scripted engine in the game answers from the written lines in `content/dialogue/pan.yaml` and makes the same cards. With the API's `AI_ENABLED=true` (and the player's `ai_health` consent for anything health-related), turns go to `POST /mentor/turn`, where a model on OpenRouter may only **propose** cards (`propose_rule`, `propose_meal_log`, `propose_profile`, `propose_pantry_change`). Code builds and spells every card, and nothing is written until the player taps it (or types "yes" to a non-severe card). The model's own words are never shown.
+
+- `AI_ENABLED` is `false` by default; with it off no other AI variable is read and the mentor runs scripted. To turn it on, set `OPENROUTER_API_KEY`, `AI_PROVIDERS` and `AI_DAILY_BUDGET_USD` (see `.env.example`). Outside production, use synthetic data only.
+- In production the API **refuses to boot** with `AI_ENABLED=true` until `docs/compliance/processors.json` lists the OpenRouter DPAs as signed (P-11; checklist in `docs/compliance/vendors/openrouter.md`).
+- Allergy and diet rule help, meal logging, export and delete are free forever (§16); free-form chat has a daily allowance.
+- **One abuse limit, the same for every plan:** at most 200 meal logs and 200 rule edits that loosen a rule per player per rolling day (`apps/api/src/usage/write-cap.ts`, controller ruling M-4). It is far above human use, it reads no plan or entitlement (a Guild player meets it exactly where a free player does), it is never sold or raised for pay, and it never blocks adding, removing or tightening a rule. The Pan says so plainly (`write.daily_limit`). `apps/api/test/free-forever.test.ts` pins all of this.
+- In production with `AI_ENABLED=true`, the API compares the **live** AI config (model, `AI_PROVIDERS`, prompt, tools and request parameters) with `apps/api/eval/last-pass.json` at boot. If they differ, it logs an `eval_gate` error and starts with the AI off, so the scripted mentor answers every turn (I-3). Run the eval with the exact production config before changing any of these.
+
+### The mentor eval
+
+`npm run eval:mentor -w @kitchenquest/api` runs the Qwen spike's 41 conversations (`apps/api/eval/cases.ts`), three times each, through the real app against the real model, with made-up players in a throwaway database. It never runs in `npm test`. The bar: 0 hard (safety) fails and at least 95% of tool cases fully correct. A passing run writes `apps/api/eval/last-pass.json`; commit it.
+
+```bash
+eval "$(scripts/dev-db.sh url)"; export TEST_DATABASE_URL
+OPENROUTER_API_KEY=… AI_PROVIDERS=tenstorrent npm run eval:mentor -w @kitchenquest/api
+# behind an HTTPS proxy, add NODE_USE_ENV_PROXY=1 so Node's fetch uses it
+```
+
+`apps/api/test/eval-gate.test.ts` (in `npm test`, no network) fails when the prompt, tools, model, request parameters (temperature, `max_tokens`, reasoning, `tool_choice`) or `AI_PROVIDERS` in `.env.example` change without a new passing `last-pass.json`. `MENTOR_EVAL_GATE=skip-no-network` skips it, for a CI job with no recorded eval; the default CI job never sets it. Never write `last-pass.json` by hand.
+
+## Deploying the API
+
+A checklist for every production deploy:
+
+- [ ] `NODE_ENV=production`. The DPA gate (P-11) keys on it: without it the API would start the AI with an unsigned processor.
+- [ ] `TRUST_PROXY` set to the reverse proxy (hop count or addresses): the search, export and mentor limiters key on the client IP.
+- [ ] `DATA_KEYS`, `DATA_KEY_ID` and `PSEUDONYM_KEY` from the secret store, never from the repo (`docs/compliance/key-management.md`).
+- [ ] `APP_ORIGIN` is the game's origin; `MAILER=smtp` with `SMTP_URL` and the mail-provider settings in `docs/compliance/mail-provider.md`.
+- [ ] `AI_ENABLED=false` until `processors.json` lists the OpenRouter DPAs as signed; then the production `OPENROUTER_API_KEY` (not the dev key), `AI_PROVIDERS` as in `.env.example`, and `AI_DAILY_BUDGET_USD`.
+- [ ] `docs/compliance/` (`notices/`, `processors.json`) ships in the image: the API reads both at boot.
+- [ ] The reverse proxy sends the security headers in `apps/game/deploy/`.
+
 ## Layout
 
 npm workspaces monorepo.
@@ -66,6 +100,7 @@ apps/game/                # Phaser game + HTML overlays, a PWA (@kitchenquest/ga
   src/scenes/             # Phaser scenes (no text on the canvas)
   src/util/               # pure game logic (unit-testable, no Phaser)
 apps/api/                 # Fastify API (@kitchenquest/api)
+  eval/                   # the mentor eval: cases, judge, runner (`npm run eval:mentor`), last-pass.json
 packages/core/            # @kitchenquest/core: pure recipe/allergy logic, no I/O
 tsconfig.base.json        # shared compiler options, extended by each workspace
 ```

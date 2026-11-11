@@ -106,7 +106,7 @@ describe('promptFingerprint', () => {
   test('changes when the prompt, tools, model or provider order change', () => {
     const base = promptFingerprint(prompt, MENTOR_TOOLS, 'qwen/qwen3.8-27b', ['tenstorrent', 'modelrun']);
     expect(base).toMatch(/^[0-9a-f]{64}$/);
-    expect(MENTOR_PROMPT_VERSION).toBe('pan-2');
+    expect(MENTOR_PROMPT_VERSION).toBe('pan-3');
     expect(promptFingerprint(prompt, MENTOR_TOOLS, 'qwen/qwen3.8-27b', ['tenstorrent', 'modelrun'])).toBe(base);
     expect(promptFingerprint({ ...prompt, system: `${prompt.system} ` }, MENTOR_TOOLS, 'qwen/qwen3.8-27b', ['tenstorrent', 'modelrun'])).not.toBe(base);
     expect(promptFingerprint({ ...prompt, examples: prompt.examples.slice(2) }, MENTOR_TOOLS, 'qwen/qwen3.8-27b', ['tenstorrent', 'modelrun'])).not.toBe(base);

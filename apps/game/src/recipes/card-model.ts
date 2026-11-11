@@ -2,7 +2,7 @@ import {
   check, DISCLAIMER, nutritionPerServing,
   type CheckStatus, type Finding, type IngredientGraph, type Nutrient,
 } from '@kitchenquest/core/engine';
-import type { GameContent } from '../content/types';
+import type { ClientContent } from '../content/types';
 import type { RulesState } from './rules';
 
 interface NutritionRow { nutrient: Nutrient; label: string; value: string } // value e.g. '12 g', '480 mg', '310 kcal'
@@ -47,7 +47,7 @@ const NUTRIENT_ROWS: { nutrient: Nutrient; label: string; unit: string }[] = [
  * unverified: never ok, never blocked (§2.2).
  */
 export function buildRecipeCard(input: {
-  slug: string; content: GameContent; graph: IngredientGraph; rules: RulesState; today: string; showCalories: boolean;
+  slug: string; content: ClientContent; graph: IngredientGraph; rules: RulesState; today: string; showCalories: boolean;
 }): RecipeCard {
   const { slug, content, graph, rules, today, showCalories } = input;
   const recipe = content.recipes[slug];

@@ -1,7 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 import { kqAssets } from './build/assets-plugin';
-import { kqEntryBudget } from './build/budget-plugin';
+import { kqFirstPaintBudget } from './build/budget-plugin';
 import { kqContent } from './build/content-plugin';
 import { kqSecurityHeaders } from './build/headers-plugin';
 import { kqServiceWorker } from './build/sw-plugin';
@@ -15,7 +15,7 @@ const api = {
 
 export default defineConfig({
   base: '/',
-  plugins: [kqContent({ repoRoot }), kqAssets({ repoRoot }), kqServiceWorker(), kqSecurityHeaders(), kqEntryBudget('index')],
+  plugins: [kqContent({ repoRoot }), kqAssets({ repoRoot }), kqServiceWorker(), kqSecurityHeaders(), kqFirstPaintBudget('index')],
   server: { port: 5173, fs: { allow: [repoRoot] }, proxy: api },
   preview: { proxy: api },
   build: {

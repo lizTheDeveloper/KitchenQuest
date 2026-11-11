@@ -2,11 +2,13 @@
 // every case asserts the database (rules, meal_logs, profile, pantry) and the reply parts.
 // Ruling R9 (Step 7 round 4) supersedes this plan's older text expectations: the model's text is
 // never shown, so every reply is cards and scripted lines, and no part is ever `text`.
-import type { TurnResponse } from '@kitchenquest/core';
+import { classifyTurn, type TurnResponse } from '@kitchenquest/core';
 import type { FastifyInstance, InjectOptions } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'vitest';
 import type { AiProvider, AiRequest, AiResult, AiToolCall } from '../src/ai/provider.js';
 import { buildApp } from '../src/app.js';
+import { auditEvents } from '../src/db/schema.js';
+import { WRITES_PER_DAY } from '../src/usage/write-cap.js';
 import { defaultCatalog } from '../src/catalog.js';
 import { NOTICES } from '../src/consent/notices.js';
 import { CaptureMailer } from '../src/mail/mailer.js';
@@ -118,8 +120,14 @@ async function player(purposes: Purpose[] = AI_HEALTH) {
   const userId = (await call(cookie, { method: 'GET', url: '/me' })).json<{ id: string }>().id;
   /** One conversation: each turn continues the last one's. */
   let conversationId: string | null = null;
-  const turnRes = (text: string, opts: { fresh?: boolean; screen?: { route: string; slug?: string } } = {}) =>
-    call(cookie, {
+  /** The cards the last turn showed: a plain yes or no names the one card, as the game does (M4 final I-1). */
+  let lastCards: TurnResponse['cards'] = [];
+  type TurnOpts = { fresh?: boolean; screen?: { route: string; slug?: string }; answering?: string | null };
+  const turnRes = (text: string, opts: TurnOpts = {}) => {
+    const intent = classifyTurn(text);
+    const answering =
+      opts.answering !== undefined ? opts.answering : (intent === 'yes' || intent === 'no') && lastCards.length === 1 ? lastCards[0].proposalId : null;
+    return call(cookie, {
       method: 'POST',
       url: '/mentor/turn',
       payload: {
@@ -129,16 +137,19 @@ async function player(purposes: Purpose[] = AI_HEALTH) {
         localTime: '18:30',
         screen: opts.screen ?? null,
         intakeStep: null,
+        ...(answering === null ? {} : { answering }),
       },
     });
+  };
   const turn = async (
     text: string,
-    opts: { fresh?: boolean; screen?: { route: string; slug?: string } } = {},
+    opts: TurnOpts = {},
   ): Promise<TurnResponse> => {
     const res = await turnRes(text, opts);
     expect(res.statusCode, res.body).toBe(200);
     const r = res.json<TurnResponse>();
     conversationId = r.conversationId;
+    lastCards = r.cards;
     noModelText(r);
     return r;
   };
@@ -246,6 +257,69 @@ describe('the wrong "yes" (Review Focus 2)', () => {
     expect(await count('rules', u.userId)).toBe(1);
     expect(await proposal(r1.cards[0].proposalId)).toMatchObject({ status: 'confirmed', channel: 'typed_yes' });
     expect(ai.requests).toHaveLength(1);
+  });
+
+  test('fix round 1 M5: a typed yes to a meal card past the daily write cap gets write.daily_limit, nothing written', async () => {
+    const ai = hostile([meal({ slot: 'breakfast', description: 'porridge' })]);
+    await makeApp(ai);
+    const u = await player();
+    const at = new Date(clock - 3_600_000);
+    await db.insert(auditEvents).values(
+      Array.from({ length: WRITES_PER_DAY }, () => ({ at, actorKind: 'user', actorId: u.userId, subjectUserId: u.userId, action: 'meals.create', target: 'x' })),
+    );
+    const r1 = await u.turn('I had porridge for breakfast');
+    expect(r1.cards.map((c) => c.card.kind)).toEqual(['meal']);
+    const r2 = await u.turn('yes');
+    expect(r2.parts).toEqual([lineOf('write.daily_limit')]);
+    expect(r2.actions).toEqual([]);
+    expect(await count('meal_logs', u.userId)).toBe(0);
+  });
+
+  test('I-1: a plain yes that names no card writes nothing, even with one card from the previous server turn', async () => {
+    const ai = hostile([rule('garlic', 'intolerance'), reply('Hm.')]);
+    await makeApp(ai);
+    const u = await player();
+    const r1 = await u.turn(T10);
+    const r2 = await u.turn('yes', { answering: null });
+    expect(r2.actions).toEqual([]);
+    expect(await count('rules', u.userId)).toBe(0);
+    expect(await proposal(r1.cards[0].proposalId)).toMatchObject({ status: 'open' });
+  });
+
+  test('I-1: a plain yes naming another card (not open in this conversation) writes nothing', async () => {
+    const ai = hostile([rule('garlic', 'intolerance'), meal({ slot: 'breakfast', description: 'porridge' }), reply('Hm.')]);
+    await makeApp(ai);
+    const u = await player();
+    const elsewhere = await u.turn("I'm intolerant to garlic.", { fresh: true }); // a card in another conversation
+    const r1 = await u.turn('I had porridge for breakfast', { fresh: true });
+    expect(r1.cards).toHaveLength(1);
+    const r2 = await u.turn('yes', { answering: elsewhere.cards[0].proposalId });
+    expect(r2.actions).toEqual([]);
+    expect(await writes(u.userId)).toEqual({ rules: 0, meals: 0 });
+    expect(await proposal(elsewhere.cards[0].proposalId)).toMatchObject({ status: 'open' });
+    expect(await proposal(r1.cards[0].proposalId)).toMatchObject({ status: 'open' });
+  });
+
+  test('I-1: with an orphan card the client never drew, a yes naming the card on screen writes only that one', async () => {
+    const ai = hostile([meal({ slot: 'breakfast', description: 'porridge' }), meal({ slot: 'lunch', description: 'soup' })]);
+    await makeApp(ai);
+    const u = await player();
+    const orphan = await u.turn('I had porridge for breakfast'); // the client timed out on this one
+    const shown = await u.turn('I had soup for lunch');
+    const r = await u.turn('yes', { answering: shown.cards[0].proposalId });
+    expect(r.actions).toMatchObject([{ kind: 'confirmed', proposalId: shown.cards[0].proposalId }]);
+    expect(await proposal(orphan.cards[0].proposalId)).toMatchObject({ status: 'open' });
+    expect(await count('meal_logs', u.userId)).toBe(1);
+  });
+
+  test('I-1: a severe card named by a plain yes still needs the tap', async () => {
+    const ai = hostile([rule('peanut', 'anaphylactic')]);
+    await makeApp(ai);
+    const u = await player();
+    const r1 = await u.turn("I'm allergic to peanuts");
+    const r2 = await u.turn('yes', { answering: r1.cards[0].proposalId });
+    expect(triggers(r2)).toEqual(['rule.tap_needed']);
+    expect(await count('rules', u.userId)).toBe(0);
   });
 
   test('a yes two turns later confirms nothing', async () => {

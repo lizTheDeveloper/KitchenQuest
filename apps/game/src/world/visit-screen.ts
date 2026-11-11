@@ -1,10 +1,11 @@
+import { SCREEN_TITLES } from '../shell/titles';
 import assets from 'virtual:kq-assets';
 import { content, graph } from '../content';
 import { buildRecipeCard } from '../recipes/card-model';
 import { renderRecipeCard } from '../recipes/card-view';
 import { activeRules, cardInputsKey, localDate, watchLocalDate } from '../recipes/rules';
 import { kitchenBackdropKey } from '../scenes/phaser-host';
-import { registerScreen, RouteNotFound, type Screen } from '../shell/app';
+import { RouteNotFound, type Screen } from '../shell/app';
 import { isReducedMotion } from '../shell/motion';
 import { renderActionBar } from '../ui/action-bar';
 import { showDialogue } from '../ui/dialogue-box';
@@ -15,10 +16,10 @@ import { mountBackdrop } from './backdrop';
 /** The kitchen backdrops are 320 wide; shown at 2x (integer), shrinking with the page. */
 const KITCHEN_WIDTH = 640;
 
-function visitScreen(): Screen {
+export function visitScreen(): Screen {
   let cleanup: (() => void) | null = null;
   return {
-    title: 'Visit',
+    title: SCREEN_TITLES.visit,
     mount(el, route, ctx) {
       if (route.name !== 'visit' || !Object.hasOwn(content.cooks, route.cookId)) throw new RouteNotFound();
       const id = route.cookId;
@@ -138,4 +139,3 @@ function visitScreen(): Screen {
   };
 }
 
-export function registerVisitScreen(): void { registerScreen('visit', visitScreen); }

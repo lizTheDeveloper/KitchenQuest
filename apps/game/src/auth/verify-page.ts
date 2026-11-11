@@ -1,5 +1,6 @@
 import type { ApiClient } from '../api/client';
 import type { ApiResult } from '../api/types';
+import { mountAgeScreen } from './age-screen';
 
 const BUSY = "The Bureau couldn't finish that just now. Try again in a moment.";
 const OFFLINE = "Couldn't reach the Bureau. Check your connection and try again.";
@@ -15,6 +16,8 @@ export function startVerifyPage(opts: {
   doc: Document; location: Location; history: History; client: ApiClient;
   /** Called after a successful sign-in (main uses it to clear a pending sign-out). */
   onSignedIn?: (email: string) => void;
+  /** For the age screen's year list (C-39). */
+  now?: () => Date;
 }): void {
   const { doc, location, history, client } = opts;
   let token: string | null = new URLSearchParams(location.search).get('token');
@@ -51,24 +54,34 @@ export function startVerifyPage(opts: {
   root.replaceChildren(h1, panel, status);
 
   let inFlight = false;
-  let ageBox: HTMLInputElement | null = null;
 
   const finish = (...nodes: Node[]) => {
     token = null; // used once, whatever happened
     panel.replaceChildren(...nodes);
   };
 
-  const showAgeGate = () => {
+  /**
+   * C-39: the neutral age screen replaces M3's checkbox. The birth year stays in the select on this page: only
+   * `ageConfirmed: true` is ever sent. Under 16, the token is dropped, so this page load can't show the form again.
+   */
+  const showAgeScreen = () => {
     signIn.remove();
-    const id = 'age-confirm';
-    ageBox = el('input', { type: 'checkbox', id, required: '' });
-    const create = el('button', { type: 'button', id: 'create-account', class: 'btn btn-primary' }, 'Create my account');
-    create.disabled = true;
-    ageBox.addEventListener('change', () => { create.disabled = !ageBox!.checked; });
-    create.addEventListener('click', () => { if (ageBox?.checked) void send(create, true); });
-    const field = el('div', { class: 'field' });
-    field.append(ageBox, el('label', { for: id }, "I'm 16 or older"));
-    panel.append(el('p', {}, 'This email address has no Kitchen Quest account yet. To create one, confirm your age.'), field, create);
+    const box = el('div', { class: 'age-screen' });
+    panel.replaceChildren(el('p', {}, 'This email address has no Kitchen Quest account yet.'), box);
+    mountAgeScreen(box, {
+      thisYear: (opts.now?.() ?? new Date()).getFullYear(),
+      onOk: () => {
+        const create = box.querySelector<HTMLButtonElement>('#create-account');
+        if (create) void send(create, true);
+      },
+      onUnder: () => {
+        token = null;
+        status.textContent = '';
+        panel.replaceChildren(box); // the age screen has already put its under-16 notice in the box
+        box.querySelector('h2')?.setAttribute('tabindex', '-1');
+        box.querySelector<HTMLElement>('h2')?.focus();
+      },
+    });
   };
 
   async function send(button: HTMLButtonElement, ageConfirmed?: true): Promise<void> {
@@ -89,7 +102,7 @@ export function startVerifyPage(opts: {
     const details = (r.ok ? undefined : r.error.details) as { code?: unknown } | undefined;
     if (r.status === 400 && details?.code === 'age_confirmation_required' && !ageConfirmed) {
       status.textContent = '';
-      showAgeGate();
+      showAgeScreen();
       return;
     }
     if (r.status === 401) {
@@ -100,7 +113,7 @@ export function startVerifyPage(opts: {
       return;
     }
     status.textContent = r.status === 0 ? OFFLINE : BUSY;
-    button.disabled = ageConfirmed ? !ageBox?.checked : false;
+    button.disabled = false;
   }
 
   signIn.addEventListener('click', () => { void send(signIn); });

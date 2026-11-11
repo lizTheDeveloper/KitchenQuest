@@ -21,7 +21,7 @@ describe('schema', () => {
       expect(names).toContain(n);
     }
     const applied = await t.sql`select count(*)::int as n from drizzle.__drizzle_migrations`;
-    expect(applied[0].n).toBe(12);
+    expect(applied[0].n).toBe(13);
   });
 
   it('cascades user deletion to sessions, profiles and rules', async () => {

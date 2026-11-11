@@ -193,6 +193,36 @@ input[type="email"] { width: min(100%, 22rem); }
 .pan-talk-row { margin-top: .75rem; }
 #pan-talk[aria-pressed="true"] { background: var(--ember); color: var(--iron); }
 
+/* Pan cards and the write trail: the Bureau form slip, small (M4 Step 10) */
+.pan-item { list-style: none; }
+.pan-card {
+  position: relative; background: var(--parchment); color: var(--parchment-ink); padding: .75rem;
+  box-shadow: 0 0 0 3px var(--parchment-ink), 0 0 0 6px var(--iron);
+  margin: 6px; overflow-wrap: anywhere;
+}
+.pan-card .bureau-number { font-size: 1rem; }
+.pan-card .bureau-title { font-size: 1.125rem; }
+.pan-card .bureau-fields { margin: .5rem 0; }
+.pan-card .bureau-field dt label { font: inherit; }
+.pan-card .bureau-buttons { margin-top: .5rem; }
+.pan-card .bureau-stamp { font-size: 1.5rem; right: .5rem; bottom: .5rem; }
+.pan-card.is-stamping .bureau-stamp { animation: stamp-in .3s steps(4) forwards; }
+[data-motion="reduced"] .pan-card.is-stamping .bureau-stamp { opacity: 1; transform: rotate(-12deg); }
+.pan-card.is-closed { opacity: .85; }
+.pan-severity {
+  font: inherit; color: var(--parchment-ink); background: var(--parchment); border: 2px solid var(--parchment-ink);
+  border-radius: 0; padding: .25rem; min-height: 44px; max-width: 100%;
+}
+.pan-card-note, .pan-note { margin: .5rem 0 0; font-weight: 700; }
+.trail-entry { position: relative; padding: .5rem .75rem; background: var(--iron); box-shadow: 0 0 0 3px var(--iron-edge); margin: 3px; overflow-wrap: anywhere; }
+.trail-text { margin: 0; }
+.trail-entry .button-row { margin-top: .5rem; }
+.pan-choices .button-row, .pan-retry-item { margin: 3px; }
+.pan-rules-error .rules-error { padding: .5rem .75rem; background: var(--iron); box-shadow: 0 0 0 3px var(--chili); margin: 3px; }
+.pan-rules-error a { color: var(--fg); }
+.pan-status:empty { display: none; }
+.pan-status { margin: 0 0 .5rem; font-style: italic; }
+
 /* Recipe shelf and cards */
 .shelf { list-style: none; padding: 0; margin: 1rem 0; display: grid; gap: .75rem; }
 .shelf-item a {
@@ -319,3 +349,54 @@ input[type="email"] { width: min(100%, 22rem); }
 .ios-note-line { margin: .25rem 0 1rem; }
 .update-note { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; }
 .update-note p { margin: 0; flex: 1 1 16rem; }
+
+/* M4 Step 11: the Form 1-A checklist, quick answers and the AI disclosure in the panel */
+.pan-aside[hidden] { display: none; }
+.intake-checklist {
+  margin: .75rem 3px 0; padding: .5rem .75rem; background: var(--parchment); color: var(--parchment-ink);
+  box-shadow: 0 0 0 3px var(--parchment-ink), 0 0 0 6px var(--iron);
+}
+.intake-checklist .bureau-number { font-size: 1rem; }
+.intake-checklist .bureau-title { font-size: 1.125rem; }
+.intake-list { list-style: none; margin: .25rem 0 0; padding: 0; }
+.intake-field { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0 .75rem; padding: .25rem 0; border-bottom: 1px solid rgba(42, 29, 20, .3); }
+.intake-tick { font-weight: 700; }
+.pan-quick-item .button-row { margin: 3px; }
+.pan-disclosure { padding: .5rem .75rem; background: var(--iron); box-shadow: 0 0 0 3px var(--sky); margin: 3px; }
+.pan-disclosure p { margin: 0 0 .5rem; }
+.pan-card-footnote { font-style: italic; }
+
+/* Your rules, the rule form, the age screen, Settings → The Pan */
+.rules-list { list-style: none; margin: 1rem 0; padding: 0; display: grid; gap: .75rem; }
+.rules-item { padding: .75rem; background: var(--iron-2); box-shadow: 0 0 0 3px var(--iron-edge); margin: 3px; overflow-wrap: anywhere; }
+.rules-item.is-bad { box-shadow: 0 0 0 3px var(--chili); }
+.rules-item p { margin: 0 0 .25rem; }
+.rules-status:empty { display: none; }
+.rules-status { margin: 1rem 3px; }
+.rules-card { max-width: 32rem; margin: 1rem 3px; }
+.rules-card .pan-card { margin: 6px; overflow: hidden; } /* the stamp's box stays inside the slip, as in the panel */
+.rules-stamped { font-weight: 700; }
+.rule-form-options { list-style: none; margin: .5rem 0; padding: 0; display: flex; flex-wrap: wrap; gap: .75rem; }
+.rule-form-option[aria-pressed="true"] { background: var(--ember); color: var(--iron); }
+.rule-form-chosen:empty, .rule-form-found:empty { display: none; }
+.field-hint { flex-basis: 100%; margin: 0; font-size: .95rem; }
+input[type="search"] {
+  font: inherit; color: var(--fg); background: var(--iron); border: 3px solid var(--iron-edge);
+  border-radius: 0; padding: .5rem; min-height: 2.75rem; width: min(100%, 24rem);
+}
+.age-birthday { border: 0; padding: 0; }
+.age-birthday[hidden] { display: none; }
+.age-birthday legend { padding: 0; margin-bottom: .5rem; }
+.age-radio { display: flex; align-items: center; gap: .5rem; margin: .25rem 0; }
+.age-screen a { display: inline-block; }
+.age-radio input { width: 1.5rem; height: 1.5rem; accent-color: var(--ember); }
+.confirm-modal {
+  position: relative; width: 100%; max-width: 32rem;
+  background: var(--iron-2); color: var(--fg); padding: 1.25rem 1rem 1rem;
+  box-shadow: 0 0 0 3px var(--iron-edge), 0 0 0 6px var(--iron);
+}
+.confirm-modal h2:focus { outline: none; }
+.confirm-modal-buttons { display: flex; justify-content: flex-end; margin-top: 1rem; }
+.ai-health-notice .consent-card, .health-data-notice .consent-card { margin: 1rem 6px; }
+.health-withdraw { margin: 1rem 3px; padding: .75rem; background: var(--iron); box-shadow: 0 0 0 3px var(--sky); }
+.health-withdraw h3 { margin: 0 0 .5rem; }

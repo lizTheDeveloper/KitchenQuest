@@ -170,7 +170,7 @@ describe('/rules', () => {
   it('round-trips create, list, update and delete, auditing writes without content', async () => {
     const c = await player();
     const uid = await userIdOf(c);
-    expect((await list(c)).json()).toEqual({ rules: [] });
+    expect((await list(c)).json()).toEqual({ rules: [], versions: {} });
 
     const created = await post(c, { rule: PEANUT, confirmed: true });
     expect(created.statusCode).toBe(201);
@@ -180,16 +180,16 @@ describe('/rules', () => {
     expect(row.userId).toBe(uid);
 
     const second = (await post(c, { rule: DAIRY, confirmed: true })).json().rule;
-    expect((await list(c)).json()).toEqual({ rules: [rule, second] });
+    expect((await list(c)).json()).toEqual({ rules: [rule, second], versions: { [rule.id]: 1, [second.id]: 1 } });
 
     const changed = { ...PEANUT, severity: 'allergy', phase: { start: '2026-11-01', end: '2026-12-01' } };
     const updated = await put(c, rule.id, { rule: changed, confirmed: true });
     expect(updated.statusCode).toBe(200);
-    expect(updated.json()).toEqual({ rule: { ...changed, id: rule.id } });
-    expect((await list(c)).json()).toEqual({ rules: [{ ...changed, id: rule.id }, second] });
+    expect(updated.json()).toEqual({ rule: { ...changed, id: rule.id }, version: 2 });
+    expect((await list(c)).json()).toEqual({ rules: [{ ...changed, id: rule.id }, second], versions: { [rule.id]: 2, [second.id]: 1 } });
 
     expect((await del(c, rule.id)).statusCode).toBe(204);
-    expect((await list(c)).json()).toEqual({ rules: [second] });
+    expect((await list(c)).json()).toEqual({ rules: [second], versions: { [second.id]: 1 } });
     expect((await del(c, rule.id)).statusCode).toBe(404);
 
     const events = await db
@@ -275,7 +275,7 @@ describe('/rules', () => {
     const b = await player();
     const id = (await post(a, { rule: PEANUT, confirmed: true })).json().rule.id;
 
-    expect((await list(b)).json()).toEqual({ rules: [] });
+    expect((await list(b)).json()).toEqual({ rules: [], versions: {} });
     const p = await put(b, id, { rule: DAIRY, confirmed: true });
     expect(p.statusCode).toBe(404);
     expect(p.json().error.code).toBe('not_found');
@@ -399,7 +399,7 @@ describe('/rules consent gate (C-11)', () => {
     expect(p.statusCode).toBe(403);
     expect(await storedCount(uid)).toBe(0);
     // Reading needs no consent: an empty list.
-    expect((await list(c)).json()).toEqual({ rules: [] });
+    expect((await list(c)).json()).toEqual({ rules: [], versions: {} });
   });
 
   it('a withdraw-with-delete racing an in-flight POST leaves no rule stored', async () => {
@@ -478,6 +478,97 @@ describe('/rules consent gate (C-11)', () => {
     expect((await list(c)).json().rules).toEqual([{ ...PEANUT, id }]);
     expect((await del(c, id)).statusCode).toBe(204);
     expect((await list(c)).json().rules).toEqual([]);
+  });
+});
+
+describe('PUT /rules/:id with If-Match (M4 final N4: a conditional write)', () => {
+  const ALLERGY = { target: { kind: 'ingredient', ids: ['peanut'] }, type: 'avoid', severity: 'allergy' };
+  const INTOLERANCE = { ...ALLERGY, severity: 'intolerance' };
+  const ANAPHYLACTIC = { ...ALLERGY, severity: 'anaphylactic' };
+  const putIf = (cookie: string, id: string, rule: object, version: number | string) =>
+    call(cookie, { method: 'PUT', url: `/rules/${id}`, payload: { rule, confirmed: true }, headers: { 'if-match': `"${version}"` } });
+
+  it('GET /rules and the PUT reply carry each rule version; a write over another version is 409 rule_changed and writes nothing', async () => {
+    const c = await player();
+    const id = (await post(c, { rule: ALLERGY, confirmed: true })).json().rule.id as string;
+    expect((await list(c)).json().versions).toEqual({ [id]: 1 });
+    // Device B raises it (read version 1); device A then undoes its own raise from the same version 1.
+    const raised = await putIf(c, id, ANAPHYLACTIC, 1);
+    expect(raised.statusCode).toBe(200);
+    expect(raised.json().version).toBe(2);
+    const undo = await putIf(c, id, INTOLERANCE, 1);
+    expect(undo.statusCode).toBe(409);
+    expect(undo.json().error).toMatchObject({ code: 'rule_changed', details: { version: 2 } });
+    expect((await list(c)).json().rules[0].severity).toBe('anaphylactic');
+    expect((await list(c)).json().versions[id]).toBe(2);
+  });
+
+  it('two writes from the same version at once: one lands, the other is 409, the stricter edit is never lost', async () => {
+    for (let i = 0; i < 5; i++) {
+      const c = await player();
+      const id = (await post(c, { rule: ALLERGY, confirmed: true })).json().rule.id as string;
+      const [lower, raise] = await Promise.all([putIf(c, id, INTOLERANCE, 1), putIf(c, id, ANAPHYLACTIC, 1)]);
+      expect([lower.statusCode, raise.statusCode].sort()).toEqual([200, 409]);
+      const won = lower.statusCode === 200 ? 'intolerance' : 'anaphylactic';
+      expect((await list(c)).json().rules[0].severity).toBe(won);
+      // The loser's write is not applied over the winner's.
+      expect((await list(c)).json().versions[id]).toBe(2);
+    }
+  });
+
+  it('m-1: GET /rules pairs each rule with the version of the same row read, even with a write landing mid-read', async () => {
+    const c = await player();
+    const id = (await post(c, { rule: ALLERGY, confirmed: true })).json().rule.id as string;
+    // A db whose first read of sealed rule rows lets another device's raise land before it returns.
+    let fired = false;
+    const wrap = <T extends object>(b: T): T =>
+      new Proxy(b, {
+        get(target, prop, receiver) {
+          const v = Reflect.get(target, prop, receiver) as unknown;
+          if (prop === 'then') {
+            return (ok: (x: unknown) => unknown, bad: (e: unknown) => unknown) =>
+              (target as unknown as PromiseLike<unknown>).then(async (rows) => {
+                if (!fired && Array.isArray(rows) && rows.length > 0 && 'sealed' in (rows[0] as object)) {
+                  fired = true;
+                  expect((await putIf(c, id, ANAPHYLACTIC, 1)).statusCode).toBe(200);
+                }
+                return rows;
+              }).then(ok, bad);
+          }
+          if (typeof v !== 'function') return v;
+          return (...args: unknown[]) => {
+            const out = (v as (...a: unknown[]) => unknown).apply(target, args);
+            return out && typeof out === 'object' ? wrap(out) : out;
+          };
+        },
+      });
+    const racy = new Proxy(db, {
+      get(target, prop, receiver) {
+        const v = Reflect.get(target, prop, receiver) as unknown;
+        if (prop !== 'select' || typeof v !== 'function') return v;
+        return (...args: unknown[]) => wrap((v as (...a: unknown[]) => object).apply(target, args));
+      },
+    });
+    const racyApp = await buildApp({ config, db: racy, mailer, ai: null, now: () => NOW, logger: false });
+    try {
+      const res = await racyApp.inject({ method: 'GET', url: '/rules', cookies: { kq_session: c } });
+      expect(fired).toBe(true);
+      const body = res.json();
+      // The content read is the pre-raise rule, so its version must be the pre-raise 1, never the new 2.
+      expect(body.rules[0].severity).toBe('allergy');
+      expect(body.versions[id]).toBe(1);
+    } finally {
+      await racyApp.close();
+    }
+    expect((await list(c)).json().versions[id]).toBe(2);
+  });
+
+  it('a malformed If-Match is a 400; without If-Match the write is unconditional, as before', async () => {
+    const c = await player();
+    const id = (await post(c, { rule: ALLERGY, confirmed: true })).json().rule.id as string;
+    expect((await putIf(c, id, ANAPHYLACTIC, 'abc')).statusCode).toBe(400);
+    expect((await put(c, id, { rule: ANAPHYLACTIC, confirmed: true })).statusCode).toBe(200);
+    expect((await list(c)).json().versions[id]).toBe(2);
   });
 });
 

@@ -7,7 +7,7 @@ import type { Catalog } from '../catalog.js';
 import type { Tx } from '../consent/ledger.js';
 import { ApiError } from '../errors.js';
 import { createRuleIn, deleteRuleIn, RuleBody, updateRuleIn } from './service.js';
-import { loadRules, type StoredRule } from './store.js';
+import { loadRulesWithVersions, type StoredRule } from './store.js';
 
 export { MAX_RULES_PER_USER } from './service.js';
 
@@ -34,6 +34,15 @@ function parseWrite(req: FastifyRequest): StoredRule {
   // Parsed here too so a shape error names its path under `rule` (e.g. `rule.note`).
   const { rule } = RuleWrite.parse(body);
   return rule as StoredRule;
+}
+
+/** `If-Match: "<version>"` (N4): the rule version the write expects, or undefined when absent; anything else is a 400. */
+function ifMatchVersion(req: FastifyRequest): number | undefined {
+  const raw: unknown = req.headers['if-match'];
+  if (raw === undefined) return undefined;
+  const m = typeof raw === 'string' ? /^"?([1-9]\d{0,9})"?$/.exec(raw.trim()) : null;
+  if (!m) throw new ApiError(400, 'bad_request', 'If-Match must be a rule version, e.g. "3"');
+  return Number(m[1]);
 }
 
 /**
@@ -72,9 +81,10 @@ export async function rulesRoutes(app: FastifyInstance, catalog: Catalog): Promi
 
   // Reading needs no consent: after a "keep" withdrawal the rules stay readable.
   app.get('/rules', { preHandler: requireUser }, async (req) => {
-    const list = await loadRules(db, keyring, req.user.id);
+    // One statement for content and versions (m-1): they always describe the same row state.
+    const { rules: list, versions } = await loadRulesWithVersions(db, keyring, req.user.id);
     await countSelfRead(db, req.user.id, 'rules', now());
-    return { rules: list };
+    return { rules: list, versions };
   });
 
   app.post('/rules', { preHandler: requireUser }, async (req, reply) => {
@@ -87,9 +97,10 @@ export async function rulesRoutes(app: FastifyInstance, catalog: Catalog): Promi
   app.put<{ Params: { id: string } }>('/rules/:id', { preHandler: requireUser }, async (req) => {
     const at = now();
     const value = parseWrite(req);
+    const expected = ifMatchVersion(req);
     // A malformed id is a 404 from the service, after the same locks as any other.
-    const rule = await db.transaction((tx: Tx) => updateRuleIn(tx, deps, req.user.id, req.params.id, value, at, req.id));
-    return { rule };
+    const { rule, version } = await db.transaction((tx: Tx) => updateRuleIn(tx, deps, req.user.id, req.params.id, value, at, req.id, expected));
+    return { rule, version };
   });
 
   // No consent and no `confirmed` needed: deleting a rule only makes the

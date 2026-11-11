@@ -33,7 +33,8 @@ export const MENTOR_TOOLS: AiTool[] = [
   },
   {
     name: 'propose_meal_log',
-    description: 'Propose logging a meal the player says they ate. The player confirms on a card.',
+    description:
+      'Propose logging a meal the player says they already ate. Never a meal they plan, might have or want later, and never a weekly plan. The player confirms on a card.',
     parameters: {
       type: 'object',
       properties: {
@@ -41,7 +42,10 @@ export const MENTOR_TOOLS: AiTool[] = [
         when: { type: 'string', enum: ['today', 'yesterday'] },
         dish: nullable({ type: 'string', description: 'A game dish name, if it is one.' }),
         servings: nullable({ type: 'number' }),
-        description: nullable({ type: 'string', description: 'What they ate, in their words, when it is not a game dish.' }),
+        description: nullable({
+          type: 'string',
+          description: 'What they ate, a short phrase copied exactly from their message (e.g. "half a sandwich"), when it is not a game dish.',
+        }),
       },
       required: ['slot', 'when', 'dish', 'servings', 'description'],
       additionalProperties: false,
@@ -49,7 +53,8 @@ export const MENTOR_TOOLS: AiTool[] = [
   },
   {
     name: 'propose_profile',
-    description: 'Propose a change to the market days, meals a week, region or meal times. Leave fields the player did not mention null.',
+    description:
+      "Propose a change to the market days, meals a week, region or meal times. A meal reminder is a meal time ('remind me about dinner at 6:30 pm' is dinner at 18:30). Leave fields the player did not mention null.",
     parameters: {
       type: 'object',
       properties: {
@@ -77,8 +82,8 @@ export const MENTOR_TOOLS: AiTool[] = [
     parameters: {
       type: 'object',
       properties: {
-        add: { type: 'array', items: { type: 'string' } },
-        remove: { type: 'array', items: { type: 'string' } },
+        add: { type: 'array', items: { type: 'string', description: 'An item name copied exactly from the message, without amounts (e.g. "chickpeas").' } },
+        remove: { type: 'array', items: { type: 'string', description: 'An item name copied exactly from the message (e.g. "milk").' } },
       },
       required: ['add', 'remove'],
       additionalProperties: false,

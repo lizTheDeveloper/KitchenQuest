@@ -85,6 +85,13 @@
       "when": 1794287111273,
       "tag": "0011_ai_cost_hours",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1794369325045,
+      "tag": "0012_final_fix",
+      "breakpoints": true
     }
   ]
 }

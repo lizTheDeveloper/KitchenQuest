@@ -209,3 +209,56 @@ describe('applyPostChecks, card-field smuggling (fix round 5)', () => {
     expect(severeTermsLeftOut('peanuts nearly killed me, almonds never hurt anyone', [], graph)).not.toBeNull();
   });
 });
+
+describe('Step 12 ruling: a meal description joined from the player\'s own phrases (R5)', () => {
+  const T02 = 'ugh so lunch was like, half a sandwich? ham n cheese i think, and some crisps lol';
+  test('every part verbatim: kept as the model wrote it', () => {
+    expect(post([meal('half a sandwich, ham n cheese, and some crisps')], T02)).toEqual([meal('half a sandwich, ham n cheese, and some crisps')]);
+    expect(post([meal('chickpea salad with lemon and parsley')], S19)).toEqual([meal('chickpea salad with lemon and parsley')]);
+    expect(post([meal('lemon & parsley')], S19)).toEqual([meal('lemon & parsley')]);
+  });
+  test('a part the player never said drops the description', () => {
+    expect(post([meal('chickpea salad with lemon and tahini')], S19)).toEqual([]);
+    expect(post([meal('half a sandwich and a safe snack')], T02)).toEqual([]);
+    expect(post([meal('half a sandwich, and')], T02)).toEqual([]);
+  });
+  test('fix round 2 N1: parts in the player\'s order, undenied, in one sentence, "with" only where the player said it', () => {
+    const dropped: [string, string][] = [
+      ['toast without butter for breakfast', 'toast with butter'],
+      ['chicken curry for dinner, no peanuts', 'chicken curry with peanuts'],
+      ['pizza later, soup now', 'soup and pizza'],
+      ['I had eggs. I am allergic to milk', 'eggs with milk'],
+      ['toast and jam, fine for my allergy', 'toast with fine'],
+      ['soup now, maybe pizza', 'soup and pizza'],
+      ['beans and rice, thinking about cake', 'beans, rice and cake'],
+      ['had toast and jam', 'toast with jam'],
+    ];
+    for (const [said, desc] of dropped) expect(post([meal(desc)], said), `${said} → ${desc}`).toEqual([]);
+    expect(post([meal('toast with butter')], 'toast with butter for breakfast')).toEqual([meal('toast with butter')]);
+    expect(post([meal('soup and bread')], 'soup and some bread for lunch')).toEqual([meal('soup and bread')]);
+  });
+
+  test('M4 final R1: only connectors, hedges and articles may stand between two joined parts; no deferral after a part', () => {
+    const dropped: [string, string][] = [
+      ['toast, and I did not eat butter', 'toast and butter'],
+      ['toast, and I didnt eat butter', 'toast and butter'],
+      ['soup w/o bread', 'soup with bread'],
+      ['toast; butter tomorrow', 'toast and butter'],
+      ['toast and butter tomorrow', 'toast and butter'],
+      ['rice instead of pasta', 'rice and pasta'],
+      ['eggs, skipped the bacon', 'eggs and bacon'],
+      ['had toast and butter?', 'toast and butter'],
+      ['toast\nI did not have\nbutter', 'toast and butter'],
+    ];
+    for (const [said, desc] of dropped) expect(post([meal(desc)], said), `${said} → ${desc}`).toEqual([]);
+    // Still kept: T02's uptalk and hedges, S19's pasted list, plain lists.
+    expect(post([meal('half a sandwich, ham n cheese, and some crisps')], 'ugh so lunch was like, half a sandwich? ham n cheese i think, and some crisps lol')).toHaveLength(1);
+    expect(post([meal('chickpea salad with lemon and parsley')], S19)).toHaveLength(1);
+    expect(post([meal('soup and bread')], 'soup and some bread for lunch')).toHaveLength(1);
+    expect(post([meal('eggs, beans and toast')], 'eggs, beans & toast for breakfast')).toHaveLength(1);
+  });
+
+  test('rule terms are never joined', () => {
+    expect(post([rule('peanuts and sesame', 'allergy')], "I'm allergic to peanuts. Sesame too")).toEqual([]);
+  });
+});

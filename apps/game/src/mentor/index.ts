@@ -1,16 +1,36 @@
+import type { TurnRequest } from '@kitchenquest/core/engine';
+import { createApiClient, type ApiClient } from '../api/client';
 import { content, graph } from '../content';
-import type { PlayerStore } from '../state/store';
+import type { PlayerState, PlayerStore } from '../state/store';
 import type { LineBank } from '../content/types';
 import { reducedMotion } from '../shell/motion';
-import { createScriptedBackend } from './backend';
-import { createDialogue } from './dialogue';
+import { parseRoute } from '../shell/router';
+import { createScriptedBackend, type MentorBackend } from './backend';
+import { createChildFlag } from './child-flag';
+import { lazyBackend } from './lazy-backend';
+import { createLocalSafety, newConversation, scriptedWhenUnavailable, type ConversationRef } from './outage';
+import { createDialogue, type Dialogue } from './dialogue';
+import { createIntake, type Intake } from './intake';
 import { mountMentorPanel, type MentorPanel } from './panel';
-import { createScriptedEngine } from './scripted';
+import type { PanReply } from './reply';
+import { createScriptedEngine, type ScriptedEngine } from './scripted';
+import { savedRules } from './saved-rules';
+import { createCardWriter, type CardWriter } from './writer';
 
 export { createDialogue } from './dialogue';
 export type { MentorPanel } from './panel';
 
 let mentor: MentorPanel | null = null;
+
+/** What the panel's own pieces are, for the screens that share them (the rules screen writes through the same writer). */
+export interface MentorServices { client: ApiClient; dialogue: Dialogue; engine: ScriptedEngine; writer: CardWriter; intake: Intake | null }
+let services: MentorServices | null = null;
+
+/** The panel's client, dialogue, engine and writer. Throws before `mountMentor`. */
+export function getMentorServices(): MentorServices {
+  if (!services) throw new Error('The mentor panel is not mounted yet');
+  return services;
+}
 
 /** The app's single panel. Throws before `mountApp` has mounted it. */
 export function getMentor(): MentorPanel {
@@ -28,23 +48,140 @@ export function historyOptions(store: PlayerStore): { history: Record<string, nu
   return { history: dialogueHistory, onHistory: (h) => { store.update((s) => ({ ...s, dialogueHistory: h })); } };
 }
 
-/** Mount the panel once, on the scripted backend (the core toolkit, no network), with its line history kept in the player store. */
-export function mountMentor(doc: Document, store: PlayerStore, bank: LineBank): MentorPanel {
+/** Which backend a player gets: Family Table → scripted (§19); signed in with the AI mentor on → AI; otherwise scripted. */
+export function backendKind(s: Pick<PlayerState, 'account' | 'settings'>): 'scripted' | 'ai' {
+  if (s.settings.familyTable) return 'scripted';
+  return s.account !== null && s.settings.aiMentor ? 'ai' : 'scripted';
+}
+
+/** What the player is looking at, for the turn request: the route name and, on a dish, its slug. */
+export function screenOf(hash: string): TurnRequest['screen'] {
+  const r = parseRoute(hash);
+  if (r.name === 'notFound') return null;
+  return r.name === 'recipe' || r.name === 'cook' ? { route: r.name, slug: r.slug } : { route: r.name };
+}
+
+/**
+ * One backend the panel holds, rebuilt from the store when the account, the AI setting or Family Table changes. A
+ * new AI backend starts a new conversation; a reply still on its way from the old one is shown as it arrives.
+ */
+export function switchingBackend(store: PlayerStore, build: (kind: 'scripted' | 'ai') => MentorBackend): MentorBackend {
+  const listeners = new Set<(r: PanReply) => void>();
+  const make = () => {
+    const b = build(backendKind(store.get()));
+    b.onLate?.((r) => { if (current === b) for (const fn of listeners) fn(r); });
+    return b;
+  };
+  let key = '';
+  const keyOf = (s: PlayerState) => `${backendKind(s)}|${s.account?.email ?? ''}`;
+  let current: MentorBackend = make();
+  key = keyOf(store.get());
+  const stop = store.subscribe((s) => {
+    const k = keyOf(s);
+    if (k === key) return;
+    key = k;
+    // The old backend's queued retry never sends once the player turned the AI off, Family Table on, or switched account.
+    current.dispose?.();
+    current = make();
+  });
+  return {
+    get kind() { return current.kind; },
+    reply: (input, ctx) => current.reply(input, ctx),
+    onLate(fn) {
+      listeners.add(fn);
+      return () => { listeners.delete(fn); };
+    },
+    dispose() {
+      stop();
+      current.dispose?.();
+      listeners.clear();
+    },
+  };
+}
+
+/**
+ * The app's panel as one stable object: every call goes to the panel mounted now. When Family Table is turned on
+ * or off (here or in another tab), the panel and everything under it is rebuilt in that mode (fix round 1, M6),
+ * so a Family Table panel never has a text box and a standard one never keeps Family Table's history rules.
+ */
+function stablePanel(cur: () => MentorPanel, onClear: () => void): MentorPanel {
+  return {
+    get mode() { return cur().mode; },
+    get turn() { return cur().turn; },
+    open: () => { cur().open(); },
+    close: () => { cur().close(); },
+    isOpen: () => cur().isOpen(),
+    say: (id, vars) => cur().say(id, vars),
+    show: (r) => { cur().show(r); },
+    onOpen: (fn) => cur().onOpen(fn),
+    onCardDone: (fn) => cur().onCardDone(fn),
+    setAside: (el) => { cur().setAside(el); },
+    interceptText: (fn) => { cur().interceptText(fn); },
+    destroy: () => { cur().destroy(); },
+    clearConversation: () => { onClear(); cur().clearConversation(); },
+  };
+}
+
+/** Mount the panel once, with its line history kept in the player store and the backend chosen from the store. */
+export function mountMentor(doc: Document, store: PlayerStore, bank: LineBank, client: ApiClient = createApiClient()): MentorPanel {
   if (mentor) return mentor;
   const win = doc.defaultView!;
   const mql = win.matchMedia('(prefers-reduced-motion: reduce)');
-  const dialogue = createDialogue(bank, historyOptions(store));
-  const recipes = Object.entries(content.recipes).map(([slug, r]) => ({ slug, title: r.meta.title }));
-  const engine = createScriptedEngine({ dialogue, graph, ruleTerms: content.ruleTerms, recipes, now: () => new Date() });
+  const now = () => new Date();
   const root = doc.createElement('div');
   root.id = 'pan-root';
   doc.body.append(root);
-  mentor = mountMentorPanel(root, {
-    mode: store.get().settings.familyTable ? 'familyTable' : 'standard',
-    backend: createScriptedBackend(engine, dialogue),
-    dialogue,
-    reducedMotion: () => reducedMotion(store.get().settings.reducedMotion, mql),
-    signedIn: () => store.get().account !== null,
+
+  let current: { panel: MentorPanel; backend: MentorBackend; familyTable: boolean; resetChild: () => void } | null = null;
+  const build = () => {
+    const familyTable = store.get().settings.familyTable;
+    let conversation: ConversationRef | null = null;
+    // m-4: ONE child flag for the panel's conversation, read by the local safety check, the scripted engine, the
+    // intake and the panel. A backend switch keeps it (the conversation on screen is the same); clearing forgets it.
+    const child = createChildFlag();
+    const dialogue: Dialogue = createDialogue(bank, historyOptions(store));
+    const recipes = Object.entries(content.recipes).map(([slug, r]) => ({ slug, title: r.meta.title }));
+    const engine: ScriptedEngine = createScriptedEngine({ dialogue, graph, ruleTerms: content.ruleTerms, recipes, now, savedRules: () => savedRules(store.get()), child });
+    const writer = createCardWriter({ client, store, dialogue, graph, ruleTerms: content.ruleTerms, now, conversationId: () => conversation?.id });
+    const backend = switchingBackend(store, (kind) => {
+      if (kind !== 'ai') return createScriptedBackend(engine, dialogue);
+      // A new AI backend is a new server conversation: its own server id. The child flag is the panel's (m-4).
+      const ref: ConversationRef = { id: null };
+      const intakeStep = () => { const step = store.get().intake.step; return step === 'done' ? null : step; };
+      const screen = () => screenOf(win.location.hash);
+      const mine = createLocalSafety({ dialogue, graph, child });
+      conversation = ref;
+      return lazyBackend('ai', { fallback: scriptedWhenUnavailable(engine, dialogue), local: (i, c) => mine.reply(i, c) }, async () => (await import('./ai-backend')).createAiBackend({
+        client, engine, dialogue, store, graph, ruleTerms: content.ruleTerms, now, events: win, screen, intakeStep, conversation: ref,
+      }));
+    });
+    const panel = mountMentorPanel(root, {
+      mode: familyTable ? 'familyTable' : 'standard',
+      backend, dialogue, writer, engine, client, forms: content.bureau.forms, store, now, child,
+      reducedMotion: () => reducedMotion(store.get().settings.reducedMotion, mql),
+      disclosure: content.bureau.disclaimers.ai_characters,
+    });
+    // Form 1-A starts the first time the panel opens in standard mode (§19: Family Table never starts it).
+    const intake = panel.mode === 'standard'
+      ? createIntake({
+        panel, engine, ai: backend, store, client, dialogue, signedIn: () => store.get().account !== null,
+        graph, ruleTerms: content.ruleTerms, form: content.bureau.forms.intake, child,
+      })
+      : null;
+    if (intake) panel.onOpen(() => { intake.start(); });
+    services = { client, dialogue, engine, writer, intake };
+    // Clearing is a new conversation on both sides: no server id, no child flag (fix round 4, G4).
+    current = { panel, backend, familyTable, resetChild: () => { child.reset(); if (conversation) newConversation(conversation); } };
+  };
+  build();
+  store.subscribe((s) => {
+    if (current === null || s.settings.familyTable === current.familyTable) return;
+    const wasOpen = current.panel.isOpen();
+    current.panel.destroy();
+    current.backend.dispose?.();
+    build();
+    if (wasOpen) current.panel.open();
   });
+  mentor = stablePanel(() => current!.panel, () => { current?.resetChild(); });
   return mentor;
 }

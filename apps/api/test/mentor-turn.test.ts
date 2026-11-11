@@ -13,6 +13,7 @@ import { CaptureMailer } from '../src/mail/mailer.js';
 import { GUILD_KINDS } from '../src/mentor/allowance.js';
 import { loadPanBank } from '../src/mentor/lines.js';
 import { createProposal } from '../src/mentor/proposals.js';
+import { recordSentLive } from '../src/mentor/turn.js';
 import { RECIPES_DIR, syncCanon } from '../src/recipes/sync.js';
 import type { Db } from '../src/types.js';
 import { signIn } from './helpers/auth.js';
@@ -78,7 +79,7 @@ async function player(purposes: Purpose[] = [], email = `turn${++seq}@example.co
   return { cookie, userId, email };
 }
 
-type TurnExtra = { conversationId?: string | null; intakeStep?: string | null; screen?: { route: string; slug?: string } | null };
+type TurnExtra = { conversationId?: string | null; intakeStep?: string | null; screen?: { route: string; slug?: string } | null; turnKey?: string; answering?: string };
 const turnRes = (cookie: string, text: string, extra: TurnExtra = {}) =>
   call(cookie, {
     method: 'POST',
@@ -540,7 +541,7 @@ describe('R9: a model reply is never shown, it is a scripted line', () => {
 });
 
 describe('failure, caps, metering, storage', () => {
-  test('provider failure → scripted/ai_unavailable, nothing stored, no usage row', async () => {
+  test('provider failure → scripted/ai_unavailable, nothing stored; only a zero-unit "sent" row, no allowance used (N3)', async () => {
     const ai = fakeAi([]);
     await makeApp(ai);
     const p = await player(AI_HEALTH);
@@ -549,7 +550,103 @@ describe('failure, caps, metering, storage', () => {
     expect(ai.requests).toHaveLength(1);
     expect(await countOf('messages', p.userId)).toBe(0);
     expect(await countOf('mentor_proposals', p.userId)).toBe(0);
-    expect(await usageRows(p.userId)).toBe(0);
+    // The text still reached the provider, so the export must list it (fix round 2, N3); the cap counts units only.
+    expect(await sql`select units, cost_microusd from usage_events where user_id = ${p.userId}`).toEqual([{ units: 0, cost_microusd: 0 }]);
+    const exported = (await call(p.cookie, { method: 'GET', url: '/me/export' })).json<{ processors: { name: string; inUse: boolean }[] }>();
+    expect(exported.processors.find((x) => x.name === 'OpenRouter')).toMatchObject({ inUse: true });
+  });
+
+  test('a successful turn leaves one usage row: units 1 and the cost, the sent row completed', async () => {
+    await makeApp(fakeAi([reply('Rice.')]));
+    const p = await player(AI_HEALTH);
+    await turn(p.cookie, 'what should I cook tonight?');
+    expect(await sql`select units, cost_microusd from usage_events where user_id = ${p.userId}`).toEqual([{ units: 1, cost_microusd: 60 }]);
+  });
+
+  test('M-7: a turn that fails after the model answered still charges the allowance (units 1)', async () => {
+    let userId = '';
+    let called = 0;
+    const ai: AiProvider = {
+      model: 'fake/pan',
+      async complete() {
+        called++;
+        // While the model "runs", the saved rule becomes unreadable: the turn's own transaction then throws (a 500).
+        await sql`update rules set sealed = decode('00', 'hex') where user_id = ${userId}`;
+        return toolCall('propose_rule', { term: 'sesame', severity: 'allergy' });
+      },
+    };
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    userId = p.userId;
+    await addRule(p.cookie, ['peanut']);
+    const res = await turnRes(p.cookie, "I'm allergic to sesame");
+    expect(res.statusCode, res.body).toBe(500);
+    expect(called).toBe(1);
+    expect(await sql`select units, cost_microusd from usage_events where user_id = ${p.userId}`).toEqual([{ units: 1, cost_microusd: 60 }]);
+  });
+
+  test('N3: the "sent" row is written under the live-user lock: a deleted account is a 401 and nothing is written', async () => {
+    await makeApp(null);
+    const p = await player();
+    expect(await recordSentLive(db, p.userId, NOW)).toEqual(expect.any(Number));
+    expect((await call(p.cookie, { method: 'DELETE', url: '/me', payload: { confirm: 'delete my account' } })).statusCode).toBe(204);
+    await expect(recordSentLive(db, p.userId, NOW)).rejects.toMatchObject({ status: 401 });
+    expect(await countOf('usage_events', p.userId)).toBe(0);
+  });
+
+  test('J2: the model call carries the turn deadline signal', async () => {
+    const ai = fakeAi([reply('Rice.')]);
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    await turn(p.cookie, 'what should I cook tonight?');
+    expect(ai.requests[0].signal).toBeInstanceOf(AbortSignal);
+    expect(ai.requests[0].signal?.aborted).toBe(false);
+  });
+
+  test('J2: a turn repeated with the same turnKey is processed once: no second model call, no second card', async () => {
+    const ai = fakeAi([toolCall('propose_meal_log', { slot: 'breakfast', when: 'today', dish: null, servings: null, description: 'porridge' }), reply('Hm.')]);
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    const turnKey = crypto.randomUUID();
+    const first = await turn(p.cookie, 'I had porridge for breakfast', { turnKey });
+    expect(first.cards).toHaveLength(1);
+    // The client timed out before the reply, so its retry carries no conversation id.
+    const again = await turn(p.cookie, 'I had porridge for breakfast', { turnKey });
+    expect(again).toMatchObject({ conversationId: first.conversationId, route: 'deterministic', parts: [], cards: [], actions: [] });
+    const third = await turn(p.cookie, 'I had porridge for breakfast', { turnKey, conversationId: first.conversationId });
+    expect(third).toMatchObject({ route: 'deterministic', parts: [], cards: [] });
+    expect(ai.requests).toHaveLength(1);
+    expect(await countOf('mentor_proposals', p.userId)).toBe(1);
+    // A new key is a new turn.
+    expect((await turn(p.cookie, 'what should I cook tonight?', { turnKey: crypto.randomUUID(), conversationId: first.conversationId })).route).toBe('ai');
+  });
+
+  test("m-3: the turnKey lookup is scoped per user: another player's identical turnKey is a new turn, never a replay of theirs", async () => {
+    const ai = fakeAi([reply('Rice.'), reply('Rice.')]);
+    await makeApp(ai);
+    const a = await player(AI_HEALTH);
+    const b = await player(AI_HEALTH);
+    const turnKey = crypto.randomUUID();
+    const first = await turn(a.cookie, 'what should I cook tonight?', { turnKey });
+    expect(first.route).toBe('ai');
+    const other = await turn(b.cookie, 'what should I cook tonight?', { turnKey });
+    expect(other.route).toBe('ai');
+    expect(other.parts).not.toEqual([]);
+    expect(other.conversationId).not.toBe(first.conversationId);
+    expect(ai.requests).toHaveLength(2);
+    const [row] = await sql`select user_id from conversations where id = ${other.conversationId}`;
+    expect(row?.user_id).toBe(b.userId);
+  });
+
+  test('J2: two copies of one turn at once start it once', async () => {
+    const ai = fakeAi([reply('Rice.'), reply('Rice.')]);
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    const opened = await turn(p.cookie, 'hello');
+    const turnKey = crypto.randomUUID();
+    const both = await Promise.all([1, 2].map(() => turn(p.cookie, 'what should I cook tonight?', { turnKey, conversationId: opened.conversationId })));
+    expect(both.map((r) => r.route).sort()).toEqual(['ai', 'deterministic']);
+    expect(ai.requests).toHaveLength(2);
   });
 
   test('AI off → scripted/ai_off', async () => {
@@ -828,7 +925,8 @@ describe('fix round 1: adversarial repros', () => {
     const p = await player(AI_HEALTH);
     await seedUsage(p.userId, 15);
     const r = await turn(p.cookie, "I avoid gluten. What's for dinner?");
-    expect(r).toMatchObject({ route: 'ai', cards: [], parts: [lineOf('rule.ask_keep_off')] }); // a health statement is never lost
+    // A health statement is never lost; the named ingredient is asked for by name (Step 12 carry of the Step 11 ruling).
+    expect(r).toMatchObject({ route: 'ai', cards: [], parts: [lineOf('rule.ask_what_else', { term: 'gluten' })] });
     expect(await usageRows(p.userId)).toBe(16); // metered as usual
   });
 
@@ -1575,5 +1673,161 @@ describe('fix round 5: a write request that is also a suitability question, with
     const r = await turn(p.cookie, q, { screen: { route: 'recipe', slug: FRIJOLES } });
     seesNoModelText(r, 'It is safe.');
     expect(triggers(r)).toEqual(expected);
+  });
+});
+
+describe('Step 12 carry: every named allergen gets a card or an ask (Step 11 structural ruling, core leftoverNamedIngredients)', () => {
+  const kinds = (r: TurnResponse) => r.cards.map((c) => c.card.kind);
+  const lines = (r: TurnResponse) => r.parts.flatMap((p) => (p.kind === 'line' ? [p.line] : []));
+
+  test('a named allergen no card covers is asked for by name, after the card that was made', async () => {
+    await makeApp(fakeAi([toolCall('propose_rule', { term: 'peanuts', severity: 'allergy' })]));
+    const p = await player(AI_HEALTH);
+    const r = await turn(p.cookie, "I'm allergic to peanuts and sesame");
+    expect(kinds(r)).toEqual(['rule']);
+    expect(lines(r).at(-1)).toEqual({ trigger: 'rule.ask_what_else', vars: { term: 'sesame' } });
+    expect(await countOf('rules', p.userId)).toBe(0);
+  });
+
+  test('with no card at all, each named allergen gets its own ask', async () => {
+    await makeApp(fakeAi([reply('Noted!')]));
+    const p = await player(AI_HEALTH);
+    const r = await turn(p.cookie, "I'm allergic to peanuts and sesame");
+    expect(r.cards).toEqual([]);
+    expect(lines(r)).toEqual([
+      { trigger: 'rule.ask_what_else', vars: { term: 'peanut' } },
+      { trigger: 'rule.ask_what_else', vars: { term: 'sesame' } },
+    ]);
+  });
+
+  test('a name said as fine is never a card and gets rule.exclusion_not_kept', async () => {
+    await makeApp(fakeAi([withCalls([
+      { id: 'a', name: 'propose_rule', arguments: JSON.stringify({ term: 'peanuts', severity: 'allergy' }) },
+      { id: 'b', name: 'propose_rule', arguments: JSON.stringify({ term: 'sesame', severity: 'allergy' }) },
+    ])]));
+    const p = await player(AI_HEALTH);
+    const r = await turn(p.cookie, "I'm allergic to peanuts but not sesame");
+    // The model's sesame card is dropped: sesame is not in the player's rule statement (C4).
+    expect(r.cards.map((c) => c.card)).toMatchObject([{ kind: 'rule', rule: { target: { ids: ['peanut'] } } }]);
+    expect(lines(r)).toContainEqual({ trigger: 'rule.exclusion_not_kept', vars: { term: 'sesame' } });
+    expect(lines(r).map((l) => l.trigger)).not.toContain('rule.ask_what_else');
+  });
+
+  test('fix round 1 C1: a meal card never covers an allergen; a severe ask is never removed', async () => {
+    const mealCall = {
+      id: 'm',
+      name: 'propose_meal_log',
+      arguments: JSON.stringify({ slot: 'breakfast', when: 'today', dish: null, servings: null, description: 'peanut butter toast' }),
+    };
+    await makeApp(fakeAi([withCalls([mealCall])]));
+    const p = await player(AI_HEALTH);
+    const r = await turn(p.cookie, "I had peanut butter toast for breakfast. I'm allergic to peanuts and sesame");
+    expect(kinds(r)).toEqual(['meal']);
+    const asked = lines(r).filter((l) => l.trigger === 'rule.ask_what_else').map((l) => l.vars.term);
+    expect(asked).toEqual(expect.arrayContaining(['peanut', 'sesame']));
+    expect(new Set(asked).size).toBe(asked.length); // each named once
+  });
+
+  test('C1 over-ask (M4 final): a non-allergen the meal card names is not asked about; the allergen still is', async () => {
+    const mealCall = {
+      id: 'm',
+      name: 'propose_meal_log',
+      arguments: JSON.stringify({ slot: 'lunch', when: 'today', dish: null, servings: null, description: 'rice with onion' }),
+    };
+    await makeApp(fakeAi([withCalls([mealCall])]));
+    const p = await player(AI_HEALTH);
+    const r = await turn(p.cookie, "I had rice with onion for lunch and I'm allergic to sesame");
+    expect(kinds(r)).toEqual(['meal']);
+    expect(lines(r).filter((l) => l.trigger === 'rule.ask_what_else').map((l) => l.vars.term)).toEqual(['sesame']);
+  });
+
+  test('a rule card covers its name; a turn stating no rule never asks', async () => {
+    const mealCall = { id: 'm', name: 'propose_meal_log', arguments: JSON.stringify({ slot: 'breakfast', when: 'today', dish: null, servings: null, description: 'porridge with milk' }) };
+    const ruleCall = { id: 'r', name: 'propose_rule', arguments: JSON.stringify({ term: 'sesame', severity: 'allergy' }) };
+    await makeApp(fakeAi([withCalls([mealCall, ruleCall]), withCalls([mealCall])]));
+    const p = await player(AI_HEALTH);
+    const r = await turn(p.cookie, "I had porridge with milk for breakfast and I'm allergic to sesame");
+    expect(kinds(r).sort()).toEqual(['meal', 'rule']);
+    // Only a rule card covers a name (C1), so the milk the player named in a rule-stating turn is asked about too.
+    expect(lines(r).filter((l) => l.trigger === 'rule.ask_what_else').map((l) => l.vars.term)).toEqual(['milk']);
+    const plain = await turn(p.cookie, 'I had porridge with milk and peanuts for breakfast');
+    expect(lines(plain).map((l) => l.trigger)).not.toContain('rule.ask_what_else');
+  });
+});
+
+describe('Step 12 controller ruling (T10): a symptom with the player\'s own allergy denial is an intolerance card', () => {
+  const T10 = 'garlic kinda wrecks my stomach tbh, not like an allergy, i just feel rough after';
+
+  test('T10 → one garlic intolerance card', async () => {
+    await makeApp(fakeAi([toolCall('propose_rule', { term: 'garlic', severity: 'intolerance' })]));
+    const p = await player(AI_HEALTH);
+    const r = await turn(p.cookie, T10);
+    expect(r.cards.map((c) => c.card)).toMatchObject([{ kind: 'rule', rule: { target: { ids: ['garlic'] }, severity: 'intolerance' } }]);
+    expect(await countOf('rules', p.userId)).toBe(0);
+  });
+
+  test('without the denial: the plain ask, no card', async () => {
+    await makeApp(fakeAi([toolCall('propose_rule', { term: 'garlic', severity: 'intolerance' })]));
+    const p = await player(AI_HEALTH);
+    const r = await turn(p.cookie, 'garlic kinda wrecks my stomach tbh, i just feel rough after');
+    expect(r.cards).toEqual([]);
+    expect(r.parts).toEqual([lineOf('rule.ask_keep_off')]);
+  });
+
+  test('a swelling throat with it is an emergency first, with no card', async () => {
+    const ai = fakeAi([toolCall('propose_rule', { term: 'peanuts', severity: 'intolerance' })]);
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    const r = await turn(p.cookie, 'peanuts wreck my stomach, not an allergy, and my throat is swelling');
+    expect(r.route).toBe('deterministic');
+    expect(r.parts[0]).toEqual(lineOf('rule.emergency'));
+    expect(r.cards).toEqual([]);
+    expect(ai.requests).toHaveLength(0);
+  });
+});
+
+test('fix round 1 I2: an emergency naming two allergens asks for both, after the emergency line', async () => {
+  const ai = fakeAi([]);
+  await makeApp(ai);
+  const p = await player(AI_HEALTH);
+  const r = await turn(p.cookie, 'my throat is closing, allergic to peanuts and shellfish');
+  expect(r.parts).toEqual([lineOf('rule.emergency'), lineOf('rule.ask_what_else', { term: 'peanut' }), lineOf('rule.ask_what_else', { term: 'shellfish' })]);
+  expect(r.cards).toEqual([]);
+  expect(ai.requests).toHaveLength(0);
+});
+
+describe('Step 12 ruling (S13): never a rule card below the saved rule', () => {
+  test('a saved anaphylactic peanut rule: a peanut card at "allergy" is dropped and the Pan says it is on file', async () => {
+    await makeApp(fakeAi([toolCall('propose_rule', { term: 'peanut', severity: 'anaphylactic' })]));
+    const p = await player(AI_HEALTH);
+    await addRule(p.cookie, ['peanut'], 'anaphylactic');
+    const r = await turn(p.cookie, "Is Doña Marisol's frijoles safe for my peanut allergy?");
+    expect(r.cards).toEqual([]);
+    expect(r.parts).toContainEqual(lineOf('rule.already_saved', { ingredient: 'peanut', rule: 'peanut', severity: 'a severe allergy' }));
+    expect(JSON.stringify(r.parts)).not.toMatch(/rule\.stamped|ask_what_else/);
+    expect(await countOf('rules', p.userId)).toBe(1);
+  });
+
+  // ("I'm anaphylactic to X" routes to the emergency line first (E6); this is the same severity said without it.)
+  test('fix round 2 N4: a saved tree nut category rule is named as the Rules screen shows it', async () => {
+    await makeApp(fakeAi([toolCall('propose_rule', { term: 'cashews', severity: 'allergy' })]));
+    const p = await player(AI_HEALTH);
+    const res = await call(p.cookie, {
+      method: 'POST',
+      url: '/rules',
+      payload: { rule: { target: { kind: 'category', ids: ['tree_nut'] }, type: 'avoid', severity: 'anaphylactic' }, confirmed: true },
+    });
+    expect(res.statusCode).toBe(201);
+    const r = await turn(p.cookie, "I'm allergic to cashews");
+    expect(r.cards).toEqual([]);
+    expect(r.parts).toContainEqual(lineOf('rule.already_saved', { ingredient: 'cashew', rule: 'tree nut', severity: 'a severe allergy' }));
+  });
+
+  test('a saved intolerance: "I have a severe peanut allergy" still gets the stricter card', async () => {
+    await makeApp(fakeAi([toolCall('propose_rule', { term: 'peanuts', severity: 'anaphylactic' })]));
+    const p = await player(AI_HEALTH);
+    await addRule(p.cookie, ['peanut'], 'intolerance');
+    const r = await turn(p.cookie, 'I have a severe peanut allergy');
+    expect(r.cards.map((c) => c.card)).toMatchObject([{ kind: 'rule', rule: { target: { ids: ['peanut'] }, severity: 'anaphylactic' } }]);
   });
 });

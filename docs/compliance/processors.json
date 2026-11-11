@@ -1,7 +1,7 @@
 {
   "_comment": "Processor register (C-34). Feeds the export (C-7) and the DPIA. Facts marked [verify] are unconfirmed. dpa_status: unknown | needed | signed. Not legal advice. No processor receives user data until reviewed (P-11).",
   "version": 1,
-  "updated": "2026-11-09",
+  "updated": "2026-11-11",
   "processors": [
     {
       "id": "openrouter",
@@ -16,8 +16,8 @@
       "deletion_api": "unknown [verify]; target is none needed because nothing is retained",
       "sub_processors": "Upstream model providers behind AI_MODEL (qwen/qwen3.8-27b); set varies with routing [verify]",
       "transfer_mechanism": "[verify: SCCs or EU-US DPF certification]",
-      "status": "planned M3",
-      "notes": "Hardest review (C-34). Never use :free variants for health-adjacent calls."
+      "status": "built M4; disabled in production until dpa_status is signed",
+      "notes": "Hardest review (C-34); checklist in docs/compliance/vendors/openrouter.md. Never use :free variants for health-adjacent calls."
     },
     {
       "id": "openrouter-model-providers",
@@ -30,7 +30,7 @@
       "retention": "Require ZDR [verify per provider]",
       "training_use": "Require none [verify per provider]",
       "deletion_api": "unknown [verify]",
-      "status": "planned M3",
+      "status": "built M4 (allow-list: AI_PROVIDERS); disabled in production until dpa_status is signed",
       "notes": "Covered only through OpenRouter's terms; pin an allow-list (C-14) and re-review quarterly."
     },
     {

@@ -8,6 +8,15 @@ import type { LineRef, ProposalCard, ProposalKind } from './cards';
 
 export type IntakeStep = 'market_day' | 'meals_per_week' | 'region' | 'allergies' | 'pantry';
 
+/**
+ * How long the game waits for a mentor turn before it counts as unreachable (status 0, the outage path), and the
+ * server's own deadline for answering one, model call and retry included (M4 final J2). The deadline is well below
+ * the client's wait, so the server always answers (with `ai_unavailable` at worst) before the client gives up on a
+ * turn it then retries; the retry carries the same `turnKey`, so a turn is never processed twice either way.
+ */
+export const MENTOR_CLIENT_TIMEOUT_MS = 20_000;
+export const MENTOR_TURN_DEADLINE_MS = 15_000;
+
 export interface TurnRequest {
   conversationId: string | null;
   input: { kind: 'text'; text: string }; // M7 adds { kind: 'transcript'; text: string }
@@ -15,6 +24,17 @@ export interface TurnRequest {
   localTime: string; // the player's HH:MM
   screen: { route: string; slug?: string } | null;
   intakeStep: IntakeStep | null;
+  /**
+   * M4 final I-1: the one card a plain "yes" or "no" answers, by proposal id. The client sets it only when exactly
+   * one recent server card is on screen; the server confirms or turns down only that proposal, and only while it is
+   * open in this conversation. Without it (or with another id) a plain yes or no writes nothing.
+   */
+  answering?: string;
+  /**
+   * M4 final J2: one id per player turn (a UUID), the same on its automatic retry. The server keeps the last one
+   * per conversation and answers a repeat with nothing (no model call, no card), so a turn is processed once.
+   */
+  turnKey?: string;
 }
 
 export type ReplyPart =
@@ -67,6 +87,11 @@ export interface TurnResponse {
 export interface ConfirmRequest {
   channel: 'tap';
   edits?: { severity?: Severity };
+  /**
+   * The conversation the player is in now. When sent, a proposal from any other conversation (an earlier one, one
+   * since forgotten, or none) is closed, never written (409 `proposal_closed`).
+   */
+  conversationId?: string | null;
 }
 
 export interface ConfirmResponse {

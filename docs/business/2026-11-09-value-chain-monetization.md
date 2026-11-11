@@ -425,6 +425,7 @@ These are commitments, not features. Put them in the spec (§D change 1) and tes
    - emergency and medical-deflection lines
 2. **The open canon:** every canon recipe's text, its cook mode (timers, wake lock), nutrition, and credit. CC BY-SA requires the files to be free. The *cooking experience* of them should be free too.
 3. **Core logging and the tracker:** one-tap logging, text logging via the Pan within the free cap, and **unlimited one-tap/form fallback**. "Enough" targets, the weekly view, the variety garden.
+   - *Abuse limit (M4 ruling M-4):* the API stops a single account at 200 meal logs (and 200 rule loosenings) per rolling day, so a script can't flood the sealed health tables. This is an abuse ceiling, not an allowance: it is identical for every plan, far above human use, never sold, never raised for pay, and never blocks adding, removing or tightening a rule.
 4. **Nourishment safeguards:** meal reminders, low-intake gentle check-ins, support links.
 5. **Diet journeys** (low-FODMAP and custom), with symptom check-ins. They're health-adjacent: paywalling a gut-health tool for people in pain is extractive. Monetize clinician *tooling* later, not the patient's journey.
 6. **Export and delete:** one-click, complete, any tier, including after a subscription lapses. **No hostage data.**

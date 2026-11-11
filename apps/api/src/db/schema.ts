@@ -99,6 +99,8 @@ export const rules = pgTable(
     createdAt: ts("created_at").notNull().defaultNow(),
     /** Set by every write from the app's injected clock; defaultNow() is only a fallback. */
     updatedAt: ts("updated_at").notNull().defaultNow(),
+    /** +1 on every update: `PUT /rules/:id` with `If-Match` writes only over the version the client read (M4 final N4). */
+    version: integer("version").notNull().default(1),
   },
   (t) => [index("rules_user_id_idx").on(t.userId)],
 );
@@ -338,6 +340,8 @@ export const conversations = pgTable(
     startedAt: ts("started_at").notNull().defaultNow(),
     lastTurnAt: ts("last_turn_at").notNull().defaultNow(),
     turnSeq: integer("turn_seq").notNull().default(0),
+    /** The last turn's `turnKey` (a client UUID, content-free): a repeat of it is never processed again (M4 final J2). */
+    lastTurnKey: text("last_turn_key"),
   },
   (t) => [index("conversations_user_id_idx").on(t.userId), index("conversations_last_turn_at_idx").on(t.lastTurnAt)],
 );

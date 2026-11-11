@@ -102,11 +102,56 @@ describe('M4 Pan triggers', () => {
     for (const line of lines('allowance.explain')) expect(line).toMatch(/allergy and diet rules/i);
   });
 
-  it('never claims a write in lines that run before any stamp', () => {
-    const claim = /\bI(?:'ve| have) (written|saved|filed|logged|stamped|inked)\b|\bsaved it\b/i;
-    for (const id of ['write.not_done', 'rule.severity_unclear', 'rule.which_one', 'rule.tap_needed', 'confirm.tap_card', 'consent.health_first', 'rule.unknown_term']) {
-      for (const line of lines(id)) expect(line, id).not.toMatch(claim);
-    }
+  describe('no write is claimed before the stamp', () => {
+    // First person ("I've saved"), passive ("it's filed", "is saved"), and the idioms ("on file", "noted down"). A line that
+    // says nothing was saved ("nothing's been saved", "not saved yet") is the opposite and is allowed.
+    const claim = new RegExp([
+      String.raw`\bI(?:'ve| have)\s+(?:written|saved|filed|logged|stamped|inked|noted|recorded|kept)\b`,
+      String.raw`(?<!\bnot\s)(?<!n't\s)(?<!\bnothing\s)(?<!\bnothing's\sbeen\s)\b(?:it|that|this|they|these)(?:'s|'re| is| are| has been| have been)\s+(?:now |already |all )?(?:filed|saved|logged|stamped|inked|recorded|noted|kept)\b`,
+      String.raw`\b(?:saved|filed|logged|stamped|inked|recorded) it\b`,
+      String.raw`\bon file\b`,
+      String.raw`(?<!\bbeen\s)\b(?:noted|written|jotted|put) down\b`,
+      String.raw`\bfiled away\b`,
+      String.raw`(?<!\bnothing)(?<!\bnot)(?:'s| has| have) been\s+(?:filed|saved|logged|stamped|inked|recorded|noted|kept)\b`,
+      String.raw`^\s*(?:noted|saved|filed|logged|recorded|stamped)\b\s*[.!,]`,
+      String.raw`\bin the ledger\b`,
+    ].join('|'), 'i');
+    // Lines that say what counts as a record ("Only a card you've stamped is on file") describe the stamp; they claim nothing.
+    // Exempt by id and exact line, so the same words anywhere else are still scanned.
+    const EXEMPT = new Set(["write.not_done|I haven't written anything down yet. Only a card you've stamped is on file. Tell me what to file and I'll show you a card to stamp."]);
+    const intakeAsks = Object.keys(triggers).filter((id) => /^intake\..+\.ask$/.test(id));
+
+    it('matches the phrasings it is meant to catch, and lets a "nothing saved" line through', () => {
+      for (const bad of ["It's filed.", "That's saved now.", "I've saved it.", "All on file.", "Noted down.", "I have written that down.", 'Stamped it.', "They're logged.", "That's been filed in the ledger, just stamp it.", "It's been saved.", "Noted.", "Saved.", "Done, it's in the ledger."]) {
+        expect(bad, bad).toMatch(claim);
+      }
+      for (const good of ["Nothing's been saved yet.", "It isn't saved until you stamp it.", "Before I file it, check the card.", "Not saved yet.", "Nothing is filed.", "It hasn't been saved.", "Nothing has been saved."]) {
+        expect(good, good).not.toMatch(claim);
+      }
+    });
+
+    it('exempts exactly one line, by id: write.not_done explaining what counts as a record', () => {
+      expect(EXEMPT.size).toBe(1);
+      const [key] = [...EXEMPT];
+      const [id, line] = [key.slice(0, key.indexOf('|')), key.slice(key.indexOf('|') + 1)];
+      expect(lines(id)).toContain(line);
+      expect(line).toMatch(claim); // so it needs the exemption, which can't cover the same words in another line
+    });
+
+    it('covers every intake ask line', () => {
+      expect(intakeAsks.length).toBeGreaterThan(4);
+    });
+
+    it('holds for every line spoken before a stamp', () => {
+      const ids = [
+        'write.not_done', 'rule.severity_unclear', 'rule.which_one', 'rule.tap_needed', 'confirm.tap_card', 'consent.health_first', 'rule.unknown_term',
+        'rule.readback', 'rule.readback.no_spelling', 'profile.readback', 'pantry.readback', 'log.confirm_readback', ...intakeAsks,
+      ];
+      for (const id of ids) {
+        expect(lines(id).length, id).toBeGreaterThan(0);
+        for (const line of lines(id)) if (!EXEMPT.has(`${id}|${line}`)) expect(line, id).not.toMatch(claim);
+      }
+    });
   });
 
   it('keeps the "I\'m a pan" act out of plain safety lines', () => {

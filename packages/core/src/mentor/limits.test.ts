@@ -85,3 +85,8 @@ test('text is capped at MAX_TEXT', () => {
   expect(M.stripPageEvents('a'.repeat(N)).text).toHaveLength(M.MAX_TEXT);
   expect(M.parseRuleStatement('x '.repeat(400) + 'allergic to peanuts')).toBeNull(); // past the cap
 });
+
+test('J2: the server answers a mentor turn before the client gives up on it', () => {
+  // The client then never retries a turn the server is still working on (and the turnKey makes a retry harmless).
+  expect(M.MENTOR_TURN_DEADLINE_MS + 2_000).toBeLessThanOrEqual(M.MENTOR_CLIENT_TIMEOUT_MS);
+});

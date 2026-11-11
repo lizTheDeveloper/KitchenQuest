@@ -1,5 +1,13 @@
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { loadConfig } from '../src/config.js';
+import { evaluatedAi } from '../src/mentor/eval-gate.js';
+import { loadPanBank } from '../src/mentor/lines.js';
+import { loadPanPrompt, promptFingerprint } from '../src/mentor/prompt.js';
+import { MENTOR_TOOLS } from '../src/mentor/tools.js';
 import { TEST_DATA_KEY as KEY, testAiEnv as aiEnv, testEnv as goodEnv } from './helpers/config.js';
 
 const KEY2 = Buffer.alloc(32, 9).toString('base64');
@@ -141,7 +149,7 @@ describe('loadConfig: AI (C-14, P-11)', () => {
     expect(ai?.apiKey).toBe('sk-or-test');
     expect({ ...ai, apiKey: undefined }).toEqual({
       model: 'qwen/qwen3.8-27b',
-      providers: ['tenstorrent', 'modelrun'],
+      providers: ['tenstorrent'],
       timeoutMs: 10000,
       dailyBudgetMicroUsd: 5_000_000,
     });
@@ -202,5 +210,37 @@ describe('loadConfig: AI (C-14, P-11)', () => {
     );
     // AI off in production is fine.
     expect(loadConfig({ ...goodEnv, ...prodMail }).ai).toBeNull();
+  });
+});
+
+describe('the eval gate at production boot (M4 final I-3)', () => {
+  const ai = () => loadConfig(aiEnv).ai!;
+  const record = (fingerprint: string) => {
+    const dir = mkdtempSync(join(tmpdir(), 'kq-eval-'));
+    const file = join(dir, 'last-pass.json');
+    writeFileSync(file, JSON.stringify({ fingerprint }));
+    return pathToFileURL(file);
+  };
+  const live = (cfg = ai()) => promptFingerprint(loadPanPrompt(loadPanBank()), MENTOR_TOOLS, cfg.model, cfg.providers);
+  const logger = () => {
+    const errors: object[] = [];
+    return { errors, log: { error: (obj: object) => { errors.push(obj); } } };
+  };
+
+  it('a live config that was never evaluated (another provider order) starts with the AI off, and says so', () => {
+    const { errors, log } = logger();
+    const cfg = { ...ai(), providers: ['someone-else'] };
+    expect(evaluatedAi(cfg, 'production', log, record(live(ai())))).toBeNull();
+    expect(errors).toEqual([expect.objectContaining({ ai: 'eval_gate', live: live(cfg), recorded: live(ai()) })]);
+  });
+
+  it('the evaluated config is kept; outside production the gate does not apply; no record is a mismatch', () => {
+    const { errors, log } = logger();
+    expect(evaluatedAi(ai(), 'production', log, record(live()))).toEqual(ai());
+    expect(evaluatedAi({ ...ai(), providers: ['x'] }, 'development', log, record(live()))).toMatchObject({ providers: ['x'] });
+    expect(evaluatedAi(null, 'production', log, record(live()))).toBeNull();
+    expect(errors).toEqual([]);
+    expect(evaluatedAi(ai(), 'production', log, pathToFileURL(join(tmpdir(), 'kq-no-such-last-pass.json')))).toBeNull();
+    expect(errors).toHaveLength(1);
   });
 });

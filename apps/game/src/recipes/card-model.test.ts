@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { DISCLAIMER, type Rule } from '@kitchenquest/core/engine';
 import { content, graph } from '../content';
-import type { GameContent } from '../content/types';
+import type { ClientContent } from '../content/types';
 import { buildRecipeCard } from './card-model';
 import { findingText, LABEL_RULE_TEXT, LABEL_STORE_BOUGHT_TEXT } from './card-view';
 import { ACCOUNT_NOT_LOADED_MESSAGE, RULES_INVALID_MESSAGE, type RulesState } from './rules';
@@ -9,7 +9,7 @@ import { ACCOUNT_NOT_LOADED_MESSAGE, RULES_INVALID_MESSAGE, type RulesState } fr
 const today = '2026-11-09';
 const SLUG = 'india/kerala/parippu';
 const ready = (rules: Rule[]): RulesState => ({ status: 'ready', rules, source: 'device' });
-const card = (rules: RulesState, opts: { showCalories?: boolean; content?: GameContent; slug?: string } = {}) =>
+const card = (rules: RulesState, opts: { showCalories?: boolean; content?: ClientContent; slug?: string } = {}) =>
   buildRecipeCard({ slug: opts.slug ?? SLUG, content: opts.content ?? content, graph, rules, today, showCalories: opts.showCalories ?? false });
 
 const coconutSevere: Rule = { id: 'r1', target: { kind: 'ingredient', ids: ['coconut'] }, type: 'avoid', severity: 'anaphylactic' };
@@ -54,7 +54,7 @@ describe('buildRecipeCard', () => {
   test('ghee intolerance without the store-bought pappadam: the card is a swap', () => {
     const recipe = structuredClone(content.recipes[SLUG]);
     recipe.ingredients = recipe.ingredients.filter((i) => i.name !== 'pappadam');
-    const noPappadam: GameContent = { ...content, recipes: { ...content.recipes, [SLUG]: recipe } };
+    const noPappadam: ClientContent = { ...content, recipes: { ...content.recipes, [SLUG]: recipe } };
     const c = card(ready([gheeIntolerance]), { content: noPappadam });
     expect(c.status).toBe('swap');
     expect(c.cookable).toBe(true);
@@ -97,7 +97,7 @@ describe('buildRecipeCard', () => {
   test('sacred dish is never cookable', () => {
     const recipe = structuredClone(content.recipes[SLUG]);
     recipe.meta.sacred = true;
-    const sacred: GameContent = { ...content, recipes: { ...content.recipes, [SLUG]: recipe } };
+    const sacred: ClientContent = { ...content, recipes: { ...content.recipes, [SLUG]: recipe } };
     for (const rules of [ready([]), ready([coconutSevere]), { status: 'error', message: 'x' } as RulesState]) {
       const c = card(rules, { content: sacred });
       expect(c.sacred).toBe(true);

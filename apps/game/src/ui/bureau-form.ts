@@ -6,6 +6,8 @@ export function showBureauForm(
   root: HTMLElement,
   opts: {
     form: BureauForm; values: Record<string, string>; footnote?: string; reducedMotion: boolean;
+    /** Written text shown above the fields (Step 11: `rule.void_confirm` before a severe rule is removed). */
+    lead?: string;
     /** The Bureau file's `stamps` map; the stamp text is `stamps[form.stamp]`. */
     stamps?: Record<string, string>;
     /** Aborted when the screen behind it goes away (the back button): the form is declined and removed. */
@@ -66,6 +68,7 @@ export function showBureauForm(
       h('p', { class: 'bureau-number' }, `PANTRY BUREAU · FORM ${form.number}`),
       contentText('h2', form.title, { id: titleId, class: 'bureau-title', tabindex: -1 }),
       form.title_aside ? contentText('p', form.title_aside, { class: 'bureau-aside' }) : null,
+      opts.lead ? contentText('p', opts.lead, { class: 'bureau-lead' }) : null,
       dl,
       opts.footnote ? contentText('p', opts.footnote, { class: 'bureau-footnote' }) : null,
       h('div', { class: 'bureau-buttons' }, confirmBtn, declineBtn),

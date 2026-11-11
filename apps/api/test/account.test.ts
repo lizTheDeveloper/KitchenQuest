@@ -20,8 +20,10 @@ import { MemoryHistory } from '../src/mentor/memory.js';
 import { createProposal, markDecided } from '../src/mentor/proposals.js';
 import type { Db } from '../src/types.js';
 import { signIn } from './helpers/auth.js';
-import { testConfig } from './helpers/config.js';
+import { testAiEnv, testConfig } from './helpers/config.js';
+import { loadConfig } from '../src/config.js';
 import { testDb, type Sql } from './helpers/db.js';
+import { fakeAi } from './helpers/fake-ai.js';
 import { captureLogs } from './helpers/logs.js';
 
 const config = testConfig();
@@ -285,22 +287,71 @@ describe('GET /me/export', () => {
     const receiving = register.processors.filter((r) => !r.data_categories.every((c) => /^none\b/i.test(c)));
     expect(receiving.map((r) => r.id)).not.toContain('pixellab');
     expect(x.processors).toEqual(
-      receiving.map(({ name, purpose, country, contact, status }) => ({
+      receiving.map(({ id, name, purpose, country, contact, status }) => ({
         name,
         purpose,
         country,
         contact,
         status,
+        // The AI is off on this app, but this player has model turns on record (mentor_text usage): the AI
+        // processors received their data, so they are listed in use, with the period (Art. 15(1)(c)).
         inUse: !/^planned\b/i.test(status),
         detailsConfirmed: !/\[verify|\bTBD\b/i.test(`${name} ${country} ${contact}`),
+        ...(id.startsWith('openrouter') ? { sentFrom: expect.any(String), sentUntil: expect.any(String) } : {}),
       })),
     );
     expect(x.processors).toContainEqual(
-      expect.objectContaining({ name: 'OpenRouter', inUse: false, detailsConfirmed: false }),
+      expect.objectContaining({ name: 'OpenRouter', inUse: true, detailsConfirmed: false }),
     );
 
     // Secrets and ciphertext stay out: no token hashes, wrapped key or sealed blobs.
     expect(res.body).not.toMatch(/tokenHash|token_hash|wrapped|sealed/);
+  });
+
+  it('lists the AI processors as not in use for a player with no model turn, on a server with the AI off', async () => {
+    const cookie = await signIn(app, mailer, 'export-ai-never@example.com');
+    const listed = (await call(cookie, { method: 'GET', url: '/me/export' })).json<{ processors: { name: string; inUse: boolean; sentFrom?: string }[] }>().processors;
+    expect(listed.find((p) => p.name === 'OpenRouter')).toMatchObject({ inUse: false });
+    expect(listed.find((p) => p.name === 'OpenRouter')!.sentFrom).toBeUndefined();
+  });
+
+  it('lists the AI processors as in use, with the period, for a player whose turns reached the model, even with the AI off now (Art. 15(1)(c))', async () => {
+    const cookie = await signIn(app, mailer, 'export-ai-past@example.com');
+    const userId = (await call(cookie, { method: 'GET', url: '/me' })).json<{ id: string }>().id;
+    const first = new Date('2026-11-01T10:00:00Z');
+    const last = new Date('2026-11-05T10:00:00Z');
+    await recordUsage(db, userId, 'mentor_text', 1, 50, first);
+    await recordUsage(db, userId, 'mentor_text', 1, 50, last);
+    const listed = (await call(cookie, { method: 'GET', url: '/me/export' })).json<{ processors: { name: string; inUse: boolean; sentFrom?: string; sentUntil?: string }[] }>().processors;
+    expect(listed.find((p) => p.name === 'OpenRouter')).toMatchObject({ inUse: true, sentFrom: first.toISOString(), sentUntil: last.toISOString() });
+    expect(listed.find((p) => p.name.startsWith('Model providers'))).toMatchObject({ inUse: true });
+  });
+
+  it('m-2: with the AI configured but held off by the I-3 eval gate (no provider built), the AI processors are not in use for a player with no model turn', async () => {
+    const gated = await buildApp({ config: loadConfig(testAiEnv), db, mailer, ai: null, now: () => NOW, logger: false });
+    try {
+      const cookie = await signIn(gated, mailer, 'export-ai-gated@example.com');
+      const res = await gated.inject({ method: 'GET', url: '/me/export', cookies: { kq_session: cookie } });
+      expect(res.statusCode).toBe(200);
+      const listed = res.json<{ processors: { name: string; inUse: boolean }[] }>().processors;
+      expect(listed.find((p) => p.name === 'OpenRouter')).toMatchObject({ inUse: false });
+      expect(listed.find((p) => p.name.startsWith('Model providers'))).toMatchObject({ inUse: false });
+    } finally {
+      await gated.close();
+    }
+  });
+
+  it('lists the AI processors as in use only on a server with the AI on (M4: built, but off in production until the DPA)', async () => {
+    const aiApp = await buildApp({ config: loadConfig(testAiEnv), db, mailer, ai: fakeAi([]), now: () => NOW, logger: false });
+    try {
+      const cookie = await signIn(aiApp, mailer, 'export-ai-on@example.com');
+      const res = await aiApp.inject({ method: 'GET', url: '/me/export', cookies: { kq_session: cookie } });
+      expect(res.statusCode).toBe(200);
+      const listed = res.json<{ processors: { name: string; inUse: boolean }[] }>().processors;
+      expect(listed.find((p) => p.name === 'OpenRouter')).toMatchObject({ inUse: true });
+    } finally {
+      await aiApp.close();
+    }
   });
 
   it('stamps every created/updated time from the injected clock, not the database or wall clock (M-3)', async () => {

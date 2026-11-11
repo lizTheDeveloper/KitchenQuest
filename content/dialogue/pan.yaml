@@ -217,6 +217,15 @@ triggers:
       - "Nothing off the menu. I'll still mark anything I can't verify, out of habit. I'm a cautious pan."
       - "None at all. Lovely. I'll keep an eye out anyway; it's what I'm for."
 
+  intake.allergies.consent:
+    ai: never
+    when: Signed in without health_data consent, right before the consent card that comes ahead of the allergies question (C-17).
+    notes: "Plain. No jokes. Saying no must sound as fine as saying yes."
+    lines:
+      - "Before the allergies question: allergies and diet rules are health details, so the Bureau needs your permission to keep them with your account. Read the card and tap the button you choose. 'Not now' is fine; we'll carry on."
+      - "Next is allergies and diet rules. Those are health details, and the Bureau keeps them only with your say-so. The card explains it. Tap 'I agree' or 'Not now'; either is fine."
+      - "One thing first. Allergies count as health details, so I need your permission before I can file them with your account. Have a read of the card and tap your choice. Saying no won't stop anything else."
+
   intake.pantry.ask:
     ai: allowed
     when: Intake step 5, asking what's in the cupboard right now.
@@ -242,11 +251,12 @@ triggers:
   intake.skip:
     ai: allowed
     when: The player skips an intake question.
+    notes: "Never promises to ask again: nothing re-asks a skipped question in M4 (Step 11 fix round 1, M1)."
     lines:
-      - "Skipped. I'll ask again another day, gently, like a pan that's not in a hurry."
-      - "That's fine. We'll come back to it. The Bureau is very good at waiting."
+      - "Skipped. If you want to tell me later, just say it and I'll read it back."
+      - "That's fine. It's on the form as 'not now'. Tell me whenever you like."
       - "Skipping is allowed. It's on the form. Box 7: 'Not now.'"
-      - "No problem. It'll keep."
+      - "No problem. We'll leave that one blank."
 
   intake.complete:
     ai: allowed
@@ -524,6 +534,17 @@ triggers:
       - "Done. The rule for {ingredient} is voided. If you need it back, just tell me and we'll read it back again."
       - "Removed. I'll miss the paperwork. Not the rule; you know your body. Say 'undo' if you change your mind."
 
+  rule.voided.tap:
+    ai: never
+    when: The player removes a saved rule from Your rules (after confirming). The screen shows an Undo button, so this tells them to tap it, never to say it.
+    vars:
+      ingredient: "the ingredient or group"
+    lines:
+      - "Removed: {ingredient}. I won't check for it any more. If that was a mistake, tap 'Undo'."
+      - "{ingredient} is off your list. Dishes that were flagged for it will show as normal now. Tap 'Undo' if you didn't mean it."
+      - "Done. The rule for {ingredient} is voided. If you need it back, tap 'Undo' and we'll have it back as it was."
+      - "Removed. I'll miss the paperwork. Not the rule; you know your body. Tap 'Undo' if you change your mind."
+
   rule.void_confirm:
     ai: never
     when: Before removing a severe rule, the Pan asks for confirmation.
@@ -570,7 +591,7 @@ triggers:
     lines:
       - "I can't find {term} in the Bureau's ingredient ledger yet, so I can't check dishes for it. Nothing's been saved. Please check every recipe and label yourself, and tell me if you'd like to file something close to it."
       - "The Bureau's ingredient ledger doesn't have {term} yet, so I can't check dishes for it, and I haven't saved anything. Until it does, please check every recipe and label yourself. If there's a related ingredient you'd like me to file, tell me and I'll read it back."
-      - "I can't check dishes for {term} yet; it isn't in the Bureau's ingredient ledger. Nothing's been saved. Please read every recipe and label yourself, and name anything close to it you'd like on file."
+      - "I can't check dishes for {term} yet; it isn't in the Bureau's ingredient ledger. Nothing's been saved. Please read every recipe and label yourself, and name anything close to it that you'd like me to check for instead."
 
   rule.which_one:
     ai: never
@@ -603,6 +624,29 @@ triggers:
       - "I may have missed one of the ingredients you named. If there's another one to avoid, tell me plainly and I'll read it back."
       - "I may have missed {term}. If you need me to watch for it, tell me plainly and I'll read it back."
       - "Before we go on: I may not have caught every ingredient you mentioned. If there's another one to avoid, tell me plainly and I'll read it back."
+
+  rule.already_saved:
+    ai: never
+    when: A rule card would read back a milder level than the player's saved rule for the same ingredient, so no card is offered (M4 Step 12).
+    vars:
+      ingredient: "the ingredient the card was for, as the ledger names it"
+      rule: "the saved rule, as the Rules screen shows it (e.g. 'tree nut')"
+      severity: "the saved level, e.g. 'a severe allergy'"
+    notes: "Plain. No jokes. Nothing was written this turn; never says a dish is safe."
+    lines:
+      - "Your rule for {rule} already covers {ingredient}, as {severity}, and that stays as it is. Check the dish card to see how a dish fares against it."
+      - "{ingredient} is already covered by your {rule} rule, filed as {severity}. I haven't changed it. The dish card shows how each dish fares against your rules."
+
+  rule.exclusion_not_kept:
+    ai: never
+    when: The player named something as fine ("peanuts but not tree nuts"); only what to avoid is filed, so the allowance is not recorded (M4 Step 11).
+    vars:
+      term: "the ingredient the player said is fine"
+    notes: "Plain. No jokes. Never says the ingredient is safe."
+    lines:
+      - "One note: I only file what to keep off, so {term} isn't written down anywhere. It simply isn't on your list."
+      - "About {term}: the Bureau only records what you avoid, so that part isn't filed. Nothing blocks it, and nothing marks it as fine either."
+      - "I haven't filed anything for {term}. Your list only holds what to keep off."
 
   rule.ask_keep_off:
     ai: never
@@ -1101,6 +1145,14 @@ triggers:
       - "To be clear: nothing's been written down. If you'd like me to file something, say so plainly and I'll show you the card."
       - "I haven't written anything down yet. Only a card you've stamped is on file. Tell me what to file and I'll show you a card to stamp."
 
+  write.daily_limit:
+    ai: never
+    when: A typed yes would log a meal or loosen a rule past the daily write limit (200 a day, M4 Step 12); nothing was written.
+    notes: "Plain. Never says rules stop working: adding, removing or tightening a rule is never limited."
+    lines:
+      - "That's a great many changes for one day, so the Bureau has paused new entries until tomorrow. Nothing new was written. Your rules still work, and you can still add or remove one."
+      - "The ledger takes a breather after this many entries in a day. Nothing new was written down. Your rules still work, and adding or removing one is never limited."
+
   consent.health_first:
     ai: never
     when: A rule or meal card would be shown to a player without health_data consent; the consent card (Form 3-C/HEALTH) is shown instead.
@@ -1201,3 +1253,296 @@ triggers:
       - "Your {technique}'s gone a bit rusty. Fancy a refresher?"
       - "{technique} hasn't been out of the drawer in a while. Still yours. A refresher, some evening?"
       - "{technique}: a little rusty, still yours. One dish would sharpen it right up."
+
+  # ------------------------------------------------------------------
+  # Screen copy (Your rules, Settings > The Pan): one line each, shown exactly as written.
+  # ------------------------------------------------------------------
+
+  ui.pan.held:
+    ai: never
+    when: "The Pan panel: the player pressed Send while the Pan is still answering; the message stays in the box (an emergency still goes at once)."
+    lines:
+      - "I'm still answering. Your message is kept in the box; send it again in a moment."
+
+  ui.rules.bad_rule:
+    ai: never
+    when: "Your rules: a saved rule that no longer validates."
+    lines:
+      - "This rule names an ingredient the ledger doesn't know any more."
+
+  ui.rules.unreadable_confirm:
+    ai: never
+    when: "Your rules: the button under the could-not-be-read banner."
+    lines:
+      - "These are all my rules"
+
+  ui.rules.unreadable_empty:
+    ai: never
+    when: "Your rules: an empty list under the couldn't-be-read banner is never 'no rules'."
+    lines:
+      - "None of the rules on this device could be read back. Add each of your rules again below. If you have none, tap 'These are all my rules'."
+
+  ui.rules.not_removed:
+    ai: never
+    when: "Your rules: a removal that failed."
+    lines:
+      - "That didn't go through, so nothing was removed. Try again in a moment."
+
+  ui.rules.restored:
+    ai: never
+    when: "Your rules: after Undo of a removal."
+    lines:
+      - "Put back. Dishes are checked for it again."
+
+  ui.rules.copy_warning:
+    ai: never
+    when: "Your rules: above device rules the account lacks."
+    lines:
+      - "These rules are saved on this device but not on your account. While you're signed in, dishes are checked against your account's rules only."
+
+  ui.rules.raise_warning:
+    ai: never
+    when: "Your rules: above device rules stricter than the account's."
+    lines:
+      - "These rules are stricter on this device than on your account. While you're signed in, dishes are checked against your account's version."
+
+  ui.rules.cant_copy:
+    ai: never
+    when: "Your rules: a device rule that cannot be built into a card."
+    lines:
+      - "This one can be copied by telling the Pan about it."
+
+  ui.rules.consent_done:
+    ai: never
+    when: "Your rules: after the health-data permission is granted from a card."
+    lines:
+      - "Permission filed. Tap the stamp button again to save the rule."
+
+  ui.rules.consent_unavailable:
+    ai: never
+    when: "Your rules: the permission form could not load."
+    lines:
+      - "The permission form couldn't load just now. Nothing has changed."
+
+  ui.rules.consent_failed:
+    ai: never
+    when: "Your rules: granting the permission failed."
+    lines:
+      - "That didn't go through. Nothing has changed."
+
+  ui.rules.nothing_saved:
+    ai: never
+    when: "Your rules: the player turned a card down."
+    lines:
+      - "Nothing was saved."
+
+  ui.rules.confirmed_all:
+    ai: never
+    when: "Your rules: after 'These are all my rules'."
+    lines:
+      - "Thank you. Dishes are checked against these rules again."
+
+  ui.rules.device_list_intro:
+    ai: never
+    when: "Your rules: above the device rules the banner button confirms (signed in)."
+    lines:
+      - "The button confirms the rules saved on this device:"
+
+  ui.rules.device_list_empty:
+    ai: never
+    when: "Your rules: no device rule could be read back."
+    lines:
+      - "None could be read back."
+
+  ui.rules.account_empty:
+    ai: never
+    when: "Your rules: signed in, none on the account."
+    lines:
+      - "Your account has no rules yet."
+
+  ui.rules.device_empty:
+    ai: never
+    when: "Your rules: signed out, none on the device."
+    lines:
+      - "No rules are saved on this device yet."
+
+  ui.rules.void_effect:
+    ai: never
+    when: "Your rules: the effect line on Form 27-B/VOID."
+    lines:
+      - "Dishes will no longer be checked for this."
+
+  ui.rules.intro:
+    ai: never
+    when: "Your rules: under the heading."
+    lines:
+      - "The allergies, intolerances and diet rules dishes are checked against. Every rule is read back and stamped before it counts."
+
+  ui.rules.add_intro:
+    ai: never
+    when: "Your rules: under 'Add a rule'."
+    lines:
+      - "Choose an ingredient or a diet rule, say how serious it is, and stamp the form."
+
+  ui.rules.nothing_found:
+    ai: never
+    when: "Rule form: a search with no match."
+    lines:
+      - "The Bureau's ledger has nothing by that name. Try another word, or tell the Pan."
+
+  ui.rules.search_hint:
+    ai: never
+    when: "Rule form: hint under the search box."
+    lines:
+      - "Type part of a name, then choose one from the list."
+
+  ui.settings.offline:
+    ai: never
+    when: "Settings, The Pan: a call that failed."
+    lines:
+      - "Couldn't reach the Bureau. Nothing has changed. Try again in a moment."
+
+  ui.settings.health_data.label:
+    ai: never
+    when: "Settings, The Pan: health_data checkbox label."
+    lines:
+      - "Let the Bureau keep my health details"
+
+  ui.settings.health_data.on:
+    ai: never
+    when: "Settings, The Pan: health_data granted."
+    lines:
+      - "The Bureau keeps your allergies, diet rules and meals with your account. Untick the box to stop; you choose what happens to what is saved."
+
+  ui.settings.health_data.off:
+    ai: never
+    when: "Settings, The Pan: health_data not granted."
+    lines:
+      - "The Bureau doesn't keep health details with your account. Rules you make are kept on this device only."
+
+  ui.settings.stale:
+    ai: never
+    when: "Settings, The Pan: a permission whose notice changed."
+    lines:
+      - "The notice for this permission has changed, so it no longer counts. Tick the box to read the new one."
+
+  ui.settings.permission_done:
+    ai: never
+    when: "Settings, The Pan: after a permission is granted."
+    lines:
+      - "Permission filed. Thank you."
+
+  ui.settings.ai_health.label:
+    ai: never
+    when: "Settings, The Pan: ai_health checkbox label."
+    lines:
+      - "Let the AI see my allergies, rules and meals"
+
+  ui.settings.ai_health.on:
+    ai: never
+    when: "Settings, The Pan: ai_health granted."
+    lines:
+      - "The AI can see your allergies, rules and meals. Untick the box to stop it; that takes effect at once."
+
+  ui.settings.ai_health.off:
+    ai: never
+    when: "Settings, The Pan: ai_health not granted."
+    lines:
+      - "The AI doesn't see your allergies, rules or meals. Rule help and meal logging still work without it."
+
+  ui.settings.ai_mentor_hint:
+    ai: never
+    when: "Settings, The Pan: under the 'Talk to the Pan's AI' box."
+    lines:
+      - "Off, the Pan answers from its written script. Rules, logging and recipes work either way."
+
+  ui.settings.ai_withdrawn:
+    ai: never
+    when: "Settings, The Pan: after the AI permission is withdrawn."
+    lines:
+      - "Done. The AI no longer sees your allergies, rules or meals."
+
+  ui.settings.health_deleted:
+    ai: never
+    when: "Settings, The Pan: after health details are deleted."
+    lines:
+      - "Done. Your health details have been deleted from your account."
+
+  ui.settings.health_kept:
+    ai: never
+    when: "Settings, The Pan: after health_data is withdrawn, keeping what is saved."
+    lines:
+      - "Done. Nothing new is kept; what was saved stays, read-only."
+
+  ui.settings.erase_body:
+    ai: never
+    when: "Settings, The Pan: the delete-health-details confirm."
+    lines:
+      - "This removes the allergies, diet rules, meals and conversations kept with your account. It can't be undone. Rules on this device are untouched."
+
+  ui.settings.withdraw_body:
+    ai: never
+    when: "Settings, The Pan: the keep-or-delete choice when health_data is withdrawn."
+    lines:
+      - "Keep: your saved rules, meals and conversations stay, read-only, and nothing new is added. Delete: they are removed from your account now. Either way, rules on this device are untouched."
+
+  ui.settings.forget_body:
+    ai: never
+    when: "Settings, The Pan: the forget-conversations confirm."
+    lines:
+      - "This deletes what you and the Pan have said to each other from the Bureau's files. Your saved rules, meals and pantry stay as they are."
+
+  ui.rules.undo_failed:
+    ai: never
+    when: "Your rules: an Undo on a raised rule that could not be sent (offline)."
+    lines:
+      - "That didn't go through, so nothing was changed. Try Undo again in a moment."
+
+  card.earlier_conversation:
+    ai: never
+    when: The player taps a card from an earlier conversation (the conversation was cleared or started again since). Nothing is written.
+    notes: "Plain. Never implies anything is on file."
+    lines:
+      - "That card was from an earlier conversation, so nothing's been written down. Tell me again and I'll show you a fresh card to stamp."
+
+  undo.rule_changed:
+    ai: never
+    when: The player taps Undo on a raised rule, but the rule has been changed since (another tab or device). Nothing is changed, so an undo never lowers a rule.
+    lines:
+      - "That rule has changed since you raised it, so I've left it as it is now. Check it on Your rules."
+
+  rule.raise_not_stricter:
+    ai: never
+    when: The player taps a raise whose severity is not stricter than what the account now holds (it changed elsewhere). Nothing is written.
+    lines:
+      - "Your account already has that rule at the same level or stricter, so nothing was changed. Check Your rules."
+
+  ui.rules.severity_default:
+    ai: never
+    when: "Rule form: under the severity box; says what level the card is made out at if the player chooses none."
+    vars:
+      severity: "the default level in words, e.g. 'a Severe allergy'"
+    lines:
+      - "If you leave this, it is filed as {severity}."
+
+  ui.rules.chosen:
+    ai: never
+    when: "Rule form: the ingredient or diet rule the player picked."
+    vars:
+      name: "the ingredient or rule name"
+    lines:
+      - "Chosen: {name}"
+
+  ui.rules.stamped_line:
+    ai: never
+    when: "Your rules: after a card is stamped on this screen."
+    vars:
+      summary: "the trail summary, e.g. 'coconut, an allergy'"
+    lines:
+      - "✔ Stamped: {summary}"
+
+  rule.raise_gone:
+    ai: never
+    when: The player taps a raise, but the rule is no longer on the account the way it was (removed or replaced elsewhere). Nothing is written.
+    lines:
+      - "That rule isn't on your account the way it was any more, so nothing was changed. Check Your rules."

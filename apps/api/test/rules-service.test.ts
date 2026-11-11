@@ -121,8 +121,9 @@ describe('rules service', () => {
     const b = await user();
     const rule = await db.transaction((tx) => createRuleIn(tx, deps, a.id, PEANUT, NOW));
     await expect(db.transaction((tx) => updateRuleIn(tx, deps, b.id, rule.id, DAIRY, NOW))).rejects.toMatchObject({ status: 404, code: 'not_found' });
-    const updated = await db.transaction((tx) => updateRuleIn(tx, deps, a.id, rule.id, DAIRY, NOW));
+    const { rule: updated, version } = await db.transaction((tx) => updateRuleIn(tx, deps, a.id, rule.id, DAIRY, NOW));
     expect(updated).toEqual({ ...DAIRY, id: rule.id });
+    expect(version).toBe(2);
     expect(await loadRules(db, config.keyring, a.id)).toEqual([updated]);
   });
 

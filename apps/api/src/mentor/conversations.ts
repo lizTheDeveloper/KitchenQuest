@@ -47,17 +47,31 @@ export async function openConversation(tx: Tx, userId: string, id: string | null
   return created;
 }
 
-/** Starts the next turn: `turn_seq + 1` and `last_turn_at = now`. Returns the new turn number. */
-export async function bumpTurn(tx: Tx, conversationId: string, now: Date): Promise<number> {
+/**
+ * Starts the next turn: `turn_seq + 1` and `last_turn_at = now`. Returns the new turn number.
+ *
+ * With `turnKey` (M4 final J2) the key is kept on the row, and a turn whose key is already the row's last one is
+ * not started again: null, nothing changed. One UPDATE decides it under the row lock, so two copies of a turn
+ * racing each other (a client retry of a turn still running) start it once.
+ */
+export async function bumpTurn(tx: Tx, conversationId: string, now: Date, turnKey?: string): Promise<number | null> {
   const row = (
     await tx
       .update(conversations)
-      .set({ turnSeq: sql`${conversations.turnSeq} + 1`, lastTurnAt: now })
-      .where(eq(conversations.id, conversationId))
+      .set({ turnSeq: sql`${conversations.turnSeq} + 1`, lastTurnAt: now, ...(turnKey === undefined ? {} : { lastTurnKey: turnKey }) })
+      .where(
+        turnKey === undefined
+          ? eq(conversations.id, conversationId)
+          : and(eq(conversations.id, conversationId), sql`${conversations.lastTurnKey} is distinct from ${turnKey}`),
+      )
       .returning({ turnSeq: conversations.turnSeq })
   ).at(0);
-  if (!row) throw new Error('bumpTurn: no such conversation');
-  return row.turnSeq;
+  if (row) return row.turnSeq;
+  if (turnKey !== undefined) {
+    const exists = await tx.select({ id: conversations.id }).from(conversations).where(eq(conversations.id, conversationId));
+    if (exists.length > 0) return null;
+  }
+  throw new Error('bumpTurn: no such conversation');
 }
 
 /**

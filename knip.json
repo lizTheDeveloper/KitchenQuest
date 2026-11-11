@@ -25,12 +25,14 @@
       "entry": [
         "scripts/*.ts",
         "src/**/*.test.ts",
-        "test/**/*.test.ts"
+        "test/**/*.test.ts",
+        "eval/*.test.ts"
       ],
       "project": [
         "src/**/*.ts",
         "scripts/**/*.ts",
         "test/**/*.ts",
+        "eval/**/*.ts",
         "*.ts"
       ]
     },

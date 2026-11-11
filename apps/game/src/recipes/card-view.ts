@@ -27,7 +27,16 @@ export function findingText(f: CardFinding): string {
   return f.swapLabel ?? 'not with your rules';
 }
 
-function findingItem(f: CardFinding): HTMLElement {
+/** A finding that names no ingredient is about the whole dish (a sulphite rule on a recipe with no ingredient lines). */
+export const RECIPE_LEVEL_TEXT = "this dish can't be checked for one of your rules from its ingredient list, so check the label on everything that goes in it";
+
+export function findingItem(f: CardFinding): HTMLElement {
+  // Data task carry: a recipe-level finding (ingredient "") is a reminder about the dish, never a blank row.
+  if (f.ingredient === '') {
+    return h('li', { class: 'finding finding-recipe', 'data-status': f.status },
+      statusChip(f.status), ' ', h('strong', null, 'The whole dish'), `: ${RECIPE_LEVEL_TEXT}`,
+      f.ruleNote ? h('span', { class: 'finding-note' }, `Your note: “${f.ruleNote}”`) : null);
+  }
   return h('li', { class: 'finding', 'data-status': f.status },
     statusChip(f.status), ' ',
     h('strong', null, f.ingredient), `: ${findingText(f)}`,

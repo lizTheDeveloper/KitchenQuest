@@ -23,13 +23,13 @@ Tick each item when it lands. Full requirement text is in `2026-11-09-health-dat
 - [x] **C-10** Org/health separation constraint — *M2 (constraint); M12 or the org plan (tables)* — `plans/m2-api/README.md` Global Constraints
 - [ ] **C-10b** Session hygiene — *M2 (Step 3) or M12* — amend `plans/m2-api/step-3.md`
 - [ ] **C-11** E2E consent and free-forever test — *M2* — amend `plans/m2-api/step-8.md`, Step 5, README error codes
-- [ ] **M4 mentor** — *M4* — `plans/m4-mentor/README.md` (Step 12 ticks the items it lands): C-12–C-17, C-34 (code gate and review checklist; the DPA is a founder action), C-39 (neutral age screen, chat child guard; the M12 parts stay open), N-4, N-9
-- [ ] **C-12** Conversation storage — *M3* — `plans/m3-mentor/README.md`
-- [ ] **C-13** AI gateway minimization and consent — *M3* — `plans/m3-mentor/README.md`
-- [ ] **C-14** OpenRouter data policy pinned in code — *M3* — `plans/m3-mentor/README.md`; `apps/api/src/ai/`
-- [ ] **C-15** No AI content logging — *M3* — `plans/m3-mentor/README.md`
-- [ ] **C-16** AI disclosure — *M3* — `plans/m3-mentor/README.md`; `content/`
-- [ ] **C-17** Consent before the intake interview collects health data — *M3* — `plans/m3-mentor/README.md`; `content/bureau/`
+- [x] **M4 mentor** — *M4* — `plans/m4-mentor/README.md`. Step 12 ticked what landed: C-12–C-17 and N-4, N-9; C-34 and C-39 are `[~]` (the DPA, and the M12 parts, stay open).
+- [x] **C-12** Conversation storage — *M4* — `plans/m4-mentor/step-6.md`: `messages` sealed per user and row, stored only with `health_data` consent (memory-only otherwise), 30-day retention job, "forget this conversation" (`DELETE /mentor/conversations`), in export and delete; never used for training
+- [x] **C-13** AI gateway minimization and consent — *M4* — `plans/m4-mentor/step-7.md`: typed `PromptContext`, health fields and the pantry only with `ai_health`, no identifiers or dates, health turns never reach the model without `ai_health`; prompt tests assert it
+- [x] **C-14** OpenRouter data policy pinned in code — *M4* — `plans/m4-mentor/step-4.md`; `apps/api/src/ai/openrouter.ts`: every body carries `data_collection: "deny"`, `zdr: true` and the allow-list; never a `:free` model; config refuses to boot without it. Code part only: the parameter-name check and the account-level settings are in `vendors/openrouter.md` as founder actions
+- [x] **C-15** No AI content logging — *M4* — `plans/m4-mentor/step-4.md`, `step-7.md`, `step-8.md`: only `usage_events` (counts, cost); the provider logs failure kind and status only; log-capture tests across the mentor suites. The eval (`npm run eval:mentor`) uses synthetic players in a throwaway database
+- [x] **C-16** AI disclosure — *M4* — `plans/m4-mentor/step-11.md`: the verbatim line on first open (pinned in the conversation) and in Settings
+- [x] **C-17** Consent before the intake interview collects health data — *M4* — `plans/m4-mentor/step-11.md`: a tap consent card (Form 3-C) before Form 1-A asks about allergies; skippable; the read-back stays
 - [ ] **C-18** Voice privacy — *M7* — `plans/m7-voice/README.md`
 - [ ] **C-19** Voice accessibility flag is sensitive — *M2 (if added to profile in Step 4) / M7* — amend `plans/m2-api/step-4.md` if adopted there
 - [ ] **C-20** Photos — *M8* — `plans/m8-ai-features/README.md`
@@ -46,12 +46,12 @@ Tick each item when it lands. Full requirement text is in `2026-11-09-health-dat
 - [ ] **C-31** Data-rights workflow — *M12* — `plans/m12-launch/README.md`
 - [ ] **C-32** Breach and incident runbook — *M12* — `plans/m12-launch/README.md`; `docs/compliance/incident-runbook.md` (to write)
 - [~] **C-33** Risk assessment and DPIA — *Start M2 (data inventory); finish M12* — `docs/compliance/` (inventory, risk register and DPIA skeleton started)
-- [ ] **C-34** Vendor reviews and DPAs — *M3 (OpenRouter), M12 (all)* — `plans/m3-mentor/README.md`; `plans/m12-launch/README.md`
+- [~] **C-34** Vendor reviews and DPAs — *M4 (OpenRouter), M12 (all)* — `plans/m4-mentor/step-4.md`, `step-12.md`; `vendors/openrouter.md`; `plans/m12-launch/README.md`. The code gate is in (production refuses AI until `processors.json` says signed) and the review checklist is written; **open: the OpenRouter DPA is not yet signed** (founder action), and every other processor is M12
 - [ ] **C-35** Backups — *M12* — `plans/m12-launch/README.md`
 - [ ] **C-36** Operator MFA — *Now (accounts); M12 (audit)* — `plans/m12-launch/README.md`
 - [~] **C-37** (CI part done: Dependabot + `npm audit --audit-level=high`; pen test pending) Vulnerability management — *Now (CI); M12 (pen test)* — `.github/workflows/ci.yml` (later); `plans/m12-launch/README.md`
 - [ ] **C-38** Network and transport — *M12 (deploy)* — `plans/m12-launch/README.md`
-- [ ] **C-39** Age and children — *M3 (onboarding) / M12* — `plans/m3-mentor/README.md`; `plans/m12-launch/README.md`
+- [~] **C-39** Age and children — *M4 (onboarding, chat guard) / M12* — `plans/m4-mentor/step-3.md`, `step-7.md`, `step-10.md`; `plans/m12-launch/README.md`. Neutral age screen (birth year used once, never sent), the chat child guard (`child.grownup`, nothing kept) and Family Table scripted-only are in; **open (M12): the actual-knowledge procedure and the child-directedness review**
 - [ ] **C-40** Strict Content-Security-Policy — *M4 game shell / M12* — `plans/m12-launch/README.md` (and the M4 plan when written)
 - [ ] **C-41** Ownership and contact — *Now* — `plans/m12-launch/README.md`
 - [ ] **C-42** Workforce access — *M12* — `plans/m12-launch/README.md`
@@ -69,14 +69,14 @@ Tick each item when it lands. Full requirement text is in `2026-11-09-health-dat
 - [ ] **N-2 (remainder)** Configure the reverse proxy's access log (no query strings, 14 d retention) and the log host's retention; state the periods in the privacy notice — *M12 (C-38, C-30)*
 - [ ] **Deploy (from Step 9)** Ship `docs/compliance/` (`notices/`, `processors.json`) in the API image: the API reads both at boot and will not start without them — *M12 (deploy)*
 - [ ] **N-3** Offline PWA store hygiene: cache the minimum, clear on sign-out — *M3 game shell / M9*
-- [ ] **N-4** The AI retry queue holds no content, or holds it sealed with a 24 h cap — *M3 mentor*
+- [x] **N-4** The AI retry queue holds no content, or holds it sealed with a 24 h cap — *M4* — `plans/m4-mentor/step-10.md`: there is no content queue; the client holds unsent text in memory only (one retry, then "Try again")
 - [ ] **N-5** Inactive-account policy: notify, then delete after about 24 months **[lawyer]** — *M12*
 - [ ] **N-6** Contributor ids are personal data: notice, contributor agreement, removal path — *M2 Step 6 / M10*
 - [x] **N-7** Consent copy names religious dietary rules; meal-window names become a fixed set (breakfast/lunch/dinner/snack/other), not free text; free-text caps — *M2 Step 9* (notice `notices/health_data-v1.md`, grants under older versions no longer count; caps in `data-inventory.md` §3.13. "Cooked for Someone" labels are decided with M5)
 - [x] **N-8** CI check that every `schema.ts` column appears in `data-inventory.md` — *M2 Step 9* (`apps/api/test/inventory.test.ts`)
-- [ ] **N-9** `processors.json` validated in CI; no processor call merged while its DPA is unknown — *M3 / M12*
+- [x] **N-9** `processors.json` validated in CI; no processor call merged while its DPA is unknown — *M4* — `plans/m4-mentor/step-4.md`, `step-12.md`: `test/processors.test.ts` validates the register and maps every outbound host (`https://` and `http://` literals; no `new URL(` from a variable) to a processor; the OpenRouter client is merged fail-closed: production won't boot with AI on until its `dpa_status` is `signed`
 - [ ] **N-10** Child-directedness review also covers the marketing site and store listings — *M12*
-- [ ] **N-11** DPIA re-review triggered by any new processor, AI feature, region, consent purpose, Pantry or family build — *process*
+- [ ] **N-11** DPIA re-review triggered by any new processor, AI feature, region, consent purpose, Pantry or family build — *process* (re-reviewed for the M4 mentor: `dpia.md`)
 
 ## Raised during implementation
 
@@ -84,9 +84,12 @@ Tick each item when it lands. Full requirement text is in `2026-11-09-health-dat
 - [ ] **C-43** Backup-restore replays `account.delete` audit events so deleted users' wrapped keys aren't resurrected — *M2 Step 7 (write event) / M12 (restore runbook)*
 - [ ] **C-44** GlitchTip SDK added with `before_send` scrubbing (C-9 completion) — *M12*
 
+- [ ] **[lawyer]** Export recipients vs usage retention: the export lists the AI processors from the player's `usage_events` (a "sent" row before each model call, M4 Step 12), which the retention job deletes after 13 months. Decide whether Art. 15(1)(c) needs a longer look-back (e.g. a content-free "ever sent" marker kept for the account's life) — *M12 (C-31)*
+
 ## Founder / operator actions (not code)
 
 - [ ] C-36 Turn on MFA or passkeys for GitHub, Hetzner, DNS registrar, mail, OpenRouter, payments and GlitchTip.
 - [ ] Book a scoping call with privacy counsel: the lawyer list in the compliance report, plus family mode's 11 questions.
-- [ ] Review OpenRouter's data-retention and no-training settings at account level (C-14, C-34).
+- [ ] Review OpenRouter's data-retention and no-training settings at account level, check the C-14 parameter names, and sign the DPA (C-14, C-34; checklist in `vendors/openrouter.md`).
+- [ ] Deploy the API with `NODE_ENV=production`: the DPA gate (P-11) keys on it (README "Deploying the API").
 - [ ] Decide launch regions: US-only first, or EU/UK fully covered (DPIA, EU representative).

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
-import { expectNoA11yViolations, expectNoHorizontalScroll, openApp, type OpenedApp } from './helpers';
+import { expectNoA11yViolations, expectNoHorizontalScroll, openApp, PAN_READY, type OpenedApp } from './helpers';
 
 const yaml = <T>(rel: string): T => parse(readFileSync(fileURLToPath(new URL(`../../../content/${rel}`, import.meta.url)), 'utf8')) as T;
 const leela = yaml<{ name: string; intro: string[] }>('cooks/leela.yaml');
@@ -299,7 +299,7 @@ describe('world map', () => {
   });
 
   it('"Talk to the Pan" on the map says a map remark', async () => {
-    app = await openApp('/#/map', { reducedMotion: true });
+    app = await openApp('/#/map', { reducedMotion: true, seed: PAN_READY });
     const { page } = app;
     await page.getByRole('button', { name: 'Talk to the Pan' }).click();
     const bubble = page.locator('#pan-panel .bubble.pan .bubble-text').last();

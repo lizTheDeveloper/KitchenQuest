@@ -117,7 +117,7 @@ describe('end-to-end safety journey', () => {
 
     // 6. A second user sees none of this and gets ok for parippu.
     const b = await signIn(app, mailer, `e2e${++seq}-b@example.com`);
-    expect((await call(b, { method: 'GET', url: '/rules' })).json()).toEqual({ rules: [] });
+    expect((await call(b, { method: 'GET', url: '/rules' })).json()).toEqual({ rules: [], versions: {} });
     expect((await call(b, { method: 'GET', url: `/rules/${rule.id}` })).statusCode).toBe(404);
     const bList = (await call(b, { method: 'GET', url: '/recipes' })).json<{ recipes: { slug: string; check: { status: string } }[] }>().recipes;
     expect(bList.find((r) => r.slug === 'india/kerala/parippu')!.check.status).toBe('ok');
@@ -145,7 +145,7 @@ describe('end-to-end safety journey', () => {
     const none = await call(c, { method: 'POST', url: '/rules', payload: { rule: COCONUT, confirmed: true } });
     expect(none.statusCode).toBe(403);
     expect(none.json().error.code).toBe('consent_required');
-    expect((await call(c, { method: 'GET', url: '/rules' })).json()).toEqual({ rules: [] });
+    expect((await call(c, { method: 'GET', url: '/rules' })).json()).toEqual({ rules: [], versions: {} });
     const recipes = (await call(c, { method: 'GET', url: '/recipes' })).json<{ recipes: { check: { status: string } }[] }>().recipes;
     expect(recipes.length).toBeGreaterThan(0);
     for (const r of recipes) expect(r.check.status).toBe('ok');

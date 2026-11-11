@@ -333,6 +333,66 @@ function namedIngredients(text: string, graph: IngredientGraph): string[] {
   return ids;
 }
 
+/** Words after which, in the same clause, a named ingredient is allowed rather than to avoid ("but not tree nuts"). */
+const EXCLUSION = /\b(not|never|except|apart from|other than|besides|fine with|ok with|okay with)\b/;
+const CLAUSE_BREAK = /[,;.!?()/]|\band\b|\bbut\b(?! not)/;
+
+/**
+ * M4 Step 11 fix round 2 (structural, "every named allergen gets a card or an ask"): the graph names in the player's
+ * own words (RAW turn text) that no produced card covers. `coveredIds` are the cards' target ids; their isA kinds
+ * count as covered too ("vegan and milk" leaves nothing). A name said after an exclusion in its clause ("peanuts but
+ * not tree nuts") is never a card: it is in `excluded`. Each list holds ledger names, in order, each once. Shared
+ * by the client's intake and (Step 12 carry) the server turn's ask.
+ */
+export function leftoverNamedIngredients(
+  playerText: string,
+  coveredIds: readonly string[],
+  graph: IngredientGraph,
+): { left: string[]; excluded: string[] } {
+  const covered = new Set(coveredIds.flatMap((id) => (graph.has(id) ? [id, ...graph.descendants(id)] : [])));
+  const left: string[] = [];
+  const excluded: string[] = [];
+  for (const clause of normalizeName(ownWords(playerText)).split(CLAUSE_BREAK)) {
+    const ex = EXCLUSION.exec(clause);
+    const at = ex ? ex.index : clause.length;
+    for (const [part, list] of [[clause.slice(0, at), left], [clause.slice(at), excluded]] as const) {
+      for (const id of namedIngredients(part, graph)) {
+        const name = graph.get(id).name;
+        if (covered.has(id) || left.includes(name) || excluded.includes(name)) continue;
+        list.push(name);
+      }
+    }
+  }
+  return { left, excluded: excluded.filter((n) => !left.includes(n)) };
+}
+
+/**
+ * The major allergens (the EU's 14 and the US's 9) as ledger nodes: an ingredient that is one, a kind of one, or
+ * contains one is a major allergen (M4 final, C1 over-ask).
+ */
+export const ALLERGEN_ROOTS: ReadonlySet<string> = new Set([
+  'nut', 'tree_nut', 'peanut', 'milk', 'egg', 'gluten', 'wheat', 'barley', 'rye', 'oats', 'spelt', 'kamut', 'soy', 'fish',
+  'shellfish', 'crustacean', 'mollusc', 'sesame', 'mustard', 'celery', 'lupin', 'sulphites',
+]);
+
+/** `id` is a major allergen: one of ALLERGEN_ROOTS, a kind of one, or contains one. Unknown ids count (can't verify). */
+export function isMajorAllergen(id: string, graph: IngredientGraph, seen: Set<string> = new Set()): boolean {
+  if (!graph.has(id)) return true;
+  if (seen.has(id)) return false;
+  seen.add(id);
+  if (ALLERGEN_ROOTS.has(id) || graph.ancestors(id).some((a) => ALLERGEN_ROOTS.has(a))) return true;
+  return (graph.get(id).contains ?? []).some((c) => isMajorAllergen(c, graph, seen));
+}
+
+/**
+ * The ingredients a meal or pantry card names that are NOT major allergens: on a rule turn they count as accounted
+ * for, so "had rice with onion … allergic to kiwi" asks about kiwi only (C1 over-ask). A major allergen a meal or
+ * pantry card names is never covered by it (fix round 1 C1 ruling): "peanut butter toast … allergic to peanuts" still asks.
+ */
+export function nonAllergenNamedIds(text: string, graph: IngredientGraph): string[] {
+  return namedIngredients(text, graph).filter((id) => !isMajorAllergen(id, graph));
+}
+
 /**
  * Step 1 carry and Step 7 fix round 1 I5: the player's own words (`playerText` is the RAW turn
  * text) state a severe allergy but name an ingredient that no kept rule term covers (whether or
@@ -438,13 +498,18 @@ export function emergencyStatesRule(playerText: string, graph: IngredientGraph):
 }
 
 /**
- * Fix round 3 (E2 on emergency turns): the ask after the emergency line. The symptom is the severity cue, so
- * any named ingredient no kept (severe) rule card covers is asked for by name; with nothing named or kept, the
- * plain ask. Null when the kept cards cover everything named. Server and engine both use it.
+ * Fix round 3 (E2 on emergency turns), widened in M4 Step 12 fix round 1 (I2): the asks after the emergency
+ * line. The symptom is the severity cue, so EVERY named ingredient no kept (severe) rule card covers is asked
+ * for by name, in order (`leftoverNamedIngredients`), and a name said as fine gets `rule.exclusion_not_kept`.
+ * With nothing named or kept, the plain ask. Empty when the kept cards cover everything named. Server and
+ * engine both use it.
  */
-export function emergencyRuleAsk(playerText: string, keptRuleTerms: readonly string[], graph: IngredientGraph): LineRef | null {
-  const covered = new Set(keptRuleTerms.map((t) => graph.resolve(t)).filter((id) => id !== null));
-  const missed = namedIngredients(ownWords(playerText), graph).find((id) => !covered.has(id));
-  if (missed !== undefined) return line('rule.ask_what_else', { term: graph.get(missed).name });
-  return keptRuleTerms.length > 0 ? null : line('rule.ask_keep_off');
+export function emergencyRuleAsks(playerText: string, keptRuleTerms: readonly string[], graph: IngredientGraph): LineRef[] {
+  const covered = keptRuleTerms.flatMap((t) => graph.resolve(t) ?? []);
+  const { left, excluded } = leftoverNamedIngredients(playerText, covered, graph);
+  const asks = [
+    ...left.map((term) => line('rule.ask_what_else', { term })),
+    ...excluded.map((term) => line('rule.exclusion_not_kept', { term })),
+  ];
+  return left.length === 0 && keptRuleTerms.length === 0 ? [...asks, line('rule.ask_keep_off')] : asks;
 }

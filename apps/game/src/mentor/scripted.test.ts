@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import type { ProposalCard } from '@kitchenquest/core/engine';
 import { content, graph } from '../content';
+import { createChildFlag } from './child-flag';
 import { createDialogue } from './dialogue';
 import type { CardView, LocalCardView, PanReply, TurnContext } from './reply';
 import { createScriptedEngine } from './scripted';
@@ -9,7 +10,7 @@ import { createScriptedEngine } from './scripted';
 const recipes = Object.entries(content.recipes).map(([slug, r]) => ({ slug, title: r.meta.title }));
 const NOW = new Date(2026, 10, 10, 12, 5); // local 12:05 on 10 November
 const engine = () => createScriptedEngine({ dialogue: createDialogue(content.pan), graph, ruleTerms: content.ruleTerms, recipes, now: () => NOW });
-const ctx = (patch: Partial<TurnContext> = {}): TurnContext => ({ turn: 1, openCards: [], intakeStep: null, signedIn: true, ...patch });
+const ctx = (patch: Partial<TurnContext> = {}): TurnContext => ({ turn: 1, openCards: [], intakeStep: null, signedIn: true, trail: [], ...patch });
 
 const said = (r: PanReply) => r.items.flatMap((i) => (i.kind === 'said' ? [i.said.trigger] : []));
 const cards = (r: PanReply): ProposalCard[] => r.cards.map((c) => c.card);
@@ -35,6 +36,8 @@ describe('scripted engine', () => {
     ['My market day is Saturday.', { cards: [{ kind: 'profile', patch: { marketDays: [6] } }] }],
     // Shrimp is named: the ask follows the emergency line (fix round 3, E2 on emergency turns).
     ['I just ate shrimp and my lips are tingling and my throat feels tight. What should I take?', { said: ['rule.emergency', 'rule.ask_what_else'], cards: [] }],
+    // M4 Step 12 fix round 1 (I2): every named allergen gets its own ask, not only the first.
+    ['I ate shrimp and peanuts and my throat is closing', { said: ['rule.emergency', 'rule.ask_what_else', 'rule.ask_what_else'], cards: [] }],
   ])('%s', (text, want) => {
     const r = engine().reply(text, ctx());
     if (want.cards) expect(cards(r)).toMatchObject(want.cards);
@@ -133,6 +136,46 @@ describe('scripted engine', () => {
     expect(said(r).slice(1).every((t) => t.startsWith('rule.'))).toBe(true);
   });
 
+  test.each([
+    "I'm allergic to sesame and shellfish, my lips are swelling",
+    "I'm allergic to peanuts and my throat is tight",
+    "my throat is closing, I had peanuts, I'm allergic to them, please also add milk as an intolerance",
+  ])('M-2: an emergency turn never carries a card, severe or not, as on the server: %s', (text) => {
+    const r = engine().reply(text, ctx());
+    expect(said(r)[0]).toBe('rule.emergency');
+    expect(r.cards).toEqual([]);
+    expect(said(r).slice(1).length).toBeGreaterThan(0);
+  });
+
+  test('m-4: after a child turn every later turn gets child.grownup and no card or intent; an emergency gets its line with no ask', () => {
+    const child = createChildFlag();
+    const e = createScriptedEngine({ dialogue: createDialogue(content.pan), graph, ruleTerms: content.ruleTerms, recipes, now: () => NOW, child });
+    expect(said(e.reply('My market day is Saturday.', ctx()))).not.toContain('child.grownup');
+    expect(said(e.reply('hi im mia im 8 my mum lets me use it', ctx()))).toEqual(['child.grownup']);
+    expect(child.on).toBe(true);
+    for (const t of ['My market day is Saturday.', "I'm allergic to sesame", 'I had toast for breakfast', 'I bought eggs', 'yes', 'undo that', '']) {
+      const r = e.reply(t, ctx());
+      expect(said(r), t).toEqual(['child.grownup']);
+      expect(r.cards, t).toEqual([]);
+      expect(r.intents, t).toEqual([]);
+    }
+    const em = e.reply('I ate shrimp and peanuts and my throat is closing', ctx());
+    expect(said(em)).toEqual(['rule.emergency']);
+    expect(em.cards).toEqual([]);
+    child.reset();
+    expect(cards(e.reply('My market day is Saturday.', ctx()))).toHaveLength(1);
+  });
+
+  test('M-5 (S13): a rule card milder than a saved rule is never offered; rule.already_saved instead; a stricter one still is', () => {
+    const saved = [{ id: 'r1', target: { kind: 'ingredient' as const, ids: ['peanut'] }, type: 'avoid' as const, severity: 'anaphylactic' as const }];
+    const e = createScriptedEngine({ dialogue: createDialogue(content.pan), graph, ruleTerms: content.ruleTerms, recipes, now: () => NOW, savedRules: () => saved });
+    const r = e.reply("I'm intolerant to peanuts", ctx());
+    expect(r.cards).toEqual([]);
+    expect(said(r)).toEqual(['rule.already_saved']);
+    const milk = e.reply("I'm allergic to milk", ctx());
+    expect(cards(milk)).toMatchObject([{ kind: 'rule', rule: { target: { ids: ['milk'] } } }]);
+  });
+
   test("I'm vegan, had eggs and my throat is closing → the emergency line, then the egg ask (no diet card)", () => {
     const r = engine().reply("I'm vegan, had eggs and my throat is closing", ctx());
     expect(said(r)).toEqual(['rule.emergency', 'rule.ask_what_else']);
@@ -197,6 +240,26 @@ describe('scripted engine', () => {
     expect(e.reply('yes', ctx({ turn: 3, openCards: profile })).intents).toEqual([]);
     expect(e.reply('no', ctx({ turn: 2, openCards: severe })).intents).toEqual([{ kind: 'reject', localId: id(severe) }]);
     expect(e.reply('undo that', ctx({ turn: 2 })).intents).toEqual([{ kind: 'undo' }]);
+  });
+
+  test('typed yes with a local and a server card both open → confirm.tap_card, never a confirm (Step 9 carry)', () => {
+    const e = engine();
+    const profile = e.reply('My market day is Saturday.', ctx({ turn: 1 })).cards;
+    const serverCard: CardView = { origin: 'server', proposalId: 'P1', expiresAt: '2099-01-01T00:00:00Z', card: profile[0].card, issuedTurn: 1 };
+    const mixed = e.reply('yes', ctx({ turn: 2, openCards: [...profile, serverCard] }));
+    expect(mixed.intents).toEqual([]);
+    expect(said(mixed)).toEqual(['confirm.tap_card']);
+    // A lone server card is never confirmed by this engine either.
+    // An older card still open counts too: never a guess between two open cards.
+    const older: CardView = { ...profile[0], localId: 'old', issuedTurn: 0 } as CardView;
+    const withOld = e.reply('yes', ctx({ turn: 2, openCards: [older, profile[0]] }));
+    expect(withOld.intents).toEqual([]);
+    expect(said(withOld)).toEqual(['confirm.tap_card']);
+    // Undo is never blocked by open cards: it goes by the trail (fix round 1, M1).
+    expect(e.reply('undo', ctx({ turn: 2, openCards: [older, profile[0]] })).intents).toEqual([{ kind: 'undo' }]);
+    const lone = e.reply('yes', ctx({ turn: 2, openCards: [serverCard] }));
+    expect(lone.intents).toEqual([]);
+    expect(said(lone)).toEqual(['confirm.tap_card']);
   });
 
   test('a profile card from the engine is accepted by PUT /profile', () => {
