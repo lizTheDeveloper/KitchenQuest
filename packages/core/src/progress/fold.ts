@@ -43,7 +43,7 @@ export interface FoldState {
 export const key = (...parts: (string | number)[]): string => JSON.stringify(parts);
 
 /** The once-key a grant uses up, read from the event it was granted for; null for grants with no key. */
-export function grantKey(g: RewardGrant, e: ProgressEvent): string | null {
+function grantKey(g: RewardGrant, e: ProgressEvent): string | null {
   if (!isValidDate(e.at)) return null;
   if (g.kind === 'certificate') return key('cert', g.technique);
   if (g.kind === 'stamp') {
@@ -65,7 +65,8 @@ export function grantKey(g: RewardGrant, e: ProgressEvent): string | null {
       return e.kind === 'quest_done' ? key('quest', e.quest) : null;
     case 'market_run':
       return e.kind === 'market_run' ? key('market', isoWeek(e.at)) : null;
-    default:
+    case 'nourishment': // counted per date in `nourish`
+    case 'refresh': // once per refresh by freshness itself
       return null;
   }
 }
@@ -121,7 +122,7 @@ const addTo = (m: Map<string, Set<string>>, k: string, v: string) => {
 };
 
 /** Apply one accepted event's own facts (not its grants) to the state. */
-export function applyEvent(s: FoldState, e: ProgressEvent, cat: Catalogue): void {
+function applyEvent(s: FoldState, e: ProgressEvent, cat: Catalogue): void {
   s.ids.add(e.id);
   s.perDate.set(e.at, (s.perDate.get(e.at) ?? 0) + 1);
   if (!isValidDate(e.at)) return;
@@ -142,13 +143,18 @@ export function applyEvent(s: FoldState, e: ProgressEvent, cat: Catalogue): void
     case 'quest_done':
       if (!s.questsDone.includes(e.quest)) s.questsDone.push(e.quest);
       break;
-    default:
-      break;
+    case 'lesson':
+    case 'drill':
+    case 'recognized':
+    case 'market_run':
+    case 'meal_logged':
+    case 'imported':
+      break; // the toolkit fold above is all they change
   }
 }
 
 /** Apply one grant. `e` is the event it was granted for, when the history still holds it. */
-export function applyGrant(s: FoldState, g: RewardGrant, e: ProgressEvent | undefined): void {
+function applyGrant(s: FoldState, g: RewardGrant, e: ProgressEvent | undefined): void {
   switch (g.kind) {
     case 'xp':
       s.xp += nonNeg(g.amount);

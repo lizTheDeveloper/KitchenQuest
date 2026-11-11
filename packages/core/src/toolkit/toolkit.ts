@@ -102,8 +102,13 @@ function techniqueEventsOf(state: ToolkitState, e: ProgressEvent, cat: Catalogue
     }
     case 'imported':
       return [{ kind: 'imported', technique: e.technique, at: e.at, tier: e.tier, firstAt: e.firstAt, lastUsedAt: e.lastUsedAt, recipes: [...e.recipes] }];
-    default:
+    case 'quest_step':
+    case 'market_run':
+    case 'meal_logged':
       return [];
+    default:
+      return []; // stored data is not trusted: an unknown kind changes nothing
+
   }
 }
 

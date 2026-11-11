@@ -42,7 +42,7 @@ export type RewardGrant =
   /** A technique reached "Yours" (audit M-1). */
   | { kind: 'certificate'; technique: string; eventId: string };
 
-/** What `grantsFor` needs to validate and price an event, built from content and recipes. */
+/** What `grantsFor` needs to validate and reward an event, built from content and recipes. */
 export interface Catalogue {
   recipes: ReadonlyMap<string, { cook: string; skills: readonly string[]; sacred: boolean }>;
   /** `requires` is unlock.requires, enforced (C4). unlock.trust is advisory and not carried here. */

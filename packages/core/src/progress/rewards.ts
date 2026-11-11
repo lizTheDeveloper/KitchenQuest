@@ -268,7 +268,8 @@ function eventGrants(e: ProgressEvent, s: FoldState, cat: Catalogue, data: Rewar
     }
     case 'imported':
       return []; // rebuilds the M3 record; grants nothing, not even a certificate
-    default:
+    case 'quest_step': // quest XP comes with quest_done
+    case 'recognized': // its certificate, when it lifts Tried to Yours, is below
       break;
   }
   out.push(...certificates(before, after, s, data, e.id));
@@ -278,7 +279,7 @@ function eventGrants(e: ProgressEvent, s: FoldState, cat: Catalogue, data: Rewar
 /**
  * What one event earns, given what the history already holds (Ruling 7). Total and pure: it never throws on
  * player-shaped input. Problems non-empty → reject the event and grant nothing. It reads only the event, the
- * history, the catalogue and the data: there is no entitlement input (never rule 3) and nothing reads a run of days.
+ * history, the catalogue and the data: no paid status is an input (never rule 3) and nothing reads a run of days.
  */
 export function grantsFor(
   event: ProgressEvent,
