@@ -17,8 +17,10 @@ interface Facts {
   keys: string[];
   /** cook id → ISO weeks in which that cook's dish was cooked (Ruling 2). */
   cookWeeks: Record<string, string[]>;
-  /** local date → minutes of the meal logs that earned nourishment (Ruling 6: grants, not events). */
-  nourish: Record<string, number[]>;
+  /** local date → nourishment grants made that day, by the grant's own isoDay (Ruling 6; I2 ruling). */
+  nourishCount: Record<string, number>;
+  /** local date → minutes of surviving meal-log events that earned nourishment (the 2 h gap). */
+  nourishMinutes: Record<string, number[]>;
 }
 
 export interface FoldState {
@@ -26,7 +28,8 @@ export interface FoldState {
   perDate: Map<string, number>;
   keys: Set<string>;
   cookWeeks: Map<string, Set<string>>;
-  nourish: Map<string, number[]>;
+  nourishCount: Map<string, number>;
+  nourishMinutes: Map<string, number[]>;
   xp: number;
   /** The highest level granted, at least 1. */
   level: number;
@@ -82,7 +85,8 @@ function fromBase(base: ProgressSnapshot | null): FoldState {
     perDate: new Map(),
     keys: new Set(),
     cookWeeks: new Map(),
-    nourish: new Map(),
+    nourishCount: new Map(),
+    nourishMinutes: new Map(),
     xp: 0,
     level: 1,
     stamps: 0,
@@ -100,8 +104,9 @@ function fromBase(base: ProgressSnapshot | null): FoldState {
   for (const [d, n] of entries(f.perDate)) s.perDate.set(d, nonNeg(n));
   for (const k of strings(f.keys)) s.keys.add(k);
   for (const [c, w] of entries(f.cookWeeks)) s.cookWeeks.set(c, new Set(strings(w)));
-  for (const [d, m] of entries(f.nourish))
-    s.nourish.set(d, Array.isArray(m) ? m.filter((x): x is number => typeof x === 'number') : []);
+  for (const [d, n] of entries(f.nourishCount)) s.nourishCount.set(d, nonNeg(n));
+  for (const [d, m] of entries(f.nourishMinutes))
+    s.nourishMinutes.set(d, Array.isArray(m) ? m.filter((x): x is number => typeof x === 'number') : []);
   const v: Partial<ProgressView> = isObj(base.view) ? base.view : {};
   s.xp = nonNeg(v.xp);
   s.level = Math.max(1, nonNeg(v.level));
@@ -153,12 +158,20 @@ export function applyEvent(s: FoldState, e: ProgressEvent, cat: Catalogue): void
   }
 }
 
-/** Apply one grant. `e` is the event it was granted for, when the history still holds it. */
+/**
+ * Apply one grant. `e` is the event it was granted for, when the history still holds it. A grant whose event was
+ * erased still counts in full: its XP, its id as seen (I1) and its day's nourishment count (I2 ruling).
+ */
 export function applyGrant(s: FoldState, g: RewardGrant, e: ProgressEvent | undefined): void {
+  s.ids.add(g.eventId);
   switch (g.kind) {
     case 'xp':
       s.xp += nonNeg(g.amount);
-      if (g.reason === 'nourishment' && e?.kind === 'meal_logged') s.nourish.set(e.at, [...(s.nourish.get(e.at) ?? []), e.minute]);
+      if (g.reason === 'nourishment') {
+        const day = isValidDate(g.isoDay) ? g.isoDay : e?.at;
+        if (day !== undefined) s.nourishCount.set(day, (s.nourishCount.get(day) ?? 0) + 1);
+        if (e?.kind === 'meal_logged') s.nourishMinutes.set(e.at, [...(s.nourishMinutes.get(e.at) ?? []), e.minute]);
+      }
       break;
     case 'stamp':
       s.stamps += 1;
@@ -219,7 +232,8 @@ export function snapshotOf(s: FoldState): ProgressSnapshot {
     perDate: Object.fromEntries(s.perDate),
     keys: [...s.keys],
     cookWeeks: sortedRecord(s.cookWeeks),
-    nourish: Object.fromEntries([...s.nourish].map(([d, m]) => [d, [...m]])),
+    nourishCount: Object.fromEntries(s.nourishCount),
+    nourishMinutes: Object.fromEntries([...s.nourishMinutes].map(([d, m]) => [d, [...m]])),
   };
   return { view: viewOf(s), facts };
 }

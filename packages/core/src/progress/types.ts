@@ -20,7 +20,11 @@ export type ProgressEvent =
   | { id: string; kind: 'recognized'; at: string; quest: string; technique: string }
   /** `weekStart` records which plan week the run closed; grants use `isoWeek(at)` (C16). */
   | { id: string; kind: 'market_run'; at: string; weekStart: string }
-  /** `minute` is the minute of the local day (0–1439). There is no meal content. */
+  /**
+   * `minute` is the wall-clock minute of the local day (0–1439). There is no meal content. Across a DST change two
+   * logs an hour apart can read as the same minute (the second earns nothing) or 70 real minutes as 130: harmless,
+   * never a penalty (M5).
+   */
   | { id: string; kind: 'meal_logged'; at: string; minute: number }
   /** An M3 device toolkit record (Ruling 8). Grants nothing. */
   | { id: string; kind: 'imported'; at: string; technique: string; tier: Tier; firstAt: string; lastUsedAt: string; recipes: string[] };
@@ -32,15 +36,23 @@ export type XpReason = 'lesson' | 'drill' | 'cook' | 'frame' | 'quest' | 'market
 /** The stamp kinds; each has a `stamps` amount in data/rewards.yaml and a `stamp_names` entry (Step 4, C13). */
 export type StampId = 'quest_done' | 'certificate' | 'market_run';
 
-/** What an event earned, fixed when granted. Never negative, never reversed (spec §6). */
-export type RewardGrant =
-  | { kind: 'xp'; amount: number; reason: XpReason; eventId: string }
-  | { kind: 'stamp'; stamp: StampId; eventId: string }
+/**
+ * What an event earned, fixed when granted. Never negative, never reversed (spec §6).
+ *
+ * Self-contained (I2 ruling): `id` is the grant's own id, `eventId` the event it was granted for, and `isoDay` that
+ * event's local date (YYYY-MM-DD). A grant holds no event content (no recipe, quest, minute or week start), so it can
+ * outlive its event: erasing an event (a meal-log undo, a `health_data` delete) keeps the grant, and with it the XP,
+ * the seen id and the day's nourishment count. Only account delete removes grants (both ledgers go).
+ */
+export type RewardGrant = { id: string; eventId: string; isoDay: string } & (
+  | { kind: 'xp'; amount: number; reason: XpReason }
+  | { kind: 'stamp'; stamp: StampId }
   /** The level reached; only ever one higher than before. */
-  | { kind: 'trust'; cook: string; level: number; eventId: string }
-  | { kind: 'level'; level: number; eventId: string }
+  | { kind: 'trust'; cook: string; level: number }
+  | { kind: 'level'; level: number }
   /** A technique reached "Yours" (audit M-1). */
-  | { kind: 'certificate'; technique: string; eventId: string };
+  | { kind: 'certificate'; technique: string }
+);
 
 /** What `grantsFor` needs to validate and reward an event, built from content and recipes. */
 export interface Catalogue {

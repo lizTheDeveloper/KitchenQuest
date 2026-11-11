@@ -51,3 +51,17 @@ export function compactHistory(h: ProgressHistory, keep: number, cat: Catalogue)
   const base = snapshotOf(foldHistory({ events: folded, grants: foldedGrants, base: h.base }, cat));
   return { events: kept, grants: keptGrants, base };
 }
+
+/**
+ * Erase events: a meal-log undo, or a `health_data` delete (I2 ruling). Every grant is kept, so XP, level, stamps
+ * and trust never drop, and a grant's own `eventId` and `isoDay` keep the id seen and the nourishment cap counted.
+ * The 2 h meal gap then compares surviving meal-log events only.
+ *
+ * Meant for `meal_logged` events (meal logs are account-only, so there are none in a device log or compacted base).
+ * Erasing other kinds also keeps XP, but views derived from events (toolkit tiers, quest steps, cookedOn) would lose
+ * them, so callers erase only meal logs. Account delete is not this: it removes both ledgers, events and grants.
+ */
+export function eraseEvents(h: ProgressHistory, ids: Iterable<string>): ProgressHistory {
+  const gone = new Set(ids);
+  return { events: h.events.filter((e) => !gone.has(e.id)), grants: h.grants, base: h.base };
+}

@@ -89,14 +89,23 @@ describe('trust', () => {
     let p = play(finishQuest('leela-tempering', MON));
     expect(kinds(last(p).grants)).toEqual(['xp:quest:40', 'stamp:quest_done', 'trust:leela:1']);
     const rises: Record<number, string[]> = {};
-    // Weeks 0–6 in a row, then a six-week gap, then weeks 13–16. Two cooks in week 1 (parippu and sambar).
+    // Weeks 0–6 in a row, then a six-week gap, then weeks 13–16. In week 1, two cooks: Leela's parippu and sambar
+    // (two of her dishes, two days) and Marisol's frijoles (her quest isn't done, so it moves nothing of Leela's).
     for (const w of [0, 1, 2, 3, 4, 5, 6, 13, 14, 15, 16]) {
-      const events = w === 1 ? [ev.cooked('parippu', addDays(MON, 7)), ev.cooked('sambar', addDays(MON, 9))] : [ev.cooked('parippu', addDays(MON, 7 * w))];
+      const events =
+        w === 1
+          ? [ev.cooked('parippu', addDays(MON, 7)), ev.cooked('frijoles-de-olla', addDays(MON, 8)), ev.cooked('sambar', addDays(MON, 9))]
+          : [ev.cooked('parippu', addDays(MON, 7 * w))];
       p = play(events, p.history);
       rises[w] = p.results.flatMap((r) => r.grants.filter((g) => g.kind === 'trust').map((g) => `${g.kind === 'trust' && g.level}`));
     }
     expect(rises).toEqual({ 0: [], 1: ['2'], 2: [], 3: ['3'], 4: [], 5: [], 6: ['4'], 13: [], 14: [], 15: ['5'], 16: [] });
     expect(deriveProgress(p.history, CAT).trust).toEqual({ leela: 5 });
+  });
+
+  test('two dishes of one cook in one ISO week are one cook-week (the M4 rename of the case above)', () => {
+    const p = play([...finishQuest('leela-tempering', MON), ev.cooked('parippu', MON), ev.cooked('sambar', addDays(MON, 3))]);
+    expect(p.history.grants.filter((g) => g.kind === 'trust').map((g) => g.kind === 'trust' && g.level)).toEqual([1]);
   });
 
   test('trust rises at most one level per event and never to a level the data has no name for', () => {
@@ -304,5 +313,52 @@ describe('validateRewards', () => {
     }
     // The count of trust names follows the thresholds, never a fixed number (C17).
     expect(validateRewards({ ...DATA, trust: { names: ['Stranger', 'Guest', 'Acquainted'], weeks_for_level: [3] } })).toEqual([]);
+  });
+});
+
+describe('fix round 1', () => {
+  test('I3: a second cook in the same ISO week never counts as another week, even with thresholds one week apart', () => {
+    const tight: RewardsData = { ...DATA, trust: { ...DATA.trust, weeks_for_level: [2, 3, 4, 5] } };
+    let p = play(finishQuest('leela-tempering', MON), EMPTY, tight);
+    p = play([ev.cooked('parippu', MON), ev.cooked('parippu', addDays(MON, 7))], p.history, tight); // 2 weeks → 2
+    expect(deriveProgress(p.history, CAT).trust.leela).toBe(2);
+    // Re-cooking within that same week (other days, another Leela dish) must not lift trust to 3 or 4.
+    p = play([ev.cooked('parippu', addDays(MON, 8)), ev.cooked('sambar', addDays(MON, 9)), ev.cooked('parippu', addDays(MON, 10))], p.history, tight);
+    expect(deriveProgress(p.history, CAT).trust.leela).toBe(2);
+    expect(xpOf(p.history.grants)).toBeGreaterThan(0);
+  });
+
+  test('I3: sacred cooks never count as cook-weeks for trust', () => {
+    // Ofrenda is Marisol's sacred dish: ten weeks of it, then her quest and one frijoles week → Guest only.
+    let p = play([...finishQuest('leela-tempering', MON), ...finishQuest('marisol-salt-question', MON)]);
+    for (let w = 0; w < 10; w++) p = play([ev.cooked('ofrenda', addDays(MON, 7 * w))], p.history);
+    p = play([ev.cooked('frijoles-de-olla', addDays(MON, 7 * 10))], p.history);
+    expect(deriveProgress(p.history, CAT).trust.marisol).toBe(1);
+    p = play([ev.cooked('frijoles-de-olla', addDays(MON, 7 * 11))], p.history);
+    expect(deriveProgress(p.history, CAT).trust.marisol).toBe(2); // the second real cook-week
+  });
+
+  test('M1: a sacred or imported event carries no level grant, even after a retune', () => {
+    const p = play([ev.cooked('parippu', MON)]);
+    const gentle: RewardsData = { ...DATA, levels: [10, 20, 30] };
+    expect(grantsFor(ev.cooked('ofrenda', MON), p.history, CAT, gentle, T)).toEqual({ grants: [], problems: [] });
+    const imp: ProgressEvent = { id: 'imp', kind: 'imported', at: MON, technique: 'grains', tier: 'tried', firstAt: MON, lastUsedAt: MON, recipes: ['onigiri'] };
+    expect(grantsFor(imp, p.history, CAT, gentle, T)).toEqual({ grants: [], problems: [] });
+    // Nor any event that earned no XP: a same-day re-cook.
+    expect(grantsFor(ev.cooked('parippu', MON), p.history, CAT, gentle, T)).toEqual({ grants: [], problems: [] });
+    // The catch-up comes with the next event that earns XP.
+    const next = grantsFor(ev.lesson('onigiri', MON), p.history, CAT, gentle, T);
+    expect(kinds(next.grants)).toEqual(['xp:lesson:10', 'level:2', 'level:3', 'level:4']);
+  });
+
+  test('M3: an imported record must match the catalogue: its recipes teach the technique and its tier fits them', () => {
+    const imp = (technique: string, tier: 'seen' | 'tried' | 'yours', recipes: string[]): ProgressEvent => ({ id: `i-${technique}-${tier}-${recipes.join()}`, kind: 'imported', at: MON, technique, tier, firstAt: MON, lastUsedAt: MON, recipes });
+    for (const bad of [imp('knife', 'tried', ['onigiri']), imp('knife', 'tried', ['pizza']), imp('legumes', 'yours', ['parippu']), imp('legumes', 'tried', []), imp('legumes', 'seen', ['parippu']), imp('legumes', 'tried', ['parippu', 'sambar'])])
+      expect(grantsFor(bad, EMPTY, CAT, DATA, T).problems, bad.id).toEqual(['bad_field']);
+    for (const good of [imp('knife', 'seen', []), imp('legumes', 'tried', ['parippu']), imp('legumes', 'yours', ['parippu', 'frijoles-de-olla'])])
+      expect(grantsFor(good, EMPTY, CAT, DATA, T), good.id).toEqual({ grants: [], problems: [] });
+    // The laundering probe: no forged Tried knife from onigiri, so no certificate through recognition.
+    const p = play([...finishQuest('leela-tempering', MON), imp('knife', 'tried', ['onigiri']), ev.recognized('leela-tempering', 'knife', MON)]);
+    expect(p.history.grants.filter((g) => g.kind === 'certificate')).toEqual([]);
   });
 });

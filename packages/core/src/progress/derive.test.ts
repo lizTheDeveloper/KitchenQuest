@@ -120,3 +120,17 @@ describe('compactHistory', () => {
     }
   });
 });
+
+test('I3: compaction keeps the nourishment facts of a folded date: a 4th qualifying meal there earns nothing', () => {
+  const day = MON;
+  const h = play([ev.meal(day, 480), ev.meal(day, 600), ev.meal(day, 720), ev.cooked('parippu', addDays(day, 1))]).history;
+  const c = compactHistory(h, 1, CAT); // all three meals are in the base now
+  expect(c.events).toHaveLength(1);
+  const late = ev.meal(day, 1000);
+  expect(grantsFor(late, h, CAT, DATA, T).grants).toEqual([]);
+  expect(grantsFor(late, c, CAT, DATA, T).grants).toEqual([]);
+  expect(grantsFor(late, JSON.parse(JSON.stringify(c)) as ProgressHistory, CAT, DATA, T).grants).toEqual([]);
+  // And the 2 h gap against a folded meal still holds.
+  const h2 = play([ev.meal(day, 480), ev.cooked('parippu', addDays(day, 1))]).history;
+  expect(grantsFor(ev.meal(day, 540), compactHistory(h2, 1, CAT), CAT, DATA, T).grants).toEqual([]);
+});

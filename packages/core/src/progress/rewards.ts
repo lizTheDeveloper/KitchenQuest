@@ -157,9 +157,20 @@ function validateKind(e: Record<string, unknown>, s: FoldState, cat: Catalogue):
     case 'imported': {
       technique();
       const datesOk = isValidDate(e.firstAt) && isValidDate(e.lastUsedAt) && e.firstAt <= e.lastUsedAt;
+      // M3: an M3 record is checked against the catalogue so it can't be laundered into a certificate. Each recipe is
+      // a known, non-sacred dish that teaches the technique, and the tier is the one M3's rule gives those recipes
+      // (none → Seen, one → Tried, two or more → Yours).
+      const recipes: unknown = e.recipes;
       const recipesOk =
-        Array.isArray(e.recipes) && e.recipes.length <= MAX_IMPORTED_RECIPES && e.recipes.every(isStr) && new Set(e.recipes).size === e.recipes.length;
-      if (typeof e.tier !== 'string' || !TIERS.has(e.tier) || !datesOk || !recipesOk) p.push('bad_field');
+        Array.isArray(recipes) &&
+        recipes.length <= MAX_IMPORTED_RECIPES &&
+        new Set(recipes).size === recipes.length &&
+        recipes.every((r) => {
+          const recipe = isStr(r) ? cat.recipes.get(r) : undefined;
+          return recipe !== undefined && !recipe.sacred && recipe.skills.includes(e.technique as string);
+        });
+      const tierOk = recipesOk && e.tier === (recipes.length === 0 ? 'seen' : recipes.length === 1 ? 'tried' : 'yours');
+      if (typeof e.tier !== 'string' || !TIERS.has(e.tier) || !datesOk || !recipesOk || !tierOk) p.push('bad_field');
       break;
     }
     default:
@@ -181,10 +192,13 @@ function validate(event: unknown, s: FoldState, cat: Catalogue): ProgressProblem
 
 // ---- grants -------------------------------------------------------------------------------------------------
 
+/** A grant before its own id and day are stamped on (`evaluate` adds both). */
+type Draft = RewardGrant extends infer G ? (G extends RewardGrant ? Omit<G, 'id' | 'isoDay'> : never) : never;
+
 const RANK = { seen: 0, tried: 1, yours: 2 } as const;
 
-function certificates(before: ToolkitState, after: ToolkitState, s: FoldState, data: RewardsData, eventId: string): RewardGrant[] {
-  const out: RewardGrant[] = [];
+function certificates(before: ToolkitState, after: ToolkitState, s: FoldState, data: RewardsData, eventId: string): Draft[] {
+  const out: Draft[] = [];
   for (const [technique, r] of Object.entries(after.techniques)) {
     const was = Object.hasOwn(before.techniques, technique) ? before.techniques[technique].tier : null;
     if (r.tier !== 'yours' || (was !== null && RANK[was] >= RANK.yours) || s.keys.has(key('cert', technique))) continue;
@@ -194,10 +208,10 @@ function certificates(before: ToolkitState, after: ToolkitState, s: FoldState, d
   return out;
 }
 
-const stamps = (stamp: StampId, data: RewardsData, eventId: string): RewardGrant[] =>
+const stamps = (stamp: StampId, data: RewardsData, eventId: string): Draft[] =>
   Array.from({ length: data.stamps[stamp] }, () => ({ kind: 'stamp', stamp, eventId }) as const);
 
-function trustRise(cook: string, cookWeeks: number, s: FoldState, cat: Catalogue, data: RewardsData, eventId: string): RewardGrant[] {
+function trustRise(cook: string, cookWeeks: number, s: FoldState, cat: Catalogue, data: RewardsData, eventId: string): Draft[] {
   const questDone = s.questsDone.some((q) => {
     const quest = cat.quests.get(q);
     return quest !== undefined && quest.cook === cook && quest.trust >= 1;
@@ -208,8 +222,8 @@ function trustRise(cook: string, cookWeeks: number, s: FoldState, cat: Catalogue
   return [{ kind: 'trust', cook, level: current + 1, eventId }];
 }
 
-function eventGrants(e: ProgressEvent, s: FoldState, cat: Catalogue, data: RewardsData, t: FreshnessThresholds): RewardGrant[] {
-  const out: RewardGrant[] = [];
+function eventGrants(e: ProgressEvent, s: FoldState, cat: Catalogue, data: RewardsData, t: FreshnessThresholds): Draft[] {
+  const out: Draft[] = [];
   const xp = (amount: number, reason: XpReason, onceKey: string | null) => {
     if (amount <= 0 || (onceKey !== null && s.keys.has(onceKey))) return;
     out.push({ kind: 'xp', amount, reason, eventId: e.id });
@@ -261,8 +275,11 @@ function eventGrants(e: ProgressEvent, s: FoldState, cat: Catalogue, data: Rewar
     case 'meal_logged': {
       // Ruling 5/6: flat, capped per day, counted on grants already made for this date (an undo never re-opens it).
       const n = data.xp.nourishment;
-      const earned = s.nourish.get(e.at) ?? [];
-      if (earned.length < n.max_per_day && earned.every((m) => Math.abs(m - e.minute) >= n.min_gap_minutes))
+      // The cap counts the day's grants by their own isoDay, so an erased log still uses its slot. The gap compares
+      // surviving meal-log events that earned, since a grant carries no minute (I2 ruling).
+      const count = s.nourishCount.get(e.at) ?? 0;
+      const earned = s.nourishMinutes.get(e.at) ?? [];
+      if (count < n.max_per_day && earned.every((m) => Math.abs(m - e.minute) >= n.min_gap_minutes))
         xp(n.per_log, 'nourishment', null);
       break;
     }
@@ -286,10 +303,15 @@ function evaluate(
   const problems = validate(event, s, cat);
   if (problems.length > 0) return { grants: [], problems };
 
-  const grants = eventGrants(event, s, cat, data, thresholds);
-  const gained = grants.reduce((sum, g) => sum + (g.kind === 'xp' ? g.amount : 0), 0);
-  const reached = levelFor(s.xp + gained, data.levels);
-  for (let level = s.level + 1; level <= reached; level++) grants.push({ kind: 'level', level, eventId: event.id });
+  const drafts = eventGrants(event, s, cat, data, thresholds);
+  const gained = drafts.reduce((sum, g) => sum + (g.kind === 'xp' ? g.amount : 0), 0);
+  // Levels come only with XP this event earned (M1): a sacred, imported or zero-XP event carries no level grant,
+  // even after a retune; the catch-up waits for the next event that earns.
+  if (gained > 0) {
+    const reached = levelFor(s.xp + gained, data.levels);
+    for (let level = s.level + 1; level <= reached; level++) drafts.push({ kind: 'level', level, eventId: event.id });
+  }
+  const grants = drafts.map((g, i): RewardGrant => ({ ...g, id: `${event.id}#${i}`, isoDay: event.at }));
   return { grants, problems: [] };
 }
 
@@ -297,6 +319,10 @@ function evaluate(
  * What one event earns, given what the history already holds (Ruling 7). Total and pure: it never throws on
  * player-shaped input. Problems non-empty → reject the event and grant nothing. It reads only the event, the
  * history, the catalogue and the data: no paid status is an input (never rule 3) and nothing reads a run of days.
+ *
+ * Order matters (M2): each grant is fixed when written, so the same events in another order can earn a different,
+ * never lower, total (meal gaps, trust weeks counted before the quest). Device and account views need not converge;
+ * they are merged field-wise upward (Ruling 8).
  */
 export function grantsFor(
   event: ProgressEvent,
