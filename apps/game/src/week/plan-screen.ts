@@ -13,7 +13,8 @@ import { addDays, canonRecipes, emptyPlan, planContextFor, rulesOf, slotInputFor
 import { rememberWeek } from './memory';
 import { blockedLinesFor, blockedSlugs } from './blocked';
 import { renderPlanView, slotDay, weekdayName, writtenLine, type PlanRow, type SlotOfferView } from './plan-view';
-import { footnote, rulesLink, showFailure, statusLine } from './screen-kit';
+import { askHealthConsent, footnote, rulesLink, showFailure, statusLine } from './screen-kit';
+import { moveOffer } from './move';
 import { createWeekSource, type WeekSource } from './source';
 
 /**
@@ -73,6 +74,13 @@ export function planScreen(api: ApiClient, source?: WeekSource): Screen {
         return;
       }
       const { weekStart } = got.value;
+      // Ruling 2: a week planned on this device before signing in moves to the account only on a tap.
+      const offer = moveOffer({
+        store: ctx.store, client: api, weekStart: got.value.weekStart, today,
+        onMoved: () => { ctx.navigate({ name: 'plan' }); },
+        onConsent: (retry) => { askHealthConsent(retry); },
+      });
+      if (offer) status.el.after(offer);
       let saved: Plan | null = got.value.plan;
       let draft: Plan = saved ?? emptyPlan(weekStart);
       rememberWeek(weekStart, saved, ctx.store.get().account?.email ?? null);

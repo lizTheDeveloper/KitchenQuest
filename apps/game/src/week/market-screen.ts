@@ -12,7 +12,8 @@ import { contentText, h } from '../ui/dom';
 import { canonRecipes, planContextFor, rulesOf } from './context';
 import { rememberWeek } from './memory';
 import { writtenLine } from './plan-view';
-import { footnote, rulesLink, showFailure, statusLine } from './screen-kit';
+import { askHealthConsent, footnote, rulesLink, showFailure, statusLine } from './screen-kit';
+import { moveOffer } from './move';
 import { createWeekSource, type WeekSource } from './source';
 
 /**
@@ -63,6 +64,13 @@ export function marketScreen(api: ApiClient, source?: WeekSource): Screen {
       if (!alive) return;
       if (!got.ok) { showFailure(got, status, writtenLine); if (got.kind === 'rules') body.append(rulesLink()); return; }
       const plan: Plan | null = got.value.plan;
+      // Ruling 2: a week planned on this device before signing in moves to the account only on a tap.
+      const offer = moveOffer({
+        store: ctx.store, client: api, weekStart: got.value.weekStart, today,
+        onMoved: () => { ctx.navigate({ name: 'market' }); },
+        onConsent: (retry) => { askHealthConsent(retry); },
+      });
+      if (offer) status.el.after(offer);
       rememberWeek(got.value.weekStart, plan, ctx.store.get().account?.email ?? null);
       if (plan === null || !plan.items.some((i) => i.kind === 'dish')) { body.append(h('p', null, NO_PLAN)); return; }
 

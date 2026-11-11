@@ -15,11 +15,12 @@ export function statusLine(): { el: HTMLElement; show(text: string): void } {
   return { el, show(text) { el.textContent = text; } };
 }
 
-/** Open the Pan with `consent.health_first` and the health consent card. */
-function askHealthConsent(): void {
+/** Open the Pan with `consent.health_first` and the health consent card; `onGranted` runs once it is filed. */
+export function askHealthConsent(onGranted?: () => void): void {
   const { dialogue } = getMentorServices();
   const pan = getMentor();
-  pan.show({ items: [{ kind: 'said', said: dialogue.say('consent.health_first') }, { kind: 'consent', purpose: 'health_data' }], cards: [], intents: [], actions: [], notice: null });
+  const onAnswer = (a: string) => { if (a === 'granted') onGranted?.(); };
+  pan.show({ items: [{ kind: 'said', said: dialogue.say('consent.health_first') }, { kind: 'consent', purpose: 'health_data', onAnswer }], cards: [], intents: [], actions: [], notice: null });
   pan.open();
 }
 

@@ -12,6 +12,7 @@ import { acceptSlot, offerFor, planScreen } from './plan-screen';
 import { renderPlanView, writtenLine } from './plan-view';
 import { answerNudge, compost, noteNudge, rescueOffer } from './rescue';
 import { createWeekSource } from './source';
+import { mergedWeek, moveCandidates, moveOffer, moveWeek } from './move';
 
 const PARIPPU = 'india/kerala/parippu';
 const ONIGIRI = 'japan/osaka/onigiri';
@@ -271,5 +272,78 @@ describe('Ruling 5: a save blocked by a dish that is ⛔ now', () => {
     expect(note).toMatch(/coconut/);
     expect(note).not.toMatch(/try again/i);
     el.remove();
+  });
+});
+
+describe('Ruling 2: "Move this week to your account?"', () => {
+  type Call = { name: string; args: unknown[] };
+  function fake(over: Record<string, (...a: unknown[]) => unknown> = {}) {
+    const calls: Call[] = [];
+    const run = { id: 'run1', weekStart: MON, items: [{ key: 'green_chili', name: 'green chillies', ingredientId: 'green_chili', stall: 'wen', forDishes: [PARIPPU], ticked: false }], doneAt: null };
+    const base: Record<string, (...a: unknown[]) => unknown> = {
+      getPlan: () => ({ ok: true, status: 200, data: { plan: null, weekStart: MON, checks: [] } }),
+      putPlan: (p) => ({ ok: true, status: 200, data: { plan: { ...(p as object), id: 'row' }, checks: [] } }),
+      openRun: () => ({ ok: true, status: 200, data: run }),
+      tick: (_id, key) => ({ ok: true, status: 200, data: { ...run, items: run.items.map((i) => (i.key === key ? { ...i, ticked: true } : i)) } }),
+      finishRun: () => ({ ok: true, status: 200, data: { ...run, doneAt: '2026-11-11T12:00:00Z' } }),
+      ...over,
+    };
+    const client = new Proxy({}, { get: (_t, name: string) => (...args: unknown[]) => { calls.push({ name, args }); return Promise.resolve(base[name]?.(...args)); } }) as ApiClient;
+    return { client, calls };
+  }
+  /** A week planned and half-shopped signed out, then a sign-in. */
+  function signedInWithDeviceWeek() {
+    const s = store();
+    const w = createWeekStore({ store: s });
+    w.savePlan(plan([dish(6, PARIPPU)]));
+    const r = w.run(MON, TODAY)!;
+    w.tick(MON, r.items.find((i) => i.ingredientId === 'green_chili')!.key, true, TODAY);
+    s.update((x) => ({ ...x, account: { email: 'cook@example.com' }, accountRules: [] }));
+    return s;
+  }
+
+  test('only on a tap: PUT the week with today, replay the ticks, then the week leaves the device (moved, not copied)', async () => {
+    const s = signedInWithDeviceWeek();
+    const { client, calls } = fake();
+    expect(moveCandidates(s.get(), MON).plans).toHaveLength(1);
+    expect(await moveWeek(s, client, TODAY)).toBe('moved');
+    expect(calls.map((c) => c.name)).toEqual(['getPlan', 'putPlan', 'openRun', 'tick']);
+    expect(calls[1].args).toEqual([plan([dish(6, PARIPPU)]), TODAY]);
+    expect(calls[3].args).toEqual(['run1', 'green_chili', true, TODAY]);
+    expect(s.get().localWeek).toEqual({ plans: [], runs: [] });
+  });
+
+  test('without health_data: the consent path, and the week stays on the device', async () => {
+    const s = signedInWithDeviceWeek();
+    const { client, calls } = fake({ putPlan: () => ({ ok: false, status: 403, error: { code: 'consent_required', message: '', details: { purpose: 'health_data' } } }) });
+    expect(await moveWeek(s, client, TODAY)).toBe('consent');
+    expect(calls.map((c) => c.name)).toEqual(['getPlan', 'putPlan']);
+    expect(s.get().localWeek.plans).toHaveLength(1);
+  });
+
+  test('the account\'s own week is kept: the device items are added on the same dates', () => {
+    const account = plan([dish(1, ONIGIRI)]);
+    // A device week that starts on Sunday the 8th: its day 1 (Monday the 9th) is the account week's day 0.
+    const merged = mergedWeek(account, MON, [plan([dish(1, PARIPPU), dish(0, PARIPPU)], { weekStart: '2026-11-08' })]);
+    expect(merged.items).toEqual([dish(1, ONIGIRI), dish(0, PARIPPU)]);
+  });
+
+  test('signed out, in Family Table mode, or nothing on the device: no offer and no call', async () => {
+    const { client, calls } = fake();
+    const out = store();
+    expect(await moveWeek(out, client, TODAY)).toBe('nothing');
+    const ft = signedInWithDeviceWeek();
+    ft.update((x) => ({ ...x, settings: { ...x.settings, familyTable: true } }));
+    expect(await moveWeek(ft, client, TODAY)).toBe('nothing');
+    expect(moveOffer({ store: ft, client, weekStart: MON, today: TODAY, onMoved: () => undefined, onConsent: () => undefined })).toBeNull();
+    expect(calls).toEqual([]);
+  });
+
+  test('an account change while the move is on its way leaves the device week where it is (partitions)', async () => {
+    const s = signedInWithDeviceWeek();
+    const { client, calls } = fake({ putPlan: (p) => { s.update((x) => ({ ...x, account: { email: 'other@example.com' } })); return { ok: true, status: 200, data: { plan: p, checks: [] } }; } });
+    expect(await moveWeek(s, client, TODAY)).toBe('failed');
+    expect(calls.map((c) => c.name)).toEqual(['getPlan', 'putPlan']); // no run is opened or ticked under the other account
+    expect(s.get().localWeek.plans).toHaveLength(1);
   });
 });
