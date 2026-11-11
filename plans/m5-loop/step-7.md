@@ -6,16 +6,16 @@ The two most personal records the loop adds, plus the family-mode reservation th
 - Create:
   - `apps/api/src/book/notes-service.ts`, `apps/api/src/book/shared-table-service.ts`, `apps/api/src/book/routes.ts`;
   - `docs/compliance/notices/health_data-v3.md`;
-  - a generated migration `apps/api/migrations/0014_book_consent_subject.sql`.
+  - the next generated migration (`drizzle-kit generate`; never a hand-picked number, C6).
 - Modify:
   - `apps/api/src/db/schema.ts`: `marginNotes`, `sharedTable`; `consents.subjectKind` (`text not null default 'user'`, check `= 'user'`) and `consents.subjectId` (`uuid null`), Ruling 19; `SELF_READ_RESOURCES` += `'notes'`;
   - `apps/api/src/consent/health-data.ts`: `HEALTH_TABLES = [rules, mealLogs, marginNotes, messages, mentorProposals]`;
-  - `apps/api/src/consent/notices.ts`: current `health_data` = v3;
+  - `apps/api/src/consent/notices.ts`: current `health_data` = v3, and `ACCEPTED_VERSIONS.health_data = ['v3']`, so a v2 grant no longer counts;
   - `apps/api/src/account/routes.ts`: export `marginNotes` and `sharedTable`, decrypted;
   - `apps/api/src/errors.ts`: `too_many_notes`;
   - `apps/api/test/architecture.test.ts`: `HEALTH_SCHEMA_EXPORTS` += `marginNotes`, `HEALTH_SQL_TABLES` += `margin_notes`;
   - `apps/api/test/consent.test.ts`: the current notice version;
-  - `docs/compliance/data-inventory.md`: H-12 and H-13 built M5, K-4 "reserved M5 (subject columns)", the §6 columns, the §3.13 caps; `docs/compliance/risk-register.md` R-19 control.
+  - `docs/compliance/data-inventory.md`: H-12 and H-13 built M5, K-4 "reserved M5 (subject columns)", the §6 columns, the §3.13 caps; H-12 also records that `GET /notes` takes no recipe in its URL and returns all the player's notes (at most 20 per recipe), filtered by the client (Ruling 26, C32); `docs/compliance/risk-register.md` R-19 control.
 - Test: `apps/api/test/book.test.ts`, extend `apps/api/test/account.test.ts`, `apps/api/test/consent.test.ts` and `apps/api/test/architecture.test.ts`.
 
 **Tables:**
@@ -23,7 +23,7 @@ The two most personal records the loop adds, plus the family-mode reservation th
 - `shared_table(id uuid pk, user_id → users cascade, cooked_on date not null, sealed bytea not null, created_at)`. The `sealed` field is `{ recipe: string | null, frame: string | null, cookedFor: CookedFor }`, with AAD `{ table: 'shared_table', userId, rowId }`.
 
 **Interfaces:**
-- Consumes: `validateNote`, `checkWithNotes`, `MarginNote`, `CookedFor`, `COOKED_FOR_COUNTS`, `COOKED_FOR_WHO`, `NOTE_TEXT_MAX`, `MAX_NOTES_PER_RECIPE` (Step 3); `lockConsentIn`, `deleteHealthDataIn`, `sealFor`/`openFor` (M2/M4).
+- Consumes: `validateNote`, `checkWithNotes`, `MarginNote`, `CookedFor`, `SharedEntry`, `SharedTally`, `shareTally`, `COOKED_FOR_COUNTS`, `COOKED_FOR_WHO`, `NOTE_TEXT_MAX`, `MAX_NOTES_PER_RECIPE` (Step 3); `RecipeIndex` (Step 5); `lockConsentIn`, `deleteHealthDataIn`, `sealFor`/`openFor` (M2/M4).
 - Produces:
 ```ts
 // book/notes-service.ts
@@ -32,17 +32,19 @@ export async function createNoteIn(tx, deps: { keyring; catalog; recipes: Recipe
   // the returned `check` is checkWithNotes over ALL the player's notes on that recipe, today, with their rules — what "cook with my notes" will show
 export async function deleteNoteIn(tx, userId: string, id: string, at: Date, requestId?): Promise<void>;   // 404 when not theirs; no consent needed
 export async function loadNotes(db, keyring, userId: string, recipe?: string): Promise<(MarginNote & { id: string })[]>;
+  // `recipe` is for the service's own use (the per-recipe cap, createNoteIn's check); the route never passes one (C32)
 // book/shared-table-service.ts
-export async function recordSharedIn(tx, deps, userId: string, entry: { cookedOn: string; recipe: string | null; frame: string | null; cookedFor: CookedFor }, at: Date): Promise<{ id: string }>;
+export async function recordSharedIn(tx, deps, userId: string, entry: SharedEntry, at: Date): Promise<{ id: string }>;
   // zod: cookedFor.count ∈ COOKED_FOR_COUNTS, who ∈ COOKED_FOR_WHO | null — no other key, no string field at all beyond the slugs
-export async function sharedTally(db, keyring, userId: string): Promise<{ shared: number }>;   // meals shared; never a list of people
+export async function sharedTally(db, keyring, userId: string): Promise<SharedTally>;
+  // core shareTally over the opened rows: { shared, byRecipe: Record<slug, number> } — counts only, never a list of entries or people (C21)
 ```
 - Routes:
-  - `GET /notes?recipe=<slug>` → `{ notes, check }`. A canon slug in a query string is not health text (it is a public recipe id). It counts a self-read `'notes'`.
+  - `GET /notes` → `{ notes }`: every note the player has (at most `MAX_NOTES_PER_RECIPE` per recipe), with no recipe in the URL (P-5, Ruling 26, C32); any query string → 400. The client filters by recipe and runs core `checkWithNotes` itself for "cook with my notes". It counts a self-read `'notes'`.
   - `POST /notes { note, confirmed: true }` → 201.
   - `DELETE /notes/:id` → 204.
   - `POST /shared-table { entry, confirmed: true }` → 201.
-  - `GET /shared-table/tally` → `{ shared }`.
+  - `GET /shared-table/tally` → `SharedTally` (`{ shared, byRecipe }`), which the book uses for its per-dish counts (Step 11).
   - `DELETE /shared-table/:id` → 204.
 - Notes never feed a reward. Shared Table entries never feed a reward, a trust change or a gate (audit M-9: "never a requirement for trust or progress"). The architecture test asserts that `book/` imports nothing from `progress/` and `progress/` nothing from `book/`.
 - The v3 notice adds "your own notes on recipes (margin notes), which can show what you can't or won't eat" to the `health_data` categories, keeping GDPR Art. 9's religious-rules wording from v1. It is marked draft pending lawyer review (C-30). A v2 grant no longer counts, and the game shows the 3-C/HEALTH card again (M4's re-consent path).
@@ -56,13 +58,14 @@ test('note on a sacred recipe → 400; 21st note on one recipe → 400 too_many_
 test('POST /notes returns checkWithNotes: "swap lentils → peanut" on a peanut-rule player → blocked with the finding', ...);
 test('withdraw health_data with delete removes margin notes, keeps shared_table, plans and progress', ...);
 test('shared-table rejects any string field: { who: "Sam" } and { name: … } → 400; nothing stored', ...);
-test('tally counts meals shared, ignores just_me, and exposes no list', ...);
+test('tally counts meals shared in total and per recipe, ignores just_me, and exposes no list (C21)', ...);
+test('GET /notes returns the notes on every recipe; a ?recipe= query → 400, so nothing about food is in the URL (C32)', ...);
 test('notes and shared entries never create a progress_event or reward_grant', ...);
 test('consents.subject_kind defaults to user; inserting child_profile fails the check', ...);
 test('export includes marginNotes and sharedTable decrypted; DELETE /me leaves neither', ...);
 test('C-9: a note POST leaves no note text in captured logs', ...);
 ```
 - [ ] **7.2 Run** `npm test -w @kitchenquest/api -- book consent account architecture inventory` → FAIL.
-- [ ] **7.3 Implement.** Generate the migration. Follow the M4 lock order: user → consent → `margin_notes` row. Record DPIA and N-11 follow-ups for Step 12, not here.
+- [ ] **7.3 Implement.** Generate the migration and keep whatever number it is given. Follow the M4 lock order: user → consent → `margin_notes` row. Record DPIA and N-11 follow-ups for Step 12, not here.
 - [ ] **7.4 Run** `npm test -w @kitchenquest/api` → PASS.
 - [ ] **7.5 Commit** `feat(api): sealed margin notes (health) and a name-free Shared Table; consent subject reserved (C-45)`
