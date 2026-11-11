@@ -148,7 +148,7 @@ Rulings 22–27 come from the pre-flight scan (`.superpowers/sdd/README-m5-loop/
 - [x] [Step 7 — API: margin notes, Cooked for Someone, consent subject reserve](step-7.md)
 - [x] [Step 8 — API: the Pan plans the week (plan card, propose_plan, navigation chips, eval)](step-8.md)
 - [x] [Step 9 — Game: progress, quests, trust and the knife roll](step-9.md)
-- [ ] [Step 10 — Game: plan, market list, Use-It-Up Rescue and frames in cook mode](step-10.md)
+- [x] [Step 10 — Game: plan, market list, Use-It-Up Rescue and frames in cook mode](step-10.md)
 - [ ] [Step 11 — Game: cook → log, Cooked for Someone, margin notes, the Recipe Book and its export](step-11.md)
 - [ ] [Step 12 — Weekly-loop e2e, never-rules and free-forever sweep, compliance record](step-12.md)
 
