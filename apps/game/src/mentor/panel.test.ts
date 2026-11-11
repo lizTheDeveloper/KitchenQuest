@@ -701,7 +701,18 @@ test('a plan card is drawn as Form 7-W with each item\'s chip, once the week\'s 
   expect(el.querySelector('[data-slug="japan/osaka/onigiri"]')!.textContent).not.toContain('✅');
 });
 
-test('I5: a check that is not its item\'s is ❓, never ✅; a rule filed since shows the card ⛔ with its finding (M8)', async () => {
+test('I5: a check that is not its item\'s is ❓, never ✅ (no rules: nothing else makes it ❓)', async () => {
+  const card = PLAN_CARD();
+  card.checks = [{ slug: 'japan/osaka/onigiri', status: 'ok' }, { slug: 'india/kerala/parippu', status: 'ok' }]; // misaligned
+  const { root, pan } = mount();
+  pan.show({ ...reply([]), cards: [local(card)] });
+  await flush();
+  const status = (slug: string) => root.querySelector(`.pan-card [data-slug="${slug}"] .chip`)!.getAttribute('data-status');
+  expect(status('japan/osaka/onigiri')).toBe('unverified');
+  expect(status('india/kerala/parippu')).toBe('unverified');
+});
+
+test('M8: a rule filed since shows the card ⛔ with its finding; a misaligned check stays ❓', async () => {
   const card = PLAN_CARD();
   card.checks = [{ slug: 'japan/osaka/onigiri', status: 'ok' }, { slug: 'india/kerala/parippu', status: 'ok' }]; // misaligned
   const coconut = { id: 'r', target: { kind: 'ingredient' as const, ids: ['coconut'] }, type: 'avoid' as const, severity: 'allergy' as const };
