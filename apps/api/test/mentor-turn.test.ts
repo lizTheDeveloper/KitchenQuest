@@ -13,6 +13,7 @@ import { CaptureMailer } from '../src/mail/mailer.js';
 import { GUILD_KINDS } from '../src/mentor/allowance.js';
 import { loadPanBank } from '../src/mentor/lines.js';
 import { createProposal } from '../src/mentor/proposals.js';
+import { recordSentLive } from '../src/mentor/turn.js';
 import { RECIPES_DIR, syncCanon } from '../src/recipes/sync.js';
 import type { Db } from '../src/types.js';
 import { signIn } from './helpers/auth.js';
@@ -78,7 +79,7 @@ async function player(purposes: Purpose[] = [], email = `turn${++seq}@example.co
   return { cookie, userId, email };
 }
 
-type TurnExtra = { conversationId?: string | null; intakeStep?: string | null; screen?: { route: string; slug?: string } | null };
+type TurnExtra = { conversationId?: string | null; intakeStep?: string | null; screen?: { route: string; slug?: string } | null; turnKey?: string; answering?: string };
 const turnRes = (cookie: string, text: string, extra: TurnExtra = {}) =>
   call(cookie, {
     method: 'POST',
@@ -560,6 +561,75 @@ describe('failure, caps, metering, storage', () => {
     const p = await player(AI_HEALTH);
     await turn(p.cookie, 'what should I cook tonight?');
     expect(await sql`select units, cost_microusd from usage_events where user_id = ${p.userId}`).toEqual([{ units: 1, cost_microusd: 60 }]);
+  });
+
+  test('M-7: a turn that fails after the model answered still charges the allowance (units 1)', async () => {
+    let userId = '';
+    let called = 0;
+    const ai: AiProvider = {
+      model: 'fake/pan',
+      async complete() {
+        called++;
+        // While the model "runs", the saved rule becomes unreadable: the turn's own transaction then throws (a 500).
+        await sql`update rules set sealed = decode('00', 'hex') where user_id = ${userId}`;
+        return toolCall('propose_rule', { term: 'sesame', severity: 'allergy' });
+      },
+    };
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    userId = p.userId;
+    await addRule(p.cookie, ['peanut']);
+    const res = await turnRes(p.cookie, "I'm allergic to sesame");
+    expect(res.statusCode, res.body).toBe(500);
+    expect(called).toBe(1);
+    expect(await sql`select units, cost_microusd from usage_events where user_id = ${p.userId}`).toEqual([{ units: 1, cost_microusd: 60 }]);
+  });
+
+  test('N3: the "sent" row is written under the live-user lock: a deleted account is a 401 and nothing is written', async () => {
+    await makeApp(null);
+    const p = await player();
+    expect(await recordSentLive(db, p.userId, NOW)).toEqual(expect.any(Number));
+    expect((await call(p.cookie, { method: 'DELETE', url: '/me', payload: { confirm: 'delete my account' } })).statusCode).toBe(204);
+    await expect(recordSentLive(db, p.userId, NOW)).rejects.toMatchObject({ status: 401 });
+    expect(await countOf('usage_events', p.userId)).toBe(0);
+  });
+
+  test('J2: the model call carries the turn deadline signal', async () => {
+    const ai = fakeAi([reply('Rice.')]);
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    await turn(p.cookie, 'what should I cook tonight?');
+    expect(ai.requests[0].signal).toBeInstanceOf(AbortSignal);
+    expect(ai.requests[0].signal?.aborted).toBe(false);
+  });
+
+  test('J2: a turn repeated with the same turnKey is processed once: no second model call, no second card', async () => {
+    const ai = fakeAi([toolCall('propose_meal_log', { slot: 'breakfast', when: 'today', dish: null, servings: null, description: 'porridge' }), reply('Hm.')]);
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    const turnKey = crypto.randomUUID();
+    const first = await turn(p.cookie, 'I had porridge for breakfast', { turnKey });
+    expect(first.cards).toHaveLength(1);
+    // The client timed out before the reply, so its retry carries no conversation id.
+    const again = await turn(p.cookie, 'I had porridge for breakfast', { turnKey });
+    expect(again).toMatchObject({ conversationId: first.conversationId, route: 'deterministic', parts: [], cards: [], actions: [] });
+    const third = await turn(p.cookie, 'I had porridge for breakfast', { turnKey, conversationId: first.conversationId });
+    expect(third).toMatchObject({ route: 'deterministic', parts: [], cards: [] });
+    expect(ai.requests).toHaveLength(1);
+    expect(await countOf('mentor_proposals', p.userId)).toBe(1);
+    // A new key is a new turn.
+    expect((await turn(p.cookie, 'what should I cook tonight?', { turnKey: crypto.randomUUID(), conversationId: first.conversationId })).route).toBe('ai');
+  });
+
+  test('J2: two copies of one turn at once start it once', async () => {
+    const ai = fakeAi([reply('Rice.'), reply('Rice.')]);
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    const opened = await turn(p.cookie, 'hello');
+    const turnKey = crypto.randomUUID();
+    const both = await Promise.all([1, 2].map(() => turn(p.cookie, 'what should I cook tonight?', { turnKey, conversationId: opened.conversationId })));
+    expect(both.map((r) => r.route).sort()).toEqual(['ai', 'deterministic']);
+    expect(ai.requests).toHaveLength(2);
   });
 
   test('AI off → scripted/ai_off', async () => {

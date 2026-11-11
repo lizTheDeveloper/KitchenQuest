@@ -1,0 +1,160 @@
+# Milestone 5: Weekly loop and quests — Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Each task lives in its own step file.
+
+**Goal:** The week becomes a loop the player can actually live in: **plan → market run → cook → log**. The player plans taught dishes for the week by telling the Pan (or with the Form 7-W fallback). The plan becomes the Form 12-M market list, already checked against the pantry. Ticking items off puts them in the pantry with a date. Cooking a planned dish ends with three optional, skippable questions: who ate with you (Cooked for Someone), did you change anything (Margin Notes), and a one-tap log card. Around the loop sit the quest engine (talk, travel, riddle, drill, errand, cook, and the new `recognize` step), per-cook trust (levels 0–5), apprentice XP and Bureau Stamps, the Technique Toolkit tiers with Freshness, the Pan's weekly "One More Technique", Use-It-Up Rescue with Pantry Frames, and the Recipe Book with a free export. Every dish, frame filler and margin-note swap goes through the rules engine. Every write goes through a card or an explicit tap. All of it works with the AI off, and none of it rewards streaks, restriction or money.
+
+**Architecture:** Everything that decides lives in `packages/core`, so the client and the server compute the same thing:
+- `progress/`: content-free progress events, reward grants, levels and trust;
+- `quests/`: the quest engine;
+- `toolkit/`: tiers, freshness, recognition and the weekly technique slot;
+- `week/`: the plan, the market list, pantry dates, use-it-up candidates and frame filling;
+- `book/`: margin-note ops, the cooked-for parser and the book model.
+
+Reward amounts, caps and thresholds are data (`data/rewards.yaml`, `data/techniques.yaml`), read by core and never trusted from a client. The API stores two append-only ledgers per user, `progress_events` (what happened) and `reward_grants` (what that earned, fixed when granted, so a later tuning change can never lower anything). It adds sealed `meal_plans` and `market_runs` (H-11), sealed `margin_notes` (H-12, health data) and a sealed `shared_table` (H-13), each in export and delete. The mentor gains one write card, `plan`, and a navigation chip. The model may call only `propose_plan` and `propose_navigation`, each validated, re-checked by the rules engine and shown as a card or chip the player taps. Signed out, the game keeps progress, the plan and the market list on the device and uploads them once on sign-in, with idempotent ids. Margin notes, Cooked for Someone and meal logs are account-only.
+
+**Tech Stack:** Node 22, Fastify 5.12, drizzle 0.45, Postgres 16, zod 4, `yaml` (already an API dependency), Vitest 5, Vite 8 and Playwright 1.63.0 (pre-installed Chromium). No new runtime dependencies.
+
+**Spec:** `docs/superpowers/specs/2026-11-09-kitchenquest-design.md`:
+- §2 principles; §3.2 weekly loop and gentle failure; §3.3 recipe quest, trust, introductions;
+- §4.4 rules engine and substitutions; §5 one-tap logging fallback and the disordered-eating safeguards; §6 progression and rewards, "nothing earned is taken back";
+- §7.0 `plan_week` / `edit_plan`, `start_lesson` / `start_quest` / `open_scene`; §7.5 failure; §7.6b safety architecture (binding);
+- §8 scripted first; §9 privacy and export; §10 sacred dishes; §12 game Playwright flows for the weekly loop;
+- §13 (M5 = weekly loop and quests); §16 free forever and the never rules; §17 progression mechanics (every row tagged M5) and the Freshness guardrails;
+- §18 (Use-It-Up leads to the Neighborhood Pantry, M11); §19 (family data model reserved in M5); §20.
+
+Also:
+- `docs/business/2026-11-09-octalysis-audit.md` §2.4–§2.6, §3 M-1–M-14, §4.2, §5 R1–R10;
+- `docs/style/voice.md` §0, §3, §4, §7;
+- `content/README.md` (quest schema, trust levels, line bank rules);
+- `docs/compliance/ROADMAP.md` (C-45 reserve, N-7 "Cooked for Someone labels are decided with M5", N-11);
+- `docs/compliance/data-inventory.md` H-8, H-11, H-12, H-13, U-5, K-1, K-4;
+- `docs/compliance/risk-register.md` R-19, N-7;
+- `plans/m4-mentor/README.md` (Rulings, Deferred) and `apps/api/eval/cases.ts` (T07, T08, T13 "deferred: plan_week is M5").
+
+## Global Constraints
+
+Quoted from the spec unless marked. Every task's requirements include this section and the M2, M3 and M4 Global Constraints (`plans/m2-api/README.md`, `plans/m3-game/README.md`, `plans/m4-mentor/README.md`).
+
+- §2.1: "The AI suggests, deterministic code decides." (Plan rule: the model never picks a dish, a frame filler, a reward or a trust change. `propose_plan` carries dish *names* and weekdays, or a count to pick. Core `resolvePlanRequest` matches names to canon slugs, and core `suggestPlan` does the picking.)
+- §2.2: "'Can't verify' is never 'safe.'" (Plan rule: every dish in a plan, every One More Technique dish, every rescue dish and every frame filler is run through core `check` with the player's active rules on the day it is planned for. ⛔ is never offered as cookable, and ❓ is shown as ❓, never ✅. A frame slot whose only candidates are unresolved stays empty and says so. A margin-note swap is re-checked before "cook with my notes" can be used.)
+- §2.3: "Reward eating enough, never restriction. No XP for eating less. No shame streaks. Missed days cost nothing." (Plan rule: daily nourishment XP is a flat amount per qualifying log, capped per day, and blind to what or how much was eaten. No reward, line or UI depends on consecutive days. Core has no function that counts a run of days, and an architecture test greps core `progress/` for one.)
+- §3.3 and voice §0.3: "Recipes are earned through quests, given as gifts and never taken as loot." (Plan rule: no player-facing copy says unlock, loot, collect, acquire, discover, find or "x/9". The Recipe Book has no completion meter across cultures.)
+- §4.4: "Every substitution is re-checked by `check` before it is shown, and is labeled." · "The game never shows a dish as cookable when it is blocked." (Plan rule: an advisory trust or toolkit gate's "Cook it anyway" never overrides ⛔.)
+- §6: "Nothing earned is taken back. Undoing a meal log or an allergy rule removes the record, never XP, level, stamps or trust. Filing an allergy or diet rule earns no XP." (Plan rule: `reward_grants` is append-only. No code path deletes or negates a grant except account delete. No progress event kind exists for rules, consents or profile edits, and a test pins that.)
+- §6 Daily nourishment: "Small, steady and capped per day; never multiplied by streaks, never a bonus for responding to a reminder."
+- §7.0: "Writes need a yes." · "Every write shows as a small card in the conversation." (Plan rule: plan saves, market-run completion, margin notes, Cooked for Someone and meal logs each need a tap, or for a non-severe card the M4 strict typed yes. Ticking off a market item is §7.0 "None (undoable)". Progress events are not player data entry, so they need no card. They are sent only by the client's own game flow, never by the model.)
+- §7.6b (binding, unchanged from M4): the server guards every write. Read-backs come from code. The card is the record. Page events never arrive as user text. The output filter applies. The eval runs on every prompt, tool or model change, with zero tolerance on safety categories. Ruling R9 stands: the model's free text is never shown.
+- §7.5 and §8: "Core play never depends on AI." (Plan rule: every M5 flow has a scripted path tested with the AI off: the plan parsed by code ("plan my week: dal Sunday"), "pick 3", the market list, cook → log, rescue, quests and the book.)
+- §16 free forever: the open canon and cook mode, meal logging, export and delete, "at least one free path to learn every technique". Never rules 1–10 bind every step. In particular:
+  - 3: never sell progress;
+  - 4: no loot boxes or random paid items;
+  - 5: no paid urgency;
+  - 6: never take back anything earned;
+  - 7: mentors and cooks never sell;
+  - 8: no rewards for eating less, for responding to reminders, or for streaks;
+  - 9: no referral schemes or leaderboards.
+
+  (Plan rules: no progression module imports `entitlements`, an architecture test pins it, and an API test gives a Guild player and a free player identical grants for identical events. No screen in this milestone shows a purchase prompt, a price or the Guild.)
+- §17 Freshness guardrails, verbatim: "Freshness never lowers a tier, level, XP, stamps or trust." · "A Rusty technique is shown as an invitation …, never as a warning or a red badge." · "At most one refresher suggestion a week, and it shares the 'One More Technique' slot." · "No notifications are sent about fading."
+- §17 / audit M-2: One More Technique is "at most one" a week, opt-in, "Saying 'not this week' is a full, valid answer", and it is "Never proposed in a week the player has said is hard."
+- Audit M-4 / M-14: "A sparse cupboard is never a joke." · "Only real-world loss, and only for food the player actually bought." · "At most one nudge a day" · "Composting is acknowledged warmly." · "Never tied to money."
+- Audit M-5 / M-9: margin notes are "Private by default. The canon text is never altered", and they are "Not available on `sacred: true` dishes". Cooked for Someone is "Private, with no names required. Never a requirement for trust or progress. Eating alone gets equal warmth. Never compared with anyone."
+- §10: `sacred: true` dishes: "no XP or photo loop". (Plan rule: core grants nothing for a sacred recipe, and no margin note, cooked-for or book page is offered for one.)
+- §9, §20, standing compliance rule: GDPR Art. 9, FTC HBNR and WA MHMDA are covered as we go. Every new table has sealing as listed, a `data-inventory.md` row and §6 columns (N-8 test), export (decrypted) and account delete. Health tables are in `HEALTH_TABLES` and need `health_data` consent. We never claim HIPAA: the words "HIPAA" and "medical-grade" appear in no copy (M4 Step 12 scan, extended).
+- §19 / C-45: the family data model is **reserved** in M5 (consent subject columns only). P-9: no child data is collected, and no child table is created.
+- C-13: prompts carry no identifiers or dates. The plan context sends weekday names and taught-dish slugs only. Margin notes, cooked-for answers and pantry dates never enter a prompt.
+- Error body shape is M2's. New codes: `too_many_events` (429), `plan_invalid` (400), `too_many_notes` (400), `run_closed` (409). They are added to the doc comment on `ApiError` in `apps/api/src/errors.ts`.
+- **One lock order, everywhere (extends M4's):** user row (`lockLiveUser`) → per-user advisory locks (`rules:`, `pantry:`, `plan:`, `progress:`, in that order) → consent row (`lockConsentIn`) → conversation row → data rows in table order `rules` → `meal_logs` → `margin_notes` → `messages` → `mentor_proposals` (the `HEALTH_TABLES` order), then `meal_plans` → `market_runs` → `shared_table` → `progress_events` → `reward_grants`.
+- **No loop logic is written twice:** whatever the game and the API both decide (rewards, trust, quest state, plan checks, market list, frame fills, margin-note application) lives in `packages/core` and is exported from both `index.ts` and the browser-safe `engine.ts`.
+- Tests never touch the network. The model is the fake `AiProvider`. API tests use real Postgres. Game e2e mocks `/api/**` with `page.route`.
+- Constants (tunable, one place each): `PLAN_RETENTION_WEEKS = 8`, `MAX_PLAN_ITEMS = 21`, `MAX_PROGRESS_EVENTS_PER_DAY = 200`, `MAX_DEVICE_EVENTS = 2000`, `MAX_NOTES_PER_RECIPE = 20`, `NOTE_TEXT_MAX = 280`, `RESCUE_NUDGES_PER_DAY = 1`, `ONE_MORE_PER_WEEK = 1`. Reward amounts, the nourishment cap, the level curve and trust thresholds live in `data/rewards.yaml`. Freshness thresholds stay in `data/techniques.yaml`.
+
+## Review Focus
+
+1. **A dish, swap or filler shown as fine when the rules engine can't say so.** A plan the AI fills with "frijoles" for a player with a legume rule; "pick 3" when only one taught dish passes; a frame whose only rice is an unresolved "jasmine-ish rice"; a margin note "used peanut butter" on a player with a peanut rule; a One More Technique dish that is ❓. Each must show ⛔ or ❓ with the finding, never a ✅ or an enabled "Cook" for ⛔. → Steps 3, 8, 10, 11.
+2. **Something earned taken back, or earned by the wrong thing.** Undoing a meal log, deleting a margin note, a rule change that blocks a cooked dish, a tuning change in `rewards.yaml`, a sign-in that merges device and account progress, a Freshness change. None may lower XP, level, stamps, trust or a tier. Filing a rule, answering a reminder, logging less, a run of consecutive days, or holding a Guild entitlement must earn nothing extra. → Steps 1, 5, 9, 12.
+3. **A write without a yes, or by the model.** `propose_plan` injected through a pasted recipe, a margin note or a market item name; a typed yes after the plan card expired; a forged progress event that claims a quest or trust; a navigation chip that runs on its own. Each must give no write, or only a card the player taps. Progress events must be validated against content: a known quest, step and recipe, a sane date, and the daily cap. → Steps 5, 8.
+4. **New personal data outside consent, export or delete.** Margin notes (health), Cooked for Someone (people the player fed), plans and market runs (diet-revealing), progress (what you cook). Each must be sealed as ruled, listed in the inventory, in the export, gone after account delete, and, for health tables, gone on a `health_data` "delete" withdrawal. No name of another person may be stored. → Steps 6, 7, 12.
+5. **Guilt, nagging or urgency.** Freshness shown as a warning; two technique suggestions in one week; a suggestion in a hard week; a rescue nudge twice a day or with a countdown; a "you missed" or "streak" word anywhere; a sparse-pantry joke; a cook comparing cuisines as "versions". → Steps 2, 4, 10, 12.
+
+## Pre-flight
+
+**Gates:**
+- The M4 final-review fix wave is merged into `claude/eager-cori-h3gmju`. At the time of writing it is in progress after `25f0efb` (C-1 sticky child flag, I-1–I-3, M-2). M5 starts from that merge and does not touch the files it changes until it lands.
+- **Step 8** changes the Pan's tools, so the prompt fingerprint changes and the M4 eval gate (`apps/api/test/eval-gate.test.ts`) fails until a passing `apps/api/eval/last-pass.json` is recorded. **Step 8.4 is blocked until the founder runs `npm run eval:mentor`** (M4 ruling C28: never set `MENTOR_EVAL_GATE=skip-no-network` on the default branch).
+- Steps 1–4 touch only core, `data/` and `content/`, so they can start at once. Steps 5–7 need Step 1 (and Step 3 for 6–7). Steps 9–11 need Step 4's content and their API steps' routes for their e2e mocks.
+
+Earlier-milestone files each task touches (new files are listed in each step):
+
+| Step | Earlier-milestone files modified |
+|---|---|
+| 1 | `packages/core/src/toolkit/toolkit.ts` (+ test), `packages/core/src/index.ts`, `packages/core/src/engine.ts`, `data/techniques.yaml` (`adjacent`, `prereqs`) |
+| 2 | `packages/core/src/index.ts`, `packages/core/src/engine.ts`, `apps/game/src/content/types.ts` (quest types move to core and are re-exported) |
+| 3 | `packages/core/src/mentor/cards.ts` (`PantryItem` gains optional `addedOn`, `source`), `packages/core/src/index.ts`, `packages/core/src/engine.ts` |
+| 4 | `content/dialogue/pan.yaml`, `content/bureau/forms.yaml`, `content/cooks/*.yaml` (`recognize` steps), `content/README.md`, `apps/game/src/content/required.ts` (+ test), `apps/game/src/content/types.ts`, `apps/game/build/content/read.ts` (`DATA_FILES`), `apps/game/build/content/schemas.ts`, `apps/game/build/content/compile.ts` (+ `compile.test.ts`) |
+| 5 | `apps/api/src/db/schema.ts`, `apps/api/src/db/advisory-locks.ts` (`progress`), `apps/api/src/app.ts`, `apps/api/src/catalog.ts` (rewards, techniques, quests), `apps/api/src/errors.ts`, `apps/api/src/account/routes.ts`, `apps/api/test/architecture.test.ts`, `apps/api/test/account.test.ts`, `docs/compliance/data-inventory.md` |
+| 6 | `apps/api/src/db/schema.ts`, `apps/api/src/db/advisory-locks.ts` (`plan`), `apps/api/src/pantry/service.ts` (dates), `apps/api/src/jobs/retention.ts`, `apps/api/src/app.ts`, `apps/api/src/account/routes.ts`, `apps/api/src/errors.ts`, `apps/api/test/pantry.test.ts`, `docs/compliance/data-inventory.md` |
+| 7 | `apps/api/src/db/schema.ts` (`consents.subject_kind`, `subject_id`), `apps/api/src/consent/health-data.ts` (`HEALTH_TABLES`), `apps/api/src/consent/notices.ts`, `docs/compliance/notices/` (health_data v3), `apps/api/src/account/routes.ts`, `apps/api/test/architecture.test.ts`, `apps/api/test/consent.test.ts`, `docs/compliance/data-inventory.md` |
+| 8 | `packages/core/src/mentor/{cards,protocol,route}.ts`, `apps/api/src/mentor/{tools,turn,prompt,writes,proposals,postchecks}.ts`, `apps/api/src/db/schema.ts` (`PROPOSAL_KINDS` += `plan`), `apps/api/eval/cases.ts`, `apps/api/eval/checks.ts`, `apps/api/eval/last-pass.json` (founder run) |
+| 9 | `apps/game/src/state/store.ts` (+ test), `apps/game/src/api/{client,types}.ts`, `apps/game/src/world/visit-screen.ts`, `apps/game/src/world/map-screen.ts`, `apps/game/src/world/pins.ts`, `apps/game/src/kitchen/kitchen-screen.ts`, `apps/game/src/kitchen/toolkit-view.ts` (+ test), `apps/game/src/cook/finish.ts`, `apps/game/src/cook/cook-screen.ts` |
+| 10 | `apps/game/src/shell/router.ts` (+ test), `apps/game/src/shell/screens.ts`, `apps/game/src/shell/titles.ts`, `apps/game/src/mentor/{scripted,writer,cards-view,panel}.ts`, `apps/game/src/cook/cook-screen.ts` (frames), `apps/game/src/settings/settings-screen.ts` (rescue nudges toggle) |
+| 11 | `apps/game/src/cook/cook-screen.ts`, `apps/game/src/cook/finish.ts`, `apps/game/src/mentor/writer.ts`, `apps/game/src/shell/router.ts`, `apps/game/src/shell/screens.ts`, `apps/game/src/kitchen/kitchen-screen.ts` |
+| 12 | `apps/game/e2e/never-rules.e2e.test.ts`, `apps/game/e2e/screens.ts`, `apps/game/e2e/free-forever.e2e.test.ts`, `apps/api/test/free-forever.test.ts`, `docs/compliance/ROADMAP.md`, `docs/compliance/data-inventory.md`, `docs/compliance/dpia.md`, `docs/compliance/risk-register.md`, `README.md` |
+
+## Rulings
+
+Where the spec, the audit and the content disagree or are silent, the planner decided as follows. The form is `Ruling: <decision> — <why> — <cost if wrong>`. **[founder]** marks the ones the founder should confirm before the step that uses them is dispatched.
+
+1. Ruling: **Trust has six states, 0 Stranger plus five levels: 1 Guest, 2 Acquainted, 3 Trusted apprentice, 4 Family friend, 5 Keeper of the dish.** — The spec gives no number. `content/README.md` and all three cook files already write lines for 1–5 and say "the founder should confirm the fifth level". The audit's M-6 Keeper's Offering needs a top level. — If the founder wants four levels, the level-5 lines go and `data/rewards.yaml` `trust.levels` changes: data only, but the Keeper's Offering (M10) needs a new top. **[founder]**
+2. Ruling: **Trust rises by distinct ISO weeks in which the player cooked that cook's dish, at most one level a week, by thresholds in `data/rewards.yaml` (Guest when the cook's quest is done; then 2, 4, 7 and 10 cook-weeks for levels 2–5).** — The spec says "Cooking their dishes and returning to them". Counting distinct weeks rewards returning, not grinding the same night. The weeks need not be consecutive, so it is no streak and a gap costs nothing. Trust never decays. — If the pace feels slow (10 weeks to Keeper with one dish per cook at launch), only the thresholds change. **[founder]**
+3. Ruling: **Trust and toolkit gates are advisory, and introductions don't lock countries: every launch cook stays visitable.** A cook not yet introduced shows "Awaiting an introduction" with "Travel anyway". The introduction letter arrives at trust 3 and changes the pin to "expecting you". Quests are gated by their `unlock` (quest content, not food). Cook mode for a canon dish is never gated except by the rules engine. — The audit's R8 says hard gates block heritage cooks and invite selling. With three launch cooks, hard-locking two thirds of the content is a poor first week. — The spec's §3.3 "opens that country on the map" is softened. If the founder wants hard country locks, a guard in `map-screen.ts` and `pins.ts` is the change. **[founder]**
+4. Ruling: **Skill XP counters are dropped; technique tiers are the measure.** A quest's `rewards.skills` keys are read as techniques practised (a `seen` event each), and their numbers are ignored. Spec §6's "skill levels gate harder dishes" becomes the advisory "suggests the drill first", driven by tiers. — The audit's M-1 says "Skill XP stays as flavor. The tiers replace it", and the toolkit is the main progression in §6's own Technique Toolkit row. Two parallel skill measures would confuse. — If the founder wants skill levels, they can be derived later from `progress_events` (nothing is lost). **[founder]**
+5. Ruling: **Daily nourishment XP is flat: 5 XP for each meal log at least 2 hours after the previous qualifying one, at most 3 a day, whatever was eaten.** "Enough" ranges are acknowledged by the Pan's `log.enough_met` line only, never scored (they need M9's targets anyway). — §6 says "small, steady and capped". The audit's R4 says extra logs earn nothing more and hitting "enough" is "acknowledged by the Pan, not scored". The amount is blind to intake, so a small meal earns the same as a large one (never rule 8). — If the founder wants "enough" scored in M9, that is a new grant kind added then. **[founder]**
+6. Ruling: **Rewards are granted when the event is written and are never reversed by an undo.** The nourishment cap counts grants, not logs, so log → undo → log on the same day earns nothing new. — §6 "Undoing a meal log … removes the record, never XP", and the audit's R1. Counting grants closes the farming loop the cap was for. — None found.
+7. Ruling: **Progression is event-sourced.** The API stores `progress_events` (kind, ids, local date) and `reward_grants` (xp, stamp, trust, level, certificate), both append-only. Clients send events and never amounts; the server computes grants with core. A level, once granted, is kept even if the curve is retuned. — "Deterministic code decides", "never take back anything earned", and the anti-cheat stance (§6): a forged event only cheats yourself, but it must still fit the content and the caps. — The grant ledger grows with play. At the 200-events-a-day cap that is fine for v1. A snapshot table can come later without changing the API.
+8. Ruling: **Signed out, progress, the plan and the market list live on the device. They are uploaded once on sign-in, with client event ids, so a replay is a no-op.** M3's toolkit records become `imported` events on first load, so nothing earned is lost. — §7.5 and the M3/M4 rule that the game works without an account. The data is content-free, or dish slugs only (not health). — A player with two devices signed out sees two separate progressions until they sign in, and then they merge upward.
+9. Ruling: **Margin notes are health data:** sealed per row, in `HEALTH_TABLES`, needing `health_data` consent, account-only, and named in a new `health_data` notice v3. — Free text and swaps ("no milk, used oat") can reveal a condition or a religious rule (GDPR Art. 9, MHMDA). The standing rule says cover it now. H-12 already flags it. — Players without `health_data` consent can't keep notes; they get the `consent.health_first` card. Bumping the notice to v3 makes existing grants re-consent, which is acceptable before launch. [lawyer] confirm v3 wording.
+10. Ruling: **Cooked for Someone stores no free text and no names.** It records a fixed count (`just_me`, `one`, `two_to_three`, `four_plus`) and, optionally, one fixed word (`partner`, `family`, `flatmate`, `friends`, `neighbours`, `colleagues`, `guests`). It is sealed per row, contract basis, not health, and account-only. A typed answer is parsed by core, and names in it are dropped before anything is built. — The audit's M-9 says "no names required"; risk register R-19 and N-7 say "no names or health facts". A fixed set can't hold a third party's name or allergy. — Players can't write "Gran" in their book. This also closes ROADMAP N-7's open note. **[founder]**
+11. Ruling: **The plan week starts on the player's first market day (Monday when none is set) and runs 7 days.** One More Technique, the rescue nudge cap and "hard week" all use this week. Trust uses ISO weeks (Ruling 2). — §3.2 makes market day the hinge of the week. Trust must not shift when the player moves their market day. — There are two week notions, each documented at its function.
+12. Ruling: **Pantry items gain optional `addedOn` and `source` (`told` | `market`) inside the sealed `PantryItem`.** Use-It-Up uses only `source: 'market'` items with an entry in the curated `data/keeps.json`. An item with no entry is never nudged. — The audit's M-14 says "only for food the player actually bought", and "can't verify" must not become a guessed spoil date. — Food told to the Pan ("I've got spinach") is never rescued. That is acceptable, since a told item has no purchase date.
+13. Ruling: **M5 ships the frame engine with three seed frames** (fried rice, green sauce, quick tomato sauce). They are `status: draft`, `# REVIEW:`-flagged, and credited to the Bureau's editors, not a community. Rescue maps herbs → green sauce, soft tomatoes → quick sauce and cold rice → fried rice. Compost is always an option. — §17 marks Pantry Frames as M5 (engine) and M10 (content). Without seed frames the engine and the rescue loop can't be tested end to end. — The frames may need rewording by the M10 writers. They are data, so the code is untouched.
+14. Ruling: **The model never picks dishes.** `propose_plan` takes `{ days: [{ weekday, dish }] | null, pick: number | null, hard_week: boolean | null }`. Code matches names (core `matchDish`) and picks with `suggestPlan` (deterministic, rules-checked, variety-first). An unmatched name gives `plan.dish_unknown`, never a guess. — §2.1, and M4's "can't verify" lesson (names the model invents). — "Pick 3" is less surprising than a model's choice, but it is always safe.
+15. Ruling: **Navigation (`start_lesson` / `start_quest` / `open_scene`, M4's deferral) is a `go` reply part: a chip the player taps.** It is never automatic. Targets are a closed enum validated by code (`kitchen`, `map`, `plan`, `market`, `book`, `visit:<cookId>`, `recipe:<slug>`). It is produced by scripted intents and by the model's `propose_navigation`. — §7.0 says "None" confirmation, but an injected auto-navigate in the middle of a cook-mode timer is a real harm, and a tap costs nothing. — There is one extra tap per navigation.
+16. Ruling: **The market run's tap check-off is built in M5. The Pan's spoken `check_off_item` stays M6** (M4 deferral), with the market scene. Ticking an item adds it to the pantry with `source: 'market'` and today's date; unticking removes that same row (by id). Finishing the run is a tap ("That's the shop done") and earns market-run XP once per plan week. — The loop needs the list now. The talking market belongs with the stall minigames. — Until M6, "got the chicken, no fennel" said to the Pan becomes a pantry card (M4 behaviour), not a check-off.
+17. Ruling: **Stamps are earned and counted in M5 (quest complete, technique "Yours" certificate, market run) but spent nowhere until M10's cosmetics.** — Cosmetics need art (M10). Earning them now keeps one ledger. — Players see a count with nothing to buy for several milestones. The kitchen copy says the Bureau's outfitter "opens later" (no price, no shop).
+18. Ruling: **Plans and market runs are sealed (S-U, contract basis, not in `HEALTH_TABLES`, like the pantry) and deleted 8 weeks after their week ends.** — H-11 already proposes S-U for the plan, and minimisation argues against keeping a diet-revealing history. The book's "dates cooked" comes from `progress_events`, not from plans. — Old plans can't be browsed. [lawyer], as for the pantry: whether these need `health_data`.
+19. Ruling: **C-45 reserve = `consents.subject_kind` (default `'user'`, with a check that allows only `'user'` until M13) and a nullable `consents.subject_id`.** No child or household table is created in M5. — C-45 says "reserve the schema in M5", and P-9 says no child data until counsel signs off. An empty table would be dead code (knip) and an unexplained inventory row. — M13 adds `child_profiles` itself. The audit's M-10 Household reservation moves to M9 with C-25.
+20. Ruling: **Lessons are the recipe read-through and quest drill steps.** Finishing a lesson writes `lesson` events (→ Seen) for the recipe's `skills`. The Pan's five "basics" lessons (§11) are M10 content. — There is no `.lesson.md` sidecar in `recipes/` yet. The drill steps in the cook files are the only lesson content. — The Seen tier is reachable only through the three dishes' lessons until M10.
+21. Ruling: **M5 lines use written lines only, even where `ai: allowed`** (M4 R9 carries on). — R9 removed model prose everywhere. Re-opening it for reward lines adds risk for no safety gain. — The lines repeat sooner. Each new trigger ships with 4–6 lines.
+
+## Tasks
+
+- [ ] [Step 1 — Core: progress events, rewards, levels, trust and toolkit growth](step-1.md)
+- [ ] [Step 2 — Core: the quest engine, lessons and the weekly technique slot](step-2.md)
+- [ ] [Step 3 — Core: the week (plan, market list, pantry dates, Use-It-Up, Pantry Frames, margin notes, cooked-for)](step-3.md)
+- [ ] [Step 4 — Content and data: loop lines, forms, seed frames, keeps, recognize steps](step-4.md)
+- [ ] [Step 5 — API: progress events and reward grants](step-5.md)
+- [ ] [Step 6 — API: meal plans, market runs and dated pantry](step-6.md)
+- [ ] [Step 7 — API: margin notes, Cooked for Someone, consent subject reserve](step-7.md)
+- [ ] [Step 8 — API: the Pan plans the week (plan card, propose_plan, navigation chips, eval)](step-8.md)
+- [ ] [Step 9 — Game: progress, quests, trust and the knife roll](step-9.md)
+- [ ] [Step 10 — Game: plan, market list, Use-It-Up Rescue and frames in cook mode](step-10.md)
+- [ ] [Step 11 — Game: cook → log, Cooked for Someone, margin notes, the Recipe Book and its export](step-11.md)
+- [ ] [Step 12 — Weekly-loop e2e, never-rules and free-forever sweep, compliance record](step-12.md)
+
+Order:
+- Steps 1 → 2 → 3 → 4 in order. Each is core or content, and the game build compiles both, so run the game's `npm test` after each.
+- 5 → 6 → 7 → 8 in order. Step 8 is blocked at 8.4 on the founder's eval run.
+- 9 after 4 and 5; 10 after 6 and 8; 11 after 7 and 10.
+- 12 last.
+
+**Deferred, on purpose:**
+- the Pan's spoken market check-off (`check_off_item`), stall minigames and substitutes offered by stall NPCs (M6); The Season's Table plan hook (M6, spec §17)
+- photos on book pages and in cook → log, and the cook's in-character reaction to a margin note (M8 and M10)
+- Travelling Cooks, the Keeper's Offering, Recipe Postcard, cross-cook `recognize` lines written per cuisine, frame content beyond the three seeds, the Pan's five basics lessons, and "A Kitchen That Remembers" art (M10, spec §17). M5 ships one generic `quest.recognize` Pan line and the step type.
+- spending Bureau Stamps on cosmetics (M10, Ruling 17)
+- nutrition "enough" targets, the weekly balance view beyond the plan's food-group flags, Web Push for use-it-up and quiet hours (M9)
+- Household Kitchen sharing of plan, pantry and list (M9, C-25); family child profiles (M13, C-45 reserve only)
+- Use-It-Up → Neighborhood Pantry offer (M11)
+- AI-written variants of `ai: allowed` lines (Ruling 21) and grounded free Q&A (M8)

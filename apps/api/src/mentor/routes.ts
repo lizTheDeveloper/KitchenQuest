@@ -29,6 +29,10 @@ const TurnBody = z
     localTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'localTime must be HH:MM'),
     screen: z.object({ route: z.string().max(100), slug: z.string().max(200).optional() }).strict().nullable(),
     intakeStep: z.enum(INTAKE_STEPS).nullable(),
+    /** I-1: the proposal a plain yes or no answers. */
+    answering: z.string().max(64).optional(),
+    /** J2: one id per player turn, the same on its retry. */
+    turnKey: z.uuid().optional(),
   })
   .strict();
 
@@ -100,6 +104,8 @@ export async function mentorRoutes(app: FastifyInstance, catalog: Catalog, state
       localTime: body.localTime,
       screen: body.screen === null ? null : { route: body.screen.route, ...(body.screen.slug === undefined ? {} : { slug: body.screen.slug }) },
       intakeStep: body.intakeStep,
+      ...(body.answering === undefined ? {} : { answering: body.answering }),
+      ...(body.turnKey === undefined ? {} : { turnKey: body.turnKey }),
     };
     return runTurn(deps, req.user.id, turn, req.id);
   });

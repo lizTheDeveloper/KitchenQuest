@@ -8,4 +8,4 @@ export * from './cards';
 export * from './route';
 export * from './lines';
 export * from './outcomes';
-export type * from './protocol';
+export * from './protocol';

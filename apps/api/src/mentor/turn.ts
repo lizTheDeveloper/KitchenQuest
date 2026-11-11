@@ -12,6 +12,7 @@ import {
   isSuitabilityQuestion,
   leftoverNamedIngredients,
   matchDish,
+  MENTOR_TURN_DEADLINE_MS,
   normalizeTurn,
   parseRuleStatement,
   playerOwnWords,
@@ -83,6 +84,8 @@ export interface TurnDeps {
 }
 
 type Opened = { conversationId: string; turnSeq: number; healthData: boolean; aiHealth: boolean; openHealthCard: boolean };
+/** A repeat of a turn already started (its `turnKey` is the conversation's last one, J2): answered with nothing. */
+type Repeat = { conversationId: string; repeat: true };
 
 /**
  * How much of the model a turn may use. `full`: every propose tool (with
@@ -100,12 +103,24 @@ const respond = (
   extra: { cards?: ServerCard[]; toolTurn?: boolean; actions?: CardAction[] } = {},
 ): TurnResponse => ({ conversationId, route, parts, cards: extra.cards ?? [], actions: extra.actions ?? [], notice, toolTurn: extra.toolTurn ?? false });
 
-/** Stage 1: open the conversation and bump its turn (live user → conversation row), and read what the gates need. */
-async function openTurn(deps: TurnDeps, userId: string, req: TurnRequest, now: Date): Promise<Opened> {
+/**
+ * Stage 1: open the conversation and bump its turn (live user → conversation row), and read what the gates need.
+ * A turn whose `turnKey` was already started (J2: the client's retry of a turn it timed out on) is a `Repeat`,
+ * found by the key even when the retry carries no conversation id (the first copy opened the conversation).
+ */
+async function openTurn(deps: TurnDeps, userId: string, req: TurnRequest, now: Date): Promise<Opened | Repeat> {
   return deps.db.transaction(async (tx) => {
     await lockLiveUser(tx, userId);
+    if (req.turnKey !== undefined) {
+      const seen = await tx
+        .select({ id: conversations.id })
+        .from(conversations)
+        .where(and(eq(conversations.userId, userId), eq(conversations.lastTurnKey, req.turnKey)));
+      if (seen[0] !== undefined) return { conversationId: seen[0].id, repeat: true };
+    }
     const conv = await openConversation(tx, userId, req.conversationId, now);
-    const turnSeq = await bumpTurn(tx, conv.id, now);
+    const turnSeq = await bumpTurn(tx, conv.id, now, req.turnKey);
+    if (turnSeq === null) return { conversationId: conv.id, repeat: true };
     const healthData = await hasConsent(tx, userId, 'health_data', now);
     const aiHealth = healthData && (await hasConsent(tx, userId, 'ai_health', now));
     const openHealthCard = await hasOpenHealthProposal(tx, userId, conv.id, now);
@@ -390,14 +405,12 @@ interface FinishInput {
   health: boolean;
   mode: Mode;
   offered: readonly AiTool[];
-  /** The usage row written before the call was sent (N3), completed here. */
-  usageId: number;
 }
 
 /**
- * Stages 7–9 in one transaction, in the README lock order: live user (usage
- * is recorded here, so a turn racing an account delete is a 401, P5; the
- * global cost was already counted on its own, N6) → consent row (share-locked; `persist` and the health cards are
+ * Stages 7–9 in one transaction, in the README lock order: live user (a turn
+ * racing an account delete is a 401, P5; the global cost and the player's usage
+ * were already counted on their own, N6 and M-7) → consent row (share-locked; `persist` and the health cards are
  * decided from it, never from an earlier read) → conversation row → messages
  * → mentor_proposals. A concurrent withdraw-with-delete either waits and then
  * deletes what this stored, or commits first and this stores nothing health.
@@ -418,7 +431,6 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
   ).filter((c) => !(c.name === 'propose_rule' && fine.has(graph.resolve(c.args.term) ?? '')));
   return deps.db.transaction(async (tx) => {
     await lockLiveUser(tx, userId);
-    await completeUsage(tx, f.usageId, 1, f.result.usage.costMicroUsd);
     const persist = await consentHeldIn(tx, userId, 'health_data', now);
     const recipes = await tx.select({ slug: canonRecipes.slug, title: canonRecipes.title }).from(canonRecipes);
     const dishNamed = f.dishOnScreen || matchDish(f.stripped, recipes) !== null;
@@ -496,6 +508,17 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
   });
 }
 
+/**
+ * N3: the "sent" usage row, written under the live-user lock, so an account deleted since the turn opened is a clean
+ * 401 (never a foreign-key 500), and the model is never called for an account that is gone.
+ */
+export async function recordSentLive(db: Db, userId: string, now: Date): Promise<number> {
+  return db.transaction(async (tx) => {
+    await lockLiveUser(tx, userId);
+    return recordSent(tx, userId, 'mentor_text', now);
+  });
+}
+
 /** A service's refusal as reply parts (Step 8): 403 asks for consent, 429 says the daily limit; anything else (400, 404, 409) is not understood. 401 is thrown. */
 function refusalParts(e: unknown): ReplyPart[] {
   // A service's zod parse (e.g. applyProfilePatchIn) is a 400 too.
@@ -516,7 +539,15 @@ function refusalParts(e: unknown): ReplyPart[] {
  * write is its own transaction through the write guard, which never locks a
  * conversation row (Step 6 carry); nothing of these turns is stored.
  */
-async function shortReply(deps: TurnDeps, userId: string, intent: TurnIntent, opened: Opened, now: Date, requestId: string): Promise<TurnResponse | null> {
+async function shortReply(
+  deps: TurnDeps,
+  userId: string,
+  intent: TurnIntent,
+  opened: Opened,
+  answering: string | undefined,
+  now: Date,
+  requestId: string,
+): Promise<TurnResponse | null> {
   if (intent !== 'yes' && intent !== 'no' && intent !== 'undo') return null;
   const id = opened.conversationId;
   const done = (parts: ReplyPart[], actions: CardAction[] = []) => respond(id, 'deterministic', parts, null, { actions });
@@ -537,13 +568,21 @@ async function shortReply(deps: TurnDeps, userId: string, intent: TurnIntent, op
     }
   }
   const open = await deps.db.transaction((tx) => openProposalsOfConversation(tx, deps.keyring, userId, id, now));
-  const refs: OpenCardRef[] = open.map((p) => ({
-    ref: p.id,
-    severe: p.severe || isSevereCard(p.card),
-    ingredient: p.card.kind === 'rule' ? p.card.display.ingredient : null,
-    issuedTurn: p.turnSeq ?? -1,
-  }));
+  // M4 final I-1: a plain yes or no answers only the card the client names (the one recent server card it shows),
+  // and only while that card is open in this conversation. No id, or another one, and nothing is written: the
+  // server's turn count can't line up with the panel's (client-only turns, retries), so it never picks a card itself.
+  // The lines that write nothing ("tap the card", "that one needs a tap") still come from every open card.
+  const refs: OpenCardRef[] = open
+    .filter((p) => answering === undefined || p.id === answering)
+    .map((p) => ({
+      ref: p.id,
+      severe: p.severe || isSevereCard(p.card),
+      ingredient: p.card.kind === 'rule' ? p.card.display.ingredient : null,
+      issuedTurn: p.turnSeq ?? -1,
+    }));
+  if (answering !== undefined && refs.length === 0) return null;
   const target = shortReplyTarget(intent, refs, opened.turnSeq);
+  if ((target.kind === 'confirm' || target.kind === 'reject') && target.ref !== answering) return null;
   switch (target.kind) {
     case 'none':
     case 'undo':
@@ -576,11 +615,15 @@ async function shortReply(deps: TurnDeps, userId: string, intent: TurnIntent, op
 export async function runTurn(deps: TurnDeps, userId: string, req: TurnRequest, requestId: string): Promise<TurnResponse> {
   const now = deps.now();
   // 1. The raw text is kept for the injection cut (C4); everything else reads the stripped text.
+  const deadline = AbortSignal.timeout(MENTOR_TURN_DEADLINE_MS);
   const raw = req.input.text;
   const stripped = stripPageEvents(raw).text.trim();
   const intent = classifyTurn(stripped);
-  const opened = await openTurn(deps, userId, req, now);
-  const id = opened.conversationId;
+  const started = await openTurn(deps, userId, req, now);
+  const id = started.conversationId;
+  // J2: a turn is processed once. Its repeat gets nothing new: no model call, no card, no write.
+  if ('repeat' in started) return respond(id, 'deterministic', []);
+  const opened = started;
 
   // 2a. An emergency is answered first, even in a conversation where a child spoke (M4 Step 9 fix round 2, E1).
   // A rule the same message states is never dropped (E2): the plain ask follows, so the player can file it
@@ -608,7 +651,7 @@ export async function runTurn(deps: TurnDeps, userId: string, req: TurnRequest, 
   if (fixed !== null) return respond(id, 'deterministic', [{ kind: 'line', line: fixed }]);
 
   // 3b. A plain yes, no or undo answers a card through the write guard, before the consent gate (Step 8).
-  const short = await shortReply(deps, userId, intent, opened, now, requestId);
+  const short = await shortReply(deps, userId, intent, opened, req.answering, now, requestId);
   if (short !== null) return short;
 
   // 4. Health text never reaches the model without ai_health (C1, C-13, P-3).
@@ -624,12 +667,15 @@ export async function runTurn(deps: TurnDeps, userId: string, req: TurnRequest, 
   if (health && !aiHealth) return respond(id, 'scripted', [], 'needs_ai_health');
   const offered = toolsFor(avail.mode, aiHealth);
   // Fix round 2 (N3): the "sent" row is written before the text leaves, so a failed call is on record too.
-  const usageId = await recordSent(deps.db, userId, 'mentor_text', now);
-  const result = await deps.ai.complete({ messages: renderMessages(deps.prompt, ctx, sent, stripped, deps.bank), tools: offered });
+  const usageId = await recordSentLive(deps.db, userId, now);
+  // J2: one deadline for the whole model call, both attempts, so the server answers before the client gives up.
+  const result = await deps.ai.complete({ messages: renderMessages(deps.prompt, ctx, sent, stripped, deps.bank), tools: offered, signal: deadline });
   if (!result.ok) return respond(id, 'scripted', [], 'ai_unavailable');
   // N6: the money is counted at once, in its own statement, outside every turn lock.
   await recordAiCost(deps.db, result.usage.costMicroUsd, now);
+  // M-7: the player's allowance is charged at once too, so a turn that fails after the model answered still counts.
+  await completeUsage(deps.db, usageId, 1, result.usage.costMicroUsd);
 
   // 7–9. Cards and scripted lines (never the model's text, R9), metered and stored under the consent lock.
-  return finishTurn(deps, userId, { opened, req, raw, stripped, result, dishOnScreen: ctx.dish !== null, health, mode: avail.mode, offered, usageId }, now);
+  return finishTurn(deps, userId, { opened, req, raw, stripped, result, dishOnScreen: ctx.dish !== null, health, mode: avail.mode, offered }, now);
 }
