@@ -12,7 +12,11 @@ import { CaptureMailer } from '../src/mail/mailer.js';
 import { loadPantry } from '../src/pantry/store.js';
 import { RECIPES_DIR, syncCanon } from '../src/recipes/sync.js';
 import type { Db } from '../src/types.js';
-import { loadRunById } from '../src/week/store.js';
+import { restorePlanIn } from '../src/week/plan-service.js';
+import { WEEK_REQUESTS_PER_MINUTE } from '../src/week/routes.js';
+import { loadPlan, loadRunById } from '../src/week/store.js';
+import { createRecipeIndexSource } from '../src/recipes/recipe-index.js';
+import { defaultLoopContent } from '../src/catalog.js';
 import { signIn } from './helpers/auth.js';
 import { testConfig } from './helpers/config.js';
 import { testDb, type Sql } from './helpers/db.js';
@@ -193,6 +197,33 @@ describe('plans', () => {
     expect(monday.json().error).toMatchObject({ code: 'plan_invalid', details: { problems: ['plan: weekStart is not the first day of your plan week'] } });
     expect((await put(p.cookie, planOf(SATURDAY, [dish(ONIGIRI, 2)]))).statusCode).toBe(200);
     expect((await current(p.cookie)).plan?.weekStart).toBe(SATURDAY);
+  });
+
+  it('restorePlanIn (Step 8 undo) puts the previous plan back, or deletes the week\'s plan when there was none', async () => {
+    const p = await player();
+    const first = planOf(MONDAY, [dish(ONIGIRI, 1)]);
+    await put(p.cookie, first);
+    await put(p.cookie, planOf(MONDAY, [dish(PARIPPU, 4)]));
+    const deps = { keyring: config.keyring, catalog, loop: defaultLoopContent(), recipes: await createRecipeIndexSource().current(db) };
+    await db.transaction((tx) => restorePlanIn(tx, deps, p.id, MONDAY, first, NOW));
+    expect(await loadPlan(db, config.keyring, p.id, MONDAY)).toEqual({ ...first, id: expect.any(String) });
+    await db.transaction((tx) => restorePlanIn(tx, deps, p.id, MONDAY, null, NOW));
+    expect(await loadPlan(db, config.keyring, p.id, MONDAY)).toBeNull();
+    const actions = (await db.select().from(auditEvents).where(eq(auditEvents.subjectUserId, p.id))).map((e) => e.action);
+    expect(actions.filter((a) => a.startsWith('plan.'))).toEqual(['plan.save', 'plan.save', 'plan.restore', 'plan.restore']);
+  });
+
+  it('limits week requests per player per minute (429 rate_limited with retry-after)', async () => {
+    const p = await player();
+    for (let i = 0; i < WEEK_REQUESTS_PER_MINUTE; i++) {
+      expect((await call(p.cookie, { method: 'DELETE', url: `/plans/${MONDAY}` })).statusCode).toBe(204);
+    }
+    const res = await call(p.cookie, { method: 'GET', url: '/plans/current' });
+    expect(res.statusCode).toBe(429);
+    expect(res.json().error.code).toBe('rate_limited');
+    expect(Number(res.headers['retry-after'])).toBeGreaterThan(0);
+    // Another player is not limited.
+    expect((await call((await player()).cookie, { method: 'GET', url: '/plans/current' })).statusCode).toBe(200);
   });
 
   it('DELETE /plans/:weekStart removes the plan and its run, and keeps the pantry rows its ticks added', async () => {

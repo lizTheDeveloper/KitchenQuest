@@ -25,8 +25,8 @@ const PANTRY_NAME_MAX = 80;
 const ID_MAX = 64;
 
 /** How far back a pantry item's purchase date may be, and how far ahead (the player's date may be a day past ours). */
-export const PANTRY_ADDED_DAYS_BACK = 60;
-export const PANTRY_ADDED_DAYS_AHEAD = 1;
+const PANTRY_ADDED_DAYS_BACK = 60;
+const PANTRY_ADDED_DAYS_AHEAD = 1;
 
 /**
  * One pantry item as the client sends it; the name is trimmed, then 1–80 characters. `addedOn` (the local date it

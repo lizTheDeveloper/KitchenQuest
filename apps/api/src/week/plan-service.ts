@@ -16,8 +16,6 @@ import { loadRules } from '../rules/store.js';
 import { assertUnderWriteCap } from '../usage/write-cap.js';
 import { loadPlan, planSealContext, type SealedPlan, type Tx } from './store.js';
 
-export { loadPlan };
-
 export interface WeekDeps {
   keyring: Keyring;
   catalog: Catalog;

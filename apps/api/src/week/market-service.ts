@@ -104,9 +104,8 @@ export async function tickIn(tx: Tx, deps: WeekDeps, userId: string, runId: stri
     const { addedIds } = await changePantryIn(tx, deps, userId, { add, removeNames: [], removeIds: [] }, at, requestId);
     pantryIds[key] = addedIds[0];
   } else {
-    const id = pantryIds[key];
     // A row the player already used up (removed) is simply gone: nothing else is ever removed.
-    if (id !== undefined) await changePantryIn(tx, deps, userId, { add: [], removeNames: [], removeIds: [id] }, at, requestId);
+    if (Object.hasOwn(pantryIds, key)) await changePantryIn(tx, deps, userId, { add: [], removeNames: [], removeIds: [pantryIds[key]] }, at, requestId);
     delete pantryIds[key];
   }
   const items = run.items.map((i, n) => (n === index ? { ...i, ticked } : i));

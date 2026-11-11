@@ -26,15 +26,17 @@ export interface SealedRun {
 }
 
 /** Exactly the stored fields of a plan, in core's shape (nothing else is ever sealed or returned). */
-export const planOf = (weekStart: string, s: SealedPlan): Plan => ({ weekStart, items: s.items, hard: s.hard, slot: s.slot });
+const planOf = (weekStart: string, s: SealedPlan): Plan => ({ weekStart, items: s.items, hard: s.hard, slot: s.slot });
 
 /** The player's plan for `weekStart`, decrypted, with its row id; null when there is none. */
 export async function loadPlan(db: Reader, keyring: Keyring, userId: string, weekStart: string): Promise<(Plan & { id: string }) | null> {
-  const [row] = await db
-    .select({ id: mealPlans.id, sealed: mealPlans.sealed })
-    .from(mealPlans)
-    .where(and(eq(mealPlans.userId, userId), eq(mealPlans.weekStart, weekStart)));
-  if (!row) return null;
+  const row = (
+    await db
+      .select({ id: mealPlans.id, sealed: mealPlans.sealed })
+      .from(mealPlans)
+      .where(and(eq(mealPlans.userId, userId), eq(mealPlans.weekStart, weekStart)))
+  ).at(0);
+  if (row === undefined) return null;
   const sealed = await openFor<SealedPlan>(db, keyring, planSealContext(userId, row.id), row.sealed);
   return { ...planOf(weekStart, sealed), id: row.id };
 }
@@ -69,8 +71,8 @@ async function openRun(db: Reader, keyring: Keyring, userId: string, row: { id: 
 async function loadRunWhere(db: Reader, keyring: Keyring, userId: string, by: { planId: string } | { runId: string }, forUpdate: boolean): Promise<StoredRun | null> {
   const where = and(eq(marketRuns.userId, userId), 'planId' in by ? eq(marketRuns.planId, by.planId) : eq(marketRuns.id, by.runId));
   const q = db.select(runColumns).from(marketRuns).innerJoin(mealPlans, eq(mealPlans.id, marketRuns.planId)).where(where);
-  const [row] = forUpdate ? await q.for('update', { of: marketRuns }) : await q;
-  return row ? openRun(db, keyring, userId, row) : null;
+  const row = (forUpdate ? await q.for('update', { of: marketRuns }) : await q).at(0);
+  return row === undefined ? null : openRun(db, keyring, userId, row);
 }
 
 export const loadRunForPlan = (db: Reader, keyring: Keyring, userId: string, planId: string, forUpdate = false) =>
