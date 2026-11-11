@@ -7,12 +7,12 @@ import { expect, test } from 'vitest';
 const SRC = fileURLToPath(new URL('../src/', import.meta.url));
 const files = (dir: string) =>
   readdirSync(join(SRC, dir))
-    .filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts') && f !== 'fixtures.ts')
+    .filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts') && !/(^|\.)fixtures?\.ts$|\.fixture\.ts$/.test(f))
     .map((f) => join(dir, f));
-const SOURCES = [...files('progress'), 'toolkit/toolkit.ts', 'toolkit/types.ts', 'toolkit/techniques.ts'];
+const SOURCES = [...files('progress'), ...files('quests'), 'toolkit/toolkit.ts', 'toolkit/types.ts', 'toolkit/techniques.ts', 'toolkit/one-more.ts'];
 
-test('progress/ and the toolkit never mention entitlements, money, a run of days, the clock or chance', () => {
-  expect(SOURCES.length).toBeGreaterThanOrEqual(9);
+test('progress/, quests/ and the toolkit never mention entitlements, money, a run of days, the clock or chance', () => {
+  expect(SOURCES.length).toBeGreaterThanOrEqual(14);
   for (const file of SOURCES) {
     const src = readFileSync(join(SRC, file), 'utf8');
     expect(src, file).not.toMatch(/entitle|guild|subscription|purchase|price|payment/i);
@@ -23,6 +23,6 @@ test('progress/ and the toolkit never mention entitlements, money, a run of days
   }
 });
 
-test('progress/ never imports the recipe parser (browser-safe through engine.ts)', () => {
-  for (const file of files('progress')) expect(readFileSync(join(SRC, file), 'utf8'), file).not.toMatch(/recipe\/parse|@cooklang/);
+test('progress/ and quests/ never import the recipe parser (browser-safe through engine.ts)', () => {
+  for (const file of [...files('progress'), ...files('quests'), 'toolkit/one-more.ts']) expect(readFileSync(join(SRC, file), 'utf8'), file).not.toMatch(/recipe\/parse|@cooklang/);
 });
