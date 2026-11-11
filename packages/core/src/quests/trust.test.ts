@@ -108,6 +108,11 @@ describe('trust through a stand-in dish (I3)', () => {
     expect(b.warnings).toEqual(['stand_in_dropped']);
     expect(b.event).not.toHaveProperty('standsInFor');
     expect(b.grants.length).toBeGreaterThan(0);
+    // Within a batch, a dropped claim credits no week to later events either: the valid claim after it still rises.
+    const week2 = addDays(MON, 7);
+    const [dropped, valid] = grantsForBatch([dal(week2, ['leela', 'haruka']), dal(week2, ['leela'])], base, cat, DATA, T, ctx([ALLIUM]));
+    expect(dropped.warnings).toEqual(['stand_in_dropped']);
+    expect(valid.grants.some((g) => g.kind === 'trust' && g.cook === 'leela' && g.level === 2)).toBe(true);
   });
 
   it('a frame stands in too, when its technique is one of the dish\'s and it passes the rules', () => {
