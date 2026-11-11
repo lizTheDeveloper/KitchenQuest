@@ -29,6 +29,13 @@ export interface WeekDeps {
  */
 export const WEEK_WRITE_ACTIONS = ['plan.save', 'plan.restore', 'plan.delete', 'market_run.create', 'market_run.finish', 'pantry.change'] as const;
 
+/** I3 (fix round 1): a plan may be saved for the current plan week − 1 to + 4, never a far past or future week. */
+const PLAN_WEEKS_BACK = 1;
+const PLAN_WEEKS_AHEAD = 4;
+const DAY_MS = 86_400_000;
+const addDays = (date: string, days: number): string => new Date(Date.parse(`${date}T00:00:00Z`) + days * DAY_MS).toISOString().slice(0, 10);
+const utcToday = (at: Date): string => at.toISOString().slice(0, 10);
+
 const invalid = (problems: string[]) => new ApiError(400, 'plan_invalid', 'The plan is not valid', { problems });
 
 /** The rules engine's view of the week: the player's rules now, the catalog's graph and swaps, the canon. */
@@ -83,8 +90,9 @@ async function lockForWrite(tx: Tx, userId: string, at: Date): Promise<void> {
  * Saves the player's plan for its week, inside the caller's transaction (Step 6, Ruling 18). Order: live user (401)
  * → advisory `plan:` → the daily write cap (429) → `health_data` (403 `consent_required`; Step 6 ruling: plans are
  * health data) → `validatePlan` (400 `plan_invalid` with its problems: shape, more than MAX_PLAN_ITEMS items, a
- * sacred or unknown slug) → `weekStart` must be `planWeekStart` of itself for the player's market days (400
- * `plan_invalid`) → core `checkPlan` with the player's rules: any item ⛔ on its date is 400 `plan_invalid` with
+ * sacred or unknown slug) → `weekStart` must be `planWeekStart` of itself for the player's market days, and within
+ * PLAN_WEEKS_BACK weeks before and PLAN_WEEKS_AHEAD after the current plan week of `today`, the player's local date
+ * (I2, I3; the UTC date of `at` when absent) (400 `plan_invalid`) → core `checkPlan` with the player's rules: any item ⛔ on its date is 400 `plan_invalid` with
  * `blocked: <slug>`, so a stored plan never holds a dish that was blocked when it was saved. A ❓ item is saved (the
  * player chose it knowing) and is always read back as ❓. Then upsert by week (sealed, the row id kept) → audit
  * 'plan.save' (no content). Returns the plan as stored, with its row id, and the plan it replaced (for Step 8's undo).
@@ -96,6 +104,7 @@ export async function savePlanIn(
   plan: Plan,
   at: Date,
   requestId?: string,
+  today: string = utcToday(at),
 ): Promise<{ plan: Plan & { id: string }; previous: Plan | null }> {
   await lockForWrite(tx, userId, at);
   const problems = validatePlan(plan, deps);
@@ -103,6 +112,10 @@ export async function savePlanIn(
   const p = canonical(plan);
   const { marketDays } = await loadProfile(tx, userId, at);
   if (planWeekStart(p.weekStart, marketDays) !== p.weekStart) throw invalid(['plan: weekStart is not the first day of your plan week']);
+  const currentWeek = planWeekStart(today, marketDays);
+  if (p.weekStart < addDays(currentWeek, -7 * PLAN_WEEKS_BACK) || p.weekStart > addDays(currentWeek, 7 * PLAN_WEEKS_AHEAD)) {
+    throw invalid(['plan: weekStart is outside the weeks you can plan']);
+  }
   const blocked = (await checksFor(tx, deps, userId, p)).filter((c) => c.status === 'blocked').map((c) => `blocked: ${c.item.slug}`);
   if (blocked.length > 0) throw invalid([...new Set(blocked)]);
   const before = await loadPlan(tx, deps.keyring, userId, p.weekStart);
@@ -146,8 +159,8 @@ export async function deletePlanIn(tx: Tx, userId: string, weekStart: string, at
   return gone.length > 0;
 }
 
-/** The player's current plan week: `planWeekStart(today, marketDays)` with today the UTC date of `at` (Ruling 11). */
-export async function currentWeekStart(tx: Tx, userId: string, at: Date): Promise<string> {
+/** The player's current plan week (Ruling 11): `planWeekStart(today, marketDays)`, `today` their local date (I2). */
+export async function currentWeekStart(tx: Tx, userId: string, at: Date, today: string): Promise<string> {
   const { marketDays } = await loadProfile(tx, userId, at);
-  return planWeekStart(at.toISOString().slice(0, 10), marketDays);
+  return planWeekStart(today, marketDays);
 }

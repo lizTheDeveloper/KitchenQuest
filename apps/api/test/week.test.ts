@@ -288,9 +288,9 @@ describe('market runs', () => {
     await put(p.cookie, planOf(MONDAY, [dish(PARIPPU, 0)]));
     const run = await open(p.cookie);
     const ghee = row(run, 'ghee');
-    // The player tells the Pan they have ghee after the list was made: same name, told, no date.
+    expect((await tick(p.cookie, run.id, ghee.key, true)).statusCode).toBe(200);
+    // Then the player tells the Pan they have ghee: same name, told, no date.
     const [told] = await pantryAdd(p.cookie, [{ name: 'ghee', ingredientId: ghee.ingredientId }]);
-    await tick(p.cookie, run.id, ghee.key, true);
     expect((await loadPantry(db, config.keyring, p.id)).filter((i) => i.name === 'ghee')).toHaveLength(2);
     await tick(p.cookie, run.id, ghee.key, false);
     expect(await loadPantry(db, config.keyring, p.id)).toEqual([{ id: told, name: 'ghee', ingredientId: ghee.ingredientId }]);
@@ -573,7 +573,7 @@ describe('fix round 1', () => {
     const p = await player();
     await put(p.cookie, planOf(MONDAY, [dish(ONIGIRI, 1)]));
     const got = (await current(p.cookie)).plan!;
-    const res = await put(p.cookie, { ...got, items: [...got.items, dish(ONIGIRI, 3)] } as Plan);
+    const res = await put(p.cookie, { ...got, items: [...got.items, dish(ONIGIRI, 3)] });
     expect(res.statusCode, res.body).toBe(200);
     expect(res.json<{ plan: { id: string } }>().plan.id).toBe(got.id);
     const forged = await put(p.cookie, { ...got, id: '00000000-0000-4000-8000-000000000000' } as Plan);
