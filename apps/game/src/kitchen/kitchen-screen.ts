@@ -1,7 +1,7 @@
 import { toolkitRows, type ToolkitState } from '@kitchenquest/core/engine';
 import assets from 'virtual:kq-assets';
 import { content, techniqueName } from '../content';
-import { createDialogue, getMentor } from '../mentor';
+import { createDialogue, getMentor, getMentorServices } from '../mentor';
 import { localDate } from '../recipes/rules';
 import { hideStage, showScene } from '../scenes/phaser-host';
 import { registerScreen, type AppContext, type Screen } from '../shell/app';
@@ -53,7 +53,12 @@ function kitchenScreen(): Screen {
       const bar = h('div', { class: 'kitchen-actions' });
       const greetingSlot = h('div', { class: 'kitchen-greeting' });
       const cardSlot = h('div', { class: 'apprentice-slot' });
-      el.replaceChildren(h('h1', null, 'Your kitchen'), greetingSlot, backdropSlot, bar, cardSlot);
+      // Use-It-Up Rescue (M5 Step 10): at most one offer a day, only while the kitchen is open. Its code loads after first paint.
+      const rescueSlot = h('div', { class: 'rescue-slot' });
+      el.replaceChildren(h('h1', null, 'Your kitchen'), greetingSlot, backdropSlot, bar, rescueSlot, cardSlot);
+      void import('../week/rescue-slot')
+        .then(({ mountRescue }) => mountRescue(rescueSlot, ctx, getMentorServices().client, () => alive))
+        .catch((err: unknown) => { console.error(err); });
       // The apprentice card and the knife roll read progress, which loads after first paint (Step 9.3).
       let stopCard: (() => void) | null = null;
       void Promise.all([progressService(), import('./apprentice-card')]).then(([svc, { renderApprenticeCard, renderGuestOffer }]) => {
@@ -95,6 +100,7 @@ function kitchenScreen(): Screen {
         { id: 'talk', label: 'Talk to the Pan', run: () => getMentor().open() },
         { id: 'toolkit', label: 'Knife roll', run: openRoll },
         { id: 'recipes', label: 'Recipe shelf', run: () => ctx.navigate({ name: 'recipes' }) },
+        { id: 'week', label: 'This week', run: () => ctx.navigate({ name: 'plan' }) },
         { id: 'map', label: 'Go out to the world map', run: () => ctx.navigate({ name: 'map' }) },
       ]);
 

@@ -216,7 +216,7 @@ describe('quest runner', () => {
     expect(r).toBe('cook');
   });
 
-  test('N3: Pantry Frames are not offered as stand-ins until frame cook mode exists (Step 10): the lesson is', async () => {
+  test('Step 10 carry: a Pantry Frame that passes is offered as a stand-in, linked to frame cook mode', async () => {
     const coconut: Rule = { id: 'r2', target: { kind: 'ingredient', ids: ['coconut'] }, type: 'avoid', severity: 'anaphylactic' };
     // A frame that practises legumes (one of parippu's techniques) and fills, ✅, from this pantry.
     const frame = { ...content.frames[0], technique: 'legumes' };
@@ -227,13 +227,15 @@ describe('quest runner', () => {
     const done: ProgressEvent[] = [1, 2, 3, 4, 5].map((step) => ({ id: `s${step}`, kind: 'quest_step', at: TODAY, quest: leela.id, step }));
     const h = harness(leela, { rules: [coconut], events: done });
     let text = '';
+    let href: string | null = null;
     const r = await drive(h.slot, runQuest(h.slot, leela, { ...h.deps, content: withFrame, pantry: () => pantry }), (panel) => {
       text = panel.textContent ?? '';
+      href = panel.querySelector('.quest-alternatives a')?.getAttribute('href') ?? null;
       return 'Not yet';
     });
     expect(r).toBe('paused');
-    expect(text).toContain('Learn it as a lesson');
-    expect(text).not.toContain(frame.title);
+    expect(text).toContain(frame.title);
+    expect(href).toBe(`#/frame/${frame.id}`);
   });
 
   test('riddle answers are buttons, reachable by keyboard', async () => {

@@ -227,8 +227,8 @@ export async function runQuest(slot: HTMLElement, q: Quest, deps: QuestRunnerDep
       case 'cook': {
         const full = context();
         if (full === null) return rulesWait();
-        // Frames can't be cooked from here until Step 10's frame cook mode, so they are not offered as stand-ins yet.
-        const ctx: StepContext = { ...full, frames: [] };
+        // Frames are offered as stand-ins too (Step 9 carry): frame cook mode (`#/frame/<id>`, Step 10) cooks them.
+        const ctx: StepContext = full;
         // A cook already done since the quest started (the cook screen advances this step when it finishes).
         const already = advance(q, deps.progress(), { type: 'cook', cookedEventId: '' }, deps.today(), newId, ctx);
         if (already.ok) {
@@ -247,10 +247,13 @@ export async function runQuest(slot: HTMLElement, q: Quest, deps: QuestRunnerDep
         const alternatives = alternativesFor(step, ctx);
         if (alternatives.length > 0) {
           // Same Hands, Different Kitchen: any of these, cooked, completes the step. ✅ or a labelled swap only.
-          const list = h('ul', { class: 'quest-alternatives' }, ...alternatives.flatMap((a) => {
-            if (a.kind !== 'recipe') return [];
+          const list = h('ul', { class: 'quest-alternatives' }, ...alternatives.map((a) => {
+            if (a.kind === 'frame') {
+              const title = c.frames.find((f) => f.id === a.id)?.title ?? a.id;
+              return h('li', null, statusChip(a.status), ' ', h('a', { href: routeHref({ name: 'frame', id: a.id }) }, contentText('span', title)));
+            }
             const title = own(c.recipes, a.slug)?.meta.title ?? a.slug;
-            return [h('li', null, statusChip(a.status), ' ', h('a', { href: routeHref({ name: 'recipe', slug: a.slug }) }, contentText('span', title)))];
+            return h('li', null, statusChip(a.status), ' ', h('a', { href: routeHref({ name: 'recipe', slug: a.slug }) }, contentText('span', title)));
           }));
           const i = await choose([why, h('p', null, 'Cooking one of these practises the same technique, and counts for this step:')], [...anyway, 'Not yet'], [list]);
           return anyway.length > 0 && i === 0 ? 'cook' : 'paused';
