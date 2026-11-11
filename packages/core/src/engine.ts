@@ -5,6 +5,8 @@ export * from './recipe/types';
 export { timerSeconds } from './recipe/timers';
 export { stepPlainText } from './recipe/steps';
 export * from './toolkit/toolkit';
+export * from './toolkit/techniques';
+export * from './progress';
 export * from './ingredients/types';
 export { IngredientGraph, normalizeName } from './ingredients/graph';
 export * from './rules/types';

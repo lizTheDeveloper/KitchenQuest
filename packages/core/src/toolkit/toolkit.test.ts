@@ -124,7 +124,7 @@ describe('validateThresholds', () => {
 });
 
 test('public surface has no removal', () => {
-  expect(Object.keys(toolkitModule).sort()).toEqual(['EMPTY_TOOLKIT', 'freshness', 'recordTechnique', 'toolkitRows', 'validateThresholds']);
+  expect(Object.keys(toolkitModule).sort()).toEqual(['EMPTY_TOOLKIT', 'freshness', 'recognizedCook', 'recordTechnique', 'refreshDue', 'toolkitFromEvents', 'toolkitRows', 'validateThresholds']);
 });
 
 describe('prototype-named technique keys', () => {
