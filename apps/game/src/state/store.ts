@@ -2,6 +2,7 @@ import {
   EMPTY_TOOLKIT, isValidDate, MEAL_SLOTS, type IntakeStep, type MealSlot, type PantryItem, type ProgressEvent, type ProgressSnapshot,
   type ProgressView, type RewardGrant, type Rule, type Tier, type ToolkitState,
 } from '@kitchenquest/core/engine';
+import { sha256Hex } from './sha256';
 
 /** The device log's cap (C15): over it, the oldest events fold into `progress.base` (progress/log.ts). */
 export const MAX_DEVICE_EVENTS = 2000;
@@ -19,10 +20,38 @@ const EMPTY_PROGRESS: DeviceProgress = { events: [], grants: [], base: null, pen
  * shown while `/progress` hasn't answered, so nothing drops after a reload). Read, shown and synced only while that
  * account is signed in; hidden (never deleted, never shown, never uploaded elsewhere) while it isn't.
  */
-interface AccountPartition { progress: DeviceProgress; view: ProgressView | null }
+interface AccountPartition {
+  progress: DeviceProgress;
+  view: ProgressView | null;
+  /** Bumped by `prunePartition`: a higher epoch replaces a lower one outright on merge, so a prune is never undone. */
+  epoch?: number;
+}
 
-/** Which partition is live: the signed-in account's (by its email, the only account key this device holds), else the guest's (null). */
-export const partitionKey = (s: Pick<PlayerState, 'account'>): string | null => s.account?.email ?? null;
+const keyCache = new Map<string, string>();
+/** An account's partition key: the SHA-256 (hex) of its email, so no storage key ever holds an email. */
+export function accountKey(email: string): string {
+  let k = keyCache.get(email);
+  if (k === undefined) { k = sha256Hex(email); keyCache.set(email, k); }
+  return k;
+}
+
+/** Which partition is live: the signed-in account's (its hashed key), else the guest's (null). */
+export const partitionKey = (s: Pick<PlayerState, 'account'>): string | null => (s.account ? accountKey(s.account.email) : null);
+
+/**
+ * After a sign-out (and its flush): the server holds the record, so everything already synced leaves the account's
+ * partition, and its cached view with it. Only events still waiting for upload stay (with their grants), for that
+ * same account's next sign-in, when the view is rebuilt from the server. The epoch makes the prune stick on merge.
+ */
+export function prunePartition(s: PlayerState, key: string): PlayerState {
+  if (!Object.hasOwn(s.accountProgress, key)) return s;
+  const old = s.accountProgress[key];
+  const pending = new Set(old.progress.pendingUpload);
+  const events = old.progress.events.filter((e) => pending.has(e.id));
+  const ids = new Set(events.map((e) => e.id));
+  const progress: DeviceProgress = { events, grants: old.progress.grants.filter((g) => ids.has(g.eventId)), base: null, pendingUpload: events.map((e) => e.id) };
+  return { ...s, accountProgress: { ...s.accountProgress, [key]: { progress, view: null, epoch: (old.epoch ?? 0) + 1 } } };
+}
 
 /** A partition's log: the guest's is `progress`; an account's lives in `accountProgress` (empty until it has one). */
 export function partitionOf(s: PlayerState, key: string | null): DeviceProgress {
@@ -38,8 +67,8 @@ export function accountViewOf(s: PlayerState, key: string): ProgressView | null 
 /** `s` with one partition changed: `p` is its new log; `view` (when given) its cached account view. */
 export function withPartition(s: PlayerState, key: string | null, p: DeviceProgress, view?: ProgressView | null): PlayerState {
   if (key === null) return { ...s, progress: p };
-  const old = Object.hasOwn(s.accountProgress, key) ? s.accountProgress[key] : { progress: EMPTY_PROGRESS, view: null };
-  return { ...s, accountProgress: { ...s.accountProgress, [key]: { progress: p, view: view === undefined ? old.view : view } } };
+  const old: AccountPartition = Object.hasOwn(s.accountProgress, key) ? s.accountProgress[key] : { progress: EMPTY_PROGRESS, view: null };
+  return { ...s, accountProgress: { ...s.accountProgress, [key]: { ...old, progress: p, view: view === undefined ? old.view : view } } };
 }
 
 export interface PlayerSettings { showCalories: boolean; reducedMotion: 'system' | 'on' | 'off'; familyTable: boolean; iosNoteDismissed: boolean }
@@ -115,7 +144,8 @@ const isProgress = (x: unknown): boolean =>
   (x.base === null || (isObj(x.base) && isObj(x.base.view))) &&
   isStrArray(x.pendingUpload);
 const isPartitions = (x: unknown): boolean =>
-  isObj(x) && Object.values(x).every((a) => isObj(a) && isProgress(a.progress) && (a.view === null || isObj(a.view)));
+  isObj(x) && Object.values(x).every((a) => isObj(a) && isProgress(a.progress) && (a.view === null || isObj(a.view)) &&
+    (a.epoch === undefined || (typeof a.epoch === 'number' && Number.isInteger(a.epoch) && a.epoch >= 0)));
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 /** Every core `IntakeStep`: a step core adds fails to compile here until it is listed. */
 const INTAKE_STEP_SET: Readonly<Record<IntakeStep, true>> = { market_day: true, meals_per_week: true, region: true, allergies: true, pantry: true };
@@ -272,7 +302,11 @@ export function mergePartitions(
   const accounts = new Map<string, AccountPartition>(Object.entries(a.accountProgress));
   for (const [key, pb] of Object.entries(b.accountProgress)) {
     const pa = accounts.get(key);
-    accounts.set(key, pa ? { progress: mergeProgress(pa.progress, pb.progress, opts), view: pb.view ?? pa.view } : pb);
+    const ea = pa?.epoch ?? 0, eb = pb.epoch ?? 0;
+    // A pruned partition (a higher epoch) replaces the older copy outright: what the prune removed never comes back.
+    if (!pa || eb > ea) accounts.set(key, pb);
+    else if (ea > eb) accounts.set(key, pa);
+    else accounts.set(key, { ...pa, progress: mergeProgress(pa.progress, pb.progress, opts), view: pb.view ?? pa.view });
   }
   return { progress: mergeProgress(a.progress, b.progress, opts), accountProgress: Object.fromEntries(accounts) };
 }

@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 import { MAX_PROGRESS_EVENTS_PER_DAY, type Catalogue, type ProgressEvent, type ProgressView, type RewardGrant, type RulesContext } from '@kitchenquest/core/engine';
 import type { ApiClient } from '../api/client';
 import type { ApiResult, ProgressPostResponse } from '../api/types';
-import { createStore, partitionOf, type PlayerStore } from '../state/store';
+import { accountKey, createStore, partitionOf, type PlayerStore } from '../state/store';
 import { standInFixture } from './stand-in.fixture';
 import { grantLines } from './announce';
 import { currentProgress } from './view';
@@ -69,7 +69,7 @@ const A = 'a@example.test';
 const B = 'b@example.test';
 const signIn = (store: PlayerStore, email = A) => store.update((s) => ({ ...s, account: { email } }));
 const signOutOf = (store: PlayerStore) => store.update((s) => ({ ...s, account: null }));
-const part = (store: PlayerStore, key: string | null) => partitionOf(store.get(), key);
+const part = (store: PlayerStore, email: string | null) => partitionOf(store.get(), email === null ? null : accountKey(email));
 
 describe('progress sync', () => {
   test('sync: signed out → local grants; sign-in uploads only the account\'s own log; guest progress goes up once (upload: true) only after the tap; replay after offline → duplicates only, no double lines', async () => {
@@ -174,7 +174,7 @@ describe('progress sync', () => {
     const grants = await sync.record([e]);
     expect(posts).toEqual([{ events: [e], upload: undefined }]);
     expect(grants).toEqual([{ ...level, eventId: e.id }]);
-    expect(store.get().accountProgress[A].view).toEqual(view);
+    expect(store.get().accountProgress[accountKey(A)].view).toEqual(view);
     expect(part(store, A).pendingUpload).toEqual([]);
     expect(part(store, A).events.map((x) => x.id)).toEqual([e.id]); // the device keeps the account's own copy
     expect(currentProgress(store.get()).level).toBe(4);

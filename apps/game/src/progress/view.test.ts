@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { grantsForBatch, type ProgressEvent, type ProgressView } from '@kitchenquest/core/engine';
 import { content } from '../content';
-import { createStore, withPartition } from '../state/store';
+import { accountKey, createStore, withPartition } from '../state/store';
 import { catalogueOf } from './catalogue';
 import { appendEvents, deviceView, historyOf, newEventId } from './log';
 import { currentProgress, maxView } from './view';
@@ -22,7 +22,7 @@ function playedStore() {
 describe('progress view', () => {
   test('signed out: the device view, whatever the account says', () => {
     const store = playedStore();
-    store.update((s) => withPartition(s, 'a@example.test', s.accountProgress['a@example.test']?.progress ?? { events: [], grants: [], base: null, pendingUpload: [] }, { ...EMPTY, xp: 99_999, level: 9 }));
+    store.update((s) => withPartition(s, accountKey('a@example.test'), { events: [], grants: [], base: null, pendingUpload: [] }, { ...EMPTY, xp: 99_999, level: 9 }));
     expect(currentProgress(store.get(), cat)).toEqual(deviceView(store.get().progress, cat));
   });
 
@@ -31,7 +31,7 @@ describe('progress view', () => {
     const played = playedStore().get().progress;
     const store = createStore(null);
     const account: ProgressView = { ...EMPTY, xp: 10, stamps: 0, trust: { haruka: 2 }, questsDone: ['haruka-gluey-rice'], cookedOn: { 'japan/osaka/onigiri': ['2026-09-01'] } };
-    store.update((s) => withPartition({ ...s, account: { email: 'a@example.test' } }, 'a@example.test', played, account));
+    store.update((s) => withPartition({ ...s, account: { email: 'a@example.test' } }, accountKey('a@example.test'), played, account));
     const device = deviceView(played, cat);
     expect(device.level).toBeGreaterThan(1);
     const shown = currentProgress(store.get(), cat);

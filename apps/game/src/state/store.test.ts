@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { recordTechnique } from '@kitchenquest/core/engine';
-import { accountViewOf, createStore, deleteDeviceData, importM3Toolkit, mergePartitions, mergeProgress, partitionKey, partitionOf, STORE_KEY, withPartition } from './store';
+import { accountKey, accountViewOf, createStore, prunePartition, deleteDeviceData, importM3Toolkit, mergePartitions, mergeProgress, partitionKey, partitionOf, STORE_KEY, withPartition } from './store';
 
 function memStorage(init: Record<string, string> = {}): Storage {
   const m = new Map(Object.entries(init));
@@ -541,11 +541,32 @@ describe('progress partitions (C1 ruling)', () => {
 
   it('the live partition follows the account: guest signed out, the account\'s own signed in', () => {
     const s = createStore(null);
-    s.update((x) => withPartition(withPartition(x, null, log('g')), 'a@x.test', log('a')));
+    s.update((x) => withPartition(withPartition(x, null, log('g')), accountKey('a@x.test'), log('a')));
     expect(partitionOf(s.get(), partitionKey(s.get())).events.map((x) => x.id)).toEqual(['g']);
     s.update((x) => ({ ...x, account: { email: 'a@x.test' } }));
     expect(partitionOf(s.get(), partitionKey(s.get())).events.map((x) => x.id)).toEqual(['a']);
     s.update((x) => ({ ...x, account: { email: 'b@x.test' } }));
     expect(partitionOf(s.get(), partitionKey(s.get())).events).toEqual([]);
   });
+
+  it('prunePartition keeps only the unsynced events (and their grants), drops the view, and a stale copy can\'t bring the rest back', () => {
+    const key = accountKey('a@x.test');
+    const view = { xp: 7, level: 1, stamps: 0, trust: {}, toolkit: { techniques: {} }, questsDone: [], questSteps: {}, questStartedOn: {}, cookedOn: {}, framesCookedOn: {} };
+    const before = withPartition(createStore(null).get(), key, { ...log('a', 'b', 'c'), pendingUpload: ['c'], grants: [{ id: 'c#0', eventId: 'c', isoDay: '2026-11-09', kind: 'xp', amount: 10, reason: 'lesson' }, { id: 'a#0', eventId: 'a', isoDay: '2026-11-09', kind: 'xp', amount: 10, reason: 'lesson' }] }, view);
+    const after = prunePartition(before, key);
+    expect(partitionOf(after, key).events.map((x) => x.id)).toEqual(['c']);
+    expect(partitionOf(after, key).grants.map((x) => x.id)).toEqual(['c#0']);
+    expect(accountViewOf(after, key)).toBeNull();
+    // Another tab still holding the old copy: the pruned one (a higher epoch) wins, both ways round.
+    expect(mergePartitions(after, before).accountProgress[key].progress.events.map((x) => x.id)).toEqual(['c']);
+    expect(mergePartitions(before, after).accountProgress[key].progress.events.map((x) => x.id)).toEqual(['c']);
+    // And through the store: an update over a stale stored copy keeps the prune.
+    const st = memStorage();
+    const s1 = createStore(st);
+    s1.update(() => before);
+    s1.update((x) => prunePartition(x, key));
+    expect(partitionOf(createStore(st).get(), key).events.map((x) => x.id)).toEqual(['c']);
+    expect(st.getItem(STORE_KEY)).not.toContain('a@x.test');
+  });
 });
+

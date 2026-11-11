@@ -1,6 +1,6 @@
 import { setBeforeSignOut } from '../api/account';
 import type { ApiClient } from '../api/client';
-import type { PlayerStore } from '../state/store';
+import { accountKey, prunePartition, type PlayerStore } from '../state/store';
 import type { ProgressService } from './service';
 
 /**
@@ -19,7 +19,11 @@ export function initProgress(client: ApiClient, store: PlayerStore, win: Window)
   store.subscribe((s) => {
     const now = s.account?.email ?? null;
     if (now === email) return;
+    const was = email;
     email = now;
+    // The account that left (signed out here, in another tab, or by a 401): what it synced is the server's now, so
+    // only its unsynced events stay on the device, for its own next sign-in (the view is rebuilt from the server then).
+    if (was !== null) store.update((st) => prunePartition(st, accountKey(was)));
     if (now !== null) signedIn();
   });
   // C1 ruling: a sign-out first posts what the account still holds (when online), then its partition is hidden.
