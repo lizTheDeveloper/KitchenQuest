@@ -2,7 +2,7 @@ import { normalizeName, type IngredientGraph } from '../ingredients/graph';
 import { SEVERE, type Severity } from '../rules/types';
 import type { LineRef } from './cards';
 import { canonicalText, capText, classifyTurn, foldConfusables, normalizeTurn, stripPageEvents, type TurnIntent } from './intents';
-import { parseClock, parseRuleStatement, severityFromText, weekdaysOf, type MealSlot } from './parse';
+import { parseClock, parseRuleStatement, parseWeekdays, severityFromText, weekdaysOf, type MealSlot } from './parse';
 import type { NavTarget } from './protocol';
 import type { RuleTerm } from './rule-terms';
 
@@ -507,6 +507,31 @@ export function reminderSlots(text: string, graph: IngredientGraph, terms: reado
     }
   }
   return out;
+}
+
+/** "market's saturday", "my market day is Saturday", "market is on Friday": the player's own market day stated. */
+const MARKET_DAY = /\b(?:my\s+)?market(?:'s|\s+day'?s|\s+day\s+is|\s+is)\s+(?:on\s+)?(?:(?:usually|always|normally)\s+)?(?:on\s+)?(?:a\s+)?(?:sunday|monday|tuesday|wednesday|thursday|friday|saturday|sun|mon|tues|tue|wed|thurs|thu|fri|sat)s?\b/;
+
+/**
+ * M5 Step 8 market-day ruling (the I2 constraints): the weekday (0 = Sunday) of the market day the player states for
+ * themself, from their own words, or null: a clause that states it ("market's saturday"), names exactly one
+ * weekday, has no other person in it ("my mum's market") and no health word, in a message with no symptom or health
+ * word anywhere. Code builds the market-day
+ * profile card from it when the model made none.
+ */
+export function marketDayStated(text: string, graph: IngredientGraph, terms: readonly RuleTerm[]): number | null {
+  // A symptom or health word anywhere in the message ("…, peanuts make me sick") and code builds nothing: the turn is
+  // the health path's.
+  if (HEALTH_WORDS.test(normalizeTurn(text))) return null;
+  for (const raw of text.split(/[,;.!?\n]+/)) {
+    const c = normalizeTurn(raw);
+    if (!MARKET_DAY.test(c)) continue;
+    const days = parseWeekdays(c);
+    const health = HEALTH_WORDS.test(c) || mentionsHealthTerm(c, graph, terms) || severityFromText(c, graph) !== null || parseRuleStatement(c, graph) !== null;
+    if (days.length !== 1 || THIRD_PARTY.test(c) || health) return null;
+    return days[0];
+  }
+  return null;
 }
 
 /**

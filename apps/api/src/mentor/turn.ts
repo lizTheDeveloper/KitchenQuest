@@ -13,6 +13,8 @@ import {
   isSuitabilityQuestion,
   broadKindsAsked,
   reminderSlots,
+  marketDayStated,
+  WEEKDAY_NAMES,
   leftoverNamedIngredients,
   matchDish,
   MENTOR_TURN_DEADLINE_MS,
@@ -462,6 +464,18 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
       ? reminderSlots(stripPageEvents(playerOwnWords(f.raw)).text, graph, deps.catalog.ruleTerms)
       : [];
   if (timed.length > 0) calls.push({ name: 'propose_profile', args: { market_days: null, meals_per_week: null, region: null, country: null, meal_windows: timed } });
+  // M5 Step 8 market-day ruling (the I2 constraints): a market day the player states for themself, when no profile
+  // call sets one, is put on the profile card code builds (or the profile call there is).
+  const market =
+    offered.has('propose_profile') && !calls.some((c) => c.name === 'propose_profile' && c.args.market_days !== null && c.args.market_days.length > 0)
+      ? marketDayStated(stripPageEvents(playerOwnWords(f.raw)).text, graph, deps.catalog.ruleTerms)
+      : null;
+  if (market !== null) {
+    const profileCall = calls.find((c): c is Extract<ToolArgs, { name: 'propose_profile' }> => c.name === 'propose_profile');
+    if (profileCall) profileCall.args.market_days = [WEEKDAY_NAMES[market]];
+    else calls.push({ name: 'propose_profile', args: { market_days: [WEEKDAY_NAMES[market]], meals_per_week: null, region: null, country: null, meal_windows: null } });
+  }
+  const codeProfile = timed.length > 0 || market !== null;
   return deps.db.transaction(async (tx) => {
     await lockLiveUser(tx, userId);
     const persist = await consentHeldIn(tx, userId, 'health_data', now);
@@ -520,7 +534,7 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
     const droppedRule = proposedRule && keptRuleTerms.length === 0;
     // Fix round 1 I1/I2: a plan card, or a profile card code built from a clock clause, never stands in for the ask:
     // neither answers what the player said about their health.
-    const answering = reply.cards.filter((c) => c.kind !== 'plan' && !(c.kind === 'profile' && timed.length > 0));
+    const answering = reply.cards.filter((c) => c.kind !== 'plan' && !(c.kind === 'profile' && codeProfile));
     if (f.health && !suitabilityOnly && !hasRuleOutcome(reply) && (answering.length === 0 || droppedRule)) {
       dropBareFallback();
       reply.parts.push(line('rule.ask_keep_off'));
