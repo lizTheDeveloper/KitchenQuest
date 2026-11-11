@@ -36,6 +36,8 @@ export interface AfterCookInput {
 export interface AfterCookDeps {
   writer: CardWriter;
   record: (events: ProgressEvent[]) => Promise<unknown>;
+  /** Fix I2: an undone meal log's waiting `meal_logged` event leaves the device and is never posted. */
+  forgetMeal: (mealLogId: string) => void;
   signedIn: () => boolean;
   familyTable: () => boolean;
   healthConsent: () => 'granted' | 'reconsent' | 'missing';
@@ -225,7 +227,11 @@ export function afterCook(slot: HTMLElement, input: AfterCookInput, deps: AfterC
             void deps.record([{ id: newEventId(), kind: 'meal_logged', at, minute, mealLogId: out.trail.id }]).catch((err: unknown) => { console.error(err); });
             el.append(...lineEls(saidText(out.items)));
             // Undo is DELETE /meals/:id only: the server erases the progress event with the log (Step 5 I1).
-            undo(out.trail.undoUntil, async () => (await deps.writer.undo(out.trail)).status === 'undone', el);
+            undo(out.trail.undoUntil, async () => {
+              const done = (await deps.writer.undo(out.trail)).status === 'undone';
+              if (done) deps.forgetMeal(out.trail.id);
+              return done;
+            }, el);
             next();
             return;
           }

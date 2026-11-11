@@ -43,6 +43,7 @@ export async function afterCookThenKitchen(el: HTMLElement, ctx: AppContext, inp
   await afterCook(el, input, {
     writer, dialogue, now: ctx.now,
     record: async (events) => (await progressService()).record(events),
+    forgetMeal: (id) => { void progressService().then((s) => { s.sync.forgetMeal(id); }); },
     signedIn, familyTable: () => store.get().settings.familyTable,
     healthConsent: () => consent,
     rules: () => activeRules(store.get(), graph),

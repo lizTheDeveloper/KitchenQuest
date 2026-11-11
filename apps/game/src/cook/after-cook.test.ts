@@ -47,11 +47,13 @@ function setup(opts: { signedIn?: boolean; consent?: 'granted' | 'missing'; fami
   const dialogue = createDialogue(content.pan);
   const writer = createCardWriter({ client, store, dialogue, graph, ruleTerms: content.ruleTerms, now: () => T0 });
   const recorded: ProgressEvent[] = [];
+  const forgot: string[] = [];
   const consentAsks: number[] = [];
   let consent = opts.consent ?? 'granted';
   const deps: AfterCookDeps = {
     writer, dialogue, now: () => T0,
     record: async (e) => { recorded.push(...e); },
+    forgetMeal: (id) => { forgot.push(id); },
     signedIn: () => store.get().account !== null,
     familyTable: () => store.get().settings.familyTable,
     healthConsent: () => consent,
@@ -70,7 +72,7 @@ function setup(opts: { signedIn?: boolean; consent?: 'granted' | 'missing'; fami
     return b;
   };
   const slip = (kind: string) => slot.querySelector<HTMLElement>(`.bureau-slip[data-kind="${kind}"]`);
-  return { deps, store, calls, recorded, consentAsks, slot, run, flush, button, slip };
+  return { deps, forgot, store, calls, recorded, consentAsks, slot, run, flush, button, slip };
 }
 
 afterEach(() => { document.body.replaceChildren(); });
@@ -264,6 +266,7 @@ describe('after cook (M5 Step 11)', () => {
     t.button('Undo', log.parentElement!).click();
     await t.flush();
     expect(t.calls.filter((c) => c.name === 'deleteMeal').map((c) => c.args)).toEqual([['meal-1']]);
+    expect(t.forgot).toEqual(['meal-1']); // the waiting event goes too (fix I2)
     expect(t.calls.some((c) => c.name === 'postProgressEvents')).toBe(false);
   });
 
