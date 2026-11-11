@@ -2,7 +2,7 @@
 // (erasure, C-8), with crypto-shredding (C-4) and audit pseudonymization (C-5).
 import { readFileSync } from 'node:fs';
 import type { MarketRunView, MealCard } from '@kitchenquest/core';
-import { eq } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 import type { FastifyInstance, InjectOptions } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
@@ -611,7 +611,7 @@ describe('DELETE /me', () => {
     expect((await deleteAccount(p.cookie, { confirm: PHRASE })).statusCode).toBe(204);
 
     const pseudonym = pseudonymFor(config.pseudonymKey, p.id);
-    const trail = await db.select().from(auditEvents).where(eq(auditEvents.subjectUserId, pseudonym));
+    const trail = await db.select().from(auditEvents).where(eq(auditEvents.subjectUserId, pseudonym)).orderBy(asc(auditEvents.id));
     expect(trail).toHaveLength(count + 1);
     expect(trail.every((e) => e.actorId === pseudonym)).toBe(true);
     expect(trail.at(-1)).toMatchObject({ action: 'account.delete', actorKind: 'user', at: NOW });
@@ -720,7 +720,7 @@ describe('export and delete under concurrency', () => {
     const byId = await mentions(p.id);
     expect(byId).toEqual(nowhere(byId));
     const pseudonym = pseudonymFor(config.pseudonymKey, p.id);
-    const actions = (await db.select().from(auditEvents).where(eq(auditEvents.subjectUserId, pseudonym))).map(
+    const actions = (await db.select().from(auditEvents).where(eq(auditEvents.subjectUserId, pseudonym)).orderBy(asc(auditEvents.id))).map(
       (e) => e.action,
     );
     expect(actions).toContain('account.export');

@@ -1,5 +1,5 @@
 // M4 Step 5: the sealed pantry (H-11). Account-only: no health_data consent, but an explicit flag.
-import { eq } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 import type { FastifyInstance, InjectOptions } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
@@ -84,7 +84,7 @@ describe('pantry', () => {
     for (const r of raw) expect(r.sealed.toString('latin1')).not.toMatch(/peanut|oat/i);
     const reads = await db.select().from(selfReadCounts).where(eq(selfReadCounts.userId, uid));
     expect(reads).toEqual([{ userId: uid, resource: 'pantry', day: '2026-11-09', count: 1 }]);
-    const events = await db.select().from(auditEvents).where(eq(auditEvents.subjectUserId, uid));
+    const events = await db.select().from(auditEvents).where(eq(auditEvents.subjectUserId, uid)).orderBy(asc(auditEvents.id));
     expect(events.filter((e) => e.action.startsWith('pantry.')).map((e) => e.action)).toEqual(['pantry.change']);
   });
 
@@ -213,7 +213,7 @@ describe('pantry', () => {
       ),
     );
     expect((await loadPantry(db, config.keyring, uid)).map((i) => i.name).sort()).toEqual(['Eggs', 'Milk']);
-    const events = await db.select().from(auditEvents).where(eq(auditEvents.subjectUserId, uid));
+    const events = await db.select().from(auditEvents).where(eq(auditEvents.subjectUserId, uid)).orderBy(asc(auditEvents.id));
     expect(events.at(-1)?.action).toBe('pantry.restore');
   });
 
