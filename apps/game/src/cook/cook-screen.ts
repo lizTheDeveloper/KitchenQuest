@@ -12,7 +12,7 @@ import { progressService } from '../progress';
 import { catalogueOf, questsOf } from '../progress/catalogue';
 import { newEventId } from '../progress/log';
 import { cookStepEvents } from '../quests/quest-runner';
-import { plannedOn } from '../week/context';
+import { plannedOn } from '../week/memory';
 import { runCookMode } from './cook-mode';
 import { cookedEvent } from './finish';
 
@@ -77,7 +77,7 @@ export function cookScreen(): Screen {
           const svc = await progressService();
           const today = localDate(ctx.now());
           const rulesCtx = svc.rulesContext(today);
-          await svc.record([cookedEvent(slug, today, plannedOn(slug, today), newEventId(), catalogueOf(), rulesCtx)]);
+          await svc.record([cookedEvent(slug, today, plannedOn(slug, today, ctx.store.get().account?.email ?? null), newEventId(), catalogueOf(), rulesCtx)]);
           if (rulesCtx === undefined) return;
           const steps = cookStepEvents(questsOf(), svc.view(), today, { ...rulesCtx, today, cat: catalogueOf() });
           if (steps.length > 0) await svc.record(steps);

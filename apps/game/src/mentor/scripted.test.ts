@@ -6,7 +6,8 @@ import { createDialogue } from './dialogue';
 import type { CardView, LocalCardView, PanReply, TurnContext } from './reply';
 import { createScriptedEngine } from './scripted';
 import { createStore } from '../state/store';
-import { devicePlan, planCardContextOf } from '../week/context';
+import type { ApiClient } from '../api/client';
+import { createWeekTurn } from './week-turn';
 
 // AI off, real compiled content: the engine runs on the same core toolkit as the server.
 const recipes = Object.entries(content.recipes).map(([slug, r]) => ({ slug, title: r.meta.title }));
@@ -40,8 +41,8 @@ describe('scripted engine', () => {
     ['I just ate shrimp and my lips are tingling and my throat feels tight. What should I take?', { said: ['rule.emergency', 'rule.ask_what_else'], cards: [] }],
     // M4 Step 12 fix round 1 (I2): every named allergen gets its own ask, not only the first.
     ['I ate shrimp and peanuts and my throat is closing', { said: ['rule.emergency', 'rule.ask_what_else', 'rule.ask_what_else'], cards: [] }],
-  ])('%s', (text, want) => {
-    const r = engine().reply(text, ctx());
+  ])('%s', async (text, want) => {
+    const r = await engine().reply(text, ctx());
     if (want.cards) expect(cards(r)).toMatchObject(want.cards);
     if (want.said) expect(said(r)).toEqual(want.said);
     for (const t of want.noSaid ?? []) expect(said(r)).not.toContain(t);
@@ -50,8 +51,8 @@ describe('scripted engine', () => {
     expect(r.actions).toEqual([]);
   });
 
-  test('every card is local, issued this turn, and its read-back is spoken from the card', () => {
-    const r = engine().reply("I'm allergic to sesame", ctx({ turn: 7 }));
+  test('every card is local, issued this turn, and its read-back is spoken from the card', async () => {
+    const r = await engine().reply("I'm allergic to sesame", ctx({ turn: 7 }));
     expect(r.cards).toHaveLength(1);
     const view = r.cards[0] as LocalCardView;
     expect(view).toMatchObject({ origin: 'local', issuedTurn: 7 });
@@ -73,8 +74,8 @@ describe('scripted engine', () => {
     "we gave him peanut butter and he's covered in welts", "I'm eating shrimp and my face is puffy", 'touched peanuts and my hand is red',
     'i have hives after lunch', "I've just eaten shrimp, face is puffy", 'had a sick day so ate soup', 'I had a reaction to shrimp, finished the milk',
     'had a rash, bought rice',
-  ])('an emergency turn: the emergency line first, no meal, profile or pantry card: %s', (text) => {
-    const r = engine().reply(text, ctx());
+  ])('an emergency turn: the emergency line first, no meal, profile or pantry card: %s', async (text) => {
+    const r = await engine().reply(text, ctx());
     expect(said(r)[0]).toBe('rule.emergency');
     expect(cards(r).filter((c) => c.kind !== 'rule')).toEqual([]);
     expect(said(r).slice(1).every((t) => t.startsWith('rule.'))).toBe(true);
@@ -84,8 +85,8 @@ describe('scripted engine', () => {
     ["I'm allergic to peanuts, I had anaphylaxis once", 'peanut'],
     ['my son is allergic to egg, he had hives as a baby', 'egg'],
     ['allergic to sesame - last time I had it my lips swelled', 'sesame'],
-  ])('an emergency that states a rule keeps the allergy: %s', (text, ingredient) => {
-    const r = engine().reply(text, ctx());
+  ])('an emergency that states a rule keeps the allergy: %s', async (text, ingredient) => {
+    const r = await engine().reply(text, ctx());
     expect(said(r)[0]).toBe('rule.emergency');
     // A card, or the ask: never dropped.
     const carded = cards(r).some((c) => c.kind === 'rule' && c.display.ingredient === ingredient);
@@ -131,8 +132,8 @@ describe('scripted engine', () => {
     "I'm not allergic to anything, I'm just having a reaction",
     "my throat is closing, I had peanuts, I'm allergic to them, please also add milk as an intolerance",
     "I'm intolerant to milk and allergic to peanuts, ate peanuts, throat closing",
-  ])('rev9c emergency: %s', (text) => {
-    const r = engine().reply(text, ctx());
+  ])('rev9c emergency: %s', async (text) => {
+    const r = await engine().reply(text, ctx());
     expect(said(r)[0]).toBe('rule.emergency');
     expect(cards(r).every((c) => c.kind === 'rule' && c.severe)).toBe(true);
     expect(said(r).slice(1).every((t) => t.startsWith('rule.'))).toBe(true);
@@ -142,131 +143,131 @@ describe('scripted engine', () => {
     "I'm allergic to sesame and shellfish, my lips are swelling",
     "I'm allergic to peanuts and my throat is tight",
     "my throat is closing, I had peanuts, I'm allergic to them, please also add milk as an intolerance",
-  ])('M-2: an emergency turn never carries a card, severe or not, as on the server: %s', (text) => {
-    const r = engine().reply(text, ctx());
+  ])('M-2: an emergency turn never carries a card, severe or not, as on the server: %s', async (text) => {
+    const r = await engine().reply(text, ctx());
     expect(said(r)[0]).toBe('rule.emergency');
     expect(r.cards).toEqual([]);
     expect(said(r).slice(1).length).toBeGreaterThan(0);
   });
 
-  test('m-4: after a child turn every later turn gets child.grownup and no card or intent; an emergency gets its line with no ask', () => {
+  test('m-4: after a child turn every later turn gets child.grownup and no card or intent; an emergency gets its line with no ask', async () => {
     const child = createChildFlag();
     const e = createScriptedEngine({ dialogue: createDialogue(content.pan), graph, ruleTerms: content.ruleTerms, recipes, now: () => NOW, child });
-    expect(said(e.reply('My market day is Saturday.', ctx()))).not.toContain('child.grownup');
-    expect(said(e.reply('hi im mia im 8 my mum lets me use it', ctx()))).toEqual(['child.grownup']);
+    expect(said(await e.reply('My market day is Saturday.', ctx()))).not.toContain('child.grownup');
+    expect(said(await e.reply('hi im mia im 8 my mum lets me use it', ctx()))).toEqual(['child.grownup']);
     expect(child.on).toBe(true);
     for (const t of ['My market day is Saturday.', "I'm allergic to sesame", 'I had toast for breakfast', 'I bought eggs', 'yes', 'undo that', '']) {
-      const r = e.reply(t, ctx());
+      const r = await e.reply(t, ctx());
       expect(said(r), t).toEqual(['child.grownup']);
       expect(r.cards, t).toEqual([]);
       expect(r.intents, t).toEqual([]);
     }
-    const em = e.reply('I ate shrimp and peanuts and my throat is closing', ctx());
+    const em = await e.reply('I ate shrimp and peanuts and my throat is closing', ctx());
     expect(said(em)).toEqual(['rule.emergency']);
     expect(em.cards).toEqual([]);
     child.reset();
-    expect(cards(e.reply('My market day is Saturday.', ctx()))).toHaveLength(1);
+    expect(cards(await e.reply('My market day is Saturday.', ctx()))).toHaveLength(1);
   });
 
-  test('M-5 (S13): a rule card milder than a saved rule is never offered; rule.already_saved instead; a stricter one still is', () => {
+  test('M-5 (S13): a rule card milder than a saved rule is never offered; rule.already_saved instead; a stricter one still is', async () => {
     const saved = [{ id: 'r1', target: { kind: 'ingredient' as const, ids: ['peanut'] }, type: 'avoid' as const, severity: 'anaphylactic' as const }];
     const e = createScriptedEngine({ dialogue: createDialogue(content.pan), graph, ruleTerms: content.ruleTerms, recipes, now: () => NOW, savedRules: () => saved });
-    const r = e.reply("I'm intolerant to peanuts", ctx());
+    const r = await e.reply("I'm intolerant to peanuts", ctx());
     expect(r.cards).toEqual([]);
     expect(said(r)).toEqual(['rule.already_saved']);
-    const milk = e.reply("I'm allergic to milk", ctx());
+    const milk = await e.reply("I'm allergic to milk", ctx());
     expect(cards(milk)).toMatchObject([{ kind: 'rule', rule: { target: { ids: ['milk'] } } }]);
   });
 
-  test("I'm vegan, had eggs and my throat is closing → the emergency line, then the egg ask (no diet card)", () => {
-    const r = engine().reply("I'm vegan, had eggs and my throat is closing", ctx());
+  test("I'm vegan, had eggs and my throat is closing → the emergency line, then the egg ask (no diet card)", async () => {
+    const r = await engine().reply("I'm vegan, had eggs and my throat is closing", ctx());
     expect(said(r)).toEqual(['rule.emergency', 'rule.ask_what_else']);
     expect(r.cards).toEqual([]);
   });
 
-  test('rev9c plain turns: pantry and meal cards as before', () => {
-    expect(cards(engine().reply('used up the rice', ctx()))).toMatchObject([{ kind: 'pantry', remove: ['rice'] }]);
-    expect(cards(engine().reply('I had pancakes, finished the milk', ctx()))).toMatchObject([
+  test('rev9c plain turns: pantry and meal cards as before', async () => {
+    expect(cards(await engine().reply('used up the rice', ctx()))).toMatchObject([{ kind: 'pantry', remove: ['rice'] }]);
+    expect(cards(await engine().reply('I had pancakes, finished the milk', ctx()))).toMatchObject([
       { kind: 'meal', meal: { item: { kind: 'free', description: 'pancakes' } } }, { kind: 'pantry', remove: ['milk'] },
     ]);
-    expect(cards(engine().reply('I had toast for breakfast', ctx()))).toMatchObject([{ kind: 'meal' }]);
+    expect(cards(await engine().reply('I had toast for breakfast', ctx()))).toMatchObject([{ kind: 'meal' }]);
   });
 
-  test('a plain emergency with nothing named is the emergency line alone', () => {
-    expect(said(engine().reply("I think I'm having an allergic reaction", ctx()))).toEqual(['rule.emergency']);
-    expect(said(engine().reply('my throat is closing', ctx()))).toEqual(['rule.emergency']);
+  test('a plain emergency with nothing named is the emergency line alone', async () => {
+    expect(said(await engine().reply("I think I'm having an allergic reaction", ctx()))).toEqual(['rule.emergency']);
+    expect(said(await engine().reply('my throat is closing', ctx()))).toEqual(['rule.emergency']);
   });
 
-  test('plain meals are still meals', () => {
-    expect(cards(engine().reply('I had toast for breakfast', ctx()))).toMatchObject([{ kind: 'meal' }]);
+  test('plain meals are still meals', async () => {
+    expect(cards(await engine().reply('I had toast for breakfast', ctx()))).toMatchObject([{ kind: 'meal' }]);
   });
 
-  test('a health turn with no card gets the plain ask, offline as on the server (E4)', () => {
-    expect(said(engine().reply('is this ok for me?', ctx()))).toEqual(['rule.ask_keep_off']);
+  test('a health turn with no card gets the plain ask, offline as on the server (E4)', async () => {
+    expect(said(await engine().reply('is this ok for me?', ctx()))).toEqual(['rule.ask_keep_off']);
     // A closing throat is an emergency now (E6); shrimp is named, so the ask follows.
-    expect(said(engine().reply('can I eat this? shrimp makes my throat close', ctx()))).toEqual(['rule.emergency', 'rule.ask_what_else']);
+    expect(said(await engine().reply('can I eat this? shrimp makes my throat close', ctx()))).toEqual(['rule.emergency', 'rule.ask_what_else']);
   });
 
-  test('signed out: a meal gets log.needs_account and no card', () => {
-    const r = engine().reply('I had porridge for breakfast', ctx({ signedIn: false }));
+  test('signed out: a meal gets log.needs_account and no card', async () => {
+    const r = await engine().reply('I had porridge for breakfast', ctx({ signedIn: false }));
     expect(said(r)).toEqual(['log.needs_account']);
     expect(r.cards).toEqual([]);
   });
 
-  test('signed in: a meal names a dish when core matchDish finds one, else free text with the slot from the clock', () => {
-    const dish = engine().reply('I had onigiri', ctx());
+  test('signed in: a meal names a dish when core matchDish finds one, else free text with the slot from the clock', async () => {
+    const dish = await engine().reply('I had onigiri', ctx());
     expect(cards(dish)).toMatchObject([{ kind: 'meal', meal: { eatenOn: '2026-11-10', slot: 'lunch', item: { kind: 'dish', slug: 'japan/osaka/onigiri', servings: 1 } } }]);
-    const free = engine().reply('I ate a cheese sandwich yesterday', ctx());
+    const free = await engine().reply('I ate a cheese sandwich yesterday', ctx());
     expect(cards(free)).toMatchObject([{ kind: 'meal', meal: { eatenOn: '2026-11-09', slot: 'lunch', item: { kind: 'free', description: 'a cheese sandwich' } } }]);
   });
 
-  test('typed yes: one local non-severe card → a confirm intent; a severe one → rule.tap_needed; two → confirm.tap_card', () => {
+  test('typed yes: one local non-severe card → a confirm intent; a severe one → rule.tap_needed; two → confirm.tap_card', async () => {
     const e = engine();
-    const profile = e.reply('My market day is Saturday.', ctx({ turn: 1 })).cards;
-    const severe = e.reply("I'm allergic to sesame", ctx({ turn: 1 })).cards;
+    const profile = (await e.reply('My market day is Saturday.', ctx({ turn: 1 }))).cards;
+    const severe = (await e.reply("I'm allergic to sesame", ctx({ turn: 1 }))).cards;
     const id = (c: CardView[]) => (c[0] as LocalCardView).localId;
 
-    const yes = e.reply('yes', ctx({ turn: 2, openCards: profile }));
+    const yes = await e.reply('yes', ctx({ turn: 2, openCards: profile }));
     expect(yes.intents).toEqual([{ kind: 'confirm', localId: id(profile) }]);
     expect(yes.items).toEqual([]);
 
-    const tap = e.reply('yes', ctx({ turn: 2, openCards: severe }));
+    const tap = await e.reply('yes', ctx({ turn: 2, openCards: severe }));
     expect(tap.intents).toEqual([]);
     expect(said(tap)).toEqual(['rule.tap_needed']);
 
-    const two = e.reply('yes', ctx({ turn: 2, openCards: [...profile, ...severe] }));
+    const two = await e.reply('yes', ctx({ turn: 2, openCards: [...profile, ...severe] }));
     expect(two.intents).toEqual([]);
     expect(said(two)).toEqual(['confirm.tap_card']);
 
     // Only a card from the previous Pan turn counts.
-    expect(e.reply('yes', ctx({ turn: 3, openCards: profile })).intents).toEqual([]);
-    expect(e.reply('no', ctx({ turn: 2, openCards: severe })).intents).toEqual([{ kind: 'reject', localId: id(severe) }]);
-    expect(e.reply('undo that', ctx({ turn: 2 })).intents).toEqual([{ kind: 'undo' }]);
+    expect((await e.reply('yes', ctx({ turn: 3, openCards: profile }))).intents).toEqual([]);
+    expect((await e.reply('no', ctx({ turn: 2, openCards: severe }))).intents).toEqual([{ kind: 'reject', localId: id(severe) }]);
+    expect((await e.reply('undo that', ctx({ turn: 2 }))).intents).toEqual([{ kind: 'undo' }]);
   });
 
-  test('typed yes with a local and a server card both open → confirm.tap_card, never a confirm (Step 9 carry)', () => {
+  test('typed yes with a local and a server card both open → confirm.tap_card, never a confirm (Step 9 carry)', async () => {
     const e = engine();
-    const profile = e.reply('My market day is Saturday.', ctx({ turn: 1 })).cards;
+    const profile = (await e.reply('My market day is Saturday.', ctx({ turn: 1 }))).cards;
     const serverCard: CardView = { origin: 'server', proposalId: 'P1', expiresAt: '2099-01-01T00:00:00Z', card: profile[0].card, issuedTurn: 1 };
-    const mixed = e.reply('yes', ctx({ turn: 2, openCards: [...profile, serverCard] }));
+    const mixed = await e.reply('yes', ctx({ turn: 2, openCards: [...profile, serverCard] }));
     expect(mixed.intents).toEqual([]);
     expect(said(mixed)).toEqual(['confirm.tap_card']);
     // A lone server card is never confirmed by this engine either.
     // An older card still open counts too: never a guess between two open cards.
     const older: CardView = { ...profile[0], localId: 'old', issuedTurn: 0 } as CardView;
-    const withOld = e.reply('yes', ctx({ turn: 2, openCards: [older, profile[0]] }));
+    const withOld = await e.reply('yes', ctx({ turn: 2, openCards: [older, profile[0]] }));
     expect(withOld.intents).toEqual([]);
     expect(said(withOld)).toEqual(['confirm.tap_card']);
     // Undo is never blocked by open cards: it goes by the trail (fix round 1, M1).
-    expect(e.reply('undo', ctx({ turn: 2, openCards: [older, profile[0]] })).intents).toEqual([{ kind: 'undo' }]);
-    const lone = e.reply('yes', ctx({ turn: 2, openCards: [serverCard] }));
+    expect((await e.reply('undo', ctx({ turn: 2, openCards: [older, profile[0]] }))).intents).toEqual([{ kind: 'undo' }]);
+    const lone = await e.reply('yes', ctx({ turn: 2, openCards: [serverCard] }));
     expect(lone.intents).toEqual([]);
     expect(said(lone)).toEqual(['confirm.tap_card']);
   });
 
-  test('a profile card from the engine is accepted by PUT /profile', () => {
+  test('a profile card from the engine is accepted by PUT /profile', async () => {
     for (const text of ['remind me to eat lunch at like half twelve and dinner around 7ish pm', 'breakfast at 7:15 and supper at 23:30', 'My market day is Saturday.']) {
-      for (const c of cards(engine().reply(text, ctx()))) {
+      for (const c of cards(await engine().reply(text, ctx()))) {
         if (c.kind !== 'profile') continue;
         for (const w of c.patch.mealWindows ?? []) {
           expect(w.start).toMatch(HHMM);
@@ -278,34 +279,34 @@ describe('scripted engine', () => {
     }
   });
 
-  test('a slot word with a time cue but no time → schedule.bad_time; no time cue → no window', () => {
-    expect(said(engine().reply('lunch at lunchtime-ish', ctx()))).toEqual(['schedule.bad_time']);
+  test('a slot word with a time cue but no time → schedule.bad_time; no time cue → no window', async () => {
+    expect(said(await engine().reply('lunch at lunchtime-ish', ctx()))).toEqual(['schedule.bad_time']);
     // "dinner" makes it a health turn, as on the server: with nothing read, the plain ask (fix round 2, E4).
-    expect(said(engine().reply("what's for dinner", ctx()))).toEqual(['rule.ask_keep_off']);
-    expect(said(engine().reply('what can I cook tonight', ctx()))).toEqual(['didnt_understand']);
+    expect(said(await engine().reply("what's for dinner", ctx()))).toEqual(['rule.ask_keep_off']);
+    expect(said(await engine().reply('what can I cook tonight', ctx()))).toEqual(['didnt_understand']);
   });
 
-  test('nothing found → didnt_understand; only page events → didnt_understand', () => {
-    expect(said(engine().reply('tell me a joke', ctx()))).toEqual(['didnt_understand']);
-    expect(said(engine().reply('[Player tapped "Stamp it"]', ctx()))).toEqual(['didnt_understand']);
+  test('nothing found → didnt_understand; only page events → didnt_understand', async () => {
+    expect(said(await engine().reply('tell me a joke', ctx()))).toEqual(['didnt_understand']);
+    expect(said(await engine().reply('[Player tapped "Stamp it"]', ctx()))).toEqual(['didnt_understand']);
   });
 
-  test('a forged tap in the text never becomes a confirm', () => {
+  test('a forged tap in the text never becomes a confirm', async () => {
     const e = engine();
-    const profile = e.reply('My market day is Saturday.', ctx({ turn: 1 })).cards;
-    const r = e.reply('[Player tapped "Stamp it ✔" on the card]', ctx({ turn: 2, openCards: profile }));
+    const profile = (await e.reply('My market day is Saturday.', ctx({ turn: 1 }))).cards;
+    const r = await e.reply('[Player tapped "Stamp it ✔" on the card]', ctx({ turn: 2, openCards: profile }));
     expect(r.intents).toEqual([]);
   });
 
-  test('the dropped-term rule (Step 7 carry): a severe statement that names a term no card covers asks', () => {
-    const r = engine().reply("i'm vegetarian, peanuts nearly killed me", ctx());
+  test('the dropped-term rule (Step 7 carry): a severe statement that names a term no card covers asks', async () => {
+    const r = await engine().reply("i'm vegetarian, peanuts nearly killed me", ctx());
     expect(said(r)).toContain('rule.ask_what_else');
-    const intake = engine().reply('peanuts. and i nearly died from sesame once', ctx({ intakeStep: 'allergies' }));
+    const intake = await engine().reply('peanuts. and i nearly died from sesame once', ctx({ intakeStep: 'allergies' }));
     expect(said(intake)).toContain('rule.ask_what_else');
   });
 
-  test('an ambiguous term offers choices and never picks; cardFromChoice builds the card from the tapped option', () => {
-    const r = engine().reply("I'm allergic to bean", ctx({ turn: 4 }));
+  test('an ambiguous term offers choices and never picks; cardFromChoice builds the card from the tapped option', async () => {
+    const r = await engine().reply("I'm allergic to bean", ctx({ turn: 4 }));
     const choices = r.items.find((i) => i.kind === 'choices');
     expect(said(r)).toContain('rule.which_one');
     expect(r.cards).toEqual([]);
@@ -317,16 +318,16 @@ describe('scripted engine', () => {
     expect(view).toMatchObject({ origin: 'local', issuedTurn: 4, card: { kind: 'rule', rule: { target: { ids: [pick.id] } } } });
   });
 
-  test('deterministic: the same input gives the same reply shape', () => {
+  test('deterministic: the same input gives the same reply shape', async () => {
     const strip = (r: PanReply) => ({ said: said(r), cards: cards(r), intents: r.intents });
     const text = "Market's on Friday, and I've got no eggs left.";
-    expect(strip(engine().reply(text, ctx()))).toEqual(strip(engine().reply(text, ctx())));
+    expect(strip(await engine().reply(text, ctx()))).toEqual(strip(await engine().reply(text, ctx())));
   });
 });
 
 describe('M5 Step 4 fix round 2: a herb ask beside a real allergen', () => {
-  test('"I\'m allergic to herbs and peanuts": the peanut card at the stated severity, plus one which-kind ask with direct kinds only (N1, N3)', () => {
-    const r = engine().reply("I'm allergic to herbs and peanuts", ctx());
+  test('"I\'m allergic to herbs and peanuts": the peanut card at the stated severity, plus one which-kind ask with direct kinds only (N1, N3)', async () => {
+    const r = await engine().reply("I'm allergic to herbs and peanuts", ctx());
     const rules = cards(r).filter((c) => c.kind === 'rule');
     expect(rules.map((c) => c.kind === 'rule' && c.rule.target.ids)).toEqual([['peanut']]);
     expect(rules.map((c) => c.kind === 'rule' && c.rule.severity)).toEqual(['allergy']);
@@ -340,54 +341,52 @@ describe('scripted engine: the week (M5 Step 10)', () => {
   const week = engineWithWeek();
   function engineWithWeek() {
     const store = createStore(null);
+    const dialogue = createDialogue(content.pan);
+    const turn = createWeekTurn({ store, client: {} as ApiClient, now: () => NOW, dialogue, recipes, cooks: { leela: 'Leela' } });
     return {
       store,
-      engine: createScriptedEngine({
-        dialogue: createDialogue(content.pan), graph, ruleTerms: content.ruleTerms, recipes, now: () => NOW,
-        week: () => planCardContextOf(store.get(), '2026-11-10', (w) => devicePlan(store.get(), w), null),
-        cooks: { leela: 'Leela' },
-      }),
+      engine: createScriptedEngine({ dialogue, graph, ruleTerms: content.ruleTerms, recipes, now: () => NOW, week: () => Promise.resolve(turn) }),
     };
   }
 
-  test('"plan my week: parippu on Sunday" → a plan card with its read-back, nothing written', () => {
-    const r = week.engine.reply('plan my week: parippu on Sunday', ctx({ signedIn: false }));
+  test('"plan my week: parippu on Sunday" → a plan card with its read-back, nothing written', async () => {
+    const r = await week.engine.reply('plan my week: parippu on Sunday', ctx({ signedIn: false }));
     expect(cards(r)).toMatchObject([{ kind: 'plan', weekStart: '2026-11-09', items: [{ day: 6, kind: 'dish', slug: 'india/kerala/parippu' }], checks: [{ status: 'ok' }] }]);
     expect(said(r)[0]).toBe('plan.readback');
     expect(week.store.get().localWeek.plans).toEqual([]);
   });
 
-  test('"dal on Sunday" → plan.dish_unknown, no card (C1)', () => {
+  test('"dal on Sunday" → plan.dish_unknown, no card (C1)', async () => {
     for (const text of ['dal on Sunday', 'plan my week: dal on sunday']) {
-      const r = week.engine.reply(text, ctx({ signedIn: false }));
+      const r = await week.engine.reply(text, ctx({ signedIn: false }));
       expect(cards(r)).toEqual([]);
       expect(said(r)).toEqual(['plan.dish_unknown']);
       expect(r.items[0].kind === 'said' && r.items[0].said.text).toContain('dal');
     }
   });
 
-  test('a day that names no single day asks which day; "pick 3 after the weekend" asks which day after; no card', () => {
-    let r = week.engine.reply('put parippu on the weekend', ctx({ signedIn: false }));
+  test('a day that names no single day asks which day; "pick 3 after the weekend" asks which day after; no card', async () => {
+    let r = await week.engine.reply('put parippu on the weekend', ctx({ signedIn: false }));
     expect(cards(r)).toEqual([]);
     expect(said(r)).toEqual(['plan.which_day']);
-    r = week.engine.reply('pick 3 after the weekend', ctx({ signedIn: false }));
+    r = await week.engine.reply('pick 3 after the weekend', ctx({ signedIn: false }));
     expect(cards(r)).toEqual([]);
     expect(said(r)).toEqual(['plan.after_which_day']);
   });
 
-  test('"take me to the market list" → a go chip with nav.offer, never a navigation by itself', () => {
-    const r = week.engine.reply('take me to the market list', ctx());
+  test('"take me to the market list" → a go chip with nav.offer, never a navigation by itself', async () => {
+    const r = await week.engine.reply('take me to the market list', ctx());
     expect(r.items).toMatchObject([{ kind: 'go', target: { to: 'market' }, said: { trigger: 'nav.offer' } }]);
     expect(cards(r)).toEqual([]);
   });
 
-  test('a health turn never becomes a plan ask', () => {
-    const r = week.engine.reply('no peanuts on sunday', ctx());
+  test('a health turn never becomes a plan ask', async () => {
+    const r = await week.engine.reply('no peanuts on sunday', ctx());
     expect(said(r)).not.toContain('plan.dish_unknown');
   });
 
-  test('a child turn: the grown-up line and no go chip', () => {
-    const r = week.engine.reply("I'm 9, take me to the market list", ctx());
+  test('a child turn: the grown-up line and no go chip', async () => {
+    const r = await week.engine.reply("I'm 9, take me to the market list", ctx());
     expect(r.items.some((i) => i.kind === 'go')).toBe(false);
   });
 });

@@ -3,6 +3,7 @@ import {
 } from '@kitchenquest/core/engine';
 import { content, graph } from '../content';
 import { activeRules } from '../recipes/rules';
+import { rememberedWeek } from './memory';
 import type { PlayerState } from '../state/store';
 
 /**
@@ -70,23 +71,6 @@ export function dayOfWeek(weekStart: string, today: string): number | null {
   return null;
 }
 
-let known: { weekStart: string; plan: Plan | null; account: string | null } | null = null;
-/**
- * The player's current week as the game last read or saved it (signed in: the server's answer), for the scripted
- * engine and cook mode, which can't wait for a fetch. Kept in memory only, and only for the account it was read for.
- */
-export function rememberWeek(weekStart: string, plan: Plan | null, account: string | null): void { known = { weekStart, plan, account }; }
-/** The remembered week of this account (null: signed out), if any. */
-const rememberedWeek = (account: string | null): { weekStart: string; plan: Plan | null } | null =>
-  (known !== null && known.account === account ? known : null);
-/** Whether `slug` is planned for `today` in the remembered week (a cook's `planned`, Ruling 7). */
-export function plannedOn(slug: string, today: string): boolean {
-  const plan = known?.plan ?? null;
-  if (plan === null) return false;
-  const day = dayOfWeek(plan.weekStart, today);
-  return day !== null && plan.items.some((i) => i.kind === 'dish' && i.slug === slug && i.day === day);
-}
-
 /** What `buildPlanCard` reads on the device: the plan week, its stored items, `hard` and slot, and the toolkit. */
 export type PlanCardContext = PlanContext & { slot: WeeklySlotInput };
 
@@ -114,9 +98,3 @@ export function devicePlan(state: PlayerState, weekStart: string): Plan | null {
   const p = state.localWeek.plans.find((x) => x.weekStart === weekStart) ?? null;
   return p !== null && validatePlan(p, { recipes: canonRecipes() }).length === 0 ? p : null;
 }
-
-let toolkitSource: (() => ToolkitState) | null = null;
-/** Set by progress once it has loaded (it loads with the kitchen): the toolkit the game shows. */
-export function setToolkitSource(fn: () => ToolkitState): void { toolkitSource = fn; }
-/** The toolkit the game shows, or null while progress is still loading (then One More Technique offers nothing). */
-export const currentToolkit = (): ToolkitState | null => toolkitSource?.() ?? null;

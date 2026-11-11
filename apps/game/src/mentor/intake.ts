@@ -324,7 +324,7 @@ export function createIntake(deps: {
     }
     // The script may still read it as something else ("I'm allergic to peanuts" while asked about market day):
     // its card is shown, never lost, and the question is asked again.
-    const scripted = engine.reply(text, ctx);
+    const scripted = await engine.reply(text, ctx);
     if (scripted.cards.length > 0 || scripted.intents.length > 0) return { ...scripted, items: [...scripted.items, say(`intake.${step}.ask`), quick(step)] };
     return reask(step, []);
   }

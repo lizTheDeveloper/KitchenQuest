@@ -10,7 +10,7 @@ import { createDialogue } from './dialogue';
 import type { LocalCardView, PanItem, ServerCardView } from './reply';
 import { createCardWriter, partsToItems, type WriteOutcome } from './writer';
 import { createScriptedEngine } from './scripted';
-import { devicePlan, planCardContextOf } from '../week/context';
+import { createWeekTurn } from './week-turn';
 
 const T0 = new Date('2026-11-10T12:00:00Z');
 const ok = <T>(data: T, status = 200): ApiResult<T> => ({ ok: true, status, data });
@@ -709,17 +709,17 @@ describe('card writer: the plan card (M5 Step 10)', () => {
   const engineFor = (store: ReturnType<typeof createStore>) => createScriptedEngine({
     dialogue: createDialogue(content.pan), graph, ruleTerms: content.ruleTerms,
     recipes: Object.entries(content.recipes).map(([slug, r]) => ({ slug, title: r.meta.title })), now: () => T0,
-    week: () => planCardContextOf(store.get(), '2026-11-10', (w) => devicePlan(store.get(), w), null),
+    week: () => Promise.resolve(createWeekTurn({ store, client: {} as ApiClient, now: () => T0, dialogue: createDialogue(content.pan), recipes: Object.entries(content.recipes).map(([slug, r]) => ({ slug, title: r.meta.title })), cooks: {} })),
   });
-  const planCard = (store: ReturnType<typeof createStore>, text = 'plan my week: parippu on Sunday') => {
-    const r = engineFor(store).reply(text, { turn: 1, openCards: [], intakeStep: null, signedIn: store.get().account !== null, trail: [] });
+  const planCard = async (store: ReturnType<typeof createStore>, text = 'plan my week: parippu on Sunday') => {
+    const r = await engineFor(store).reply(text, { turn: 1, openCards: [], intakeStep: null, signedIn: store.get().account !== null, trail: [] });
     return r.cards[0] as LocalCardView;
   };
   const PLAN = { weekStart: '2026-11-09', items: [{ day: 6, kind: 'dish', slug: 'india/kerala/parippu', servings: 3 }], hard: false, slot: 'unanswered' };
 
   test('scripted engine: tap → saved locally (signed out); undo restores the week as it was', async () => {
     const { store, calls, writer } = setup({});
-    const view = planCard(store);
+    const view = (await planCard(store));
     const out = await writer.confirm(view, 'tap');
     expect(calls).toEqual([]);
     expect(out.ok).toBe(true);
@@ -736,7 +736,7 @@ describe('card writer: the plan card (M5 Step 10)', () => {
       putPlan: (p) => ok({ plan: { ...(p as object), id: 'row' }, checks: [] }),
       deletePlan: () => ok(null, 204),
     }, signedIn);
-    const out = await writer.confirm(planCard(store), 'tap');
+    const out = await writer.confirm((await planCard(store)), 'tap');
     expect(out.ok).toBe(true);
     expect(calls.map((c) => c.name)).toEqual(['getPlan', 'getPlan', 'putPlan']);
     expect(calls[0].args).toEqual(['2026-11-10']);
@@ -751,7 +751,7 @@ describe('card writer: the plan card (M5 Step 10)', () => {
       getPlan: () => ok({ plan: null, weekStart: '2026-11-09', checks: [] }),
       putPlan: () => fail(403, 'consent_required', { purpose: 'health_data' }),
     }, signedIn);
-    const out = await writer.confirm(planCard(store), 'tap');
+    const out = await writer.confirm((await planCard(store)), 'tap');
     expect(out).toMatchObject({ ok: false, reason: 'consent_required' });
     if (out.ok) return;
     expect(out.items.some((i) => i.kind === 'consent' && i.purpose === 'health_data')).toBe(true);
@@ -760,7 +760,7 @@ describe('card writer: the plan card (M5 Step 10)', () => {
   test('the week changed since the card was shown: nothing saved, the card is offered again on the week now', async () => {
     const other = { weekStart: '2026-11-09', items: [{ day: 1, kind: 'dish', slug: 'japan/osaka/onigiri', servings: 2 }], hard: false, slot: 'unanswered', id: 'row' };
     const { store, calls, writer } = setup({ getPlan: () => ok({ plan: other, weekStart: '2026-11-09', checks: [] }) }, signedIn);
-    const view = planCard(store);
+    const view = (await planCard(store));
     const out = await writer.confirm(view, 'tap');
     expect(calls.map((c) => c.name)).toEqual(['getPlan']);
     expect(out).toMatchObject({ ok: false, reason: 'plan_changed' });
@@ -776,7 +776,7 @@ describe('card writer: the plan card (M5 Step 10)', () => {
     const { store, calls, writer } = setup({
       confirmProposal: () => fail(409, 'plan_changed', { card: reoffered, parts: [{ kind: 'line', line: { trigger: 'plan.readback', vars: { summary: 'Sunday: Parippu Curry' } } }] }),
     }, signedIn);
-    const out = await writer.confirm(server(planCard(store).card), 'tap');
+    const out = await writer.confirm(server((await planCard(store)).card), 'tap');
     expect(calls[0].args[3]).toBe('2026-11-10');
     expect(out).toMatchObject({ ok: false, reason: 'plan_changed', offered: reoffered });
   });

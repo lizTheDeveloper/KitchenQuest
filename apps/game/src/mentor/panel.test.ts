@@ -11,6 +11,7 @@ import { createDialogue } from './dialogue';
 import { DEVICE_ONLY_FOOTNOTE, MAX_BUBBLES, mountMentorPanel, NOT_SAVED_TEXT, REJECT_FAILED_TEXT, THINKING_TEXT, type MentorMode } from './panel';
 import type { CardView, PanItem, PanReply, TurnContext } from './reply';
 import { createScriptedEngine } from './scripted';
+import { createWeekTurn } from './week-turn';
 import type { CardWriter, UndoOutcome, WriteOutcome } from './writer';
 
 const T0 = new Date('2026-11-10T12:00:00Z');
@@ -51,7 +52,9 @@ function mount(opts: { mode?: MentorMode; backend?: MentorBackend; writer?: Card
   store.update((s) => ({ ...s, ...opts.patch }));
   const writer = opts.writer ?? fakeWriter();
   const backend = opts.backend ?? { kind: 'scripted', reply: () => Promise.resolve(reply(['x'])) };
+  const week = () => Promise.resolve(createWeekTurn({ store, client, now: opts.now ?? (() => T0), dialogue, recipes, cooks: {} }));
   const pan = mountMentorPanel(root, {
+    week,
     mode: opts.mode ?? 'standard', backend, dialogue, writer, engine, client, forms: content.bureau.forms, store,
     reducedMotion: () => true, now: opts.now ?? (() => T0), ...(opts.disclosure === undefined ? {} : { disclosure: opts.disclosure }),
   });
@@ -681,17 +684,52 @@ describe('go chip (M5 Step 10, Ruling 15)', () => {
   });
 });
 
-test('a plan card is drawn as Form 7-W with each item\'s chip; ❓ never ✅', () => {
-  const card: ProposalCard = {
-    kind: 'plan', weekStart: '2026-11-09', items: [{ day: 6, kind: 'dish', slug: 'india/kerala/parippu', servings: 3 }, { day: 1, kind: 'dish', slug: 'japan/osaka/onigiri', servings: 2 }],
-    hard: false, checks: [{ slug: 'india/kerala/parippu', status: 'ok' }, { slug: 'japan/osaka/onigiri', status: 'unverified' }], unknown: [], dropped: [], offer: null,
-    summary: 'Tuesday: Onigiri. Sunday: Parippu Curry.', added: [], basis: '00000000', readback: [],
-  };
+const PLAN_CARD = (): Extract<ProposalCard, { kind: 'plan' }> => ({
+  kind: 'plan', weekStart: '2026-11-09', items: [{ day: 6, kind: 'dish', slug: 'india/kerala/parippu', servings: 3 }, { day: 1, kind: 'dish', slug: 'japan/osaka/onigiri', servings: 2 }],
+  hard: false, checks: [{ slug: 'india/kerala/parippu', status: 'ok' }, { slug: 'japan/osaka/onigiri', status: 'unverified' }], unknown: [], dropped: [], offer: null,
+  summary: 'Tuesday: Onigiri. Sunday: Parippu Curry.', added: [], basis: '00000000', readback: [],
+});
+
+test('a plan card is drawn as Form 7-W with each item\'s chip, once the week\'s code has loaded; ❓ never ✅', async () => {
   const { root, pan } = mount();
-  pan.show({ ...reply([]), cards: [local(card)] });
+  pan.show({ ...reply([]), cards: [local(PLAN_CARD())] });
+  await flush();
   const el = root.querySelector('.pan-card')!;
   expect(el.textContent).toContain('7-W');
   const chips = [...el.querySelectorAll('.plan-item')].map((i) => [i.getAttribute('data-slug'), i.querySelector('.chip')!.getAttribute('data-status')]);
   expect(chips).toEqual([['japan/osaka/onigiri', 'unverified'], ['india/kerala/parippu', 'ok']]); // day order
   expect(el.querySelector('[data-slug="japan/osaka/onigiri"]')!.textContent).not.toContain('✅');
+});
+
+test('I5: a check that is not its item\'s is ❓, never ✅; a rule filed since shows the card ⛔ with its finding (M8)', async () => {
+  const card = PLAN_CARD();
+  card.checks = [{ slug: 'japan/osaka/onigiri', status: 'ok' }, { slug: 'india/kerala/parippu', status: 'ok' }]; // misaligned
+  const coconut = { id: 'r', target: { kind: 'ingredient' as const, ids: ['coconut'] }, type: 'avoid' as const, severity: 'allergy' as const };
+  const { root, pan } = mount({ patch: { localRules: [coconut] } });
+  pan.show({ ...reply([]), cards: [local(card)] });
+  await flush();
+  const status = (slug: string) => root.querySelector(`.pan-card [data-slug="${slug}"] .chip`)!.getAttribute('data-status');
+  expect(status('japan/osaka/onigiri')).toBe('unverified');
+  expect(status('india/kerala/parippu')).toBe('blocked');
+  expect(root.querySelector('.pan-card [data-slug="india/kerala/parippu"] .plan-findings')!.textContent).toMatch(/coconut/);
+});
+
+test('I5/M1: a plan card carrying a ⛔ check, or with no basis, is never drawn', async () => {
+  for (const bad of [{ ...PLAN_CARD(), checks: [{ slug: 'india/kerala/parippu', status: 'blocked' }, { slug: 'japan/osaka/onigiri', status: 'ok' }] }, { ...PLAN_CARD(), basis: undefined }, { ...PLAN_CARD(), added: undefined }]) {
+    const { root, pan } = mount();
+    pan.show({ ...reply([]), cards: [local(bad as never)] });
+    await flush();
+    expect(root.querySelector('.pan-card')).toBeNull();
+    expect(lines('didnt_understand')).toContain(panTexts(root).at(-1));
+  }
+});
+
+test('M1: a card re-offered after plan_changed without its id or expiry is never drawn', async () => {
+  const writer = fakeWriter({ confirm: vi.fn(() => Promise.resolve({ ok: false, reason: 'plan_changed', items: [], offered: { card: PLAN_CARD(), proposalId: 'P2' } } as never)) });
+  const { root, pan } = mount({ writer });
+  pan.show({ ...reply([]), cards: [local(PLAN_CARD())] });
+  await flush();
+  button(root.querySelector('.pan-card')!, 'Plan it ✔')!.click();
+  await flush();
+  expect(root.querySelectorAll('.pan-card:not(.is-closed)').length).toBe(0);
 });

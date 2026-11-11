@@ -1,12 +1,10 @@
 import {
-  blockedDishLine, confirmedLines, isSevereCard, pantryMatcher, planBasis, rebasePlanCard, rejectedLine, SEVERE, trailSummary, undoneLine, UNDO_WINDOW_MS,
-  validateRules, withSeverity,
-  type IngredientGraph, type LineRef, type PantryItem, type Plan, type PlanCard, type PlanItem, type ProposalCard, type ReplyPart, type Rule, type RuleTerm,
+  confirmedLines, isSevereCard, pantryMatcher, rejectedLine, SEVERE, trailSummary, undoneLine, UNDO_WINDOW_MS, validateRules, withSeverity,
+  type IngredientGraph, type LineRef, type PantryItem, type Plan, type PlanCard, type ProposalCard, type ReplyPart, type Rule, type RuleTerm,
   type ServerCard, type Severity, type TrailEntry,
 } from '@kitchenquest/core/engine';
 import { localDate } from '../recipes/rules';
-import { canonRecipes, currentToolkit, planCardContextOf, rememberWeek } from '../week/context';
-import type { WeekSource } from '../week/source';
+import type { WeekTurn } from './week-turn';
 import { refreshAccount } from '../api/account';
 import type { ApiClient } from '../api/client';
 import type { ApiResult, Profile } from '../api/types';
@@ -93,8 +91,8 @@ const isConsentPurpose = (x: unknown): x is 'health_data' | 'ai_health' => x ===
 
 export function createCardWriter(deps: {
   client: ApiClient; store: PlayerStore; dialogue: Dialogue; graph: IngredientGraph; ruleTerms: readonly RuleTerm[]; now: () => Date;
-  /** M5 Step 10: where the week is saved (the device signed out, the Step 6 routes signed in). */
-  week?: WeekSource;
+  /** M5 Step 10: the week's code (a plan card's write and undo), loaded on first use (Ruling 1). */
+  week?: () => Promise<WeekTurn>;
   /**
    * The AI conversation the player is in now (undefined: none). A server card's tap names it, so the server closes a
    * card from an earlier or cleared conversation instead of writing it (fix round 5, H2).
@@ -103,9 +101,9 @@ export function createCardWriter(deps: {
 }): CardWriter {
   const { client, store, dialogue, graph, ruleTerms } = deps;
   // The week's code loads with the first plan write or undo, so first paint doesn't carry it.
-  let weekLoaded: Promise<WeekSource> | null = null;
-  const weekSource = (): Promise<WeekSource> =>
-    (weekLoaded ??= deps.week ? Promise.resolve(deps.week) : import('../week/source').then((m) => m.createWeekSource({ store, client })));
+  const weekTurn = (): Promise<WeekTurn> => deps.week?.() ?? import('./week-turn').then((m) => m.createWeekTurn({
+    store, client, now: deps.now, dialogue, recipes: [], cooks: {},
+  }));
   const today = () => localDate(deps.now());
   const inFlight = new Set<string>();
   const undoing = new Set<string>();
@@ -142,6 +140,13 @@ export function createCardWriter(deps: {
     }
     if ((status === 409 && error.code === 'proposal_closed') || status === 404) return { ok: false, reason: 'closed', items: [] };
     if (status === 400 && error.code === 'tap_required') return { ok: false, reason: 'tap_required', items: [tapNeeded(card)] };
+    // Ruling 5: a plan the rules now refuse (a dish ⛔ since the card was built). The server closed the card; its own
+    // `plan.blocked_dish` lines say which dish, and are shown, never dropped.
+    if (status === 400 && error.code === 'plan_invalid' && card.kind === 'plan') {
+      const parts = (error.details as { parts?: unknown } | undefined)?.parts;
+      const items = Array.isArray(parts) ? partsToItems(parts as ReplyPart[], dialogue) : [];
+      return { ok: false, reason: 'closed', items: items.length > 0 ? items : [line('write.not_done')] };
+    }
     if (status === 401) return { ok: false, reason: 'needs_account', items: [] };
     // The daily write cap (only it sets details.retryAfterSeconds; the per-minute limiters set the header only):
     // trying again would fail for hours, so say so instead of "try again" (M4 final, 429 on the tap).
@@ -231,52 +236,24 @@ export function createCardWriter(deps: {
    * A local plan card (the scripted engine's): the week is read again first, and saved only while it is still the
    * week the card was built on (its `basis`); otherwise the card is offered again on the week as it is now
    * (`plan_changed`, as the server does), never saved over an edit. Signed in through PUT /plans with `today`;
-   * signed out to the device. A plan the rules now refuse is not saved, with `plan.blocked_dish`.
+   * signed out to the device. A plan the rules now refuse is not saved: `plan.blocked_dish` names the dish (Ruling 5).
    */
   async function writePlan(card: PlanCard): Promise<WriteOutcome> {
-    const day = today();
-    const account = accountEmail() ?? null;
-    const week = await weekSource();
-    const cur = await week.current(day);
-    if (!cur.ok) return weekRefused(cur);
-    const { weekStart, plan: stored } = cur.value;
-    rememberWeek(weekStart, stored, account);
-    if (weekStart !== card.weekStart || planBasis(stored) !== card.basis) return reoffer(card, weekStart, stored);
-    const slot = stored?.slot ?? 'unanswered';
-    const plan: Plan = { weekStart, items: card.items, hard: card.hard, slot: card.offer !== null && slot === 'unanswered' ? 'offered' : slot };
-    const r = await week.save(plan, day);
-    if (!r.ok) {
-      if (r.kind === 'invalid') {
-        const blocked = r.problems.flatMap((p) => (p.startsWith('blocked: ') ? [p.slice('blocked: '.length)] : []));
-        if (blocked.length > 0) return { ok: false, reason: 'closed', items: blocked.map((slug) => say(blockedDishLine(slug, [], canonRecipes(), graph))) };
+    const w = await (await weekTurn()).writePlan(card);
+    switch (w.kind) {
+      case 'saved': {
+        const id = crypto.randomUUID();
+        undos.set(id, { kind: 'plan', card, weekStart: w.weekStart, previous: w.previous });
+        return { ok: true, trail: trail(id, 'local', card), items: confirmedLines(card).map(say) };
       }
-      return weekRefused(r);
-    }
-    rememberWeek(weekStart, plan, account);
-    const id = crypto.randomUUID();
-    undos.set(id, { kind: 'plan', card, weekStart, previous: r.value.previous });
-    return { ok: true, trail: trail(id, 'local', card), items: confirmedLines(card).map(say) };
-  }
-
-  /** The card rebuilt on the week as it is now: the same new dishes on the same weekdays, checked again. */
-  function reoffer(card: PlanCard, weekStart: string, stored: Plan | null): WriteOutcome {
-    const ctx = planCardContextOf(store.get(), today(), (w) => (w === weekStart ? stored : null), currentToolkit());
-    if (ctx === null) return { ok: false, reason: 'closed', items: [line('write.not_done')] };
-    // The weekday of each new item stays the same when the plan week starts on another day.
-    const dow = (date: string) => new Date(`${date}T00:00:00Z`).getUTCDay();
-    const shift = (dow(card.weekStart) - dow(ctx.weekStart) + 7) % 7;
-    const added: PlanItem[] = card.added.map((i) => ({ ...i, day: (i.day + shift) % 7 }));
-    const rebuilt = rebasePlanCard({ ...card, added }, ctx);
-    if ('none' in rebuilt) return { ok: false, reason: 'plan_changed', items: rebuilt.none.map(say), offered: null };
-    return { ok: false, reason: 'plan_changed', items: rebuilt.readback.map(say), offered: rebuilt };
-  }
-
-  /** A refused week write as an outcome: health consent first (plans are health data), else nothing was written. */
-  function weekRefused(f: { kind: string }): Extract<WriteOutcome, { ok: false }> {
-    switch (f.kind) {
-      case 'consent': return { ok: false, reason: 'consent_required', items: [line('consent.health_first'), { kind: 'consent', purpose: 'health_data' }] };
-      case 'network': return { ok: false, reason: 'network', items: [] };
-      default: return { ok: false, reason: 'invalid', items: [line('write.not_done')] };
+      case 'reoffer': return { ok: false, reason: 'plan_changed', items: w.lines.map(say), offered: w.card };
+      case 'blocked': return { ok: false, reason: 'closed', items: w.lines.map(say) };
+      case 'refused':
+        switch (w.failure.kind) {
+          case 'consent': return { ok: false, reason: 'consent_required', items: [line('consent.health_first'), { kind: 'consent', purpose: 'health_data' }] };
+          case 'network': return { ok: false, reason: 'network', items: [] };
+          default: return { ok: false, reason: 'invalid', items: [line('write.not_done')] };
+        }
     }
   }
 
@@ -297,12 +274,8 @@ export function createCardWriter(deps: {
       }
       case 'raise': // undone by `undoRaise`, which checks the rule first
         return null;
-      case 'plan': {
-        const r = await (await weekSource()).restore(u.weekStart, u.previous, today());
-        if (!r.ok) return null;
-        rememberWeek(u.weekStart, u.previous, accountEmail() ?? null);
-        return [];
-      }
+      case 'plan':
+        return (await (await weekTurn()).restore(u.weekStart, u.previous)) ? [] : null;
       case 'meal':
         return goneIsFine(await client.deleteMeal(u.id)) ? [] : null;
       case 'profile':
