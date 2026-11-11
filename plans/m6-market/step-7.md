@@ -4,7 +4,7 @@ Two M5 carries, both API-side:
 - **m12, the server half.** `loadHistory` reads the whole uncompacted ledger on every `POST /progress/events` and `GET /progress` (`apps/api/src/progress/store.ts`). This step adds a **sealed** `progress_snapshots` cache (Ruling 18). It holds core's `ProgressSnapshot` of the fold up to a sequence number. It has the same `base` semantics as the device compaction (M5 C15), it is in the export, and it is deleted with the account. A database trigger drops it whenever any progress event is deleted, so an erased meal-log event (FK cascade), a `health_data` delete or a sealed stall round's erase can never leave a stale cache behind.
 - **N3, the ROADMAP id test** (Ruling 20).
 
-**Eval hash (Ruling 22):** `progress/store.ts` and `progress/service.ts` are eval-hashed; same milestone-branch skip.
+**Eval hash (Ruling 22, as overridden by the controller):** `progress/store.ts` and `progress/service.ts` are eval-hashed. The eval gate is never skipped: run the API suite as is and report the `eval-gate.test.ts` failures as expected, as in Step 1. No PR.
 
 **Files:**
 - Create:
@@ -34,7 +34,7 @@ Two M5 carries, both API-side:
 - `catalogue_hash` is sha256 over the canonical JSON of the `Catalogue` ids, `data/rewards.yaml` and the freshness thresholds. A different hash means the snapshot is ignored and rebuilt. A retune can never be "baked in" by a stale fold, and since grants are fixed when made, a rebuild never lowers a value (§6).
 
 **Interfaces:**
-- Consumes: `ProgressHistory` (`base`), `ProgressSnapshot`, `foldHistory`, `snapshotOf`, `compactHistory`, `deriveProgress` (M5 core, C15); `loadHistory` / `insertEvents` (M5 Step 5, Step 6's sealed bodies); `sealFor`/`openFor`; `lockUserProgress`.
+- Consumes: `ProgressHistory` (`base`), `ProgressSnapshot`, `compactHistory`, `deriveProgress` (M5 core, C15). `foldHistory` and `snapshotOf` are internal to core `progress/` (`fold.ts`: "not exported from the package") and stay so: the snapshot is `compactHistory(history, 0, cat).base`, which is exactly the C15 fold; `loadHistory` / `insertEvents` (M5 Step 5, Step 6's sealed bodies); `sealFor`/`openFor`; `lockUserProgress`.
 - Produces:
 ```ts
 export const SNAPSHOT_EVERY = 500;   // core progress/ (README constants); imported here
@@ -76,7 +76,7 @@ test('property: view(snapshot + tail) == view(full) over random histories with e
 test('ROADMAP ids: suffixed (C-10b) and non-bold (C-36) ids are seen; whole ids unique; parts name a base; C-table cross-check', ...);
 test('progress_snapshots columns are in data-inventory §6 (U-6)', ...);
 ```
-- [ ] **7.2 Run** `MENTOR_EVAL_GATE=skip-no-network npm test -w @kitchenquest/api -- snapshot never-take-back inventory progress meals consent account` → FAIL.
+- [ ] **7.2 Run** `npm test -w @kitchenquest/api -- snapshot never-take-back inventory progress meals consent account` → FAIL.
 - [ ] **7.3 Implement.** Generate the migration (with the trigger SQL in it) and keep its number.
-- [ ] **7.4 Run** `MENTOR_EVAL_GATE=skip-no-network npm test -w @kitchenquest/api` (milestone branch) → PASS.
+- [ ] **7.4 Run** `npm test -w @kitchenquest/api` → PASS except the expected `eval-gate.test.ts` failures (never skipped; report them as expected).
 - [ ] **7.5 Commit** `feat(api): a sealed progress snapshot that any erase drops, and full-coverage ROADMAP id checks`

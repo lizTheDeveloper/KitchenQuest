@@ -19,7 +19,7 @@ The plan view gains The Season's Table note per dish. A quest errand now plays i
 - Create:
   - `apps/game/src/week/stock-view.ts`: the per-row "Out of stock?" control, swap chips and undo;
   - `apps/game/src/week/season-note.ts`: `seasonNoteFor(item, season, table, graph)` and `dishSeasonNote(...)`, rendering core `seasonOf` / `dishSeason` with `season.now` / `season.other`;
-  - `apps/game/src/recipes/drill-first.ts`: `drillFirstFor(recipe, toolkit, techniques, cooks)`. It lives game-side on purpose: only the game uses it, and core `toolkit/` is eval-hashed (Ruling 22);
+  - `apps/game/src/recipes/drill-first.ts`: `drillFirstFor(recipe, toolkit, techniques, quests)` (signature below). It lives game-side on purpose: only the game uses it, and core `toolkit/` is eval-hashed (Ruling 22);
   - `apps/game/src/mentor/check-off-card.ts`: the card renderer;
   - unit tests beside each; `apps/game/e2e/market-day.e2e.test.ts`.
 - Modify:
@@ -52,9 +52,9 @@ export function stockControl(row: ListItem, deps: { swaps: StockSwap[]; act(a: S
 export function drillFirstFor(recipe: ParsedRecipe, toolkit: ToolkitState, techniques: TechniqueNode[], quests: Quest[]):
   { technique: string; cook: string; questId: string } | null;   // first skill (recipe order) with a prereq below Seen that a quest drill teaches
 ```
-- **Errand question:** when an errand step's stall bank (rules-checked, Step 1) holds a question whose `contains` (or a kind of it) includes the errand's item, `errand.question` plays that one question with `round-view`, and then the step goes on exactly as M5 (pantry or tap). If no question passes, nothing is shown. The answer is recorded as a one-answer `stall_round`, except in Family Table. **The step's completion never depends on the answer**, and a test pins that both a right and a wrong answer complete it with identical quest grants.
+- **Errand question:** when an errand step's stall bank (rules-checked, Step 1) holds a question with a `contains` id that is the errand's item or one of its `isA` ancestors (Marisol's `black_bean` errand matches an Okafor-Sato `bean` question; Leela's `shallot` errand matches no question today, since Wen has no shallot question, so it shows none), `errand.question` plays that one question with `round-view`, and then the step goes on exactly as M5 (pantry or tap). If no question passes, nothing is shown. The answer is recorded as a one-answer `stall_round`, except in Family Table. **The step's completion never depends on the answer**, and a test pins that both a right and a wrong answer complete it with identical quest grants.
 - **Check-off card:** it lists the matched rows by their list names, then "Tick these", "Not now", and for each missing row "Out of stock?", which scrolls `#/market` to that row's stock control. Nothing ticks before the tap. Undo unticks each.
-- **Season notes:**
+- **Season notes** (the table comes from `loadMarket()`'s `MarketContent.seasonality`, Step 5; the notes appear once it resolves, and the list never waits on it):
   - "in season where you are: {item}" (`season.now`), or the region's own category word (`season.other`);
   - never a red, grey or warning style, never on a ❓ or ⛔ row, and never a countdown;
   - with no region, no notes at all; `market.no_calendar` is said once, on the stalls hub (Step 9), not on the list.
@@ -74,7 +74,8 @@ test('scripted: "no fennel" → health path ask, no card (Ruling 13)', ...);
 test('drill-first: shown when a prereq is below Seen; Cook enabled; absent in Family Table and on sacred dishes', ...);
 // e2e market-day.e2e.test.ts (mocked /api/**; AI off signed out; AI on signed in with a mocked check_off card)
 //   plan parippu → #/market amounts → Out of stock? shallot → take onion → cook parippu shows "swapped at the market"
-//   "got the moong dal" → card → tap → row ticked; Leela's errand plays Wen's shallot question; wrong answer still completes it
+//   "got the moong dal" → card → tap → row ticked; Marisol's black_bean errand plays an Okafor-Sato bean question; a wrong answer still completes it;
+//   Leela's shallot errand shows no question (no stall question names shallot) and completes as in M5
 ```
 - [ ] **10.2 Run** `npm test -w @kitchenquest/game -- stock season drill-first quest-runner scripted writer cards-view cook-screen plan-view` and `npm run test:e2e -w @kitchenquest/game -- market-day week quests` → FAIL.
 - [ ] **10.3 Implement:** (a) list, stock and season; (b) errand and check-off; (c) drill-first, if Ruling 16 holds. Every new panel is axe-clean, keyboard-complete and readable at 320 px. First paint stays ≤ 352 KB.

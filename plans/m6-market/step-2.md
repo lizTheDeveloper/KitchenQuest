@@ -7,11 +7,12 @@ Spec §3.5 asks for "what's in season in your region this month", from "a curate
 
 Nothing is guessed. No region, or more than one, means no season (README regional-honesty rule, Ruling 9). The Season's Table is information only (Ruling 10).
 
-**Eval hash (Ruling 22):** core `index.ts` changes again; same milestone-branch skip as Step 1.
+**Eval hash (Ruling 22, as overridden by the controller):** core `index.ts` changes again. The eval gate is never skipped: run the API suite as is and report the `eval-gate.test.ts` failures as expected, as in Step 1. No PR.
 
 **Files:**
 - Create:
   - `packages/core/src/market/season.ts`: `SeasonRegion`, `SeasonTable`, `seasonRegionFor`, `monthOf`, `seasonOf`, `seasonalQuestions`, `dishSeason`, `validateSeasonTable`, `seasonalAgrees`;
+  - `packages/core/test/season-source.test.ts` (the source scan below: it reads `src/market/season.ts` with `node:fs`, so it lives in `test/`, as `no-streak.test.ts` does; core `src/` is type-checked without Node's types);
   - `packages/core/src/market/season.test.ts`, `packages/core/src/market/season.fixture.ts` (a synthetic two-region table: one temperate with `now`/`stored`/`travelled`, one tropical with `now`/`monsoon`/`all_year`/`travelled`; synthetic names, no real region claims).
 - Modify: `packages/core/src/market/index.ts`; `packages/core/src/market/bank.ts` (only the doc comment on `stallBank`'s `seasonal` argument, now naming `seasonalQuestions`).
 
@@ -81,9 +82,10 @@ test('seasonalQuestions: region/month entry; parent fallback only within the sam
 test('dishSeason: ids in the first category only; [] for null region', ...);
 test('validateSeasonTable: each problem above, one fixture each', ...);
 test('seasonalAgrees: a seasonal question whose correct option disagrees with the table → problem naming the id', ...);
+// packages/core/test/season-source.test.ts
 test('no exported function in season.ts declares a default parameter (source scan of the module)', ...);
 ```
-- [ ] **2.2 Run** `npm test -w @kitchenquest/core -- season` → FAIL.
+- [ ] **2.2 Run** `npm test -w @kitchenquest/core -- season` → FAIL (both `season.test.ts` and `test/season-source.test.ts`).
 - [ ] **2.3 Implement.**
-- [ ] **2.4 Run** `npm test -w @kitchenquest/core`, `npm test -w @kitchenquest/game`, `MENTOR_EVAL_GATE=skip-no-network npm test -w @kitchenquest/api` (milestone branch) → PASS.
+- [ ] **2.4 Run** `npm test -w @kitchenquest/core`, `npm test -w @kitchenquest/game` → PASS, and `npm test -w @kitchenquest/api` → PASS except the expected `eval-gate.test.ts` failures (never skipped; report them as expected).
 - [ ] **2.5 Commit** `feat(core): seasonal regions from the player's own profile, no default, and the Season's Table notes`

@@ -32,11 +32,11 @@ First paint must stay ≤ 352 KB (README constraint).
   - `apps/game/build/content-plugin.ts`: resolve and load `virtual:kq-market` (the market module) next to `virtual:kq-content`, and keep `stalls` out of `virtual:kq-content` as now;
   - `apps/game/src/virtual.d.ts`: declare `virtual:kq-market`;
   - `apps/game/src/content/types.ts`:
-    - `StallFile`, `StallQuestion` and `StallOption` re-export core's (C33 pattern);
+    - `StallFile`, `StallVariantFile`, `StallQuestion` and `StallOption` re-export core's (C33 pattern; core's `StallFile` carries `triggers`, `persona?`, `art` and `stall`, Step 1);
     - `MarketContent`;
-    - `ClientContent` unchanged, still without stalls;
     - `GameContent` gains `seasonality`;
-  - `apps/game/src/content/required.ts` (+ `required.test.ts`): the Step 4 Pan triggers, each with its `ai` value; the stall triggers `out_of_stock`, `out_of_stock_none`, `medical`, `religious_rules` and `allergen_note` pinned `ai: never` with their first lines;
+    - `ClientContent` becomes `Omit<GameContent, 'stalls' | 'seasonality'>`: still no stalls, and the seasonal table ships only in `virtual:kq-market` (`MarketContent.seasonality`). Step 10's list and plan-view season notes read it from `loadMarket()` and appear once it resolves; nothing waits on it;
+  - `apps/game/src/content/required.ts` (+ `required.test.ts`): the Step 4 Pan triggers, each with its `ai` value; the stall safety triggers pinned `ai: never` with their first lines, per stall as the files have them today: `out_of_stock` and `out_of_stock_none` at all four; `medical` at Wen, Bram and Okafor-Sato; `religious_rules` at Bram; `allergen_note` at the Spice Merchant (which has no `medical`);
   - `apps/game/src/content/voice-scan.test.ts`: scan `MarketContent` too (every stall line, prompt, option text, reaction, explain, tip, FAQ answer and the variant's content);
   - `apps/game/src/content/voice-allowlist.ts`: entries for legitimate stall teaching lines the patterns catch (below);
   - `apps/game/build/budget-plugin.ts` (+ `budget-plugin.test.ts`): `checkFirstPaintBudget` also fails when a chunk containing the market module's marker is among first paint's static imports, and the build logs the market chunk's size;
@@ -59,7 +59,7 @@ export type ClientStall = Omit<StallFile, 'persona'> & { variants?: { protein_co
   - the value questions' "price" prompts (§3.5 teaches cost per serving);
   - Wen's "Sold out of {item}" (stock, not urgency).
 
-  Everything else the scan catches is reworded in Step 4's style and flagged for content review. The scan also fails on "smuggled" and on any currency symbol in stall text, as two new patterns. "version of" and "exotic" were already patterns.
+  Everything else the scan catches is reworded in Step 4's style and flagged for content review. The scan also fails on "smuggled" and on any currency symbol (`$ £ € ¥ ₹ ₩ ₦ ₱ ¢`) in stall text, as two new patterns. "version of" and "exotic" were already patterns.
 - **Size.** The market chunk is expected around 110–130 KB minified (the stall JSON minus personas and writer notes). It is precached by `sw-plugin.ts` (every bundle file), so practice works offline. First paint gains nothing from this step except the `loadMarket` stub, which is itself only imported by lazy screens.
 
 - [ ] **5.1 Write the failing tests:**

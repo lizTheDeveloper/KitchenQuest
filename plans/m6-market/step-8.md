@@ -17,7 +17,7 @@ All of this is eval-hashed decision code. This step is the **last** that touches
   - the next generated migration (C6): `PROPOSAL_KINDS` += `check_off` (the check constraint);
   - `apps/api/test/mentor-check-off.test.ts`.
 - Modify:
-  - `packages/core/src/mentor/cards.ts`: `CheckOffCard` joins `ProposalCard`;
+  - `packages/core/src/mentor/cards.ts`: `CheckOffCard` joins `ProposalCard`, and `ProposalKind` += `'check_off'` (core's union, which `TrailEntry` and the API's `PROPOSAL_KINDS` mirror);
   - `packages/core/src/mentor/protocol.ts`: `NavTarget` += `{ to: 'stalls' }`, `{ to: 'stall'; stall: StallId }`;
   - `packages/core/src/mentor/outcomes.ts`: `check_off` → `market.ticked_pantry`;
   - `packages/core/src/mentor/route.ts`: N2 exemptions in `RESTRICTION_CUES`, and the market stock clauses for whole-message consumption (5a);
@@ -27,7 +27,7 @@ All of this is eval-hashed decision code. This step is the **last** that touches
   - `apps/api/src/mentor/turn.ts`: route to the check-off branch; R5 verbatim and filter checks on every model string; health precedence;
   - `apps/api/src/mentor/prompt.ts`: the tool's description and one generic few-shot whose wording resembles no eval case (span test, M5 m3); `PromptContext` gains `market: { runOpen: boolean }` and nothing else (C-13: no list);
   - `apps/api/src/mentor/postchecks.ts`: a claimed tick with no card is replaced (`write.not_done`);
-  - `apps/api/src/mentor/writes.ts`, `proposals.ts`: confirm a `check_off` card → Step 6's `tickIn` for each key (one transaction, locks in README order); undo → untick each (by pantry id);
+  - `apps/api/src/mentor/writes.ts`, `proposals.ts`: confirm a `check_off` card → Step 6's `tickIn` for each key (one transaction, locks in README order: `lockForKind('check_off')` takes `pantry:` → `plan:` → the `health_data` consent row before `lockProposal`, so `tickIn` re-takes only locks already held); undo → untick each (by pantry id);
   - `apps/api/src/db/schema.ts`: `PROPOSAL_KINDS`;
   - `apps/api/eval/{cases,checks,run,snapshot}.ts`: the M-cases below; `run.ts` seeds an open market run for them; `snapshot.ts` `TABLES` += `progress_snapshots` (so `noWrite` sees it);
   - `apps/api/eval/hash.ts`: `EVAL_FILES` = the recomputed closure. It grows: `catalog.ts` now reaches core `market/`, and turn reaches `check-off.ts`;
@@ -89,8 +89,8 @@ test('postcheck: a reply claiming a tick with no card is replaced by write.not_d
 // eval-gate.test.ts
 test('52 cases; evalHash covers the recomputed closure incl. core mentor/check-off.ts and market/', ...);
 ```
-- [ ] **8.2 Run** `npm test -w @kitchenquest/core -- check-off route intents whole-message` and `MENTOR_EVAL_GATE=skip-no-network npm test -w @kitchenquest/api -- mentor-check-off mentor-turn mentor-plan` → FAIL.
+- [ ] **8.2 Run** `npm test -w @kitchenquest/core -- check-off route intents whole-message` and `npm test -w @kitchenquest/api -- mentor-check-off mentor-turn mentor-plan` → FAIL. (The eval gate is never skipped, on any branch.)
 - [ ] **8.3 Implement.** Then `npm run typecheck` at the root (the game's minimal cases).
 - [ ] **8.4 Eval: one run, by the implementer.** `OPENROUTER_API_KEY=proxy-injected NODE_USE_ENV_PROXY=1 npm run eval:mentor -w @kitchenquest/api` (synthetic data only). It must meet the bar: 0 hard fails and ≥ 95% of tool cases. Commit `apps/api/eval/last-pass.json`. If it fails, report **BLOCKED** with the per-case results. Don't tune the prompt and re-run for luck: the controller rules.
-- [ ] **8.5 Run** `npm test -w @kitchenquest/core`, `npm test -w @kitchenquest/api` **without** the skip (the gate now passes for Steps 1–8), `npm test -w @kitchenquest/game` → PASS. Steps 1–8 can now merge (Ruling 22).
+- [ ] **8.5 Run** `npm test -w @kitchenquest/core`, `npm test -w @kitchenquest/api` (the whole suite, `eval-gate.test.ts` included: it passes now for Steps 1–8), `npm test -w @kitchenquest/game` → PASS. Only now do Steps 1–8 get their one PR, and they merge together (controller ruling).
 - [ ] **8.6 Commit** `feat(mentor): the Pan ticks the market list from what you say, by card; N2 tuning; eval pass recorded`

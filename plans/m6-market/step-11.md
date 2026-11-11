@@ -12,7 +12,7 @@ Three things close the milestone, as in M5 Step 12:
 **Pre-flight:** Steps 1–10 are merged. Step 8's eval record is in (`apps/api/eval/last-pass.json`). This step must not modify any `EVAL_FILES` path (Ruling 22). It adds tests and docs only. A fix to decision code found here goes back to its step with one eval run.
 
 **Files:**
-- Create: `apps/game/e2e/market-week.e2e.test.ts`; `packages/core/src/market/no-pressure.test.ts`.
+- Create: `apps/game/e2e/market-week.e2e.test.ts`; `packages/core/test/no-pressure.test.ts` (it reads source with `node:fs`, so it lives in `test/` beside `no-streak.test.ts`; core `src/` is type-checked without Node's types).
 - Modify:
   - `apps/game/e2e/never-rules.e2e.test.ts`, `apps/game/e2e/screens.ts`: add `#/stalls`, `#/stall/<each>` (base and Protein Counter), a round mid-question and after an answer, the chalkboard, `#/market` with amounts, season notes and an open stock control, the check-off card and the errand question, each in standard and Family Table mode;
   - `apps/game/e2e/free-forever.e2e.test.ts`, `apps/game/e2e/a11y.e2e.test.ts`;
@@ -38,7 +38,7 @@ Three things close the milestone, as in M5 Step 12:
   - `no-pressure.test.ts` greps the non-test source of core `market/` for identifiers matching `/streak|consecutive|inARow|combo|multiplier|countdown|timeLeft|lives|deadline/i` (comments and strings stripped, as M5 C28);
   - the never-rules e2e asserts that no market screen has an element with a `role="timer"`, a `<progress>`, a `<meter>`, a "x/y" or "x of y" text, or a countdown pattern (`/\b\d+\s*(s|sec|seconds|min)\s*(left|remaining)\b/i`), in any mode.
 - **Gating (game e2e):** with every stall unvisited, the list ticks, finishes and lists everything. An errand completes after a wrong answer. Cook is enabled with the drill-first hint shown.
-- **Prices and selling:** no market screen matches the sells pattern (`/\b(guild|upgrade|subscri\w*|premium)\b|\$\s?\d/i`) or any currency symbol (`[$£€¥₹₩₦₱]`), and no keeper line says "buy" as an offer. In-app, nothing is for sale. The chalkboard footnote is present wherever a chalkboard is.
+- **Prices and selling:** no market screen matches the sells pattern (`/\b(guild|upgrade|subscri\w*|premium)\b|\$\s?\d/i`) or any currency symbol (`[$£€¥₹₩₦₱¢]`), and no keeper line says "buy" as an offer. An offer is the keeper selling their own goods in the app ("buy from me", "buy it here", "on sale", "special price", "add to basket"). Shopping advice for the player's own shop ("buy whole, buy small", "buy from a busy shop") is the skill §3.5 teaches and is not an offer, so the test matches offer phrasings, not the bare word. In-app, nothing is for sale. The chalkboard footnote is present wherever a chalkboard is.
 - **Regional honesty:** for profiles {none, "UK", "Kerala, India", "Oaxaca, Mexico", "Lagos, Nigeria", "Melbourne, Australia", "Washington, USA"}, only the last gets any seasonal content. US-scoped label questions appear only for the US profile.
 - **Voice (game):** every `[data-content]` element on every new screen passes the M5 scan plus Step 5's stall patterns ("smuggled", currency), the allowlist matched by location (M5 Ruling 24).
 - **Free forever (API):** a player with no entitlements, at the AI cap and with the AI off, can play every stall, earn the same grants as a Guild player for the same rounds, check off by the scripted grammar, take a stall swap, and export and delete. No response body matches the sells pattern.

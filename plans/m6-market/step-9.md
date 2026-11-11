@@ -29,7 +29,8 @@ There is no timer, no score, no lives and no "in a row". Practice runs any day. 
   - `apps/game/src/scenes/phaser-host.ts` (`SceneKey` += `'Market'`), `phaser-game.ts` (register `MarketScene`; Phaser stays lazy);
   - `apps/game/src/kitchen/kitchen-screen.ts`: a "The Market" link (first-paint cost: one route entry);
   - `apps/game/src/week/market-screen.ts`: a "Visit the stalls" link (it costs nothing; the list never waits on it);
-  - `apps/game/src/progress/announce.ts`: `stamp_earned.market_game`;
+  - `apps/game/src/progress/announce.ts`: `stamp_earned.market_game`, its `{stall}` from the event's `stall` through `content.stallNames`;
+  - `apps/game/src/progress/catalogue.ts`, `service.ts`: the device `Catalogue` gains `market` (core `Catalogue.market`, built from `MarketContent.stalls`) once `loadMarket` resolves. `ClientContent` has no stalls, and `catalogueOf` is built once from it today, so without this the device's `grantsFor` would reject every `stall_round` (`bad_event`) instead of judging it as the API does (C14);
   - `apps/game/e2e/screens.ts`: `#/stalls`, `#/stall/<id>` for the never-rules and a11y sweeps.
 
 **Interfaces:**
@@ -79,7 +80,8 @@ test('leaving mid-round records the answers so far once; leaving with none recor
 test('Family Table: rounds play, no event recorded, no FAQ chips, no text box', ...);
 test('no region / an unmatched region → market.no_calendar, no seasonal question; pnw-usa in November → seasonal questions', ...);
 test('rules null → market.stall_wait, no questions', ...);
-test('value questions show the chalkboard and the example-price footnote; no currency symbol in the DOM', ...);
+test('questions with a chalkboard show it and the example-price footnote; no currency symbol in the DOM', ...);
+test('signed out, a finished round is judged by the device catalogue with market loaded: a first correct answer earns xp.market_game', ...);
 test('router: #/stall/<unknown> → notFound; #/stalls and #/stall/wen parse', ...);
 // e2e market.e2e.test.ts (mocked /api/**; 400 px and 1280 px; canvas on and off)
 //   signed out + AI off: kitchen → The Market → Wen → a 5-question round → stamp line once → Bram as Protein Counter for a vegetarian device rule
