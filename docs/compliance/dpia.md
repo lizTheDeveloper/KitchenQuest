@@ -132,13 +132,13 @@ Map of measures to ROADMAP ids, with their state on 2026-11-09. "Built" means in
 | Log and error redaction | C-9, C-15 | Planned M2 / M3 |
 | Complete export and delete | C-7, C-8 | Planned M2 |
 | Org and health separation | C-10 | Planned M2 (constraint) |
-| AI gateway minimisation, OpenRouter pinned, disclosure | C-13, C-14, C-16, C-22 | Planned M3 / M8 |
+| AI gateway minimisation, OpenRouter pinned, disclosure | C-13, C-14, C-16, C-22 | Built M4 (C-13, C-14 code part, C-16; see §6.1); C-22 planned M8 |
 | Voice privacy | C-18, C-19 | Planned M7 |
 | Photos, ingestion hardening | C-20, C-21 | Planned M8 |
 | Tracker sealed; notifications generic; household privacy; share links; low-intake | C-23 to C-27 | Planned M9 |
 | Pantry location and moderation | C-28, C-29 | Planned M11 |
 | Policies, rights workflow, incident runbook | C-30, C-31, C-32 | Planned M12 |
-| Vendor reviews and DPAs | C-34 | Planned M3 / M12 (register started: `processors.json`) |
+| Vendor reviews and DPAs | C-34 | OpenRouter: code gate built M4, review checklist `vendors/openrouter.md`, DPA not signed; others M12 (`processors.json`) |
 | Backups, MFA, vulnerability management, network, CSP | C-35, C-36, C-37, C-38, C-40 | Planned M12; Dependabot and `npm audit` built |
 | Age and children, region gating, family data | C-39, C-44, C-45 | Planned M3 / M12 / M13 |
 | Ownership, workforce, claims | C-41, C-42, C-43 | Now / M12 |
@@ -154,6 +154,20 @@ Map of measures to ROADMAP ids, with their state on 2026-11-09. "Built" means in
 | DPO / counsel advice | **[lawyer]** |
 | Advice accepted or overruled, with reasons | **[lawyer / owner]** |
 | Supervisory authority consulted | **[lawyer: only if High residual]** |
+
+### 6.1 Re-reviews (risk-register N-11)
+
+#### 2026-11-11: mentor AI with tools (M4)
+
+| Field | Value |
+|---|---|
+| Trigger | A new AI feature (N-11): the Pan, the mentor, talks to a model through OpenRouter (a processor whose DPA is not signed) and proposes writes to health tables with tools |
+| What is processed | The player's typed turn; with `ai_health` only, their rules, today's meal slots, the pantry, open cards and recent history (C-13); without it, health turns never reach the model. Transcripts (`messages`) are stored sealed only with `health_data` (C-12), 30 days. Proposal cards (`mentor_proposals`) sealed, 30 min open, 24 h after a decision |
+| What the model can do | Propose only (`propose_rule`, `propose_meal_log`, `propose_profile`, `propose_pantry_change`); it has no write tool (README Ruling 1). Every write needs a tap, or a typed yes on a non-severe card, through the server's guard (§7.6b.1). Its free text is never shown or stored (Ruling R9); the player sees cards and written lines |
+| New risks | R-01 (an AI provider sees health data): limited by `ai_health`, minimised context, ZDR and `data_collection: "deny"` pinned in code (C-14), and the production DPA gate (P-11). R-15 (a wrong allergy answer): the model never says a dish is safe or spells an allergen; code spells, reads back and checks (§7.6b.2), and a term the ledger can't resolve is never filed (§2.2). R-10 (children): a child guard answers with a fixed line and keeps nothing; Family Table is scripted only (§19). Prompt injection (S16–S20): taps never arrive as text, pasted rules are dropped (pre-flight C4), and nothing writes without a tap |
+| Evidence | `apps/api/test/mentor-*.test.ts`, `e2e.safety.test.ts`, `free-forever.test.ts`; the eval (`npm run eval:mentor`: the spike's 41 cases, 3 runs each, 0 hard safety fails required; its record `apps/api/eval/last-pass.json` is checked in CI by `test/eval-gate.test.ts`); the game's never-rules and free-forever e2e scans |
+| Still open | The OpenRouter DPA and the C-14 parameter-name and account-level checks (`vendors/openrouter.md`, founder actions); C-39's actual-knowledge procedure and child-directedness review (M12); counsel on Art. 22 and EU AI Act Art. 50 transparency for the Pan (§7 item 9) |
+| Residual risk | Unchanged forecast (Medium at worst) **provided** production keeps AI off until the DPA is signed, which the code enforces. **[owner sign-off]** |
 
 ## 7. Open questions for counsel
 
