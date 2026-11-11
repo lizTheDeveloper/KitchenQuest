@@ -1122,6 +1122,14 @@ triggers:
       - "To be clear: nothing's been written down. If you'd like me to file something, say so plainly and I'll show you the card."
       - "I haven't written anything down yet. Only a card you've stamped is on file. Tell me what to file and I'll show you a card to stamp."
 
+  write.daily_limit:
+    ai: never
+    when: A typed yes would log a meal or loosen a rule past the daily write limit (200 a day, M4 Step 12); nothing was written.
+    notes: "Plain. Never says rules stop working: adding, removing or tightening a rule is never limited."
+    lines:
+      - "That's a great many changes for one day, so the Bureau has paused new entries until tomorrow. Nothing new was written. Your rules still work, and you can still add or remove one."
+      - "The ledger takes a breather after this many entries in a day. Nothing new was written down. Your rules still work, and adding or removing one is never limited."
+
   consent.health_first:
     ai: never
     when: A rule or meal card would be shown to a player without health_data consent; the consent card (Form 3-C/HEALTH) is shown instead.

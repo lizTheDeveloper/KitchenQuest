@@ -438,12 +438,14 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
   });
 }
 
-/** A service's refusal as reply parts (Step 8): 403 asks for consent; anything else (400, 404, 409) is not understood. 401 is thrown. */
+/** A service's refusal as reply parts (Step 8): 403 asks for consent, 429 says the daily limit; anything else (400, 404, 409) is not understood. 401 is thrown. */
 function refusalParts(e: unknown): ReplyPart[] {
   // A service's zod parse (e.g. applyProfilePatchIn) is a 400 too.
   if (e instanceof ZodError) return [line('didnt_understand')];
   if (!(e instanceof ApiError) || e.status === 401 || e.status >= 500) throw e;
   if (e.status === 403) return [line('consent.health_first'), { kind: 'consent', purpose: 'health_data' }];
+  // The daily write cap (usage/write-cap.ts): say so plainly, never "didn't understand" (fix round 1, M5).
+  if (e.status === 429) return [line('write.daily_limit')];
   return [line('didnt_understand')];
 }
 

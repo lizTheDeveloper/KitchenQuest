@@ -7,6 +7,8 @@ import type { FastifyInstance, InjectOptions } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'vitest';
 import type { AiProvider, AiRequest, AiResult, AiToolCall } from '../src/ai/provider.js';
 import { buildApp } from '../src/app.js';
+import { auditEvents } from '../src/db/schema.js';
+import { WRITES_PER_DAY } from '../src/usage/write-cap.js';
 import { defaultCatalog } from '../src/catalog.js';
 import { NOTICES } from '../src/consent/notices.js';
 import { CaptureMailer } from '../src/mail/mailer.js';
@@ -246,6 +248,22 @@ describe('the wrong "yes" (Review Focus 2)', () => {
     expect(await count('rules', u.userId)).toBe(1);
     expect(await proposal(r1.cards[0].proposalId)).toMatchObject({ status: 'confirmed', channel: 'typed_yes' });
     expect(ai.requests).toHaveLength(1);
+  });
+
+  test('fix round 1 M5: a typed yes to a meal card past the daily write cap gets write.daily_limit, nothing written', async () => {
+    const ai = hostile([meal({ slot: 'breakfast', description: 'porridge' })]);
+    await makeApp(ai);
+    const u = await player();
+    const at = new Date(clock - 3_600_000);
+    await db.insert(auditEvents).values(
+      Array.from({ length: WRITES_PER_DAY }, () => ({ at, actorKind: 'user', actorId: u.userId, subjectUserId: u.userId, action: 'meals.create', target: 'x' })),
+    );
+    const r1 = await u.turn('I had porridge for breakfast');
+    expect(r1.cards.map((c) => c.card.kind)).toEqual(['meal']);
+    const r2 = await u.turn('yes');
+    expect(r2.parts).toEqual([lineOf('write.daily_limit')]);
+    expect(r2.actions).toEqual([]);
+    expect(await count('meal_logs', u.userId)).toBe(0);
   });
 
   test('a yes two turns later confirms nothing', async () => {
