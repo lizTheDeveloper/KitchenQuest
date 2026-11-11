@@ -1,5 +1,6 @@
 import {
   ANAPHYLACTIC_CUE,
+  clockedSlots,
   clockForSlot,
   dropMealsMatchingRemovals,
   HARD_WEEK_PATTERN,
@@ -252,6 +253,12 @@ export function applyPostChecks(
       case 'propose_profile': {
         const args = { ...call.args, region: shortName(call.args.region, own), country: shortName(call.args.country, own) };
         if (args.meal_windows !== null) args.meal_windows = args.meal_windows.map((w) => ({ ...w, start: clockForSlot(own, w.name) ?? w.start }));
+        // M5 Step 8 ruling (b): windows the model left out, when the player's own words time a meal (T13), come from
+        // those words by M4's clock parser. Nothing else is added; a slot the player didn't time never is.
+        if (args.meal_windows === null || args.meal_windows.length === 0) {
+          const timed = clockedSlots(own);
+          if (timed.length > 0) args.meal_windows = timed;
+        }
         if (args.market_days !== null && weekdays.length > 0) args.market_days = weekdays.map((d) => WEEKDAY_NAMES[d]);
         out.push({ name: 'propose_profile', args });
         break;

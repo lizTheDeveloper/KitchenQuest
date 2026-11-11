@@ -33,7 +33,6 @@ import { isHealthText } from './health.js';
 import type { PanBank } from './lines.js';
 import { loadPlan } from '../week/store.js';
 import { openProposalsOfConversation } from './proposals.js';
-import type { WeekSource } from './writes.js';
 
 /** Bump on any change to the system text, examples or context shape (Step 12's eval gate reads the fingerprint). */
 export const MENTOR_PROMPT_VERSION = 'pan-4';
@@ -68,11 +67,11 @@ export interface PromptContext {
   turnsLeftToday: number;
   openCards: { kind: ProposalKind; summary: string }[];
   /**
-   * M5 Step 8 (C-13): the plan week as the model may see it: its weekday names in order (never a date), the canon
-   * dishes the player can plan (slugs only), and whether the week has a plan (only with `ai_health`: plans are
-   * health data). No margin note, cooked-for answer, pantry date or plan content.
+   * M5 Step 8 (C-13): the plan week as the model may see it: its weekday names in order (never a date) and whether
+   * the week has a plan (only with `ai_health`: plans are health data). No dish names or slugs (ruling c: code
+   * resolves the player's dish words), and no margin note, cooked-for answer, pantry date or plan content.
    */
-  week: { weekdays: string[]; taught: string[]; hasPlan: boolean };
+  week: { weekdays: string[]; hasPlan: boolean };
 }
 
 export interface PanPrompt {
@@ -183,7 +182,7 @@ function cardSummary(card: Awaited<ReturnType<typeof openProposalsOfConversation
 export async function buildPromptContext(
   tx: Tx,
   /** The turn's deps (`TurnDeps`); only these are read. */
-  deps: { keyring: Keyring; catalog: Catalog; week: WeekSource },
+  deps: { keyring: Keyring; catalog: Catalog },
   userId: string,
   req: TurnRequest,
   aiHealth: boolean,
@@ -222,7 +221,6 @@ export async function buildPromptContext(
   const open = req.conversationId === null ? [] : await openProposalsOfConversation(tx, deps.keyring, userId, req.conversationId, now);
   const weekStart = planWeekStart(req.localDate, row?.marketDays ?? []);
   const first = new Date(`${weekStart}T00:00:00Z`).getUTCDay();
-  const index = await deps.week.recipes.current(tx);
   return {
     weekday: capitalised(WEEKDAY_NAMES[day]),
     slot: slotForTime(req.localTime),
@@ -238,7 +236,6 @@ export async function buildPromptContext(
       .map((p) => ({ kind: p.kind, summary: cardSummary(p.card) })),
     week: {
       weekdays: Array.from({ length: 7 }, (_, i) => capitalised(WEEKDAY_NAMES[(first + i) % 7])),
-      taught: [...index].filter(([, r]) => !r.meta.sacred).map(([slug]) => slug).sort(),
       hasPlan: aiHealth && (await loadPlan(tx, deps.keyring, userId, weekStart)) !== null,
     },
   };

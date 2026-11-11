@@ -299,7 +299,33 @@ describe('navigation is a chip (Ruling 15)', () => {
 });
 
 describe('C-13', () => {
-  test('C-13: PromptContext.week carries weekday names, taught slugs and hasPlan only; no date, margin note, cooked-for answer or pantry date appears anywhere in the prompt (C24)', async () => {
+  test('ruling (c): the prompt carries no taught slugs or dish names in its context (code resolves dish names)', async () => {
+    const ai = fakeAi([reply('Ok.')]);
+    await makeApp(ai);
+    const p = await player(['health_data', 'ai_health']);
+    await p.turn('what should I cook tonight?');
+    const ctxMessage = ai.requests[0].messages.find((m) => m.role === 'system' && (m.content ?? '').startsWith('PLAYER CONTEXT'))!;
+    expect(ctxMessage.content).not.toMatch(/taught/);
+    for (const slug of [PARIPPU, ONIGIRI, FRIJOLES]) expect(JSON.stringify(ai.requests[0].messages)).not.toContain(slug);
+    expect(ctxMessage.content).not.toMatch(/parippu|frijoles/i);
+  });
+
+  test('T13 shape: the meal card and a profile card with the 18:30 dinner window when the model omits the windows (ruling b)', async () => {
+    const ai = fakeAi([
+      calls([
+        { name: 'propose_meal_log', args: { slot: 'dinner', when: 'today', dish: null, servings: null, description: 'dal' } },
+        { name: 'propose_profile', args: { market_days: null, meals_per_week: null } },
+      ]),
+    ]);
+    await makeApp(ai);
+    const p = await player(['health_data', 'ai_health']);
+    const r = await p.turn("Had dal for dinner. Also put the frijoles on Saturday's plan, and remind me about dinner at 6:30 pm.");
+    expect(r.cards.map((c) => c.card.kind).sort()).toEqual(['meal', 'profile']);
+    expect(JSON.stringify(r)).toMatch(/"name":"dinner","start":"18:30"/);
+    expect(r.parts).toContainEqual({ kind: 'line', line: { trigger: 'plan.dish_unknown', vars: { dish: 'frijoles' } } });
+  });
+
+  test('C-13: PromptContext.week carries weekday names and hasPlan only; no date, margin note, cooked-for answer or pantry date appears anywhere in the prompt (C24)', async () => {
     const ai = fakeAi([reply('Ok.'), reply('Ok.')]);
     await makeApp(ai);
     const p = await player(['health_data', 'ai_health']);
@@ -315,9 +341,8 @@ describe('C-13', () => {
     for (const [i, req] of ai.requests.entries()) {
       const ctxMessage = req.messages.find((m) => m.role === 'system' && (m.content ?? '').startsWith('PLAYER CONTEXT'))!;
       const ctx = JSON.parse(ctxMessage.content!.slice(ctxMessage.content!.indexOf('\n') + 1)) as { week: Record<string, unknown> };
-      expect(Object.keys(ctx.week).sort()).toEqual(['hasPlan', 'taught', 'weekdays']);
+      expect(Object.keys(ctx.week).sort()).toEqual(['hasPlan', 'weekdays']);
       expect(ctx.week.weekdays).toEqual(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']);
-      expect(ctx.week.taught).toEqual([PARIPPU, ONIGIRI, FRIJOLES].sort());
       expect(ctx.week.hasPlan).toBe(i === 1);
       const all = JSON.stringify(req.messages);
       expect(all).not.toMatch(/\d{4}-\d{2}-\d{2}/);

@@ -465,6 +465,27 @@ export function clockForSlot(text: string, slot: MealSlot): string | null {
 }
 
 /**
+ * M5 Step 8 ruling (b): every meal slot whose clause in `text` carries a clock time, with that time, read by M4's
+ * clock parser: for each slot, the first clause naming it that has a time ("Had dal for dinner. … remind me about
+ * dinner at 6:30 pm" → dinner 18:30). Slots in their fixed order; none named, none returned.
+ */
+export function clockedSlots(text: string): { name: MealSlot; start: string }[] {
+  const clauses = text.split(CLAUSE_SPLIT);
+  const out: { name: MealSlot; start: string }[] = [];
+  for (const [slot, word] of Object.entries(SLOT_WORDS) as [MealSlot, RegExp | null][]) {
+    if (word === null) continue;
+    for (const c of clauses) {
+      const clock = word.test(c) ? parseClock(c) : null;
+      if (clock !== null) {
+        out.push({ name: slot, start: clock });
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+/**
  * Which pantry items a removal names: `removeNames` match case-insensitively (normalizeName), or
  * by ingredient id when the name resolves in the graph; `removeIds` match exactly. The one
  * matching rule for the API's pantry service and the client's device pantry.

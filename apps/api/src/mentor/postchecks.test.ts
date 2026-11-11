@@ -66,6 +66,13 @@ describe('applyPostChecks', () => {
     expect(out).toEqual([profile({ meal_windows: [{ name: 'lunch', start: '12:30' }, { name: 'dinner', start: '19:00' }] })]);
   });
 
+  test('M5 Step 8 ruling (b): a profile call without meal windows gets them from the player\'s own clock words (T13); none named, none added', () => {
+    const t13 = "Had dal for dinner. Also put the frijoles on Saturday's plan, and remind me about dinner at 6:30 pm.";
+    expect(post([profile({})], t13)).toEqual([profile({ meal_windows: [{ name: 'dinner', start: '18:30' }] })]);
+    expect(post([profile({ meal_windows: [] })], t13)).toEqual([profile({ meal_windows: [{ name: 'dinner', start: '18:30' }] })]);
+    expect(post([profile({ market_days: ['Saturday'] })], 'My market day is Saturday.')).toEqual([profile({ market_days: ['saturday'] })]);
+  });
+
   test('T03: the weekdays the player named set the market days', () => {
     expect(post([profile({ market_days: ['Sunday'] })], 'My market day is Saturday.')).toEqual([profile({ market_days: ['saturday'] })]);
     expect(post([profile({ meals_per_week: 5 })], 'Saturday, five meals')).toEqual([profile({ meals_per_week: 5 })]);

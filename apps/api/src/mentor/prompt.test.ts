@@ -20,7 +20,7 @@ const ctx: PromptContext = {
   intakeStep: null,
   turnsLeftToday: 15,
   openCards: [],
-  week: { weekdays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'], taught: ['japan/osaka/onigiri'], hasPlan: false },
+  week: { weekdays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'], hasPlan: false },
 };
 
 describe('loadPanPrompt', () => {
