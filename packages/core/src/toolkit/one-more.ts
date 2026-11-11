@@ -5,7 +5,8 @@ import type { ParsedRecipe } from '../recipe/types';
 import { check, type Substitution } from '../rules/check';
 import type { Rule } from '../rules/types';
 import { toolkitRows } from './toolkit';
-import type { FreshnessThresholds, TechniqueNode, Tier, ToolkitState } from './types';
+import type { TechniqueNode } from './techniques';
+import type { FreshnessThresholds, Tier, ToolkitState } from './types';
 
 /** At most one suggestion a plan week, new technique or refresher (spec §17, audit M-2). */
 export const ONE_MORE_PER_WEEK = 1;
