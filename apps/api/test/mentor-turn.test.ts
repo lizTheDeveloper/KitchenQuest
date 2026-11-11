@@ -621,6 +621,23 @@ describe('failure, caps, metering, storage', () => {
     expect((await turn(p.cookie, 'what should I cook tonight?', { turnKey: crypto.randomUUID(), conversationId: first.conversationId })).route).toBe('ai');
   });
 
+  test("m-3: the turnKey lookup is scoped per user: another player's identical turnKey is a new turn, never a replay of theirs", async () => {
+    const ai = fakeAi([reply('Rice.'), reply('Rice.')]);
+    await makeApp(ai);
+    const a = await player(AI_HEALTH);
+    const b = await player(AI_HEALTH);
+    const turnKey = crypto.randomUUID();
+    const first = await turn(a.cookie, 'what should I cook tonight?', { turnKey });
+    expect(first.route).toBe('ai');
+    const other = await turn(b.cookie, 'what should I cook tonight?', { turnKey });
+    expect(other.route).toBe('ai');
+    expect(other.parts).not.toEqual([]);
+    expect(other.conversationId).not.toBe(first.conversationId);
+    expect(ai.requests).toHaveLength(2);
+    const [row] = await sql`select user_id from conversations where id = ${other.conversationId}`;
+    expect(row?.user_id).toBe(b.userId);
+  });
+
   test('J2: two copies of one turn at once start it once', async () => {
     const ai = fakeAi([reply('Rice.'), reply('Rice.')]);
     await makeApp(ai);
