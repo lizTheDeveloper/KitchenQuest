@@ -225,3 +225,17 @@ describe('M5 Step 2: the rule-adapted quest lines', () => {
     }
   });
 });
+
+describe('M5 Step 3 fix round 1: the sacred-dish plan line', () => {
+  it("core's PLAN_DISH_SACRED_TRIGGER is required, ai: never, names the dish, and never says unknown or blocked", async () => {
+    const { PLAN_DISH_SACRED_TRIGGER } = await import('@kitchenquest/core/engine');
+    expect(REQUIRED_PAN_TRIGGERS).toContain(PLAN_DISH_SACRED_TRIGGER);
+    const t = content.pan.triggers[PLAN_DISH_SACRED_TRIGGER];
+    expect(t.ai).toBe('never');
+    expect(t.lines.length).toBeGreaterThanOrEqual(4);
+    for (const line of t.lines) {
+      expect(line).toContain('{dish}');
+      expect(line).not.toMatch(/don't know|unknown|blocked|unlock|locked/i);
+    }
+  });
+});

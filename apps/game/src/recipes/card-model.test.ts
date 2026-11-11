@@ -3,7 +3,7 @@ import { DISCLAIMER, type Rule } from '@kitchenquest/core/engine';
 import { content, graph } from '../content';
 import type { ClientContent } from '../content/types';
 import { buildRecipeCard } from './card-model';
-import { findingText, LABEL_RULE_TEXT, LABEL_STORE_BOUGHT_TEXT } from './card-view';
+import { EMPTY_SLOT_TEXT, findingText, LABEL_RULE_TEXT, LABEL_STORE_BOUGHT_TEXT } from './card-view';
 import { ACCOUNT_NOT_LOADED_MESSAGE, RULES_INVALID_MESSAGE, type RulesState } from './rules';
 
 const today = '2026-11-09';
@@ -141,5 +141,13 @@ describe('label findings and their wording', () => {
     expect(findingText(store)).toBe(LABEL_STORE_BOUGHT_TEXT);
     expect(findingText(limited)).toBe(LABEL_RULE_TEXT);
     expect(findingText(limited)).not.toMatch(/store-bought|brand/);
+  });
+});
+
+describe('an empty frame slot (M5 Step 3 fix round 1, M4)', () => {
+  test('reads as nothing in the cupboard fitting, never as an ingredient that can\'t be identified', () => {
+    const f = { ingredient: 'rice', kind: 'empty_slot', fromRule: false, status: 'unverified', path: null, ruleNote: null, swapLabel: null } as const;
+    expect(findingText(f)).toBe(EMPTY_SLOT_TEXT);
+    expect(findingText(f)).not.toMatch(/identify|label/);
   });
 });

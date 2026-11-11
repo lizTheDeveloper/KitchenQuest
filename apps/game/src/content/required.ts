@@ -16,6 +16,8 @@ export const REQUIRED_PAN_TRIGGERS: readonly string[] = [
   // M5 Step 2: core advance() names it for a rule-adapted errand (ERRAND_ADAPTED_TRIGGER).
   'quest.errand_adapted',
   'quest.cook_adapted',
+  // M5 Step 3 fix round 1: core resolvePlanRequest's `sacred` list is read back with it (PLAN_DISH_SACRED_TRIGGER).
+  'plan.dish_sacred',
   'ai_unavailable',
   'thanks',
   'intake.ios_home_screen',

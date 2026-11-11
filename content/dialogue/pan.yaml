@@ -733,6 +733,17 @@ triggers:
       - "{dish} clashes with your rules: {finding}. I'll ask the cook about an adapted version, or we can pick something else."
       - "That one's blocked for you: {finding}. Let's find another dish, or an adapted version if the cook has one."
 
+  plan.dish_sacred:
+    ai: never
+    when: The player names a sacred dish (sacred true) in a plan request. It is never placed in a plan; the dish is kept for its occasion (spec §10). Plain and respectful, no jokes.
+    vars:
+      dish: "the dish"
+    lines:
+      - "{dish} is kept for its occasion, so it doesn't go in a weekly plan. Shall we pick something else for that day?"
+      - "{dish} belongs to its own day and its own table. I'll leave it out of the plan, with respect. Another dish for that night?"
+      - "We don't plan {dish} like an ordinary supper; it's made for its occasion. Let's choose something else for the week."
+      - "{dish} is one the family keeps for a special day, so it stays off the plan. Would you like another dish there?"
+
   plan.swap_applied:
     ai: never
     when: A dish in the plan has a rules-checked substitution applied.
