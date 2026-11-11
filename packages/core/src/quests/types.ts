@@ -16,7 +16,8 @@ export type QuestStep =
   | { type: 'drill'; skill: string; prompt: string; lines: string[] }
   /**
    * `item` is an ingredient id. `lines` are the sending lines, the last one the return line. `adapted` (optional,
-   * new in M5) is what the cook says instead when the player's rules block the item (content README errand rule).
+   * new in M5) is what the cook says instead when the player's rules block the item; the step still passes with the
+   * same rewards (a player's rules never lock them out of progress).
    */
   | { type: 'errand'; stall: string; item: string; lines: string[]; adapted?: string[] }
   /** Audit M-3: `lines` when the player already has `technique` at Tried from another cook's dish, else `otherwise`. */

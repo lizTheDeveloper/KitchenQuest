@@ -56,9 +56,24 @@ export interface StepContext {
   cat: Pick<Catalogue, 'recipes'>;
 }
 
+/** The Pan trigger a rule-adapted errand speaks when the cook file has no `adapted` lines (content/dialogue/pan.yaml). */
+export const ERRAND_ADAPTED_TRIGGER = 'quest.errand_adapted';
+
+/**
+ * How a rule-blocked errand was completed (concern-3 ruling: a player's rules never lock them out of progress). The
+ * step passes with the same events, so the same rewards, as the normal path. `trigger` is set when the cook file has
+ * no `adapted` lines and the game speaks the Pan's scripted fallback instead. `swap` is a curated swap for the item
+ * that the rules engine itself passes (✅ for this player today), or null: nothing unverifiable is ever suggested.
+ */
+export interface ErrandAdapted {
+  item: string;
+  trigger: typeof ERRAND_ADAPTED_TRIGGER | null;
+  swap: { id: string; name: string; note?: string } | null;
+}
+
 export type AdvanceResult =
-  | { ok: true; events: ProgressEvent[]; say: string[] }
-  | { ok: false; reason: 'waiting' | 'not_current' | 'wrong_answer' | 'blocked' | 'already_done'; say: string[] };
+  | { ok: true; events: ProgressEvent[]; say: string[]; adapted?: ErrandAdapted }
+  | { ok: false; reason: 'waiting' | 'not_current' | 'wrong_answer' | 'already_done'; say: string[] };
 
 /** A one-line recipe holding just `item`, so the rules engine judges a market errand like any dish. */
 function itemRecipe(name: string): ParsedRecipe {
@@ -81,6 +96,21 @@ export function errandAllowed(item: string, ctx: StepContext): boolean {
   return check(itemRecipe(ctx.graph.get(item).name), ctx.rules, ctx.graph, ctx.subs, ctx.today).status === 'ok';
 }
 
+/**
+ * The swap to fetch instead of a blocked `item`: the rules engine's own swap (check status 'swap', the same swap on
+ * every finding), kept only if the swapped-in ingredient is itself ✅ for these rules today. Otherwise null.
+ */
+function errandSwap(item: string, ctx: StepContext): ErrandAdapted['swap'] {
+  if (!ctx.graph.has(item)) return null;
+  const r = check(itemRecipe(ctx.graph.get(item).name), ctx.rules, ctx.graph, ctx.subs, ctx.today);
+  if (r.status !== 'swap') return null;
+  const swaps = r.findings.map((f) => f.swap);
+  const first = swaps[0];
+  if (!first || swaps.some((sw) => sw?.toId !== first.toId)) return null;
+  if (!errandAllowed(first.toId, ctx)) return null;
+  return first.note === undefined ? { id: first.toId, name: first.toName } : { id: first.toId, name: first.toName, note: first.note };
+}
+
 /** The other cook from whom the player has `technique` at Tried (audit M-3), or null. */
 export function recognizedFrom(technique: string, quest: Quest, p: ProgressView, cat: Pick<Catalogue, 'recipes'>): string | null {
   return recognizedCook(p.toolkit, technique, quest.cook, cat);
@@ -96,6 +126,10 @@ const refuse = (reason: Extract<AdvanceResult, { ok: false }>['reason'], say: st
  * `say` is what the cook says in answer: a travel step's arrival lines, a riddle's reaction and explanation, an
  * errand's return line (its last line), a recognize step's `lines` or `otherwise`; talk, drill and cook steps' own
  * lines belong to the step itself (`currentStep`), so they say nothing more here.
+ *
+ * An errand whose item the player's rules block (⛔, swap-only or ❓) is never a dead end: it passes through the
+ * adapted path with the same events, and `adapted` says how (the cook's `adapted` lines in `say`, else the Pan
+ * trigger, plus a rules-safe swap when one exists).
  */
 export function advance(q: Quest, p: ProgressView, input: StepInput, at: string, newId: () => string, ctx: StepContext): AdvanceResult {
   const status = questStatus(q, p);
@@ -114,6 +148,7 @@ export function advance(q: Quest, p: ProgressView, input: StepInput, at: string,
 
   const stepEvent = (): ProgressEvent => ({ id: newId(), kind: 'quest_step', at, quest: q.id, step: index + 1 });
   let say: string[] = [];
+  let adapted: ErrandAdapted | undefined;
   switch (step.type) {
     case 'talk':
       events.push(stepEvent());
@@ -134,9 +169,12 @@ export function advance(q: Quest, p: ProgressView, input: StepInput, at: string,
       events.push(stepEvent(), { id: newId(), kind: 'drill', at, quest: q.id, step: index + 1, technique: step.skill });
       break;
     case 'errand':
-      if (!errandAllowed(step.item, ctx)) return refuse('blocked', [...(step.adapted ?? [])]);
       events.push(stepEvent());
-      say = step.lines.length > 0 ? [step.lines[step.lines.length - 1]] : [];
+      if (!errandAllowed(step.item, ctx)) {
+        const lines = step.adapted ?? [];
+        adapted = { item: step.item, trigger: lines.length > 0 ? null : ERRAND_ADAPTED_TRIGGER, swap: errandSwap(step.item, ctx) };
+        say = [...lines];
+      } else say = step.lines.length > 0 ? [step.lines[step.lines.length - 1]] : [];
       break;
     case 'recognize': {
       const from = recognizedFrom(step.technique, q, p, ctx.cat);
@@ -155,5 +193,5 @@ export function advance(q: Quest, p: ProgressView, input: StepInput, at: string,
     }
   }
   if (index + 1 === q.steps.length) events.push(done());
-  return { ok: true, events, say };
+  return adapted ? { ok: true, events, say, adapted } : { ok: true, events, say };
 }

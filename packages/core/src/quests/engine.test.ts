@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ProgressEvent, ProgressHistory } from '../progress/types';
 import type { Rule } from '../rules/types';
-import { advance, currentStep, questStatus, recognizedFrom, type StepContext, type StepInput } from './engine';
+import { advance, currentStep, ERRAND_ADAPTED_TRIGGER, errandAllowed, questStatus, recognizedFrom, type ErrandAdapted, type StepContext, type StepInput } from './engine';
 import { catalogueOf, EMPTY_HISTORY, graph, newId, quests, record, subs, view } from './fixtures';
 import type { Quest } from './types';
 
@@ -42,19 +42,24 @@ function rightInput(q: Quest, index: number, h: ProgressHistory): StepInput {
   }
 }
 
-/** Play a quest from `h` to the end; before the cook step, the player cooks the dish. Every event goes through grantsFor. */
-function playQuest(q: Quest, h: ProgressHistory, at = DAY): { h: ProgressHistory; emitted: ProgressEvent[] } {
+/**
+ * Play a quest from `h` to the end under `rules`; before the cook step, the player cooks the dish (under a rule that
+ * blocks it, read as the cook's adapted version). Every event goes through grantsFor.
+ */
+function playQuest(q: Quest, h: ProgressHistory, at = DAY, rules: Rule[] = []): { h: ProgressHistory; emitted: ProgressEvent[]; adapted: ErrandAdapted[] } {
   let out = h;
   const emitted: ProgressEvent[] = [];
+  const adapted: ErrandAdapted[] = [];
   for (let i = 0; i < q.steps.length; i++) {
     const s = q.steps[i];
     if (s.type === 'cook') out = record(out, [{ id: newId(), kind: 'cooked', at, recipe: s.recipe, planned: false }], cat);
-    const r = advance(q, view(out, cat), rightInput(q, i, out), at, newId, ctx());
+    const r = advance(q, view(out, cat), rightInput(q, i, out), at, newId, ctx(rules));
     if (!r.ok) throw new Error(`step ${i + 1} refused: ${r.reason}`);
     emitted.push(...r.events);
+    if (r.adapted) adapted.push(r.adapted);
     out = record(out, r.events, cat);
   }
-  return { h: out, emitted };
+  return { h: out, emitted, adapted };
 }
 
 /** Play the first `count` steps of a quest. */
@@ -119,46 +124,82 @@ describe('quest engine', () => {
     }
   });
 
-  it('errand satisfied by pantry, by a ticked list item, or by a tap; an item blocked by ctx.rules → blocked + adapted line', () => {
+  it('errand satisfied by pantry, by a ticked list item, or by a tap; an item blocked by ctx.rules → adapted + adapted line', () => {
     const h = playSteps(leela, EMPTY_HISTORY, 1);
     const p = view(h, cat);
     for (const have of ['pantry', 'ticked', 'tapped'] as const) {
       const r = advance(leela, p, { type: 'errand', have }, DAY, newId, ctx());
       expect(r.ok).toBe(true);
+      if (r.ok) {
+        expect(r.events).toEqual([expect.objectContaining({ kind: 'quest_step', quest: 'leela-tempering', step: 2 })]);
+        expect(r.adapted).toBeUndefined();
+      }
+    }
+    // Shallots are alliums: an allium rule sends the errand down the adapted path, whatever the player has.
+    const line = 'No shallots for you, then. We will make it sing another way.';
+    const withLine: Quest = { ...leela, steps: leela.steps.map((s) => (s.type === 'errand' ? { ...s, adapted: [line] } : s)) };
+    for (const have of ['pantry', 'ticked', 'tapped'] as const) {
+      const r = advance(withLine, p, { type: 'errand', have }, DAY, newId, ctx([ALLIUM]));
+      expect(r).toMatchObject({ ok: true, say: [line], adapted: { item: 'shallot', trigger: null, swap: null } });
       if (r.ok) expect(r.events).toEqual([expect.objectContaining({ kind: 'quest_step', quest: 'leela-tempering', step: 2 })]);
     }
-    // Shallots are alliums: an allium rule blocks the errand, whatever the player has.
-    const adapted: Quest = {
-      ...leela,
-      steps: leela.steps.map((s) => (s.type === 'errand' ? { ...s, adapted: ['No shallots for you, then. Bring me ginger and we will make it sing another way.'] } : s)),
-    };
-    for (const have of ['pantry', 'ticked', 'tapped'] as const) {
-      expect(advance(adapted, p, { type: 'errand', have }, DAY, newId, ctx([ALLIUM]))).toEqual({
-        ok: false,
-        reason: 'blocked',
-        say: ['No shallots for you, then. Bring me ginger and we will make it sing another way.'],
-      });
-    }
-    // Without an adapted line in the file it is still blocked, with nothing said (the game speaks a Pan line).
-    expect(advance(leela, p, { type: 'errand', have: 'tapped' }, DAY, newId, ctx([ALLIUM]))).toEqual({ ok: false, reason: 'blocked', say: [] });
+    // No adapted lines in the file (as shipped): the Pan's scripted fallback trigger speaks instead.
+    expect(advance(leela, p, { type: 'errand', have: 'tapped' }, DAY, newId, ctx([ALLIUM]))).toMatchObject({
+      ok: true,
+      say: [],
+      adapted: { item: 'shallot', trigger: ERRAND_ADAPTED_TRIGGER, swap: null },
+    });
+    expect(ERRAND_ADAPTED_TRIGGER).toBe('quest.errand_adapted');
   });
 
-  it("an errand item the rules engine can't verify is blocked, never passed (spec §2.2)", () => {
+  it("an errand item the rules engine can't verify goes the adapted way, never the normal one (spec §2.2)", () => {
     const h = playSteps(leela, EMPTY_HISTORY, 1);
     const p = view(h, cat);
-    const unknown: Quest = { ...leela, steps: leela.steps.map((s) => (s.type === 'errand' ? { ...s, item: 'not-an-ingredient' } : s)) };
-    expect(advance(unknown, p, { type: 'errand', have: 'tapped' }, DAY, newId, ctx())).toMatchObject({ ok: false, reason: 'blocked' });
-    // ❓ a label-dependent item under any rule, and an item the rules engine would only swap, are blocked too.
     const item = (id: string): Quest => ({ ...leela, steps: leela.steps.map((s) => (s.type === 'errand' ? { ...s, item: id } : s)) });
     const COCONUT: Rule = { id: 'r-coconut', target: { kind: 'ingredient', ids: ['coconut'] }, type: 'avoid', severity: 'allergy' };
-    const GHEE: Rule = { id: 'r-ghee', target: { kind: 'ingredient', ids: ['ghee'] }, type: 'avoid', severity: 'preference' };
+    expect(advance(item('not-an-ingredient'), p, { type: 'errand', have: 'tapped' }, DAY, newId, ctx())).toMatchObject({ ok: true, adapted: { swap: null } });
+    // ❓ a label-dependent item under any rule.
     expect(graph.get('pappadam').labelDependent).toBe(true);
-    expect(advance(item('pappadam'), p, { type: 'errand', have: 'tapped' }, DAY, newId, ctx([COCONUT]))).toMatchObject({ ok: false, reason: 'blocked' });
-    expect(advance(item('pappadam'), p, { type: 'errand', have: 'tapped' }, DAY, newId, ctx()).ok).toBe(true);
-    expect(advance(item('ghee'), p, { type: 'errand', have: 'tapped' }, DAY, newId, ctx([GHEE]))).toMatchObject({ ok: false, reason: 'blocked' });
-    // A rule that only starts after today does not block it.
+    expect(advance(item('pappadam'), p, { type: 'errand', have: 'tapped' }, DAY, newId, ctx([COCONUT]))).toMatchObject({ ok: true, adapted: { item: 'pappadam', swap: null } });
+    expect(advance(item('pappadam'), p, { type: 'errand', have: 'tapped' }, DAY, newId, ctx())).not.toHaveProperty('adapted');
+    // A rule that only starts after today does not adapt it.
     const later: Rule = { ...ALLIUM, phase: { start: '2027-01-01' } };
-    expect(advance(leela, p, { type: 'errand', have: 'tapped' }, DAY, newId, ctx([later])).ok).toBe(true);
+    expect(advance(leela, p, { type: 'errand', have: 'tapped' }, DAY, newId, ctx([later]))).not.toHaveProperty('adapted');
+  });
+
+  it("a swap is offered only when it passes the player's rules", () => {
+    const h = playSteps(leela, EMPTY_HISTORY, 1);
+    const p = view(h, cat);
+    const item = (id: string): Quest => ({ ...leela, steps: leela.steps.map((s) => (s.type === 'errand' ? { ...s, item: id } : s)) });
+    const avoid = (id: string): Rule => ({ id: `r-${id}`, target: { kind: 'ingredient', ids: [id] }, type: 'avoid', severity: 'preference' });
+    // Ghee → neutral oil (data/substitutions.json), and neutral oil is ✅ for a ghee rule.
+    const r = advance(item('ghee'), p, { type: 'errand', have: 'tapped' }, DAY, newId, ctx([avoid('ghee')]));
+    expect(r).toMatchObject({ ok: true, adapted: { item: 'ghee', swap: { id: 'neutral_oil', name: graph.get('neutral_oil').name, note: 'Same amount of sunflower or canola oil.' } } });
+    // A rule against the swap too: no swap, still adapted (never a lockout).
+    expect(advance(item('ghee'), p, { type: 'errand', have: 'tapped' }, DAY, newId, ctx([avoid('ghee'), avoid('neutral_oil')]))).toMatchObject({ ok: true, adapted: { swap: null } });
+    // Garlic → garlic-infused oil is unsafe for an allium rule, so it is never offered there.
+    expect(advance(item('garlic'), p, { type: 'errand', have: 'tapped' }, DAY, newId, ctx([ALLIUM]))).toMatchObject({ ok: true, adapted: { item: 'garlic', swap: null } });
+    // Every offered swap is itself ✅ for the rules, by the rules engine.
+    if (r.ok && r.adapted?.swap) expect(errandAllowed(r.adapted.swap.id, ctx([avoid('ghee')]))).toBe(true);
+  });
+
+  it("an allium rule completes Leela's errand as adapted, Marisol's quest becomes available, and XP is identical to the normal path", () => {
+    const normal = playQuest(leela, EMPTY_HISTORY, DAY, []);
+    const allium = playQuest(leela, EMPTY_HISTORY, DAY, [ALLIUM]);
+    expect(allium.adapted).toEqual([expect.objectContaining({ item: 'shallot', trigger: ERRAND_ADAPTED_TRIGGER })]);
+    expect(normal.adapted).toEqual([]);
+    const pN = view(normal.h, cat);
+    const pA = view(allium.h, cat);
+    expect(questStatus(leela, pA)).toBe('done');
+    expect(questStatus(marisol, pA)).toBe('open');
+    expect(advance(marisol, pA, { type: 'talk' }, DAY, newId, ctx([ALLIUM])).ok).toBe(true);
+    // Same events by kind and step, and the same rewards.
+    const shape = (es: ProgressEvent[]) => es.map((e) => [e.kind, 'step' in e ? e.step : null]);
+    expect(shape(allium.emitted)).toEqual(shape(normal.emitted));
+    expect(pA.xp).toBe(pN.xp);
+    expect(pA.stamps).toBe(pN.stamps);
+    expect(pA.trust).toEqual(pN.trust);
+    expect(pA.level).toBe(pN.level);
   });
 
   it('cook step needs a cooked event for that recipe on/after the quest started', () => {
