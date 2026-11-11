@@ -92,6 +92,20 @@ describe('weeklySlot', () => {
     expect(weeklySlot(input({ rules: [avoid('category', 'allium', { start: '2026-10-01', end: '2026-11-01' })] }))).toMatchObject({ technique: 'tempering' });
   });
 
+  it('I1: a dish is offered only if it passes on every day of the plan week (the reviewer\'s mid-week allium repro)', () => {
+    // Week starts Mon 2026-11-09; on Wed 2026-11-11 an allium allergy rule starts.
+    const midWeek = avoid('category', 'allium', { start: '2026-11-11' });
+    expect(weeklySlot(input({ today: '2026-11-11', rules: [midWeek] }))).toBeNull();
+    // Also when it starts on the week's last day, and when today is still the week start.
+    expect(weeklySlot(input({ rules: [avoid('category', 'allium', { start: '2026-11-15' })] }))).toBeNull();
+    // A rule that ends before the week, or starts the day after it ends, does not block it.
+    expect(weeklySlot(input({ rules: [avoid('category', 'allium', { start: '2026-11-16' })] }))).toMatchObject({ technique: 'tempering', status: 'ok' });
+    // A swap on any day makes the offer a swap.
+    const p = recipes.get(PARIPPU)!;
+    const noPappadam: ParsedRecipe = { ...p, ingredients: p.ingredients.filter((i) => i.name !== 'pappadam') };
+    expect(weeklySlot(input({ recipes: withRecipe(PARIPPU, noPappadam), rules: [avoid('ingredient', 'ghee', { start: '2026-11-13' })] }))).toMatchObject({ technique: 'tempering', status: 'swap' });
+  });
+
   it('never offers a sacred dish', () => {
     const p = recipes.get(PARIPPU)!;
     expect(weeklySlot(input({ recipes: withRecipe(PARIPPU, { ...p, meta: { ...p.meta, sacred: true } }) }))).toBeNull();

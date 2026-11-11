@@ -38,3 +38,8 @@ export function planWeekStart(date: string, marketDays: readonly number[]): stri
   const back = (d.getUTCDay() - start + 7) % 7;
   return iso(new Date(d.getTime() - back * DAY_MS));
 }
+
+/** The local date `days` after `date` (negative goes back). Whole calendar days, so DST never matters. */
+export function addDays(date: string, days: number): string {
+  return iso(new Date(utcDay(date).getTime() + days * DAY_MS));
+}

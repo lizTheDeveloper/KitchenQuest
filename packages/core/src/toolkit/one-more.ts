@@ -4,6 +4,7 @@ import type { IngredientGraph } from '../ingredients/graph';
 import type { ParsedRecipe } from '../recipe/types';
 import { check, type Substitution } from '../rules/check';
 import type { Rule } from '../rules/types';
+import { addDays } from '../progress/week';
 import { toolkitRows } from './toolkit';
 import type { TechniqueNode } from './techniques';
 import type { FreshnessThresholds, Tier, ToolkitState } from './types';
@@ -28,7 +29,7 @@ export interface WeeklySlotInput {
   rules: Rule[];
   graph: IngredientGraph;
   subs: Substitution[];
-  /** The plan week's first day (Ruling 11); dishes are checked on it. */
+  /** The plan week's first day (Ruling 11); a dish must pass on each of the week's seven days (I1 ruling). */
   weekStart: string;
   today: string;
   thresholds: FreshnessThresholds;
@@ -39,9 +40,26 @@ export interface WeeklySlotInput {
 const RANK: Record<Tier, number> = { seen: 0, tried: 1, yours: 2 };
 const byId = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
+/** Days in a plan week (Ruling 11). */
+const PLAN_WEEK_DAYS = 7;
+
 /**
- * The dish to practise `technique` with: a taught, non-sacred recipe with that skill whose check on `weekStart` is
- * ✅ or a labelled swap; one already planned this week first, then by slug. `onlyPlanned` limits it to planned ones.
+ * The worst `check` status of a dish over the plan week, `weekStart` and the six days after it (I1 ruling): a rule
+ * that starts mid-week, even on its last day, makes the dish ⛔ or ❓ for the whole offer.
+ */
+function weekStatus(r: ParsedRecipe, input: WeeklySlotInput): 'ok' | 'swap' | 'blocked' | 'unverified' {
+  const rank = { ok: 0, swap: 1, unverified: 2, blocked: 3 } as const;
+  let worst: keyof typeof rank = 'ok';
+  for (let d = 0; d < PLAN_WEEK_DAYS && worst !== 'blocked'; d++) {
+    const { status } = check(r, input.rules, input.graph, input.subs, addDays(input.weekStart, d));
+    if (rank[status] > rank[worst]) worst = status;
+  }
+  return worst;
+}
+
+/**
+ * The dish to practise `technique` with: a taught, non-sacred recipe with that skill whose check on every day of the
+ * plan week is ✅ or a labelled swap; one already planned this week first, then by slug. `onlyPlanned` limits it to planned ones.
  */
 function dishFor(technique: string, input: WeeklySlotInput, onlyPlanned: boolean): { recipe: string; status: 'ok' | 'swap' } | null {
   const planned = new Set(input.planned);
@@ -51,7 +69,7 @@ function dishFor(technique: string, input: WeeklySlotInput, onlyPlanned: boolean
   for (const slug of slugs) {
     const r = input.recipes.get(slug)!;
     if (r.meta.sacred || !r.meta.skills.includes(technique)) continue;
-    const { status } = check(r, input.rules, input.graph, input.subs, input.weekStart);
+    const status = weekStatus(r, input);
     if (status === 'ok' || status === 'swap') return { recipe: slug, status };
   }
   return null;
