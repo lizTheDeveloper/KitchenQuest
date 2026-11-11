@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { Locator, Page } from 'playwright';
 import { parse } from 'yaml';
+import { VOICE_ALLOWLIST } from '../src/content/voice-allowlist';
 import type { PlayerState } from '../src/state/store';
 import { openApp, type OpenedApp } from './helpers';
 
@@ -82,9 +83,40 @@ export const LOOP_NEVER: Readonly<Record<string, RegExp>> = {
 };
 /** Audit M-4, never rule 5: no countdown on the rescue, market or plan screens. */
 export const COUNTDOWN = /\b(only|left|hurry|expires?|expiring)\b/i;
-/** A line from VOICE_ALLOWLIST as a whole-text matcher: `{var}` placeholders stand for the words the Pan fills in. */
-export const allowedLine = (line: string): RegExp =>
-  new RegExp(`^${line.split(/\{\w+\}/).map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.+')}$`);
+/**
+ * The in-page allowlist, matched by location as well as text (Step 12 fix round 1, Minor 1). Every written line in
+ * `content/` is a source with its file and key path (the paths VOICE_ALLOWLIST uses). A `[data-content]` element is
+ * excused only when every source that could have rendered its text is an allowlisted location holding exactly that
+ * line, so the same words shipped anywhere else are scanned. A `{var}` matches one phrase (no sentence end), and
+ * the words the Pan filled in are returned so the caller still scans them: an entry excuses its own words only.
+ */
+interface LineSource { file: string; where: string; text: string; re: RegExp }
+const CONTENT_ROOT = new URL('../../../content/', import.meta.url);
+function stringsIn(node: unknown, path: string, out: [string, string][] = []): [string, string][] {
+  if (typeof node === 'string') out.push([path, node]);
+  else if (Array.isArray(node)) node.forEach((n, i) => stringsIn(n, `${path}[${i}]`, out));
+  else if (node && typeof node === 'object') for (const [k, v] of Object.entries(node)) stringsIn(v, path === '' ? k : `${path}.${k}`, out);
+  return out;
+}
+const escapeRe = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** A shipped line as a whole-text matcher; each `{var}` is one capture that holds no sentence end. */
+export const lineMatcher = (line: string): RegExp => new RegExp(`^${line.split(/\{\w+\}/).map(escapeRe).join('([^.!?]+?)')}$`);
+function sourcesOf(rel: string): LineSource[] {
+  const y = parse(readFileSync(fileURLToPath(new URL(rel, CONTENT_ROOT)), 'utf8')) as Record<string, unknown>;
+  const pairs: [string, string][] = rel === 'dialogue/pan.yaml'
+    ? Object.entries(y.triggers as Record<string, { lines?: string[] }>).flatMap(([id, t]) => (t.lines ?? []).map((l, i): [string, string] => [`triggers.${id}[${i}]`, l]))
+    : stringsIn(y, '');
+  return pairs.map(([where, text]) => ({ file: `content/${rel}`, where, text, re: lineMatcher(text) }));
+}
+const COOK_FILES = ['leela', 'marisol', 'haruka'].map((c) => `cooks/${c}.yaml`);
+export const LINE_SOURCES: readonly LineSource[] = ['dialogue/pan.yaml', 'bureau/forms.yaml', ...COOK_FILES].flatMap(sourcesOf);
+const ALLOWED_AT = new Set(VOICE_ALLOWLIST.map((a) => `${a.file}\0${a.where}\0${a.line}`));
+/** The filled-in words when `whole` is an allowlisted line at its own location (and at no other), else null. */
+export function allowlistedAt(whole: string): string[] | null {
+  const from = LINE_SOURCES.filter((src) => src.re.test(whole));
+  if (from.length === 0 || !from.every((src) => ALLOWED_AT.has(`${src.file}\0${src.where}\0${src.text}`))) return null;
+  return from.flatMap((src) => src.re.exec(whole)!.slice(1));
+}
 
 // ---- Screens ----
 
@@ -313,6 +345,47 @@ const afterCookSignedIn = async (p: Page) => {
   await p.locator('.bureau-slip[data-kind="cooked_for"]').waitFor();
 };
 
+/** Fix round 1 (I1): a server plan card with a ⛔ dish (the account's coconut rule) and a ❓ one, beside the M5 lines. */
+async function planCardApi(page: Page): Promise<void> {
+  await loopApi(page);
+  await page.route((u) => u.pathname === '/api/rules', (r) => r.fulfill(json(200, { rules: [{ ...coconutSevere, id: 's1', version: 1 }] })));
+  await page.route((u) => u.pathname === '/api/me/consents', (r) => r.fulfill(json(200, BOTH_CONSENTS)));
+  const items = [
+    { day: 2, kind: 'dish', slug: 'japan/osaka/onigiri', servings: 2 },
+    { day: 4, kind: 'dish', slug: FRIJOLES, servings: 4 },
+    { day: 6, kind: 'dish', slug: PARIPPU, servings: 3 },
+  ];
+  const card = {
+    kind: 'plan', weekStart: monday, items, hard: false,
+    checks: [{ slug: 'japan/osaka/onigiri', status: 'unverified' }, { slug: FRIJOLES, status: 'ok' }, { slug: PARIPPU, status: 'ok' }],
+    unknown: [], dropped: [], offer: null, summary: 'Wednesday: Onigiri; Friday: Frijoles de Olla; Sunday: Parippu Curry.', added: items, basis: '00000000',
+    readback: [{ trigger: 'plan.readback', vars: { summary: 'Wednesday: Onigiri; Friday: Frijoles de Olla; Sunday: Parippu Curry' } }],
+  };
+  await page.route((u) => u.pathname === '/api/mentor/turn', (r) => r.fulfill(json(200, {
+    conversationId: 'c1', route: 'ai', notice: null, toolTurn: true, actions: [],
+    parts: [
+      line('plan.readback', card.readback[0].vars), line('plan.unverified_dish', { dish: 'Onigiri' }), line('plan.fewer_than_asked', { count: '2' }),
+      { kind: 'go', target: { to: 'market' }, line: { trigger: 'nav.offer', vars: { place: 'the market list' } } },
+    ],
+    cards: [{ proposalId: 'P1', expiresAt: inHalfAnHour(), card }],
+  })));
+}
+/** Fix round 1 (I2): a partial move: the plan lands, the run's ticks can't follow (`week.move_partial`). */
+async function partialMoveApi(page: Page): Promise<void> {
+  await loopApi(page);
+  await page.route((u) => u.pathname === `/api/plans/${monday}`, (r) => r.fulfill(json(200, { plan: { ...(r.request().postDataJSON() as { plan: object }).plan, id: 'row' }, checks: [] })));
+  await page.route((u) => u.pathname === '/api/market-runs', (r) => r.fulfill(json(500, { error: { code: 'internal', message: 'x' } })));
+}
+const MOVE_RUN_SEED: Partial<PlayerState> = {
+  ...WEEK_SEED,
+  localWeek: {
+    plans: WEEK_SEED.localWeek!.plans,
+    runs: [{ id: 'local-run', weekStart: monday, doneAt: null, pantryIds: {}, items: [{ key: 'shallot', name: 'shallots', ingredientId: 'shallot', stall: 'wen', forDishes: [PARIPPU], ticked: true }] }],
+  },
+};
+/** A plan with tempering gone Rusty (C27's refresher): the slot offers `one_more.refresh`. */
+const REFRESH_SEED: Partial<PlayerState> = { ...RUSTY_SEED, ...PAN_READY, localWeek: { plans: [{ weekStart: monday, items: [], hard: false, slot: 'unanswered' }], runs: [] } };
+
 export const LOOP_SCREENS: ScreenCase[] = [
   // The quest runner: each step kind and the adapted panels (Step 9).
   {
@@ -375,8 +448,72 @@ export const LOOP_SCREENS: ScreenCase[] = [
     open: (p) => p.locator('.rescue').waitFor(), primary: (p) => p.locator('.rescue').getByRole('button', { name: 'Cook the frame' }),
   },
   {
-    label: 'plan (signed in): the move-this-week card', loop: true, path: '/#/plan', seed: WEEK_SEED, beforeGoto: loopApi,
+    label: 'plan (signed in): the move-this-week card', loop: true, countdown: true, path: '/#/plan', seed: WEEK_SEED, beforeGoto: loopApi,
     open: (p) => p.locator('.week-move-offer').waitFor(), primary: (p) => p.locator('.week-move-offer').getByRole('button', { name: 'Move it' }),
+  },
+
+  // Fix round 1 (I1): the Pan panel's Form 7-W plan card, from the server (⛔ and ❓ rows) and from the script.
+  {
+    label: 'mentor panel (signed in): a plan card with a ⛔ and a ❓ dish', loop: true, countdown: true, mentor: true, path: '/', seed: PAN_READY, beforeGoto: planCardApi,
+    open: async (p) => {
+      await say(p, 'plan my week', 1);
+      await p.locator('#pan-panel .pan-card[data-kind="plan"] .plan-item[data-status="blocked"]').waitFor();
+      await p.locator('#pan-panel .pan-card[data-kind="plan"] .plan-item[data-status="unverified"]').waitFor();
+    },
+    primary: (p) => p.locator('#pan-panel .pan-card[data-kind="plan"]').getByRole('button', { name: 'Plan it ✔' }),
+  },
+  {
+    label: 'mentor panel (signed out): the scripted plan card', loop: true, countdown: true, mentor: true, path: '/', seed: PAN_READY,
+    open: async (p) => {
+      await p.locator('#pan-button').click();
+      await p.locator('#pan-text').fill('plan my week: parippu on Sunday, onigiri on Wednesday');
+      await p.keyboard.press('Enter');
+      await p.locator('#pan-panel .pan-card[data-kind="plan"] .plan-item').first().waitFor();
+    },
+    primary: (p) => p.locator('#pan-panel .pan-card[data-kind="plan"]').getByRole('button', { name: 'Plan it ✔' }),
+  },
+  {
+    label: 'mentor panel (signed out): a scripted plan card naming a ⛔ dish', loop: true, countdown: true, mentor: true, path: '/', seed: { ...PAN_READY, localRules: [coconutSevere] },
+    open: async (p) => {
+      await p.locator('#pan-button').click();
+      await p.locator('#pan-text').fill('plan my week: parippu on Sunday, onigiri on Wednesday');
+      await p.keyboard.press('Enter');
+      await p.locator('#pan-panel .pan-card[data-kind="plan"]').waitFor();
+    },
+    primary: (p) => p.locator('#pan-panel').getByRole('button', { name: 'Send', exact: true }),
+  },
+  // Fix round 1 (I2): the states after Save, the shop done, a refresher slot and a partial move.
+  {
+    label: 'plan: saved', loop: true, countdown: true, path: '/#/plan', seed: WEEK_SEED,
+    open: async (p) => { await p.locator('.plan-save').click(); await p.waitForFunction(() => (document.getElementById('plan-status')?.textContent ?? '').trim().length > 0); },
+    primary: (p) => p.locator('.plan-save'),
+  },
+  {
+    label: 'market list: the shop done', loop: true, countdown: true, path: '/#/market', seed: WEEK_SEED,
+    open: async (p) => {
+      const box = p.locator('.market-tick').first();
+      await box.waitFor();
+      const key = await box.getAttribute('data-key');
+      await box.click();
+      await p.locator(`.market-tick[data-key="${key}"]:checked`).waitFor();
+      await button(p, "That's the shop done").click();
+      await p.locator('.market-done').waitFor({ state: 'detached' });
+      await p.waitForFunction(() => [...document.querySelectorAll('.week-note')].some((e) => (e.textContent ?? '').trim().length > 0));
+    },
+    primary: (p) => p.getByRole('link', { name: "This week's plan" }),
+  },
+  {
+    label: 'plan: the weekly slot as a refresher (Rusty tempering)', loop: true, countdown: true, path: '/#/plan', seed: REFRESH_SEED,
+    open: (p) => p.locator('.plan-slot').waitFor(), primary: (p) => p.locator('.plan-slot').getByRole('button', { name: 'Not this week' }),
+  },
+  {
+    label: 'plan (signed in): a partial move', loop: true, countdown: true, path: '/#/plan', seed: MOVE_RUN_SEED, beforeGoto: partialMoveApi,
+    open: async (p) => {
+      const offer = p.locator('.week-move-offer');
+      await offer.getByRole('button', { name: 'Move it' }).click();
+      await p.waitForFunction(() => (document.querySelector('.week-move-offer [role="status"]')?.textContent ?? '').trim().length > 0);
+    },
+    primary: (p) => p.locator('.week-move-offer').getByRole('button', { name: 'Move it' }),
   },
 
   // The kitchen's apprentice card and the guest offer (Step 9).

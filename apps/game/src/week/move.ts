@@ -2,7 +2,7 @@ import { blockedDishLine, dishName, type LineRef, type Plan, type PlanItem } fro
 import { graph } from '../content';
 import type { ApiClient } from '../api/client';
 import type { LocalRun, PlayerState, PlayerStore } from '../state/store';
-import { h } from '../ui/dom';
+import { contentText, h } from '../ui/dom';
 import { blockedLinesFor, blockedSlugs } from './blocked';
 import { addDays, canonRecipes, devicePlan, retainedWeek, rulesOf } from './context';
 import { writtenLine } from './plan-view';
@@ -166,6 +166,10 @@ export function moveOffer(opts: {
     h('h2', { id: 'week-move-title', tabindex: -1 }, OFFER), h('p', null, OFFER_NOTE), h('div', { class: 'button-row' }, yes, no), note);
   let busy = false;
   let done = false;
+  /** The Pan's written lines go in as written content (Step 12 fix round 1), the screen's own words beside them. */
+  const showNote = (said: string, chrome: string | null) => {
+    note.replaceChildren(...(said ? [contentText('span', said)] : []), ...(said && chrome ? [' '] : []), ...(chrome ? [chrome] : []));
+  };
   const run = async () => {
     if (busy) return;
     busy = true;
@@ -176,9 +180,9 @@ export function moveOffer(opts: {
       if ((r.kind === 'moved' && r.lines.length === 0) || r.kind === 'nothing') { box.remove(); opts.onMoved(); return; }
       if (r.kind === 'consent') { opts.onConsent(() => { void run(); }); return; }
       // Moved, with a dish the account's rules refuse kept on the device: say which, then "Done" redraws.
-      if (r.kind === 'moved') { yes.remove(); no.textContent = 'Done'; done = true; note.textContent = said; return; }
+      if (r.kind === 'moved') { yes.remove(); no.textContent = 'Done'; done = true; showNote(said, null); return; }
       // N2: say what moved and what didn't; never "nothing moved" when the plan did.
-      note.textContent = r.kind === 'partial' ? said : `${said} That didn't go through, so nothing moved. This week is still on this device.`.trim();
+      showNote(said, r.kind === 'partial' ? null : "That didn't go through, so nothing moved. This week is still on this device.");
     } finally { busy = false; yes.disabled = false; }
   };
   yes.addEventListener('click', () => { void run(); });

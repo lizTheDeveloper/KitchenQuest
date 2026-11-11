@@ -163,8 +163,15 @@ describe('free forever (§16)', () => {
     for (let i = 0; i < 12 && (await page.getByRole('button', { name: /^Done/ }).count()) === 0; i++) await page.getByRole('button', { name: /Next step/ }).click();
     await page.getByRole('button', { name: /^Done/ }).click();
     await page.getByRole('dialog', { name: /Certificate of a Dish Cooked/ }).getByRole('button', { name: 'Continue' }).click();
-    await page.locator('.bureau-slip[data-kind="cooked_for"]').getByRole('button', { name: 'Skip' }).click();
-    await page.locator('.note-skip').click();
+    // Cooked for Someone and a margin note, for free (fix round 1, Minor 5).
+    const who = page.locator('.bureau-slip[data-kind="cooked_for"]');
+    await who.getByRole('button', { name: 'Just me' }).click();
+    await who.getByRole('button', { name: 'Stamp it ✔' }).click();
+    await page.locator('.note-text').fill('added lime');
+    await page.getByRole('button', { name: 'Read it back' }).click();
+    await page.locator('.bureau-slip[data-kind="margin_note"]').getByRole('button', { name: 'Write it in ✔' }).click();
+    await expect.poll(() => fake.notes.length).toBe(1);
+    expect(fake.requests.some((r) => r.method() === 'POST' && new URL(r.url()).pathname === '/api/shared-table')).toBe(true);
     await page.locator('.bureau-slip[data-kind="meal"]').getByRole('button', { name: 'Log it' }).click();
     await expect.poll(() => fake.meals.length).toBe(1);
     // Progress posts are paced (Step 9: about one request a second), so the log's event can take a moment.

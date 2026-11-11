@@ -191,11 +191,13 @@ function sourceFiles(dir: string): string[] {
   });
 }
 /** A write that changes or removes a grant: drizzle's update/delete on rewardGrants, or SQL on reward_grants. */
-const MUTATES_GRANTS = /\.(update|delete)\(\s*rewardGrants\b|\b(update|delete\s+from|truncate)\s+"?reward_grants\b/i;
+const MUTATES_GRANTS = /\.(update|delete)\(\s*(?:[\w$]+\.)*rewardGrants\b|\b(update|delete\s+from|truncate)\s+(?:only\s+)?(?:"?public"?\.)?"?reward_grants\b/i;
 
 describe('reward_grants is append-only', () => {
   it('the grep bites on a planted update or delete', () => {
-    for (const t of ['await tx.update(rewardGrants).set({ amount: 0 })', 'db.delete( rewardGrants ).where(x)', "sql`UPDATE reward_grants SET amount = 0`", 'sql`delete from "reward_grants"`', 'truncate reward_grants']) {
+    for (const t of ['await tx.update(rewardGrants).set({ amount: 0 })', 'db.delete( rewardGrants ).where(x)', "sql`UPDATE reward_grants SET amount = 0`", 'sql`delete from "reward_grants"`', 'truncate reward_grants',
+      // Fix round 1, Minor 2: through a namespace or a table alias, and with a schema-qualified name.
+      'tx.delete(schema.rewardGrants).where(x)', 'db.update(t.rewardGrants).set({})', 'sql`delete from public.reward_grants`', 'sql`UPDATE ONLY "public"."reward_grants" SET body = 1`']) {
       expect(MUTATES_GRANTS.test(t), t).toBe(true);
     }
     for (const t of ['tx.insert(rewardGrants).values(g)', 'db.select().from(rewardGrants)', '-- reward_grants is append-only']) expect(MUTATES_GRANTS.test(t), t).toBe(false);

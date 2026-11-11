@@ -7,7 +7,7 @@ import { VOICE_ALLOWLIST } from '../src/content/voice-allowlist';
 import type { PlayerState } from '../src/state/store';
 import { offOrigin, openApp, PAN_READY, type OpenedApp } from './helpers';
 import {
-  CHROME_BANNED, CONTENT_BANNED, COUNTDOWN, LOOP_NEVER, LOOP_SCREENS, MENTOR_BANNED, RESCUE_SEED, RUSTY_SEED, SCREENS, WEEK_SEED, allowedLine, bannedPattern,
+  CHROME_BANNED, CONTENT_BANNED, COUNTDOWN, LOOP_NEVER, LOOP_SCREENS, MENTOR_BANNED, LINE_SOURCES, RESCUE_SEED, RUSTY_SEED, SCREENS, WEEK_SEED, allowlistedAt, bannedPattern,
   cookThrough, loopApi, openScreen,
 } from './screens';
 
@@ -49,8 +49,8 @@ async function rendered(page: Page): Promise<{ chrome: string[]; content: string
 const hits = (texts: string[], re: RegExp) => texts.filter((t) => re.test(t)).map((t) => `${re.exec(t)![0]} in “${t}”`);
 
 /** Step 4's exact-line allowlist (Ruling 24, C29), for written content only. */
-const ALLOWED = VOICE_ALLOWLIST.map((a) => allowedLine(a.line));
-const allowlisted = (whole: string) => ALLOWED.some((re) => re.test(whole));
+/** Excused by the allowlist (by location and text): the element is an allowlisted line, and its filled-in words pass. */
+const allowlisted = (whole: string, re: RegExp) => { const filled = allowlistedAt(whole); return filled !== null && filled.every((w) => !re.test(w)); };
 /**
  * The M5 never-rules scan: every LOOP_NEVER pattern (and COUNTDOWN where asked) over UI chrome, with no allowlist,
  * and over written content, where only an element whose whole text is an allowlisted line passes.
@@ -60,9 +60,20 @@ function loopHits(r: { chrome: string[]; content: string[]; wholes: string[] }, 
   const out: string[] = [];
   for (const [name, re] of patterns) {
     for (const h of hits(r.chrome, re)) out.push(`${name} (chrome): ${h}`);
-    r.content.forEach((t, i) => { if (re.test(t) && !allowlisted(r.wholes[i])) out.push(`${name} (content): ${re.exec(t)![0]} in “${t}”`); });
+    r.content.forEach((t, i) => { if (re.test(t) && !allowlisted(r.wholes[i], re)) out.push(`${name} (content): ${re.exec(t)![0]} in “${t}”`); });
   }
   return out;
+}
+
+/** Written lines (with {vars} as X) against LOOP_NEVER, and COUNTDOWN when asked; excused only at an allowlisted location. */
+const ALLOWED_AT = new Set(VOICE_ALLOWLIST.map((a) => `${a.file}\0${a.where}\0${a.line}`));
+function lintLines(lines: readonly { file: string; where: string; text: string }[], countdown: boolean): string[] {
+  const patterns = countdown ? { countdown: COUNTDOWN } : LOOP_NEVER;
+  return lines.flatMap((l) => {
+    if (ALLOWED_AT.has(`${l.file}\0${l.where}\0${l.text}`)) return [];
+    const text = l.text.replace(/\{\w+\}/g, 'X');
+    return Object.entries(patterns).filter(([, re]) => re.test(text)).map(([name]) => `${l.where}: ${name}: ${l.text}`);
+  });
 }
 
 describe('never rules, every screen', () => {
@@ -181,6 +192,38 @@ describe('never rules, the weekly loop (M5 Step 12)', () => {
     expect(loopHits({ chrome: [], content: [footnote], wholes: [`${footnote} And another word.`] }, false).length, 'an edited line fails').toBeGreaterThan(0);
     const templated = VOICE_ALLOWLIST.find((a) => a.line.includes('{term}'))!.line;
     expect(loopHits({ chrome: [], content: [templated.replace('{term}', 'sesame')], wholes: [templated.replace('{term}', 'sesame')] }, false)).toEqual([]);
+    // Fix round 1, Minor 1: an entry excuses its own words only; what the Pan filled into a {var} is still scanned.
+    const filledBad = templated.replace('{term}', 'the unlocked recipe');
+    expect(loopHits({ chrome: [], content: [filledBad], wholes: [filledBad] }, false).length, 'a banned word in a filled-in var').toBeGreaterThan(0);
+    // A {var} is one phrase: it can't swallow a sentence, so a longer text is not the allowlisted line.
+    expect(allowlistedAt(templated.replace('{term}', 'sesame. Recipe unlocked'))).toBeNull();
+  });
+
+  it('the in-page allowlist is keyed by location: every entry resolves to its own file and path, and only there', () => {
+    for (const a of VOICE_ALLOWLIST) {
+      const at = LINE_SOURCES.filter((src) => src.file === a.file && src.where === a.where);
+      expect(at.map((src) => src.text), `${a.file} ${a.where}`).toEqual([a.line]);
+      expect(allowlistedAt(a.line.replace(/\{\w+\}/g, 'sesame')), a.line).not.toBeNull();
+    }
+    // A line that is not allowlisted at its own location gets no pass, whatever it says.
+    const plain = LINE_SOURCES.find((src) => src.where === 'triggers.plan.saved[0]')!;
+    expect(allowlistedAt(plain.text)).toBeNull();
+    // Each countdown entry is needed: COUNTDOWN catches it, and pasted under another trigger it would fail.
+    for (const a of VOICE_ALLOWLIST.filter((x) => x.scan === 'countdown')) {
+      expect(COUNTDOWN.test(a.line.replace(/\{\w+\}/g, 'X')), a.line).toBe(true);
+      expect(lintLines([{ file: a.file, where: `${a.where}.elsewhere`, text: a.line }], true), a.line).not.toEqual([]);
+      expect(lintLines([{ file: a.file, where: a.where, text: a.line }], true), a.line).toEqual([]);
+    }
+  });
+
+  it('every weekly-loop Pan line, in every variant, keeps the never rules (and no countdown on plan, market and rescue lines)', () => {
+    const loopIds = /^(plan|week|rescue|one_more|market|frame|cooked_for|cook|margin|quest|book|nav|certificate|log)\./;
+    const countdownIds = /^(plan|week|rescue|one_more|market|frame)\./;
+    const pan = LINE_SOURCES.filter((src) => src.file === 'content/dialogue/pan.yaml');
+    const loop = pan.filter((src) => loopIds.test(src.where.slice('triggers.'.length)));
+    expect(loop.length).toBeGreaterThan(120);
+    const ofKind = (re: RegExp) => loop.filter((src) => re.test(src.where.slice('triggers.'.length)));
+    expect([...lintLines(loop, false), ...lintLines(ofKind(countdownIds), true)]).toEqual([]);
   });
 
   it('every M5 screen is swept in standard and in Family Table mode (C31)', () => {

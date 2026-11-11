@@ -115,6 +115,8 @@ const PATTERNS: { name: string; re: RegExp; kinds?: string }[] = [
 
 /** Keyed by location (file and path) and exact text (fix round 1, M7): the same words anywhere else are scanned. */
 const allowed = new Set(VOICE_ALLOWLIST.map((a) => `${a.file}\0${a.where}\0${a.line}`));
+/** This scan's own entries; the 'countdown' ones are proven needed by Step 12's never-rules sweep (e2e). */
+const VOICE_ENTRIES = VOICE_ALLOWLIST.filter((a) => (a.scan ?? 'voice') === 'voice');
 
 /** Every pattern hit in `items` outside the allowlist, as "file where: pattern: text". */
 function scan(items: readonly Scanned[]): string[] {
@@ -152,12 +154,12 @@ describe('voice scan of the client content (C29)', () => {
     for (const a of VOICE_ALLOWLIST) {
       expect(shipped.some((s) => s.file === a.file && s.where === a.where && s.text === a.line), `${a.file} ${a.where}: ${a.line}`).toBe(true);
       expect(a.reason.length, a.line).toBeGreaterThan(20);
-      expect(scan([line(a.line, [], `${a.file}#unlisted`)]), a.line).not.toEqual([]);
     }
+    for (const a of VOICE_ENTRIES) expect(scan([line(a.line, [], `${a.file}#unlisted`)]), a.line).not.toEqual([]);
   });
 
   it('an allowlisted line edited by one word fails again', () => {
-    for (const a of VOICE_ALLOWLIST) {
+    for (const a of VOICE_ENTRIES) {
       // One word added after the first: the caught word stays, the exact line is gone.
       const words = a.line.split(' ');
       const edited = [words[0], 'indeed', ...words.slice(1)].join(' ');
@@ -167,7 +169,7 @@ describe('voice scan of the client content (C29)', () => {
   });
 
   it('an allowlisted line pasted somewhere else in the same file fails: the entry pins one place (fix round 1, M7)', () => {
-    for (const a of VOICE_ALLOWLIST) {
+    for (const a of VOICE_ENTRIES) {
       expect(scan([line(a.line, [], a.file, a.where)]), a.line).toEqual([]);
       expect(scan([line(a.line, [], a.file, `${a.where}.elsewhere`)]), a.line).not.toEqual([]);
     }
