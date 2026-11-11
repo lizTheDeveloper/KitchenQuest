@@ -2,6 +2,7 @@
 // packages/core/test/quests-content.test.ts pins every value here to the shipped file, so a content edit fails it
 // until the copy here is updated to match.
 import type { TechniqueNode } from '../toolkit/techniques';
+import type { Frame } from '../week/frames';
 import type { Quest } from './types';
 
 export const SHIPPED_QUESTS: Quest[] = [
@@ -364,3 +365,150 @@ export const SHIPPED_RECIPE_SOURCES: Record<string, string> = {
   "japan/osaka/onigiri": "---\ntitle: Onigiri (rice balls)\ncountry: Japan\nregion: Osaka (Kansai)\ncredit: Drafted by Kitchen Quest editors from the home cooking and onigiri shops of Osaka — awaiting community review\ncook: haruka\ndifficulty: 2\nskills: [grains, heat-control, shaping]\nservings: 6\nlicense: CC-BY-SA-4.0\nstatus: draft\n---\n-- Draft until reviewed by a cook from this tradition. 360 ml rice = 2 rice-cooker cups (about 300 g).\nMeasure @Japanese short-grain rice{360%ml} into a #bowl{}. Add cold water, swirl gently with your fingertips and pour it off quickly. Repeat three or four times, until the water is only slightly cloudy. Drain in a #sieve{}.\n\nPut the rice in a #heavy pot with a lid{} with @water{400%ml} and let it soak. ~{30%minutes}\n\nBring to a boil over medium-high heat with the lid on, then turn the heat to its lowest and cook without lifting the lid. ~{13%minutes}\n\nTurn off the heat and let the rice steam, lid still on. ~{10%minutes}\n\nMeanwhile, make okaka: mix @katsuobushi{5%g} (bonito flakes) with @soy sauce{1%tsp}. Pit @umeboshi{2} and tear them into pieces.\n\nFluff the rice with a wet #rice paddle{} and let it cool until you can hold it comfortably — warm, not hot. ~{5%minutes}\n\nWet your hands and rub a pinch of salt over your palms (@salt{1%tsp} in all). Take about 100 g of rice, press a dent in the middle, add a little filling, and close the rice over it.\n\nCup one hand into a V and turn the ball into a triangle with three or four gentle presses — firm enough to hold, never squashed. Wrap each in a strip of nori (@nori sheets{2}, cut in thirds) just before eating.\n",
   "mexico/oaxaca/frijoles-de-olla": "---\ntitle: Frijoles de Olla\ncountry: Mexico\nregion: Oaxaca\ncredit: Drafted by Kitchen Quest editors from the home cooking of Oaxaca — awaiting community review\ncook: marisol\ndifficulty: 1\nskills: [legumes, heat-control, patience]\nservings: 6\nlicense: CC-BY-SA-4.0\nstatus: draft\n---\n-- Draft until reviewed by a cook from this tradition. No soaking needed; older beans just take longer.\nSpread @dried black beans{500%g} on a #tray{} and pick out any small stones or shrivelled beans. Rinse them well in a #colander{}.\n\nPut the beans in an #olla{} or other heavy pot with @water{2.5%l}, @white onion{1/2}, @garlic cloves{2} and @lard{1%tbsp}. Bring to a boil. ~{10%minutes}\n\nTurn the heat down to the gentlest simmer and partly cover. Cook until the beans are soft and creamy inside. Check now and then: if the water dips below the beans, add hot water from a #kettle{}, never cold. ~{2%hours}\n\nTaste a few beans. When they are completely tender, add @salt{2%tsp} and @epazote sprigs{2}. Simmer so the broth takes the flavour. ~{20%minutes}\n\nFish out the onion and the epazote stalks. Taste the broth and adjust the salt. Serve the beans in their broth in a #bowl{}, with warm @corn tortillas{6} on the side.\n"
 };
+
+export const SHIPPED_FRAMES: Frame[] = [
+  {
+    "id": "fried-rice",
+    "title": "Fried rice from the cupboard",
+    "technique": "stir-fry",
+    "status": "draft",
+    "credit": "Drafted by Kitchen Quest editors",
+    "slots": [
+      {
+        "key": "rice",
+        "accepts": [
+          "cooked_rice"
+        ],
+        "optional": false
+      },
+      {
+        "key": "oil",
+        "accepts": [
+          "neutral_oil",
+          "coconut_oil"
+        ],
+        "optional": false
+      },
+      {
+        "key": "veg",
+        "accepts": [
+          "spinach",
+          "onion",
+          "herb"
+        ],
+        "optional": true
+      },
+      {
+        "key": "egg",
+        "accepts": [
+          "egg"
+        ],
+        "optional": true
+      },
+      {
+        "key": "sauce",
+        "accepts": [
+          "soy_sauce",
+          "tamari"
+        ],
+        "optional": true
+      }
+    ],
+    "steps": [
+      "Heat {oil} in a wide pan until it shimmers.",
+      "Add {veg} and toss until it softens.",
+      "Add {rice}, break up the clumps and fry hard until every grain is piping hot.",
+      "Push the rice to one side, scramble {egg} in the space until fully set, then fold it through.",
+      "Season with {sauce}, a little at a time, and taste."
+    ],
+    "rescues": [
+      "cooked_rice",
+      "spinach"
+    ]
+  },
+  {
+    "id": "green-sauce",
+    "title": "Green sauce",
+    "technique": "emulsion",
+    "status": "draft",
+    "credit": "Drafted by Kitchen Quest editors",
+    "slots": [
+      {
+        "key": "herb",
+        "accepts": [
+          "herb"
+        ],
+        "optional": false
+      },
+      {
+        "key": "acid",
+        "accepts": [
+          "lime"
+        ],
+        "optional": false
+      },
+      {
+        "key": "oil",
+        "accepts": [
+          "neutral_oil"
+        ],
+        "optional": false
+      },
+      {
+        "key": "nut",
+        "accepts": [
+          "nut"
+        ],
+        "optional": true
+      }
+    ],
+    "steps": [
+      "Wash {herb}, shake it dry and chop it fine.",
+      "Squeeze in {acid} and stir.",
+      "Beat in {oil} a spoonful at a time, so it thickens instead of splitting.",
+      "Crush {nut} and stir it through for body."
+    ],
+    "rescues": [
+      "herb"
+    ]
+  },
+  {
+    "id": "quick-tomato-sauce",
+    "title": "Quick tomato sauce",
+    "technique": "quick-sauce",
+    "status": "draft",
+    "credit": "Drafted by Kitchen Quest editors",
+    "slots": [
+      {
+        "key": "tomato",
+        "accepts": [
+          "tomato"
+        ],
+        "optional": false
+      },
+      {
+        "key": "oil",
+        "accepts": [
+          "neutral_oil",
+          "coconut_oil"
+        ],
+        "optional": false
+      },
+      {
+        "key": "allium",
+        "accepts": [
+          "allium"
+        ],
+        "optional": true
+      }
+    ],
+    "steps": [
+      "Warm {oil} in a pan over a medium heat.",
+      "Soften {allium} in it, stirring, until it turns translucent.",
+      "Chop {tomato}, add it and cook it down, stirring, until it turns saucy."
+    ],
+    "rescues": [
+      "tomato"
+    ]
+  }
+];

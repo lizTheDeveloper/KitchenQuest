@@ -70,7 +70,7 @@ describe('fillFrame', () => {
     ];
     const f = fillFrame(greenSauce, pantry, ctx());
     expect(f.fills).toEqual({ herb: { name: 'coriander', ingredientId: 'coriander' }, acid: { name: 'lime', ingredientId: 'lime' }, oil: { name: 'sunflower oil', ingredientId: 'neutral_oil' }, nut: null });
-    expect(f.recipe.steps.map((s) => stepPlainText(f.recipe, s))).toEqual(['Chop coriander fine.', 'Squeeze in lime.', 'Beat in sunflower oil slowly.']);
+    expect(f.recipe.steps.map((s) => stepPlainText(f.recipe, s))).toEqual(['Wash coriander, shake it dry and chop it fine.', 'Squeeze in lime and stir.', 'Beat in sunflower oil a spoonful at a time, so it thickens instead of splitting.']);
     expect(f.recipe.meta).toMatchObject({ title: 'Green sauce', skills: ['emulsion'], sacred: false, status: 'draft' });
     // The player's pick wins for its slot.
     expect(fillFrame(greenSauce, pantry, ctx(), { herb: 'parsley' }).fills.herb?.name).toBe('parsley');

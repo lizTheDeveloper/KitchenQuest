@@ -16,11 +16,34 @@
       "name": "peanut",
       "aliases": [
         "groundnut",
-        "monkey nut"
+        "monkey nut",
+        "arachis"
       ],
       "isA": [
         "nut"
       ]
+    },
+    {
+      "id": "peanut_oil",
+      "name": "peanut oil",
+      "aliases": [
+        "groundnut oil",
+        "arachis oil"
+      ],
+      "contains": [
+        "peanut"
+      ],
+      "per100g": {
+        "energy_kcal": 884,
+        "protein_g": 0,
+        "fat_g": 100,
+        "carb_g": 0,
+        "fiber_g": 0,
+        "sugars_g": 0,
+        "sodium_mg": 0
+      },
+      "densityGPerMl": 0.92,
+      "source": "Oil pressed from peanuts (groundnut, arachis), listed so a peanut rule covers it: refined or not, the graph treats it as containing peanut, since a label can't be verified from here. Values as for any vegetable oil (884 kcal and 100 g fat per 100 g); the FDC record to cite is for content review."
     },
     {
       "id": "coconut",
@@ -1740,6 +1763,95 @@
       },
       "fdcId": 169743,
       "source": "FDC 169743 (wheat, KAMUT khorasan, uncooked). A wheat species (Triticum turanicum), so a wheat rule covers it."
+    },
+    {
+      "id": "tomato",
+      "name": "tomato",
+      "aliases": [
+        "fresh tomato",
+        "ripe tomato"
+      ],
+      "per100g": {
+        "energy_kcal": 18,
+        "protein_g": 0.88,
+        "fat_g": 0.2,
+        "carb_g": 3.89,
+        "fiber_g": 1.2,
+        "sugars_g": 2.63,
+        "sodium_mg": 5
+      },
+      "gramsPerUnit": 123,
+      "fdcId": 170457,
+      "source": "FDC 170457 (Tomatoes, red, ripe, raw, year round average); one medium tomato is about 123 g."
+    },
+    {
+      "id": "herb",
+      "name": "fresh herbs",
+      "aliases": [
+        "herb",
+        "fresh herb"
+      ],
+      "source": "A category for fresh leafy herbs (coriander, parsley, mint, basil and the like), listed for Pantry Frames and keep times. No FDC record for the category, so no nutrition values. It carries no isA, contains or unsafeFor edge: no herb in the graph is filed under it yet."
+    },
+    {
+      "id": "spinach",
+      "name": "spinach",
+      "aliases": [
+        "fresh spinach"
+      ],
+      "per100g": {
+        "energy_kcal": 23,
+        "protein_g": 2.86,
+        "fat_g": 0.39,
+        "carb_g": 3.63,
+        "fiber_g": 2.2,
+        "sugars_g": 0.42,
+        "sodium_mg": 79
+      },
+      "fdcId": 168462,
+      "source": "FDC 168462 (Spinach, raw)."
+    },
+    {
+      "id": "lime",
+      "name": "lime",
+      "aliases": [
+        "fresh lime"
+      ],
+      "per100g": {
+        "energy_kcal": 30,
+        "protein_g": 0.7,
+        "fat_g": 0.2,
+        "carb_g": 10.54,
+        "fiber_g": 2.8,
+        "sugars_g": 1.69,
+        "sodium_mg": 2
+      },
+      "gramsPerUnit": 67,
+      "fdcId": 168155,
+      "source": "FDC 168155 (Limes, raw); one lime is about 67 g."
+    },
+    {
+      "id": "cooked_rice",
+      "name": "cooked rice",
+      "aliases": [
+        "leftover rice",
+        "cold rice",
+        "day-old rice"
+      ],
+      "contains": [
+        "rice"
+      ],
+      "per100g": {
+        "energy_kcal": 130,
+        "protein_g": 2.36,
+        "fat_g": 0.19,
+        "carb_g": 28.73,
+        "fiber_g": 0,
+        "sugars_g": 0,
+        "sodium_mg": 0
+      },
+      "fdcId": 168932,
+      "source": "FDC 168932 (Rice, white, short-grain, enriched, cooked). It contains rice (the graph's rice node), so a rule on rice covers leftover rice too; it carries no other edge."
     }
   ]
 }

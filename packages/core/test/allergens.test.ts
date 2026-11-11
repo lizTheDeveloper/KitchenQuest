@@ -35,7 +35,8 @@ const NAMES: Record<string, string[]> = {
   pine_nut: ['pine nut', 'pine nuts', 'pine kernels', 'pignoli', 'pignolia'],
   chestnut: ['chestnut', 'chestnuts', 'sweet chestnut'],
   tree_nut: ['tree nut', 'tree nuts'],
-  peanut: ['peanut', 'peanuts', 'groundnut', 'groundnuts', 'monkey nut', 'monkey nuts'],
+  peanut: ['peanut', 'peanuts', 'groundnut', 'groundnuts', 'monkey nut', 'monkey nuts', 'arachis'],
+  peanut_oil: ['peanut oil', 'groundnut oil', 'arachis oil'],
   // crustaceans
   crustacean: ['crustacean', 'crustaceans', 'crustacean shellfish'],
   prawn: ['prawn', 'prawns', 'shrimp', 'shrimps'],

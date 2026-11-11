@@ -1,0 +1,26 @@
+# Pantry Frame (spec §17, Ruling 13): a technique with slots, filled from the cupboard by core fillFrame. Every filler
+# is checked against the player's rules on its own and the filled dish as a whole. Slots name graph ids only.
+# A draft seed frame for M5, written by the Bureau's editors, not a community; M10's writers may reword it.
+# Licensed CC BY-SA 4.0, like the rest of content/.
+id: fried-rice
+title: "Fried rice from the cupboard"
+technique: stir-fry
+status: draft
+credit: "Drafted by Kitchen Quest editors"
+slots:
+  # REVIEW: food safety. Cooked rice can carry Bacillus cereus spores; leftover rice must be cooled quickly (within
+  # about an hour), kept in the fridge and eaten within a day (UK FSA / NHS guidance). Check against a current source.
+  - { key: rice, accepts: [cooked_rice], optional: false }
+  - { key: oil, accepts: [neutral_oil, coconut_oil], optional: false }
+  - { key: veg, accepts: [spinach, onion, herb], optional: true }
+  - { key: egg, accepts: [egg], optional: true }
+  - { key: sauce, accepts: [soy_sauce, tamari], optional: true }
+steps:
+  - "Heat {oil} in a wide pan until it shimmers."
+  - "Add {veg} and toss until it softens."
+  # REVIEW: food safety. Leftover rice is fried until piping hot all the way through, and is reheated only once.
+  - "Add {rice}, break up the clumps and fry hard until every grain is piping hot."
+  # REVIEW: food safety. Raw egg: scrambled until fully set, with no runny parts, before it is mixed through.
+  - "Push the rice to one side, scramble {egg} in the space until fully set, then fold it through."
+  - "Season with {sauce}, a little at a time, and taste."
+rescues: [cooked_rice, spinach]

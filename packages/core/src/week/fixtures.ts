@@ -1,11 +1,12 @@
-// Test support for week/ and book/ tests only (not exported from the package). The real ingredient graph plus the
-// frame ingredients Step 4 will add (C12) and a few test-only foods, the canon recipes, a handful of small test
-// dishes, and the three seed frames of Ruling 13 in the shape Step 4 will ship them.
+// Test support for week/ and book/ tests only (not exported from the package). The real ingredient graph (with the
+// frame ingredients Step 4 added, C12) plus a few test-only foods, the canon recipes, a handful of small test dishes,
+// and the three seed frames of Ruling 13 as shipped in content/frames (copies pinned in shipped.fixture.ts).
 import ingredients from '../../../../data/ingredients.json';
 import { IngredientGraph } from '../ingredients/graph';
 import type { IngredientNode } from '../ingredients/types';
 import type { ParsedRecipe, RecipeIngredient } from '../recipe/types';
 import { recipes as canon, subs } from '../quests/fixtures';
+import { SHIPPED_FRAMES } from '../quests/shipped.fixture';
 import type { Rule } from '../rules/types';
 import type { Frame } from './frames';
 import type { KeepsMap } from './use-it-up';
@@ -14,15 +15,11 @@ import type { FoodGroups, PlanContext } from './plan';
 
 export { subs };
 
+/** Test-only foods (not in data/ingredients.json). */
 const EXTRA: IngredientNode[] = [
-  { id: 'spinach', name: 'spinach' },
   { id: 'baby_spinach', name: 'baby spinach', isA: ['spinach'] },
-  { id: 'tomato', name: 'tomato' },
-  { id: 'lime', name: 'lime' },
-  { id: 'herb', name: 'fresh herbs', aliases: ['herb'] },
   { id: 'coriander', name: 'coriander', aliases: ['cilantro'], isA: ['herb'] },
   { id: 'parsley', name: 'parsley', isA: ['herb'] },
-  { id: 'cooked_rice', name: 'cooked rice', aliases: ['leftover rice', 'cold rice'], isA: ['rice'] },
   { id: 'chickpea', name: 'chickpea' },
   { id: 'lentil', name: 'lentil' },
   { id: 'peanut_butter', name: 'peanut butter', contains: ['peanut'] },
@@ -100,51 +97,5 @@ export function planCtx(over: Partial<PlanContext> = {}): PlanContext {
   return { weekStart: MONDAY, recipes: canon, rules: [], graph, subs, existing: [], foodGroups: FOOD_GROUPS, ...over };
 }
 
-/** The three seed frames of Ruling 13 (draft, credited to the Bureau's editors). */
-export const FRAMES: Frame[] = [
-  {
-    id: 'fried-rice',
-    title: 'Fried rice from what you have',
-    technique: 'stir-fry',
-    status: 'draft',
-    credit: "The Bureau's editors",
-    slots: [
-      { key: 'rice', accepts: ['cooked_rice', 'rice'], optional: false },
-      { key: 'oil', accepts: ['neutral_oil', 'coconut_oil'], optional: false },
-      { key: 'veg', accepts: ['spinach', 'onion', 'herb'], optional: true },
-      { key: 'egg', accepts: ['egg'], optional: true },
-      { key: 'sauce', accepts: ['soy_sauce', 'tamari'], optional: true },
-    ],
-    steps: ['Heat {oil} until it shimmers.', 'Add {veg} and toss.', 'Add {rice}, break it up and fry hard.', 'Push aside and scramble {egg}.', 'Season with {sauce}.'],
-    rescues: ['cooked_rice', 'spinach'],
-  },
-  {
-    id: 'green-sauce',
-    title: 'Green sauce',
-    technique: 'emulsion',
-    status: 'draft',
-    credit: "The Bureau's editors",
-    slots: [
-      { key: 'herb', accepts: ['herb'], optional: false },
-      { key: 'acid', accepts: ['lime'], optional: false },
-      { key: 'oil', accepts: ['neutral_oil'], optional: false },
-      { key: 'nut', accepts: ['nut'], optional: true },
-    ],
-    steps: ['Chop {herb} fine.', 'Squeeze in {acid}.', 'Beat in {oil} slowly.', 'Crush {nut} and stir it through.'],
-    rescues: ['herb'],
-  },
-  {
-    id: 'quick-tomato-sauce',
-    title: 'Quick tomato sauce',
-    technique: 'quick-sauce',
-    status: 'draft',
-    credit: "The Bureau's editors",
-    slots: [
-      { key: 'tomato', accepts: ['tomato'], optional: false },
-      { key: 'oil', accepts: ['neutral_oil', 'coconut_oil'], optional: false },
-      { key: 'allium', accepts: ['allium'], optional: true },
-    ],
-    steps: ['Warm {oil}.', 'Soften {allium}.', 'Add {tomato} and cook down.'],
-    rescues: ['tomato'],
-  },
-];
+/** The three seed frames of Ruling 13 (draft, credited to the Bureau's editors), as shipped in content/frames. */
+export const FRAMES: Frame[] = SHIPPED_FRAMES;

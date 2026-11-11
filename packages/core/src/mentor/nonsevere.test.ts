@@ -525,7 +525,8 @@ const PROBES_ROUND_5: readonly string[] = [
   "i'd rather not eat peanuts. they kill me",
   "intolerant to mlik",
   "intolerant to peanutz",
-  "intolerant to arachis",
+  // "intolerant to arachis" left this list in M5 Step 4: "arachis" is now a peanut alias (Step 3 N1), so it reads
+  // exactly as "intolerant to peanuts" does (pinned below). The names the graph still can't read stay here.
   "intolerant to cacahuete",
   "intolerant to cacahuète",
   "intolerant to erdnuss",
@@ -689,6 +690,23 @@ describe('fix round 5: the reviewer probes c12, c14, c15', () => {
   test.each([...CONSUMED_ROUND_5])('%s is consumed whole', (raw) => {
     const own = stripPageEvents(raw).text;
     expect(readNonSevere(own, graph)).not.toBeNull();
+  });
+});
+
+describe('M5 Step 4: "arachis" is a peanut alias (Step 3 N1)', () => {
+  test('"intolerant to arachis" reads exactly as "intolerant to peanuts": the same stated intolerance, the same peanut card', () => {
+    expect(graph.resolve('arachis')).toBe('peanut');
+    expect(readSeverities('intolerant to arachis')).toEqual({ items: [['arachis', 'intolerance']], text: readSeverities('intolerant to peanuts').text });
+    expect(readSeverities('intolerant to peanuts').items).toEqual([['peanuts', 'intolerance']]);
+    const card = (term: string) => buildRuleCard({ term, severity: 'intolerance' }, graph, ruleTerms as RuleTerm[]);
+    const a = card('arachis');
+    const p = card('peanuts');
+    expect(a.ok && p.ok).toBe(true);
+    if (a.ok && p.ok) expect(a.card.rule.target).toEqual(p.card.rule.target);
+  });
+
+  test('a severe word still wins: "intolerant to arachis, epipen" is nothing non-severe', () => {
+    expect(isLow('intolerant to arachis, epipen')).toBe(false);
   });
 });
 

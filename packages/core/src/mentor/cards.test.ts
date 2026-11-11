@@ -178,7 +178,7 @@ describe('other cards', () => {
     const p = buildPantryCard({ add: ['chickpeas', 'Spinach', 'dragon fruit', 'y'.repeat(100)], remove: ['milk'] }, graph);
     expect(p.add).toEqual([
       { name: 'chickpeas', ingredientId: null },
-      { name: 'Spinach', ingredientId: null },
+      { name: 'Spinach', ingredientId: 'spinach' }, // in the graph since M5 Step 4 (C12)
       { name: 'dragon fruit', ingredientId: null },
       { name: 'y'.repeat(80), ingredientId: null },
     ]);
