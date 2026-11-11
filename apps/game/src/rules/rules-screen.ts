@@ -11,7 +11,7 @@ import { CLOSED_TEXT, closeCard, renderCard, renderTrail, setCardNote } from '..
 import { renderConsentCard } from '../mentor/consent-card';
 import { DEVICE_ONLY_FOOTNOTE, NOT_SAVED_TEXT } from '../mentor/panel';
 import type { LocalCardView, PanItem } from '../mentor/reply';
-import type { WriteOutcome } from '../mentor/writer';
+import { SEVERITY_RANK, type WriteOutcome } from '../mentor/writer';
 import { ACCOUNT_NOT_LOADED_MESSAGE, activeRules, RULES_INVALID_MESSAGE, RULES_UNREADABLE_MESSAGE } from '../recipes/rules';
 import type { AppContext, Screen } from '../shell/app';
 import { reducedMotion } from '../shell/motion';
@@ -26,8 +26,6 @@ import { mountRuleForm } from './rule-form';
  * written to this device. A rule is added only through the same Form 27-B card the Pan shows, stamped by a tap
  * (`writer.confirm(…, 'tap')`); one is removed only through Form 27-B/VOID's own Remove tap.
  */
-/** Strictest first: a device rule ranked higher than the account's version is offered for raising. */
-const RANK: Readonly<Record<Rule['severity'], number>> = { anaphylactic: 3, allergy: 2, intolerance: 1, preference: 0 };
 
 const sameIds = (a: readonly string[], b: readonly string[]) => {
   const x = [...a].sort();
@@ -274,7 +272,7 @@ export function rulesScreen(): Screen {
         // Fix round 1 (I3): the same rule, stricter on this device than on the account, is offered for raising.
         const weaker = s.localRules.flatMap((l) => {
           const a = matchOf(l);
-          return a !== undefined && RANK[l.severity] > RANK[a.severity] ? [{ device: l, account: a }] : [];
+          return a !== undefined && SEVERITY_RANK[l.severity] > SEVERITY_RANK[a.severity] ? [{ device: l, account: a }] : [];
         });
         if (missing.length === 0 && weaker.length === 0) { copyBox.replaceChildren(); return; }
         const row = (rule: Rule, meta: string, label: string, onCard: (slot: HTMLElement, card: RuleCard) => void) => {

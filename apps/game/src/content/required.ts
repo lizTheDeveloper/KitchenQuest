@@ -59,6 +59,8 @@ export const REQUIRED_PAN_TRIGGERS: readonly string[] = [
   'schedule.bad_time',
   'undo',
   'undo.nothing',
+  'undo.rule_changed',
+  'rule.raise_not_stricter',
   'didnt_understand',
   'rate_limited',
   // Form 1-A intake, every step by id (no globs).

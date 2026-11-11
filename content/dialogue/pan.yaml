@@ -1471,3 +1471,15 @@ triggers:
     when: "Your rules: an Undo on a raised rule that could not be sent (offline)."
     lines:
       - "That didn't go through, so nothing was changed. Try Undo again in a moment."
+
+  undo.rule_changed:
+    ai: never
+    when: The player taps Undo on a raised rule, but the rule has been changed since (another tab or device). Nothing is changed, so an undo never lowers a rule.
+    lines:
+      - "That rule has changed since you raised it, so I've left it as it is now. Check it on Your rules."
+
+  rule.raise_not_stricter:
+    ai: never
+    when: The player taps a raise whose severity is not stricter than what the account now holds (it changed elsewhere). Nothing is written.
+    lines:
+      - "Your account already has that rule at the same level or stricter, so nothing was changed. Check Your rules."

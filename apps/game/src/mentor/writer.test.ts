@@ -432,77 +432,144 @@ describe('fix round 1', () => {
 });
 
 describe('raiseRule (the rules screen raising an account rule)', () => {
-  const coconutId = (): string[] => {
+  const ids = (): string[] => {
     const card = ruleCard('coconut', 'allergy');
     if (card.kind !== 'rule') throw new Error();
     return card.rule.target.ids;
   };
-  const weaker = (): Rule => ({ id: 's1', target: { kind: 'category', ids: coconutId() }, type: 'avoid', severity: 'intolerance' });
-  const raisedCard = (): ProposalCard => ruleCard('coconut', 'allergy');
+  const at = (severity: Rule['severity']): Rule => ({ id: 's1', target: { kind: 'category', ids: ids() }, type: 'avoid', severity });
+  const raisedCard = (term: 'allergy' | 'intolerance' = 'allergy'): ProposalCard => ruleCard('coconut', term);
+  const me = () => ok({ id: 'u1', email: 'cook@example.com', entitlements: [] });
+
+  /** A fake account whose server copy is `box.rule`; PUT overwrites it, as the API does. */
+  function account(initial: Rule, storeRule: Rule = initial) {
+    const box = { rule: initial, puts: [] as unknown[][] };
+    const env = setup({
+      updateRule: (...a) => { box.puts.push(a); box.rule = { ...(a[1] as object), id: 's1' } as Rule; return ok({ rule: box.rule }); },
+      me, listRules: () => ok({ rules: [box.rule] }),
+    }, { ...signedIn, accountRules: [storeRule] });
+    return { ...env, box };
+  }
 
   test('a tap raises the rule with confirmed true, and returns a trail entry with an undo window', async () => {
     const card = raisedCard();
     if (card.kind !== 'rule') throw new Error();
-    const stronger: Rule = { ...weaker(), ...card.rule, id: 's1' };
-    const { store, calls, writer } = setup({
-      updateRule: () => ok({ rule: stronger }),
-      me: () => ok({ id: 'u1', email: 'cook@example.com', entitlements: [] }), listRules: () => ok({ rules: [stronger] }),
-    }, { ...signedIn, accountRules: [weaker()] });
-    const out = await writer.raiseRule(local(card), weaker());
-    expect(calls[0]).toMatchObject({ name: 'updateRule', args: ['s1', card.rule, true] });
+    const { store, writer, box } = account(at('intolerance'));
+    const out = await writer.raiseRule(local(card), at('intolerance'));
+    expect(box.puts[0]).toEqual(['s1', card.rule, true]);
     expect(out.ok).toBe(true);
     if (!out.ok) return;
     expect(out.trail).toMatchObject({ origin: 'local', kind: 'rule' });
     expect(out.trail.id).not.toBe('s1');
     expect(Date.parse(out.trail.undoUntil) - T0.getTime()).toBe(UNDO_WINDOW_MS);
-    expect(store.get().accountRules?.[0].severity).toBe(stronger.severity);
+    expect(store.get().accountRules?.[0].severity).toBe(card.rule.severity);
   });
 
   test('undo puts the account rule back as it was; a second undo has nothing to do', async () => {
-    const card = raisedCard();
-    if (card.kind !== 'rule') throw new Error();
-    const stronger: Rule = { ...weaker(), ...card.rule, id: 's1' };
-    const puts: unknown[][] = [];
-    let server: Rule = weaker();
-    const { store, writer } = setup({
-      updateRule: (...a) => { puts.push(a); server = puts.length === 1 ? stronger : weaker(); return ok({ rule: server }); },
-      me: () => ok({ id: 'u1', email: 'cook@example.com', entitlements: [] }), listRules: () => ok({ rules: [server] }),
-    }, { ...signedIn, accountRules: [weaker()] });
-    const out = await writer.raiseRule(local(card), weaker());
+    const { store, writer, box } = account(at('intolerance'));
+    const out = await writer.raiseRule(local(raisedCard()), at('intolerance'));
     if (!out.ok) throw new Error('raise failed');
     const undone = await writer.undo(out.trail);
     expect(undone.status).toBe('undone');
     expect(said(undone.items)).toEqual(['undo']);
-    const { id: _id, ...before } = weaker();
-    expect(puts[1]).toEqual(['s1', before, true]);
-    expect(store.get().accountRules).toEqual([weaker()]);
+    const { id: _id, ...before } = at('intolerance');
+    expect(box.puts[1]).toEqual(['s1', before, true]);
+    expect(store.get().accountRules).toEqual([at('intolerance')]);
     expect((await writer.undo(out.trail)).status).toBe('nothing');
   });
 
-  test('an offline raise writes nothing and keeps the card open; an offline undo keeps the entry', async () => {
-    const card = raisedCard();
-    const { writer } = setup({ updateRule: () => fail(0, 'network') }, { ...signedIn, accountRules: [weaker()] });
-    const view = local(card);
-    expect(await writer.raiseRule(view, weaker())).toMatchObject({ ok: false, reason: 'network' });
-    // still open: not closed by the failure
-    expect(await writer.raiseRule(view, weaker())).toMatchObject({ ok: false, reason: 'network' });
+  test('I2: a raise is refused when the server already holds the same or a stricter level (the screen was stale)', async () => {
+    // The screen still shows intolerance; the account was raised to allergy elsewhere.
+    const { writer, box, store } = account(at('allergy'), at('intolerance'));
+    const out = await writer.raiseRule(local(raisedCard('intolerance')), at('intolerance'));
+    expect(out).toMatchObject({ ok: false, reason: 'closed' });
+    expect(said(out.items)).toEqual(['rule.raise_not_stricter']);
+    expect(box.puts).toEqual([]);
+    expect(box.rule.severity).toBe('allergy');
+    expect(store.get().accountRules?.[0].severity).toBe('allergy');
+    // Equal level too.
+    const same = account(at('allergy'));
+    expect((await same.writer.raiseRule(local(raisedCard('allergy')), at('allergy'))).ok).toBe(false);
+    expect(same.box.puts).toEqual([]);
+  });
+
+  test('I1 scenario A: the screen\'s rule is stale, so `before` comes from the server and undo restores what was really there', async () => {
+    // Server holds allergy (raised on the phone); this tab still thinks intolerance, and raises to anaphylactic.
+    const strongest = ruleCard('coconut', null);
+    const { writer, box } = account(at('allergy'), at('intolerance'));
+    const out = await writer.raiseRule(local(strongest), at('intolerance'));
+    if (!out.ok) throw new Error('raise failed');
+    expect(box.rule.severity).toBe('anaphylactic');
+    expect((await writer.undo(out.trail)).status).toBe('undone');
+    expect(box.rule.severity).toBe('allergy'); // not intolerance: never weaker than before the raise
+  });
+
+  test('I1 scenario B: a rule changed after the raise is left alone by undo', async () => {
+    const { writer, box, store } = account(at('intolerance'));
+    const out = await writer.raiseRule(local(raisedCard('allergy')), at('intolerance'));
+    if (!out.ok) throw new Error('raise failed');
+    box.rule = at('anaphylactic'); // another device raises it further inside the undo window
+    const undone = await writer.undo(out.trail);
+    expect(undone.status).toBe('nothing');
+    expect(said(undone.items)).toEqual(['undo.rule_changed']);
+    expect(box.puts).toHaveLength(1); // no second PUT
+    expect(box.rule.severity).toBe('anaphylactic');
+    expect(store.get().accountRules?.[0].severity).not.toBe('intolerance');
+  });
+
+  test('undo of a rule removed meanwhile changes nothing', async () => {
+    const { writer, box } = account(at('intolerance'));
+    const out = await writer.raiseRule(local(raisedCard()), at('intolerance'));
+    if (!out.ok) throw new Error('raise failed');
+    const gone = { ...box, rule: { ...box.rule, id: 'other' } };
+    box.rule = gone.rule; // the account no longer lists s1
+    const undone = await writer.undo(out.trail);
+    expect(undone.status).toBe('nothing');
+    expect(box.puts).toHaveLength(1);
+  });
+
+  test('a failed undo (offline, or the write fails) keeps the entry, and a later undo works', async () => {
+    let mode: 'up' | 'list_down' | 'put_down' = 'up';
+    let server = at('intolerance');
+    const { writer } = setup({
+      listRules: () => (mode === 'list_down' ? fail(0, 'network') : ok({ rules: [server] })),
+      updateRule: (...a) => {
+        if (mode === 'put_down') return fail(500, 'boom');
+        server = { ...(a[1] as object), id: 's1' } as Rule;
+        return ok({ rule: server });
+      },
+      me,
+    }, { ...signedIn, accountRules: [at('intolerance')] });
+    const out = await writer.raiseRule(local(raisedCard()), at('intolerance'));
+    if (!out.ok) throw new Error('raise failed');
+    mode = 'list_down';
+    expect((await writer.undo(out.trail)).status).toBe('failed');
+    mode = 'put_down';
+    expect((await writer.undo(out.trail)).status).toBe('failed');
+    expect(server.severity).toBe('allergy');
+    mode = 'up';
+    expect((await writer.undo(out.trail)).status).toBe('undone');
+    expect(server.severity).toBe('intolerance');
+  });
+
+  test('an offline raise writes nothing and keeps the card open', async () => {
+    const { writer } = setup({ listRules: () => fail(0, 'network') }, { ...signedIn, accountRules: [at('intolerance')] });
+    const view = local(raisedCard());
+    expect(await writer.raiseRule(view, at('intolerance'))).toMatchObject({ ok: false, reason: 'network' });
+    expect(await writer.raiseRule(view, at('intolerance'))).toMatchObject({ ok: false, reason: 'network' });
   });
 
   test('a raise is written once: a second call for the same card is closed', async () => {
-    const card = raisedCard();
-    if (card.kind !== 'rule') throw new Error();
-    const stronger: Rule = { ...weaker(), ...card.rule, id: 's1' };
-    const { writer, calls } = setup({ updateRule: () => ok({ rule: stronger }), me: () => ok({ id: 'u1', email: 'cook@example.com', entitlements: [] }), listRules: () => ok({ rules: [stronger] }) }, { ...signedIn, accountRules: [weaker()] });
-    const view = local(card);
-    await writer.raiseRule(view, weaker());
-    expect(await writer.raiseRule(view, weaker())).toMatchObject({ ok: false, reason: 'closed' });
-    expect(calls.filter((c) => c.name === 'updateRule')).toHaveLength(1);
+    const { writer, box } = account(at('intolerance'));
+    const view = local(raisedCard());
+    await writer.raiseRule(view, at('intolerance'));
+    expect(await writer.raiseRule(view, at('intolerance'))).toMatchObject({ ok: false, reason: 'closed' });
+    expect(box.puts).toHaveLength(1);
   });
 
   test('Family Table: nothing is raised', async () => {
     const { writer, calls } = setup({}, { ...signedIn, settings: { ...createStore(null).get().settings, familyTable: true } });
-    expect(await writer.raiseRule(local(raisedCard()), weaker())).toMatchObject({ ok: false, reason: 'invalid' });
+    expect(await writer.raiseRule(local(raisedCard()), at('intolerance'))).toMatchObject({ ok: false, reason: 'invalid' });
     expect(calls).toEqual([]);
   });
 });
-
