@@ -268,3 +268,27 @@ describe('fix round 5 (5c): a correction cue means no plan or profile card for t
     expect(correctionAsks('put parippu on monday', DISHES)).toEqual([]);
   });
 });
+
+describe('adjudication B: the narrowed correction cues', () => {
+  test('"actually" is a cue only when a time, weekday or dish follows within 3 words', () => {
+    expect(correctionCue('I actually like parippu', DISHES)).toBe(false);
+    expect(correctionCue('i actually love mondays at the market', DISHES)).toBe(false);
+    for (const t of ['dinner at 6, actually 7', 'put parippu on monday, actually tuesday', 'actually make it 7pm', 'actually, the onigiri', 'put it on monday, actually on friday'])
+      expect(correctionCue(t, DISHES), t).toBe(true);
+    // The other cues are unchanged.
+    for (const t of ['dinner at 6pm, no wait, 7pm', 'onigiri instead', 'i mean tuesday']) expect(correctionCue(t, DISHES), t).toBe(true);
+  });
+
+  test('"dinner at 6, actually 7" asks which time; "I actually like parippu" asks nothing', () => {
+    expect(correctionAsks('remind me to eat dinner at 6, actually 7', DISHES)).toEqual([{ trigger: 'profile.which_time', vars: { meal: 'dinner' } }]);
+    expect(correctionAsks('I actually like parippu', DISHES)).toEqual([]);
+    expect(planWordsIn('I actually like parippu. put parippu on monday', DISHES)).toBeNull(); // "i actually like parippu" is no closed clause
+  });
+
+  test('"no wait" is no restriction (N7 exception, like money and time)', () => {
+    expect(isHealthText('remind me to eat dinner at 6pm, no wait, 7pm', graph, terms)).toBe(true); // the meal time, M4's gate
+    expect(codeCardHealth('put parippu on monday, no wait', graph, terms)).toBe(false);
+    expect(isHealthText('put parippu on monday, no wait', graph, terms)).toBe(false);
+    expect(isHealthText('put parippu on monday, no wheat', graph, terms)).toBe(true);
+  });
+});

@@ -892,3 +892,28 @@ describe('fix round 5', () => {
     expect(t.cards).toEqual([]);
   });
 });
+
+describe('adjudication B', () => {
+  test('"dinner at 6, actually 7" → no profile card from the model, the which-time ask; "I actually like parippu" drops nothing', async () => {
+    await makeApp(
+      fakeAi([
+        toolCall('propose_profile', { meal_windows: [{ name: 'dinner', start: '19:00' }] }),
+        planArgs({ days: [{ weekday: 'Monday', dish: 'parippu' }] }),
+      ]),
+    );
+    const r = await (await player(['health_data', 'ai_health'])).turn('remind me to eat dinner at 6, actually 7');
+    expect(r.cards).toEqual([]);
+    expect(r.parts).toContainEqual({ kind: 'line', line: { trigger: 'profile.which_time', vars: { meal: 'dinner' } } });
+    const s = await (await player(['health_data', 'ai_health'])).turn('I actually like parippu, put it on monday');
+    expect(s.cards.map((c) => c.card.kind)).toEqual(['plan']);
+    expect(triggers(s)).not.toContain('plan.which_day');
+  });
+
+  test('"no wait" is no health word: a health_data-only player\'s corrected plan reaches the model and gets the ask', async () => {
+    await makeApp(fakeAi([reply('')]));
+    const r = await (await player(['health_data'])).turn('put parippu on monday, no wait, tuesday');
+    expect(r.notice ?? null).not.toBe('needs_ai_health');
+    expect(r.cards).toEqual([]);
+    expect(r.parts).toContainEqual({ kind: 'line', line: { trigger: 'plan.which_day', vars: { dish: 'parippu' } } });
+  });
+});

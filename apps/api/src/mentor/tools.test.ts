@@ -4,6 +4,7 @@
 // integer and cut off the rest. The fix: every profile field is optional, with one plain type, and is left out
 // when the player didn't mention it.
 import { describe, expect, test } from 'vitest';
+import { normaliseToolArguments } from '../ai/openrouter.js';
 import { MENTOR_TOOLS, parseToolCall } from './tools.js';
 
 const profile = MENTOR_TOOLS.find((t) => t.name === 'propose_profile')!;
@@ -31,5 +32,28 @@ describe('propose_profile schema (5b)', () => {
 
   test('the leaked markup is still a malformed call, never used', () => {
     expect(parseToolCall({ id: 'c', name: 'propose_profile', arguments: JSON.stringify({ market_days: null, meals_per_week: 'null\n</parameter>\n<' }) })).toBeNull();
+  });
+});
+
+describe('adjudication A: normalised provider artifacts, then the unchanged strict validation', () => {
+  const params = MENTOR_TOOLS.find((t) => t.name === 'propose_profile')!.parameters;
+  const parse = (args: object) => parseToolCall({ id: 'c', name: 'propose_profile', arguments: normaliseToolArguments(JSON.stringify(args), params) });
+
+  test('the eval5 payload parses to the dinner window', () => {
+    expect(parse({ meal_windows: '[{"name": "dinner", "start": "18:30"}]\n</parameter' })?.args.meal_windows).toEqual([{ name: 'dinner', start: '18:30' }]);
+  });
+
+  test('the eval4 payload is still rejected (an integer is never decoded)', () => {
+    expect(parse({ market_days: null, meals_per_week: 'null\n</parameter>\n<' })).toBeNull();
+  });
+
+  test('a decoded value that fails the schema is rejected', () => {
+    expect(parse({ meal_windows: '[{"name": "dinner", "start": "half six"}]\n</parameter>' })).toBeNull();
+    expect(parse({ meal_windows: '{"name": "dinner"}\n</parameter>' })).toBeNull();
+    expect(parse({ meal_windows: '[{"name": "dinner", "start": "18:30", "note": "x"}]</parameter>' })).toBeNull();
+  });
+
+  test('markup in the middle stays and is rejected', () => {
+    expect(parse({ meal_windows: '[{"name": "dinner", "start": "18:30"}]</parameter> and more' })).toBeNull();
   });
 });
