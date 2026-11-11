@@ -1,4 +1,4 @@
-import type { SharedTally, Tier } from '@kitchenquest/core/engine';
+import type { ProgressView, SharedTally, Tier } from '@kitchenquest/core/engine';
 import type { ApiClient } from '../api/client';
 import type { BureauForm } from '../content/types';
 import { content, graph } from '../content';
@@ -51,40 +51,68 @@ function redact(notes: readonly BookNote[], email: string | null): BookNote[] {
 
 export function bookScreen(client: ApiClient): Screen {
   let alive = true;
+  const stops: (() => void)[] = [];
   return {
     title: SCREEN_TITLES.book,
     async mount(el, route, ctx) {
       if (route.name !== 'book') throw new RouteNotFound();
-      if (route.slug !== null && (!Object.hasOwn(content.recipes, route.slug) || content.recipes[route.slug].meta.sacred)) throw new RouteNotFound();
-      const state = ctx.store.get();
-      const email = state.account?.email ?? null;
+      const slug = route.slug;
+      if (slug !== null && (!Object.hasOwn(content.recipes, slug) || content.recipes[slug].meta.sacred)) throw new RouteNotFound();
       el.replaceChildren(h('h1', { tabindex: -1 }, SCREEN_TITLES.book), h('p', { role: 'status' }, 'Opening the book…'));
-      const [svc, data] = await Promise.all([progressService(), loadBook(client, email !== null)]);
+      const svc = await progressService();
       if (!alive) return;
-      // The book is the signed-in session's: a sign-out or another account meanwhile shows nothing of it.
-      if ((ctx.store.get().account?.email ?? null) !== email) { ctx.navigate({ name: 'book', slug: route.slug }); return; }
-      const pages = bookPages(svc.view(), content, notesBySlug(data.notes), data.tally);
-      const status = h('p', { class: 'book-status', role: 'status', 'data-content': '' });
-      const download = h('button', { type: 'button', class: 'btn btn-secondary book-download' }, DOWNLOAD);
-      download.addEventListener('click', () => {
-        const file = bookFile(bookPages(svc.view(), content, notesBySlug(redact(data.notes, email)), data.tally),
-          new Map(pages.dishes.map((p) => [p.slug, content.recipes[p.slug].source])));
-        saveFile(el.ownerDocument, file);
-        status.textContent = getMentorServices().dialogue.say('book.exported').text;
-      });
-      const tail = [h('div', { class: 'button-row' }, download), status];
-      const unread = data.notesLoaded ? null : h('p', { class: 'book-notes-unread' }, NOTES_UNREAD);
-      if (route.slug === null) { el.replaceChildren(...bookIndex(pages), ...(unread ? [unread] : []), ...tail); return; }
-      const page = pages.dishes.find((p) => p.slug === route.slug);
-      if (page === undefined) throw new RouteNotFound(); // never a page for a dish not taught (or sacred, C39)
-      el.ownerDocument.title = `${page.dish} · Kitchen Quest`;
-      const notesSlot = h('div', { class: 'book-notes-slot' });
-      el.replaceChildren(...dishPage(page), ...(unread ? [unread] : [notesSlot]), ...tail,
-        h('p', null, h('a', { href: routeHref({ name: 'book', slug: null }) }, 'Back to the Recipe Book')));
-      if (data.notesLoaded) mountNotes(notesSlot, page, ctx, client);
+      let shownFor: string | null | undefined;
+      let data: BookData | null = null;
+      let viewKey = '';
+      /** What the book shows from progress: a redraw happens only when one of these changes. */
+      const keyOf = () => { const v = svc.view(); return JSON.stringify([v.cookedOn, v.framesCookedOn, v.questsDone, v.toolkit]); };
+      const draw = async () => {
+        const email = ctx.store.get().account?.email ?? null;
+        if (email !== shownFor) {
+          shownFor = email;
+          data = null;
+          const loaded = await loadBook(client, email !== null);
+          // The book is the signed-in session's: a sign-out or another account meanwhile shows nothing of it.
+          if (!alive || (ctx.store.get().account?.email ?? null) !== email) return;
+          data = loaded;
+        }
+        if (data === null) return;
+        viewKey = keyOf();
+        render(el, slug, ctx, svc.view(), data, email, client);
+      };
+      await draw();
+      stops.push(svc.subscribe(() => {
+        const email = ctx.store.get().account?.email ?? null;
+        if (alive && (email !== shownFor || keyOf() !== viewKey)) void draw();
+      }));
     },
-    unmount() { alive = false; },
+    unmount() { alive = false; for (const stop of stops.splice(0)) stop(); },
   };
+}
+
+const NOT_IN_BOOK = "This dish isn't in your book yet. A page is written once a cook has taught it to you.";
+
+function render(el: HTMLElement, slug: string | null, ctx: AppContext, view: ProgressView, data: BookData, email: string | null, client: ApiClient): void {
+  const pages = bookPages(view, content, notesBySlug(data.notes), data.tally);
+  const status = h('p', { class: 'book-status', role: 'status', 'data-content': '' });
+  const download = h('button', { type: 'button', class: 'btn btn-secondary book-download' }, DOWNLOAD);
+  download.addEventListener('click', () => {
+    const file = bookFile(bookPages(view, content, notesBySlug(redact(data.notes, email)), data.tally),
+      new Map(pages.dishes.map((p) => [p.slug, content.recipes[p.slug].source])));
+    saveFile(el.ownerDocument, file);
+    status.textContent = getMentorServices().dialogue.say('book.exported').text;
+  });
+  const tail = [h('div', { class: 'button-row' }, download), status];
+  const unread = data.notesLoaded ? null : h('p', { class: 'book-notes-unread' }, NOTES_UNREAD);
+  const back = h('p', null, h('a', { href: routeHref({ name: 'book', slug: null }) }, 'Back to the Recipe Book'));
+  if (slug === null) { el.replaceChildren(...bookIndex(pages), ...(unread ? [unread] : []), ...tail); return; }
+  const page = pages.dishes.find((p) => p.slug === slug);
+  // Never a page for a dish not taught (or sacred, C39), and never its name.
+  if (page === undefined) { el.replaceChildren(h('h1', { tabindex: -1 }, SCREEN_TITLES.book), h('p', null, NOT_IN_BOOK), back); return; }
+  el.ownerDocument.title = `${page.dish} · Kitchen Quest`;
+  const notesSlot = h('div', { class: 'book-notes-slot' });
+  el.replaceChildren(...dishPage(page), ...(unread ? [unread] : [notesSlot]), ...tail, back);
+  if (data.notesLoaded) mountNotes(notesSlot, page, ctx, client);
 }
 
 function bookIndex(pages: ReturnType<typeof bookPages>): HTMLElement[] {

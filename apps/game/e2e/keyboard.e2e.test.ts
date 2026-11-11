@@ -129,6 +129,10 @@ describe('keyboard only, kitchen to certificate and back', () => {
     await cert.waitFor();
     await tabTo(page, 'Continue', named('Continue'));
     await press(page, 'Enter');
+    // Step 11: signed out, the after-cook questions say what needs an account; focus lands on the way out.
+    await page.locator('.after-cook').waitFor();
+    await tabTo(page, 'Back to the kitchen', named('Back to the kitchen'));
+    await press(page, 'Enter');
     await page.waitForFunction(() => location.hash === '#/kitchen');
     await page.locator('#view h1', { hasText: 'Your kitchen' }).waitFor();
 

@@ -173,6 +173,8 @@ describe('cook mode', () => {
     expect(lines('cook.done').some((l) => l.includes('{dish}'))).toBe(true);
     expect(phaser).toEqual([]);
     await dialog.getByRole('button', { name: 'Continue' }).click();
+    // Step 11: the after-cook questions; signed out they ask nothing, and one tap leaves.
+    await page.getByRole('button', { name: 'Back to the kitchen' }).click();
     await page.waitForFunction(() => location.hash === '#/kitchen');
     // The kitchen asks for Phaser (blocked here) and carries on without it.
     await page.locator('#view img.kitchen-backdrop-img').waitFor();
