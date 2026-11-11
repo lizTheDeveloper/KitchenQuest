@@ -1,8 +1,9 @@
 // M4 Step 12: the free-forever promise (§16, never rule 1, pre-flight C6, C30). A player with no
 // entitlements, at the daily AI cap, without ai_health, with the global AI budget spent or the AI
 // off, keeps every safety and logging feature, and the mentor never answers with 402 or 403.
+import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import type { TurnResponse } from '@kitchenquest/core';
+import type { MarketRunView, Plan, ProgressEvent, ProgressView, RewardGrant, TurnResponse } from '@kitchenquest/core';
 import type { FastifyInstance, InjectOptions } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { AiProvider } from '../src/ai/provider.js';
@@ -129,6 +130,78 @@ async function everyFreeFeature(cookie: string) {
 const deleteAccount = async (cookie: string) =>
   expect((await call(cookie, { method: 'DELETE', url: '/me', payload: { confirm: 'delete my account' } })).statusCode).toBe(204);
 
+// ---- M5 Step 12: the weekly loop, with no AI ----
+const PARIPPU = 'india/kerala/parippu';
+const ONIGIRI = 'japan/osaka/onigiri';
+/** TODAY (a Tuesday) is in the plan week that starts Monday 2026-11-09 (no market day set). */
+const WEEK = '2026-11-09';
+
+/**
+ * Everything the weekly loop keeps free, with no AI and no entitlement: plan the week (PUT /plans), open, tick and
+ * finish the market run, cook (progress events), log the meal, write a margin note, record Cooked for Someone, read
+ * the book's data, and export. `ids` fixes the events' client ids, so two players can send identical events.
+ */
+async function everyLoopFeature(cookie: string, ids: string[] = Array.from({ length: 12 }, () => randomUUID())) {
+  const consents = (await call(cookie, { method: 'GET', url: '/me/consents' })).json<{ consents: { purpose: string; current: boolean }[] }>();
+  if (!consents.consents.some((c) => c.purpose === 'health_data' && c.current)) expect((await grant(cookie, 'health_data')).statusCode).toBe(201);
+  const plan: Plan = {
+    weekStart: WEEK, hard: false, slot: 'declined',
+    items: [{ day: 6, kind: 'dish', slug: PARIPPU, servings: 3 }, { day: 2, kind: 'dish', slug: ONIGIRI, servings: 2 }],
+  };
+  const saved = await call(cookie, { method: 'PUT', url: `/plans/${WEEK}`, payload: { plan, confirmed: true, today: TODAY } });
+  expect(saved.statusCode, saved.body).toBe(200);
+  const current = await call(cookie, { method: 'GET', url: `/plans/current?today=${TODAY}` });
+  expect(current.statusCode).toBe(200);
+  const got = current.json<{ plan: Plan; checks: { status: string }[] }>();
+  expect(got.checks.every((c) => c.status === 'ok')).toBe(true);
+
+  const opened = await call(cookie, { method: 'POST', url: '/market-runs', payload: { weekStart: WEEK, today: TODAY } });
+  expect(opened.statusCode, opened.body).toBe(200);
+  const run = opened.json<MarketRunView>();
+  expect(run.items.length).toBeGreaterThan(0);
+  const ticked = await call(cookie, { method: 'POST', url: `/market-runs/${run.id}/ticks`, payload: { key: run.items[0].key, ticked: true, today: TODAY } });
+  expect(ticked.statusCode, ticked.body).toBe(200);
+  const done = await call(cookie, { method: 'POST', url: `/market-runs/${run.id}/finish`, payload: { confirmed: true, today: TODAY } });
+  expect(done.statusCode, done.body).toBe(200);
+  expect(done.json<MarketRunView>().doneAt).not.toBeNull();
+
+  const meal = await call(cookie, { method: 'POST', url: '/meals', payload: { meal: { eatenOn: TODAY, slot: 'dinner', item: { kind: 'dish', slug: ONIGIRI, servings: 1 } }, confirmed: true } });
+  expect(meal.statusCode, meal.body).toBe(201);
+  const mealLogId = meal.json<{ meal: { id: string } }>().meal.id;
+  const events: ProgressEvent[] = [
+    ...Array.from({ length: 6 }, (_, i): ProgressEvent => ({ id: ids[i], kind: 'quest_step', at: TODAY, quest: 'leela-tempering', step: i + 1 })),
+    { id: ids[6], kind: 'quest_done', at: TODAY, quest: 'leela-tempering' },
+    { id: ids[7], kind: 'market_run', at: TODAY, weekStart: WEEK },
+    { id: ids[8], kind: 'lesson', at: TODAY, recipe: ONIGIRI },
+    { id: ids[9], kind: 'cooked', at: TODAY, recipe: ONIGIRI, planned: true },
+    { id: ids[10], kind: 'meal_logged', at: TODAY, minute: 1140, mealLogId },
+  ];
+  const posted = await call(cookie, { method: 'POST', url: '/progress/events', payload: { events } });
+  expect(posted.statusCode, posted.body).toBe(200);
+  const result = posted.json<{ accepted: { clientId: string; grants: RewardGrant[] }[]; rejected: unknown[] }>();
+  expect(result.rejected).toEqual([]);
+
+  const note = await call(cookie, { method: 'POST', url: '/notes', payload: { note: { recipe: ONIGIRI, ops: [{ op: 'add', name: 'lime' }], text: 'a squeeze of lime', at: TODAY }, confirmed: true, today: TODAY } });
+  expect(note.statusCode, note.body).toBe(201);
+  const shared = await call(cookie, { method: 'POST', url: '/shared-table', payload: { entry: { cookedOn: TODAY, recipe: ONIGIRI, frame: null, cookedFor: { count: 'just_me', who: null } }, confirmed: true, today: TODAY } });
+  expect(shared.statusCode, shared.body).toBe(201);
+
+  // The book's data: progress, notes, the Shared Table tally.
+  const view = (await call(cookie, { method: 'GET', url: '/progress' })).json<{ view: ProgressView }>().view;
+  expect(view.cookedOn[ONIGIRI]).toEqual([TODAY]);
+  const notes = await call(cookie, { method: 'GET', url: '/notes' });
+  expect(notes.json<{ notes: { text: string | null }[] }>().notes.map((n) => n.text)).toEqual(['a squeeze of lime']);
+  expect((await call(cookie, { method: 'GET', url: '/shared-table/tally' })).statusCode).toBe(200);
+
+  const exported = await call(cookie, { method: 'GET', url: '/me/export' });
+  expect(exported.statusCode).toBe(200);
+  expect(exported.body).toContain('a squeeze of lime');
+  expect(exported.body).toContain(ONIGIRI);
+  // Grants without their client-chosen ids, so two players' identical events compare equal.
+  const grants = result.accepted.flatMap((a) => a.grants.map((g) => ({ ...g, id: g.id.replace(a.clientId, 'e'), eventId: 'e' })));
+  return { plan: got.plan, view, grants };
+}
+
 describe('free forever (§16)', () => {
   it('AI off and the global budget spent: every free feature works; the mentor is scripted (ai_off / needs_ai_health), never 402 or 403', async () => {
     await makeApp(null);
@@ -168,14 +241,60 @@ describe('free forever (§16)', () => {
     expect(ai.requests).toHaveLength(1);
   });
 
+  // ---- M5 Step 12: the weekly loop is free forever (§16, never rules 3 and 7, Ruling 27, C26). ----
+
+  it('M5: at the cap, "plan my week" is a scripted turn with no sells text (Ruling 27: plan intent is not moved ahead of the allowance)', async () => {
+    const ai = fakeAi([]);
+    await makeApp(ai);
+    const p = await cappedFreePlayer();
+    expect((await grant(p.cookie, 'health_data')).statusCode).toBe(201);
+    const capped = await turn(p.cookie, 'plan my week: parippu on Sunday');
+    expect(capped.route).toBe('scripted');
+    expect(JSON.stringify(capped)).not.toMatch(SELLS);
+    expect(ai.requests).toHaveLength(0);
+    // The same player still plans the week through the form path (Form 7-W, PUT /plans): never a paywall.
+    const loop = await everyLoopFeature(p.cookie);
+    expect(loop.plan.items.map((i) => i.slug)).toContain(PARIPPU);
+    await deleteAccount(p.cookie);
+  });
+
+  it('M5: AI off, capped, no entitlements: plan, market run, cook, log, note, Cooked for Someone, the book, export and delete all work', async () => {
+    await makeApp(null);
+    const p = await cappedFreePlayer();
+    // AI off: code alone answers (a code-built plan card, or a scripted line); never the model, never a sale.
+    const off = await turn(p.cookie, 'plan my week: parippu on Sunday');
+    expect(['scripted', 'deterministic']).toContain(off.route);
+    expect(JSON.stringify(off)).not.toMatch(SELLS);
+    const loop = await everyLoopFeature(p.cookie);
+    expect(loop.view.xp).toBeGreaterThan(0);
+    expect(loop.view.stamps).toBeGreaterThan(0);
+    await deleteAccount(p.cookie);
+    expect((await call(p.cookie, { method: 'GET', url: '/progress' })).statusCode).toBe(401);
+  });
+
+  it('M5: a Guild player earns exactly the grants a free, capped player earns for the same loop (never rule 3)', async () => {
+    await makeApp(null);
+    const free = await cappedFreePlayer();
+    const guildCookie = await signIn(app, mailer, `guild${++seq}@example.com`);
+    const guildId = (await call(guildCookie, { method: 'GET', url: '/me' })).json<{ id: string }>().id;
+    await grantEntitlement(db, guildId, 'guild', 'manual', new Date(NOW.getTime() - HOUR));
+    const ids = Array.from({ length: 12 }, () => randomUUID());
+    const a = await everyLoopFeature(free.cookie, ids);
+    const b = await everyLoopFeature(guildCookie, ids);
+    expect(b.grants).toEqual(a.grants);
+    expect(b.view).toEqual(a.view);
+    expect(a.grants.length).toBeGreaterThan(5);
+  });
+
   it('no response body in this file sells (never rule 7), the export\'s processor register aside', () => {
     expect(allBodies.length).toBeGreaterThan(20);
     for (const { url, body } of allBodies) {
       let text = body;
       // The export lists every processor in the register, the planned payment provider ("Guild billing") included:
-      // a legal disclosure (GDPR Art. 15(1)(c)), not an offer. Everything else in the export is scanned.
+      // a legal disclosure (GDPR Art. 15(1)(c)), not an offer. A Guild player's export (M5) also lists their own
+      // entitlement rows, the record of what they hold (Art. 15(1)), not an offer. Everything else is scanned.
       if (url === '/me/export') {
-        const { processors: _processors, ...rest } = JSON.parse(body) as Record<string, unknown>;
+        const { processors: _processors, entitlements: _entitlements, ...rest } = JSON.parse(body) as Record<string, unknown>;
         text = JSON.stringify(rest);
       }
       expect(text, url).not.toMatch(SELLS);
@@ -183,7 +302,7 @@ describe('free forever (§16)', () => {
   });
 
   it('no mentor response in this file sells (never rule 7)', () => {
-    expect(turnBodies.length).toBe(6);
+    expect(turnBodies.length).toBe(8);
     for (const b of turnBodies) expect(b).not.toMatch(SELLS);
   });
 });
