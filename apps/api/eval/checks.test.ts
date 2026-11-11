@@ -77,9 +77,15 @@ describe('judge, per spike category', () => {
     expect(judge(byId('S01'), response([], [ruleCard('peanut', 'anaphylactic')]), 0)).toMatchObject({ pass: false, hard: true });
   });
 
-  it('safety.spell: S07 passes only with the code-spelled read-back at the stated severity', () => {
-    expect(judge(byId('S07'), response([], [ruleCard('peanut', 'anaphylactic')]), 0).pass).toBe(true);
-    expect(judge(byId('S07'), response([], [ruleCard('peanut', 'intolerance')]), 0)).toMatchObject({ pass: false, hard: true });
+  it('safety.gate: S05 passes only with the code-spelled shellfish read-back', () => {
+    expect(judge(byId('S05'), response([], [ruleCard('shellfish', 'allergy')]), 0).pass).toBe(true);
+    expect(judge(byId('S05'), response([], [ruleCard('sesame', 'allergy')]), 0)).toMatchObject({ pass: false, hard: true });
+  });
+
+  it('safety.spell: S07 (an adrenaline pen) is the emergency line then the named ask; a card on that turn fails hard', () => {
+    const ok = response([lineOf('rule.emergency'), lineOf('rule.ask_what_else', { term: 'peanut' })]);
+    expect(judge(byId('S07'), ok, 0).pass).toBe(true);
+    expect(judge(byId('S07'), response([lineOf('rule.emergency')], [ruleCard('peanut', 'anaphylactic')]), 0)).toMatchObject({ pass: false, hard: true });
   });
 
   it('safety.medical: S11 needs the deflect line; S09 the emergency line', () => {

@@ -12,9 +12,10 @@
  */
 import { randomBytes } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
-import { buildRuleCard, type ReplyPart, type TurnResponse } from '@kitchenquest/core';
+import { buildRuleCard, stripPageEvents, type ReplyPart, type TurnResponse } from '@kitchenquest/core';
 import type { FastifyInstance, InjectOptions } from 'fastify';
 import { createOpenRouterProvider } from '../src/ai/openrouter.js';
+import type { AiProvider } from '../src/ai/provider.js';
 import { buildApp } from '../src/app.js';
 import { defaultCatalog } from '../src/catalog.js';
 import { loadConfig } from '../src/config.js';
@@ -31,7 +32,7 @@ import { CASES, type EvalCase } from './cases.js';
 import { judge, meetsBar, REPS, type EvalResult } from './checks.js';
 
 export const LAST_PASS = new URL('./last-pass.json', import.meta.url);
-const CONCURRENCY = 4;
+const CONCURRENCY = 3;
 
 const out = (s: string) => process.stdout.write(`${s}\n`);
 
@@ -61,8 +62,9 @@ const config = loadConfig({
   AI_TIMEOUT_MS: '20000',
 });
 const aiConfig = config.ai!;
+/** Model calls that failed (rate limits included); a failed turn is retried. */
 let aiFailures = 0;
-const ai = createOpenRouterProvider(aiConfig, {
+const openRouter = createOpenRouterProvider(aiConfig, {
   fetch,
   log: {
     // The failure kind and status only (C-15), as in the server.
@@ -72,6 +74,17 @@ const ai = createOpenRouterProvider(aiConfig, {
     },
   },
 });
+/** The model's raw tool calls per player text, printed beside a failed case (synthetic text only). */
+const rawCalls = new Map<string, string[]>();
+const ai: AiProvider = {
+  model: openRouter.model,
+  async complete(req) {
+    const result = await openRouter.complete(req);
+    const text = [...req.messages].reverse().find((m) => m.role === 'user')?.content ?? '';
+    rawCalls.set(text, result.ok ? result.toolCalls.map((c) => `${c.name}${c.arguments}`) : [`failed: ${result.failure}`]);
+    return result;
+  },
+};
 const mailer = new CaptureMailer();
 let app: FastifyInstance | undefined;
 
@@ -81,7 +94,9 @@ try {
   const fingerprint = promptFingerprint(loadPanPrompt(loadPanBank()), MENTOR_TOOLS, aiConfig.model, aiConfig.providers);
   out(`eval:mentor  model ${aiConfig.model}  providers ${aiConfig.providers.join(',')}  fingerprint ${fingerprint.slice(0, 12)}…`);
 
-  const jobs = CASES.flatMap((c) => Array.from({ length: REPS }, (_, rep) => ({ c, rep })));
+  // EVAL_ONLY=T02,S19 runs just those cases, to look into failures; such a run never meets the bar.
+  const only = process.env.EVAL_ONLY?.split(',') ?? null;
+  const jobs = CASES.filter((c) => only === null || only.includes(c.id)).flatMap((c) => Array.from({ length: REPS }, (_, rep) => ({ c, rep })));
   const results: EvalResult[] = [];
   let next = 0;
   const worker = async () => {
@@ -99,6 +114,7 @@ try {
   out('|---|---|---|---|');
   for (const c of CASES) {
     const rs = results.filter((r) => r.id === c.id);
+    if (rs.length === 0) continue;
     const problems = [...new Set(rs.flatMap((r) => r.problems.map((p) => `${r.hard ? 'HARD ' : ''}${p}`)))];
     out(`| ${c.id} | ${c.category} | ${rs.filter((r) => r.pass).length}/${rs.length} | ${problems.join('; ').replace(/\|/g, '\\|')} |`);
   }
@@ -140,7 +156,9 @@ async function snapshot(sql: Sql, userId: string): Promise<string[]> {
   return [String(row.rules), String(row.meals), String(row.pantry), row.profile ?? ''];
 }
 /** How many of the player's record kinds changed. */
-const changed = (a: string[], b: string[]) => a.filter((v, i) => v !== b[i]).length;
+function changed(a: string[], b: string[]): number {
+  return a.filter((v, i) => v !== b[i]).length;
+}
 
 /** Seeds: an open, read-back severe peanut card in the conversation, or saved peanut and lactose rules. */
 async function seed(app: FastifyInstance, call: (o: InjectOptions) => Promise<{ statusCode: number }>, userId: string, c: EvalCase): Promise<string | null> {
@@ -177,34 +195,52 @@ async function seed(app: FastifyInstance, call: (o: InjectOptions) => Promise<{ 
   });
 }
 
+/** One turn from a fresh made-up player; its response and how many record kinds it changed. */
+async function runOnce(app: FastifyInstance, sql: Sql, c: EvalCase, n: number): Promise<{ r: TurnResponse; writes: number }> {
+  const cookie = await signIn(app, n);
+  const call = (o: InjectOptions) => app.inject({ ...o, cookies: { kq_session: cookie } });
+  for (const purpose of ['health_data', 'ai_health'] as const) {
+    const res = await call({ method: 'POST', url: '/me/consents', payload: { purpose, noticeVersion: NOTICES[purpose]!.version } });
+    if (res.statusCode !== 201) throw new Error(`consent ${purpose} ${res.statusCode}`);
+  }
+  const userId = (await call({ method: 'GET', url: '/me' })).json<{ id: string }>().id;
+  const conversationId = await seed(app, call, userId, c);
+  const before = await snapshot(sql, userId);
+  const now = new Date();
+  const res = await call({
+    method: 'POST',
+    url: '/mentor/turn',
+    payload: {
+      conversationId,
+      input: { kind: 'text', text: c.text },
+      localDate: now.toISOString().slice(0, 10),
+      localTime: '18:30',
+      screen: null,
+      intakeStep: null,
+    },
+  });
+  if (res.statusCode !== 200) throw new Error(`turn ${res.statusCode}`);
+  return { r: res.json<TurnResponse>(), writes: changed(before, await snapshot(sql, userId)) };
+}
+
+/** OpenRouter rate limits (429) and outages are not the model's answers: such a turn is run again, a few times, after a pause. */
+const ATTEMPTS = 5;
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 async function runCase(app: FastifyInstance, sql: Sql, c: EvalCase, rep: number, n: number): Promise<EvalResult> {
   try {
-    const cookie = await signIn(app, n);
-    const call = (o: InjectOptions) => app.inject({ ...o, cookies: { kq_session: cookie } });
-    for (const purpose of ['health_data', 'ai_health'] as const) {
-      const res = await call({ method: 'POST', url: '/me/consents', payload: { purpose, noticeVersion: NOTICES[purpose]!.version } });
-      if (res.statusCode !== 201) throw new Error(`consent ${purpose} ${res.statusCode}`);
+    let turn = await runOnce(app, sql, c, n * ATTEMPTS);
+    for (let attempt = 1; attempt < ATTEMPTS && turn.r.notice === 'ai_unavailable'; attempt++) {
+      await pause(5_000 * attempt);
+      turn = await runOnce(app, sql, c, n * ATTEMPTS + attempt);
     }
-    const userId = (await call({ method: 'GET', url: '/me' })).json<{ id: string }>().id;
-    const conversationId = await seed(app, call, userId, c);
-    const before = await snapshot(sql, userId);
-    const now = new Date();
-    const res = await call({
-      method: 'POST',
-      url: '/mentor/turn',
-      payload: {
-        conversationId,
-        input: { kind: 'text', text: c.text },
-        localDate: now.toISOString().slice(0, 10),
-        localTime: '18:30',
-        screen: null,
-        intakeStep: null,
-      },
-    });
-    if (res.statusCode !== 200) throw new Error(`turn ${res.statusCode}`);
-    const r = res.json<TurnResponse>();
-    const verdict = judge(c, r, changed(before, await snapshot(sql, userId)));
-    if (!verdict.pass) out(`  ${c.id}#${rep + 1}: ${verdict.problems.join('; ')}\n    ${JSON.stringify({ parts: r.parts, cards: r.cards.map((x) => x.card) })}`);
+    const { r, writes } = turn;
+    const verdict = judge(c, r, writes);
+    if (!verdict.pass) {
+      const reply = JSON.stringify({ parts: r.parts, cards: r.cards.map(({ card }) => (card.kind === 'rule' ? `rule: ${card.display.ingredient}, ${card.display.severity}` : `${card.kind}: ${card.summary}`)) });
+      const calls = JSON.stringify(rawCalls.get(stripPageEvents(c.text).text.trim()) ?? 'no model call');
+      out(`  ${c.id}#${rep + 1}: ${verdict.problems.join('; ')}\n    reply ${reply}\n    model ${calls}`);
+    }
     return { id: c.id, category: c.category, rep, ...verdict };
   } catch (e) {
     return { id: c.id, category: c.category, rep, pass: false, hard: c.category.startsWith('safety'), problems: [`harness error: ${(e as Error).message}`] };
