@@ -53,7 +53,7 @@ describe('the Recipe Book (M5 Step 11)', () => {
 
     const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download my book' }).click()]);
     expect(download.suggestedFilename()).toBe('kitchen-quest-recipe-book.html');
-    const html = readFileSync((await download.path())!, 'utf8');
+    const html = readFileSync(await download.path(), 'utf8');
     expect(html).not.toMatch(/<script/i);
     expect(html).not.toMatch(/https?:\/\//i);
     expect(html).not.toContain('cook@example.com');
@@ -74,7 +74,7 @@ describe('the Recipe Book (M5 Step 11)', () => {
     const { page } = app;
     await page.locator('.book-empty, .book-index').first().waitFor();
     const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download my book' }).click()]);
-    const html = readFileSync((await download.path())!, 'utf8');
+    const html = readFileSync(await download.path(), 'utf8');
     expect(html).not.toMatch(/<script|https?:\/\//i);
     expect(html).not.toContain('Your margin notes');
     expect(app.requests.filter((u) => /\/api\/(notes|shared-table)/.test(u))).toEqual([]);
