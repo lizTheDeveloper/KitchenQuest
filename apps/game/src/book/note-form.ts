@@ -21,16 +21,16 @@ import { bookSlip, opsText } from './slips';
 
 export interface NoteFormDeps {
   writer: CardWriter;
-  say(trigger: string, vars?: Record<string, string>): string;
-  rules(): RulesState;
+  say: (trigger: string, vars?: Record<string, string>) => string;
+  rules: () => RulesState;
   /** The player's notes so far (any recipe: filtered here by slug, C32). */
-  notes(): Promise<readonly MarginNote[]>;
+  notes: () => Promise<readonly MarginNote[]>;
   /** The 3-C card in `box`, for a 403 `consent_required` on the stamp; true once granted. */
-  askConsent(box: HTMLElement): Promise<boolean>;
+  askConsent: (box: HTMLElement) => Promise<boolean>;
 }
 
-export const NOTE_EMPTY = 'There is nothing in the note yet. Add a change or a few words, or skip it.';
-export const NOTE_FULL = "This dish's margin is full. Delete an older note in the Recipe Book to make room.";
+const NOTE_EMPTY = 'There is nothing in the note yet. Add a change or a few words, or skip it.';
+const NOTE_FULL = "This dish's margin is full. Delete an older note in the Recipe Book to make room.";
 export const NOT_DONE = "That didn't go through, so nothing was kept. Try again in a moment.";
 
 /** "peanut butter contains peanut": the engine's finding in words, for `margin.blocked`. */
@@ -40,7 +40,7 @@ export function findingWords(f: Pick<CardFinding, 'ingredient' | 'path'>): strin
 }
 
 export const saidText = (items: readonly PanItem[]): string[] => items.flatMap((i) => (i.kind === 'said' ? [i.said.text] : []));
-export const noteSummary = (n: Pick<MarginNote, 'ops' | 'text'>): string => [...n.ops.map(opText), ...(n.text === null ? [] : [n.text])].join('; ');
+const noteSummary = (n: Pick<MarginNote, 'ops' | 'text'>): string => [...n.ops.map(opText), ...(n.text === null ? [] : [n.text])].join('; ');
 
 let seq = 0;
 

@@ -96,7 +96,7 @@ export function chipGroup<T extends string | number>(label: string, chips: reado
   return h('div', { class: 'chip-row', role: 'group', 'aria-label': label }, ...buttons);
 }
 
-export const UNDONE_TEXT = 'Undone. Nothing was kept.';
+const UNDONE_TEXT = 'Undone. Nothing was kept.';
 const UNDO_FAILED = "That didn't go through. Try again in a moment.";
 
 /**

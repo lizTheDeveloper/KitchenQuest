@@ -81,7 +81,7 @@ export interface PlanSaveResponse { plan: Plan & { id: string }; checks: PlanIte
 export type MarketRunResponse = MarketRunView;
 
 /** A margin note as the API stores it (Step 7): core's `MarginNote` and the row id. */
-export type StoredNote = MarginNote & { id: string };
+type StoredNote = MarginNote & { id: string };
 /** GET /notes (Step 7, C32): every note the player has; the client filters by recipe. No query, ever. */
 export interface NotesResponse { notes: StoredNote[] }
 /**

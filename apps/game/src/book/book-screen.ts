@@ -1,5 +1,6 @@
 import type { SharedTally, Tier } from '@kitchenquest/core/engine';
 import type { ApiClient } from '../api/client';
+import type { BureauForm } from '../content/types';
 import { content, graph } from '../content';
 import { getMentorServices } from '../mentor';
 import { renderConsentCard } from '../mentor/consent-card';
@@ -33,9 +34,12 @@ interface BookData { notes: BookNote[]; tally: SharedTally; notesLoaded: boolean
 async function loadBook(client: ApiClient, signedIn: boolean): Promise<BookData> {
   if (!signedIn) return { notes: [], tally: NO_TALLY, notesLoaded: true };
   const [n, t] = await Promise.all([client.listNotes(), client.sharedTally()]);
-  const notes = n.ok && Array.isArray(n.data.notes) ? n.data.notes : [];
-  const ok = t.ok && typeof t.data === 'object' && t.data !== null && typeof t.data.byRecipe === 'object' && t.data.byRecipe !== null;
-  return { notes, tally: ok ? t.data : NO_TALLY, notesLoaded: n.ok };
+  // Read defensively: what the server sent is data, never trusted for shape.
+  const rawNotes: unknown = n.ok ? (n.data as { notes?: unknown }).notes : null;
+  const notes = Array.isArray(rawNotes) ? (rawNotes as BookNote[]) : [];
+  const rawTally: unknown = t.ok ? t.data : null;
+  const ok = typeof rawTally === 'object' && rawTally !== null && typeof (rawTally as { byRecipe?: unknown }).byRecipe === 'object' && (rawTally as { byRecipe?: unknown }).byRecipe !== null;
+  return { notes, tally: ok ? (rawTally as SharedTally) : NO_TALLY, notesLoaded: n.ok && Array.isArray(rawNotes) };
 }
 
 /** The account's email never goes into the file, even quoted in a note. */
@@ -122,7 +126,7 @@ function mountNotes(slot: HTMLElement, page: BookPage, ctx: AppContext, client: 
     writer, signedIn: store.get().account !== null, now: ctx.now, today: () => localDate(ctx.now()),
     say: (t, v) => dialogue.say(t, v).text,
     rules: () => activeRules(store.get(), graph),
-    notes: async () => page.notes,
+    notes: () => Promise.resolve(page.notes),
     askConsent: (box) => askConsentIn(box, client),
     cook: (notes) => { cookWithNotes(page.slug, notes); ctx.navigate({ name: 'cook', slug: page.slug }); },
   });
@@ -133,7 +137,7 @@ function askConsentIn(box: HTMLElement, client: ApiClient): Promise<boolean> {
   return new Promise((resolve) => {
     void client.consents().then((r) => {
       const notice = r.ok ? r.data.notices.health_data : undefined;
-      const form = content.bureau.forms.consent_health;
+      const form = content.bureau.forms.consent_health as BureauForm | undefined;
       if (notice === undefined || form === undefined) { resolve(false); return; }
       const card = renderConsentCard('health_data', {
         form, notice,

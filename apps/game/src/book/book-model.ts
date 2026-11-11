@@ -28,7 +28,7 @@ export interface FramePage { id: string; title: string; technique: string; credi
 export const NO_TALLY: SharedTally = { shared: 0, byRecipe: {} };
 
 /** The book's credit line for a cook's dish: the community first, then the cook who taught it. */
-export const communityCredit = (place: string, cook: string): string => `The home cooks of ${place}, as taught by ${cook}`;
+const communityCredit = (place: string, cook: string): string => `The home cooks of ${place}, as taught by ${cook}`;
 
 /**
  * One page per dish the player was taught (its cook's quest done, or the dish cooked at least once), never one for a
@@ -51,7 +51,7 @@ export function bookPages(
     if (cookedOn.length === 0 && !questTaught.has(slug)) continue;
     const cook = Object.hasOwn(content.cooks, meta.cook) ? content.cooks[meta.cook] : null;
     // A taught dish's techniques were at least seen (its lessons); the toolkit says how far the player has taken each.
-    const techniques = meta.skills.map((id) => ({ id, name: techniqueName(id), tier: Object.hasOwn(view.toolkit.techniques, id) ? view.toolkit.techniques[id].tier : 'seen' as Tier }));
+    const techniques = meta.skills.map((id) => ({ id, name: techniqueName(id), tier: Object.hasOwn(view.toolkit.techniques, id) ? view.toolkit.techniques[id].tier : 'seen' }));
     const byRecipe = shared.byRecipe;
     dishes.push({
       slug, dish: meta.title, cook: cook?.name ?? meta.cook,
@@ -63,7 +63,7 @@ export function bookPages(
     });
   }
   dishes.sort((a, b) => {
-    const fa = a.cookedOn[0], fb = b.cookedOn[0];
+    const fa = a.cookedOn.at(0), fb = b.cookedOn.at(0);
     if (fa !== undefined && fb !== undefined && fa !== fb) return fa < fb ? -1 : 1;
     if (fa === undefined && fb !== undefined) return 1;
     if (fb === undefined && fa !== undefined) return -1;

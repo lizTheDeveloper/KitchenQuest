@@ -44,8 +44,8 @@ export interface UndoOutcome { status: 'undone' | 'nothing' | 'full' | 'failed' 
  * A margin note (Form 2-M/MARGIN) is health data (Ruling 9); a Shared Table entry (Form 5-S) holds fixed values only
  * (Ruling 10). Both are account-only. `summary` is the code-built read-back.
  */
-export interface MarginNoteCard { kind: 'margin_note'; note: MarginNote; summary: string }
-export interface CookedForCard { kind: 'cooked_for'; entry: SharedEntry; summary: string }
+interface MarginNoteCard { kind: 'margin_note'; note: MarginNote; summary: string }
+interface CookedForCard { kind: 'cooked_for'; entry: SharedEntry; summary: string }
 export type BookCard = MarginNoteCard | CookedForCard;
 
 /**

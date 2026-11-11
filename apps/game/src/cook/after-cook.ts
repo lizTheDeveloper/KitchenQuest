@@ -35,18 +35,18 @@ export interface AfterCookInput {
 }
 export interface AfterCookDeps {
   writer: CardWriter;
-  record(events: ProgressEvent[]): Promise<unknown>;
-  signedIn(): boolean;
-  familyTable(): boolean;
-  healthConsent(): 'granted' | 'reconsent' | 'missing';
+  record: (events: ProgressEvent[]) => Promise<unknown>;
+  signedIn: () => boolean;
+  familyTable: () => boolean;
+  healthConsent: () => 'granted' | 'reconsent' | 'missing';
   dialogue: Dialogue;
-  now(): Date;
+  now: () => Date;
   /** The player's rules now: a margin note's read-back is checked against them before the stamp. */
-  rules(): RulesState;
+  rules: () => RulesState;
   /** The player's notes on this dish so far (one GET /notes, filtered here by slug, C32), or [] when unknown. */
-  notes(): Promise<MarginNote[]>;
+  notes: () => Promise<MarginNote[]>;
   /** Show the 3-C health consent card in `slot`; true once the player granted it, false on "Not now" or a failure. */
-  askConsent(slot: HTMLElement): Promise<boolean>;
+  askConsent: (slot: HTMLElement) => Promise<boolean>;
 }
 
 const LEAVE = 'Back to the kitchen';

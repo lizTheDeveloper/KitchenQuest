@@ -6,6 +6,7 @@ import { getMentorServices } from '../mentor';
 import { renderConsentCard } from '../mentor/consent-card';
 import { progressService } from '../progress';
 import { activeRules } from '../recipes/rules';
+import type { BureauForm } from '../content/types';
 import type { AppContext } from '../shell/app';
 import { h } from '../ui/dom';
 import { afterCook, type AfterCookInput } from './after-cook';
@@ -50,7 +51,7 @@ export async function afterCookThenKitchen(el: HTMLElement, ctx: AppContext, inp
     askConsent: (box) => new Promise<boolean>((resolve) => {
       void client.consents().then((r) => {
         const notice = r.ok ? r.data.notices.health_data : undefined;
-        const form = content.bureau.forms.consent_health;
+        const form = content.bureau.forms.consent_health as BureauForm | undefined;
         if (notice === undefined || form === undefined) { box.append(h('p', { role: 'status' }, copy('ui.rules.consent_unavailable'))); resolve(false); return; }
         const card = renderConsentCard('health_data', {
           form, notice,

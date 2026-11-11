@@ -18,10 +18,10 @@ import { undoButton } from './slips';
 
 export interface NotesPanelDeps extends NoteFormDeps {
   signedIn: boolean;
-  now(): Date;
-  today(): string;
+  now: () => Date;
+  today: () => string;
   /** Cook this dish with these notes applied (cook mode, by tap). */
-  cook(notes: readonly MarginNote[]): void;
+  cook: (notes: readonly MarginNote[]) => void;
 }
 
 const NONE = 'No margin notes on this dish yet.';
@@ -102,7 +102,7 @@ export function notesPanel(el: HTMLElement, input: { slug: string; recipe: Parse
     const add = h('button', { type: 'button', class: 'btn btn-secondary book-note-new' }, 'Add a note');
     const open = () => {
       addBox.replaceChildren();
-      noteForm(addBox, { slug, recipe, at: deps.today(), skipLabel: 'Cancel' }, { ...deps, notes: async () => notes }, {
+      noteForm(addBox, { slug, recipe, at: deps.today(), skipLabel: 'Cancel' }, { ...deps, notes: () => Promise.resolve(notes) }, {
         skip: () => { addBox.replaceChildren(add); add.focus(); },
         kept: (r) => {
           notes = [...notes, { ...r.note, id: r.id }];

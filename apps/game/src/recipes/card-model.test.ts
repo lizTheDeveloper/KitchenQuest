@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { DISCLAIMER, type Rule } from '@kitchenquest/core/engine';
+import { DISCLAIMER, type NoteOp, type Rule } from '@kitchenquest/core/engine';
 import { content, graph } from '../content';
 import type { ClientContent } from '../content/types';
 import { buildRecipeCard } from './card-model';
@@ -154,7 +154,7 @@ describe('an empty frame slot (M5 Step 3 fix round 1, M4)', () => {
 
 describe('cook with my notes (M5 Step 11)', () => {
   const peanutSevere: Rule = { id: 'p1', target: { kind: 'ingredient', ids: ['peanut'] }, type: 'avoid', severity: 'anaphylactic' };
-  const note = (text: string | null, ops: import('@kitchenquest/core/engine').NoteOp[] = []) => ({ recipe: SLUG, ops, text, at: today });
+  const note = (text: string | null, ops: NoteOp[] = []) => ({ recipe: SLUG, ops, text, at: today });
   const withNotes = (rules: RulesState, notes: ReturnType<typeof note>[], slug = SLUG) =>
     buildRecipeCard({ slug, content, graph, rules, today, showCalories: false, notes });
 
