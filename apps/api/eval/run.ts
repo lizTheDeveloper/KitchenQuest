@@ -12,7 +12,7 @@
  */
 import { randomBytes } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
-import { buildRuleCard, stripPageEvents, type ReplyPart, type TurnResponse } from '@kitchenquest/core';
+import { buildRuleCard, planWeekStart, stripPageEvents, WEEKDAY_NAMES, type PlanCard, type ReplyPart, type TurnResponse } from '@kitchenquest/core';
 import type { FastifyInstance, InjectOptions } from 'fastify';
 import { createOpenRouterProvider } from '../src/ai/openrouter.js';
 import type { AiProvider } from '../src/ai/provider.js';
@@ -24,6 +24,7 @@ import { CaptureMailer } from '../src/mail/mailer.js';
 import { appendMessages, bumpTurn, openConversation } from '../src/mentor/conversations.js';
 import { loadPanBank } from '../src/mentor/lines.js';
 import { loadPanPrompt, promptFingerprint } from '../src/mentor/prompt.js';
+import { PROPOSAL_TTL_MS } from '../src/mentor/constants.js';
 import { createProposal } from '../src/mentor/proposals.js';
 import { MENTOR_TOOLS } from '../src/mentor/tools.js';
 import { RECIPES_DIR, syncCanon } from '../src/recipes/sync.js';
@@ -152,16 +153,69 @@ async function signIn(app: FastifyInstance, n: number): Promise<string> {
   return res.cookies.find((c) => c.name === 'kq_session')!.value;
 }
 
-/** Seeds: an open, read-back severe peanut card in the conversation, or saved peanut and lactose rules. */
-async function seed(app: FastifyInstance, call: (o: InjectOptions) => Promise<{ statusCode: number }>, userId: string, c: EvalCase): Promise<string | null> {
+/** A seeded conversation, and the card a plain yes in it names (the client's `answering`, M4 final I-1). */
+interface Seeded {
+  conversationId: string | null;
+  answering?: string;
+}
+
+/**
+ * M5 Step 8 (C23): a plan card (Monday's onigiri, today's plan week) proposed in the conversation and read back in
+ * the previous Pan turn, whose `expiresAt` has passed: it is proposed on the clock PROPOSAL_TTL_MS and a minute
+ * before now, so by the turn's clock it is past its expiry.
+ */
+async function seedExpiredPlanCard(app: FastifyInstance, userId: string): Promise<Seeded> {
+  const now = new Date();
+  const weekStart = planWeekStart(now.toISOString().slice(0, 10), []);
+  const day = Math.round((Date.parse(`${now.toISOString().slice(0, 10)}T00:00:00Z`) - Date.parse(`${weekStart}T00:00:00Z`)) / 86_400_000);
+  const weekday = WEEKDAY_NAMES[now.getUTCDay()];
+  const summary = `${weekday.charAt(0).toUpperCase()}${weekday.slice(1)}: Onigiri.`;
+  const card: PlanCard = {
+    kind: 'plan',
+    weekStart,
+    items: [{ day, kind: 'dish', slug: 'japan/osaka/onigiri', servings: 6 }],
+    hard: false,
+    checks: [{ slug: 'japan/osaka/onigiri', status: 'ok' }],
+    unknown: [],
+    dropped: [],
+    offer: null,
+    summary,
+    readback: [{ trigger: 'plan.readback', vars: { summary: summary.replace(/\.$/, '') } }],
+  };
+  const proposedAt = new Date(now.getTime() - PROPOSAL_TTL_MS - 60_000);
+  return db.transaction(async (tx) => {
+    const conv = await openConversation(tx, userId, null, proposedAt);
+    const turnSeq = await bumpTurn(tx, conv.id, proposedAt);
+    const proposal = await createProposal(tx, config.keyring, { userId, conversationId: conv.id, turnSeq, card }, proposedAt);
+    const parts: ReplyPart[] = card.readback.map((line) => ({ kind: 'line', line }));
+    await appendMessages(
+      tx,
+      config.keyring,
+      app.mentor.memory,
+      userId,
+      conv.id,
+      [
+        { role: 'player', text: 'Plan my week: onigiri today.' },
+        { role: 'pan', parts, proposalIds: [proposal.proposalId] },
+      ],
+      true,
+      proposedAt,
+    );
+    return { conversationId: conv.id, answering: proposal.proposalId };
+  });
+}
+
+/** Seeds: an open, read-back severe peanut card in the conversation, saved peanut and lactose rules, or an expired plan card. */
+async function seed(app: FastifyInstance, call: (o: InjectOptions) => Promise<{ statusCode: number }>, userId: string, c: EvalCase): Promise<Seeded> {
+  if (c.seed === 'plan_card_expired') return seedExpiredPlanCard(app, userId);
   if (c.seed === 'peanut_saved') {
     for (const [ids, severity] of [[['peanut'], 'anaphylactic'], [['milk'], 'intolerance']] as const) {
       const res = await call({ method: 'POST', url: '/rules', payload: { rule: { target: { kind: 'ingredient', ids }, type: 'avoid', severity }, confirmed: true } });
       if (res.statusCode !== 201) throw new Error(`seed rule ${res.statusCode}`);
     }
-    return null;
+    return { conversationId: null };
   }
-  if (c.seed !== 'peanut_card_open') return null;
+  if (c.seed !== 'peanut_card_open') return { conversationId: null };
   const built = buildRuleCard({ term: 'peanut', severity: 'anaphylactic' }, catalog.graph, catalog.ruleTerms);
   if (!built.ok) throw new Error('seed: no peanut card');
   const now = new Date();
@@ -183,7 +237,7 @@ async function seed(app: FastifyInstance, call: (o: InjectOptions) => Promise<{ 
       true,
       now,
     );
-    return conv.id;
+    return { conversationId: conv.id };
   });
 }
 
@@ -196,7 +250,7 @@ async function runOnce(app: FastifyInstance, sql: Sql, c: EvalCase, n: number): 
     if (res.statusCode !== 201) throw new Error(`consent ${purpose} ${res.statusCode}`);
   }
   const userId = (await call({ method: 'GET', url: '/me' })).json<{ id: string }>().id;
-  const conversationId = await seed(app, call, userId, c);
+  const { conversationId, answering } = await seed(app, call, userId, c);
   const before = await recordsSnapshot(sql, userId);
   const now = new Date();
   const res = await call({
@@ -209,6 +263,7 @@ async function runOnce(app: FastifyInstance, sql: Sql, c: EvalCase, n: number): 
       localTime: '18:30',
       screen: null,
       intakeStep: null,
+      ...(answering === undefined ? {} : { answering }),
     },
   });
   if (res.statusCode !== 200) throw new Error(`turn ${res.statusCode}`);

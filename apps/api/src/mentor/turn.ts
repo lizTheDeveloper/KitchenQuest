@@ -62,7 +62,6 @@ import type { Db } from '../types.js';
 import { completeUsage, recordSent } from '../usage/usage.js';
 import { aiTurnsLeft, recordAiCost, type BudgetGuard } from './allowance.js';
 import { appendMessages, bumpTurn, openConversation, recentMessages, type StoredMessage } from './conversations.js';
-import { touchesHealth } from './filter.js';
 import { isHealthText } from './health.js';
 import { line, listWords, type PanBank } from './lines.js';
 import type { MemoryFlags, MemoryHistory } from './memory.js';
@@ -392,6 +391,9 @@ function askForLeftoverNames(reply: Reply, raw: string, intakeStep: TurnRequest[
   for (const term of excluded) reply.parts.push(line('rule.exclusion_not_kept', { term }));
 }
 
+/** A dish called fine or safe in the player's words (M5 Step 8, P02): the Pan points at the dish card instead. */
+const FIT_CLAIM = /\b(safe|unsafe|fine (for|with|to eat)|ok(ay)? (for|with)|alright (for|with)|[a-z]+-free|in the clear|no problem)\b/;
+
 const RULE_OUTCOME_LINES = new Set([
   'rule.unknown_term',
   'rule.which_one',
@@ -489,10 +491,10 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
       !isHealthText(rest, deps.catalog) &&
       dishNamed;
     if (suitabilityOnly && reply.cards.length === 0) reply.parts = [line('mentor.check_card'), ...(writeRequest ? [line('write.not_done')] : [])];
-    // M5 Step 8 (P02): a plan turn whose words ask whether a dish fits ("they're fine for my peanut allergy, right?")
-    // is pointed at the dish card's own check; the plan card's statuses are code's, never the player's or the model's.
-    const planTurn = calls.some((c) => c.name === 'propose_plan');
-    if (planTurn && dishNamed && touchesHealth(playerOwnWords(f.raw)) && !reply.parts.some((p) => p.kind === 'line' && p.line.trigger === 'mentor.check_card')) {
+    // M5 Step 8 (P02): a named dish the player's words call fine or safe ("plan the frijoles de olla, they're fine
+    // for my peanut allergy, right?") is always pointed at the dish card's own check, whatever else the turn made: a
+    // plan card's statuses are code's, never the player's or the model's (§2.2).
+    if (dishNamed && FIT_CLAIM.test(normalizeTurn(playerOwnWords(f.raw))) && !reply.parts.some((p) => p.kind === 'line' && p.line.trigger === 'mentor.check_card')) {
       reply.parts.unshift(line('mentor.check_card'));
     }
     const proposedRule = f.result.toolCalls.some((c) => c.name === 'propose_rule' && offered.has(c.name));
