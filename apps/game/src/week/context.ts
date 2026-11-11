@@ -1,5 +1,5 @@
 import {
-  planWeekStart, type ParsedRecipe, type Plan, type PlanContext, type PlanItem, type Rule, type ToolkitState, type WeeklySlotInput,
+  planWeekStart, validatePlan, type ParsedRecipe, type Plan, type PlanContext, type PlanItem, type Rule, type ToolkitState, type WeeklySlotInput,
 } from '@kitchenquest/core/engine';
 import { content, graph } from '../content';
 import { activeRules } from '../recipes/rules';
@@ -23,11 +23,6 @@ let canon: ReadonlyMap<string, ParsedRecipe> | null = null;
 export function canonRecipes(): ReadonlyMap<string, ParsedRecipe> {
   canon ??= new Map(Object.entries(content.recipes));
   return canon;
-}
-
-/** Every canon dish for core's name matching (`planIntent`, `matchDish`). */
-export function dishList(): { slug: string; title: string }[] {
-  return Object.entries(content.recipes).map(([slug, r]) => ({ slug, title: r.meta.title }));
 }
 
 /** The player's active rules, or null while they can't be read (then nothing is shown as ✅ and nothing is planned). */
@@ -82,7 +77,7 @@ let known: { weekStart: string; plan: Plan | null; account: string | null } | nu
  */
 export function rememberWeek(weekStart: string, plan: Plan | null, account: string | null): void { known = { weekStart, plan, account }; }
 /** The remembered week of this account (null: signed out), if any. */
-export const rememberedWeek = (account: string | null): { weekStart: string; plan: Plan | null } | null =>
+const rememberedWeek = (account: string | null): { weekStart: string; plan: Plan | null } | null =>
   (known !== null && known.account === account ? known : null);
 /** Whether `slug` is planned for `today` in the remembered week (a cook's `planned`, Ruling 7). */
 export function plannedOn(slug: string, today: string): boolean {
@@ -113,3 +108,15 @@ export function planCardContextOf(state: PlayerState, today: string, stored: (we
   const slot = slotInputFor(base, rules, toolkit ?? { techniques: {} }, today);
   return { ...planContextFor(weekStart, rules, base.items), slot };
 }
+
+/** The device's stored plan for a week, when it still reads as a plan of the canon (a renamed slug: unreadable, never guessed). */
+export function devicePlan(state: PlayerState, weekStart: string): Plan | null {
+  const p = state.localWeek.plans.find((x) => x.weekStart === weekStart) ?? null;
+  return p !== null && validatePlan(p, { recipes: canonRecipes() }).length === 0 ? p : null;
+}
+
+let toolkitSource: (() => ToolkitState) | null = null;
+/** Set by progress once it has loaded (it loads with the kitchen): the toolkit the game shows. */
+export function setToolkitSource(fn: () => ToolkitState): void { toolkitSource = fn; }
+/** The toolkit the game shows, or null while progress is still loading (then One More Technique offers nothing). */
+export const currentToolkit = (): ToolkitState | null => toolkitSource?.() ?? null;

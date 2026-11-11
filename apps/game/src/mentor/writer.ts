@@ -4,10 +4,9 @@ import {
   type IngredientGraph, type LineRef, type PantryItem, type Plan, type PlanCard, type PlanItem, type ProposalCard, type ReplyPart, type Rule, type RuleTerm,
   type ServerCard, type Severity, type TrailEntry,
 } from '@kitchenquest/core/engine';
-import { loadedProgress } from '../progress';
 import { localDate } from '../recipes/rules';
-import { canonRecipes, planCardContextOf, rememberWeek } from '../week/context';
-import { createWeekSource, type WeekSource } from '../week/source';
+import { canonRecipes, currentToolkit, planCardContextOf, rememberWeek } from '../week/context';
+import type { WeekSource } from '../week/source';
 import { refreshAccount } from '../api/account';
 import type { ApiClient } from '../api/client';
 import type { ApiResult, Profile } from '../api/types';
@@ -103,7 +102,10 @@ export function createCardWriter(deps: {
   conversationId?: () => string | null | undefined;
 }): CardWriter {
   const { client, store, dialogue, graph, ruleTerms } = deps;
-  const week = deps.week ?? createWeekSource({ store, client });
+  // The week's code loads with the first plan write or undo, so first paint doesn't carry it.
+  let weekLoaded: Promise<WeekSource> | null = null;
+  const weekSource = (): Promise<WeekSource> =>
+    (weekLoaded ??= deps.week ? Promise.resolve(deps.week) : import('../week/source').then((m) => m.createWeekSource({ store, client })));
   const today = () => localDate(deps.now());
   const inFlight = new Set<string>();
   const undoing = new Set<string>();
@@ -234,6 +236,7 @@ export function createCardWriter(deps: {
   async function writePlan(card: PlanCard): Promise<WriteOutcome> {
     const day = today();
     const account = accountEmail() ?? null;
+    const week = await weekSource();
     const cur = await week.current(day);
     if (!cur.ok) return weekRefused(cur);
     const { weekStart, plan: stored } = cur.value;
@@ -257,7 +260,7 @@ export function createCardWriter(deps: {
 
   /** The card rebuilt on the week as it is now: the same new dishes on the same weekdays, checked again. */
   function reoffer(card: PlanCard, weekStart: string, stored: Plan | null): WriteOutcome {
-    const ctx = planCardContextOf(store.get(), today(), (w) => (w === weekStart ? stored : null), loadedProgress()?.view().toolkit ?? null);
+    const ctx = planCardContextOf(store.get(), today(), (w) => (w === weekStart ? stored : null), currentToolkit());
     if (ctx === null) return { ok: false, reason: 'closed', items: [line('write.not_done')] };
     // The weekday of each new item stays the same when the plan week starts on another day.
     const dow = (date: string) => new Date(`${date}T00:00:00Z`).getUTCDay();
@@ -295,7 +298,7 @@ export function createCardWriter(deps: {
       case 'raise': // undone by `undoRaise`, which checks the rule first
         return null;
       case 'plan': {
-        const r = await week.restore(u.weekStart, u.previous, today());
+        const r = await (await weekSource()).restore(u.weekStart, u.previous, today());
         if (!r.ok) return null;
         rememberWeek(u.weekStart, u.previous, accountEmail() ?? null);
         return [];

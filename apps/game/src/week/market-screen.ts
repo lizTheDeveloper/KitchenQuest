@@ -85,7 +85,7 @@ export function marketScreen(api: ApiClient, source?: WeekSource): Screen {
       let busy = false;
       const draw = () => {
         const items = run?.items ?? preview ?? [];
-        const done = run?.doneAt != null;
+        const done = run !== null && run.doneAt !== null;
         const focused = (document.activeElement as HTMLElement | null)?.dataset.key ?? null;
         const sections = byStall(items).map(({ stall, name, rows }) => {
           const headingId = `stall-${stall}`;

@@ -294,7 +294,7 @@ describe('createStore (more)', () => {
     const st = memStorage({ [STORE_KEY]: JSON.stringify({ settings: { showCalories: true } }) });
     const s = createStore(st);
     expect(s.notice).toBeNull();
-    expect(s.get().settings).toEqual({ showCalories: true, reducedMotion: 'system', familyTable: false, iosNoteDismissed: false, aiMentor: true });
+    expect(s.get().settings).toEqual({ showCalories: true, reducedMotion: 'system', familyTable: false, iosNoteDismissed: false, aiMentor: true, rescueNudges: true });
     expect(s.get().v).toBe(1);
     expect(s.get().toolkit).toEqual({ techniques: {} });
   });

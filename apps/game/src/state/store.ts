@@ -107,13 +107,13 @@ export interface LocalRun extends MarketRunView { pantryIds: Record<string, stri
  * Signed out, the week lives here (Step 10): each plan week's plan and its market run, in the API's shapes. Kept for
  * PLAN_RETENTION_WEEKS after the week, like the server's. Dish slugs, dates and list rows only: never a status.
  */
-export interface LocalWeek { plans: Plan[]; runs: LocalRun[] }
+interface LocalWeek { plans: Plan[]; runs: LocalRun[] }
 /**
  * Today's Use-It-Up nudge (RESCUE_NUDGES_PER_DAY): which partition it was for (the account key, or 'guest'), the
  * local date, the pantry row it named and whether the player answered it (Cook, Compost or Not now). A date and an
  * id only; another day, or another partition, starts afresh.
  */
-export interface RescueNudge { key: string; on: string; itemId: string; answered: boolean }
+interface RescueNudge { key: string; on: string; itemId: string; answered: boolean }
 /** A signed-out player's profile, kept on this device (the same fields as M2's `/profile`). */
 export interface LocalProfile { marketDays: number[]; mealsPerWeek: number | null; country: string | null; region: string | null; mealWindows: { name: MealSlot; start: string; end: string }[] }
 export interface PlayerState {

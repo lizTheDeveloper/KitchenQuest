@@ -18,6 +18,7 @@ export function navRoute(t: unknown): Exclude<Route, { name: 'notFound' }> | nul
     case 'book': return { name: 'recipes' };
     case 'visit': return typeof target.cook === 'string' && Object.hasOwn(content.cooks, target.cook) ? { name: 'visit', cookId: target.cook } : null;
     case 'recipe': return typeof target.slug === 'string' && Object.hasOwn(content.recipes, target.slug) ? { name: 'recipe', slug: target.slug } : null;
+    case undefined:
     default: return null;
   }
 }

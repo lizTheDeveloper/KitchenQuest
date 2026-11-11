@@ -18,9 +18,9 @@ export type WeekFailure =
   | { kind: 'invalid'; problems: string[] }
   | { kind: 'closed' }
   | { kind: 'network' };
-export type WeekResult<T> = { ok: true; value: T } | ({ ok: false } & WeekFailure);
+type WeekResult<T> = { ok: true; value: T } | ({ ok: false } & WeekFailure);
 
-export interface WeekNow { weekStart: string; plan: Plan | null }
+interface WeekNow { weekStart: string; plan: Plan | null }
 
 export interface WeekSource {
   /** The current plan week (from the player's market days and `today`) and its plan, or null. */

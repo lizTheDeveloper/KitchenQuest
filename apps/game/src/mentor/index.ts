@@ -16,11 +16,9 @@ import type { PanReply } from './reply';
 import { createScriptedEngine, type ScriptedEngine } from './scripted';
 import { savedRules } from './saved-rules';
 import { createCardWriter, type CardWriter } from './writer';
-import { loadedProgress } from '../progress';
 import { activeRules, localDate } from '../recipes/rules';
 import { routeHref } from '../shell/router';
-import { planCardContextOf } from '../week/context';
-import { createWeekStore } from '../week/local-week';
+import { currentToolkit, devicePlan, planCardContextOf } from '../week/context';
 
 export { createDialogue } from './dialogue';
 export type { MentorPanel } from './panel';
@@ -150,11 +148,10 @@ export function mountMentor(doc: Document, store: PlayerStore, bank: LineBank, c
     const child = createChildFlag();
     const dialogue: Dialogue = createDialogue(bank, historyOptions(store));
     const recipes = Object.entries(content.recipes).map(([slug, r]) => ({ slug, title: r.meta.title }));
-    const device = createWeekStore({ store });
     const engine: ScriptedEngine = createScriptedEngine({
       dialogue, graph, ruleTerms: content.ruleTerms, recipes, now, savedRules: () => savedRules(store.get()), child,
       // M5 Step 10: the week by code alone (AI off, signed out included).
-      week: () => planCardContextOf(store.get(), localDate(now()), device.plan, loadedProgress()?.view().toolkit ?? null),
+      week: () => planCardContextOf(store.get(), localDate(now()), (w) => devicePlan(store.get(), w), currentToolkit()),
       cooks: Object.fromEntries(Object.entries(content.cooks).map(([id, c]) => [id, c.name])),
       rulesError: () => {
         const r = activeRules(store.get(), graph);

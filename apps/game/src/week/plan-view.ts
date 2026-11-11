@@ -113,7 +113,7 @@ function itemRow(row: PlanRow, o: PlanViewOpts): HTMLElement {
 const FLAG_TRIGGER: Record<Exclude<PlanFlag, null>, string> = { gap_green: 'plan.gap_green', gap_protein: 'plan.gap_protein', balanced: 'plan.balanced' };
 
 /** The weekly slot: `one_more.offer` or `one_more.refresh`, with "Yes, add it" and "Not this week". */
-export function slotView(v: SlotOfferView, line: PlanViewOpts['line']): HTMLElement {
+function slotView(v: SlotOfferView, line: PlanViewOpts['line']): HTMLElement {
   const { offer } = v;
   const dish = titleOf(offer.recipe);
   const text = offer.kind === 'new'

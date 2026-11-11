@@ -16,7 +16,7 @@ export function statusLine(): { el: HTMLElement; show(text: string): void } {
 }
 
 /** Open the Pan with `consent.health_first` and the health consent card. */
-export function askHealthConsent(): void {
+function askHealthConsent(): void {
   const { dialogue } = getMentorServices();
   const pan = getMentor();
   pan.show({ items: [{ kind: 'said', said: dialogue.say('consent.health_first') }, { kind: 'consent', purpose: 'health_data' }], cards: [], intents: [], actions: [], notice: null });

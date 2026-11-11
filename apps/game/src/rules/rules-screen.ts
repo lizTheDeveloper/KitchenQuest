@@ -122,6 +122,7 @@ export function rulesScreen(): Screen {
               case 'invalid':
               case 'closed':
               case 'needs_account':
+              case 'plan_changed': // a plan card's only; never a rule card here
                 closeCard(cardEl, CLOSED_TEXT);
                 extra.replaceChildren(...saidNodes(out.items));
                 return;

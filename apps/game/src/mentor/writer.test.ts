@@ -114,7 +114,7 @@ describe('card writer', () => {
       confirmProposal: () => ok({ trail, parts: [{ kind: 'line', line: { trigger: 'rule.stamped', vars: { ingredient: 'milk' } } }, { kind: 'text', text: 'It is saved and safe!' }] }),
     }, signedIn);
     const out = await writer.confirm(server(milk()), 'tap', { severity: 'allergy' });
-    expect(calls).toEqual([{ name: 'confirmProposal', args: ['P1', { severity: 'allergy' }, undefined] }]);
+    expect(calls).toEqual([{ name: 'confirmProposal', args: ['P1', { severity: 'allergy' }, undefined, undefined] }]);
     expect(out).toMatchObject({ ok: true, trail });
     expect(said(out.items)).toEqual(['rule.stamped']);
     expect(JSON.stringify(out.items)).not.toContain('safe!');
@@ -145,7 +145,7 @@ describe('card writer', () => {
     await writer.confirm(server(milk(), 'P1'), 'tap');
     current = null;
     await writer.confirm(server(milk(), 'P2'), 'tap');
-    expect(calls.map((c) => c.args)).toEqual([['P1', undefined, 'c1'], ['P2', undefined, null]]);
+    expect(calls.map((c) => c.args)).toEqual([['P1', undefined, 'c1', undefined], ['P2', undefined, null, undefined]]);
   });
 
   test('403 → a consent item; the card stays open', async () => {

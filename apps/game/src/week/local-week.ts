@@ -3,7 +3,7 @@ import {
 } from '@kitchenquest/core/engine';
 import { content } from '../content';
 import type { LocalRun, PlayerState, PlayerStore } from '../state/store';
-import { addDays, canonRecipes, planContextFor, PLAN_RETENTION_WEEKS, rulesOf } from './context';
+import { addDays, canonRecipes, devicePlan, planContextFor, PLAN_RETENTION_WEEKS, rulesOf } from './context';
 
 /**
  * The week on this device (M5 Step 10, Ruling 8): signed out, the plan and its market run live in the player store,
@@ -34,11 +34,7 @@ const listOrder = (a: ListItem, b: ListItem): number =>
 
 const viewOf = (r: LocalRun): MarketRunView => ({ id: r.id, weekStart: r.weekStart, items: r.items, doneAt: r.doneAt });
 
-/** The stored plan for a week, when it still reads as a plan of the canon (a renamed slug makes it unreadable, never guessed). */
-function storedPlan(s: PlayerState, weekStart: string): Plan | null {
-  const p = s.localWeek.plans.find((x) => x.weekStart === weekStart) ?? null;
-  return p !== null && validatePlan(p, { recipes: canonRecipes() }).length === 0 ? p : null;
-}
+const storedPlan = devicePlan;
 
 /** Plans (and runs) whose week ended more than PLAN_RETENTION_WEEKS ago leave the device. */
 function retained(s: PlayerState, today: string): PlayerState['localWeek'] {
