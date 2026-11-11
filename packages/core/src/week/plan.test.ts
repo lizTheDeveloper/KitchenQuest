@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 import { planWeekStart } from '../progress/week';
 import type { ParsedRecipe } from '../recipe/types';
 import { ALLIUM, avoid, canon, dish, MONDAY, planCtx, SATURDAY } from './fixtures';
-import { checkPlan, MAX_PLAN_ITEMS, planFlags, resolvePlanRequest, suggestPlan, validatePlan, type Plan, type PlanItem } from './plan';
+import { checkPlan, MAX_PLAN_ITEMS, PLAN_DISH_SACRED_TRIGGER, planFlags, resolvePlanRequest, suggestPlan, validatePlan, type Plan, type PlanItem } from './plan';
 
 const PARIPPU = 'india/kerala/parippu';
 const ONIGIRI = 'japan/osaka/onigiri';
@@ -98,7 +98,8 @@ describe('resolvePlanRequest', () => {
     const sacred = new Map([...canon, ['test/sacred', dish('leela', ['salt'], { title: 'Festival Payasam', sacred: true })]]);
     const r = resolvePlanRequest(req([['festival payasam', 'Monday']], 7), planCtx({ recipes: sacred }));
     expect(r.items.some((i) => i.slug === 'test/sacred')).toBe(false);
-    expect(r.unknown).toEqual(['festival payasam']);
+    expect(r.unknown).toEqual([]);
+    expect(r.sacred).toEqual(['test/sacred']);
   });
 });
 
@@ -195,5 +196,28 @@ describe('validatePlan', () => {
     expect(bad(Array.from({ length: MAX_PLAN_ITEMS }, () => ({ day: 0, kind: 'lesson', slug: PARIPPU })))).toEqual([]);
     expect(validatePlan({ ...ok, weekStart: '2026-13-01', hard: 'no', slot: 'maybe', extra: 1 }, ctx)).toHaveLength(4);
     for (const junk of [null, 1, 'plan', [], { items: 'x' }, { items: [null, 3] }]) expect(() => validatePlan(junk, ctx)).not.toThrow();
+  });
+});
+
+describe('fix round 1', () => {
+  const xmas = new Map([...canon, ['test/christmas-parippu', dish('leela', ['split moong dal', 'salt'], { title: 'Christmas Parippu', sacred: true })]]);
+  test('I3: "christmas parippu" → sacred, nothing placed, never the shorter ordinary parippu', () => {
+    const r = resolvePlanRequest(req([['christmas parippu', 'Sunday']]), planCtx({ recipes: xmas }));
+    expect(r.items).toEqual([]);
+    expect(r.sacred).toEqual(['test/christmas-parippu']);
+    expect(r.unknown).toEqual([]);
+    // Plain "parippu" is still the ordinary dish.
+    expect(resolvePlanRequest(req([['parippu', 'Sunday']]), planCtx({ recipes: xmas })).items).toEqual([{ day: 6, kind: 'dish', slug: PARIPPU, servings: 3 }]);
+    // Pick never places a sacred dish.
+    expect(suggestPlan(7, planCtx({ recipes: xmas })).some((i) => i.slug === 'test/christmas-parippu')).toBe(false);
+    expect(PLAN_DISH_SACRED_TRIGGER).toBe('plan.dish_sacred');
+  });
+
+  test('M3: an `after` that names no single day is reported for an ask, and nothing is picked', () => {
+    const r = resolvePlanRequest(req(null, 3, 'the weekend'), planCtx());
+    expect(r.items).toEqual([]);
+    expect(r.afterNoDay).toBe('the weekend');
+    expect(resolvePlanRequest(req(null, 3, 'Saturday'), planCtx()).afterNoDay).toBeNull();
+    expect(resolvePlanRequest(req(null, 3), planCtx()).afterNoDay).toBeNull();
   });
 });

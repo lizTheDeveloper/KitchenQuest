@@ -29,12 +29,17 @@ describe('parseCookedFor', () => {
     ['Sam and Alex', { count: 'two_to_three', who: null }],
     ['dinner with Priya', { count: 'one', who: null }],
     ['a dinner party, 8 guests', { count: 'four_plus', who: 'guests' }],
+    // Fix round 1, M2.
+    ['my wife and 3 kids', { count: 'four_plus', who: 'partner' }],
+    ['my flatmate and one friend', { count: 'two_to_three', who: 'flatmate' }],
+    ['Cooked for Sam', { count: 'one', who: null }],
+    ['for Priya', { count: 'one', who: null }],
   ] as const)('%s', (text, expected) => {
     expect(parseCookedFor(text)).toEqual(expected);
   });
 
   test('unreadable → null, so the UI offers the fixed chips', () => {
-    for (const t of ['', '   ', 'it was nice', '🍲🍲', 'sam and alex', '?']) expect(parseCookedFor(t)).toBeNull();
+    for (const t of ['', '   ', 'it was nice', '🍲🍲', 'sam and alex', '?', 'Yes', 'Pasta', 'Delicious', 'Tonight', 'Leftovers', 'Everybody']) expect(parseCookedFor(t)).toBeNull();
   });
 
   test('parseCookedFor never returns a name or a health word (names, "nut allergy", emoji, 500 chars)', () => {

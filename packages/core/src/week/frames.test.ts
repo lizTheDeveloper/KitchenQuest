@@ -4,11 +4,11 @@ import { alternativesOn } from '../quests/alternatives';
 import { SHIPPED_TECHNIQUES } from '../quests/shipped.fixture';
 import { stepPlainText } from '../recipe/steps';
 import type { Rule } from '../rules/types';
-import { avoid, canon, dish, FRAMES, graph, PEANUT, subs } from './fixtures';
+import { avoid, canon, dish, FRAMES, graph, KEEPS, PEANUT, subs } from './fixtures';
 import { fillFrame, frameOptions, validateFrames, type Frame } from './frames';
 
 const TODAY = '2026-11-11';
-const ctx = (rules: Rule[] = []) => ({ rules, graph, subs, today: TODAY });
+const ctx = (rules: Rule[] = []) => ({ rules, graph, subs, today: TODAY, keeps: {} });
 const have = (name: string, extra: Partial<PantryItem> = {}): PantryItem => ({ name, ingredientId: graph.resolve(name), ...extra });
 const [friedRice, greenSauce, tomatoSauce] = FRAMES;
 const TECHNIQUES = new Set(SHIPPED_TECHNIQUES.map((t) => t.id));
@@ -32,7 +32,8 @@ describe('fillFrame', () => {
     expect(empty.fills.rice).toBeNull();
     expect(empty.emptyRequired).toEqual(['rice']);
     expect(empty.check.status).toBe('unverified');
-    expect(empty.check.findings).toContainEqual({ ingredient: 'rice', ingredientId: null, kind: 'unresolved', status: 'unverified' });
+    expect(empty.check.findings).toContainEqual({ ingredient: 'rice', ingredientId: null, kind: 'empty_slot', status: 'unverified' });
+    expect(empty.check.findings.some((f) => f.kind === 'unresolved')).toBe(false);
     // The player picks it: it fills the slot, and the frame is ❓ (the engine still can't verify it).
     const mine = fillFrame(friedRice, pantry, ctx(), { rice: 'jasmine-ish rice' });
     expect(mine.fills.rice).toEqual({ name: 'jasmine-ish rice', ingredientId: null });
@@ -127,5 +128,33 @@ describe('validateFrames', () => {
     expect(bad({ rescues: ['coriander'] })).toEqual([]); // a kind of an accepted id
     expect(validateFrames([f, f], graph, TECHNIQUES)).toEqual(['frame "green-sauce": duplicate id']);
     for (const junk of [null, 'x', [null], [{}], [{ slots: [null], steps: [1], rescues: 'x' }]]) expect(() => validateFrames(junk as Frame[], graph, TECHNIQUES)).not.toThrow();
+  });
+});
+
+describe('fix round 1, I1: frames never use food past its keep time; closest to its keep time first', () => {
+  const kctx = (rules: Rule[] = []) => ({ ...ctx(rules), keeps: KEEPS });
+  const bought = (name: string, addedOn: string): PantryItem => have(name, { source: 'market', addedOn });
+  test("the reviewer's case: 10-day-old cooked rice and 41-day-old spinach are never used", () => {
+    const pantry = [bought('spinach', '2026-10-01'), bought('spinach', '2026-11-10'), bought('cooked rice', '2026-11-01'), have('sunflower oil')];
+    const f = fillFrame(friedRice, pantry, kctx());
+    expect(f.fills.rice).toBeNull();
+    expect(f.emptyRequired).toEqual(['rice']);
+    expect(f.fills.veg).toEqual({ name: 'spinach', ingredientId: 'spinach' });
+    expect(f.recipe.ingredients).toHaveLength(2); // oil and the fresh spinach only
+    // Not even when the player picks it.
+    expect(fillFrame(friedRice, [bought('cooked rice', '2026-11-01'), have('sunflower oil')], kctx(), { rice: 'cooked rice' }).fills.rice).toBeNull();
+    // The fresh one fills; the old one never does.
+    const fresh = fillFrame(friedRice, [bought('cooked rice', '2026-11-01'), bought('cooked rice', '2026-11-11'), have('sunflower oil')], kctx());
+    expect(fresh.fills.rice).toEqual({ name: 'cooked rice', ingredientId: 'cooked_rice' });
+    expect(fresh.check.status).toBe('ok');
+  });
+
+  test('among items still in date, the one closest to its keep time is chosen; undated ones come after', () => {
+    // spinach: bought first (keeps 4, 2 left); baby spinach: bought today but keeps 1, so 1 left. Closest to its keep time wins.
+    const pantry = [have('onion'), bought('spinach', '2026-11-09'), bought('baby spinach', '2026-11-11'), have('cold rice'), have('sunflower oil')];
+    const f = fillFrame(friedRice, pantry, { ...ctx(), keeps: { ...KEEPS, baby_spinach: 1 } });
+    expect(f.fills.veg?.name).toBe('baby spinach');
+    const g = fillFrame(friedRice, [have('onion'), bought('spinach', '2026-11-10'), have('cold rice'), have('sunflower oil')], kctx());
+    expect(g.fills.veg?.name).toBe('spinach');
   });
 });

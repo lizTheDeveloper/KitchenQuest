@@ -88,3 +88,19 @@ describe('stallFor', () => {
     expect(stallFor('salt', graph, { salt: 'dairy' as never })).toBe('general');
   });
 });
+
+describe('fix round 1, M1: a ❓ line is marked on the list', () => {
+  test('unresolved and label-dependent lines carry unverified; a plain line does not', () => {
+    const recipes = new Map([['test/odd', { ...planCtx().recipes.get(PARIPPU)!, ingredients: [
+      { name: 'jasmine-ish rice', displayName: null, quantity: 1, unit: null, note: null },
+      { name: 'salt', displayName: null, quantity: 1, unit: 'g', note: null },
+    ] }]]);
+    const odd = marketList(plan([dishOn(0, 'test/odd')]), planCtx({ recipes }), [], STALLS);
+    expect(odd.find((i) => i.name === 'jasmine-ish rice')?.unverified).toBe(true);
+    expect(odd.find((i) => i.name === 'salt')?.unverified).toBeUndefined();
+    // Corn tortillas are store-bought: ❓ under any rule.
+    const fr = marketList(plan([dishOn(0, FRIJOLES)]), planCtx({ rules: [PORK] }), [], STALLS);
+    expect(fr.find((i) => i.ingredientId === 'corn_tortilla')?.unverified).toBe(true);
+    expect(fr.find((i) => i.ingredientId === 'black_bean')?.unverified).toBeUndefined();
+  });
+});

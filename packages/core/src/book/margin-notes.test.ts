@@ -126,3 +126,41 @@ describe('validateNote', () => {
     for (const junk of [null, 1, 'n', [], { ops: 'x' }, { ops: [null] }]) expect(() => validateNote(junk, recipes)).not.toThrow();
   });
 });
+
+describe('fix round 1, C1: every ingredient a note names counts for safety, read or not', () => {
+  const ANA = { ...PEANUT, severity: 'anaphylactic' as const };
+  const notesFor = (text: string): MarginNote[] => {
+    const { ops, rest } = parseMarginNote(text, lentilSoup, graph);
+    return [{ recipe: 'test/lentil', ops, text: rest, at: DAY }];
+  };
+  test.each([
+    'then added peanut butter',
+    'used chickpeas and peanut butter instead of lentils',
+    'swapped lentil for chickpea and peanut butter',
+    'stirred peanut butter through at the end',
+    'so I used peanut butter instead of coconut milk',
+    'Added peanut butter.',
+    'no peanut butter this time, honestly',
+    'PEANUTS on top',
+  ])('"%s" on an anaphylactic peanut rule → ⛔, never ✅', (text) => {
+    const r = checkWithNotes(lentilSoup, notesFor(text), [ANA], graph, subs, DAY);
+    expect(r.status).toBe('blocked');
+    expect(r.findings.some((f) => f.status === 'blocked' && f.ruleId === 'r-peanut')).toBe(true);
+  });
+
+  test('text it can\'t read never changes the recipe, but is checked: "less salt" stays ✅ with no rules', () => {
+    const notes = notesFor('less salt, lovely with peanut butter');
+    expect(applyNotes(lentilSoup, notes).ingredients.map((i) => i.name)).toEqual(['lentils', 'salt', 'onion']);
+    expect(checkWithNotes(lentilSoup, notesFor('less salt'), [], graph, subs, DAY).status).toBe('ok');
+    expect(checkWithNotes(lentilSoup, notes, [ANA], graph, subs, DAY).status).toBe('blocked');
+  });
+
+  test('a multi-name swap is a swap plus an add; "then" and "so" lead-ins are read', () => {
+    expect(parseMarginNote('used chickpeas and peanut butter instead of lentils', lentilSoup, graph).ops).toEqual([
+      { op: 'swap', from: 'lentils', to: 'chickpeas' },
+      { op: 'add', name: 'peanut butter' },
+    ]);
+    expect(parseMarginNote('then added peanut butter', lentilSoup, graph).ops).toEqual([{ op: 'add', name: 'peanut butter' }]);
+    expect(parseMarginNote('so I used peanut butter instead of coconut milk', lentilSoup, graph).ops).toEqual([{ op: 'swap', from: 'coconut milk', to: 'peanut butter' }]);
+  });
+});
