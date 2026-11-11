@@ -95,3 +95,55 @@ describe('org/health separation (C-10)', () => {
     expect(violations).toEqual([]);
   });
 });
+
+// M5 Step 5 (never rule 3, spec §6): progression is blind to entitlements, usage, rules and consent by construction,
+// and no rule, consent, profile, meal or mentor code can reach the reward code.
+const CORE_SRC = fileURLToPath(new URL('../../../packages/core/src', import.meta.url));
+
+/** Relative import specifiers of a file, resolved to paths relative to `root` (without extension). */
+function importsOf(root: string, file: string): string[] {
+  const text = readFileSync(file, 'utf8');
+  return [...text.matchAll(/(?:from|import)\s*\(?\s*['"]([^'"]+)['"]/g)]
+    .map((m) => m[1])
+    .map((spec) => (spec.startsWith('.') ? relative(root, resolve(join(file, '..'), spec)).replace(/\.(js|ts)$/, '') : spec));
+}
+
+const isSource = (f: string) => !/\.test\.ts$/.test(f);
+
+describe('progress is entitlement-blind (M5 Step 5, never rule 3)', () => {
+  it('apps/api/src/progress/** imports nothing from entitlements, usage, rules or consent', () => {
+    const files = filesUnder(join(SRC, 'progress')).filter(isSource);
+    expect(files.length).toBeGreaterThan(0);
+    const bad = files.flatMap((f) =>
+      importsOf(SRC, f)
+        .filter((t) => ['entitlements', 'usage', 'rules', 'consent'].some((m) => t === m || t.startsWith(`${m}/`)))
+        .map((t) => `${relative(SRC, f)} → ${t}`),
+    );
+    expect(bad).toEqual([]);
+  });
+
+  it('core progress/ imports nothing from entitlements, usage or consent, nothing outside core, and of rules/ only the pure date check', () => {
+    const files = filesUnder(join(CORE_SRC, 'progress')).filter(isSource);
+    expect(files.length).toBeGreaterThan(0);
+    const bad = files.flatMap((f) =>
+      importsOf(CORE_SRC, f)
+        .filter((t) => /entitlement|usage|consent/i.test(t) || t.startsWith('..') || t.startsWith('@kitchenquest/') || (t.startsWith('rules/') && t !== 'rules/active'))
+        .map((t) => `${relative(CORE_SRC, f)} → ${t}`),
+    );
+    expect(bad).toEqual([]);
+    // Core has no player-rule store: its rules/ is the rules engine (I3 judges a stand-in claim with it).
+    for (const f of files) expect(readFileSync(f, 'utf8'), relative(CORE_SRC, f)).not.toMatch(/entitlement|guild|subscri/i);
+  });
+
+  it('no file under rules/ or consent/ imports progress', () => {
+    const files = [...filesUnder(join(SRC, 'rules')), ...filesUnder(join(SRC, 'consent'))].filter(isSource);
+    const bad = files.flatMap((f) => importsOf(SRC, f).filter((t) => t === 'progress' || t.startsWith('progress/')).map((t) => `${relative(SRC, f)} → ${t}`));
+    expect(bad).toEqual([]);
+  });
+
+  it('nothing in meals/, rules/, consent/, profile/ or mentor/ records progress events', () => {
+    const files = ['meals', 'rules', 'consent', 'profile', 'mentor'].flatMap((d) => filesUnder(join(SRC, d))).filter(isSource);
+    const bad = files.filter((f) => /recordEventsIn|grantsFor|reward_grants|rewardGrants/.test(readFileSync(f, 'utf8'))).map((f) => relative(SRC, f));
+    expect(bad).toEqual([]);
+  });
+});

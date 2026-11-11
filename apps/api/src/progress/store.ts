@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { ProgressEvent, ProgressEventKind, ProgressHistory, RewardGrant } from '@kitchenquest/core';
 import { and, asc, eq } from 'drizzle-orm';
-import { GRANT_KINDS, PROGRESS_KINDS, progressEvents, rewardGrants } from '../db/schema.js';
+import { progressEvents, rewardGrants, type GRANT_KINDS, type PROGRESS_KINDS } from '../db/schema.js';
 import type { Db } from '../types.js';
 
 // The stored kinds are exactly core's: each list holds every kind and nothing else (a compile error otherwise).

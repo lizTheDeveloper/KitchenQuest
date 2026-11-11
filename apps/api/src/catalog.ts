@@ -135,6 +135,12 @@ function refuse(path: string, problems: readonly string[]): void {
   if (problems.length > 0) throw new Error(`Catalog: ${path}: ${problems.join('; ')}`);
 }
 
+/** A mapping read from `path` whose `id` is the file name, or a refusal naming the file. */
+function withFileId(path: string, id: string, value: unknown): Record<string, unknown> {
+  if (!isObj(value) || value.id !== id) throw new Error(`Catalog: ${path}: id must equal the file name "${id}"`);
+  return value;
+}
+
 function readText(path: string): string {
   try {
     return readFileSync(path, 'utf8');
@@ -215,8 +221,7 @@ export function loadLoopContent(catalog: Catalog, dataDir: string = DATA_DIR, co
 
   const stallFiles = yamlFiles(join(contentDir, 'market'));
   for (const { id, path } of stallFiles) {
-    const stall = readYaml(path);
-    if (!isObj(stall) || stall.id !== id) refuse(path, [`id must equal the file name "${id}"`]);
+    withFileId(path, id, readYaml(path));
   }
   const stalls: ReadonlySet<string> = new Set(stallFiles.map((s) => s.id));
 
@@ -225,12 +230,10 @@ export function loadLoopContent(catalog: Catalog, dataDir: string = DATA_DIR, co
   const quests: Quest[] = [];
   const pathOfQuest = new Map<string, string>();
   for (const { id, path } of cookFiles) {
-    const cook = readYaml(path);
-    if (!isObj(cook) || cook.id !== id) refuse(path, [`id must equal the file name "${id}"`]);
-    const quest = (cook as Record<string, unknown>).quest;
-    if (!isObj(quest)) refuse(path, ['quest must be a mapping']);
+    const { quest } = withFileId(path, id, readYaml(path));
+    if (!isObj(quest)) throw new Error(`Catalog: ${path}: quest must be a mapping`);
     quests.push(quest as unknown as Quest);
-    if (typeof (quest as Record<string, unknown>).id === 'string') pathOfQuest.set((quest as { id: string }).id, path);
+    if (typeof quest.id === 'string') pathOfQuest.set(quest.id, path);
   }
   const recipes = recipeMeta(recipesDir);
   const questProblems = validateQuests(quests, { recipes, techniques: techniqueIds }, cooks, stalls, graph);
@@ -241,10 +244,9 @@ export function loadLoopContent(catalog: Catalog, dataDir: string = DATA_DIR, co
 
   const frames: Frame[] = [];
   for (const { id, path } of yamlFiles(join(contentDir, 'frames'))) {
-    const frame = readYaml(path);
-    if (!isObj(frame) || frame.id !== id) refuse(path, [`id must equal the file name "${id}"`]);
-    refuse(path, validateFrames([frame as unknown as Frame], graph, techniqueIds));
-    frames.push(frame as unknown as Frame);
+    const frame = withFileId(path, id, readYaml(path)) as unknown as Frame;
+    refuse(path, validateFrames([frame], graph, techniqueIds));
+    frames.push(frame);
   }
   refuse(join(contentDir, 'frames'), validateFrames(frames, graph, techniqueIds));
 
