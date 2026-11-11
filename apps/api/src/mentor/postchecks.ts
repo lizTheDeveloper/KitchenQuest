@@ -84,20 +84,60 @@ const mealString = (value: string | null, text: string): string | null => {
   return v !== null && !MEAL_CLAIM.test(screenText(v)) ? v : null;
 };
 /** The only words a joined meal description may add to the player's own phrases (Step 12 ruling). */
-const MEAL_JOINER = /(?:\s*(?:,|&|\band\b|\bwith\b)\s*)+/i;
+const MEAL_JOINER = /((?:\s*(?:,|&|\band\b|\bwith\b)\s*)+)/i;
+/** Words that, within two tokens before a part, mean the player did not eat it (fix round 2, N1). */
+const NOT_EATEN = /\b(no|not|without|never|later|tomorrow|tonight|maybe|thinking about)\s*$/;
+
+/** Where `part` (or a plural of it) next occurs in `t` at or after `from`, as whole words; null if nowhere. */
+function findPart(t: string, part: string, from: number): { start: number; end: number } | null {
+  const variants = [...new Set(forms(screenText(part)).flatMap((f) => [f, `${f}s`, `${f}es`]))].filter((v) => v !== '');
+  let best: { start: number; end: number } | null = null;
+  for (const v of variants) {
+    const m = new RegExp(`(^|[^\\p{L}\\p{N}])(${escapeRegExp(v)})(?=$|[^\\p{L}\\p{N}])`, 'u').exec(t.slice(from));
+    if (m === null) continue;
+    const start = from + m.index + m[1].length;
+    if (best === null || start < best.start) best = { start, end: start + m[2].length };
+  }
+  return best;
+}
+
 /**
- * Step 12 controller ruling (R5, meal descriptions only): a description the model joined from the player's
- * phrases ("half a sandwich, ham n cheese, and some crisps") is kept when, split on ", " / "and" / "with" /
- * "&", EVERY part is the player's own words and passes the screens; a part the player never said, or a
- * dangling joiner, drops it. Rule terms and severities are never read this way.
+ * Step 12 controller rulings (R5, meal descriptions only; tightened in fix round 2, N1): a description the
+ * model joined from the player's phrases ("half a sandwich, ham n cheese, and some crisps") is kept when,
+ * split on ", " / "and" / "with" / "&", EVERY part is the player's own words and passes the screens, the parts
+ * come in the player's order, no part follows a negation or deferral within two words ("no", "without",
+ * "later", "maybe", …), no "." ends a sentence between two parts, and "with" joins two parts only where the
+ * player wrote "with" between them. Anything else drops it. Rule terms and severities are never read this way.
  */
 const mealDescription = (value: string | null, text: string): string | null => {
   const whole = mealString(value, text);
   if (whole !== null || value === null) return whole;
   const v = value.replace(/\s+/g, ' ').trim();
-  const parts = v.replace(/^(?:and|with)\s+/i, '').split(MEAL_JOINER).map((p) => p.trim());
+  const pieces = v.split(MEAL_JOINER);
+  // pieces alternate: part, joiner, part, …; a leading or trailing joiner leaves an empty part.
+  const parts = pieces.filter((_, i) => i % 2 === 0).map((p) => p.trim());
+  const joiners = pieces.filter((_, i) => i % 2 === 1);
   if (parts.length < 2 || parts.some((p) => p === '' || /^(?:and|with)\b/i.test(p))) return null;
-  return parts.every((p) => mealString(p, text) !== null) && filterReply(v, { finish: 'stop' }).ok && !touchesHealth(v) ? v : null;
+  if (!parts.every((p) => mealString(p, text) !== null)) return null;
+  // Lower-cased with its newlines kept (a pasted list), which normalizeName would fold into spaces.
+  const t = screenText(text).toLowerCase();
+  let at = 0;
+  let prevEnd = -1;
+  for (const [i, part] of parts.entries()) {
+    const found = findPart(t, part, at);
+    if (found === null) return null; // not in the player's order
+    const before = t.slice(Math.max(0, found.start - 30), found.start).split(/\s+/).slice(-3).join(' ');
+    if (NOT_EATEN.test(before)) return null;
+    if (i > 0) {
+      const between = t.slice(prevEnd, found.start);
+      if (/\./.test(between)) return null;
+      // "with" needs the player's own "with" between the parts, or a list line under a dish ("SALAD\n- lemon", S19).
+      if (/\bwith\b/i.test(joiners[i - 1]) && !/\bwith\b/.test(between) && !/\n/.test(between)) return null;
+    }
+    prevEnd = found.end;
+    at = found.end;
+  }
+  return filterReply(v, { finish: 'stop' }).ok && !touchesHealth(v) ? v : null;
 };
 
 /** The graph or a rule term knows the term, so it is an ingredient name and no claim (fix round 5). */

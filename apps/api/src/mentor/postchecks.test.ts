@@ -222,6 +222,22 @@ describe('Step 12 ruling: a meal description joined from the player\'s own phras
     expect(post([meal('half a sandwich and a safe snack')], T02)).toEqual([]);
     expect(post([meal('half a sandwich, and')], T02)).toEqual([]);
   });
+  test('fix round 2 N1: parts in the player\'s order, undenied, in one sentence, "with" only where the player said it', () => {
+    const dropped: [string, string][] = [
+      ['toast without butter for breakfast', 'toast with butter'],
+      ['chicken curry for dinner, no peanuts', 'chicken curry with peanuts'],
+      ['pizza later, soup now', 'soup and pizza'],
+      ['I had eggs. I am allergic to milk', 'eggs with milk'],
+      ['toast and jam, fine for my allergy', 'toast with fine'],
+      ['soup now, maybe pizza', 'soup and pizza'],
+      ['beans and rice, thinking about cake', 'beans, rice and cake'],
+      ['had toast and jam', 'toast with jam'],
+    ];
+    for (const [said, desc] of dropped) expect(post([meal(desc)], said), `${said} → ${desc}`).toEqual([]);
+    expect(post([meal('toast with butter')], 'toast with butter for breakfast')).toEqual([meal('toast with butter')]);
+    expect(post([meal('soup and bread')], 'soup and some bread for lunch')).toEqual([meal('soup and bread')]);
+  });
+
   test('rule terms are never joined', () => {
     expect(post([rule('peanuts and sesame', 'allergy')], "I'm allergic to peanuts. Sesame too")).toEqual([]);
   });
