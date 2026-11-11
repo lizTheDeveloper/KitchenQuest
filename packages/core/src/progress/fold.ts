@@ -129,6 +129,9 @@ const addTo = (m: Map<string, Set<string>>, k: string, v: string) => {
   m.set(k, set);
 };
 
+/** The cooks an accepted cook stands in for (I3); stored data is not trusted, so a malformed field is none. */
+export const standsInFor = (e: { standsInFor?: unknown }): string[] => strings(e.standsInFor);
+
 /** Apply one accepted event's own facts (not its grants) to the state. */
 export function applyEvent(s: FoldState, e: ProgressEvent, cat: Catalogue): void {
   s.ids.add(e.id);
@@ -139,11 +142,15 @@ export function applyEvent(s: FoldState, e: ProgressEvent, cat: Catalogue): void
     case 'cooked': {
       addTo(s.cookedOn, e.recipe, e.at); // sacred dishes too (C39): the record is kept, only the loop skips them
       const r = cat.recipes.get(e.recipe);
-      if (r && !r.sacred) addTo(s.cookWeeks, r.cook, isoWeek(e.at));
+      if (r && !r.sacred) {
+        addTo(s.cookWeeks, r.cook, isoWeek(e.at));
+        for (const c of standsInFor(e)) addTo(s.cookWeeks, c, isoWeek(e.at));
+      }
       break;
     }
     case 'frame_cooked':
       addTo(s.framesCookedOn, e.frame, e.at);
+      for (const c of standsInFor(e)) addTo(s.cookWeeks, c, isoWeek(e.at));
       break;
     case 'quest_step':
       if (e.step > (s.questSteps.get(e.quest) ?? 0)) s.questSteps.set(e.quest, e.step);

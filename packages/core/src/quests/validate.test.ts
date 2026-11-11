@@ -74,7 +74,7 @@ describe('validateQuests', () => {
   it('M2: riddle options need string text and reaction and a boolean correct; prompt and explain are strings; lines are string lists', () => {
     const riddle = (over: Record<string, unknown>): Quest => ({
       ...leela,
-      steps: leela.steps.map((s) => (s.type === 'riddle' ? ({ ...s, ...over } as unknown as QuestStep) : s)),
+      steps: leela.steps.map((s) => (s.type === 'riddle' ? { ...s, ...over } : s)),
     });
     const r = leela.steps[3];
     if (r.type !== 'riddle') throw new Error('fixture');

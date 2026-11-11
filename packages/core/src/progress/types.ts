@@ -11,9 +11,13 @@ export type ProgressEvent =
   /** A recipe read-through (Ruling 20). */
   | { id: string; kind: 'lesson'; at: string; recipe: string }
   | { id: string; kind: 'drill'; at: string; quest: string; step: number; technique: string }
-  /** Cook mode finished. */
-  | { id: string; kind: 'cooked'; at: string; recipe: string; planned: boolean }
-  | { id: string; kind: 'frame_cooked'; at: string; frame: string; technique: string }
+  /**
+   * Cook mode finished. `standsInFor` (I3 ruling) names cooks whose every dish is ⛔ for the player on `at` and to
+   * one of which this dish is an alternative (core `standInCooks`): the cook then counts toward their trust weeks
+   * too. grantsFor accepts it only with the player's rules (its `rules` argument) and only when it holds.
+   */
+  | { id: string; kind: 'cooked'; at: string; recipe: string; planned: boolean; standsInFor?: string[] }
+  | { id: string; kind: 'frame_cooked'; at: string; frame: string; technique: string; standsInFor?: string[] }
   /** `step` is 1-based: the first step of a quest is 1. */
   | { id: string; kind: 'quest_step'; at: string; quest: string; step: number }
   | { id: string; kind: 'quest_done'; at: string; quest: string }

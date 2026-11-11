@@ -1,11 +1,10 @@
 // The quest engine (spec §3.3, §8): a pure state machine over a quest file and a progress view. The game's runner
 // (Step 9) and the API's event validation (Step 5) share it, so a quest reads the same on the device and the server.
 // It decides nothing about rewards: it only says which progress events a step produces; grantsFor rewards them.
-import type { IngredientGraph } from '../ingredients/graph';
 import type { Catalogue, ProgressEvent, ProgressView } from '../progress/types';
 import type { ParsedRecipe } from '../recipe/types';
-import { check, type CheckStatus, type Substitution } from '../rules/check';
-import type { Rule } from '../rules/types';
+import { check, type CheckStatus } from '../rules/check';
+import { alternativesOn, passes, statusOn, type CookAlternative, type RulesContext } from './alternatives';
 import { recognizedCook } from '../toolkit/toolkit';
 import type { Quest, QuestStep } from './types';
 
@@ -50,31 +49,10 @@ export type StepInput =
  * What a step needs beyond the quest and the view (C5): the player's rules for an errand's item on `today`, and the
  * recipes' cooks for a recognize step.
  */
-export interface StepContext {
-  rules: Rule[];
-  graph: IngredientGraph;
-  subs: Substitution[];
+export interface StepContext extends RulesContext {
   today: string;
   cat: Pick<Catalogue, 'recipes'>;
-  /** Every canon recipe (all taught, Ruling 3), for checking a cook step's dish and its alternatives. */
-  recipes: ReadonlyMap<string, ParsedRecipe>;
-  /**
-   * Pantry Frames the player could cook, each with its technique and its rules status today as the frame engine
-   * (Step 3) works it out with `check`. Optional until frames exist; only 'ok' and 'swap' frames are ever offered.
-   */
-  frames?: readonly FrameOption[];
 }
-
-export interface FrameOption {
-  id: string;
-  technique: string;
-  status: CheckStatus;
-}
-
-/** A dish that can stand in for a rule-blocked quest dish: never ⛔ or ❓. */
-export type CookAlternative =
-  | { kind: 'recipe'; slug: string; status: 'ok' | 'swap' }
-  | { kind: 'frame'; id: string; status: 'ok' | 'swap' };
 
 /** The Pan trigger for a quest cook step completed as an adapted lesson (content/dialogue/pan.yaml). */
 export const COOK_ADAPTED_TRIGGER = 'quest.cook_adapted';
@@ -146,30 +124,16 @@ function errandSwap(item: string, ctx: StepContext): ErrandAdapted['swap'] {
 
 /** The rules status of a quest dish today; a recipe missing from `ctx.recipes` can't be verified. */
 export function dishStatus(slug: string, ctx: StepContext): CheckStatus {
-  const r = ctx.recipes.get(slug);
-  return r ? check(r, ctx.rules, ctx.graph, ctx.subs, ctx.today).status : 'unverified';
+  return statusOn(slug, ctx.today, ctx);
 }
 
-const passes = (s: CheckStatus): s is 'ok' | 'swap' => s === 'ok' || s === 'swap';
-
 /**
- * What can stand in for a cook step's dish: every other non-sacred recipe, and every frame, that practises one of
- * the dish's techniques (its `skills`) and whose rules check today is ✅ or a labelled swap. Recipes by slug, then
- * frames by id. ⛔ and ❓ are never listed. Meant for when `dishStatus` of the step's own dish is ⛔ or ❓.
+ * What can stand in for a cook step's dish today (`alternativesOn`): other non-sacred recipes and frames that practise
+ * one of its techniques and pass the rules (✅ or a labelled swap). ⛔ and ❓ are never listed. Meant for when
+ * `dishStatus` of the step's own dish is ⛔, or ❓ and not cooked.
  */
 export function alternativesFor(step: Extract<QuestStep, { type: 'cook' }>, ctx: StepContext): CookAlternative[] {
-  const skills = new Set(ctx.recipes.get(step.recipe)?.meta.skills ?? []);
-  const out: CookAlternative[] = [];
-  for (const slug of [...ctx.recipes.keys()].sort()) {
-    const r = ctx.recipes.get(slug)!;
-    if (slug === step.recipe || r.meta.sacred || !r.meta.skills.some((t) => skills.has(t))) continue;
-    const status = check(r, ctx.rules, ctx.graph, ctx.subs, ctx.today).status;
-    if (passes(status)) out.push({ kind: 'recipe', slug, status });
-  }
-  for (const f of [...(ctx.frames ?? [])].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))) {
-    if (skills.has(f.technique) && passes(f.status)) out.push({ kind: 'frame', id: f.id, status: f.status });
-  }
-  return out;
+  return alternativesOn(step.recipe, ctx.today, ctx);
 }
 
 /** The other cook from whom the player has `technique` at Tried (audit M-3), or null. */

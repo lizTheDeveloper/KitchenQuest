@@ -13,6 +13,7 @@ import type { ParsedRecipe } from '../recipe/types';
 import type { Substitution } from '../rules/check';
 import type { TechniqueNode } from '../toolkit/techniques';
 import { SHIPPED_QUESTS, SHIPPED_RECIPE_SOURCES, SHIPPED_TECHNIQUES } from './shipped.fixture';
+import type { RulesContext } from './alternatives';
 import type { Quest } from './types';
 
 export const graph = IngredientGraph.fromData(ingredients);
@@ -49,10 +50,10 @@ export const newId = (): string => `q${++n}`;
 export const EMPTY_HISTORY: ProgressHistory = { events: [], grants: [], base: null };
 
 /** Record events through grantsFor, as the API does; throws on any rejection so a test sees it. */
-export function record(h: ProgressHistory, events: readonly ProgressEvent[], cat: Catalogue): ProgressHistory {
+export function record(h: ProgressHistory, events: readonly ProgressEvent[], cat: Catalogue, rules?: RulesContext): ProgressHistory {
   let out = h;
   for (const e of events) {
-    const r = grantsFor(e, out, cat, DATA, T);
+    const r = grantsFor(e, out, cat, DATA, T, rules);
     if (r.problems.length > 0) throw new Error(`rejected ${e.kind}: ${r.problems.join(', ')}`);
     out = { ...out, events: [...out.events, e], grants: [...out.grants, ...r.grants] };
   }

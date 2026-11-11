@@ -1,0 +1,152 @@
+// I3 ruling: trust cook-weeks for cook C count weeks with a cook of C's own dish and, when C's dish is ⛔ for the
+// player that week, a cook of an alternativesFor(C's dish) dish or frame. One level a week at most; lessons never.
+import fc from 'fast-check';
+import { describe, expect, it } from 'vitest';
+import { deriveProgress } from '../progress/derive';
+import { DATA, T, addDays } from '../progress/fixtures';
+import { grantsFor, grantsForBatch } from '../progress/rewards';
+import { isoWeek } from '../progress/week';
+import type { ProgressEvent, ProgressHistory } from '../progress/types';
+import type { ParsedRecipe } from '../recipe/types';
+import type { Rule } from '../rules/types';
+import { standInCooks, type RulesContext } from './alternatives';
+import { catalogueOf, EMPTY_HISTORY, graph, newId, quests, recipes, record, subs } from './fixtures';
+
+const ALLIUM: Rule = { id: 'r-allium', target: { kind: 'category', ids: ['allium'] }, type: 'avoid', severity: 'allergy' };
+const PARIPPU = 'india/kerala/parippu';
+const p0 = recipes.get(PARIPPU)!;
+const line = (name: string) => ({ name, displayName: null, quantity: 100, unit: 'g', note: null });
+/** A legumes dish with nothing allium in it: ✅ under an allium rule, and an alternative to parippu. */
+const plainDal: ParsedRecipe = { ...p0, meta: { ...p0.meta, cook: 'marisol', skills: ['legumes'] }, ingredients: [line('split moong dal'), line('salt')] };
+const rs = new Map([...recipes, ['test/plain-dal', plainDal]]);
+const all = Object.values(quests);
+const cat = catalogueOf(all, rs);
+const ctx = (rules: Rule[], frames?: RulesContext['frames']): RulesContext => ({ rules, graph, subs, recipes: rs, ...(frames ? { frames } : {}) });
+
+const MON = '2026-11-09';
+const leelaDone = (at: string): ProgressEvent[] => [
+  ...Array.from({ length: 5 }, (_, i): ProgressEvent => ({ id: newId(), kind: 'quest_step', at, quest: 'leela-tempering', step: i + 1 })),
+  { id: newId(), kind: 'quest_done', at, quest: 'leela-tempering' },
+];
+const dal = (at: string, standsInFor?: string[]): ProgressEvent => ({ id: newId(), kind: 'cooked', at, recipe: 'test/plain-dal', planned: false, ...(standsInFor ? { standsInFor } : {}) });
+const trustOf = (h: ProgressHistory, cook: string) => deriveProgress(h, cat).trust[cook] ?? 0;
+
+describe('trust through a stand-in dish (I3)', () => {
+  it('standInCooks: under an allium rule the plain dal stands in for Leela (parippu ⛔); without rules for no one', () => {
+    expect(standInCooks({ kind: 'recipe', slug: 'test/plain-dal' }, MON, cat, ctx([ALLIUM]))).toEqual(['leela']);
+    expect(standInCooks({ kind: 'recipe', slug: 'test/plain-dal' }, MON, cat, ctx([]))).toEqual([]);
+    // A rule that starts later in the week: not ⛔ yet on Monday.
+    expect(standInCooks({ kind: 'recipe', slug: 'test/plain-dal' }, MON, cat, ctx([{ ...ALLIUM, phase: { start: '2026-11-11' } }]))).toEqual([]);
+  });
+
+  it('an allium player reaches trust above Guest through an alternative', () => {
+    const c = ctx([ALLIUM]);
+    let h = record(EMPTY_HISTORY, [dal(MON, ['leela']), ...leelaDone(MON)], cat, c);
+    expect(trustOf(h, 'leela')).toBe(1);
+    h = record(h, [dal(addDays(MON, 7), ['leela'])], cat, c);
+    expect(trustOf(h, 'leela')).toBe(2); // 2 cook-weeks → Acquainted
+    for (let w = 2; w < 7; w++) h = record(h, [dal(addDays(MON, 7 * w), ['leela'])], cat, c);
+    expect(trustOf(h, 'leela')).toBe(4); // 7 cook-weeks → Family friend
+  });
+
+  it('the pace is the same: at most one level a week, however many stand-in cooks', () => {
+    const c = ctx([ALLIUM]);
+    let h = record(EMPTY_HISTORY, [dal(MON, ['leela']), ...leelaDone(MON)], cat, c);
+    for (let d = 1; d < 7; d++) h = record(h, [dal(addDays(MON, d), ['leela'])], cat, c);
+    expect(trustOf(h, 'leela')).toBe(1);
+  });
+
+  it('a ⛔-dish player gains no trust from lessons', () => {
+    const c = ctx([ALLIUM]);
+    let h = record(EMPTY_HISTORY, [{ id: newId(), kind: 'lesson', at: MON, recipe: PARIPPU }, ...leelaDone(MON)], cat, c);
+    for (let w = 1; w < 12; w++) h = record(h, [{ id: newId(), kind: 'lesson', at: addDays(MON, 7 * w), recipe: PARIPPU }], cat, c);
+    expect(trustOf(h, 'leela')).toBe(1);
+    // A lesson carrying a stand-in claim is not a stand-in either.
+    const forged = { id: newId(), kind: 'lesson', at: addDays(MON, 100), recipe: PARIPPU, standsInFor: ['leela'] } as unknown as ProgressEvent;
+    const h2 = record(h, [forged], cat, c);
+    expect(trustOf(h2, 'leela')).toBe(1);
+  });
+
+  it('a stand-in claim must hold: rejected without the rules context, when the dish is not ⛔, for its own cook, or for an unknown cook', () => {
+    const base = record(EMPTY_HISTORY, leelaDone(MON), cat, ctx([]));
+    const problems = (e: ProgressEvent, c?: RulesContext) => grantsFor(e, base, cat, DATA, T, c).problems;
+    expect(problems(dal(addDays(MON, 7), ['leela']))).toEqual(['bad_field']);
+    expect(problems(dal(addDays(MON, 7), ['leela']), ctx([]))).toEqual(['bad_field']);
+    expect(problems(dal(addDays(MON, 7), ['marisol']), ctx([ALLIUM]))).toEqual(['bad_field']);
+    expect(problems(dal(addDays(MON, 7), ['nobody']), ctx([ALLIUM]))).toEqual(['bad_field']);
+    expect(problems(dal(addDays(MON, 7), ['leela', 'leela']), ctx([ALLIUM]))).toEqual(['bad_field']);
+    expect(problems(dal(addDays(MON, 7), 'leela' as unknown as string[]), ctx([ALLIUM]))).toEqual(['bad_field']);
+    expect(problems(dal(addDays(MON, 7), ['leela']), ctx([ALLIUM]))).toEqual([]);
+    // No claim, no context needed: an ordinary cook is unchanged.
+    expect(problems(dal(addDays(MON, 7)))).toEqual([]);
+  });
+
+  it('a frame stands in too, when its technique is one of the dish\'s and it passes the rules', () => {
+    const c = ctx([ALLIUM], [{ id: 'quick-tomato', technique: 'tempering', status: 'ok' }]);
+    const catF = { ...cat, frames: new Map([['quick-tomato', { technique: 'tempering' }]]) };
+    expect(standInCooks({ kind: 'frame', id: 'quick-tomato' }, MON, catF, c)).toEqual(['leela']);
+    const frame = (at: string): ProgressEvent => ({ id: newId(), kind: 'frame_cooked', at, frame: 'quick-tomato', technique: 'tempering', standsInFor: ['leela'] });
+    let h = record(EMPTY_HISTORY, [frame(MON), ...leelaDone(MON)], catF, c);
+    h = record(h, [frame(addDays(MON, 7))], catF, c);
+    expect(deriveProgress(h, catF).trust.leela).toBe(2);
+    // A ⛔ or ❓ frame never stands in.
+    for (const status of ['blocked', 'unverified'] as const) {
+      const bad = ctx([ALLIUM], [{ id: 'quick-tomato', technique: 'tempering', status }]);
+      expect(standInCooks({ kind: 'frame', id: 'quick-tomato' }, MON, catF, bad)).toEqual([]);
+      expect(grantsFor(frame(addDays(MON, 14)), h, catF, DATA, T, bad).problems).toEqual(['bad_field']);
+    }
+  });
+
+  it('grantsForBatch ≡ grantsFor with a rules context', () => {
+    const c = ctx([ALLIUM]);
+    const events = [dal(MON, ['leela']), ...leelaDone(MON), ...Array.from({ length: 5 }, (_, w) => dal(addDays(MON, 7 * (w + 1)), ['leela'])), dal(MON, ['marisol'])];
+    const batch = grantsForBatch(events, EMPTY_HISTORY, cat, DATA, T, c);
+    let h = EMPTY_HISTORY;
+    const seq = events.map((e) => {
+      const r = grantsFor(e, h, cat, DATA, T, c);
+      if (r.problems.length === 0) h = { ...h, events: [...h.events, e], grants: [...h.grants, ...r.grants] };
+      return { event: e, ...r };
+    });
+    expect(batch).toEqual(seq);
+  });
+
+  it('property: with stand-in claims, grantsForBatch ≡ grantsFor and trust, XP and stamps never go down', () => {
+    const c = ctx([ALLIUM]);
+    const evArb = fc.tuple(fc.integer({ min: 0, max: 60 }), fc.constantFrom('dal', 'dal-claim', 'dal-bad-claim', 'lesson', 'parippu')).map(
+      ([d, k]): ProgressEvent => {
+        const at = addDays(MON, d);
+        if (k === 'dal') return dal(at);
+        if (k === 'dal-claim') return dal(at, ['leela']);
+        if (k === 'dal-bad-claim') return dal(at, ['marisol']);
+        if (k === 'lesson') return { id: newId(), kind: 'lesson', at, recipe: PARIPPU };
+        return { id: newId(), kind: 'cooked', at, recipe: PARIPPU, planned: false };
+      },
+    );
+    fc.assert(
+      fc.property(fc.array(evArb, { maxLength: 25 }), (tail) => {
+        const events = [...leelaDone(MON), ...tail];
+        const batch = grantsForBatch(events, EMPTY_HISTORY, cat, DATA, T, c);
+        let h = EMPTY_HISTORY;
+        let prev = deriveProgress(h, cat);
+        events.forEach((e, i) => {
+          const r = grantsFor(e, h, cat, DATA, T, c);
+          expect(batch[i]).toEqual({ event: e, ...r });
+          if (r.problems.length === 0) h = { ...h, events: [...h.events, e], grants: [...h.grants, ...r.grants] };
+          const v = deriveProgress(h, cat);
+          expect(v.xp).toBeGreaterThanOrEqual(prev.xp);
+          expect(v.stamps).toBeGreaterThanOrEqual(prev.stamps);
+          for (const [cook, l] of Object.entries(prev.trust)) expect(v.trust[cook]).toBeGreaterThanOrEqual(l);
+          prev = v;
+        });
+        // One level a week at most: above Guest, no ISO week holds two trust grants for one cook.
+        const perWeek = new Map<string, number>();
+        for (const g of h.grants) if (g.kind === 'trust' && g.level >= 2) {
+          const k = `${g.cook} ${isoWeek(g.isoDay)}`;
+          perWeek.set(k, (perWeek.get(k) ?? 0) + 1);
+        }
+        for (const n of perWeek.values()) expect(n).toBe(1);
+      }),
+      { numRuns: 60 },
+    );
+  });
+});

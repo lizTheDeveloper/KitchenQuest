@@ -1,5 +1,6 @@
 // The never rules, as properties (spec §6, §16 never rules 3, 6 and 8; Review Focus 2).
 import fc from 'fast-check';
+import type { RulesContext } from '../quests/alternatives';
 import { describe, expect, expectTypeOf, test } from 'vitest';
 import type { FreshnessThresholds } from '../toolkit/types';
 import { compactHistory, deriveProgress } from './derive';
@@ -110,9 +111,9 @@ describe('never rules', () => {
   });
 
   test('property: grants are independent of anything but events, catalogue and data (grantsFor has no entitlement input)', () => {
-    // Type level: exactly these five inputs.
-    expectTypeOf(grantsFor).parameters.toEqualTypeOf<[ProgressEvent, ProgressHistory, Catalogue, RewardsData, FreshnessThresholds]>();
-    expect(grantsFor.length).toBe(5);
+    // Type level: exactly these inputs; the optional sixth is the player's rules and content (I3 stand-in cooks).
+    expectTypeOf(grantsFor).parameters.toEqualTypeOf<[ProgressEvent, ProgressHistory, Catalogue, RewardsData, FreshnessThresholds, RulesContext?]>();
+    expect(grantsFor.length).toBe(6);
     // Source level (no entitlement, money, clock or run-of-days term in progress/): packages/core/test/progress-architecture.test.ts.
     // Pure: the same inputs give the same grants, and extra fields on an event are never read as an entitlement.
     fc.assert(

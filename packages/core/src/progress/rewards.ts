@@ -2,7 +2,8 @@ import { isValidDate } from '../rules/active';
 import { refreshDue, toolkitFromEvents } from '../toolkit/toolkit';
 import type { FreshnessThresholds, ToolkitState } from '../toolkit/types';
 import { levelFor, trustLevel } from './derive';
-import { applyEvent, applyGrant, foldHistory, key, type FoldState } from './fold';
+import { standInCooks, type RulesContext } from '../quests/alternatives';
+import { applyEvent, applyGrant, foldHistory, key, standsInFor, type FoldState } from './fold';
 import type { Catalogue, ProgressEvent, ProgressHistory, RewardGrant, RewardsData, StampId, XpReason } from './types';
 import { isoWeek } from './week';
 
@@ -91,8 +92,29 @@ function requiresDone(q: { requires: readonly string[] }, s: FoldState): boolean
   return q.requires.every((r) => s.questsDone.includes(r));
 }
 
-function validateKind(e: Record<string, unknown>, s: FoldState, cat: Catalogue): ProgressProblem[] {
+function validateKind(e: Record<string, unknown>, s: FoldState, cat: Catalogue, rules: RulesContext | undefined): ProgressProblem[] {
   const p: ProgressProblem[] = [];
+  /**
+   * I3: a stand-in claim holds only with the player's rules, on the event's date, naming each cook once, each one a
+   * cook this dish really stands in for (`standInCooks`). Without a claim nothing changes.
+   */
+  const standIn = (dish: { kind: 'recipe'; slug: string } | { kind: 'frame'; id: string }) => {
+    if (e.standsInFor === undefined) return;
+    const claim: unknown = e.standsInFor;
+    const ok =
+      rules !== undefined &&
+      isValidDate(e.at) &&
+      Array.isArray(claim) &&
+      claim.length > 0 &&
+      new Set(claim).size === claim.length &&
+      claim.every((c): c is string => isStr(c));
+    if (!ok) {
+      p.push('bad_field');
+      return;
+    }
+    const holds = new Set(standInCooks(dish, e.at as string, cat, rules));
+    if (!claim.every((c) => holds.has(c))) p.push('bad_field');
+  };
   const quest = () => {
     const q = isStr(e.quest) ? cat.quests.get(e.quest) : undefined;
     if (!q) p.push('unknown_quest');
@@ -107,6 +129,7 @@ function validateKind(e: Record<string, unknown>, s: FoldState, cat: Catalogue):
       break;
     case 'cooked':
       if (!isStr(e.recipe) || !cat.recipes.has(e.recipe)) p.push('unknown_recipe');
+      else standIn({ kind: 'recipe', slug: e.recipe });
       if (typeof e.planned !== 'boolean') p.push('bad_field');
       break;
     case 'drill': {
@@ -123,6 +146,7 @@ function validateKind(e: Record<string, unknown>, s: FoldState, cat: Catalogue):
       if (!f) p.push('unknown_frame');
       technique();
       if (f && isStr(e.technique) && cat.techniques.has(e.technique) && f.technique !== e.technique) p.push('technique_mismatch');
+      if (f && isStr(e.frame)) standIn({ kind: 'frame', id: e.frame });
       break;
     }
     case 'quest_step': {
@@ -179,14 +203,14 @@ function validateKind(e: Record<string, unknown>, s: FoldState, cat: Catalogue):
   return p;
 }
 
-function validate(event: unknown, s: FoldState, cat: Catalogue): ProgressProblem[] {
+function validate(event: unknown, s: FoldState, cat: Catalogue, rules: RulesContext | undefined): ProgressProblem[] {
   if (!isObj(event)) return ['bad_event'];
   const p: ProgressProblem[] = [];
   if (!isStr(event.id) || event.id.length > MAX_ID_LENGTH) p.push('bad_id');
   else if (s.ids.has(event.id)) p.push('duplicate_id');
   if (!isValidDate(event.at)) p.push('bad_date');
   else if ((s.perDate.get(event.at) ?? 0) >= MAX_PROGRESS_EVENTS_PER_DAY) p.push('too_many_events');
-  p.push(...validateKind(event, s, cat));
+  p.push(...validateKind(event, s, cat, rules));
   return p;
 }
 
@@ -230,6 +254,13 @@ function eventGrants(e: ProgressEvent, s: FoldState, cat: Catalogue, data: Rewar
   };
   const before = s.toolkit;
   const after = toolkitFromEvents([e], cat, before);
+  /** A new ISO cook-week for each of these cooks may lift their trust one level (Ruling 2; I3 adds stand-ins). */
+  const cookWeek = (cooks: readonly string[]) => {
+    for (const cook of new Set(cooks)) {
+      const weeks = s.cookWeeks.get(cook) ?? new Set<string>();
+      if (!weeks.has(isoWeek(e.at))) out.push(...trustRise(cook, weeks.size + 1, s, cat, data, e.id));
+    }
+  };
   const refreshes = (techniques: readonly string[]) => {
     for (const technique of new Set(techniques)) if (refreshDue(before, technique, e.at, t)) xp(data.xp.refresh, 'refresh', null);
   };
@@ -249,13 +280,13 @@ function eventGrants(e: ProgressEvent, s: FoldState, cat: Catalogue, data: Rewar
       if (!r || r.sacred) return [];
       xp(data.xp.cook, 'cook', key('cook', e.recipe, e.at));
       refreshes(r.skills);
-      const weeks = s.cookWeeks.get(r.cook) ?? new Set<string>();
-      if (!weeks.has(isoWeek(e.at))) out.push(...trustRise(r.cook, weeks.size + 1, s, cat, data, e.id));
+      cookWeek([r.cook, ...standsInFor(e)]);
       break;
     }
     case 'frame_cooked':
       xp(data.xp.frame, 'frame', key('frame', e.frame, e.at));
       refreshes([e.technique]);
+      cookWeek(standsInFor(e));
       break;
     case 'quest_done': {
       const q = cat.quests.get(e.quest);
@@ -299,8 +330,9 @@ function evaluate(
   cat: Catalogue,
   data: RewardsData,
   thresholds: FreshnessThresholds,
+  rules: RulesContext | undefined,
 ): { grants: RewardGrant[]; problems: string[] } {
-  const problems = validate(event, s, cat);
+  const problems = validate(event, s, cat, rules);
   if (problems.length > 0) return { grants: [], problems };
 
   const drafts = eventGrants(event, s, cat, data, thresholds);
@@ -320,6 +352,9 @@ function evaluate(
  * player-shaped input. Problems non-empty → reject the event and grant nothing. It reads only the event, the
  * history, the catalogue and the data: no paid status is an input (never rule 3) and nothing reads a run of days.
  *
+ * `rules` is the player's rules and content (I3): needed only to accept a cook's `standsInFor` claim, which is
+ * rejected without it. The API and the device pass the same rules they judge dishes with.
+ *
  * Order matters (M2): each grant is fixed when written, so the same events in another order can earn a different,
  * never lower, total (meal gaps, trust weeks counted before the quest). Device and account views need not converge;
  * they are merged field-wise upward (Ruling 8).
@@ -330,8 +365,9 @@ export function grantsFor(
   cat: Catalogue,
   data: RewardsData,
   thresholds: FreshnessThresholds,
+  rules?: RulesContext,
 ): { grants: RewardGrant[]; problems: string[] } {
-  return evaluate(event, foldHistory(history, cat), cat, data, thresholds);
+  return evaluate(event, foldHistory(history, cat), cat, data, thresholds, rules);
 }
 
 /**
@@ -346,10 +382,11 @@ export function grantsForBatch(
   cat: Catalogue,
   data: RewardsData,
   thresholds: FreshnessThresholds,
+  rules?: RulesContext,
 ): { event: ProgressEvent; grants: RewardGrant[]; problems: string[] }[] {
   const s = foldHistory(history, cat);
   return events.map((event) => {
-    const r = evaluate(event, s, cat, data, thresholds);
+    const r = evaluate(event, s, cat, data, thresholds, rules);
     if (r.problems.length === 0) {
       applyEvent(s, event, cat);
       for (const g of r.grants) applyGrant(s, g, event);
