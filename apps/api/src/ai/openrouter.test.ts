@@ -350,4 +350,25 @@ describe('normaliseToolArguments (model tool arguments only)', () => {
     const r = await setup(json(200, body)).provider.complete({ messages: [{ role: 'user', content: 'x' }], tools: [] });
     expect(r.ok && r.toolCalls[0].arguments).toBe(raw);
   });
+
+  test('runs in linear time on hostile markup (no backtracking: the model controls the string)', () => {
+    const hostile = [
+      `x</parameter${' '.repeat(40)}a`,
+      `x</parameter${'\t '.repeat(5000)}z`,
+      `${' '.repeat(20000)}</parameter${' '.repeat(20000)}q`,
+      `${'<parameter'.repeat(5000)}!`,
+    ];
+    for (const h of hostile) {
+      const t0 = performance.now();
+      normaliseToolArguments(JSON.stringify({ region: h }), PROFILE);
+      expect(performance.now() - t0).toBeLessThan(200);
+    }
+  });
+
+  test('still cuts a markup-only suffix and keeps one that has other text after it', () => {
+    expect(norm({ region: 'Kerala\n</parameter>\n<' }).region).toBe('Kerala');
+    expect(norm({ region: 'Kerala  <parameter=x>' }).region).toBe('Kerala');
+    expect(norm({ region: 'Kerala </parameter> drop table' }).region).toBe('Kerala </parameter> drop table');
+  });
 });
+
