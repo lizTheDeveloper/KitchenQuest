@@ -1,5 +1,5 @@
 import { SCREEN_TITLES } from '../shell/titles';
-import { type ParsedRecipe, type RecipeIngredient } from '@kitchenquest/core/engine';
+import { applyNotes, type ParsedRecipe, type RecipeIngredient } from '@kitchenquest/core/engine';
 import { content, graph, techniqueName } from '../content';
 import { buildRecipeCard, type RecipeCard } from '../recipes/card-model';
 import { renderSafetyStrip } from '../recipes/card-view';
@@ -15,6 +15,7 @@ import { cookStepEvents } from '../quests/quest-runner';
 import { plannedOn } from '../week/memory';
 import { runCookMode } from './cook-mode';
 import { afterCookThenKitchen, cookedEvent } from './finish';
+import { takeNotes } from './with-notes';
 
 const NOT_COOKABLE_TEXT = "This dish isn't cookable with your rules.";
 const SACRED_TEXT = 'Shared as a story only.';
@@ -48,13 +49,16 @@ export function cookScreen(): Screen {
       }
       if (route.name !== 'cook' || !Object.hasOwn(content.recipes, route.slug)) throw new RouteNotFound();
       const { slug } = route;
-      const recipe: ParsedRecipe = content.recipes[slug];
+      // "Cook with my notes" (Step 11): the notes the book handed over, applied to a copy; the canon is never changed.
+      const notes = takeNotes(slug);
+      const recipe: ParsedRecipe = notes === null ? content.recipes[slug] : applyNotes(content.recipes[slug], notes);
       const cook = content.cooks[recipe.meta.cook];
 
       const buildCard = () => {
         const state = ctx.store.get();
         return buildRecipeCard({
           slug, content, graph, rules: activeRules(state, graph), today: localDate(ctx.now()), showCalories: state.settings.showCalories,
+          ...(notes === null ? {} : { notes }),
         });
       };
       // The same card model as the recipe card, and the only safety check (§2.1). Runs on every mount, so a
@@ -87,7 +91,7 @@ export function cookScreen(): Screen {
       };
 
       cleanup = runCookMode(el, ctx, {
-        title: card.title,
+        title: notes === null ? card.title : `${card.title}, with your notes`,
         recipe,
         draft: card.draft,
         strip: () => renderSafetyStrip(card),

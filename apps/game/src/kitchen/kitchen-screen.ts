@@ -61,6 +61,9 @@ function kitchenScreen(): Screen {
         .catch((err: unknown) => { console.error(err); });
       // The apprentice card and the knife roll read progress, which loads after first paint (Step 9.3).
       let stopCard: (() => void) | null = null;
+      // The Shared Table tally (Step 11, C21): counts only, signed in only, read once per visit after first paint.
+      let shared: number | null = null;
+      const email = ctx.store.get().account?.email ?? null;
       void Promise.all([progressService(), import('./apprentice-card')]).then(([svc, { renderApprenticeCard, renderGuestOffer }]) => {
         if (!alive) return;
         const draw = () => {
@@ -68,10 +71,17 @@ function kitchenScreen(): Screen {
             ? renderGuestOffer({ add: () => { const p = svc.sync.addGuestProgress(); draw(); return p; }, dismiss: () => { guestOfferDismissed = true; draw(); } })
             : null;
           if (offer === null && cardSlot.querySelector('.guest-offer')?.contains(doc.activeElement)) cardSlot.querySelector<HTMLElement>('.apprentice-card h2')?.focus();
-          cardSlot.replaceChildren(renderApprenticeCard(svc.view()), ...(offer ? [offer] : []));
+          cardSlot.replaceChildren(renderApprenticeCard(svc.view(), shared), ...(offer ? [offer] : []));
         };
         draw();
         stopCard = svc.subscribe(draw);
+        if (email !== null && !ctx.store.get().settings.familyTable) {
+          void getMentorServices().client.sharedTally().then((r) => {
+            if (!alive || !r.ok || (ctx.store.get().account?.email ?? null) !== email) return;
+            shared = Number.isInteger(r.data.shared) && r.data.shared > 0 ? r.data.shared : null;
+            draw();
+          });
+        }
       }, (err: unknown) => { console.error(err); });
       let rollOpening = false;
       const openRoll = () => {
@@ -100,6 +110,8 @@ function kitchenScreen(): Screen {
         { id: 'talk', label: 'Talk to the Pan', run: () => getMentor().open() },
         { id: 'toolkit', label: 'Knife roll', run: openRoll },
         { id: 'recipes', label: 'Recipe shelf', run: () => ctx.navigate({ name: 'recipes' }) },
+        // The Recipe Book on the shelf (Step 11): an HTML control now; its sprite slot is M10's.
+        { id: 'book', label: 'Recipe Book', run: () => ctx.navigate({ name: 'book', slug: null }) },
         { id: 'week', label: 'This week', run: () => ctx.navigate({ name: 'plan' }) },
         { id: 'map', label: 'Go out to the world map', run: () => ctx.navigate({ name: 'map' }) },
       ]);

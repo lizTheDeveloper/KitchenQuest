@@ -81,3 +81,42 @@ export function bookSlip(form: BureauForm, kind: string, readback: readonly stri
     },
   };
 }
+
+/** A chip group: buttons with aria-pressed, at most one pressed. `toggle`: a second tap on the pressed chip clears it. */
+export function chipGroup<T extends string | number>(label: string, chips: readonly { value: T; label: string }[], pressed: T | null, onPick: (v: T | null) => void, toggle = false): HTMLElement {
+  const buttons = chips.map((c) => {
+    const b = h('button', { type: 'button', class: 'chip-choice', 'aria-pressed': String(c.value === pressed), 'data-value': String(c.value) }, c.label);
+    b.addEventListener('click', () => {
+      const next = b.getAttribute('aria-pressed') === 'true' && toggle ? null : c.value;
+      for (const x of buttons) x.setAttribute('aria-pressed', String(x === b && next !== null));
+      onPick(next);
+    });
+    return b;
+  });
+  return h('div', { class: 'chip-row', role: 'group', 'aria-label': label }, ...buttons);
+}
+
+export const UNDONE_TEXT = 'Undone. Nothing was kept.';
+const UNDO_FAILED = "That didn't go through. Try again in a moment.";
+
+/**
+ * An M4-style undo for a kept row: there until `until` (the undo window), then gone. `run` reverses it (true when
+ * done). Focus never falls to the page when the button goes. Undoing never touches anything earned.
+ */
+export function undoButton(until: string, now: () => Date, run: () => Promise<boolean>): HTMLElement {
+  const b = h('button', { type: 'button', class: 'btn btn-secondary book-undo' }, 'Undo');
+  const status = h('p', { class: 'after-cook-status', role: 'status', tabindex: -1 });
+  const wrap = h('div', { class: 'button-row' }, b, status);
+  const timer = setTimeout(() => { if (b === b.ownerDocument.activeElement) status.focus(); b.remove(); }, Math.max(0, Date.parse(until) - now().getTime()));
+  b.addEventListener('click', () => {
+    b.disabled = true;
+    void run().then((ok) => {
+      if (!ok) { b.disabled = false; status.textContent = UNDO_FAILED; return; }
+      clearTimeout(timer);
+      b.remove();
+      status.textContent = UNDONE_TEXT;
+      status.focus();
+    });
+  });
+  return wrap;
+}
