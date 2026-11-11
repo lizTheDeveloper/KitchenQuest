@@ -7,7 +7,7 @@ import { VOICE_ALLOWLIST } from '../src/content/voice-allowlist';
 import type { PlayerState } from '../src/state/store';
 import { offOrigin, openApp, PAN_READY, type OpenedApp } from './helpers';
 import {
-  CHROME_BANNED, CONTENT_BANNED, COUNTDOWN, LOOP_NEVER, LOOP_SCREENS, MENTOR_BANNED, LINE_SOURCES, RESCUE_SEED, RUSTY_SEED, SCREENS, WEEK_SEED, allowlistedAt, bannedPattern,
+  CHROME_BANNED, CONTENT_BANNED, COUNTDOWN, LOOP_NEVER, LOOP_SCREENS, MENTOR_BANNED, LINE_SOURCES, RESCUE_SEED, lineMatcher, RUSTY_SEED, SCREENS, WEEK_SEED, allowlistedAt, bannedPattern,
   cookThrough, loopApi, openScreen,
 } from './screens';
 
@@ -67,6 +67,8 @@ function loopHits(r: { chrome: string[]; content: string[]; wholes: string[] }, 
 
 /** Written lines (with {vars} as X) against LOOP_NEVER, and COUNTDOWN when asked; excused only at an allowlisted location. */
 const ALLOWED_AT = new Set(VOICE_ALLOWLIST.map((a) => `${a.file}\0${a.where}\0${a.line}`));
+/** `text` is `line` with its {vars} filled in. */
+const allowedFilled = (text: string, line: string) => lineMatcher(line).test(text);
 function lintLines(lines: readonly { file: string; where: string; text: string }[], countdown: boolean): string[] {
   const patterns = countdown ? { countdown: COUNTDOWN } : LOOP_NEVER;
   return lines.flatMap((l) => {
@@ -213,6 +215,21 @@ describe('never rules, the weekly loop (M5 Step 12)', () => {
       expect(COUNTDOWN.test(a.line.replace(/\{\w+\}/g, 'X')), a.line).toBe(true);
       expect(lintLines([{ file: a.file, where: `${a.where}.elsewhere`, text: a.line }], true), a.line).not.toEqual([]);
       expect(lintLines([{ file: a.file, where: a.where, text: a.line }], true), a.line).toEqual([]);
+    }
+  });
+
+  it('an allowlisted countdown line on screen passes only by its own location (plan.saved[3], said by the Pan)', async () => {
+    app = await openScreen(SCREENS.find((s) => s.label === 'mentor panel (signed out): a plan card confirmed')!);
+    const entry = VOICE_ALLOWLIST.find((a) => a.where === 'triggers.plan.saved[3]')!;
+    const said = await app.page.locator('#pan-panel .bubble.pan [data-content]').allTextContents();
+    const text = said.map((t) => t.trim()).find((t) => allowedFilled(t, entry.line));
+    expect(text, said.join(' | ')).toBeDefined();
+    expect(COUNTDOWN.test(text!)).toBe(true);
+    expect(allowlistedAt(text!)).not.toBeNull();
+    // The week screens say a trigger's first line (writtenLine): those carry no countdown word, so they need no entry.
+    for (const id of ['plan.saved', 'one_more.refresh', 'week.move_partial']) {
+      const first = LINE_SOURCES.find((src) => src.where === `triggers.${id}[0]`)!;
+      expect(COUNTDOWN.test(first.text), id).toBe(false);
     }
   });
 

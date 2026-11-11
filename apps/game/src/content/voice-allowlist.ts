@@ -120,4 +120,18 @@ export const VOICE_ALLOWLIST: readonly VoiceAllowance[] = [
     reason: "week.move_partial: 'left' is the past of leave (nothing was taken off the device), a reassurance; 'when you're ready' sets no time.",
     scan: 'countdown',
   },
+  {
+    file: 'content/dialogue/pan.yaml',
+    where: 'triggers.plan.dish_unknown[1]',
+    line: "{dish} isn't a dish the cooks have taught, so I've left it out rather than guess. Tell me the dish's name another way?",
+    reason: "plan.dish_unknown (a safety read-back, never a guess): 'left it out' is the past of leave out. Nothing is scarce and nothing is timed.",
+    scan: 'countdown',
+  },
+  {
+    file: 'content/dialogue/pan.yaml',
+    where: 'triggers.frame.slot_empty[3]',
+    line: "Nothing I can verify fits the {slot} under your rules, so I've left it unfilled. The dish shows ❓ until you pick something you've checked.",
+    reason: "frame.slot_empty (can't verify is never safe): 'left it unfilled' is the past of leave. It says why a slot is empty and sets no time.",
+    scan: 'countdown',
+  },
 ];

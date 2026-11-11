@@ -25,6 +25,8 @@ export interface ScreenCase {
   loop?: true;
   /** A plan, market or rescue screen: no countdown word either (audit M-4, never rule 5). */
   countdown?: true;
+  /** Runs in the page before the app (e.g. a fixed Math.random, so the Pan says one chosen variant of a line). */
+  initScript?: string;
 }
 
 // ---- Never rules: the banned-word lists. M4 extends these; keep them here, in one place. ----
@@ -458,7 +460,7 @@ export const LOOP_SCREENS: ScreenCase[] = [
     open: async (p) => {
       await say(p, 'plan my week', 1);
       await p.locator('#pan-panel .pan-card[data-kind="plan"] .plan-item[data-status="blocked"]').waitFor();
-      await p.locator('#pan-panel .pan-card[data-kind="plan"] .plan-item[data-status="unverified"]').waitFor();
+      await p.locator('#pan-panel .pan-card[data-kind="plan"] .plan-item[data-status="unverified"]').first().waitFor();
     },
     primary: (p) => p.locator('#pan-panel .pan-card[data-kind="plan"]').getByRole('button', { name: 'Plan it ✔' }),
   },
@@ -479,6 +481,20 @@ export const LOOP_SCREENS: ScreenCase[] = [
       await p.locator('#pan-text').fill('plan my week: parippu on Sunday, onigiri on Wednesday');
       await p.keyboard.press('Enter');
       await p.locator('#pan-panel .pan-card[data-kind="plan"]').waitFor();
+    },
+    primary: (p) => p.locator('#pan-panel').getByRole('button', { name: 'Send', exact: true }),
+  },
+  {
+    // The Pan picks its line at random; fixed here to its last variant, plan.saved[3] ("A plan's only a guess"),
+    // which is allowlisted at its own location (fix round 1). The week screens always say a trigger's first line.
+    label: 'mentor panel (signed out): a plan card confirmed', loop: true, countdown: true, mentor: true, path: '/', seed: PAN_READY, initScript: 'Math.random = () => 0.99;',
+    open: async (p) => {
+      await p.locator('#pan-button').click();
+      await p.locator('#pan-text').fill('plan my week: parippu on Sunday');
+      await p.keyboard.press('Enter');
+      const card = p.locator('#pan-panel .pan-card[data-kind="plan"]');
+      await card.getByRole('button', { name: 'Plan it ✔' }).click();
+      await p.locator('#pan-panel .trail-entry').waitFor();
     },
     primary: (p) => p.locator('#pan-panel').getByRole('button', { name: 'Send', exact: true }),
   },
@@ -736,7 +752,7 @@ export const SCREENS: ScreenCase[] = [
 
 /** Open a screen the way a player meets it: load, then do what the case says. */
 export async function openScreen(sc: ScreenCase, opts: { width?: number; reducedMotion?: boolean } = {}): Promise<OpenedApp> {
-  const app = await openApp(sc.path, { reducedMotion: opts.reducedMotion ?? true, width: opts.width, seed: sc.seed, beforeGoto: sc.beforeGoto });
+  const app = await openApp(sc.path, { reducedMotion: opts.reducedMotion ?? true, width: opts.width, seed: sc.seed, beforeGoto: sc.beforeGoto, initScript: sc.initScript });
   try {
     await sc.open?.(app.page);
   } catch (err) {
