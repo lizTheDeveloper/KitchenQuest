@@ -144,8 +144,9 @@ export function mountMentor(doc: Document, store: PlayerStore, bank: LineBank, c
       const conversation = { id: null as string | null };
       const intakeStep = () => { const step = store.get().intake.step; return step === 'done' ? null : step; };
       const screen = () => screenOf(win.location.hash);
-      safety = createLocalSafety({ client, dialogue, graph, now, conversation, screen, intakeStep });
-      return lazyBackend('ai', { fallback: scriptedWhenUnavailable(engine, dialogue), local: safety.reply }, async () => (await import('./ai-backend')).createAiBackend({
+      const mine = createLocalSafety({ client, dialogue, graph, now, conversation, screen, intakeStep });
+      safety = mine;
+      return lazyBackend('ai', { fallback: scriptedWhenUnavailable(engine, dialogue), local: (i, c) => mine.reply(i, c) }, async () => (await import('./ai-backend')).createAiBackend({
         client, engine, dialogue, store, graph, ruleTerms: content.ruleTerms, now, events: win, screen, intakeStep, conversation,
       }));
     });
