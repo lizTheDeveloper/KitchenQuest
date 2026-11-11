@@ -15,9 +15,11 @@ import {
   leftoverNamedIngredients,
   matchDish,
   MENTOR_TURN_DEADLINE_MS,
+  navIntent,
   nonAllergenNamedIds,
   normalizeTurn,
   parseRuleStatement,
+  planIntent,
   playerOwnWords,
   preRoute,
   ruleTermsInPlayerWords,
@@ -30,7 +32,9 @@ import {
   weekdayNumbers,
   type CardAction,
   type IngredientGraph,
+  type NavTarget,
   type OpenCardRef,
+  type PlanRequest,
   type ProfilePatchInput,
   type Rule,
   type ProposalCard,
@@ -58,6 +62,7 @@ import type { Db } from '../types.js';
 import { completeUsage, recordSent } from '../usage/usage.js';
 import { aiTurnsLeft, recordAiCost, type BudgetGuard } from './allowance.js';
 import { appendMessages, bumpTurn, openConversation, recentMessages, type StoredMessage } from './conversations.js';
+import { touchesHealth } from './filter.js';
 import { isHealthText } from './health.js';
 import { line, listWords, type PanBank } from './lines.js';
 import type { MemoryFlags, MemoryHistory } from './memory.js';
@@ -65,8 +70,10 @@ import { applyPostChecks } from './postchecks.js';
 import { buildPromptContext, minimiseHistory, renderMessages, type PanPrompt } from './prompt.js';
 import { createProposal, hasOpenHealthProposal, openProposalsOfConversation } from './proposals.js';
 import { isWriteRequest } from './requests.js';
+import { goPart, planCardContext, planReply, type PlanCardContext } from './plan-turn.js';
 import { MENTOR_TOOLS, parseToolCall, type ToolArgs } from './tools.js';
-import { confirmProposalIn, latestUndoable, rejectProposalIn, undoWriteIn } from './writes.js';
+import { confirmProposal, latestUndoable, rejectProposalIn, undoWriteIn, type WeekSource } from './writes.js';
+import type { RecipeIndex } from '../recipes/recipe-index.js';
 
 export interface TurnDeps {
   db: Db;
@@ -80,6 +87,8 @@ export interface TurnDeps {
   prompt: PanPrompt;
   /** Conversations where a child spoke (§19), in memory only. */
   childFlags: MemoryFlags;
+  /** The week's content and the app's recipe index (M5 Step 8: plan cards and navigation chips). */
+  week: WeekSource;
   now: () => Date;
 }
 
@@ -149,10 +158,16 @@ async function availability(deps: TurnDeps, userId: string, health: boolean, str
   return ruleHelp ? { mode: 'rule_help' } : { notice: 'rate_limited' };
 }
 
+/**
+ * Without `ai_health`, the tools whose cards carry no health text (R4). M5 Step 8: a plan or a navigation reaches
+ * the model too; a turn whose text the health gate catches never does (stage 4), so it carries no health text.
+ */
+const NON_HEALTH_TOOLS: ReadonlySet<string> = new Set(['propose_profile', 'propose_plan', 'propose_navigation']);
+
 /** The tools a turn offers (R3, R4). */
 function toolsFor(mode: Mode, aiHealth: boolean): AiTool[] {
   if (mode === 'rule_help') return MENTOR_TOOLS.filter((t) => t.name === 'propose_rule');
-  return aiHealth ? MENTOR_TOOLS : MENTOR_TOOLS.filter((t) => t.name === 'propose_profile');
+  return aiHealth ? MENTOR_TOOLS : MENTOR_TOOLS.filter((t) => NON_HEALTH_TOOLS.has(t.name));
 }
 
 /**
@@ -188,6 +203,7 @@ function cardsFromCalls(
   recipes: readonly { slug: string; title: string }[],
   pantry: readonly { id: string; name: string; ingredientId: string | null }[],
   saved: readonly Rule[] = [],
+  week: { planCtx: PlanCardContext | null; recipes: RecipeIndex } = { planCtx: null, recipes: new Map() },
 ): Reply {
   const parts: ReplyPart[] = [];
   const cards: ProposalCard[] = [];
@@ -269,6 +285,25 @@ function cardsFromCalls(
           add({ ...buildPantryCard({ add: call.args.add, remove: removeNames }, deps.catalog.graph), removeIds });
         }
         if (missing.length > 0) parts.push(line('pantry.not_found', { items: listWords(missing) }));
+        break;
+      }
+      case 'propose_plan': {
+        // Plans are health data (Step 6 ruling): without health_data, the consent card, never a card.
+        if (!healthData || week.planCtx === null) {
+          needsConsent();
+          break;
+        }
+        const a = call.args;
+        const request: PlanRequest = { days: a.days, pick: a.pick, hard: a.hard_week, after: a.after };
+        const built = planReply(request, week.planCtx);
+        if (built.card !== null) cards.push(built.card);
+        parts.push(...built.parts);
+        break;
+      }
+      case 'propose_navigation': {
+        const a = call.args;
+        const target: NavTarget = a.to === 'visit' ? { to: a.to, cook: a.id! } : a.to === 'recipe' ? { to: a.to, slug: a.id! } : { to: a.to };
+        parts.push(goPart(target, deps, week.recipes));
         break;
       }
     }
@@ -395,6 +430,7 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
   const offered = new Set(f.offered.map((t) => t.name));
   // A name the player said is fine ("peanuts but not sesame", "PECAN not peanut") is never a card (Step 11 ruling).
   const fine = new Set(leftoverNamedIngredients(f.raw, [], graph).excluded.flatMap((n) => graph.resolve(n) ?? []));
+  const index = await deps.week.recipes.current(deps.db);
   const calls = applyPostChecks(
     f.result.toolCalls
       .filter((c) => offered.has(c.name))
@@ -403,6 +439,7 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
     f.raw,
     graph,
     deps.catalog.ruleTerms,
+    { cooks: deps.week.loop.cooks, slugs: new Set(index.keys()) },
   ).filter((c) => !(c.name === 'propose_rule' && fine.has(graph.resolve(c.args.term) ?? '')));
   return deps.db.transaction(async (tx) => {
     await lockLiveUser(tx, userId);
@@ -416,7 +453,9 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
     const pantry = removes ? await loadPantry(tx, deps.keyring, userId) : [];
     // The saved rules, only when a rule card might be made (S13 ruling: never a card below one of them).
     const saved = persist && calls.some((c) => c.name === 'propose_rule') ? await loadRules(tx, deps.keyring, userId) : [];
-    if (calls.length > 0) reply = cardsFromCalls(deps, calls, f.req, persist, recipes, pantry, saved);
+    // M5 Step 8: the plan week's context, only for a plan call and only with health_data (plans are health data).
+    const planCtx = persist && calls.some((c) => c.name === 'propose_plan') ? await planCardContext(tx, deps, userId, f.req.localDate, now) : null;
+    if (calls.length > 0) reply = cardsFromCalls(deps, calls, f.req, persist, recipes, pantry, saved, { planCtx, recipes: index });
     else if (f.mode === 'rule_help') reply = { parts: [], cards: [], toolTurn: false }; // R3: rule help only
     else reply = scriptedReply(f.stripped, dishNamed, writeRequest);
     // A bare "didn't understand" gives way to any ask that follows.
@@ -450,6 +489,12 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
       !isHealthText(rest, deps.catalog) &&
       dishNamed;
     if (suitabilityOnly && reply.cards.length === 0) reply.parts = [line('mentor.check_card'), ...(writeRequest ? [line('write.not_done')] : [])];
+    // M5 Step 8 (P02): a plan turn whose words ask whether a dish fits ("they're fine for my peanut allergy, right?")
+    // is pointed at the dish card's own check; the plan card's statuses are code's, never the player's or the model's.
+    const planTurn = calls.some((c) => c.name === 'propose_plan');
+    if (planTurn && dishNamed && touchesHealth(playerOwnWords(f.raw)) && !reply.parts.some((p) => p.kind === 'line' && p.line.trigger === 'mentor.check_card')) {
+      reply.parts.unshift(line('mentor.check_card'));
+    }
     const proposedRule = f.result.toolCalls.some((c) => c.name === 'propose_rule' && offered.has(c.name));
     const droppedRule = proposedRule && keptRuleTerms.length === 0;
     if (f.health && !suitabilityOnly && !hasRuleOutcome(reply) && (reply.cards.length === 0 || droppedRule)) {
@@ -502,6 +547,11 @@ function refusalParts(e: unknown): ReplyPart[] {
   if (e instanceof ZodError) return [line('didnt_understand')];
   if (!(e instanceof ApiError) || e.status === 401 || e.status >= 500) throw e;
   if (e.status === 403) return [line('consent.health_first'), { kind: 'consent', purpose: 'health_data' }];
+  // M5 Step 8: a plan card the rules now refuse was closed; its plan.blocked_dish lines say why.
+  if (e.code === 'plan_invalid') {
+    const parts = (e.details as { parts?: ReplyPart[] } | undefined)?.parts;
+    return parts !== undefined && parts.length > 0 ? parts : [line('didnt_understand')];
+  }
   // The daily write cap (usage/write-cap.ts): say so plainly, never "didn't understand" (fix round 1, M5).
   if (e.status === 429) return [line('write.daily_limit')];
   return [line('didnt_understand')];
@@ -521,10 +571,11 @@ async function shortReply(
   userId: string,
   intent: TurnIntent,
   opened: Opened,
-  answering: string | undefined,
+  req: TurnRequest,
   now: Date,
   requestId: string,
 ): Promise<TurnResponse | null> {
+  const answering = req.answering;
   if (intent !== 'yes' && intent !== 'no' && intent !== 'undo') return null;
   const id = opened.conversationId;
   const done = (parts: ReplyPart[], actions: CardAction[] = []) => respond(id, 'deterministic', parts, null, { actions });
@@ -568,7 +619,8 @@ async function shortReply(
       return done([{ kind: 'line', line: target.line }]);
     case 'confirm':
       try {
-        const r = await deps.db.transaction((tx) => confirmProposalIn(tx, deps, userId, target.ref, 'typed_yes', undefined, now, requestId));
+        // A plan card's week window reads the player's local date (Step 6 I2); a plan the rules now refuse is closed.
+        const r = await confirmProposal(deps.db, deps, userId, target.ref, 'typed_yes', undefined, now, requestId, undefined, req.localDate);
         return done(r.parts, [{ kind: 'confirmed', proposalId: target.ref, trail: r.trail }]);
       } catch (e) {
         return done(refusalParts(e));
@@ -581,6 +633,35 @@ async function shortReply(
         return done(refusalParts(e));
       }
   }
+}
+
+/**
+ * Stage 5b (M5 Step 8): `planIntent` / `navIntent` on the player's own words. A navigation is one `go` part (a chip;
+ * nothing is stored). A plan is a card from core `buildPlanCard`, made under the finishing turn's locks (live user
+ * → health_data share lock → conversation row → messages → mentor_proposals), stored like a model card so a tap or a
+ * typed yes can confirm it; without health_data (plans are health data) it is the consent card and no card. Null
+ * when code reads neither.
+ */
+async function codeRoute(deps: TurnDeps, userId: string, raw: string, req: TurnRequest, opened: Opened, now: Date): Promise<TurnResponse | null> {
+  const id = opened.conversationId;
+  const plan = planIntent(raw);
+  const index = await deps.week.recipes.current(deps.db);
+  const nav = plan === null ? navIntent(raw, { cooks: deps.week.loop.cooks, slugs: new Set(index.keys()) }) : null;
+  if (nav !== null) return respond(id, 'deterministic', [goPart(nav, deps, index)]);
+  if (plan === null) return null;
+  return deps.db.transaction(async (tx) => {
+    await lockLiveUser(tx, userId);
+    const persist = await consentHeldIn(tx, userId, 'health_data', now);
+    if (!persist) return respond(id, 'deterministic', [line('consent.health_first'), { kind: 'consent', purpose: 'health_data' }]);
+    const built = planReply(plan, await planCardContext(tx, deps, userId, req.localDate, now));
+    if (!(await lockConversation(tx, userId, id))) return respond(id, 'deterministic', built.parts);
+    const ids = built.card === null ? [] : [randomUUID()];
+    const stripped = stripPageEvents(raw).text.trim();
+    await appendMessages(tx, deps.keyring, deps.memory, userId, id, [{ role: 'player', text: stripped }, { role: 'pan', parts: built.parts, proposalIds: ids }], true, now);
+    const cards: ServerCard[] = [];
+    if (built.card !== null) cards.push(await createProposal(tx, deps.keyring, { userId, conversationId: id, turnSeq: opened.turnSeq, card: built.card, id: ids[0] }, now));
+    return respond(id, 'deterministic', built.parts, null, { cards });
+  });
 }
 
 /**
@@ -628,7 +709,7 @@ export async function runTurn(deps: TurnDeps, userId: string, req: TurnRequest, 
   if (fixed !== null) return respond(id, 'deterministic', [{ kind: 'line', line: fixed }]);
 
   // 3b. A plain yes, no or undo answers a card through the write guard, before the consent gate (Step 8).
-  const short = await shortReply(deps, userId, intent, opened, req.answering, now, requestId);
+  const short = await shortReply(deps, userId, intent, opened, req, now, requestId);
   if (short !== null) return short;
 
   // 4. Health text never reaches the model without ai_health (C1, C-13, P-3).
@@ -637,6 +718,16 @@ export async function runTurn(deps: TurnDeps, userId: string, req: TurnRequest, 
 
   // 5. AI off, budget, daily allowance (rule help never capped, but then only rule help).
   const avail = await availability(deps, userId, health, stripped, now);
+
+  // 5b. M5 Step 8: a plan or a navigation code reads alone ("plan my week: parippu on Sunday", "pick 3", "take me
+  // to the market") gets its card or chip from code, with no model call, also with the AI off (§7.5). It runs here,
+  // after the allowance check, never ahead of it (Ruling 27, C26): at the cap the turn stays scripted, and the plan
+  // screen still plans the week. The safety pre-routes above always win.
+  const capped = 'notice' in avail ? avail.notice === 'rate_limited' : avail.mode === 'rule_help';
+  if (!capped) {
+    const coded = await codeRoute(deps, userId, raw, req, opened, now);
+    if (coded !== null) return coded;
+  }
   if ('notice' in avail || deps.ai === null) return respond(id, 'scripted', [], 'notice' in avail ? avail.notice : 'ai_off');
 
   // 6. The model, with minimised context and only the tools this turn may use.

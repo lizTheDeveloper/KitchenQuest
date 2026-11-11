@@ -388,7 +388,7 @@ export const messages = pgTable(
 );
 
 /** Core's `ProposalKind`, as stored (`mentor/proposals.ts` checks the two agree). */
-export const PROPOSAL_KINDS = ["rule", "meal", "profile", "pantry"] as const;
+export const PROPOSAL_KINDS = ["rule", "meal", "profile", "pantry", "plan"] as const;
 export const PROPOSAL_STATUSES = ["open", "confirmed", "rejected", "expired", "undone"] as const;
 export const PROPOSAL_CHANNELS = ["tap", "typed_yes"] as const;
 

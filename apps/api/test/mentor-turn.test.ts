@@ -345,15 +345,15 @@ describe('rule help and the daily cap (pre-flight C6)', () => {
 });
 
 describe('tools — the model can only propose', () => {
-  test('only propose_* tools are offered; without ai_health only propose_profile (R4)', async () => {
+  test('only propose_* tools are offered; without ai_health only propose_profile, propose_plan and propose_navigation (R4, M5 Step 8)', async () => {
     const ai = fakeAi([reply('Rice.'), reply('Rice.')]);
     await makeApp(ai);
     const p = await player(AI_HEALTH);
     await turn(p.cookie, 'what should I cook tonight?');
-    expect(ai.requests[0].tools.map((t) => t.name)).toEqual(['propose_rule', 'propose_meal_log', 'propose_profile', 'propose_pantry_change']);
+    expect(ai.requests[0].tools.map((t) => t.name)).toEqual(['propose_rule', 'propose_meal_log', 'propose_profile', 'propose_pantry_change', 'propose_plan', 'propose_navigation']);
     const q = await player(HEALTH);
     await turn(q.cookie, 'what should I cook tonight?');
-    expect(ai.requests[1].tools.map((t) => t.name)).toEqual(['propose_profile']);
+    expect(ai.requests[1].tools.map((t) => t.name)).toEqual(['propose_profile', 'propose_plan', 'propose_navigation']);
   });
 
   test('without ai_health a model call for a tool it was not offered is ignored (R4)', async () => {
@@ -1368,7 +1368,7 @@ describe('fix round 2: repros', () => {
     await makeApp(ai);
     const p = await player();
     const r = await turn(p.cookie, 'we finished it');
-    expect(ai.requests[0].tools.map((t) => t.name)).toEqual(['propose_profile']);
+    expect(ai.requests[0].tools.map((t) => t.name)).toEqual(['propose_profile', 'propose_plan', 'propose_navigation']);
     noText(r);
     expect(r.cards).toEqual([]);
   });

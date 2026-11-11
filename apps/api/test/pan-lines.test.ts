@@ -46,8 +46,9 @@ function emitted(): Map<string, Set<string>> {
 }
 
 /** REQUIRED_PAN_TRIGGERS, read from the game's source as text (the API never imports the game). */
+// The list's entries, and (M5) the keys of M5_LOOP_TRIGGERS_AI, which the list spreads in.
 const required = new Set(
-  [...readFileSync(join(ROOT, 'apps/game/src/content/required.ts'), 'utf8').matchAll(/^\s*'([a-z_.]+)',/gm)].map((m) => m[1]),
+  [...readFileSync(join(ROOT, 'apps/game/src/content/required.ts'), 'utf8').matchAll(/^\s*'([a-z_.]+)'(?:,|:\s*'(?:never|allowed)',)/gm)].map((m) => m[1]),
 );
 const yaml = parse(readFileSync(join(ROOT, 'content/dialogue/pan.yaml'), 'utf8')) as {
   triggers: Record<string, { vars?: Record<string, string>; lines: string[] }>;

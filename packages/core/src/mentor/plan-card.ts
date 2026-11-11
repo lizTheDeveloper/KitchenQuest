@@ -45,6 +45,11 @@ function blockedFinding(findings: readonly Finding[], graph: IngredientGraph): s
   return path.length > 1 ? `${what} counts as ${path[path.length - 1]}` : `${what} is on your rules`;
 }
 
+/** `plan.blocked_dish` for a dish the rules block, with what blocks it (the card's read-back, and a confirm the rules now refuse). */
+export function blockedDishLine(slug: string, findings: readonly Finding[], recipes: PlanContext['recipes'], graph: IngredientGraph): LineRef {
+  return line('plan.blocked_dish', { dish: dishName(slug, recipes), finding: blockedFinding(findings, graph) });
+}
+
 /** The ⛔ findings of `slug` on the first day of the week it is blocked on (for the read-back's `{finding}`). */
 function findingsWhenBlocked(slug: string, ctx: PlanContext): Finding[] {
   const plan = { weekStart: ctx.weekStart, items: Array.from({ length: PLAN_DAYS }, (_, day): PlanItem => ({ day, kind: 'dish', slug, servings: 1 })), hard: false, slot: 'unanswered' as const };
@@ -103,7 +108,7 @@ export function buildPlanCard(req: PlanRequest, ctx: PlanContext & { slot: Weekl
   const tail: LineRef[] = [
     ...r.unknown.map((dish) => line('plan.dish_unknown', { dish })),
     ...[...new Set(checks.filter((c) => c.status === 'unverified').map((c) => c.slug))].map((slug) => line('plan.unverified_dish', { dish: dishName(slug, ctx.recipes) })),
-    ...dropped.map((slug) => line('plan.blocked_dish', { dish: dishName(slug, ctx.recipes), finding: blockedFinding(findingsWhenBlocked(slug, ctx), ctx.graph) })),
+    ...dropped.map((slug) => blockedDishLine(slug, findingsWhenBlocked(slug, ctx), ctx.recipes, ctx.graph)),
     ...r.sacred.map((slug) => line(PLAN_DISH_SACRED_TRIGGER, { dish: dishName(slug, ctx.recipes) })),
     ...r.noDay.map((dish) => line('plan.which_day', { dish })),
     ...(r.afterNoDay === null ? [] : [line('plan.after_which_day', { day: r.afterNoDay })]),

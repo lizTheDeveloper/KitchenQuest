@@ -69,6 +69,8 @@ export function partsToItems(parts: readonly ReplyPart[], dialogue: Dialogue): P
       case 'line': return [{ kind: 'said', said: dialogue.say(p.line.trigger, p.line.vars) }];
       case 'choices': return [{ kind: 'choices', options: p.options, severity: p.severity }];
       case 'consent': return [{ kind: 'consent', purpose: p.purpose }];
+      // M5 Step 8 (C22): a navigation chip is said as its nav.offer line for now; Step 10 adds the chip itself.
+      case 'go': return [{ kind: 'said', said: dialogue.say(p.line.trigger, p.line.vars) }];
       case 'text':
         if (import.meta.env.DEV) console.warn('mentor: a text part from the server was dropped (ruling R9)');
         return [];
@@ -202,6 +204,9 @@ export function createCardWriter(deps: {
         undos.set(id, { kind: 'pantry', card, where: account ? 'account' : 'device', removed, addedIds });
         return { ok: true, trail: trail(id, 'local', card), items: confirmedLines(card, removed.map((r) => r.name)).map(say) };
       }
+      // M5 Step 8 (C22): no local plan store until Step 10, so a local plan card is never written here.
+      case 'plan':
+        return { ok: false, reason: 'invalid', items: [line('write.not_done')] };
     }
   }
 

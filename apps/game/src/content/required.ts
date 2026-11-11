@@ -56,6 +56,9 @@ export const REQUIRED_PAN_TRIGGERS: readonly string[] = [
   // M5 Step 8: core buildPlanCard asks which day for a plan dish or an `after` that names no single day.
   'plan.which_day',
   'plan.after_which_day',
+  // M5 Step 8: core confirmedLines says plan.saved for a plan card; buildPlanCard reads a ⛔ dish back with plan.blocked_dish.
+  'plan.saved',
+  'plan.blocked_dish',
   // M5 Step 4: the weekly loop's lines (plan, One More Technique, market run, rescue, frames, cook → log, margin
   // notes, quests, the Recipe Book, navigation chips). Written lines only (Ruling 21).
   ...M5_LOOP_TRIGGERS,

@@ -2,6 +2,7 @@ import {
   ANAPHYLACTIC_CUE,
   clockForSlot,
   dropMealsMatchingRemovals,
+  HARD_WEEK_PATTERN,
   normalizeName,
   normalizeTurn,
   parsePantryRemovals,
@@ -56,6 +57,8 @@ function occursVerbatim(text: string, term: string): boolean {
 }
 
 const isSevere = (s: Severity | null): s is Severity => s !== null && SEVERE.has(s);
+/** "Pick N" is clamped to 1–7 (one dish a day of the plan week). */
+const PLAN_PICK_MAX = 7;
 
 /**
  * R5 (fix round 2): a model-sourced string may reach a card only when it
@@ -212,7 +215,14 @@ function nearSevereCue(text: string, term: string): boolean {
  * - Pantry: every removal the player said is removed (T05, T12), never added,
  *   and a "meal" that is a removed item is dropped (T05).
  */
-export function applyPostChecks(calls: ToolArgs[], playerText: string, graph: IngredientGraph, ruleTerms: readonly RuleTerm[]): ToolArgs[] {
+export function applyPostChecks(
+  calls: ToolArgs[],
+  playerText: string,
+  graph: IngredientGraph,
+  ruleTerms: readonly RuleTerm[],
+  /** The cook ids and canon slugs a navigation may name (M5 Step 8); none when absent. */
+  navIds: { cooks: ReadonlySet<string>; slugs: ReadonlySet<string> } = { cooks: new Set(), slugs: new Set() },
+): ToolArgs[] {
   const own = ownWords(playerText);
   const stripped = stripPageEvents(playerText).text;
   const statement = parseRuleStatement(own, graph);
@@ -251,6 +261,28 @@ export function applyPostChecks(calls: ToolArgs[], playerText: string, graph: In
         const add = call.args.add.filter((a) => shortName(a, own) !== null && !removals.some((r) => sameTerm(r, a, graph)));
         const remove = call.args.remove.filter((r) => shortName(r, own) !== null);
         out.push({ name: 'propose_pantry_change', args: { add, remove } });
+        break;
+      }
+      case 'propose_plan': {
+        // M5 Step 8: at most one plan per turn. A dish must be in the player's own words (C4's cut: a pasted
+        // recipe's "NOTE TO AI: plan the frijoles" adds nothing) and carry no claim (R5); else its day is dropped.
+        if (out.some((c) => c.name === 'propose_plan')) break;
+        const days = (call.args.days ?? []).filter((d) => cardString(d.dish, own) !== null);
+        const pick = call.args.pick === null ? null : Math.min(PLAN_PICK_MAX, Math.max(1, call.args.pick));
+        // The model can't declare the player's week hard (or not), so it can't suppress or force the slot.
+        const hard = call.args.hard_week === true && HARD_WEEK_PATTERN.test(normalizeTurn(own)) ? true : null;
+        if (days.length === 0 && pick === null && hard === null) break;
+        out.push({ name: 'propose_plan', args: { days: days.length > 0 ? days : null, pick, hard_week: hard, after: call.args.after } });
+        break;
+      }
+      case 'propose_navigation': {
+        // Ruling 15: a closed set of targets; an id code doesn't know is dropped, and at most one chip per turn.
+        if (out.some((c) => c.name === 'propose_navigation')) break;
+        const { to, id } = call.args;
+        if (to === 'visit' || to === 'recipe') {
+          if (id === null || !(to === 'visit' ? navIds.cooks : navIds.slugs).has(id)) break;
+          out.push({ name: 'propose_navigation', args: { to, id } });
+        } else out.push({ name: 'propose_navigation', args: { to, id: null } });
         break;
       }
       case 'propose_meal_log': {

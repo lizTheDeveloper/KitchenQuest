@@ -114,9 +114,10 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
   await recipeRoutes(app, catalog);
   await mealRoutes(app);
   await pantryRoutes(app, catalog);
-  await mentorRoutes(app, catalog, mentor);
   // C7: one recipe index for the app, re-read when a recipe sync changes canon_recipes.
   const recipes = createRecipeIndexSource();
+  // M5 Step 8: the Pan's plan cards and navigation chips read the same index and loop content.
+  await mentorRoutes(app, catalog, mentor, { loop, recipes });
   const progress: ProgressRouteDeps = {
     loop,
     recipes,

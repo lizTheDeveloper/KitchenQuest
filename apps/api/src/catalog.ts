@@ -115,6 +115,8 @@ export interface LoopContent {
   quests: Quest[];
   /** The cook ids: the `content/cooks/*.yaml` file names. */
   cooks: ReadonlySet<string>;
+  /** Each cook's display name (`name` in its file), by id: a navigation chip's `{place}` (M5 Step 8). */
+  cookNames: ReadonlyMap<string, string>;
   /** The market stall ids: the `content/market/*.yaml` file names. */
   stalls: ReadonlySet<string>;
   /** The Pantry Frames (`content/frames/*.yaml`), sorted by id. */
@@ -231,8 +233,11 @@ export function loadLoopContent(catalog: Catalog, dataDir: string = DATA_DIR, co
   const cooks: ReadonlySet<string> = new Set(cookFiles.map((c) => c.id));
   const quests: Quest[] = [];
   const pathOfQuest = new Map<string, string>();
+  const cookNames = new Map<string, string>();
   for (const { id, path } of cookFiles) {
-    const { quest } = withFileId(path, id, readYaml(path));
+    const { quest, name } = withFileId(path, id, readYaml(path));
+    if (typeof name !== 'string' || name.trim() === '') throw new Error(`Catalog: ${path}: name must be a non-empty string`);
+    cookNames.set(id, name);
     if (!isObj(quest)) throw new Error(`Catalog: ${path}: quest must be a mapping`);
     quests.push(quest as unknown as Quest);
     if (typeof quest.id === 'string') pathOfQuest.set(quest.id, path);
@@ -267,6 +272,7 @@ export function loadLoopContent(catalog: Catalog, dataDir: string = DATA_DIR, co
     thresholds,
     quests: quests.sort(byId),
     cooks,
+    cookNames,
     stalls,
     frames: frames.sort(byId),
     stallOf: stallOf as StallMap,

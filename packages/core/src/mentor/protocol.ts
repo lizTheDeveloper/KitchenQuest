@@ -103,6 +103,8 @@ export interface ConfirmRequest {
    * since forgotten, or none) is closed, never written (409 `proposal_closed`).
    */
   conversationId?: string | null;
+  /** M5 Step 8: the player's local date (YYYY-MM-DD), for a plan card's week window. */
+  today?: string;
 }
 
 export interface ConfirmResponse {
