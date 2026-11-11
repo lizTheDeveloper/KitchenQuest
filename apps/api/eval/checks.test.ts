@@ -146,7 +146,7 @@ describe('meetsBar', () => {
       }),
     );
 
-  it('passes a clean run and allows two tool misses in 54 (≥ 95%)', () => {
+  it('passes a clean run and allows two tool misses in 48 (≥ 95%)', () => {
     expect(meetsBar(all(() => true), CASES).ok).toBe(true);
     expect(meetsBar(all((c, rep) => !(rep === 0 && (c.id === 'T04' || c.id === 'T05'))), CASES).ok).toBe(true);
   });

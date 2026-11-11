@@ -1,0 +1,94 @@
+import { afterEach, describe, expect, it } from 'vitest';
+import type { Page } from 'playwright';
+import { openApp, PAN_READY, type OpenedApp } from './helpers';
+
+// M4 Step 12: free forever (§16, never rule 1). A signed-in player whose AI chat is capped
+// (`/api/mentor/turn` answers scripted + rate_limited) still files an allergy, logs a meal and gets
+// the dish blocked, and nothing on any screen sells.
+
+/** step-12.md's sells pattern. */
+const SELLS = /\b(guild|upgrade|subscri\w*|premium)\b|\$\s?\d/i;
+
+let app: OpenedApp | null = null;
+afterEach(async () => { await app?.close(); app = null; });
+
+const json = (status: number, body: unknown) => ({ status, contentType: 'application/json', body: JSON.stringify(body) });
+const BOTH_CONSENTS = {
+  consents: ['health_data', 'ai_health'].map((purpose) => ({ purpose, noticeVersion: 'v1', noticeSha256: 'x', method: 'tap', grantedAt: '2026-11-01T00:00:00Z', withdrawnAt: null, endedReason: null, current: true })),
+  needsReconsent: [], notices: {},
+};
+const panBubbles = (page: Page) => page.locator('#pan-panel .bubble.pan');
+async function tell(page: Page, text: string) {
+  const before = await panBubbles(page).count();
+  await page.locator('#pan-text').fill(text);
+  await page.keyboard.press('Enter');
+  await page.waitForFunction((n) => document.querySelectorAll('#pan-panel .bubble.pan').length > n, before);
+}
+const bodyText = (page: Page) => page.evaluate(() => document.body.innerText);
+
+describe('free forever (§16)', () => {
+  it('capped (scripted + rate_limited): an allergy is stamped, a meal is logged, the parippu card is blocked, nothing sells', async () => {
+    const rules: { id: string; target: { kind: string; ids: string[] }; type: string; severity: string }[] = [];
+    const meals: unknown[] = [];
+    let turns = 0;
+    app = await openApp('/#/settings', {
+      reducedMotion: true,
+      seed: PAN_READY,
+      beforeGoto: async (page) => {
+        await page.route((u) => u.pathname === '/api/me', (r) => r.fulfill(json(200, { id: 'u1', email: 'cook@example.com', entitlements: [] })));
+        await page.route((u) => u.pathname === '/api/me/consents', (r) => r.fulfill(json(200, BOTH_CONSENTS)));
+        await page.route((u) => u.pathname === '/api/rules', (r) => {
+          if (r.request().method() !== 'POST') return r.fulfill(json(200, { rules }));
+          const body = r.request().postDataJSON() as { rule: Omit<(typeof rules)[number], 'id'> };
+          const rule = { ...body.rule, id: `s${rules.length + 1}` };
+          rules.push(rule);
+          return r.fulfill(json(201, { rule }));
+        });
+        await page.route((u) => u.pathname === '/api/meals', (r) => {
+          if (r.request().method() !== 'POST') return r.fulfill(json(200, { meals: [] }));
+          const { meal } = r.request().postDataJSON() as { meal: object };
+          const saved = { ...meal, id: `m${meals.length + 1}` };
+          meals.push(saved);
+          return r.fulfill(json(201, { meal: saved }));
+        });
+        await page.route((u) => u.pathname === '/api/mentor/turn', (r) => {
+          turns++;
+          return r.fulfill(json(200, { conversationId: null, route: 'scripted', parts: [], cards: [], actions: [], notice: 'rate_limited', toolTurn: false }));
+        });
+      },
+    });
+    const { page } = app;
+    await expect.poll(() => page.evaluate(() => (JSON.parse(localStorage.getItem('kq.player.v1') ?? '{}') as { account?: unknown }).account ?? null)).not.toBeNull();
+    await page.locator('#pan-button').click();
+
+    await tell(page, "I'm allergic to coconut");
+    const ruleCard = page.locator('#pan-panel .pan-card').filter({ hasText: 'C-O-C-O-N-U-T' });
+    await ruleCard.waitFor();
+    await ruleCard.getByRole('button', { name: 'Stamp it ✔' }).click();
+    await expect.poll(() => rules.length).toBe(1);
+    expect(rules[0]).toMatchObject({ target: { ids: ['coconut'] }, type: 'avoid' });
+
+    await tell(page, 'had toast for breakfast');
+    const mealCard = page.locator('#pan-panel .pan-card').filter({ hasText: /toast/i });
+    await mealCard.waitFor();
+    await mealCard.getByRole('button', { name: 'Log it' }).click();
+    await expect.poll(() => meals.length).toBe(1);
+    expect(meals[0]).toMatchObject({ slot: 'breakfast', item: { kind: 'free', description: expect.stringMatching(/toast/i) } });
+
+    expect(turns).toBeGreaterThanOrEqual(2); // both went to the server, which said "capped": the script answered
+    const panelText = await bodyText(page);
+    expect(panelText).not.toMatch(SELLS);
+
+    await page.keyboard.press('Escape');
+    await page.evaluate(() => { location.hash = '#/recipe/india/kerala/parippu'; });
+    await page.locator('.recipe-card .recipe-status .chip[data-status="blocked"]').waitFor();
+    expect(await bodyText(page)).not.toMatch(SELLS);
+    for (const hash of ['#/', '#/rules', '#/settings', '#/recipes']) {
+      await page.evaluate((h) => { location.hash = h; }, hash);
+      await page.waitForFunction((h) => location.hash === h, hash);
+      await page.waitForTimeout(150);
+      expect(await bodyText(page), hash).not.toMatch(SELLS);
+    }
+    expect(app.consoleErrors).toEqual([]);
+  });
+});
