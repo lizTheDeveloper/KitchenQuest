@@ -93,6 +93,18 @@ describe('keyboard only, kitchen to certificate and back', () => {
       await page.locator('.dialogue .dialogue-text .typed-full').filter({ hasText: line }).waitFor();
       await press(page, 'Enter');
     }
+    // M5 Step 9: Leela's quest follows the intro. Enter through its lines; at the errand, Tab to "Not yet" to pause it.
+    await page.locator('.quest-panel').or(page.locator('.dialogue')).first().waitFor();
+    while (await page.locator('.quest-panel').count() === 0) {
+      await page.locator('.dialogue .dialogue-next').waitFor();
+      expect((await focused(page)).text, 'the dialogue keeps focus on its button').toMatch(/Next|Done/);
+      await press(page, 'Enter');
+      await page.locator('.quest-panel').or(page.locator('.dialogue')).first().waitFor();
+    }
+    expect((await focused(page)).text, 'the quest panel focuses its first answer').toBe("I've got it");
+    await tabTo(page, 'Not yet', named('Not yet'));
+    await press(page, 'Enter');
+    await page.locator('.quest-panel').waitFor({ state: 'detached' });
     await page.locator('.dialogue').waitFor({ state: 'detached' });
     await tabTo(page, 'See the recipe: Parippu', named('See the recipe: Parippu'));
     await press(page, 'Enter');
