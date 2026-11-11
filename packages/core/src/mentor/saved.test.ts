@@ -24,3 +24,11 @@ test('M-5: the S13 check lives in core: a stricter saved rule (same ids, or a ca
     trigger: 'rule.already_saved', vars: { ingredient: 'peanut', rule: 'peanut', severity: expect.any(String) as string },
   });
 });
+
+test('C1 over-ask: major allergens (a root, a kind of one, or containing one) are never covered by a meal card', async () => {
+  const { isMajorAllergen, nonAllergenNamedIds } = await import('./route');
+  for (const id of ['peanut', 'cashew', 'prawn', 'wheat', 'tahini', 'milk', 'whey']) expect(isMajorAllergen(id, graph), id).toBe(true);
+  for (const id of ['onion', 'rice', 'garlic', 'turmeric']) expect(isMajorAllergen(id, graph), id).toBe(false);
+  expect(isMajorAllergen('not-a-node', graph)).toBe(true); // can't verify is never safe
+  expect(nonAllergenNamedIds('peanut butter toast with onion and rice', graph)).toEqual(['onion', 'rice']);
+});

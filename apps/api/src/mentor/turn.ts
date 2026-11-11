@@ -14,6 +14,7 @@ import {
   leftoverNamedIngredients,
   matchDish,
   MENTOR_TURN_DEADLINE_MS,
+  nonAllergenNamedIds,
   normalizeTurn,
   parseRuleStatement,
   playerOwnWords,
@@ -300,13 +301,18 @@ async function lockConversation(tx: Tx, userId: string, conversationId: string):
 }
 
 /**
- * Ingredient ids the turn accounts for as rules: rule-card targets and ambiguous-term options.
- * A meal or pantry card never covers a name (fix round 1, C1): "peanut butter toast … allergic to
- * peanuts" still asks about peanut.
+ * Ingredient ids the turn accounts for: rule-card targets, ambiguous-term options, and the
+ * non-allergen names a meal or pantry card carries. A meal or pantry card never covers a major
+ * allergen (fix round 1, C1): "peanut butter toast … allergic to peanuts" still asks about peanut.
  */
-function coveredIds(reply: Reply): string[] {
+function coveredIds(reply: Reply, graph: IngredientGraph): string[] {
   const ids: string[] = [...(reply.onFile ?? [])];
   for (const c of reply.cards) if (c.kind === 'rule') ids.push(...c.rule.target.ids);
+  // C1 over-ask (M4 final): what a meal or pantry card names is accounted for, except a major allergen (never covered by one).
+  for (const c of reply.cards) {
+    if (c.kind === 'meal') ids.push(...nonAllergenNamedIds(c.meal.item.kind === 'free' ? c.meal.item.description : c.summary, graph));
+    if (c.kind === 'pantry') ids.push(...nonAllergenNamedIds([...c.add.map((a) => a.name), ...c.remove].join(', '), graph));
+  }
   for (const p of reply.parts) if (p.kind === 'choices') ids.push(...p.options.map((o) => o.id));
   return ids;
 }
@@ -323,7 +329,7 @@ function askForLeftoverNames(reply: Reply, raw: string, intakeStep: TurnRequest[
   const statesRule = intakeStep === 'allergies' || ruleTermsInPlayerWords(raw).length > 0 || statesSevere(raw, graph) || severityFromText(own, graph) !== null;
   // Without health_data nothing can be filed: the consent card asks the player to say it again.
   if (!statesRule || reply.parts.some((p) => p.kind === 'consent')) return;
-  const { left, excluded } = leftoverNamedIngredients(raw, coveredIds(reply), graph);
+  const { left, excluded } = leftoverNamedIngredients(raw, coveredIds(reply, graph), graph);
   if (left.length === 0 && excluded.length === 0) return;
   // A named ask already there (askForDroppedTerms' severe ask) is never removed (C1); only its unnamed
   // form and a bare "didn't understand" give way to the named asks, and no name is asked twice.
@@ -410,7 +416,9 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
 
     // I5: a severe statement always ends with a rule outcome, naming the missed ingredient when code knows it.
     const keptRuleTerms = calls.flatMap((c) => (c.name === 'propose_rule' ? [c.args.term] : []));
-    const ask = askForDroppedTerms(f.raw, keptRuleTerms, hasRuleOutcome(reply), graph);
+    // C1 over-ask: the non-allergen names a meal or pantry card carries are accounted for here too (never an allergen).
+    const mealNames = coveredIds({ ...reply, onFile: [], parts: [], cards: reply.cards.filter((c) => c.kind !== 'rule') }, graph).map((id) => graph.get(id).name);
+    const ask = askForDroppedTerms(f.raw, [...keptRuleTerms, ...mealNames], hasRuleOutcome(reply), graph);
     if (ask !== null) {
       dropBareFallback();
       reply.parts.push({ kind: 'line', line: ask });

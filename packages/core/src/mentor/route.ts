@@ -367,6 +367,33 @@ export function leftoverNamedIngredients(
 }
 
 /**
+ * The major allergens (the EU's 14 and the US's 9) as ledger nodes: an ingredient that is one, a kind of one, or
+ * contains one is a major allergen (M4 final, C1 over-ask).
+ */
+export const ALLERGEN_ROOTS: ReadonlySet<string> = new Set([
+  'nut', 'tree_nut', 'peanut', 'milk', 'egg', 'gluten', 'wheat', 'barley', 'rye', 'oats', 'spelt', 'kamut', 'soy', 'fish',
+  'shellfish', 'crustacean', 'mollusc', 'sesame', 'mustard', 'celery', 'lupin', 'sulphites',
+]);
+
+/** `id` is a major allergen: one of ALLERGEN_ROOTS, a kind of one, or contains one. Unknown ids count (can't verify). */
+export function isMajorAllergen(id: string, graph: IngredientGraph, seen: Set<string> = new Set()): boolean {
+  if (!graph.has(id)) return true;
+  if (seen.has(id)) return false;
+  seen.add(id);
+  if (ALLERGEN_ROOTS.has(id) || graph.ancestors(id).some((a) => ALLERGEN_ROOTS.has(a))) return true;
+  return (graph.get(id).contains ?? []).some((c) => isMajorAllergen(c, graph, seen));
+}
+
+/**
+ * The ingredients a meal or pantry card names that are NOT major allergens: on a rule turn they count as accounted
+ * for, so "had rice with onion … allergic to kiwi" asks about kiwi only (C1 over-ask). A major allergen a meal or
+ * pantry card names is never covered by it (fix round 1 C1 ruling): "peanut butter toast … allergic to peanuts" still asks.
+ */
+export function nonAllergenNamedIds(text: string, graph: IngredientGraph): string[] {
+  return namedIngredients(text, graph).filter((id) => !isMajorAllergen(id, graph));
+}
+
+/**
  * Step 1 carry and Step 7 fix round 1 I5: the player's own words (`playerText` is the RAW turn
  * text) state a severe allergy but name an ingredient that no kept rule term covers (whether or
  * not the grammar parsed it) ("i'm vegetarian, peanuts nearly killed me"). Returns that

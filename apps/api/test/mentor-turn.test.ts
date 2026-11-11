@@ -1711,6 +1711,19 @@ describe('Step 12 carry: every named allergen gets a card or an ask (Step 11 str
     expect(new Set(asked).size).toBe(asked.length); // each named once
   });
 
+  test('C1 over-ask (M4 final): a non-allergen the meal card names is not asked about; the allergen still is', async () => {
+    const mealCall = {
+      id: 'm',
+      name: 'propose_meal_log',
+      arguments: JSON.stringify({ slot: 'lunch', when: 'today', dish: null, servings: null, description: 'rice with onion' }),
+    };
+    await makeApp(fakeAi([withCalls([mealCall])]));
+    const p = await player(AI_HEALTH);
+    const r = await turn(p.cookie, "I had rice with onion for lunch and I'm allergic to sesame");
+    expect(kinds(r)).toEqual(['meal']);
+    expect(lines(r).filter((l) => l.trigger === 'rule.ask_what_else').map((l) => l.vars.term)).toEqual(['sesame']);
+  });
+
   test('a rule card covers its name; a turn stating no rule never asks', async () => {
     const mealCall = { id: 'm', name: 'propose_meal_log', arguments: JSON.stringify({ slot: 'breakfast', when: 'today', dish: null, servings: null, description: 'porridge with milk' }) };
     const ruleCall = { id: 'r', name: 'propose_rule', arguments: JSON.stringify({ term: 'sesame', severity: 'allergy' }) };
