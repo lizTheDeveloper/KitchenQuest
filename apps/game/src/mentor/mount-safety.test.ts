@@ -4,7 +4,7 @@ import { buildProfileCard, type TurnRequest } from '@kitchenquest/core/engine';
 import { createApiClient, type ApiClient } from '../api/client';
 import type { ConsentPurpose } from '../api/types';
 import { content } from '../content';
-import { createStore, type PlayerStore } from '../state/store';
+import { createStore, type PlayerState, type PlayerStore } from '../state/store';
 import type { MentorPanel } from './panel';
 
 const S23 = 'hi im mia im 8 and my mum let me use it. my favourite food is pasta and im allergic to eggs. can you remember that';
@@ -41,12 +41,12 @@ function harness(opts: { granted?: ConsentPurpose[]; delay?: number } = {}) {
 }
 
 let store: PlayerStore;
-async function mount(client: ApiClient): Promise<MentorPanel> {
+async function mount(client: ApiClient, step: PlayerState['intake']['step'] = 'done'): Promise<MentorPanel> {
   // index.ts mounts one panel per page: a fresh module for each test.
   vi.resetModules();
   const { mountMentor } = await import('./index');
   store = createStore(null);
-  store.update((s) => ({ ...s, account: { email: 'cook@example.com' }, accountRules: [], intake: { ...s.intake, step: 'done' }, settings: { ...s.settings, aiMentor: true, reducedMotion: 'on' } }));
+  store.update((s) => ({ ...s, account: { email: 'cook@example.com' }, accountRules: [], intake: { ...s.intake, step }, settings: { ...s.settings, aiMentor: true, reducedMotion: 'on' } }));
   const pan = mountMentor(document, store, content.pan, client);
   pan.open();
   return pan;
@@ -73,6 +73,20 @@ test('a child turn is answered on the device and the conversation stays on the g
   expect(h.names).not.toContain('consents');
   expect(document.querySelector('.pan-card')).toBeNull();
   expect(h.turns).toEqual([]);
+});
+
+test('C-1: a child turn during Form 1-A sets the sticky child flag: the intake answers and free text that follow never reach the AI', async () => {
+  const h = harness();
+  await mount(h.client, 'market_day');
+  await sleep(20); // the intake's first question
+  await send('hello', 50); // an unparsed market-day answer: goes to the AI backend (and loads its code)
+  expect(h.texts()).toEqual(['hello']);
+  await send('hi im mia im 8 my mum lets me use it', 20);
+  await send('idk whenever we want', 20); // unparsed: the intake would ask the AI
+  await send('what should I cook tonight', 20);
+  for (const line of said().slice(-3)) expect(lines('child.grownup')).toContain(line);
+  // Only the child's own turn is delivered (its reply ignored); nothing after it is sent anywhere.
+  expect(h.texts()).toEqual(['hello', 'hi im mia im 8 my mum lets me use it']);
 });
 
 test('G1: without the consents an emergency and a medical question are answered on the device and never posted', async () => {

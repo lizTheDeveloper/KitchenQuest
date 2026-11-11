@@ -509,7 +509,10 @@ export function mountMentorPanel(root: HTMLElement, opts: {
     render(r);
   };
   const reply = (input: MentorInput): Promise<void> => turnWith((ctx) => {
-    const intercepted = input.kind === 'text' && intercept ? intercept(input.text, ctx) : null;
+    // C-1: an emergency, medical or child text always goes to the backend first, never to an intercept (the intake):
+    // the backend answers it on the device and sets the conversation's sticky child flag, so a child's later turns
+    // (intake answers included) never reach the AI. The intake's step simply waits.
+    const intercepted = input.kind === 'text' && intercept && !isSafetyText(input.text) ? intercept(input.text, ctx) : null;
     return intercepted ?? backend.reply(input, ctx);
   });
 

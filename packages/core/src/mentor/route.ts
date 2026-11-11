@@ -486,8 +486,3 @@ export function emergencyRuleAsks(playerText: string, keptRuleTerms: readonly st
   ];
   return left.length === 0 && keptRuleTerms.length === 0 ? [...asks, line('rule.ask_keep_off')] : asks;
 }
-
-/** The first of `emergencyRuleAsks`, or null (kept for callers that show one line). */
-export function emergencyRuleAsk(playerText: string, keptRuleTerms: readonly string[], graph: IngredientGraph): LineRef | null {
-  return emergencyRuleAsks(playerText, keptRuleTerms, graph)[0] ?? null;
-}

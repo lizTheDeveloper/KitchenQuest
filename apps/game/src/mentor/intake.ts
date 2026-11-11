@@ -45,6 +45,8 @@ const SKIP_WORD = /^(please )?(skip|skip (it|this|that|this one|that one|for now
 const NONE_WORDS = /^(none|no|nothing|nope|that'?s all|that'?s it|no allergies)( (thanks|thank you|at all))?$/;
 const PANTRY_NONE = /^(none|nothing|nothing much|not much|empty|it'?s empty|no|nope)$/;
 const REGION_MAX = 80;
+/** Turns the backend's local safety answers (outage.ts createLocalSafety). */
+const SAFETY: ReadonlySet<string> = new Set(['emergency', 'medical', 'child']);
 const REGION_LEAD = /^(i (live|am|'m) (in|from|near)|i'?m (in|from|near)|we'?re (in|from)|in|from|near|around)\s+/i;
 
 const ANSWER_LABELS: Readonly<Record<IntakeStep, string>> = {
@@ -302,6 +304,9 @@ export function createIntake(deps: {
     if (ai !== null) {
       // The server's tools make the card (Step 7): the turn carries `intakeStep` (the AI backend reads the store).
       const r = await ai.reply({ kind: 'text', text }, ctx);
+      // A child spoke earlier in this conversation (C-1): the grown-up line, as the backend answered it; the step waits.
+      const head = r.items[0];
+      if (head?.kind === 'said' && head.said.trigger === 'child.grownup') return r;
       if (r.cards.length > 0 || r.intents.length > 0 || r.actions.length > 0) return r;
       // No card: the AI failed, is capped or read nothing. Keep only what it said about itself, then ask again.
       const notices = r.items.filter((i) => i.kind === 'consent' || (i.kind === 'said' && /^(mentor\.ai_unavailable|rate_limited|ai\.try_again)$/.test(i.said.trigger)));
@@ -337,7 +342,9 @@ export function createIntake(deps: {
     if (parsed.kind === 'skip') return reply(await skipNow());
     // Emergency, medical, child and the other fixed lines: the engine's answer (E2 keeps a stated rule), and the step waits.
     const intent = classifyTurn(stripped);
-    if (preRoute(intent) !== null) return engine.reply(text, c);
+    // An emergency, medical or child turn goes through the backend in use (C-1): its local safety answers it and keeps
+    // the conversation's child flag. (The panel already sends these past the intake; this covers a direct call.)
+    if (preRoute(intent) !== null) return (SAFETY.has(intent) ? aiNow()?.reply({ kind: 'text', text }, c) : undefined) ?? engine.reply(text, c);
     // The consent card is answered by a tap only (C-17, P-4): typed words never grant it.
     if (expecting === 'consent') return reply([say('consent.health_first')]);
     // A plain yes, no or undo with a card open answers the card, as anywhere else.

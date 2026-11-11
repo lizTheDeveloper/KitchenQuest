@@ -24,6 +24,13 @@ describe('local safety answers (mirror of the server turn.ts)', () => {
     expect(r.cards).toEqual([]);
   });
 
+  test('I-2: an emergency that names several allergens asks about every one, as the server does', () => {
+    const r = answer(make().safety.reply(t('allergic to peanuts and shrimp and my throat is closing'), ctx))!;
+    // One ask per allergen named (peanut, shrimp): before I-2 only the first was asked about.
+    expect(triggers(r)).toEqual(['rule.emergency', 'rule.ask_what_else', 'rule.ask_what_else']);
+    expect(r.cards).toEqual([]);
+  });
+
   test('an emergency with no rule stated is the emergency line alone', () => {
     expect(triggers(make().safety.reply(t('my throat is closing'), ctx))).toEqual(['rule.emergency']);
   });

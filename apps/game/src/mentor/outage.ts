@@ -1,4 +1,4 @@
-import { classifyTurn, emergencyRuleAsk, emergencyStatesRule, stripPageEvents, type IngredientGraph } from '@kitchenquest/core/engine';
+import { classifyTurn, emergencyRuleAsks, emergencyStatesRule, stripPageEvents, type IngredientGraph } from '@kitchenquest/core/engine';
 import { createScriptedBackend, type MentorInput } from './backend';
 import type { Dialogue } from './dialogue';
 import type { PanItem, PanReply, TurnContext } from './reply';
@@ -73,8 +73,8 @@ export function createLocalSafety(deps: { dialogue: Dialogue; graph: IngredientG
       if (intent === 'emergency') {
         items = [say('rule.emergency')];
         if (!child && emergencyStatesRule(raw, graph)) {
-          const ask = emergencyRuleAsk(raw, [], graph) ?? { trigger: 'rule.ask_keep_off', vars: {} };
-          items.push(say(ask.trigger, ask.vars));
+          // I-2: every allergen named gets its ask (it ends with rule.ask_keep_off when nothing is named), as on the server.
+          for (const ask of emergencyRuleAsks(raw, [], graph)) items.push(say(ask.trigger, ask.vars));
         }
       } else if (intent === 'child' || child) {
         child = true;

@@ -135,6 +135,17 @@ describe('scripted engine', () => {
     expect(said(r).slice(1).every((t) => t.startsWith('rule.'))).toBe(true);
   });
 
+  test.each([
+    "I'm allergic to sesame and shellfish, my lips are swelling",
+    "I'm allergic to peanuts and my throat is tight",
+    "my throat is closing, I had peanuts, I'm allergic to them, please also add milk as an intolerance",
+  ])('M-2: an emergency turn never carries a card, severe or not, as on the server: %s', (text) => {
+    const r = engine().reply(text, ctx());
+    expect(said(r)[0]).toBe('rule.emergency');
+    expect(r.cards).toEqual([]);
+    expect(said(r).slice(1).length).toBeGreaterThan(0);
+  });
+
   test("I'm vegan, had eggs and my throat is closing → the emergency line, then the egg ask (no diet card)", () => {
     const r = engine().reply("I'm vegan, had eggs and my throat is closing", ctx());
     expect(said(r)).toEqual(['rule.emergency', 'rule.ask_what_else']);

@@ -1,5 +1,5 @@
 import {
-  askForDroppedTerms, buildMealCard, emergencyRuleAsks, emergencyStatesRule, isHealthText, isSevereCard, buildPantryCard, buildProfileCard, buildRuleCard, classifyTurn, dropMealsMatchingRemovals,
+  askForDroppedTerms, buildMealCard, emergencyRuleAsks, emergencyStatesRule, isHealthText, buildPantryCard, buildProfileCard, buildRuleCard, classifyTurn, dropMealsMatchingRemovals,
   matchDish, MEAL_SLOTS, MEAL_VERB_PATTERN, normalizeName, normalizeTurn, PANTRY_ADD_PATTERN, PANTRY_REMOVAL_PATTERNS,
   parseClock, parseMealStatement, parsePantryAdds, parsePantryRemovals, parseRuleStatement, parseWeekdays, preRoute,
   shortReplyTarget, slotClause, slotForTime, stripPageEvents,
@@ -53,7 +53,7 @@ export function createScriptedEngine(deps: {
   const withReadback = (at: number, card: ProposalCard): Found => ({ at, card, items: card.readback.map(say) });
 
   /** Step 4 of the reply: every parser runs, so a multi-intent turn yields several items. */
-  function parseAll(raw: string, text: string, ctx: TurnContext, rulesOnly = false): { items: PanItem[]; cards: ProposalCard[] } {
+  function parseAll(raw: string, text: string, ctx: TurnContext): { items: PanItem[]; cards: ProposalCard[] } {
     const t = normalizeTurn(text);
     const found: Found[] = [];
     const now = deps.now();
@@ -70,18 +70,6 @@ export function createScriptedEngine(deps: {
       if (built.ok) found.push(withReadback(where, built.card));
       else if (built.reason === 'unknown_term') found.push({ at: where, items: [say(built.line)] });
       else found.push({ at: where, items: [say(built.line), { kind: 'choices', options: built.options, severity: item.severity }] });
-    }
-
-    // An emergency turn keeps only the rule path (fix round 2, E2): no meal, profile or pantry card. As on the
-    // server, only severe rule cards stay; anything else (a diet card, an unknown term) gives way to the ask (fix round 3).
-    if (rulesOnly) {
-      const severe = found.filter((f) => f.card !== undefined && isSevereCard(f.card));
-      const kept = severe.flatMap((f) => (f.card?.kind === 'rule' ? [f.card.display.ingredient] : []));
-      severe.sort((a, b) => a.at - b.at);
-      const items = severe.flatMap((f) => f.items);
-      // Fix round 1 (I2): every named allergen gets its ask, as on the server.
-      for (const ask of emergencyRuleAsks(raw, kept, graph)) items.push(say(ask));
-      return { items, cards: severe.flatMap((f) => (f.card ? [f.card] : [])) };
     }
 
     const removals = parsePantryRemovals(text);
@@ -161,10 +149,10 @@ export function createScriptedEngine(deps: {
       // 2. The fixed lines (emergency, medical, child, allowance, thanks): the server's own function.
       const fixed = preRoute(intent);
       if (fixed !== null) {
-        // E2: an emergency that also states a rule gets the emergency line first, then the rule path; never a meal or pantry card.
+        // E2/F3 (ruling M-2): an emergency that also states a rule gets the emergency line first, then an ask for every
+        // allergen named, exactly as the server answers it (turn.ts stage 2a). No card of any kind on an emergency turn.
         if (intent !== 'emergency' || !emergencyStatesRule(text, graph)) return reply([say(fixed)]);
-        const rules = parseAll(text, stripped, ctx, true);
-        return reply([say(fixed), ...rules.items], { cards: rules.cards.map((c) => view(c, ctx.turn)) });
+        return reply([say(fixed), ...emergencyRuleAsks(text, [], graph).map(say)]);
       }
       // 3. A plain yes, no or undo: core decides which card it means. A typed yes never confirms a severe card.
       if (intent === 'yes' || intent === 'no' || intent === 'undo') {
