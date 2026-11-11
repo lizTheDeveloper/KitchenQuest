@@ -103,7 +103,7 @@ function markupSuffixStart(v: string): number {
   const b = v.indexOf('</parameter');
   let i = a < 0 ? b : b < 0 ? a : Math.min(a, b);
   if (i < 0) return -1;
-  while (i > 0 && /\s/.test(v[i - 1]!)) i--;
+  while (i > 0 && /\s/.test(v.charAt(i - 1))) i--;
   return i;
 }
 
@@ -111,14 +111,14 @@ function markupSuffixStart(v: string): number {
 function isMarkupOnly(tail: string): boolean {
   let i = 0;
   while (i < tail.length) {
-    const c = tail[i]!;
+    const c = tail.charAt(i);
     if (/\s/.test(c)) {
       i++;
     } else if (tail.startsWith('</parameter', i) || tail.startsWith('<parameter', i)) {
       i += tail.startsWith('</', i) ? 11 : 10;
       if (tail[i] === '=') {
         i++;
-        while (i < tail.length && /[\w-]/.test(tail[i]!)) i++;
+        while (i < tail.length && /[\w-]/.test(tail.charAt(i))) i++;
       }
       if (tail[i] === '>') i++;
     } else if (c === '<' || c === '>') {
