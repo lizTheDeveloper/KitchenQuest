@@ -8,7 +8,7 @@ M4 deferred `plan_week` / `edit_plan` and the navigation tools to this milestone
 
 The scripted path builds the same card from the same core functions, so "plan my week: dal on Sunday" and "pick 3" work with the AI off.
 
-**Pre-flight:** the tools change, so `promptFingerprint` changes and `apps/api/test/eval-gate.test.ts` fails until a new passing `apps/api/eval/last-pass.json` exists. **Step 8.4 is blocked until the founder runs `npm run eval:mentor`.** If it fails the bar, report BLOCKED with the table; never set `MENTOR_EVAL_GATE=skip-no-network` (M4 ruling C28).
+**Pre-flight:** the tools change, so `promptFingerprint` changes and `apps/api/test/eval-gate.test.ts` fails until a new passing `apps/api/eval/last-pass.json` exists. **Step 8.4 needs one `npm run eval:mentor` run by the implementer** (`OPENROUTER_API_KEY=proxy-injected NODE_USE_ENV_PROXY=1`, synthetic data only; one run decides). If it fails the bar, report BLOCKED with the table; never set `MENTOR_EVAL_GATE=skip-no-network` (M4 ruling C28).
 
 **Files:**
 - Create: `packages/core/src/mentor/plan-card.ts` (+ test), `apps/api/test/mentor-plan.test.ts`
