@@ -38,3 +38,13 @@ apps/api tests need TEST_DATABASE_URL (no DB here); only content/dialogue/pan.ya
 - M4: undo failure/404 paths tested; misleading test replaced.
 - M5: `shell/titles.ts` is the single source of lazy titles, with a test that each module agrees; `lazyScreen` tests (failed load rejects so the shell shows its error screen).
 - Gates: typecheck, lint (0 errors), core 1610, game 683, build (first paint 286.2 KB), e2e 188 all green.
+
+## Fix round 2
+- N1: `scriptedWhenUnavailable` moved to `mentor/outage.ts` and tested directly (engine reply kept, cards present); `lazy-backend.test.ts` now uses the shipped functions.
+- N2: new `withNotice`: an emergency, medical or child line always leads, the "answering from the script"/rate-limit notice follows it. Used by the lazy fallback and by ai-backend (`prefixed`, so the :146 and :207 paths). Per-path tests: lazy fallback, server `ai_unavailable` notice, unreachable server; the test that pinned the wrong order was replaced.
+- N3: emergency, medical and child text is answered from the script before the AI chunk is awaited (`localSafetyReply`); the load also times out after 8 s (script answers; the same load is awaited next turn). Note: for signed-in AI players these three turn types are now answered locally with the same fixed lines the server uses, not sent to the server.
+- N5: new `rule.raise_gone` for a rule gone or replaced on the server; `rule.raise_not_stricter` only for a same-or-lower level.
+- N6: tests for the raise's and undo's same-rule checks (different target, different type, gone).
+- N7: a raise keeps the account rule's `note`; undo restores the whole earlier rule (tested).
+- N4 left alone as instructed (needs a server conditional write).
+- Gates: typecheck, lint (0 errors), core 1610, game 695, build (first paint 287.2 KB), e2e 188.
