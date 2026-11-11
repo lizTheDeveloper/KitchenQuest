@@ -123,7 +123,10 @@ describe('erasure properties', () => {
         // Replays of erased events are mixed into the batch: they must be duplicates both ways.
         const next = [...(replay ? gone.slice(0, 3) : []), ...withIds(nextDrafts)];
         const sequential = play(next, erased).results;
-        for (const r of sequential.slice(0, replay ? Math.min(3, gone.length) : 0)) expect(r.problems).toContain('duplicate_id');
+        // A replayed erased event that earned anything is a duplicate (I1). One that earned nothing left no trace.
+        const earned = new Set(history.grants.map((g) => g.eventId));
+        for (const r of sequential.slice(0, replay ? Math.min(3, gone.length) : 0))
+          if (earned.has(r.event.id)) expect(r.problems).toContain('duplicate_id');
         expect(grantsForBatch(next, erased, CAT, DATA, T)).toEqual(sequential);
         const compacted = compactHistory(erased, keep, CAT);
         expect(grantsForBatch(next, compacted, CAT, DATA, T)).toEqual(sequential);
