@@ -1,6 +1,6 @@
 import {
-  EMPTY_TOOLKIT, isValidDate, MEAL_SLOTS, type IntakeStep, type MealSlot, type PantryItem, type ProgressEvent, type ProgressSnapshot,
-  type ProgressView, type RewardGrant, type Rule, type Tier, type ToolkitState,
+  EMPTY_TOOLKIT, isValidDate, MEAL_SLOTS, type IntakeStep, type MarketRunView, type MealSlot, type PantryItem, type Plan, type ProgressEvent,
+  type ProgressSnapshot, type ProgressView, type RewardGrant, type Rule, type Tier, type ToolkitState,
 } from '@kitchenquest/core/engine';
 import { sha256Hex } from './sha256';
 
@@ -96,7 +96,24 @@ export function withPartition(s: PlayerState, key: string | null, p: DeviceProgr
   return { ...s, accountProgress: { ...s.accountProgress, [key]: { ...old, progress: p, view: view === undefined ? old.view : view } } };
 }
 
-export interface PlayerSettings { showCalories: boolean; reducedMotion: 'system' | 'on' | 'off'; familyTable: boolean; iosNoteDismissed: boolean }
+export interface PlayerSettings {
+  showCalories: boolean; reducedMotion: 'system' | 'on' | 'off'; familyTable: boolean; iosNoteDismissed: boolean;
+  /** Use-It-Up Rescue nudges in the kitchen (audit M-14: "can be turned off"). On by default. */
+  rescueNudges: boolean;
+}
+/** A market run kept on this device (C40's shape) and the pantry row each tick added, by list key (Ruling 16). */
+export interface LocalRun extends MarketRunView { pantryIds: Record<string, string> }
+/**
+ * Signed out, the week lives here (Step 10): each plan week's plan and its market run, in the API's shapes. Kept for
+ * PLAN_RETENTION_WEEKS after the week, like the server's. Dish slugs, dates and list rows only: never a status.
+ */
+export interface LocalWeek { plans: Plan[]; runs: LocalRun[] }
+/**
+ * Today's Use-It-Up nudge (RESCUE_NUDGES_PER_DAY): which partition it was for (the account key, or 'guest'), the
+ * local date, the pantry row it named and whether the player answered it (Cook, Compost or Not now). A date and an
+ * id only; another day, or another partition, starts afresh.
+ */
+export interface RescueNudge { key: string; on: string; itemId: string; answered: boolean }
 /** A signed-out player's profile, kept on this device (the same fields as M2's `/profile`). */
 export interface LocalProfile { marketDays: number[]; mealsPerWeek: number | null; country: string | null; region: string | null; mealWindows: { name: MealSlot; start: string; end: string }[] }
 export interface PlayerState {
@@ -111,6 +128,10 @@ export interface PlayerState {
   dialogueHistory: Record<string, number[]>; settings: PlayerSettings & { aiMentor: boolean };
   /** Signed out, the Pan's profile and pantry cards are written here (M4). */
   localProfile: LocalProfile | null; localPantry: (PantryItem & { id: string })[];
+  /** Signed out, the week's plan and market run (Step 10). */
+  localWeek: LocalWeek;
+  /** Today's Use-It-Up nudge, or null (Step 10). */
+  rescue: RescueNudge | null;
   /** Form 1-A: null = not started. */
   intake: { step: IntakeStep | 'done' | null };
   aiDisclosureSeen: boolean; aiHealthOffered: boolean;
@@ -147,9 +168,9 @@ function freshState(): PlayerState {
     v: 1, firstOpenedAt: null, lastOpenedAt: null,
     localRules: [], accountRules: null, account: null,
     toolkit: EMPTY_TOOLKIT, cookProgress: null, dialogueHistory: {}, progress: EMPTY_PROGRESS, accountProgress: {},
-    settings: { showCalories: false, reducedMotion: 'system', familyTable: false, iosNoteDismissed: false, aiMentor: true },
+    settings: { showCalories: false, reducedMotion: 'system', familyTable: false, iosNoteDismissed: false, aiMentor: true, rescueNudges: true },
     rulesUnreadable: false, signOutPending: false,
-    localProfile: null, localPantry: [], intake: { step: null }, aiDisclosureSeen: false, aiHealthOffered: false,
+    localProfile: null, localPantry: [], localWeek: { plans: [], runs: [] }, rescue: null, intake: { step: null }, aiDisclosureSeen: false, aiHealthOffered: false,
   };
 }
 
@@ -176,7 +197,18 @@ const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 const INTAKE_STEP_SET: Readonly<Record<IntakeStep, true>> = { market_day: true, meals_per_week: true, region: true, allergies: true, pantry: true };
 const isIntakeStep = (x: unknown): boolean => x === null || x === 'done' || (typeof x === 'string' && Object.hasOwn(INTAKE_STEP_SET, x));
 const isPantryRow = (x: unknown): boolean =>
-  isObj(x) && typeof x.id === 'string' && typeof x.name === 'string' && isStrOrNull(x.ingredientId);
+  isObj(x) && typeof x.id === 'string' && typeof x.name === 'string' && isStrOrNull(x.ingredientId) &&
+  (x.addedOn === undefined || typeof x.addedOn === 'string') && (x.source === undefined || x.source === 'told' || x.source === 'market');
+/** The shape only: core `validatePlan` judges a stored plan against the canon when it is read (week/local-week.ts). */
+const isPlanShape = (x: unknown): boolean =>
+  isObj(x) && typeof x.weekStart === 'string' && isObjArray(x.items) && typeof x.hard === 'boolean' && typeof x.slot === 'string';
+const isRunShape = (x: unknown): boolean =>
+  isObj(x) && typeof x.id === 'string' && typeof x.weekStart === 'string' && isObjArray(x.items) && isStrOrNull(x.doneAt) &&
+  isObj(x.pantryIds) && Object.values(x.pantryIds).every((v) => typeof v === 'string');
+const isLocalWeek = (x: unknown): boolean =>
+  isObj(x) && Array.isArray(x.plans) && x.plans.every(isPlanShape) && Array.isArray(x.runs) && x.runs.every(isRunShape);
+const isRescue = (x: unknown): boolean =>
+  x === null || (isObj(x) && typeof x.key === 'string' && typeof x.on === 'string' && typeof x.itemId === 'string' && typeof x.answered === 'boolean');
 const isMealWindow = (x: unknown): boolean =>
   isObj(x) && (MEAL_SLOTS as readonly unknown[]).includes(x.name) && typeof x.start === 'string' && HHMM.test(x.start) &&
   typeof x.end === 'string' && HHMM.test(x.end);
@@ -208,13 +240,15 @@ function merge(p: Record<string, unknown>): PlayerState | null {
   if (has('signOutPending') && typeof p.signOutPending !== 'boolean') return null;
   if (has('localProfile') && p.localProfile !== null && !isLocalProfile(p.localProfile)) return null;
   if (has('localPantry') && !(Array.isArray(p.localPantry) && p.localPantry.every(isPantryRow))) return null;
+  if (has('localWeek') && !isLocalWeek(p.localWeek)) return null;
+  if (has('rescue') && !isRescue(p.rescue)) return null;
   if (has('intake') && !(isObj(p.intake) && Object.hasOwn(p.intake, 'step') && isIntakeStep(p.intake.step))) return null;
   if (has('aiDisclosureSeen') && typeof p.aiDisclosureSeen !== 'boolean') return null;
   if (has('aiHealthOffered') && typeof p.aiHealthOffered !== 'boolean') return null;
   if (has('settings') && !isObj(p.settings)) return null;
   const s = (isObj(p.settings) ? p.settings : {});
   const ds = d.settings;
-  for (const k of ['showCalories', 'familyTable', 'iosNoteDismissed', 'aiMentor'] as const) {
+  for (const k of ['showCalories', 'familyTable', 'iosNoteDismissed', 'aiMentor', 'rescueNudges'] as const) {
     if (s[k] !== undefined && typeof s[k] !== 'boolean') return null;
   }
   if (s.reducedMotion !== undefined && s.reducedMotion !== 'system' && s.reducedMotion !== 'on' && s.reducedMotion !== 'off') return null;
@@ -237,11 +271,14 @@ function merge(p: Record<string, unknown>): PlayerState | null {
       familyTable: (s.familyTable as boolean | undefined) ?? ds.familyTable,
       iosNoteDismissed: (s.iosNoteDismissed as boolean | undefined) ?? ds.iosNoteDismissed,
       aiMentor: (s.aiMentor as boolean | undefined) ?? ds.aiMentor,
+      rescueNudges: (s.rescueNudges as boolean | undefined) ?? ds.rescueNudges,
     },
     rulesUnreadable: (has('rulesUnreadable') ? p.rulesUnreadable : d.rulesUnreadable) as boolean,
     signOutPending: (has('signOutPending') ? p.signOutPending : d.signOutPending) as boolean,
     localProfile: has('localProfile') ? (p.localProfile as LocalProfile | null) : d.localProfile,
     localPantry: has('localPantry') ? (p.localPantry as (PantryItem & { id: string })[]) : d.localPantry,
+    localWeek: has('localWeek') ? (p.localWeek as LocalWeek) : d.localWeek,
+    rescue: has('rescue') ? (p.rescue as RescueNudge | null) : d.rescue,
     intake: has('intake') ? { step: (p.intake as { step: IntakeStep | 'done' | null }).step } : d.intake,
     aiDisclosureSeen: (has('aiDisclosureSeen') ? p.aiDisclosureSeen : d.aiDisclosureSeen) as boolean,
     aiHealthOffered: (has('aiHealthOffered') ? p.aiHealthOffered : d.aiHealthOffered) as boolean,

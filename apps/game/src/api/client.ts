@@ -1,7 +1,7 @@
-import { MENTOR_CLIENT_TIMEOUT_MS, type ProgressEvent, type Rule, type Severity } from '@kitchenquest/core/engine';
+import { MENTOR_CLIENT_TIMEOUT_MS, type Plan, type ProgressEvent, type Rule, type Severity } from '@kitchenquest/core/engine';
 import type {
-  ApiErrorBody, ApiResult, ConfirmRequest, ConfirmResponse, ConsentPurpose, Consents, ConsentRecord, MealEntry, Me, PantryItem, Profile,
-  ProgressPostResponse, ProgressResponse, RecipeDetail, RecipeSummary, ReplyPart, TurnRequest, TurnResponse,
+  ApiErrorBody, ApiResult, ConfirmRequest, ConfirmResponse, ConsentPurpose, Consents, ConsentRecord, CurrentPlanResponse, MarketRunResponse, MealEntry, Me,
+  PantryItem, PlanSaveResponse, Profile, ProgressPostResponse, ProgressResponse, RecipeDetail, RecipeSummary, ReplyPart, TurnRequest, TurnResponse,
 } from './types';
 
 /**
@@ -32,7 +32,8 @@ export interface ApiClient {
   /** M4. The player's text rides in the POST body only, never in the URL (P-5). */
   mentorTurn(req: TurnRequest): Promise<ApiResult<TurnResponse>>;                                              // POST /mentor/turn
   /** A tap on a server card: the body is `{ channel: 'tap', edits? }`; the type has no other channel (§7.6b.1). */
-  confirmProposal(id: string, edits?: { severity?: Severity }, conversationId?: string | null): Promise<ApiResult<ConfirmResponse>>;          // POST /mentor/proposals/:id/confirm
+  /** `today`: the player's local date, sent with every week write (a plan card's week window, Step 6 I2). */
+  confirmProposal(id: string, edits?: { severity?: Severity }, conversationId?: string | null, today?: string): Promise<ApiResult<ConfirmResponse>>; // POST /mentor/proposals/:id/confirm
   rejectProposal(id: string): Promise<ApiResult<{ parts: ReplyPart[] }>>;                                      // POST /mentor/proposals/:id/reject
   undoWrite(id: string): Promise<ApiResult<{ parts: ReplyPart[]; undone: boolean }>>;                                        // POST /mentor/writes/:id/undo
   forgetConversations(): Promise<ApiResult<null>>;                                                            // DELETE /mentor/conversations (204)
@@ -52,6 +53,19 @@ export interface ApiClient {
    * `retryAfterSeconds`.
    */
   postProgressEvents(events: ProgressEvent[], upload?: true): Promise<ApiResult<ProgressPostResponse>>;        // POST /progress/events
+  /**
+   * M5 Step 6, the week. Every call sends `today`, the player's local date (I2): the server reads the plan week from it.
+   * Plans and runs are health data (Step 6 ruling): writes are 403 `consent_required` without `health_data`.
+   */
+  getPlan(today: string): Promise<ApiResult<CurrentPlanResponse>>;                                              // GET /plans/current?today=
+  /** §7.0: `confirmed: true` goes only after the player's tap. 400 `plan_invalid` (a ⛔ item, a bad week) writes nothing. */
+  putPlan(plan: Plan, today: string): Promise<ApiResult<PlanSaveResponse>>;                                      // PUT /plans/:weekStart
+  deletePlan(weekStart: string): Promise<ApiResult<null>>;                                                       // DELETE /plans/:weekStart (204)
+  openRun(weekStart: string, today: string): Promise<ApiResult<MarketRunResponse>>;                              // POST /market-runs
+  /** §7.0 "None (undoable)": no `confirmed`; unticking is the undo. 409 `run_closed` once the run is done. */
+  tick(runId: string, key: string, ticked: boolean, today: string): Promise<ApiResult<MarketRunResponse>>;      // POST /market-runs/:id/ticks
+  /** "That's the shop done": a tap, so `confirmed: true`. */
+  finishRun(runId: string, today: string): Promise<ApiResult<MarketRunResponse>>;                                // POST /market-runs/:id/finish
 }
 
 const isObj = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x);
@@ -136,9 +150,10 @@ export function createApiClient(opts: { baseUrl?: string; fetch?: typeof fetch; 
     exportAccount: () => call('GET', '/me/export'),
     deleteAccount: (confirm) => call('DELETE', '/me', { confirm }),
     mentorTurn: (req) => call('POST', '/mentor/turn', req, timeoutMs),
-    confirmProposal: (id, edits, conversationId) => {
+    confirmProposal: (id, edits, conversationId, today) => {
       const body: ConfirmRequest = {
         channel: 'tap', ...(edits === undefined ? {} : { edits }), ...(conversationId === undefined ? {} : { conversationId }),
+        ...(today === undefined ? {} : { today }),
       };
       return call('POST', `/mentor/proposals/${enc(id)}/confirm`, body);
     },
@@ -152,6 +167,12 @@ export function createApiClient(opts: { baseUrl?: string; fetch?: typeof fetch; 
     changePantry: (change, confirmed) => call('POST', '/pantry/changes', { ...change, confirmed }),
     getProgress: () => call('GET', '/progress', undefined, timeoutMs),
     postProgressEvents: (events, upload) => call('POST', '/progress/events', upload ? { events, upload } : { events }, timeoutMs),
+    getPlan: (today) => call('GET', `/plans/current?today=${enc(today)}`),
+    putPlan: (plan, today) => call('PUT', `/plans/${enc(plan.weekStart)}`, { plan, confirmed: true, today }),
+    deletePlan: (weekStart) => call('DELETE', `/plans/${enc(weekStart)}`),
+    openRun: (weekStart, today) => call('POST', '/market-runs', { weekStart, today }),
+    tick: (runId, key, ticked, today) => call('POST', `/market-runs/${enc(runId)}/ticks`, { key, ticked, today }),
+    finishRun: (runId, today) => call('POST', `/market-runs/${enc(runId)}/finish`, { confirmed: true, today }),
   };
 }
 

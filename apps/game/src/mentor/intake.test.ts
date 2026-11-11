@@ -382,7 +382,7 @@ describe('createIntake', () => {
   });
 
   test('Family Table never starts the intake', async () => {
-    const m = setup({ patch: { settings: { showCalories: false, reducedMotion: 'system', familyTable: true, iosNoteDismissed: false, aiMentor: true } } });
+    const m = setup({ patch: { settings: { showCalories: false, reducedMotion: 'system', familyTable: true, iosNoteDismissed: false, aiMentor: true, rescueNudges: true } } });
     m.intake.start();
     await flush();
     expect(m.intake.step).toBeNull();

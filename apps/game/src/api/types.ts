@@ -3,7 +3,9 @@
  * account). The game never trusts these at runtime for safety: rules are re-validated by core's
  * `validateRules` (through `activeRules`) before any check uses them.
  */
-import type { CheckResult, CheckStatus, NutritionResult, ProgressView, RecipeIngredient, RecipeMeta, RewardGrant } from '@kitchenquest/core/engine';
+import type {
+  CheckResult, CheckStatus, MarketRunView, NutritionResult, Plan, PlanItemCheck, ProgressView, RecipeIngredient, RecipeMeta, RewardGrant,
+} from '@kitchenquest/core/engine';
 
 /**
  * M2 errors are `{ error: { code, message, details? } }` (apps/api/src/app.ts). `retryAfter` (seconds) is
@@ -67,3 +69,13 @@ export interface ProgressPostResponse {
   warnings: { clientId: string; warnings: string[] }[];
   view: ProgressView;
 }
+
+/**
+ * GET /plans/current?today= (Step 6): the player's current plan week, from their market days and their local date,
+ * its plan (or null) with the server's row id, and each item checked now with their rules as they are now.
+ */
+export interface CurrentPlanResponse { plan: (Plan & { id: string }) | null; weekStart: string; checks: PlanItemCheck[] }
+/** PUT /plans/:weekStart (Step 6): the plan as stored, checked now. */
+export interface PlanSaveResponse { plan: Plan & { id: string }; checks: PlanItemCheck[] }
+/** POST /market-runs, its ticks and its finish (Step 6): the run, its unticked rows recomputed now (C40). */
+export type MarketRunResponse = MarketRunView;
