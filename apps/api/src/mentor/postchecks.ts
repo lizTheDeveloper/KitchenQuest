@@ -83,6 +83,22 @@ const mealString = (value: string | null, text: string): string | null => {
   const v = cardString(value, text);
   return v !== null && !MEAL_CLAIM.test(screenText(v)) ? v : null;
 };
+/** The only words a joined meal description may add to the player's own phrases (Step 12 ruling). */
+const MEAL_JOINER = /(?:\s*(?:,|&|\band\b|\bwith\b)\s*)+/i;
+/**
+ * Step 12 controller ruling (R5, meal descriptions only): a description the model joined from the player's
+ * phrases ("half a sandwich, ham n cheese, and some crisps") is kept when, split on ", " / "and" / "with" /
+ * "&", EVERY part is the player's own words and passes the screens; a part the player never said, or a
+ * dangling joiner, drops it. Rule terms and severities are never read this way.
+ */
+const mealDescription = (value: string | null, text: string): string | null => {
+  const whole = mealString(value, text);
+  if (whole !== null || value === null) return whole;
+  const v = value.replace(/\s+/g, ' ').trim();
+  const parts = v.replace(/^(?:and|with)\s+/i, '').split(MEAL_JOINER).map((p) => p.trim());
+  if (parts.length < 2 || parts.some((p) => p === '' || /^(?:and|with)\b/i.test(p))) return null;
+  return parts.every((p) => mealString(p, text) !== null) && filterReply(v, { finish: 'stop' }).ok && !touchesHealth(v) ? v : null;
+};
 
 /** The graph or a rule term knows the term, so it is an ingredient name and no claim (fix round 5). */
 const knownTerm = (term: string, graph: IngredientGraph, ruleTerms: readonly RuleTerm[]): boolean =>
@@ -170,7 +186,7 @@ export function applyPostChecks(calls: ToolArgs[], playerText: string, graph: In
       case 'propose_meal_log': {
         // M4: a meal the player's text names (a pasted recipe counts: it is data, and the card asks).
         // R5: each free field must be the player's text and pass the screen, else it is dropped.
-        const description = mealString(call.args.description, stripped);
+        const description = mealDescription(call.args.description, stripped);
         const dish = mealString(call.args.dish, stripped);
         if (description !== null || dish !== null) out.push({ name: 'propose_meal_log', args: { ...call.args, description, dish } });
         break;

@@ -209,3 +209,20 @@ describe('applyPostChecks, card-field smuggling (fix round 5)', () => {
     expect(severeTermsLeftOut('peanuts nearly killed me, almonds never hurt anyone', [], graph)).not.toBeNull();
   });
 });
+
+describe('Step 12 ruling: a meal description joined from the player\'s own phrases (R5)', () => {
+  const T02 = 'ugh so lunch was like, half a sandwich? ham n cheese i think, and some crisps lol';
+  test('every part verbatim: kept as the model wrote it', () => {
+    expect(post([meal('half a sandwich, ham n cheese, and some crisps')], T02)).toEqual([meal('half a sandwich, ham n cheese, and some crisps')]);
+    expect(post([meal('chickpea salad with lemon and parsley')], S19)).toEqual([meal('chickpea salad with lemon and parsley')]);
+    expect(post([meal('lemon & parsley')], S19)).toEqual([meal('lemon & parsley')]);
+  });
+  test('a part the player never said drops the description', () => {
+    expect(post([meal('chickpea salad with lemon and tahini')], S19)).toEqual([]);
+    expect(post([meal('half a sandwich and a safe snack')], T02)).toEqual([]);
+    expect(post([meal('half a sandwich, and')], T02)).toEqual([]);
+  });
+  test('rule terms are never joined', () => {
+    expect(post([rule('peanuts and sesame', 'allergy')], "I'm allergic to peanuts. Sesame too")).toEqual([]);
+  });
+});
