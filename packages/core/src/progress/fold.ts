@@ -122,7 +122,7 @@ const addTo = (m: Map<string, Set<string>>, k: string, v: string) => {
 };
 
 /** Apply one accepted event's own facts (not its grants) to the state. */
-function applyEvent(s: FoldState, e: ProgressEvent, cat: Catalogue): void {
+export function applyEvent(s: FoldState, e: ProgressEvent, cat: Catalogue): void {
   s.ids.add(e.id);
   s.perDate.set(e.at, (s.perDate.get(e.at) ?? 0) + 1);
   if (!isValidDate(e.at)) return;
@@ -154,7 +154,7 @@ function applyEvent(s: FoldState, e: ProgressEvent, cat: Catalogue): void {
 }
 
 /** Apply one grant. `e` is the event it was granted for, when the history still holds it. */
-function applyGrant(s: FoldState, g: RewardGrant, e: ProgressEvent | undefined): void {
+export function applyGrant(s: FoldState, g: RewardGrant, e: ProgressEvent | undefined): void {
   switch (g.kind) {
     case 'xp':
       s.xp += nonNeg(g.amount);

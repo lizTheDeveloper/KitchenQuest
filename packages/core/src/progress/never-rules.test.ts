@@ -4,7 +4,7 @@ import { describe, expect, expectTypeOf, test } from 'vitest';
 import type { FreshnessThresholds } from '../toolkit/types';
 import { compactHistory, deriveProgress } from './derive';
 import { CAT, DATA, EMPTY, T, addDays, play } from './fixtures';
-import { grantsFor } from './rewards';
+import { grantsFor, grantsForBatch } from './rewards';
 import type { Catalogue, ProgressEvent, ProgressHistory, ProgressView, RewardGrant, RewardsData } from './types';
 
 const RANK = { seen: 0, tried: 1, yours: 2 } as const;
@@ -127,6 +127,18 @@ describe('never rules', () => {
       { numRuns: 50 },
     );
   });
+
+  test('property: grantsForBatch equals grantsFor one event at a time, with or without a prior or compacted history', () =>
+    fc.assert(
+      fc.property(eventsArb, fc.nat({ max: 60 }), fc.nat({ max: 20 }), (events, split, keep) => {
+        const cut = Math.min(split, events.length);
+        const prior = play(events.slice(0, cut)).history;
+        const sequential = play(events.slice(cut), prior).results;
+        expect(grantsForBatch(events.slice(cut), prior, CAT, DATA, T)).toEqual(sequential);
+        expect(grantsForBatch(events.slice(cut), compactHistory(prior, keep, CAT), CAT, DATA, T)).toEqual(sequential);
+      }),
+      { numRuns: 150 },
+    ));
 
   test('no event kind exists for rules, consents, profile edits, reminders or pantry changes (§6)', () => {
     for (const kind of ['rule', 'rules', 'consent', 'profile', 'reminder', 'reminder_answered', 'pantry', 'allergy'])

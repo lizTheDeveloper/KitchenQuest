@@ -3,7 +3,7 @@ import { EMPTY_TOOLKIT, recordTechnique, toolkitFromEvents } from '../toolkit/to
 import type { TechniqueRecord, ToolkitState } from '../toolkit/types';
 import { deriveProgress } from './derive';
 import { CAT, DATA, EMPTY, T, addDays, ev, finishQuest, last, play, xpOf } from './fixtures';
-import { MAX_PROGRESS_EVENTS_PER_DAY, grantsFor, validateRewards } from './rewards';
+import { MAX_PROGRESS_EVENTS_PER_DAY, grantsFor, grantsForBatch, validateRewards } from './rewards';
 import type { ProgressEvent, RewardGrant, RewardsData } from './types';
 
 const MON = '2026-01-05'; // a Monday, ISO week 2026-W02
@@ -226,6 +226,12 @@ describe('caps and weeks', () => {
     const next = grantsFor(ev.cooked('parippu', addDays(MON, 1)), p.history, CAT, DATA, T);
     expect(next.problems).toEqual([]);
     expect(xpOf(next.grants)).toBe(30);
+    // One batch (a sign-in upload): the cap is per event, never the whole batch.
+    const batch = [...Array.from({ length: 201 }, (_, i) => ev.meal(MON, i)), ev.cooked('parippu', addDays(MON, 1)), ev.meal(MON, 1000)];
+    const results = grantsForBatch(batch, EMPTY, CAT, DATA, T);
+    expect(results.map((r) => r.problems.join()).filter((x) => x !== '')).toEqual(['too_many_events', 'too_many_events']);
+    expect(results[200].problems).toEqual(['too_many_events']);
+    expect(results[201].problems).toEqual([]);
   });
 
   test('lesson/drill XP once per ISO week of the event date; market_run XP and stamp once per ISO week (C16)', () => {

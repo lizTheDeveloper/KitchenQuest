@@ -2,7 +2,7 @@ import { isValidDate } from '../rules/active';
 import { refreshDue, toolkitFromEvents } from '../toolkit/toolkit';
 import type { FreshnessThresholds, ToolkitState } from '../toolkit/types';
 import { levelFor, trustLevel } from './derive';
-import { foldHistory, key, type FoldState } from './fold';
+import { applyEvent, applyGrant, foldHistory, key, type FoldState } from './fold';
 import type { Catalogue, ProgressEvent, ProgressHistory, RewardGrant, RewardsData, StampId, XpReason } from './types';
 import { isoWeek } from './week';
 
@@ -276,6 +276,23 @@ function eventGrants(e: ProgressEvent, s: FoldState, cat: Catalogue, data: Rewar
   return out;
 }
 
+function evaluate(
+  event: ProgressEvent,
+  s: FoldState,
+  cat: Catalogue,
+  data: RewardsData,
+  thresholds: FreshnessThresholds,
+): { grants: RewardGrant[]; problems: string[] } {
+  const problems = validate(event, s, cat);
+  if (problems.length > 0) return { grants: [], problems };
+
+  const grants = eventGrants(event, s, cat, data, thresholds);
+  const gained = grants.reduce((sum, g) => sum + (g.kind === 'xp' ? g.amount : 0), 0);
+  const reached = levelFor(s.xp + gained, data.levels);
+  for (let level = s.level + 1; level <= reached; level++) grants.push({ kind: 'level', level, eventId: event.id });
+  return { grants, problems: [] };
+}
+
 /**
  * What one event earns, given what the history already holds (Ruling 7). Total and pure: it never throws on
  * player-shaped input. Problems non-empty → reject the event and grant nothing. It reads only the event, the
@@ -288,13 +305,29 @@ export function grantsFor(
   data: RewardsData,
   thresholds: FreshnessThresholds,
 ): { grants: RewardGrant[]; problems: string[] } {
-  const s = foldHistory(history, cat);
-  const problems = validate(event, s, cat);
-  if (problems.length > 0) return { grants: [], problems };
+  return evaluate(event, foldHistory(history, cat), cat, data, thresholds);
+}
 
-  const grants = eventGrants(event, s, cat, data, thresholds);
-  const gained = grants.reduce((sum, g) => sum + (g.kind === 'xp' ? g.amount : 0), 0);
-  const reached = levelFor(s.xp + gained, data.levels);
-  for (let level = s.level + 1; level <= reached; level++) grants.push({ kind: 'level', level, eventId: event.id });
-  return { grants, problems: [] };
+/**
+ * `grantsFor` over a batch, in order, each event seeing the history plus the batch's earlier accepted events and
+ * their grants. Exactly the same results as calling `grantsFor` once per event and appending what was accepted,
+ * but the history is folded once, so a sign-in upload of thousands of events stays fast. The daily cap is still
+ * per event (C14): an event over it is rejected and the rest of the batch goes on.
+ */
+export function grantsForBatch(
+  events: readonly ProgressEvent[],
+  history: ProgressHistory,
+  cat: Catalogue,
+  data: RewardsData,
+  thresholds: FreshnessThresholds,
+): { event: ProgressEvent; grants: RewardGrant[]; problems: string[] }[] {
+  const s = foldHistory(history, cat);
+  return events.map((event) => {
+    const r = evaluate(event, s, cat, data, thresholds);
+    if (r.problems.length === 0) {
+      applyEvent(s, event, cat);
+      for (const g of r.grants) applyGrant(s, g, event);
+    }
+    return { event, ...r };
+  });
 }
