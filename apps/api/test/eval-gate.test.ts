@@ -64,8 +64,25 @@ describe('the mentor eval gate', () => {
     expect(bar.hardFails).toBe(0);
   });
 
-  it('the eval hash is stable and covers the cases, the judge, the snapshot and the runner (seeds, write count)', () => {
-    expect([...EVAL_FILES].sort()).toEqual(['./cases.ts', './checks.ts', './run.ts', './snapshot.ts']);
+  it('the eval hash is stable and covers the cases, the judge, the snapshot, the runner and the code that decides turn outcomes', () => {
+    // M5 Step 8 ruling on eval integrity: a recorded pass measures the decision code we ship.
+    expect([...EVAL_FILES].sort()).toEqual([
+      '../../../packages/core/src/mentor/intents.ts',
+      '../../../packages/core/src/mentor/nonsevere.ts',
+      '../../../packages/core/src/mentor/parse.ts',
+      '../../../packages/core/src/mentor/plan-card.ts',
+      '../../../packages/core/src/mentor/route.ts',
+      '../../../packages/core/src/week/plan.ts',
+      '../src/mentor/filter.ts',
+      '../src/mentor/health.ts',
+      '../src/mentor/plan-turn.ts',
+      '../src/mentor/postchecks.ts',
+      '../src/mentor/turn.ts',
+      './cases.ts',
+      './checks.ts',
+      './run.ts',
+      './snapshot.ts',
+    ]);
     expect(evalHash()).toMatch(/^[0-9a-f]{64}$/);
     expect(evalHash()).toBe(evalHash());
   });
