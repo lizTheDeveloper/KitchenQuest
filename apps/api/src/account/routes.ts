@@ -295,9 +295,11 @@ async function buildExport(tx: Tx, config: Config, userId: string, now: Date, re
  * and `DELETE /me` (erasure, C-8). Both are audited (C-5) and free forever.
  */
 export async function accountRoutes(app: FastifyInstance): Promise<void> {
-  const { db, config, now } = app.deps;
+  const { db, config, now, ai } = app.deps;
   // Read once at boot, so a missing or malformed register stops the server.
-  const processors = loadProcessors(config.ai !== null);
+  // The AI is "on" only when a provider was built (m-2): the same flag the turn route uses
+  // (`deps.ai === null` → ai_off), so a config held off by the I-3 eval gate lists nothing as in use.
+  const processors = loadProcessors(ai !== null);
   // Per app instance; an export is heavy (every table, every rule decrypted).
   const exportLimiter = new SlidingWindowLimiter(5, HOUR);
   const stopSweeping = sweepPeriodically([exportLimiter], () => now().getTime());

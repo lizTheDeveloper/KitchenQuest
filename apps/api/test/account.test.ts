@@ -23,6 +23,7 @@ import { signIn } from './helpers/auth.js';
 import { testAiEnv, testConfig } from './helpers/config.js';
 import { loadConfig } from '../src/config.js';
 import { testDb, type Sql } from './helpers/db.js';
+import { fakeAi } from './helpers/fake-ai.js';
 import { captureLogs } from './helpers/logs.js';
 
 const config = testConfig();
@@ -326,8 +327,22 @@ describe('GET /me/export', () => {
     expect(listed.find((p) => p.name.startsWith('Model providers'))).toMatchObject({ inUse: true });
   });
 
+  it('m-2: with the AI configured but held off by the I-3 eval gate (no provider built), the AI processors are not in use for a player with no model turn', async () => {
+    const gated = await buildApp({ config: loadConfig(testAiEnv), db, mailer, ai: null, now: () => NOW, logger: false });
+    try {
+      const cookie = await signIn(gated, mailer, 'export-ai-gated@example.com');
+      const res = await gated.inject({ method: 'GET', url: '/me/export', cookies: { kq_session: cookie } });
+      expect(res.statusCode).toBe(200);
+      const listed = res.json<{ processors: { name: string; inUse: boolean }[] }>().processors;
+      expect(listed.find((p) => p.name === 'OpenRouter')).toMatchObject({ inUse: false });
+      expect(listed.find((p) => p.name.startsWith('Model providers'))).toMatchObject({ inUse: false });
+    } finally {
+      await gated.close();
+    }
+  });
+
   it('lists the AI processors as in use only on a server with the AI on (M4: built, but off in production until the DPA)', async () => {
-    const aiApp = await buildApp({ config: loadConfig(testAiEnv), db, mailer, ai: null, now: () => NOW, logger: false });
+    const aiApp = await buildApp({ config: loadConfig(testAiEnv), db, mailer, ai: fakeAi([]), now: () => NOW, logger: false });
     try {
       const cookie = await signIn(aiApp, mailer, 'export-ai-on@example.com');
       const res = await aiApp.inject({ method: 'GET', url: '/me/export', cookies: { kq_session: cookie } });
