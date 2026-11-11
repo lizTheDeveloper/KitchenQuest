@@ -79,4 +79,15 @@ describe('m12: the view is memoised on the partition', () => {
     expect(next).toEqual(deviceView(store.get().progress, cat));
     expect(next.xp).toBeGreaterThanOrEqual(first.xp);
   });
+
+  test('signed in: a new account view over the same log is shown at once (the cache keys on the view too)', () => {
+    const played = playedStore().get().progress;
+    const store = createStore(null);
+    const key = accountKey('a@example.test');
+    store.update((s) => withPartition({ ...s, account: { email: 'a@example.test' } }, key, played, { ...EMPTY, xp: 1 }));
+    const low = currentProgress(store.get(), cat);
+    store.update((s) => withPartition(s, key, played, { ...EMPTY, xp: 9_999_999 }));
+    expect(currentProgress(store.get(), cat).xp).toBe(9_999_999);
+    expect(low.xp).toBeLessThan(9_999_999);
+  });
 });
