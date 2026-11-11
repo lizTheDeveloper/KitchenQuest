@@ -614,6 +614,17 @@ triggers:
       - "I may have missed {term}. If you need me to watch for it, tell me plainly and I'll read it back."
       - "Before we go on: I may not have caught every ingredient you mentioned. If there's another one to avoid, tell me plainly and I'll read it back."
 
+  rule.already_saved:
+    ai: never
+    when: A rule card would read back a milder level than the player's saved rule for the same ingredient, so no card is offered (M4 Step 12).
+    vars:
+      ingredient: "the ingredient, as the ledger names it"
+      severity: "the saved level, e.g. 'a severe allergy'"
+    notes: "Plain. No jokes. Nothing was written this turn; never says a dish is safe."
+    lines:
+      - "{ingredient} is already on your list as {severity}, and that stays as it is. Check the dish card to see how a dish fares against it."
+      - "You already have {ingredient} filed as {severity}. I haven't changed it. The dish card shows how each dish fares against your rules."
+
   rule.exclusion_not_kept:
     ai: never
     when: The player named something as fine ("peanuts but not tree nuts"); only what to avoid is filed, so the allowance is not recorded (M4 Step 11).

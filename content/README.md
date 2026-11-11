@@ -179,6 +179,7 @@ The server agent and the client's scripted engine emit these by id, so they are 
 | `mentor.check_card` | A mentor turn with no card while a dish is on screen or named; points at the card and the label (Step 7, R9: model text is never shown). | |
 | `confirm.tap_card` | A typed "yes" or "no" with more than one card open. | |
 | `write.not_done` | The player asked for a record to change and no card came out (Step 7, R9: model text is never shown). | |
+| `rule.already_saved` | A rule card would read back a milder level than the saved rule for that ingredient; no card is offered, nothing written (M4 Step 12). | `ingredient`, `severity` |
 | `write.daily_limit` | A typed yes hit the daily write limit on meal logs or loosening rule edits; nothing was written (M4 Step 12). | |
 | `consent.health_first` | A rule or meal card for a player without `health_data` consent; the 3-C/HEALTH card follows. | |
 | `child.grownup` | A child is talking. Exactly one fixed line, no joke. | |

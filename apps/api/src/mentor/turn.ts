@@ -22,12 +22,15 @@ import {
   statesSevere,
   slotForTime,
   stripPageEvents,
+  SEVERITY_WORDS,
   SUITABILITY_PATTERN,
   weekdayNumbers,
   type CardAction,
   type IngredientGraph,
   type OpenCardRef,
   type ProfilePatchInput,
+  type Rule,
+  type Severity,
   type ProposalCard,
   type ReplyPart,
   type ServerCard,
@@ -48,6 +51,7 @@ import { ApiError } from '../errors.js';
 import { addDays } from '../meals/service.js';
 import { pantryMatcher } from '../pantry/service.js';
 import { loadPantry } from '../pantry/store.js';
+import { loadRules } from '../rules/store.js';
 import type { Db } from '../types.js';
 import { recordUsage } from '../usage/usage.js';
 import { aiTurnsLeft, recordAiCost, type BudgetGuard } from './allowance.js';
@@ -154,6 +158,25 @@ interface Reply {
   parts: ReplyPart[];
   cards: ProposalCard[];
   toolTurn: boolean;
+  /** Ingredient ids a saved rule already covers at a stricter level (their card was dropped, Step 12 S13 ruling). */
+  onFile?: string[];
+}
+
+const SEVERITY_RANK: Readonly<Record<Severity, number>> = { preference: 0, intolerance: 1, allergy: 2, anaphylactic: 3 };
+
+/**
+ * Step 12 controller ruling (S13): the player's saved avoid rule that covers every target of `card` (the same
+ * ids, or a saved category they are kinds of) at a STRICTER severity than the card's, or null. Such a card is
+ * never offered: it would read back a milder level than the one on file.
+ */
+function stricterSaved(card: Extract<ProposalCard, { kind: 'rule' }>, saved: readonly Rule[], graph: IngredientGraph): Rule | null {
+  const covers = (r: Rule, id: string) => r.target.ids.includes(id) || r.target.ids.some((s) => graph.has(s) && graph.descendants(s).includes(id));
+  return (
+    saved
+      .filter((r) => r.type === 'avoid' && r.phase === undefined && card.rule.target.ids.every((id) => covers(r, id)))
+      .filter((r) => SEVERITY_RANK[r.severity] > SEVERITY_RANK[card.rule.severity])
+      .sort((a, b) => SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity])[0] ?? null
+  );
 }
 
 /** Stage 7: each validated, post-checked call becomes a card or a refusal line. The model's text is never used (R9). */
@@ -164,9 +187,11 @@ function cardsFromCalls(
   healthData: boolean,
   recipes: readonly { slug: string; title: string }[],
   pantry: readonly { id: string; name: string; ingredientId: string | null }[],
+  saved: readonly Rule[] = [],
 ): Reply {
   const parts: ReplyPart[] = [];
   const cards: ProposalCard[] = [];
+  const onFile: string[] = [];
   let askedConsent = false;
   const needsConsent = () => {
     if (askedConsent) return;
@@ -185,7 +210,12 @@ function cardsFromCalls(
           break;
         }
         const r = buildRuleCard(call.args, deps.catalog.graph, deps.catalog.ruleTerms);
-        if (r.ok) add(r.card);
+        const stricter = r.ok && r.card.kind === 'rule' ? stricterSaved(r.card, saved, deps.catalog.graph) : null;
+        if (r.ok && r.card.kind === 'rule' && stricter !== null) {
+          // Already on file at a stricter level: say so, offer nothing (never a milder read-back).
+          onFile.push(...r.card.rule.target.ids);
+          parts.push(line('rule.already_saved', { ingredient: r.card.display.ingredient, severity: SEVERITY_WORDS[stricter.severity] }));
+        } else if (r.ok) add(r.card);
         else if (r.reason === 'unknown_term') parts.push({ kind: 'line', line: r.line });
         else parts.push({ kind: 'line', line: r.line }, { kind: 'choices', options: r.options, severity: call.args.severity });
         break;
@@ -243,7 +273,7 @@ function cardsFromCalls(
       }
     }
   }
-  return { parts, cards, toolTurn: true };
+  return { parts, cards, toolTurn: true, onFile };
 }
 
 /**
@@ -278,7 +308,7 @@ async function lockConversation(tx: Tx, userId: string, conversationId: string):
  * peanuts" still asks about peanut.
  */
 function coveredIds(reply: Reply): string[] {
-  const ids: string[] = [];
+  const ids: string[] = [...(reply.onFile ?? [])];
   for (const c of reply.cards) if (c.kind === 'rule') ids.push(...c.rule.target.ids);
   for (const p of reply.parts) if (p.kind === 'choices') ids.push(...p.options.map((o) => o.id));
   return ids;
@@ -322,6 +352,7 @@ const RULE_OUTCOME_LINES = new Set([
   'rule.ask_what_else',
   'rule.ask_keep_off',
   'rule.exclusion_not_kept',
+  'rule.already_saved',
 ]);
 const hasRuleOutcome = (reply: Reply) =>
   reply.cards.some((c) => c.kind === 'rule') || reply.parts.some((p) => p.kind === 'line' && RULE_OUTCOME_LINES.has(p.line.trigger));
@@ -371,7 +402,9 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
     // Read only when a removal needs resolving (no lock: the confirm locks the pantry and removes by id).
     const removes = calls.some((c) => c.name === 'propose_pantry_change' && c.args.remove.length > 0);
     const pantry = removes ? await loadPantry(tx, deps.keyring, userId) : [];
-    if (calls.length > 0) reply = cardsFromCalls(deps, calls, f.req, persist, recipes, pantry);
+    // The saved rules, only when a rule card might be made (S13 ruling: never a card below one of them).
+    const saved = persist && calls.some((c) => c.name === 'propose_rule') ? await loadRules(tx, deps.keyring, userId) : [];
+    if (calls.length > 0) reply = cardsFromCalls(deps, calls, f.req, persist, recipes, pantry, saved);
     else if (f.mode === 'rule_help') reply = { parts: [], cards: [], toolTurn: false }; // R3: rule help only
     else reply = scriptedReply(f.stripped, dishNamed, writeRequest);
     // A bare "didn't understand" gives way to any ask that follows.
