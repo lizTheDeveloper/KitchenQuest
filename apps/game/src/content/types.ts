@@ -115,3 +115,9 @@ export interface GameContent {
   /** data/rule-terms.json: words that name a rule rather than one ingredient ("vegetarian"). */
   ruleTerms: RuleTerm[];
 }
+
+/**
+ * What the app bundle carries: everything but the market stalls. No screen shows a stall yet, so their ~135 KB of
+ * lines stays out of first paint (the build still validates them; `kq-content` strips them from the module).
+ */
+export type ClientContent = Omit<GameContent, 'stalls'>;

@@ -1,5 +1,5 @@
 import { content, graph } from '../content';
-import { registerScreen, RouteNotFound, type AppContext, type Screen } from '../shell/app';
+import { RouteNotFound, type AppContext, type Screen } from '../shell/app';
 import { routeHref } from '../shell/router';
 import { h } from '../ui/dom';
 import { buildRecipeCard } from './card-model';
@@ -18,7 +18,7 @@ function draw(el: HTMLElement, slug: string, ctx: AppContext): void {
   );
 }
 
-function recipeScreen(): Screen {
+export function recipeScreen(): Screen {
   let unsubscribe: (() => void) | null = null;
   let stopDate: (() => void) | null = null;
   return {
@@ -39,4 +39,3 @@ function recipeScreen(): Screen {
   };
 }
 
-export function registerRecipeScreen(): void { registerScreen('recipe', recipeScreen); }

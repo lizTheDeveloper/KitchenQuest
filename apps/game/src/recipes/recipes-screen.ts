@@ -1,5 +1,5 @@
 import { content, graph } from '../content';
-import { registerScreen, type AppContext, type Screen } from '../shell/app';
+import { type AppContext, type Screen } from '../shell/app';
 import { routeHref } from '../shell/router';
 import { statusChip } from '../ui/chips';
 import { contentText, h } from '../ui/dom';
@@ -35,7 +35,7 @@ function draw(el: HTMLElement, ctx: AppContext): void {
   el.replaceChildren(h('h1', null, 'Recipe shelf'), ...(note ? [note] : []), h('ul', { class: 'shelf' }, ...items));
 }
 
-function recipesScreen(): Screen {
+export function recipesScreen(): Screen {
   let unsubscribe: (() => void) | null = null;
   let stopDate: (() => void) | null = null;
   return {
@@ -53,4 +53,3 @@ function recipesScreen(): Screen {
   };
 }
 
-export function registerRecipesScreen(): void { registerScreen('recipes', recipesScreen); }

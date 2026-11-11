@@ -1,6 +1,6 @@
 declare module 'virtual:kq-content' {
-  import type { GameContent } from './content/types';
-  const content: GameContent;
+  import type { ClientContent } from './content/types';
+  const content: ClientContent;
   export default content;
 }
 
