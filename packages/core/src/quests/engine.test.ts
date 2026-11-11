@@ -31,7 +31,7 @@ const LEELA_COOK = leela.steps.findIndex((s) => s.type === 'cook');
  * a test can tell `lines` from `otherwise` (the shipped ones are empty until M10).
  */
 const withRecognize = (q: Quest, technique: string): Quest => {
-  const steps = q.steps.filter((s) => s.type !== 'recognize');
+  const steps: Quest['steps'] = q.steps.filter((s) => s.type !== 'recognize');
   const cookAt = steps.findIndex((s) => s.type === 'cook');
   steps.splice(cookAt, 0, { type: 'recognize', technique, lines: ['I know that hand.'], otherwise: ['Watch closely.'] });
   return { ...q, steps };

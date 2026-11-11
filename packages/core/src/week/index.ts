@@ -4,3 +4,4 @@ export * from './plan';
 export * from './market-list';
 export * from './use-it-up';
 export * from './frames';
+export * from './data';

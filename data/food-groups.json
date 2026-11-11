@@ -1,0 +1,21 @@
+{
+  "allium": "veg_fruit",
+  "tomato": "veg_fruit",
+  "spinach": "veg_fruit",
+  "lime": "veg_fruit",
+  "celery": "veg_fruit",
+  "moong_dal": "protein",
+  "black_bean": "protein",
+  "lupin_bean": "protein",
+  "egg": "protein",
+  "fish": "protein",
+  "shellfish": "protein",
+  "meat": "protein",
+  "rice": "grain",
+  "cooked_rice": "grain",
+  "corn_tortilla": "grain",
+  "wheat": "grain",
+  "barley": "grain",
+  "rye": "grain",
+  "oats": "grain"
+}
