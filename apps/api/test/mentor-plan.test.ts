@@ -559,3 +559,61 @@ describe('fix round 1', () => {
     }
   });
 });
+
+describe('fix round 2: closed grammar only; health first', () => {
+  const aiPlayer = () => player(['health_data', 'ai_health']);
+  const HEALTH_LINES = ['rule.ask_keep_off', 'rule.ask_what_else', 'rule.unknown_term', 'rule.which_one', 'rule.which_kind'];
+
+  test('N1 probes: no code-built plan card; the turn takes the health path (an ask or a rule card)', async () => {
+    const texts = [
+      'plan my week: parippu minus the peanuts on monday',
+      'put the parippu minus the peanuts on monday',
+      'hold the peanuts on monday',
+      'go easy on the chilli on monday',
+      'low sugar on monday',
+      'low salt on monday',
+      'less spicy on monday',
+      'keto on monday',
+    ];
+    const ai = fakeAi(texts.map(() => reply('')));
+    await makeApp(ai);
+    for (const text of texts) {
+      const r = await (await aiPlayer()).turn(text);
+      expect(r.route, text).toBe('ai');
+      expect(r.cards.filter((c) => c.card.kind === 'plan'), text).toEqual([]);
+      expect(triggers(r).some((t) => HEALTH_LINES.includes(t)) || r.cards.some((c) => c.card.kind === 'rule'), `${text}: ${JSON.stringify(r.parts)}`).toBe(true);
+      expect(JSON.stringify(r), text).not.toMatch(/plan\.dish_unknown/);
+    }
+  });
+
+  test('N2 probes: no code-built profile or market card for another person, a past meal, two weekdays or a symptom', async () => {
+    const texts = [
+      'remind my brother about dinner at 6pm',
+      'my neighbour usually eats dinner at 6pm',
+      "my roommate's market is on friday",
+      "my grandad's market day is saturday",
+      "Ana's market is on saturday",
+      'made lunch about 1pm yesterday',
+      'my market day is saturday, sometimes sunday',
+      "market's saturday, peanuts make me dizzy",
+      "market's saturday, shrimp gives me a headache",
+      "market's saturday, my throat gets scratchy after prawns",
+      'remind me about dinner at 6pm, it makes me sick',
+    ];
+    const ai = fakeAi(texts.map(() => reply('')));
+    await makeApp(ai);
+    for (const text of texts) {
+      const r = await (await aiPlayer()).turn(text);
+      expect(r.cards, text).toEqual([]);
+    }
+  });
+
+  test('the scripted path, AI off: an exact title plans; "dal" (no title) is no code card, so the client\'s scripted engine takes it', async () => {
+    await makeApp(null);
+    const p = await player();
+    expect(planOf(await p.turn('plan my week: parippu on Sunday')).items.map((i) => i.slug)).toEqual([PARIPPU]);
+    const dal = await p.turn('plan my week: dal on Sunday');
+    expect(dal).toMatchObject({ route: 'scripted', cards: [], notice: 'ai_off' });
+  });
+});
+

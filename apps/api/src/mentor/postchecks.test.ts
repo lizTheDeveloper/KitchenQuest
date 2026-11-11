@@ -98,6 +98,13 @@ describe('applyPostChecks', () => {
     expect(post([plan({ days: [{ weekday: 'Sunday', dish: 'no peanuts' }] })], 'plan my week: no peanuts on sunday')).toEqual([]);
   });
 
+  test('fix round 2 N3: a model after that names no day never beats the weekday the player\'s words give', () => {
+    const plan = (after: string | null): ToolArgs => ({ name: 'propose_plan', args: { days: null, pick: 3, hard_week: null, after } });
+    expect(post([plan('that')], "idk just pick 3 things for this week. market's saturday so do the beans after that")).toEqual([plan('saturday')]);
+    expect(post([plan('knackered')], "pick 3 for me, I'm knackered")).toEqual([plan(null)]);
+    expect(post([plan('Saturday')], 'pick 3 after saturday')).toEqual([plan('Saturday')]);
+  });
+
   test('T03: the weekdays the player named set the market days', () => {
     expect(post([profile({ market_days: ['Sunday'] })], 'My market day is Saturday.')).toEqual([profile({ market_days: ['saturday'] })]);
     expect(post([profile({ meals_per_week: 5 })], 'Saturday, five meals')).toEqual([profile({ meals_per_week: 5 })]);
