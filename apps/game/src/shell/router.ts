@@ -1,7 +1,8 @@
 export type Route =
   | { name: 'kitchen' } | { name: 'map' } | { name: 'visit'; cookId: string }
   | { name: 'recipes' } | { name: 'recipe'; slug: string } | { name: 'cook'; slug: string }
-  | { name: 'settings' } | { name: 'rules' } | { name: 'notFound'; hash: string };
+  | { name: 'settings' } | { name: 'rules' } | { name: 'plan' } | { name: 'market' } | { name: 'frame'; id: string }
+  | { name: 'notFound'; hash: string };
 
 const SLUG = /^[a-z0-9-]+(\/[a-z0-9-]+)*$/;
 const ID = /^[a-z0-9-]+$/;
@@ -23,6 +24,9 @@ export function parseRoute(hash: string): Route {
     case 'recipes': return arg === null ? { name: 'recipes' } : notFound;
     case 'settings': return arg === null ? { name: 'settings' } : notFound;
     case 'rules': return arg === null ? { name: 'rules' } : notFound;
+    case 'plan': return arg === null ? { name: 'plan' } : notFound;
+    case 'market': return arg === null ? { name: 'market' } : notFound;
+    case 'frame': return arg !== null && ID.test(arg) ? { name: 'frame', id: arg } : notFound;
     case 'visit': return arg !== null && ID.test(arg) ? { name: 'visit', cookId: arg } : notFound;
     case 'recipe': return arg !== null && SLUG.test(arg) ? { name: 'recipe', slug: arg } : notFound;
     case 'cook': return arg !== null && SLUG.test(arg) ? { name: 'cook', slug: arg } : notFound;
@@ -35,11 +39,14 @@ export function routeHref(route: Exclude<Route, { name: 'notFound' }>): string {
     case 'visit': return `#/visit/${route.cookId}`;
     case 'recipe': return `#/recipe/${route.slug}`;
     case 'cook': return `#/cook/${route.slug}`;
+    case 'frame': return `#/frame/${route.id}`;
     case 'kitchen':
     case 'map':
     case 'recipes':
     case 'settings':
     case 'rules':
+    case 'plan':
+    case 'market':
       return `#/${route.name}`;
   }
 }

@@ -74,3 +74,15 @@ export function dayOfWeek(weekStart: string, today: string): number | null {
   for (let d = 0; d < 7; d++) if (addDays(weekStart, d) === today) return d;
   return null;
 }
+
+let known: Plan | null = null;
+/** The last plan the game read or saved for the player's current week (the scripted engine's and cook mode's view of it). */
+export function rememberWeek(plan: Plan | null): void { known = plan; }
+/** The week remembered for `weekStart`, if any. */
+export const rememberedWeek = (weekStart: string): Plan | null => (known !== null && known.weekStart === weekStart ? known : null);
+/** Whether `slug` is planned for `today` in the remembered week (a cook's `planned`, Ruling 7). */
+export function plannedOn(slug: string, today: string): boolean {
+  if (known === null) return false;
+  const day = dayOfWeek(known.weekStart, today);
+  return day !== null && known.items.some((i) => i.kind === 'dish' && i.slug === slug && i.day === day);
+}
