@@ -1080,19 +1080,19 @@ triggers:
     lines:
       - "{dish} gets a ❓: I can't verify everything in it against your rules. Check the labels before you cook it."
       - "{dish} is marked ❓. I can't check every ingredient against your rules from here, so please read the labels first."
-      - "A ❓ on {dish}: something in it depends on the label. Check the packets before you cook it."
+      - "A ❓ on {dish}: I can't verify all of it for your rules. Check the packets and labels before you cook it."
       - "I can't say {dish} fits your rules, so it shows ❓, not ✅. The labels have the last word."
 
   plan.fewer_than_asked:
     ai: never
     when: "'Pick N' found fewer taught dishes that pass the player's rules than asked; core suggestPlan never pads with ❓ or ⛔."
     vars:
-      count: "how many dishes were picked"
+      count: "how many dishes were picked, as a numeral (0 or more); every line reads for 0, 1 or many"
     lines:
-      - "{count} dishes pass your rules this week, and that's what I've picked. I won't fill the gaps with dishes I can't check."
-      - "I could pick {count} that pass your rules, so the plan has {count}. Every one of them is checked."
-      - "That's {count}: the dishes that pass your rules this week. The rest of the week is yours to fill as you like."
-      - "I've picked {count}. More would mean dishes your rules block or I can't verify, and I won't do that."
+      - "Fewer pass your rules this week than you asked for. Number picked: {count}. I won't fill the gaps with dishes I can't check."
+      - "I've picked what passes your rules this week, and that comes to {count} in all. Each one is checked."
+      - "Of the dishes the cooks have taught, the number that pass your rules this week is {count}. The rest of the week is yours to fill as you like."
+      - "That's as many as pass your rules this week ({count}). More would mean dishes your rules block or I can't verify, and I won't do that."
 
   plan.hard_week:
     ai: allowed
@@ -1129,7 +1129,7 @@ triggers:
     notes: "Never 'fading', 'rusty', 'losing' or 'before it's gone'. Nothing is lost; nothing is lowered."
     lines:
       - "{technique} would enjoy a visit. {dish} this week? An invitation, nothing more."
-      - "It's been a while since {technique}. It hasn't gone anywhere. {dish} would say hello to it, if you like."
+      - "{technique} keeps. It hasn't gone anywhere. {dish} would say hello to it, if you like."
       - "Fancy a refresher? {dish} brings {technique} back to the hand. Or not; it keeps."
       - "{technique} is waiting where you left it. {dish} is a nice way back in, whenever suits."
 
@@ -1196,7 +1196,7 @@ triggers:
     lines:
       - "Compost counts. The worms send their thanks."
       - "Into the compost with the {item}. It goes on to grow something. That's a good ending too."
-      - "The {item} goes to the compost. No shame in it. Gardens are kitchens with patience."
+      - "The {item} goes to the compost. Gardens are kitchens with patience."
       - "The {item} retires to the garden, with honours. The worms have been told."
 
   rescue.unverified:
@@ -1206,9 +1206,10 @@ triggers:
       item: "the item"
     notes: "Plain. No joke touches a ❓ line."
     lines:
-      - "I can't check a dish for the {item} against your rules, so I won't suggest one. Your own judgement, or the compost, is fine."
+      - "I can't check a dish for the {item} against your rules, so I won't suggest one. Check the labels if you cook it yourself, or the compost is fine."
       - "There's nothing I can verify for the {item} under your rules, so no suggestion from me. Check labels if you cook it yourself."
-      - "The dish for the {item} gets a ❓ for your rules, so I won't offer it. The compost is always fine."
+      - "The dish for the {item} gets a ❓ for your rules, so I won't offer it. Read the labels before cooking it any other way, or compost it."
+      - "I can't verify a dish for the {item} against your rules, so there's no suggestion from me. If you cook it, check every label first."
 
   frame.offer:
     ai: allowed
@@ -1232,6 +1233,7 @@ triggers:
       - "I can't fill the {slot} with anything that passes your rules, so it stays unfilled. I won't guess. Pick something you've checked, or choose another frame."
       - "No {slot} I can verify for your rules. That part stays open, and the dish shows ❓ until it's filled."
       - "The {slot} needs something that passes your rules, and I can't verify anything for it. It stays unfilled; I won't guess."
+      - "Nothing I can verify fits the {slot} under your rules, so I've left it unfilled. The dish shows ❓ until you pick something you've checked."
 
   cook.who_ate:
     ai: allowed
@@ -1279,6 +1281,7 @@ triggers:
       - "In the margin: {summary}. Shall I write it in?"
       - "Reading it back: {summary}. The cook's recipe stays as it is. Shall I add the note?"
       - "{summary}. That goes in your margin, not the recipe. Is that right?"
+      - "So the note says: {summary}. The recipe itself won't change. Shall I add it to your margin?"
 
   margin.blocked:
     ai: never
@@ -1290,6 +1293,7 @@ triggers:
       - "That change clashes with your rules: {finding}. I won't put it in the notes you cook from."
       - "{finding}. That's against your rules, so it can't go in your cooking notes."
       - "Your rules say no to that: {finding}. The recipe stays as the cook wrote it."
+      - "I can't use that change with your rules: {finding}. Your cooking notes stay without it."
 
   margin.needs_account:
     ai: never
@@ -1298,6 +1302,7 @@ triggers:
       - "Margin notes live with your account, so they're kept private. Sign in from Settings, and the margin is yours."
       - "I can keep margin notes once you're signed in. Settings has the sign-in. The recipe works as it is meanwhile."
       - "Notes need an account, so they sit with your other private things. Sign in from Settings whenever you like."
+      - "To keep a margin note I need you signed in; Settings has the sign-in. Nothing about the recipe changes meanwhile."
 
   log.dish_offer:
     ai: never
@@ -1308,6 +1313,7 @@ triggers:
       - "Log {dish} as a meal? One tap, or skip it."
       - "{dish}: shall I put it in the food log? Tap to log, or skip."
       - "Want {dish} in your food log? It's one tap. Skipping is fine too."
+      - "Shall I log {dish}? One tap does it, and skipping costs nothing."
 
   quest.recognize:
     ai: allowed
@@ -1361,6 +1367,7 @@ triggers:
       - "Your Recipe Book is saved to your device. It's yours, always free."
       - "Saved: the Recipe Book file. It's yours to keep, always free."
       - "The book is saved as a file on your device. Yours, always, and it never costs a thing."
+      - "Your Recipe Book file is on your device now. It's yours to keep, and exporting it is always free."
 
   nav.offer:
     ai: never
@@ -1371,6 +1378,7 @@ triggers:
       - "Tap to go to {place}."
       - "{place} is a tap away."
       - "Shall we go to {place}? Tap when you're ready."
+      - "When you're ready, tap to go to {place}."
 
   # ------------------------------------------------------------------
   # Meta: undo, confusion, AI down, progression
@@ -1502,7 +1510,7 @@ triggers:
       - "{cook} has written to {friend} in {place}. That's an introduction. They don't hand those out; they give them."
       - "{friend}, in {place}, is expecting you now, because {cook} vouched for you. Don't make {cook} regret it."
       - "{friend}, in {place}. An introduction from {cook}. In the Bureau's hierarchy of documents, this outranks a stamp."
-      - "A letter of introduction: {cook} to {friend}, {place}. That's a door opened on your behalf. Walk through it politely."
+      - "A letter of introduction: {cook} to {friend}, {place}. {friend} is expecting you now. Arrive hungry and polite."
 
   # ------------------------------------------------------------------
   # Mentor conversation (Milestone 4). Fired by code, never written by the model.

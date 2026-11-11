@@ -246,8 +246,8 @@ describe('M5 Step 4: the weekly-loop lines', () => {
     'plan.readback': "Here's the week as I have it: {summary}. Shall I plan it?",
     'plan.dish_unknown': "I don't know a dish called {dish}. None of the cooks has taught it, so I haven't guessed. Which dish did you mean?",
     'plan.unverified_dish': "{dish} gets a ❓: I can't verify everything in it against your rules. Check the labels before you cook it.",
-    'plan.fewer_than_asked': "{count} dishes pass your rules this week, and that's what I've picked. I won't fill the gaps with dishes I can't check.",
-    'rescue.unverified': "I can't check a dish for the {item} against your rules, so I won't suggest one. Your own judgement, or the compost, is fine.",
+    'plan.fewer_than_asked': "Fewer pass your rules this week than you asked for. Number picked: {count}. I won't fill the gaps with dishes I can't check.",
+    'rescue.unverified': "I can't check a dish for the {item} against your rules, so I won't suggest one. Check the labels if you cook it yourself, or the compost is fine.",
     'frame.slot_empty': "I can't fill the {slot} with anything that passes your rules, so it stays unfilled. I won't guess. Pick something you've checked, or choose another frame.",
     'margin.readback': 'In the margin: {summary}. Shall I write it in?',
     'margin.blocked': "That change clashes with your rules: {finding}. I won't put it in the notes you cook from.",
@@ -292,9 +292,9 @@ describe('M5 Step 4: the weekly-loop lines', () => {
     expect(Object.entries(M5_LOOP_TRIGGERS_AI).filter(([, ai]) => ai === 'never').map(([id]) => id).sort()).toEqual(Object.keys(FIRST_LINES).sort());
   });
 
-  it.each(Object.entries(FIRST_LINES))('%s opens with its pinned line and has 3–6 distinct lines', (id, first) => {
+  it.each(Object.entries(FIRST_LINES))('%s opens with its pinned line and has 4–6 distinct lines (Ruling 21)', (id, first) => {
     expect(lines(id)[0]).toBe(first);
-    expect(lines(id).length, id).toBeGreaterThanOrEqual(3);
+    expect(lines(id).length, id).toBeGreaterThanOrEqual(4);
     expect(lines(id).length, id).toBeLessThanOrEqual(6);
     expect(new Set(lines(id)).size, `${id} repeats a line`).toBe(lines(id).length);
   });
@@ -328,6 +328,22 @@ describe('M5 Step 4: the weekly-loop lines', () => {
     for (const id of ['plan.readback', 'margin.readback']) {
       for (const line of lines(id)) expect(line, id).not.toMatch(/\b(saved|filed|logged|stamped|kept|on file)\b/i);
     }
+  });
+
+  it('fix round 1: a ❓ line never calls the dish fine; plan.fewer_than_asked reads for 0 and 1; plan.unverified_dish names no single cause', () => {
+    for (const line of lines('rescue.unverified')) {
+      expect(line).not.toMatch(/judgement/i);
+      expect(line.replace(/compost is fine/g, '')).not.toMatch(/\bfine\b/i);
+      expect(line).toMatch(/label/i);
+    }
+    for (const line of lines('plan.fewer_than_asked')) expect(line, line).not.toMatch(/\{count\}\s+(?:dishes|that|of)\b/);
+    for (const line of lines('plan.unverified_dish')) expect(line).not.toMatch(/depends on the label/);
+  });
+
+  it('fix round 1: no refresher names the absence; compost brings no shame; an introduction opens no door', () => {
+    for (const line of lines('one_more.refresh')) expect(line).not.toMatch(/been a while|since you|haven't/i);
+    for (const line of lines('rescue.compost')) expect(line).not.toMatch(/shame|guilt|sorry/i);
+    for (const line of lines('introduction_received')) expect(line).not.toMatch(/door|opened|let in|unlock/i);
   });
 
   it('says the compost line as one line, and "just me" gets equal warmth', () => {

@@ -14,6 +14,20 @@ const [friedRice, greenSauce, tomatoSauce] = FRAMES;
 const TECHNIQUES = new Set(SHIPPED_TECHNIQUES.map((t) => t.id));
 
 describe('fillFrame', () => {
+  test('C1 (fix round 1): a pantry "herbs" is never chosen under a celery or allium rule; the green sauce is ❓, never ✅', () => {
+    for (const rule of [avoid('celery', { severity: 'anaphylactic' }), avoid('allium', { severity: 'anaphylactic' })]) {
+      const sauce = fillFrame(greenSauce, [have('herbs'), have('lime'), have('sunflower oil')], ctx([rule]));
+      expect(sauce.fills.herb).toBeNull();
+      expect(sauce.emptyRequired).toEqual(['herb']);
+      expect(sauce.check.status).not.toBe('ok');
+      // Picked by the player, it fills the slot, and the dish is ❓.
+      const picked = fillFrame(greenSauce, [have('herbs'), have('lime'), have('sunflower oil')], ctx([rule]), { herb: 'herbs' });
+      expect(picked.check.status).toBe('unverified');
+    }
+    // No rules: nothing to verify against, so herbs fill the slot as before.
+    expect(fillFrame(greenSauce, [have('herbs'), have('lime'), have('sunflower oil')], ctx()).check.status).toBe('ok');
+  });
+
   test('fillFrame: never picks a blocked candidate; unresolved pantry name not auto-picked; picked → frame ❓; empty required slot reported', () => {
     // Blocked: peanut is a kind of nut, but the player avoids peanut; cashew fits and passes.
     const sauce = fillFrame(greenSauce, [have('peanut'), have('cashew'), have('coriander'), have('lime'), have('sunflower oil')], ctx([PEANUT]));

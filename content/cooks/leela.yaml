@@ -172,6 +172,7 @@ faq:
   - q: ["can i use coconut milk instead", "coconut milk"]
     a: "A few spoons of thick coconut milk stirred in at the end will give you creaminess, though not the texture of ground coconut. Warm it gently; don't boil it hard."
     tags: [substitution]
+  # REVIEW: food safety. Leftover keep time: USDA FSIS gives 3-4 days refrigerated, 3-4 months frozen; confirm "a couple of months" frozen.
   - q: ["how do i store it", "leftovers", "how long does dal keep", "can i freeze parippu", "store parippu"]
     a: "Cool it, cover it, and keep it in the fridge for three or four days. It will thicken like it is sulking; warm it with a little hot water and stir. It freezes well for a couple of months, though the coconut can separate a little — stir hard when you warm it and it comes back."
     tags: [storage]

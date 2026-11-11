@@ -168,8 +168,9 @@ faq:
     a: "Yes, and it's much faster: unsoaked black beans take about 30 to 40 minutes at high pressure, then let the pressure come down on its own. Salt and epazote after, simmering ten minutes with the lid off. Not quite the olla, but on a busy day, nobody's complaining."
     tags: [technique]
   # REVIEW: Electric pressure-cooker time for unsoaked black beans (common guidance 25-40 min high + natural release). Confirm a range.
+  # REVIEW: food safety. Cooked-bean keep time: USDA FSIS gives 3-4 days refrigerated for leftovers, 3-4 months frozen.
   - q: ["how do i store them", "how long do beans keep", "can i freeze beans", "leftover beans"]
-    a: "In their broth, in the fridge, for four or five days. They freeze very well too, in their broth, for a few months — freeze them in portions so you can take out just a lunch. Cool them quickly; don't leave a big warm pot on the stove overnight."
+    a: "In their broth, in the fridge, for three or four days. They freeze very well too, in their broth, for a few months — freeze them in portions so you can take out just a lunch. Cool them quickly; don't leave a big warm pot on the stove overnight."
     tags: [storage, safety]
   - q: ["what do i do with leftovers", "refried beans", "refritos", "enfrijoladas"]
     a: "Refritos: heat a little lard or oil, add beans with some broth, and mash as they fry until thick. Or blend beans with their broth and a little chile into a sauce, dip warm tortillas in it, fold them, and top with cheese and onion: enfrijoladas. Or just reheat a bowl with an egg on top. Beans are generous."

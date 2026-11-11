@@ -62,6 +62,11 @@ function collect(c: ClientContent): Scanned[] {
   for (const [slug, r] of Object.entries(c.recipes)) {
     const file = `recipes/${slug}.cook`;
     add(file, 'title', r.meta.title);
+    // What the ingredient list shows: each line's display name and its note (fix round 1, M6).
+    r.ingredients.forEach((l, i) => {
+      if (l.displayName !== null) add(file, `ingredients[${i}].displayName`, l.displayName);
+      if (l.note !== null) add(file, `ingredients[${i}].note`, l.note);
+    });
     r.steps.forEach((s, i) => add(file, `steps[${i}]`, stepPlainText(r, s)));
   }
   for (const t of c.techniques.techniques) add('data/techniques.yaml', t.id, t.name);
@@ -108,13 +113,14 @@ const PATTERNS: { name: string; re: RegExp; kinds?: string }[] = [
   { name: 'sparse cupboard', re: /\b(only|just|empty|bare|sad)\b/i, kinds: 'rescue' },
 ];
 
-const allowed = new Set(VOICE_ALLOWLIST.map((a) => `${a.file}\0${a.line}`));
+/** Keyed by location (file and path) and exact text (fix round 1, M7): the same words anywhere else are scanned. */
+const allowed = new Set(VOICE_ALLOWLIST.map((a) => `${a.file}\0${a.where}\0${a.line}`));
 
 /** Every pattern hit in `items` outside the allowlist, as "file where: pattern: text". */
 function scan(items: readonly Scanned[]): string[] {
   const problems: string[] = [];
   for (const it of items) {
-    if (allowed.has(`${it.file}\0${it.text}`)) continue;
+    if (allowed.has(`${it.file}\0${it.where}\0${it.text}`)) continue;
     // {vars} are filled in by code; their names are not words the player reads.
     const text = it.text.replace(/\{\w+\}/g, 'X');
     for (const p of PATTERNS) {
@@ -126,7 +132,7 @@ function scan(items: readonly Scanned[]): string[] {
 }
 
 const shipped = collect(content);
-const line = (text: string, kinds: string[] = [], file = PAN): Scanned => scanned(file, 'planted', text, kinds);
+const line = (text: string, kinds: string[] = [], file = PAN, where = 'planted'): Scanned => scanned(file, where, text, kinds);
 
 describe('voice scan of the client content (C29)', () => {
   it('scans the lines, forms, frames, recipes and names the bundle carries', () => {
@@ -144,7 +150,7 @@ describe('voice scan of the client content (C29)', () => {
 
   it('every allowlist entry is a shipped line, has a reason, and is caught by a pattern (so it needs the entry)', () => {
     for (const a of VOICE_ALLOWLIST) {
-      expect(shipped.some((s) => s.file === a.file && s.text === a.line), `${a.file}: ${a.line}`).toBe(true);
+      expect(shipped.some((s) => s.file === a.file && s.where === a.where && s.text === a.line), `${a.file} ${a.where}: ${a.line}`).toBe(true);
       expect(a.reason.length, a.line).toBeGreaterThan(20);
       expect(scan([line(a.line, [], `${a.file}#unlisted`)]), a.line).not.toEqual([]);
     }
@@ -156,8 +162,26 @@ describe('voice scan of the client content (C29)', () => {
       const words = a.line.split(' ');
       const edited = [words[0], 'indeed', ...words.slice(1)].join(' ');
       expect(edited).not.toBe(a.line);
-      expect(scan([line(edited, [], a.file)]), edited).not.toEqual([]);
+      expect(scan([line(edited, [], a.file, a.where)]), edited).not.toEqual([]);
     }
+  });
+
+  it('an allowlisted line pasted somewhere else in the same file fails: the entry pins one place (fix round 1, M7)', () => {
+    for (const a of VOICE_ALLOWLIST) {
+      expect(scan([line(a.line, [], a.file, a.where)]), a.line).toEqual([]);
+      expect(scan([line(a.line, [], a.file, `${a.where}.elsewhere`)]), a.line).not.toEqual([]);
+    }
+  });
+
+  it('scans recipe ingredient display names and notes (fix round 1, M6)', () => {
+    const recipe = Object.values(content.recipes)[0];
+    const planted: ClientContent = {
+      ...content,
+      recipes: { 'x/y/z': { ...recipe, ingredients: recipe.ingredients.map((l, i) => (i === 0 ? { ...l, displayName: 'exotic beef', note: 'cheap cut, example price' } : l)) } },
+    };
+    const hits = scan(collect(planted).filter((x) => x.file === 'recipes/x/y/z.cook'));
+    expect(hits.some((h) => h.includes('displayName'))).toBe(true);
+    expect(hits.some((h) => h.includes('.note'))).toBe(true);
   });
 
   it.each([
