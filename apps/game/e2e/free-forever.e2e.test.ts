@@ -176,7 +176,7 @@ describe('free forever (§16)', () => {
     await go(`#/book/${PARIPPU}`);
     await page.locator('.book-techniques').waitFor();
     const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download my book' }).click()]);
-    const html = readFileSync((await download.path())!, 'utf8');
+    const html = readFileSync(await download.path(), 'utf8');
     expect(html).toContain('Parippu');
     expect(html).not.toMatch(SELLS);
     await noSale('#/book');

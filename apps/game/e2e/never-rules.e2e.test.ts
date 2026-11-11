@@ -156,7 +156,7 @@ describe('never rules, the weekly loop (M5 Step 12)', () => {
   const stored = (page: Page) => page.evaluate(() => JSON.parse(localStorage.getItem('kq.player.v1') ?? '{}') as PlayerState);
 
   it('the scan bites: every planted line is caught, and the allowlist excuses only an exact line inside [data-content]', () => {
-    const planted: [keyof typeof LOOP_NEVER | 'countdown', string][] = [
+    const planted: [string, string][] = [
       ['sells', 'Join the Guild'], ['sells', 'Only $4.99'], ['sells', 'Upgrade for more plans'], ['sells', 'subscribers cook more'],
       ['voice', 'an exotic dish'], ['voice', 'a guilt-free dinner'], ['voice', 'you missed 3 days'], ['voice', 'good job eating less'],
       ['loot', 'Recipe unlocked!'], ['loot', 'You collected Parippu'], ['loot', 'acquire a new dish'], ['loot', 'discovered in Kerala'], ['loot', 'Loot: onigiri'],
@@ -285,7 +285,7 @@ describe('never rules, the weekly loop (M5 Step 12)', () => {
       await page.locator('.book-techniques').waitFor();
       if (!familyTable) await page.locator('.book-notes-panel').waitFor();
       const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download my book' }).click()]);
-      const html = readFileSync((await download.path())!, 'utf8');
+      const html = readFileSync(await download.path(), 'utf8');
       // The file's words, line by line (tags and the recipe's Cooklang markers aside).
       // Cooklang writes a quantity as {100%g}: that % separates amount and unit, it is not a percentage.
       const text = html.replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, '\n').replace(/&[a-z#0-9]+;/gi, ' ')

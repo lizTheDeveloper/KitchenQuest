@@ -51,7 +51,7 @@ const deviceGrants = async (page: Page): Promise<RewardGrant[]> => {
   const s = await stored(page);
   return [...(s.progress?.grants ?? []), ...Object.values(s.accountProgress ?? {}).flatMap((p) => p.progress.grants)];
 };
-const xpOf = (gs: RewardGrant[]) => gs.filter((g) => g.kind === 'xp').reduce((n, g) => n + (g as Extract<RewardGrant, { kind: 'xp' }>).amount, 0);
+const xpOf = (gs: RewardGrant[]) => gs.filter((g) => g.kind === 'xp').reduce((n, g) => n + (g.kind === 'xp' ? g.amount : 0), 0);
 const card = async (page: Page) => {
   const c = page.locator('.apprentice-card');
   await c.waitFor();
@@ -60,7 +60,7 @@ const card = async (page: Page) => {
 
 /** Frijoles de olla, cooked last week (C27): legumes, heat-control and patience are Tried. */
 const priorCook: ProgressEvent = { id: randomUUID(), kind: 'cooked', at: LAST_WEEK, recipe: FRIJOLES, planned: false };
-const priorGrant: RewardGrant = { id: `${priorCook.id}#0`, eventId: priorCook.id, isoDay: LAST_WEEK, kind: 'xp', amount: 30, reason: 'cook' } as RewardGrant;
+const priorGrant: RewardGrant = { id: `${priorCook.id}#0`, eventId: priorCook.id, isoDay: LAST_WEEK, kind: 'xp', amount: 30, reason: 'cook' };
 const tried = (lastUsedAt: string) => ({ tier: 'tried' as const, firstAt: lastUsedAt, lastUsedAt, recipes: [FRIJOLES] });
 /** The account's own view of last week's cook (the signed-in run's GET /progress). */
 const ACCOUNT_VIEW: ProgressView = {
@@ -203,7 +203,7 @@ async function readTheBook(page: Page, note: boolean) {
   expect(text).toMatch(/14 November 2026|2026-11-14|November 14/);
   if (note) expect(await page.locator('.book-note-text').allTextContents()).toEqual([expect.stringContaining('lime')]);
   const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download my book' }).click()]);
-  const html = readFileSync((await download.path())!, 'utf8');
+  const html = readFileSync(await download.path(), 'utf8');
   expect(html).not.toMatch(/<script|https?:\/\//i);
   expect(html).toContain('Parippu');
   if (note) expect(html).toContain('lime');
