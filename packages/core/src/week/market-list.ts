@@ -23,6 +23,8 @@ export interface ListItem {
   forDishes: string[];
   /** Dish slugs for which this is the rules engine's swap: shown as "for {dish}, swapped". Absent when none. */
   swappedFor?: string[];
+  /** The rules engine can't verify it (unresolved, or check the label): Step 10 badges it ❓. Absent otherwise. */
+  unverified?: true;
   ticked: boolean;
 }
 
@@ -104,6 +106,9 @@ export function marketList(plan: Plan, ctx: PlanContext, pantry: readonly Pantry
       };
       pushOnce(row.forDishes, item.slug);
       if (swap) pushOnce((row.swappedFor ??= []), item.slug);
+      // A listed swap is itself rules-checked; any other line with a ❓ finding is marked.
+      const unsure = result.findings.some((f) => f.ingredient === line.name && (f.kind === 'label' || f.kind === 'unresolved'));
+      if (!swap && unsure) row.unverified = true;
       rows.set(key, row);
     }
   }

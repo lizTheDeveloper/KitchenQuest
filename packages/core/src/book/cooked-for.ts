@@ -60,7 +60,7 @@ const WITH_ME = /\b(?:of us|us|including me|incl\.? me|in total|altogether|all t
 const NUMBER = new RegExp(`\\b(\\d{1,3}|${Object.keys(NUMBER_WORDS).sort((a, b) => b.length - a.length).join('|')})\\b`);
 const SPLIT = /\s*(?:,|&|\+|;|\/|\band\b|\bplus\b|\bwith\b|\balong with\b)\s*/i;
 /** Words a name-only list item may not be. */
-const NOT_NAMES = new Set(['i', 'me', 'my', 'we', 'us', 'the', 'a', 'an', 'it', 'dinner', 'lunch', 'breakfast', 'just', 'for', 'fed', 'cooked', 'made', 'ate', 'everyone', 'all']);
+const NOT_NAMES = new Set(['yes', 'no', 'yeah', 'thanks', 'tonight', 'today', 'everybody', 'nobody', 'leftovers', 'myself', 'alone', 'i', 'me', 'my', 'we', 'us', 'the', 'a', 'an', 'it', 'dinner', 'lunch', 'breakfast', 'just', 'for', 'fed', 'cooked', 'made', 'ate', 'everyone', 'all']);
 
 const escape = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const PEOPLE_RES = PEOPLE.map((p) => ({ ...p, re: new RegExp(`(?:^|[^\\p{L}'-])(?:${p.words.map(escape).join('|')})(?:'s)?(?=$|[^\\p{L}-])`, 'u') }));
@@ -101,27 +101,35 @@ export function parseCookedFor(text: string): CookedFor | null {
       who = p.who;
     }
   }
-  // "no one", "for one", "someone": the word "one" here is not a count.
-  const n = NUMBER.exec(t.replace(/\b(?:no[ -]one|for one|some ?one|any ?one|every ?one)\b/g, ' '));
-  if (n) {
+  const numberIn = (x: string): number | null => {
+    // "no one", "for one", "someone": the word "one" here is not a count.
+    const n = NUMBER.exec(x.replace(/\b(?:no[ -]one|for one|some ?one|any ?one|every ?one)\b/g, ' '));
+    if (!n) return null;
     const value = /^\d+$/.test(n[1]) ? Number(n[1]) : NUMBER_WORDS[n[1]];
-    const others = WITH_ME.test(t) ? value - 1 : value;
-    if (Number.isInteger(others) && others >= 0) return { count: countOf(others), who: others === 0 ? null : who };
-  }
-  if (who === null && JUST_ME.test(t)) return { count: 'just_me', who: null };
-  const items = original
+    return Number.isInteger(value) && value >= 0 ? value : null;
+  };
+  // "6 of us", "the two of us": the number counts everyone, the player too.
+  const total = WITH_ME.test(t) ? numberIn(t) : null;
+  if (total !== null) return { count: countOf(total - 1), who: total <= 1 ? null : who };
+  const stripped = original
     .replace(/^(?:i\s+)?(?:cooked|made it|made|fed|served|shared it|shared|ate|had dinner|had lunch)\b(?:\s+(?:for|with))?\s*/i, '')
-    .replace(/^(?:for|with)\s+/i, '')
+    .replace(/^(?:for|with)\s+/i, '');
+  const items = stripped
     .split(SPLIT)
     .map((s) => s.trim())
     .filter((s) => s !== '');
+  // A capitalised word is read as a name only in a list, or after "cooked for" / "with": "Yes" or "Pasta" alone is not a person.
+  const namesCount = items.length >= 2 || stripped !== original;
   let people = 0;
   for (const item of items) {
     const lower = item.toLowerCase();
+    const n = numberIn(lower);
     const p = PEOPLE_RES.find((x) => x.re.test(lower));
-    if (p) people += p.plural ? 2 : 1;
-    else if (looksLikeName(item)) people += 1;
+    if (n !== null) people += n; // "3 kids": the number is the people in this item
+    else if (p) people += p.plural ? 2 : 1;
+    else if (namesCount && looksLikeName(item)) people += 1;
   }
+  if (people === 0 && JUST_ME.test(t)) return { count: 'just_me', who: null };
   return people > 0 ? { count: countOf(people), who } : null;
 }
 

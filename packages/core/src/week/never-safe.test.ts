@@ -52,7 +52,7 @@ describe('never safe', () => {
         };
         const pantry = names.map((name) => ({ name, ingredientId: graph.resolve(name) }));
         for (const pick of [undefined, { a: nameOf(x) }]) {
-          const f = fillFrame(frame, pantry, { rules: [rule], graph, subs, today: DAY }, pick);
+          const f = fillFrame(frame, pantry, { rules: [rule], graph, subs, today: DAY, keeps: {} }, pick);
           if (f.recipe.ingredients.some((i) => graph.resolve(i.name) === x)) expect(f.check.status).not.toBe('ok');
           for (const fill of Object.values(f.fills)) {
             if (fill) expect(check({ ...f.recipe, ingredients: [{ name: fill.name, displayName: null, quantity: null, unit: null, note: null }] }, [rule], graph, subs, DAY).status).not.toBe('blocked');

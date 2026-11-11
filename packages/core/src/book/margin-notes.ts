@@ -2,7 +2,7 @@
 // The canon text is never altered: `applyNotes` returns a copy, and "cook with my notes" is checked by the rules
 // engine with every change applied. Notes are health data: they never enter a prompt (C-13) and stay private.
 import { normalizeName, type IngredientGraph } from '../ingredients/graph';
-import { canonicalText } from '../mentor/intents';
+import { canonicalText, normalizeTurn } from '../mentor/intents';
 import type { ParsedRecipe, RecipeIngredient, StepItem } from '../recipe/types';
 import { isValidDate } from '../rules/active';
 import { check, type CheckResult, type Substitution } from '../rules/check';
@@ -26,7 +26,7 @@ export const NOTE_NAME_MAX = 80;
 
 const CLAUSES = /\s*(?:[,;\n]|[.!?]+(?:\s+|$))\s*/;
 const AND = /\s+(?:and|&|\+)\s+/;
-const LEAD = /^(?:(?:i|we)\s+)?(?:also\s+|just\s+)?/;
+const LEAD = /^(?:(?:then|so|and|also|just|plus|i|we|i've|we've|i'd|we'd|i also|we also)\s+)+/;
 const AMOUNT = /^(?:(?:some|a|an|the|more|extra|bit|little|pinch|handful|squeeze|splash|dash|drizzle|couple|few|lots|lot)(?:\s+of)?\s+)+/;
 const SWAP_INSTEAD = /^(?:used|use|subbed in|subbed|substituted|went with|tried)\s+(.+?)\s+(?:instead of|in place of|rather than)\s+(.+)$/;
 const SWAP_FOR = /^(?:swapped|swap|subbed|sub|replaced|replace|switched|switch|changed|change)\s+(?:out\s+)?(?:the\s+)?(.+?)\s+(?:for|with|to)\s+(.+)$/;
@@ -79,8 +79,10 @@ export function parseMarginNote(text: string, recipe: ParsedRecipe, graph: Ingre
       const [to, from] = swap ? [swap[1], swap[2]] : [swapFor![2], swapFor![1]];
       const toNames = names(to);
       const fromNames = names(from);
-      if (toNames.length === 1 && fromNames.length === 1) {
+      // "chickpeas and peanut butter instead of lentils": the first is the swap, the rest are additions.
+      if (toNames.length >= 1 && fromNames.length === 1) {
         found.push({ op: 'swap', from: recipeLine(fromNames[0], recipe, graph) ?? fromNames[0], to: toNames[0] });
+        found.push(...toNames.slice(1).map((name): NoteOp => ({ op: 'add', name })));
       }
     } else {
       const add = ADD.exec(c);
@@ -141,7 +143,34 @@ export function applyNotes(recipe: ParsedRecipe, notes: readonly MarginNote[]): 
   };
 }
 
-/** "Cook with my notes": the rules engine's check of the recipe with every note applied (spec §4.4). */
+const words = (text: string): string => ` ${normalizeTurn(text).replace(/[^\p{L}\p{N}]+/gu, ' ').trim()} `;
+
+/**
+ * Every ingredient id the graph can resolve that a note names anywhere: in its text (read or not) and in its ops,
+ * removals included. A word-bounded match of any graph name or alias, plural "s"/"es" allowed. Sorted, each once.
+ */
+export function noteMentions(notes: readonly MarginNote[], graph: IngredientGraph): string[] {
+  const parts: string[] = [];
+  for (const n of notes) {
+    if (typeof n.text === 'string') parts.push(n.text);
+    for (const op of n.ops) parts.push(...(op.op === 'swap' ? [op.from, op.to] : [op.name]));
+  }
+  const hay = words(parts.join(' | '));
+  const found = new Set<string>();
+  for (const label of graph.labels()) {
+    const key = words(label).trim();
+    if (key === '') continue;
+    if (hay.includes(` ${key} `) || hay.includes(` ${key}s `) || hay.includes(` ${key}es `)) found.add(graph.resolve(label)!);
+  }
+  return [...found].sort();
+}
+
+/**
+ * "Cook with my notes" (spec §4.4, fix round 1 C1 ruling): the rules engine's check of the recipe with every note
+ * applied, and of every ingredient the notes name anywhere, read or not (`noteMentions`), as if added. The status is
+ * the worst of all of them. Text the parser couldn't read never changes the recipe (`applyNotes`), but it always counts
+ * for safety: a heuristic parser misses phrasings, so the fallback is conservative.
+ */
 export function checkWithNotes(
   recipe: ParsedRecipe,
   notes: readonly MarginNote[],
@@ -150,7 +179,12 @@ export function checkWithNotes(
   subs: Substitution[],
   date: string,
 ): CheckResult {
-  return check(applyNotes(recipe, notes), rules, graph, subs, date);
+  const applied = applyNotes(recipe, notes);
+  const present = new Set(applied.ingredients.map((l) => graph.resolve(l.name)));
+  const extra = noteMentions(notes, graph)
+    .filter((id) => !present.has(id))
+    .map((id) => lineOf(graph.get(id).name));
+  return check({ ...applied, ingredients: [...applied.ingredients, ...extra] }, rules, graph, subs, date);
 }
 
 const NOTE_KEYS = new Set(['recipe', 'ops', 'text', 'at']);

@@ -8,6 +8,7 @@ import type { FrameOption } from '../quests/alternatives';
 import type { ParsedRecipe, RecipeIngredient, RecipeStep, StepItem } from '../recipe/types';
 import { check, type CheckResult, type CheckStatus, type Finding, type Substitution } from '../rules/check';
 import type { Rule } from '../rules/types';
+import { daysLeftOf, type KeepsMap } from './use-it-up';
 
 export interface FrameSlot {
   key: string;
@@ -45,6 +46,8 @@ export interface FrameContext {
   graph: IngredientGraph;
   subs: Substitution[];
   today: string;
+  /** Keep times (data/keeps.json): an item past its keep time is never used, not even when picked (I1 ruling). */
+  keeps: KeepsMap;
 }
 
 const RANK: Record<CheckStatus, number> = { ok: 0, swap: 1, unverified: 2, blocked: 3 };
@@ -127,21 +130,24 @@ export function fillFrame(frame: Frame, pantry: readonly PantryItem[], ctx: Fram
   const used = new Set<PantryItem>();
   const fills: Record<string, FrameFill> = {};
   const emptyRequired: string[] = [];
-  const byUseFirst = (a: PantryItem, b: PantryItem): number => {
-    const da = a.addedOn ?? '9999-99-99';
-    const db = b.addedOn ?? '9999-99-99';
-    return RANK[alone(a)] - RANK[alone(b)] || (da < db ? -1 : da > db ? 1 : 0) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+  const left = (p: PantryItem): number | null => daysLeftOf(p, ctx.today, ctx.keeps);
+  const inDate = (p: PantryItem): boolean => {
+    const d = left(p);
+    return d === null || d >= 0;
   };
+  // ✅ before a swap; then the one closest to its keep time (use it up); items with no keep time after; then name.
+  const byUseFirst = (a: PantryItem, b: PantryItem): number =>
+    RANK[alone(a)] - RANK[alone(b)] || (left(a) ?? Infinity) - (left(b) ?? Infinity) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
   for (const slot of frame.slots) {
     let chosen: PantryItem | undefined;
     const wanted = pick && Object.hasOwn(pick, slot.key) ? pick[slot.key] : undefined;
     if (typeof wanted === 'string') {
       chosen = pantry.find(
-        (p) => !used.has(p) && p.name === wanted && (p.ingredientId === null || fits(p, slot, ctx.graph)) && alone(p) !== 'blocked',
+        (p) => !used.has(p) && p.name === wanted && inDate(p) && (p.ingredientId === null || fits(p, slot, ctx.graph)) && alone(p) !== 'blocked',
       );
     }
     chosen ??= pantry
-      .filter((p) => !used.has(p) && fits(p, slot, ctx.graph))
+      .filter((p) => !used.has(p) && inDate(p) && fits(p, slot, ctx.graph))
       .filter((p) => alone(p) === 'ok' || alone(p) === 'swap')
       .sort(byUseFirst)
       .at(0);
@@ -165,7 +171,7 @@ export function fillFrame(frame: Frame, pantry: readonly PantryItem[], ctx: Fram
   const recipe: ParsedRecipe = { meta: frameMeta(frame), ingredients, timers: [], steps: buildSteps(frame, index), source: '' };
   const result = check(recipe, ctx.rules, ctx.graph, ctx.subs, ctx.today);
   if (emptyRequired.length > 0) {
-    const empty: Finding[] = emptyRequired.map((key) => ({ ingredient: key, ingredientId: null, kind: 'unresolved', status: 'unverified' }));
+    const empty: Finding[] = emptyRequired.map((key) => ({ ingredient: key, ingredientId: null, kind: 'empty_slot', status: 'unverified' }));
     const findings = [...result.findings, ...empty];
     const status: CheckStatus = RANK[result.status] >= RANK.unverified ? result.status : 'unverified';
     return { frame: frame.id, fills, recipe, check: { ...result, findings, status }, emptyRequired };

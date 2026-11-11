@@ -22,7 +22,8 @@ export interface Substitution {
 export interface Finding {
   ingredient: string; // name as written in the recipe
   ingredientId: string | null;
-  kind: 'match' | 'unresolved' | 'label';
+  /** `empty_slot`: a Pantry Frame's required slot that nothing in the cupboard fills (`ingredient` is the slot key). */
+  kind: 'match' | 'unresolved' | 'label' | 'empty_slot';
   status: Exclude<CheckStatus, 'ok'>;
   ruleId?: string;
   severity?: Severity;

@@ -42,6 +42,24 @@ export interface PlanContext {
   foodGroups: FoodGroups;
 }
 
+/** What `resolvePlanRequest` read: the new items, and everything it would not place, for the Pan to read back. */
+export interface PlanResolution {
+  items: PlanItem[];
+  /** Dish words `matchDish` doesn't know (C19): read back with `plan.dish_unknown`. */
+  unknown: string[];
+  /** Named dishes the rules block on their day: read back with `plan.blocked_dish`. */
+  dropped: { slug: string; status: 'blocked' }[];
+  /** Dish words whose weekday names no single day: the Pan asks which day. */
+  noDay: string[];
+  /** Sacred dishes named: kept for their occasion, never planned (`plan.dish_sacred`). */
+  sacred: string[];
+  /** The `after` words when they name no single day: nothing was picked, and the Pan asks which day. */
+  afterNoDay: string | null;
+}
+
+/** The Pan line for a sacred dish named in a plan request (fix round 1, I3); required in pan.yaml. */
+export const PLAN_DISH_SACRED_TRIGGER = 'plan.dish_sacred';
+
 export type PlanItemCheck = { item: PlanItem; status: CheckResult['status']; findings: CheckResult['findings'] };
 export type PlanFlag = 'gap_green' | 'gap_protein' | 'balanced' | null;
 
@@ -87,13 +105,21 @@ const statusOn = (r: ParsedRecipe, day: number, ctx: PlanContext): CheckResult =
  * reported in `unknown` in the player's words, never guessed (C1, C19). A named dish the rules block on its date is
  * dropped and reported, never placed; a ❓ one is placed (the player chose it) and shows as ❓. `noDay` holds the dish
  * words of entries whose weekday names no single day. `pick` is `suggestPlan`, after the named dishes, on days
- * strictly after `after` when that names a day. Returns the new items only; `ctx.existing` is left as it is.
+ * strictly after `after`; an `after` that names no single day ("the weekend") picks nothing and comes back as
+ * `afterNoDay`, so the Pan asks which day instead of placing dishes the player said not to (fix round 1, M3).
+ *
+ * Matching runs over every canon dish, sacred ones included, so a sacred title is never shadowed by a shorter
+ * ordinary one ("christmas parippu" is never parippu). A sacred match is never placed: its slug goes in `sacred`,
+ * read back with `plan.dish_sacred` (fix round 1, I3; spec §10). Returns the new items only.
  */
 export function resolvePlanRequest(
   req: PlanRequest,
   ctx: PlanContext,
-): { items: PlanItem[]; unknown: string[]; dropped: { slug: string; status: 'blocked' }[]; noDay: string[] } {
-  const candidates = plannable(ctx.recipes);
+): PlanResolution {
+  const candidates = [...ctx.recipes]
+    .map(([slug, r]) => ({ slug, title: r.meta.title }))
+    .sort((a, b) => byId(a.slug, b.slug));
+  const sacred: string[] = [];
   const items: PlanItem[] = [];
   const unknown: string[] = [];
   const dropped: { slug: string; status: 'blocked' }[] = [];
@@ -107,24 +133,30 @@ export function resolvePlanRequest(
       if (words !== '') unknown.push(words);
       continue;
     }
+    const recipe = ctx.recipes.get(match.slug)!;
+    if (recipe.meta.sacred) {
+      if (!sacred.includes(match.slug)) sacred.push(match.slug);
+      continue;
+    }
     const day = dayOffset(entry.weekday, ctx.weekStart);
     if (day === null) {
       noDay.push(unknownWords(entry.dish));
       continue;
     }
-    const recipe = ctx.recipes.get(match.slug)!;
     if (statusOn(recipe, day, ctx).status === 'blocked') {
       if (!dropped.some((d) => d.slug === match.slug)) dropped.push({ slug: match.slug, status: 'blocked' });
       continue;
     }
     items.push({ day, kind: 'dish', slug: match.slug, servings: defaultServings(recipe) });
   }
-  if (req.pick !== null && req.pick > 0) {
-    const after = typeof req.after === 'string' ? dayOffset(req.after, ctx.weekStart) : null;
+  const afterWords = typeof req.after === 'string' ? req.after.trim() : '';
+  const after = afterWords === '' ? null : dayOffset(afterWords, ctx.weekStart);
+  const afterNoDay = afterWords !== '' && after === null ? afterWords : null;
+  if (req.pick !== null && req.pick > 0 && afterNoDay === null) {
     const avoid = after === null ? [] : Array.from({ length: after + 1 }, (_, d) => d);
     items.push(...suggestPlan(req.pick, { ...ctx, existing: [...ctx.existing, ...items] }, avoid));
   }
-  return { items, unknown, dropped, noDay };
+  return { items, unknown, dropped, noDay, sacred, afterNoDay };
 }
 
 /**
