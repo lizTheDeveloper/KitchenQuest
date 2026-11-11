@@ -32,3 +32,13 @@ let toolkitSource: (() => ToolkitState) | null = null;
 export function setToolkitSource(fn: () => ToolkitState): void { toolkitSource = fn; }
 /** The toolkit the game shows, or null while progress is still loading (then One More Technique offers nothing). */
 export const currentToolkit = (): ToolkitState | null => toolkitSource?.() ?? null;
+
+let handed: { frame: string; picks: Record<string, string> } | null = null;
+/** "Cook the frame" from a rescue (M5): the rescued item's slot, for the frame picker to start from. Memory only. */
+export function handOffPick(frame: string, picks: Record<string, string>): void { handed = { frame, picks }; }
+/** The picks handed to `frame`, once (then forgotten), or null. */
+export function takePick(frame: string): Record<string, string> | null {
+  const h = handed !== null && handed.frame === frame ? handed.picks : null;
+  handed = null;
+  return h;
+}

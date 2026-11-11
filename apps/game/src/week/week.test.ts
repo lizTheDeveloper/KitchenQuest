@@ -9,7 +9,7 @@ import { canonRecipes, planContextFor } from './context';
 import { createWeekStore } from './local-week';
 import { byStall, forText, marketScreen } from './market-screen';
 import { acceptSlot, offerFor, planScreen } from './plan-screen';
-import { renderPlanView, writtenLine } from './plan-view';
+import { practiceDay, renderPlanView, slotDay, writtenLine } from './plan-view';
 import { answerNudge, compost, noteNudge, rescueOffer } from './rescue';
 import { createWeekSource } from './source';
 import { mergedWeek, moveCandidates, moveOffer, moveWeek } from './move';
@@ -67,9 +67,23 @@ describe('weekly slot', () => {
     expect(offerFor(plan([]), [COCONUT], toolkit, TODAY)).toBeNull();
     // Can't verify is never safe.
     expect(offerFor(plan([]), null, toolkit, TODAY)).toBeNull();
-    const yes = acceptSlot(plan([]), offer!, 3);
+    const yes = acceptSlot(plan([]), offer!, 3, TODAY);
     expect(yes.slot).toBe('accepted');
     expect(yes.items).toEqual(expect.arrayContaining([{ day: 3, kind: 'dish', slug: PARIPPU, servings: 3 }, { day: 2, kind: 'lesson', slug: PARIPPU }]));
+  });
+});
+
+describe('M9: the practice day is never a day already gone', () => {
+  const toolkit: ToolkitState = { techniques: { legumes: { tier: 'tried', firstAt: '2026-11-01', lastUsedAt: '2026-11-01', recipes: [] }, 'heat-control': { tier: 'seen', firstAt: '2026-11-01', lastUsedAt: '2026-11-01', recipes: [] } } };
+  test('the offer goes from tomorrow, its practice today at the earliest; a dish planned today practises today', () => {
+    const offer = offerFor(plan([]), [], toolkit, TODAY)!;
+    // Wednesday the 11th is day 2: the dish from Thursday (day 3), its practice on Wednesday.
+    expect(slotDay(plan([]), offer, TODAY)).toBe(3);
+    expect(practiceDay(plan([]), 3, TODAY)).toBe(2);
+    // The offer's dish already planned today: the practice is today too, never Tuesday.
+    expect(acceptSlot(plan([dish(2, PARIPPU)]), offer, 2, TODAY).items).toContainEqual({ day: 2, kind: 'lesson', slug: PARIPPU });
+    // A week that hasn't started: the day before is fine.
+    expect(practiceDay({ weekStart: '2026-11-16' }, 1, TODAY)).toBe(0);
   });
 });
 

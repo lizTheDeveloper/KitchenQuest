@@ -56,6 +56,13 @@ export function writtenLine(trigger: string, vars: Record<string, string>): stri
   throw new Error(`line "${trigger}" needs variables it was not given`);
 }
 
+/** The practice day for a dish on `day`: the day before, unless that is already gone (then the dish's own day, M9). */
+export function practiceDay(plan: Pick<Plan, 'weekStart'>, day: number, today: string): number {
+  const t = dayOfWeek(plan.weekStart, today);
+  const earliest = t === null ? (today < plan.weekStart ? 0 : day) : t;
+  return day - 1 >= Math.max(0, earliest) ? day - 1 : day;
+}
+
 const cap = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
 /** "Sunday": the weekday of plan-week day `day`. */
 export function weekdayName(weekStart: string, day: number): string {
@@ -138,7 +145,7 @@ export function renderPlanView(o: PlanViewOpts): HTMLElement {
   for (const d of days) {
     const rows = o.rows.filter((r) => r.item.day === d);
     const label = weekdayName(o.weekStart, d);
-    const day = h('li', { class: 'plan-day', 'data-day': String(d) }, h('h3', { class: 'plan-day-name' }, label));
+    const day = h('li', { class: 'plan-day', 'data-day': String(d) }, h('h3', { class: 'plan-day-name', id: `plan-day-${d}`, tabindex: -1 }, label));
     if (rows.length > 0) day.append(h('ul', { class: 'plan-items', 'aria-label': label }, ...rows.map((r) => itemRow(r, o))));
     const extra = o.dayExtra?.(d) ?? null;
     if (extra) day.append(extra);
@@ -150,11 +157,16 @@ export function renderPlanView(o: PlanViewOpts): HTMLElement {
   return out;
 }
 
-/** Where the week's One More Technique would go: its dish's planned day, else the first day from today with no dish. */
+/**
+ * Where the week's One More Technique would go: its dish's planned day, else the first day with no dish from the day
+ * after today (M9), so its practice day (the day before) is today at the earliest, never a day already gone.
+ */
 export function slotDay(plan: Plan, offer: SlotOffer, today: string): number | null {
   const planned = plan.items.find((i) => i.kind === 'dish' && i.slug === offer.recipe);
   if (planned) return planned.day;
-  const from = Math.max(1, dayOfWeek(plan.weekStart, today) ?? 0);
+  const t = dayOfWeek(plan.weekStart, today);
+  // A week that hasn't started yet: from its second day; one already under way: from tomorrow.
+  const from = Math.max(1, t === null ? (today < plan.weekStart ? 1 : 7) : t + 1);
   for (let d = from; d < 7; d++) if (!plan.items.some((i) => i.kind === 'dish' && i.day === d)) return d;
   return null;
 }

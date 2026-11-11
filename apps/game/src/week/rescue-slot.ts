@@ -6,7 +6,7 @@ import type { AppContext } from '../shell/app';
 import { statusChip } from '../ui/chips';
 import { contentText, h } from '../ui/dom';
 import { canonRecipes, rulesOf } from './context';
-import { rememberWeek } from './memory';
+import { handOffPick, rememberWeek } from './memory';
 import { writtenLine } from './plan-view';
 import { answerNudge, compost, noteNudge, rescueOffer, type RescueOffer } from './rescue';
 import { createWeekSource } from './source';
@@ -55,7 +55,13 @@ function renderRescue(offer: RescueOffer, ctx: AppContext, client: ApiClient, to
     h('p', null, contentText('span', offer.frame.title), ' ', statusChip(offer.filled.check.status)),
     h('div', { class: 'button-row' }, cook, bin, later), note);
   const done = () => { for (const b of [cook, bin, later]) b.remove(); };
-  cook.addEventListener('click', () => { answerNudge(ctx.store, offer, today); ctx.navigate({ name: 'frame', id: offer.frame.id }); });
+  cook.addEventListener('click', () => {
+    answerNudge(ctx.store, offer, today);
+    // M5: the picker starts from the rescued item in its slot, not whatever else fits first.
+    const slots = Object.entries(offer.filled.fills).filter(([, f]) => f?.name === offer.item.name).map(([k]) => k);
+    if (slots.length > 0) handOffPick(offer.frame.id, { [slots[0]]: offer.item.name });
+    ctx.navigate({ name: 'frame', id: offer.frame.id });
+  });
   later.addEventListener('click', () => {
     answerNudge(ctx.store, offer, today);
     const hadFocus = box.contains(document.activeElement);

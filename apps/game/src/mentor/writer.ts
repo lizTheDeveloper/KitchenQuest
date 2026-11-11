@@ -274,8 +274,8 @@ export function createCardWriter(deps: {
       }
       case 'raise': // undone by `undoRaise`, which checks the rule first
         return null;
-      case 'plan':
-        return (await (await weekTurn()).restore(u.weekStart, u.previous)) ? [] : null;
+      case 'plan': // undone by `undoPlan`, which says why when the week as it was can't be put back
+        return null;
       case 'meal':
         return goneIsFine(await client.deleteMeal(u.id)) ? [] : null;
       case 'profile':
@@ -340,6 +340,14 @@ export function createCardWriter(deps: {
     const u = undos.get(entry.id);
     if (u === undefined) return { status: 'nothing', items: [line('undo.nothing')] };
     if (u.kind === 'raise') return undoRaise(entry.id, u);
+    if (u.kind === 'plan') {
+      const r = await (await weekTurn()).restore(u.weekStart, u.previous);
+      if (r.kind === 'failed') return { status: 'failed', items: [] };
+      undos.delete(entry.id);
+      // M7: the week as it was holds a dish the rules now refuse: nothing changes, and the line names it.
+      if (r.kind === 'blocked') return { status: 'nothing', items: r.lines.map(say) };
+      return { status: 'undone', items: [say(undoneLine(u.card))] };
+    }
     const done = await reverse(u);
     if (done === null) return { status: 'failed', items: [] };
     if (done.length > 0) return { status: 'full', items: done }; // the pantry is full: nothing changed, and the undo stays possible

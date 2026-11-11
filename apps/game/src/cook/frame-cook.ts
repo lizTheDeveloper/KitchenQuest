@@ -14,6 +14,7 @@ import { routeHref } from '../shell/router';
 import { statusChip } from '../ui/chips';
 import { contentText, h } from '../ui/dom';
 import { rulesOf } from '../week/context';
+import { takePick } from '../week/memory';
 import { writtenLine } from '../week/plan-view';
 import { runCookMode } from './cook-mode';
 
@@ -21,13 +22,14 @@ import { runCookMode } from './cook-mode';
  * A Pantry Frame in cook mode (`#/frame/<id>`, M5 Step 10, Ruling 13). First the slot picker: for each slot, the
  * pantry items core `fillFrame` would put there, each checked by the rules engine on its own today. A ⛔ candidate
  * is never listed; a ❓ one (unresolved, or check the label) is listed with the ❓ badge, and is never chosen for the
- * player. A required slot with nothing that fits says `frame.slot_empty` and "nothing in your cupboard fits", and
+ * player. A required slot with nothing that fits says `frame.slot_empty` and "nothing I can check fits", and
  * Cook stays disabled until it is filled; so it does while the filled dish is ⛔. Then M3's cook mode runs the
  * frame's steps with the chosen names. Finishing records `frame_cooked`, and only then any quest cook step it
  * completes (Step 9 carry).
  */
 
-export const NOTHING_FITS = 'nothing in your cupboard fits';
+/** About the slot, never about the cupboard (audit M-4): true too when items are there but the rules refuse them. */
+export const NOTHING_FITS = 'nothing I can check fits';
 const NO_RULES = "Your rules couldn't be read just now, so nothing here can be checked. Open Your rules to look them over.";
 
 /** A one-line dish of `name`, as core checks a frame filler alone. */
@@ -92,6 +94,10 @@ export function frameCook(el: HTMLElement, frame: Frame, deps: { ctx: AppContext
     const defaults = fillFrame(frame, pantry, fctx);
     const picks: Record<string, string> = {};
     for (const slot of frame.slots) { const f = defaults.fills[slot.key]; if (f) picks[slot.key] = f.name; }
+    // M5: a rescue's item starts in its slot when it is one of that slot's candidates (never a ⛔ one: they aren't).
+    for (const [key, name] of Object.entries(takePick(frame.id) ?? {})) {
+      if (candidates[key]?.some((c) => c.item.name === name)) picks[key] = name;
+    }
 
     const summary = h('div', { class: 'frame-summary', 'aria-live': 'polite' });
     const cook = contentText('button', form.buttons.confirm, { type: 'button', class: 'btn btn-primary frame-cook' });

@@ -88,7 +88,11 @@ export interface WeekTurn {
   /** A plan card in the shape the panel draws (M1: a re-offered card is checked like any other). */
   isPlanCard(card: unknown): card is PlanCard;
   writePlan(card: PlanCard): Promise<PlanWrite>;
-  restore(weekStart: string, previous: Plan | null): Promise<boolean>;
+  /**
+   * An undo: `previous` back (or the week's plan deleted). `blocked` (M7): the week as it was holds a dish the rules
+   * now refuse, so it can't be put back; its lines name the dish.
+   */
+  restore(weekStart: string, previous: Plan | null): Promise<{ kind: 'ok' } | { kind: 'blocked'; lines: LineRef[] } | { kind: 'failed' }>;
   /** Signed in with no week read this session: read it once (a read), so a card is built on the right week (M3). */
   prefetch(): Promise<void>;
 }
@@ -200,8 +204,13 @@ export function createWeekTurn(d: {
 
     async restore(weekStart, previous) {
       const r = await source.restore(weekStart, previous, today());
-      if (r.ok) rememberWeek(weekStart, previous, account());
-      return r.ok;
+      if (r.ok) { rememberWeek(weekStart, previous, account()); return { kind: 'ok' }; }
+      const rules = rulesOf(store.get());
+      if (r.kind === 'invalid' && previous !== null && rules !== null) {
+        const lines = blockedLinesFor(previous, rules);
+        if (lines.length > 0) return { kind: 'blocked', lines };
+      }
+      return { kind: 'failed' };
     },
 
     async prefetch() {

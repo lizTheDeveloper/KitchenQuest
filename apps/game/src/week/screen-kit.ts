@@ -10,8 +10,8 @@ import type { WeekFailure } from './source';
  */
 
 /** The polite status line under a week screen's heading: written lines only. */
-export function statusLine(): { el: HTMLElement; show(text: string): void } {
-  const el = h('p', { class: 'week-note', role: 'status', 'data-content': '' });
+export function statusLine(id?: string): { el: HTMLElement; show(text: string): void } {
+  const el = h('p', { class: 'week-note', role: 'status', 'data-content': '', ...(id ? { id, tabindex: -1 } : {}) });
   return { el, show(text) { el.textContent = text; } };
 }
 

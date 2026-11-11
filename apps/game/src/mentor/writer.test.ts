@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest';
+import { beforeEach, describe, expect, test } from 'vitest';
 import { buildMealCard, buildPantryCard, buildProfileCard, buildRuleCard, UNDO_WINDOW_MS, validateRules, type PlanCard, type ProposalCard, type Rule } from '@kitchenquest/core/engine';
 import type { ApiClient } from '../api/client';
 import type { ApiResult } from '../api/types';
@@ -11,6 +11,7 @@ import type { LocalCardView, PanItem, ServerCardView } from './reply';
 import { createCardWriter, partsToItems, type WriteOutcome } from './writer';
 import { createScriptedEngine } from './scripted';
 import { createWeekTurn } from './week-turn';
+import { forgetWeek, rememberWeek } from '../week/memory';
 
 const T0 = new Date('2026-11-10T12:00:00Z');
 const ok = <T>(data: T, status = 200): ApiResult<T> => ({ ok: true, status, data });
@@ -706,6 +707,7 @@ describe('raiseRule (the rules screen raising an account rule)', () => {
 });
 
 describe('card writer: the plan card (M5 Step 10)', () => {
+  beforeEach(() => { forgetWeek(); });
   const engineFor = (store: ReturnType<typeof createStore>) => createScriptedEngine({
     dialogue: createDialogue(content.pan), graph, ruleTerms: content.ruleTerms,
     recipes: Object.entries(content.recipes).map(([slug, r]) => ({ slug, title: r.meta.title })), now: () => T0,
@@ -805,6 +807,24 @@ describe('card writer: the plan card (M5 Step 10)', () => {
     expect(said(out.items)).toEqual(['plan.blocked_dish']);
     expect(out.items[0].kind === 'said' && out.items[0].said.text).toContain('coconut oil counts as coconut');
     expect(await writer.confirm(view, 'tap')).toMatchObject({ ok: false, reason: 'closed', items: [] });
+  });
+
+  test('M7: signed in, an undo whose earlier week now holds a ⛔ dish says plan.blocked_dish; nothing changes', async () => {
+    const before = { weekStart: '2026-11-09', items: [{ day: 6, kind: 'dish', slug: 'india/kerala/parippu', servings: 3 }], hard: false, slot: 'unanswered', id: 'row' };
+    let stored: unknown = before;
+    const { store, writer } = setup({
+      getPlan: () => ok({ plan: stored, weekStart: '2026-11-09', checks: [] }),
+      putPlan: (p) => { if ((p as { items: { slug: string }[] }).items.some((i) => i.slug === 'india/kerala/parippu') && stored !== before) return fail(400, 'plan_invalid', { problems: ['blocked: india/kerala/parippu'] }); stored = { ...(p as object), id: 'row' }; return ok({ plan: stored, checks: [] }); },
+    }, signedIn);
+    // The week as the panel read it on open (M3), so the card is built on the stored week.
+    rememberWeek('2026-11-09', { weekStart: before.weekStart, items: before.items, hard: false, slot: 'unanswered' } as never, 'cook@example.com');
+    const view = await planCard(store, 'plan my week: onigiri on Tuesday');
+    const out = await writer.confirm(view, 'tap');
+    if (!out.ok) throw new Error('not saved');
+    store.update((s) => ({ ...s, accountRules: [{ id: 'r', target: { kind: 'ingredient', ids: ['coconut'] }, type: 'avoid', severity: 'allergy' }] }));
+    const u = await writer.undo(out.trail);
+    expect(u.status).toBe('nothing');
+    expect(said(u.items)).toEqual(['plan.blocked_dish']);
   });
 
   test('partsToItems: a go part is a chip item carrying its nav.offer line', () => {

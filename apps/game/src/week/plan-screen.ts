@@ -12,7 +12,7 @@ import { contentText, h } from '../ui/dom';
 import { addDays, canonRecipes, emptyPlan, planContextFor, rulesOf, slotInputFor } from './context';
 import { rememberWeek } from './memory';
 import { blockedLinesFor, blockedSlugs } from './blocked';
-import { renderPlanView, slotDay, weekdayName, writtenLine, type PlanRow, type SlotOfferView } from './plan-view';
+import { practiceDay, renderPlanView, slotDay, weekdayName, writtenLine, type PlanRow, type SlotOfferView } from './plan-view';
 import { askHealthConsent, footnote, rulesLink, showFailure, statusLine } from './screen-kit';
 import { moveOffer } from './move';
 import { createWeekSource, type WeekSource } from './source';
@@ -31,12 +31,12 @@ const servingsOf = (slug: string): number => {
 };
 const sameItem = (a: PlanItem, b: PlanItem) => a.day === b.day && a.kind === b.kind && a.slug === b.slug;
 
-/** "Yes, add it": the dish on its day (when it isn't planned yet) and a practice lesson the day before. */
-export function acceptSlot(plan: Plan, offer: SlotOffer, day: number): Plan {
+/** "Yes, add it": the dish on its day (when it isn't planned yet) and a practice lesson the day before (never a day gone, M9). */
+export function acceptSlot(plan: Plan, offer: SlotOffer, day: number, today: string): Plan {
   const items = [...plan.items];
   const dish: PlanItem = { day, kind: 'dish', slug: offer.recipe, servings: servingsOf(offer.recipe) };
   if (!items.some((i) => sameItem(i, dish))) items.push(dish);
-  const lesson: PlanItem = { day: Math.max(0, day - 1), kind: 'lesson', slug: offer.recipe };
+  const lesson: PlanItem = { day: practiceDay(plan, day, today), kind: 'lesson', slug: offer.recipe };
   if (!items.some((i) => sameItem(i, lesson))) items.push(lesson);
   return { ...plan, items, slot: 'accepted' };
 }
@@ -56,7 +56,7 @@ export function planScreen(api: ApiClient, source?: WeekSource): Screen {
       const today = localDate(ctx.now());
       const week = source ?? createWeekSource({ store: ctx.store, client: api });
       const familyTable = ctx.store.get().settings.familyTable;
-      const status = statusLine();
+      const status = statusLine('plan-status');
       const body = h('div', { class: 'plan-body' });
       const form = content.bureau.forms.plan;
       el.replaceChildren(
@@ -106,6 +106,8 @@ export function planScreen(api: ApiClient, source?: WeekSource): Screen {
         return true;
       };
 
+      /** Where focus goes after the next redraw (M6): a control that went with it hands focus here. */
+      let focusNext: string | null = null;
       const draw = () => {
         const rules = rulesOf(ctx.store.get());
         const pc = rules === null ? null : planContextFor(weekStart, rules);
@@ -119,8 +121,9 @@ export function planScreen(api: ApiClient, source?: WeekSource): Screen {
           offer, day: weekdayName(weekStart, day),
           ...(familyTable ? {} : {
             onAnswer: (yes: boolean) => {
-              const next = yes ? acceptSlot(draft, offer, day) : { ...draft, slot: 'declined' as const };
-              void save(next, yes ? writtenLine('one_more.accepted', { day: weekdayName(weekStart, Math.max(0, day - 1)) }) : writtenLine('one_more.declined', {}));
+              const next = yes ? acceptSlot(draft, offer, day, today) : { ...draft, slot: 'declined' as const };
+              focusNext = 'plan-status';
+              void save(next, yes ? writtenLine('one_more.accepted', { day: weekdayName(weekStart, practiceDay(draft, day, today)) }) : writtenLine('one_more.declined', {}));
             },
           }),
         };
@@ -129,7 +132,8 @@ export function planScreen(api: ApiClient, source?: WeekSource): Screen {
           alternatives: (item) => (rules === null ? [] : alternativesOn(item.slug, addDays(weekStart, item.day), { rules, graph: pc!.graph, subs: pc!.subs, recipes: canonRecipes() })),
           ...(familyTable ? {} : {
             onCook: (item: PlanItem) => ctx.navigate({ name: 'cook', slug: item.slug }),
-            onRemove: (item: PlanItem) => { draft = { ...draft, items: draft.items.filter((i) => !sameItem(i, item)) }; draw(); },
+            // M6: the pressed Remove goes with its row; focus goes to that day's heading, never to the page.
+            onRemove: (item: PlanItem) => { draft = { ...draft, items: draft.items.filter((i) => !sameItem(i, item)) }; focusNext = `plan-day-${item.day}`; draw(); },
             dayExtra: (d: number) => (pc === null ? null : addControl(d)),
           }),
         });
@@ -151,7 +155,8 @@ export function planScreen(api: ApiClient, source?: WeekSource): Screen {
           });
           children.push(h('div', { class: 'field' }, hard, contentText('label', hardLabel, { for: 'plan-hard' })), h('div', { class: 'button-row' }, planIt));
         }
-        const focusedId = document.activeElement?.id;
+        const focusedId = focusNext ?? document.activeElement?.id;
+        focusNext = null;
         body.replaceChildren(...children);
         if (focusedId) document.getElementById(focusedId)?.focus();
       };

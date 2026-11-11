@@ -116,8 +116,8 @@ describe('the week (M5 Step 10)', () => {
     await go(page, '#/frame/green-sauce');
     await page.locator('.frame-cook').waitFor();
     await expectNoHorizontalScroll(page);
-    expect(await page.locator('.frame-cook').isDisabled()).toBe(true); // nothing in the cupboard fits
-    expect(await page.locator('.frame-nothing').first().textContent()).toContain('nothing in your cupboard fits');
+    expect(await page.locator('.frame-cook').isDisabled()).toBe(true); // nothing I can check fits a required slot
+    expect(await page.locator('.frame-nothing').first().textContent()).toContain('nothing I can check fits');
   });
 
   it('AI on (mocked): a plan card from /mentor/turn, confirmed by one tap that sends today', async () => {

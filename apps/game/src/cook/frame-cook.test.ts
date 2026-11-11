@@ -5,6 +5,7 @@ import { content, graph } from '../content';
 import type { AppContext } from '../shell/app';
 import { createStore } from '../state/store';
 import { cookable, frameCook, NOTHING_FITS, slotCandidates } from './frame-cook';
+import { handOffPick } from '../week/memory';
 
 const TODAY = '2026-11-11';
 const fried = content.frames.find((f) => f.id === 'fried-rice')!;
@@ -37,6 +38,8 @@ describe('frame cook', () => {
     await flush();
     const oil = el.querySelector('[data-slot="oil"]')!;
     expect(oil.textContent).toContain(NOTHING_FITS);
+    // M4: about the slot, never the cupboard.
+    expect(el.textContent).not.toMatch(/cupboard fits|in your cupboard/i);
     expect(content.pan.triggers['frame.slot_empty'].lines.some((l) => oil.textContent.includes(l.slice(l.indexOf('}') + 1, l.indexOf('}') + 12)))).toBe(true);
     expect(el.querySelector<HTMLButtonElement>('.frame-cook')!.disabled).toBe(true);
     expect(el.querySelector('[data-slot="veg"]')!.textContent).not.toContain('spinach');
@@ -62,5 +65,21 @@ describe('frame cook', () => {
     expect(cookable({ emptyRequired: [], check: { status: 'blocked', findings: [] } } as never)).toBe(false);
     stop();
     el.remove();
+  });
+
+  test('M5: "Cook the frame" from a rescue starts the picker on the rescued item', async () => {
+    const pantry: PantryItem[] = [{ name: 'cooked rice', ingredientId: 'cooked_rice' }, { name: 'sunflower oil', ingredientId: 'neutral_oil' }, { name: 'onion', ingredientId: 'onion' }, { name: 'spinach', ingredientId: 'spinach' }];
+    const checked = async (pick?: Record<string, string>) => {
+      if (pick) handOffPick('fried-rice', pick);
+      const el = document.createElement('div');
+      const stop = frameCook(el, fried, { ctx: { store: createStore(null), now: () => new Date(2026, 10, 11, 12), navigate: () => undefined }, pantry: () => Promise.resolve(pantry) });
+      await flush();
+      const v = [...el.querySelectorAll<HTMLInputElement>('[data-slot="veg"] input')].find((i) => i.checked)?.value;
+      stop();
+      return v;
+    };
+    expect(await checked()).toBe('onion'); // the plain fill
+    expect(await checked({ veg: 'spinach' })).toBe('spinach');
+    expect(await checked()).toBe('onion'); // handed over once only
   });
 });
