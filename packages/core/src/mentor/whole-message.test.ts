@@ -211,11 +211,16 @@ describe('N10: each layer of the code-card exclusion, by behaviour', () => {
 });
 
 describe('fix round 5 (5a): every clause consumed by an existing grammar or a closed neutral filler', () => {
-  test('the fillers idk, lol, ok, please, thanks (also, and, so already break clauses) are neutral', () => {
-    for (const t of ['idk put parippu on monday', 'put parippu on monday lol', 'ok put parippu on monday please', 'put parippu on monday thanks', 'so put parippu on monday']) {
+  test('the fillers ok, please, thanks (also, and, so already break clauses) are neutral', () => {
+    for (const t of ['ok put parippu on monday please', 'put parippu on monday thanks', 'so put parippu on monday']) {
       expect(planWordsIn(t, DISHES)?.days, t).toEqual([{ weekday: 'monday', dish: 'parippu' }]);
     }
-    expect(reminderSlots('idk, remind me about dinner at 6pm lol', DISHES)).toEqual([{ name: 'dinner', start: '18:00' }]);
+    expect(reminderSlots('ok, remind me about dinner at 6pm thanks', DISHES)).toEqual([{ name: 'dinner', start: '18:00' }]);
+  });
+
+  test('M5 final (parked m6): "idk" and "lol" signal doubt, as "maybe" does: no longer fillers, so no code card', () => {
+    for (const t of ['idk put parippu on monday', 'put parippu on monday lol']) expect(planWordsIn(t, DISHES), t).toBeNull();
+    expect(reminderSlots('idk, remind me about dinner at 6pm lol', DISHES)).toEqual([]);
   });
 
   test('a greeting is no filler of the ruled list: no card', () => {
@@ -230,11 +235,11 @@ describe('fix round 5 (5a): every clause consumed by an existing grammar or a cl
     expect(planWordsIn('my brother had toast. put onigiri on monday', DISHES)).toBeNull();
   });
 
-  test("a clause M4's pantry parser reads whole is consumed", () => {
-    expect(marketDayStated("ran out of rice, my market's saturday", DISHES)).toBe(6);
-    expect(planWordsIn('i finished the rice. put onigiri on monday', DISHES)?.days).toEqual([{ weekday: 'monday', dish: 'onigiri' }]);
-    expect(planWordsIn('bought spinach. put onigiri on monday', DISHES)?.days).toEqual([{ weekday: 'monday', dish: 'onigiri' }]);
-    expect(planWordsIn('my mum finished the rice. put onigiri on monday', DISHES)).toBeNull();
+  test("a clause M4's pantry parser reads whole is consumed (M5 final, parked m5: when it names foods the graph knows)", () => {
+    expect(marketDayStated("ran out of rice, my market's saturday", DISHES, graph)).toBe(6);
+    expect(planWordsIn('i finished the rice. put onigiri on monday', DISHES, graph)?.days).toEqual([{ weekday: 'monday', dish: 'onigiri' }]);
+    expect(planWordsIn('bought spinach. put onigiri on monday', DISHES, graph)?.days).toEqual([{ weekday: 'monday', dish: 'onigiri' }]);
+    expect(planWordsIn('my mum finished the rice. put onigiri on monday', DISHES, graph)).toBeNull();
   });
 
   test('no form is added for an eval text: T08\'s "idk just pick 3 things…" and "do the beans after that" stay unconsumed', () => {

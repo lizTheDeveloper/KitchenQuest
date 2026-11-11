@@ -11,6 +11,7 @@ import { createDialogue } from './dialogue';
 import { DEVICE_ONLY_FOOTNOTE, MAX_BUBBLES, mountMentorPanel, NOT_SAVED_TEXT, REJECT_FAILED_TEXT, THINKING_TEXT, type MentorMode } from './panel';
 import type { CardView, PanItem, PanReply, TurnContext } from './reply';
 import { createScriptedEngine } from './scripted';
+import { createWeekTurn } from './week-turn';
 import type { CardWriter, UndoOutcome, WriteOutcome } from './writer';
 
 const T0 = new Date('2026-11-10T12:00:00Z');
@@ -51,7 +52,9 @@ function mount(opts: { mode?: MentorMode; backend?: MentorBackend; writer?: Card
   store.update((s) => ({ ...s, ...opts.patch }));
   const writer = opts.writer ?? fakeWriter();
   const backend = opts.backend ?? { kind: 'scripted', reply: () => Promise.resolve(reply(['x'])) };
+  const week = () => Promise.resolve(createWeekTurn({ store, client, now: opts.now ?? (() => T0), dialogue, recipes, cooks: {} }));
   const pan = mountMentorPanel(root, {
+    week,
     mode: opts.mode ?? 'standard', backend, dialogue, writer, engine, client, forms: content.bureau.forms, store,
     reducedMotion: () => true, now: opts.now ?? (() => T0), ...(opts.disclosure === undefined ? {} : { disclosure: opts.disclosure }),
   });
@@ -630,4 +633,135 @@ test('clearConversation removes bubbles, cards and trail entries; the unacknowle
   expect([...root.querySelectorAll('.bubbles > li')].map((li) => li.className)).toEqual(['pan-item pan-disclosure-item']);
   // A typed yes no longer finds the old card.
   await flush();
+});
+
+describe('go chip (M5 Step 10, Ruling 15)', () => {
+  const go = (to: 'plan' | 'market'): PanItem => ({ kind: 'go', target: { to }, said: dialogue.say('nav.offer', { place: 'the market list' }) });
+
+  test('rendered as a button; nothing navigates until it is tapped; never beside child.grownup', async () => {
+    window.location.hash = '#/kitchen';
+    const backend: MentorBackend = { kind: 'scripted', reply: () => Promise.resolve({ ...reply([]), items: [go('market')] }) };
+    const { root, send } = mount({ backend });
+    await send('take me to the market list');
+    const chip = root.querySelector<HTMLButtonElement>('.pan-go')!;
+    expect(chip.type).toBe('button');
+    expect(lines('nav.offer').map((l) => l.replace('{place}', 'the market list'))).toContain(chip.textContent);
+    expect(window.location.hash).toBe('#/kitchen');
+    chip.click();
+    expect(window.location.hash).toBe('#/market');
+
+    // After a child spoke, the reply is lines only: no chip.
+    window.location.hash = '#/kitchen';
+    const child: MentorBackend = { kind: 'scripted', reply: () => Promise.resolve({ ...reply([]), items: [say('child.grownup'), go('plan')] }) };
+    const flag = { on: true, set() {}, reset() {} };
+    document.body.replaceChildren();
+    const root2 = document.createElement('div');
+    document.body.append(root2);
+    mountMentorPanel(root2, {
+      mode: 'standard', backend: child, dialogue, writer: fakeWriter(), engine, client, forms: content.bureau.forms, store: createStore(null),
+      reducedMotion: () => true, now: () => T0, child: flag,
+    });
+    root2.querySelector<HTMLTextAreaElement>('#pan-text')!.value = 'hi';
+    root2.querySelector('form')!.requestSubmit();
+    await flush();
+    expect(root2.querySelector('.pan-go')).toBeNull();
+    expect(window.location.hash).toBe('#/kitchen');
+  });
+
+  test('a chip to a place that is not one of ours is never drawn', async () => {
+    const bad = { kind: 'go', target: { to: 'visit', cook: 'nobody' }, said: dialogue.say('nav.offer', { place: 'x' }) } as PanItem;
+    const backend: MentorBackend = { kind: 'scripted', reply: () => Promise.resolve({ ...reply([]), items: [bad] }) };
+    const { root, send } = mount({ backend });
+    await send('go');
+    expect(root.querySelector('.pan-go')).toBeNull();
+  });
+
+  test('Family Table: no chip', async () => {
+    const backend: MentorBackend = { kind: 'scripted', reply: () => Promise.resolve({ ...reply(['line']), items: [say('thanks'), go('plan')] }) };
+    const { root, pan } = mount({ mode: 'familyTable', backend });
+    pan.show({ ...reply([]), items: [say('thanks'), go('plan')] });
+    expect(root.querySelector('.pan-go')).toBeNull();
+  });
+});
+
+const PLAN_CARD = (): Extract<ProposalCard, { kind: 'plan' }> => ({
+  kind: 'plan', weekStart: '2026-11-09', items: [{ day: 6, kind: 'dish', slug: 'india/kerala/parippu', servings: 3 }, { day: 1, kind: 'dish', slug: 'japan/osaka/onigiri', servings: 2 }],
+  hard: false, checks: [{ slug: 'india/kerala/parippu', status: 'ok' }, { slug: 'japan/osaka/onigiri', status: 'unverified' }], unknown: [], dropped: [], offer: null,
+  summary: 'Tuesday: Onigiri. Sunday: Parippu Curry.', added: [], basis: '00000000', readback: [],
+});
+
+test('a plan card is drawn as Form 7-W with each item\'s chip, once the week\'s code has loaded; ❓ never ✅', async () => {
+  const { root, pan } = mount();
+  pan.show({ ...reply([]), cards: [local(PLAN_CARD())] });
+  await flush();
+  const el = root.querySelector('.pan-card')!;
+  expect(el.textContent).toContain('7-W');
+  const chips = [...el.querySelectorAll('.plan-item')].map((i) => [i.getAttribute('data-slug'), i.querySelector('.chip')!.getAttribute('data-status')]);
+  expect(chips).toEqual([['japan/osaka/onigiri', 'unverified'], ['india/kerala/parippu', 'ok']]); // day order
+  expect(el.querySelector('[data-slug="japan/osaka/onigiri"]')!.textContent).not.toContain('✅');
+});
+
+test('I5: a check that is not its item\'s is ❓, never ✅ (no rules: nothing else makes it ❓)', async () => {
+  const card = PLAN_CARD();
+  card.checks = [{ slug: 'japan/osaka/onigiri', status: 'ok' }, { slug: 'india/kerala/parippu', status: 'ok' }]; // misaligned
+  const { root, pan } = mount();
+  pan.show({ ...reply([]), cards: [local(card)] });
+  await flush();
+  const status = (slug: string) => root.querySelector(`.pan-card [data-slug="${slug}"] .chip`)!.getAttribute('data-status');
+  expect(status('japan/osaka/onigiri')).toBe('unverified');
+  expect(status('india/kerala/parippu')).toBe('unverified');
+});
+
+test('M8: a rule filed since shows the card ⛔ with its finding; a misaligned check stays ❓', async () => {
+  const card = PLAN_CARD();
+  card.checks = [{ slug: 'japan/osaka/onigiri', status: 'ok' }, { slug: 'india/kerala/parippu', status: 'ok' }]; // misaligned
+  const coconut = { id: 'r', target: { kind: 'ingredient' as const, ids: ['coconut'] }, type: 'avoid' as const, severity: 'allergy' as const };
+  const { root, pan } = mount({ patch: { localRules: [coconut] } });
+  pan.show({ ...reply([]), cards: [local(card)] });
+  await flush();
+  const status = (slug: string) => root.querySelector(`.pan-card [data-slug="${slug}"] .chip`)!.getAttribute('data-status');
+  expect(status('japan/osaka/onigiri')).toBe('unverified');
+  expect(status('india/kerala/parippu')).toBe('blocked');
+  expect(root.querySelector('.pan-card [data-slug="india/kerala/parippu"] .plan-findings')!.textContent).toMatch(/coconut/);
+});
+
+test('I5/M1: a plan card carrying a ⛔ check, or with no basis, is never drawn', async () => {
+  for (const bad of [{ ...PLAN_CARD(), checks: [{ slug: 'india/kerala/parippu', status: 'blocked' }, { slug: 'japan/osaka/onigiri', status: 'ok' }] }, { ...PLAN_CARD(), basis: undefined }, { ...PLAN_CARD(), added: undefined }]) {
+    const { root, pan } = mount();
+    pan.show({ ...reply([]), cards: [local(bad as never)] });
+    await flush();
+    expect(root.querySelector('.pan-card')).toBeNull();
+    expect(lines('didnt_understand')).toContain(panTexts(root).at(-1));
+  }
+});
+
+test('M1: a card re-offered after plan_changed without its id or expiry is never drawn', async () => {
+  const writer = fakeWriter({ confirm: vi.fn(() => Promise.resolve({ ok: false, reason: 'plan_changed', items: [], offered: { card: PLAN_CARD(), proposalId: 'P2' } } as never)) });
+  const { root, pan } = mount({ writer });
+  pan.show({ ...reply([]), cards: [local(PLAN_CARD())] });
+  await flush();
+  button(root.querySelector('.pan-card')!, 'Plan it ✔')!.click();
+  await flush();
+  expect(root.querySelectorAll('.pan-card:not(.is-closed)').length).toBe(0);
+});
+
+test('N5: a child turn while the week code loads: the plan card is never drawn', async () => {
+  let release!: () => void;
+  const flag = { on: false, set() { this.on = true; }, reset() { this.on = false; } };
+  document.body.replaceChildren();
+  const root = document.createElement('div');
+  document.body.append(root);
+  const store = createStore(null);
+  const real = createWeekTurn({ store, client, now: () => T0, dialogue, recipes, cooks: {} });
+  const pan = mountMentorPanel(root, {
+    week: () => new Promise((r) => { release = () => r(real); }),
+    mode: 'standard', backend: { kind: 'scripted', reply: () => Promise.resolve(reply(['x'])) }, dialogue, writer: fakeWriter(), engine, client,
+    forms: content.bureau.forms, store, reducedMotion: () => true, now: () => T0, child: flag,
+  });
+  pan.show({ ...reply([]), cards: [local(PLAN_CARD())] });
+  flag.set();
+  release();
+  await flush();
+  expect(root.querySelector('.pan-card')).toBeNull();
+  expect(root.querySelector('.pan-card-item')).toBeNull();
 });

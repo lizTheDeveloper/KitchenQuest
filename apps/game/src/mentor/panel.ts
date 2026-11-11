@@ -1,4 +1,5 @@
 import { classifyTurn, stripPageEvents, type CardAction, type ProposalCard, type Severity, type TrailEntry } from '@kitchenquest/core/engine';
+import type { WeekTurn } from './week-turn';
 import type { ApiClient } from '../api/client';
 import type { BureauForm } from '../content/types';
 import { routeHref } from '../shell/router';
@@ -13,6 +14,7 @@ import type { Dialogue, Said, Vars } from './dialogue';
 import type { CardView, ConsentAnswer, LocalIntent, PanItem, PanReply, TurnContext } from './reply';
 import type { ScriptedEngine } from './scripted';
 import type { CardWriter, UndoOutcome, WriteOutcome } from './writer';
+import { navRoute } from './nav';
 
 /** The panel keeps the last this-many bubbles; older ones are removed so a long session can't grow without end. */
 export const MAX_BUBBLES = 50;
@@ -79,6 +81,8 @@ export function mountMentorPanel(root: HTMLElement, opts: {
    * on, the panel shows no new card, quick answer, choice or consent card and makes no write, whatever reply arrives.
    */
   child?: ChildFlag;
+  /** M5 Step 10 (Ruling 1): the week's code, which draws a plan card's day rows. Without it no plan card is drawn. */
+  week?: () => Promise<WeekTurn>;
 }): MentorPanel {
   // Spec §19: in Family Table mode children never reach the AI. Refuse before touching the DOM.
   if (opts.mode === 'familyTable' && opts.backend.kind !== 'scripted') {
@@ -186,22 +190,50 @@ export function mountMentorPanel(root: HTMLElement, opts: {
   // --- Cards ---------------------------------------------------------------------------------------------------
 
   function addCard(view: CardView): void {
+    if (view.card.kind === 'plan') { addPlanCard(view); return; }
+    drawCard(view, addLi('pan-item pan-card-item'));
+  }
+
+  /** Draws a card into its place in the conversation; one that can't be drawn is never half-shown (didnt_understand). */
+  function drawCard(view: CardView, li: HTMLElement, planBody?: HTMLElement): void {
     const deviceOnly = view.origin === 'local' && view.card.kind === 'rule' && store.get().account === null;
     let el: HTMLElement;
     try {
       el = renderCard(view, {
-        forms, now: opts.now, ...(deviceOnly ? { footnote: DEVICE_ONLY_FOOTNOTE } : {}),
+        forms, now: opts.now, ...(planBody ? { planBody } : {}), ...(deviceOnly ? { footnote: DEVICE_ONLY_FOOTNOTE } : {}),
         onConfirm: (edits) => confirm(view, 'tap', edits),
         onReject: () => reject(view),
       });
     } catch (err) {
-      // A card that can't be drawn is never half-shown: it is dropped, and the Pan says it didn't follow.
       console.error(err);
+      li.remove();
       sayLine('didnt_understand');
       return;
     }
-    const li = addLi('pan-item pan-card-item', el);
+    li.replaceChildren(el);
     cards.set(keyOf(view), { view, el, li });
+  }
+
+  /**
+   * A plan card's place is kept in the conversation at once; it is drawn when the week's code has loaded (Ruling 1).
+   * A card not in a plan card's shape (M1: a re-offered card included) is never drawn.
+   */
+  function addPlanCard(view: CardView): void {
+    const li = addLi('pan-item pan-card-item');
+    const startedIn = epoch;
+    if (!opts.week) { li.remove(); sayLine('didnt_understand'); return; }
+    void opts.week().then((w) => {
+      if (destroyed || startedIn !== epoch || !li.isConnected) return;
+      // N5: a child spoke while the week's code loaded: no new card is shown (m-4), the place is taken away.
+      if (childSpoke()) { li.remove(); return; }
+      if (!w.isPlanCard(view.card)) { li.remove(); sayLine('didnt_understand'); return; }
+      drawCard(view, li, w.planCardBody(view.card));
+    }, (err: unknown) => {
+      console.error(err);
+      if (destroyed || startedIn !== epoch || !li.isConnected) return;
+      li.remove();
+      sayLine('didnt_understand');
+    });
   }
 
   /** A card that was written becomes its trail entry, after the stamp lands (skipped with reduced motion). */
@@ -294,6 +326,20 @@ export function mountMentorPanel(root: HTMLElement, opts: {
         closeCard(c.el, CLOSED_TEXT);
         renderItems(said, []);
         return;
+      case 'plan_changed': {
+        // The week changed since this card was shown: it closes, and the card for the week as it is now follows.
+        cards.delete(key);
+        closeCard(c.el, CLOSED_TEXT);
+        const o = out.offered;
+        // M1: a re-offered server card needs its id and expiry; its card is checked when it is drawn (addPlanCard).
+        const serverOk = (x: unknown): boolean => typeof (x as { proposalId?: unknown }).proposalId === 'string'
+          && Number.isFinite(Date.parse(String((x as { expiresAt?: unknown }).expiresAt)));
+        const fresh: CardView[] = o === null ? [] : 'proposalId' in o
+          ? (serverOk(o) ? [{ origin: 'server', proposalId: o.proposalId, expiresAt: o.expiresAt, card: o.card, issuedTurn: turn, ...(view.origin === 'server' && view.conversationId !== undefined ? { conversationId: view.conversationId } : {}) }] : [])
+          : [{ origin: 'local', localId: crypto.randomUUID(), card: o, issuedTurn: turn }];
+        render({ items: out.items.length > 0 ? out.items : said, cards: fresh, intents: [], actions: [], notice: null });
+        return;
+      }
     }
   }
 
@@ -468,6 +514,15 @@ export function mountMentorPanel(root: HTMLElement, opts: {
           addLi('pan-item pan-rules-error', h('div', { class: 'rules-error', role: 'note' },
             h('p', null, item.message), h('p', null, h('a', { href: item.href, class: 'rules-error-link' }, 'Open Your rules'))));
           break;
+        case 'go': {
+          // Ruling 15: a chip the player taps; nothing navigates until then, and an unknown place is never a chip.
+          const to = navRoute(item.target);
+          if (to === null || !win) break;
+          const btn = h('button', { type: 'button', class: 'btn btn-secondary pan-go', 'data-content': '' }, item.said.text);
+          addLi('pan-item pan-go-item', btn);
+          btn.addEventListener('click', () => { win.location.hash = routeHref(to); });
+          break;
+        }
         case 'retry': {
           const btn = h('button', { type: 'button', class: 'btn btn-secondary pan-retry' }, 'Try again');
           const li = addLi('pan-item pan-retry-item', btn);

@@ -115,7 +115,7 @@ describe('mentor panel', () => {
   });
 
   it('Family Table mode has no text box, form or talk button', async () => {
-    app = await openApp('/', { reducedMotion: true, seed: { settings: { showCalories: false, reducedMotion: 'system', familyTable: true, iosNoteDismissed: false, aiMentor: true } } });
+    app = await openApp('/', { reducedMotion: true, seed: { settings: { showCalories: false, reducedMotion: 'system', familyTable: true, iosNoteDismissed: false, aiMentor: true, rescueNudges: true } } });
     const { page } = app;
     await page.locator('#pan-button').click();
     expect(await page.locator('#pan-panel textarea, #pan-panel input, #pan-panel form, #pan-talk').count()).toBe(0);
@@ -127,7 +127,7 @@ describe('mentor panel', () => {
     await app.page.locator('#pan-button').click();
     await expectNoA11yViolations(app.page, 'standard');
     await app.close();
-    app = await openApp('/', { reducedMotion: true, seed: { settings: { showCalories: false, reducedMotion: 'system', familyTable: true, iosNoteDismissed: false, aiMentor: true } } });
+    app = await openApp('/', { reducedMotion: true, seed: { settings: { showCalories: false, reducedMotion: 'system', familyTable: true, iosNoteDismissed: false, aiMentor: true, rescueNudges: true } } });
     await app.page.locator('#pan-button').click();
     await expectNoA11yViolations(app.page, 'familyTable');
   });
@@ -145,7 +145,7 @@ const tell = async (page: Page, text: string) => {
 };
 const filled = (id: string, vars: Record<string, string>) => lines(id).map((l) => l.replace(/\{(\w+)\}/g, (_m, k: string) => vars[k] ?? ''));
 const BOTH_CONSENTS = {
-  consents: ['health_data', 'ai_health'].map((purpose) => ({ purpose, noticeVersion: 'v1', noticeSha256: 'x', method: 'tap', grantedAt: '2026-11-01T00:00:00Z', withdrawnAt: null, endedReason: null, current: true })),
+  consents: ['health_data', 'ai_health'].map((purpose) => ({ purpose, noticeVersion: purpose === 'health_data' ? 'v3' : 'v1', noticeSha256: 'x', method: 'tap', grantedAt: '2026-11-01T00:00:00Z', withdrawnAt: null, endedReason: null, current: true })),
   needsReconsent: [], notices: {},
 };
 /** Signed in with the AI mentor on: /me, /rules and /me/consents answered; `extra` routes the mentor. */
@@ -260,7 +260,7 @@ describe('mentor cards, trail and AI backend (M4 Step 10)', () => {
   it('family table: no textbox, no /api/mentor request', async () => {
     app = await openApp('/', {
       reducedMotion: true,
-      seed: { settings: { showCalories: false, reducedMotion: 'system', familyTable: true, iosNoteDismissed: false, aiMentor: true } },
+      seed: { settings: { showCalories: false, reducedMotion: 'system', familyTable: true, iosNoteDismissed: false, aiMentor: true, rescueNudges: true } },
       beforeGoto: signedIn(() => Promise.resolve()),
     });
     const { page } = app;
@@ -303,5 +303,26 @@ describe('mentor cards, trail and AI backend (M4 Step 10)', () => {
     await page.keyboard.press('Enter');
     await page.locator('#pan-panel .bubble.you', { hasText: 'thank you' }).waitFor();
     expect(await page.locator('#pan-panel .trail-entry').count()).toBe(1);
+  });
+});
+
+describe('the week from the Pan (M5 Step 10)', () => {
+  it('AI off: a navigation is a chip that only a tap follows; "pick 3 after the weekend" asks which day', async () => {
+    app = await openApp('/#/settings', { reducedMotion: true, seed: PAN_READY });
+    const { page } = app;
+    await page.locator('#pan-button').click();
+    // The chip carries the nav.offer line itself (no separate bubble).
+    await page.locator('#pan-text').fill('take me to the market list');
+    await page.keyboard.press('Enter');
+    const chip = page.locator('#pan-panel .pan-go');
+    await chip.waitFor();
+    expect(filled('nav.offer', { place: 'the market list' })).toContain(await chip.textContent());
+    expect(await page.evaluate(() => location.hash)).toBe('#/settings');
+    await tell(page, 'pick 3 after the weekend');
+    expect(filled('plan.after_which_day', { day: 'the weekend' })).toContain((await panTexts(page)).at(-1));
+    expect(await page.locator('#pan-panel .pan-card').count()).toBe(0);
+    await chip.click();
+    expect(await page.evaluate(() => location.hash)).toBe('#/market');
+    expect(app.consoleErrors).toEqual([]);
   });
 });

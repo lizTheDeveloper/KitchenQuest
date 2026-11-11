@@ -7,6 +7,7 @@ export type TurnIntent =
   | 'emergency'
   | 'child'
   | 'medical'
+  | 'weight'
   | 'yes'
   | 'no'
   | 'undo'
@@ -78,11 +79,25 @@ export const CHILD_PATTERNS: readonly RegExp[] = [
   new RegExp(`\\b(?:year|grade) ${SCHOOL_YEAR}\\b`),
   /\b(?:[1-9]|1[0-2])(?:st|nd|rd|th) grade\b|\b(?:first|second|third|fourth|fifth|sixth|seventh|eighth) grade\b/,
   /\b(?:in|at|go to|attend) (?:primary|elementary|middle school|junior high|kindergarten|reception class)\b|\b(?:primary|elementary) school\b/,
+  // M5 final m7: "im 7yo", "8 y.o. here", "9 yrs", "i'm a kid", "i am age 8", and a short non-English set
+  // ("ich bin 9 jahre alt", "tengo 9 años", "j'ai 8 ans", "tenho 10 anos", "ho 9 anni"). False positives are accepted (N9).
+  /\b(?:[1-9]|1[0-7])\s*(?:yo|y\.\s?o\.?|y\/o|yrs?(?:\s*old)?)(?![a-z])/,
+  /\b(?:i'?m|im|i am)\s+(?:just\s+|only\s+)?a\s+(?:little\s+)?(?:kid|child)\b/,
+  /\b(?:age|aged)\s+(?:[1-9]|1[0-7])\b(?!\s*(?::|am\b|pm\b|%|kg|lb))/,
+  /\b(?:[1-9]|1[0-7])\s+(?:jahre?|anos|ans|anni|jaar|lat|let)\b/,
 ];
 
 // Medicines and milligram doses too (I4): "how many mg of ibuprofen with dinner".
 export const MEDICAL_PATTERN =
   /\b(dose|dosage|doses|how (much|many) (mg|milligrams?|tablets?|pills?)|\d+(\.\d+)? ?(mg|milligrams?)|ibuprofen|paracetamol|acetaminophen|aspirin|antihistamines?|piriton|cetirizine|loratadine|tablets?|pills?|how much \w+ should i take|medication|medicine|antihistamine|benadryl|epinephrine dose|metformin|insulin|diagnos\w*|do i have|am i allergic|is it an allergy|should i (take|stop|start)|get tested|allergy test)\b/;
+
+/**
+ * Weight loss, body measures and calorie counting (M5 final I2; spec §5 safeguards, voice §0.9–10): never a model
+ * turn. Code answers with the fixed deflection (`rule.weight_deflect`), and the text is health (`isHealthText`).
+ * Over-catches on purpose ("my weight's fine").
+ */
+export const WEIGHT_PATTERN =
+  /\b(?:(?:lose|loses|losing|lost|drop|dropping|shed|shedding|burn|burning)\s+(?:(?:some|the|a|my|more|that|this|extra)\s+)?(?:(?:bit|few|little|of)\s+)*(?:weight|pounds|lbs|kilos|kgs?|stone|belly fat|body fat)\b|weight[- ]?loss|weight[- ]?watch\w*|watch(?:es|ing)?\s+(?:my|our|his|her|their|your)\s+weight|(?:my|our|his|her|their|your)\s+(?:weight|bmi|body fat)\b|bmi\b|calories?\s+(?:count\w*|deficit|target|limit|goal)|count(?:s|ing)?\s+(?:my\s+)?calories|calorie[- ]count\w*|slim(?:ming)?\s+down|slimming|get(?:ting)?\s+(?:thin|thinner|skinny|skinnier)|too\s+fat\b|overweight|underweight)/;
 
 /** A strict yes: every word is one of these, and at least one is in `YES_STRONG`. */
 export const YES_WORDS: ReadonlySet<string> = new Set([
@@ -198,6 +213,7 @@ export function classifyTurn(text: string): TurnIntent {
   if (isEmergency(t)) return 'emergency';
   if (CHILD_PATTERNS.some((p) => p.test(t))) return 'child';
   if (MEDICAL_PATTERN.test(t)) return 'medical';
+  if (WEIGHT_PATTERN.test(t)) return 'weight';
   if (isStrictYes(t)) return 'yes';
   if (NO_PATTERN.test(t)) return 'no';
   if (UNDO_PATTERN.test(t)) return 'undo';

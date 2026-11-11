@@ -1,7 +1,7 @@
 import { toolkitRows, type ToolkitState } from '@kitchenquest/core/engine';
 import assets from 'virtual:kq-assets';
 import { content, techniqueName } from '../content';
-import { createDialogue, getMentor } from '../mentor';
+import { createDialogue, getMentor, getMentorServices } from '../mentor';
 import { localDate } from '../recipes/rules';
 import { hideStage, showScene } from '../scenes/phaser-host';
 import { registerScreen, type AppContext, type Screen } from '../shell/app';
@@ -53,20 +53,35 @@ function kitchenScreen(): Screen {
       const bar = h('div', { class: 'kitchen-actions' });
       const greetingSlot = h('div', { class: 'kitchen-greeting' });
       const cardSlot = h('div', { class: 'apprentice-slot' });
-      el.replaceChildren(h('h1', null, 'Your kitchen'), greetingSlot, backdropSlot, bar, cardSlot);
+      // Use-It-Up Rescue (M5 Step 10): at most one offer a day, only while the kitchen is open. Its code loads after first paint.
+      const rescueSlot = h('div', { class: 'rescue-slot' });
+      el.replaceChildren(h('h1', null, 'Your kitchen'), greetingSlot, backdropSlot, bar, rescueSlot, cardSlot);
+      void import('../week/rescue-slot')
+        .then(({ mountRescue }) => mountRescue(rescueSlot, ctx, getMentorServices().client, () => alive))
+        .catch((err: unknown) => { console.error(err); });
       // The apprentice card and the knife roll read progress, which loads after first paint (Step 9.3).
       let stopCard: (() => void) | null = null;
-      void Promise.all([progressService(), import('./apprentice-card')]).then(([svc, { renderApprenticeCard, renderGuestOffer }]) => {
+      // The Shared Table tally (Step 11, C21): counts only, signed in only, read once per visit after first paint.
+      let shared: number | null = null;
+      const email = ctx.store.get().account?.email ?? null;
+      void Promise.all([progressService(), import('./apprentice-card')]).then(([svc, { renderApprenticeCard, renderGuestOffer, sharedCount }]) => {
         if (!alive) return;
         const draw = () => {
           const offer = !guestOfferDismissed && svc.sync.guestOffer()
             ? renderGuestOffer({ add: () => { const p = svc.sync.addGuestProgress(); draw(); return p; }, dismiss: () => { guestOfferDismissed = true; draw(); } })
             : null;
           if (offer === null && cardSlot.querySelector('.guest-offer')?.contains(doc.activeElement)) cardSlot.querySelector<HTMLElement>('.apprentice-card h2')?.focus();
-          cardSlot.replaceChildren(renderApprenticeCard(svc.view()), ...(offer ? [offer] : []));
+          cardSlot.replaceChildren(renderApprenticeCard(svc.view(), shared), ...(offer ? [offer] : []));
         };
         draw();
         stopCard = svc.subscribe(draw);
+        if (email !== null && !ctx.store.get().settings.familyTable) {
+          void getMentorServices().client.sharedTally().then((r) => {
+            if (!alive || !r.ok || (ctx.store.get().account?.email ?? null) !== email) return;
+            shared = sharedCount(r.data);
+            draw();
+          });
+        }
       }, (err: unknown) => { console.error(err); });
       let rollOpening = false;
       const openRoll = () => {
@@ -95,6 +110,9 @@ function kitchenScreen(): Screen {
         { id: 'talk', label: 'Talk to the Pan', run: () => getMentor().open() },
         { id: 'toolkit', label: 'Knife roll', run: openRoll },
         { id: 'recipes', label: 'Recipe shelf', run: () => ctx.navigate({ name: 'recipes' }) },
+        // The Recipe Book on the shelf (Step 11): an HTML control now; its sprite slot is M10's.
+        { id: 'book', label: 'Recipe Book', run: () => ctx.navigate({ name: 'book', slug: null }) },
+        { id: 'week', label: 'This week', run: () => ctx.navigate({ name: 'plan' }) },
         { id: 'map', label: 'Go out to the world map', run: () => ctx.navigate({ name: 'map' }) },
       ]);
 

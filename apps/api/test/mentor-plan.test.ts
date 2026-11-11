@@ -882,6 +882,37 @@ describe('fix round 5', () => {
     expect(r.parts).toContainEqual({ kind: 'line', line: { trigger: 'plan.which_day', vars: { dish: 'onigiri' } } });
   });
 
+  test('M5 final m5: only the corrected clause loses its card; the dinner time it never touched stands', async () => {
+    await makeApp(fakeAi([calls([
+      { name: 'propose_profile', args: { market_days: null, meals_per_week: null, region: null, country: null, meal_windows: [{ name: 'dinner', start: '19:00' }] } },
+      { name: 'propose_plan', args: { days: [{ weekday: 'Tuesday', dish: 'parippu' }], pick: null, hard_week: null, after: null } },
+    ])]));
+    const r = await (await aiPlayer()).turn('remind me to eat dinner at 7pm, and parippu on monday, actually tuesday');
+    expect(kinds(r)).toEqual(['profile']);
+    expect(r.parts).toContainEqual({ kind: 'line', line: { trigger: 'plan.which_day', vars: { dish: 'parippu' } } });
+    expect(triggers(r)).not.toContain('profile.which_time');
+  });
+
+  test('M5 final m5, the other half: a corrected time loses the profile card; the dish day stands', async () => {
+    await makeApp(fakeAi([calls([
+      { name: 'propose_profile', args: { market_days: null, meals_per_week: null, region: null, country: null, meal_windows: [{ name: 'dinner', start: '19:00' }] } },
+      { name: 'propose_plan', args: { days: [{ weekday: 'Monday', dish: 'parippu' }], pick: null, hard_week: null, after: null } },
+    ])]));
+    const r = await (await aiPlayer()).turn('put parippu on monday, and remind me to eat dinner at 6pm, no wait, 7pm');
+    expect(kinds(r)).toEqual(['plan']);
+    expect(r.parts).toContainEqual(WHICH_TIME);
+    expect(triggers(r)).not.toContain('plan.which_day');
+  });
+
+  test('M5 final m6: "pick 2, actually 3" → no plan card from the model\'s count, the which-count ask', async () => {
+    await makeApp(fakeAi([planArgs({ pick: 3 }), planArgs({ pick: 2 }), reply('')]));
+    for (let i = 0; i < 3; i++) {
+      const r = await (await aiPlayer()).turn('pick 2, actually 3');
+      expect(r.cards.filter((c) => c.card.kind === 'plan')).toEqual([]);
+      expect(triggers(r)).toContain('plan.which_count');
+    }
+  });
+
   test('5a: a meal-log or pantry clause next to a closed clause → the code card; a T08-shaped clause → none', async () => {
     await makeApp(fakeAi([reply(''), reply(''), reply('')]));
     const r = await (await aiPlayer()).turn('had toast for lunch. put onigiri on monday');

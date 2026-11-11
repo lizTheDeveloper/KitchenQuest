@@ -71,7 +71,8 @@ describe('the daily write cap', () => {
     expect((await logMeal(p.cookie)).statusCode).toBe(201);
     const capped = await logMeal(p.cookie);
     expect(capped.statusCode).toBe(429);
-    expect(capped.json()).toMatchObject({ error: { code: 'rate_limited', details: { retryAfterSeconds: expect.any(Number) } } });
+    // M5 final m2: the daily cap names its scope, so a client says "until tomorrow" for it and only for it.
+    expect(capped.json()).toMatchObject({ error: { code: 'rate_limited', details: { retryAfterSeconds: expect.any(Number), scope: 'day' } } });
     expect(Number(capped.headers['retry-after'])).toBeGreaterThan(0);
     // The capped player can still delete what they logged.
     const meals = (await call(p.cookie, { method: 'GET', url: `/meals?from=${TODAY}&to=${TODAY}` })).json<{ meals: { id: string }[] }>().meals;

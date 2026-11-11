@@ -28,6 +28,11 @@ export function settingsScreen(api: ApiClient): Screen {
       calories.checked = settings.showCalories;
       calories.addEventListener('change', () => set({ showCalories: calories.checked }));
 
+      // Audit M-14: Use-It-Up nudges "can be turned off". At most one a day, in the kitchen only.
+      const rescue = h('input', { type: 'checkbox', id: 'set-rescue', checked: settings.rescueNudges });
+      rescue.checked = settings.rescueNudges;
+      rescue.addEventListener('change', () => set({ rescueNudges: rescue.checked }));
+
       const motion = h('select', { id: 'set-motion' },
         h('option', { value: 'system' }, 'System'), h('option', { value: 'on' }, 'On'), h('option', { value: 'off' }, 'Off'));
       motion.value = settings.reducedMotion;
@@ -97,7 +102,8 @@ export function settingsScreen(api: ApiClient): Screen {
         h('section', { class: 'panel', 'aria-labelledby': 'set-display' },
           h('h2', { id: 'set-display' }, 'Display'),
           h('div', { class: 'field' }, calories, h('label', { for: 'set-calories' }, 'Show calories')),
-          h('div', { class: 'field' }, h('label', { for: 'set-motion' }, 'Reduce motion'), motion)),
+          h('div', { class: 'field' }, h('label', { for: 'set-motion' }, 'Reduce motion'), motion),
+          h('div', { class: 'field' }, rescue, h('label', { for: 'set-rescue' }, 'Use-it-up suggestions in the kitchen (at most one a day)'))),
         h('section', { class: 'panel', 'aria-labelledby': 'set-data' },
           h('h2', { id: 'set-data' }, 'Your data'),
           dataNote,

@@ -135,6 +135,20 @@ describe('plans', () => {
     expect(n).toBe(1);
   });
 
+  it('M5 final m1: an offered week keeps its pinned offer (sealed, round-tripped); a pin on any other week is plan_invalid', async () => {
+    const p = await player();
+    const offered: Plan = { ...planOf(MONDAY, [dish(PARIPPU, 0)]), slot: 'offered', offer: { technique: 'tempering', recipe: PARIPPU } };
+    const res = await put(p.cookie, offered);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json<{ plan: Plan }>().plan).toEqual({ ...offered, id: expect.any(String) });
+    expect((await current(p.cookie)).plan).toEqual({ ...offered, id: expect.any(String) });
+    const [stored] = await db.select().from(mealPlans).where(eq(mealPlans.userId, p.id));
+    expect(stored.sealed.toString('latin1')).not.toContain('tempering');
+    const bad = await put(p.cookie, { ...planOf(MONDAY, []), offer: { technique: 'tempering', recipe: PARIPPU } });
+    expect(bad.statusCode).toBe(400);
+    expect(bad.json<{ error: { code: string; details: { problems: string[] } } }>().error.details.problems).toContain('plan: offer is only kept on an offered week');
+  });
+
   it('PUT /plans needs confirmed: true; a blocked dish → 400 plan_invalid naming it; a ❓ dish saves and reads back as unverified', async () => {
     const p = await player();
     for (const confirmed of [OMIT, false, 'yes']) {
@@ -227,6 +241,7 @@ describe('plans', () => {
     expect(res.statusCode).toBe(429);
     expect(res.json().error.code).toBe('rate_limited');
     expect(Number(res.headers['retry-after'])).toBeGreaterThan(0);
+    expect(res.json().error.details?.scope).toBeUndefined(); // M5 final m2: per-minute, not the daily cap
     // Another player is not limited.
     expect((await call((await player()).cookie, { method: 'GET', url: '/plans/current' })).statusCode).toBe(200);
   });

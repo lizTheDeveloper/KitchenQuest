@@ -1,5 +1,5 @@
-import { describe, expect, test } from 'vitest';
-import { buildMealCard, buildPantryCard, buildProfileCard, buildRuleCard, UNDO_WINDOW_MS, validateRules, type ProposalCard, type Rule } from '@kitchenquest/core/engine';
+import { beforeEach, describe, expect, test } from 'vitest';
+import { buildMealCard, buildPantryCard, buildProfileCard, buildRuleCard, UNDO_WINDOW_MS, validateRules, type PlanCard, type ProposalCard, type Rule } from '@kitchenquest/core/engine';
 import type { ApiClient } from '../api/client';
 import type { ApiResult } from '../api/types';
 import { content, graph } from '../content';
@@ -9,6 +9,9 @@ import { createStore, type PlayerState } from '../state/store';
 import { createDialogue } from './dialogue';
 import type { LocalCardView, PanItem, ServerCardView } from './reply';
 import { createCardWriter, partsToItems, type WriteOutcome } from './writer';
+import { createScriptedEngine } from './scripted';
+import { createWeekTurn } from './week-turn';
+import { forgetWeek, plannedOn, rememberedWeek, rememberWeek } from '../week/memory';
 
 const T0 = new Date('2026-11-10T12:00:00Z');
 const ok = <T>(data: T, status = 200): ApiResult<T> => ({ ok: true, status, data });
@@ -45,8 +48,10 @@ function setup(script: Partial<Record<keyof ApiClient, Handler>>, patch: Partial
   const writer = createCardWriter({ client, store, dialogue: createDialogue(content.pan), graph, ruleTerms: content.ruleTerms, now: () => now });
   return { store, calls, writer, later: (ms: number) => { now = new Date(T0.getTime() + ms); } };
 }
-/** The daily write cap's 429: only it carries details.retryAfterSeconds. */
-const writeCap = (): ApiResult<never> => ({ ok: false, status: 429, error: { code: 'rate_limited', message: '', details: { retryAfterSeconds: 3600 }, retryAfter: 3600 } });
+/** The daily write cap's 429: M5 final m2, it says so with `details.scope: 'day'`. */
+const writeCap = (): ApiResult<never> => ({ ok: false, status: 429, error: { code: 'rate_limited', message: '', details: { retryAfterSeconds: 3600, scope: 'day' }, retryAfter: 3600 } });
+/** A per-minute limiter's 429 (book, week, progress routes): `retryAfterSeconds` too, but no day scope. */
+const perMinute = (): ApiResult<never> => ({ ok: false, status: 429, error: { code: 'rate_limited', message: '', details: { retryAfterSeconds: 12 }, retryAfter: 12 } });
 const signedIn: Partial<PlayerState> = { account: { email: 'cook@example.com' }, accountRules: [] };
 const milk = () => ruleCard('milk', 'intolerance');
 
@@ -114,7 +119,7 @@ describe('card writer', () => {
       confirmProposal: () => ok({ trail, parts: [{ kind: 'line', line: { trigger: 'rule.stamped', vars: { ingredient: 'milk' } } }, { kind: 'text', text: 'It is saved and safe!' }] }),
     }, signedIn);
     const out = await writer.confirm(server(milk()), 'tap', { severity: 'allergy' });
-    expect(calls).toEqual([{ name: 'confirmProposal', args: ['P1', { severity: 'allergy' }, undefined] }]);
+    expect(calls).toEqual([{ name: 'confirmProposal', args: ['P1', { severity: 'allergy' }, undefined, undefined] }]);
     expect(out).toMatchObject({ ok: true, trail });
     expect(said(out.items)).toEqual(['rule.stamped']);
     expect(JSON.stringify(out.items)).not.toContain('safe!');
@@ -145,7 +150,7 @@ describe('card writer', () => {
     await writer.confirm(server(milk(), 'P1'), 'tap');
     current = null;
     await writer.confirm(server(milk(), 'P2'), 'tap');
-    expect(calls.map((c) => c.args)).toEqual([['P1', undefined, 'c1'], ['P2', undefined, null]]);
+    expect(calls.map((c) => c.args)).toEqual([['P1', undefined, 'c1', undefined], ['P2', undefined, null, undefined]]);
   });
 
   test('403 → a consent item; the card stays open', async () => {
@@ -175,6 +180,11 @@ describe('card writer', () => {
     expect(await capped.writer.confirm(server(milk()), 'tap')).toMatchObject({ ok: false, reason: 'limited' });
     const busy = setup({ createMeal: () => fail(429, 'rate_limited') }, signedIn);
     expect(await busy.writer.confirm(local(meal), 'tap')).toMatchObject({ ok: false, reason: 'network' });
+    // M5 final m2: a per-minute 429 that carries retryAfterSeconds is still "try again", never "until tomorrow".
+    const minute = setup({ createMeal: () => perMinute() }, signedIn);
+    const m = await minute.writer.confirm(local(meal), 'tap');
+    expect(m).toMatchObject({ ok: false, reason: 'network' });
+    expect(said(m.items)).not.toContain('write.daily_limit');
   });
 
   test('HTTP mapping: 409 proposal_closed → closed, status 0 → network', async () => {
@@ -699,6 +709,203 @@ describe('raiseRule (the rules screen raising an account rule)', () => {
   test('Family Table: nothing is raised', async () => {
     const { writer, calls } = setup({}, { ...signedIn, settings: { ...createStore(null).get().settings, familyTable: true } });
     expect(await writer.raiseRule(local(raisedCard()), at('intolerance'))).toMatchObject({ ok: false, reason: 'invalid' });
+    expect(calls).toEqual([]);
+  });
+});
+
+describe('card writer: the plan card (M5 Step 10)', () => {
+  beforeEach(() => { forgetWeek(); });
+  const engineFor = (store: ReturnType<typeof createStore>) => createScriptedEngine({
+    dialogue: createDialogue(content.pan), graph, ruleTerms: content.ruleTerms,
+    recipes: Object.entries(content.recipes).map(([slug, r]) => ({ slug, title: r.meta.title })), now: () => T0,
+    week: () => Promise.resolve(createWeekTurn({ store, client: {} as ApiClient, now: () => T0, dialogue: createDialogue(content.pan), recipes: Object.entries(content.recipes).map(([slug, r]) => ({ slug, title: r.meta.title })), cooks: {} })),
+  });
+  const planCard = async (store: ReturnType<typeof createStore>, text = 'plan my week: parippu on Sunday') => {
+    const r = await engineFor(store).reply(text, { turn: 1, openCards: [], intakeStep: null, signedIn: store.get().account !== null, trail: [] });
+    return r.cards[0] as LocalCardView;
+  };
+  const PLAN = { weekStart: '2026-11-09', items: [{ day: 6, kind: 'dish', slug: 'india/kerala/parippu', servings: 3 }], hard: false, slot: 'unanswered' };
+
+  test('scripted engine: tap → saved locally (signed out); undo restores the week as it was', async () => {
+    const { store, calls, writer } = setup({});
+    const view = (await planCard(store));
+    const out = await writer.confirm(view, 'tap');
+    expect(calls).toEqual([]);
+    expect(out.ok).toBe(true);
+    expect(store.get().localWeek.plans).toEqual([PLAN]);
+    if (!out.ok) return;
+    expect(said(out.items)).toContain('plan.saved');
+    expect((await writer.undo(out.trail)).status).toBe('undone');
+    expect(store.get().localWeek.plans).toEqual([]);
+  });
+
+  test('signed in: GET /plans/current then PUT /plans with today; undo deletes the week it created', async () => {
+    const { store, calls, writer } = setup({
+      getPlan: () => ok({ plan: null, weekStart: '2026-11-09', checks: [] }),
+      putPlan: (p) => ok({ plan: { ...(p as object), id: 'row' }, checks: [] }),
+      deletePlan: () => ok(null, 204),
+    }, signedIn);
+    const out = await writer.confirm((await planCard(store)), 'tap');
+    expect(out.ok).toBe(true);
+    expect(calls.map((c) => c.name)).toEqual(['getPlan', 'getPlan', 'putPlan']);
+    expect(calls[0].args).toEqual(['2026-11-10']);
+    expect(calls[2].args).toEqual([PLAN, '2026-11-10']);
+    if (!out.ok) return;
+    await writer.undo(out.trail);
+    expect(calls.at(-1)).toEqual({ name: 'deletePlan', args: ['2026-11-09'] });
+  });
+
+  test('403 consent_required: plans are health data, so the consent card; nothing is written', async () => {
+    const { store, writer } = setup({
+      getPlan: () => ok({ plan: null, weekStart: '2026-11-09', checks: [] }),
+      putPlan: () => fail(403, 'consent_required', { purpose: 'health_data' }),
+    }, signedIn);
+    const out = await writer.confirm((await planCard(store)), 'tap');
+    expect(out).toMatchObject({ ok: false, reason: 'consent_required' });
+    if (out.ok) return;
+    expect(out.items.some((i) => i.kind === 'consent' && i.purpose === 'health_data')).toBe(true);
+  });
+
+  test('the week changed since the card was shown: nothing saved, the card is offered again on the week now', async () => {
+    const other = { weekStart: '2026-11-09', items: [{ day: 1, kind: 'dish', slug: 'japan/osaka/onigiri', servings: 2 }], hard: false, slot: 'unanswered', id: 'row' };
+    const { store, calls, writer } = setup({ getPlan: () => ok({ plan: other, weekStart: '2026-11-09', checks: [] }) }, signedIn);
+    const view = (await planCard(store));
+    const out = await writer.confirm(view, 'tap');
+    expect(calls.map((c) => c.name)).toEqual(['getPlan']);
+    expect(out).toMatchObject({ ok: false, reason: 'plan_changed' });
+    if (out.ok || out.reason !== 'plan_changed') return;
+    const offered = out.offered as PlanCard;
+    expect(offered.items.map((i) => i.slug).sort()).toEqual(['india/kerala/parippu', 'japan/osaka/onigiri']);
+    // A second tap on the closed card writes nothing.
+    expect(await writer.confirm(view, 'tap')).toMatchObject({ ok: false, reason: 'closed' });
+  });
+
+  test('a server plan card: the tap sends today; 409 plan_changed re-offers the server card', async () => {
+    const reoffered = { proposalId: 'P2', expiresAt: '2026-11-10T12:30:00Z', card: { kind: 'plan' } };
+    const { store, calls, writer } = setup({
+      confirmProposal: () => fail(409, 'plan_changed', { card: reoffered, parts: [{ kind: 'line', line: { trigger: 'plan.readback', vars: { summary: 'Sunday: Parippu Curry' } } }] }),
+    }, signedIn);
+    const out = await writer.confirm(server((await planCard(store)).card), 'tap');
+    expect(calls[0].args[3]).toBe('2026-11-10');
+    expect(out).toMatchObject({ ok: false, reason: 'plan_changed', offered: reoffered });
+  });
+
+  test('Ruling 5 (local card): a dish ⛔ since the card was built is named with plan.blocked_dish and what blocks it; nothing saved', async () => {
+    const { store, writer } = setup({});
+    const view = await planCard(store);
+    store.update((s) => ({ ...s, localRules: [{ id: 'r', target: { kind: 'ingredient', ids: ['coconut'] }, type: 'avoid', severity: 'allergy' }] }));
+    const out = await writer.confirm(view, 'tap');
+    expect(out).toMatchObject({ ok: false, reason: 'closed' });
+    if (out.ok) return;
+    expect(said(out.items)).toEqual(['plan.blocked_dish']);
+    const text = out.items[0].kind === 'said' ? out.items[0].said.text : '';
+    expect(text).toContain('Parippu Curry');
+    expect(text).toMatch(/coconut/);
+    expect(store.get().localWeek.plans).toEqual([]);
+  });
+
+  test('Ruling 5 (server card): 400 plan_invalid shows the server\'s own plan.blocked_dish lines and closes the card', async () => {
+    const parts = [{ kind: 'line', line: { trigger: 'plan.blocked_dish', vars: { dish: 'Parippu Curry', finding: 'coconut oil counts as coconut' } } }];
+    const { store, writer } = setup({ confirmProposal: () => fail(400, 'plan_invalid', { problems: ['blocked: india/kerala/parippu'], parts }) }, signedIn);
+    const view = server((await planCard(store)).card);
+    const out = await writer.confirm(view, 'tap');
+    expect(out).toMatchObject({ ok: false, reason: 'closed' });
+    if (out.ok) return;
+    expect(said(out.items)).toEqual(['plan.blocked_dish']);
+    expect(out.items[0].kind === 'said' && out.items[0].said.text).toContain('coconut oil counts as coconut');
+    expect(await writer.confirm(view, 'tap')).toMatchObject({ ok: false, reason: 'closed', items: [] });
+  });
+
+  test('M7: signed in, an undo whose earlier week now holds a ⛔ dish says plan.blocked_dish; nothing changes', async () => {
+    const before = { weekStart: '2026-11-09', items: [{ day: 6, kind: 'dish', slug: 'india/kerala/parippu', servings: 3 }], hard: false, slot: 'unanswered', id: 'row' };
+    let stored: unknown = before;
+    const { store, writer } = setup({
+      getPlan: () => ok({ plan: stored, weekStart: '2026-11-09', checks: [] }),
+      putPlan: (p) => { if ((p as { items: { slug: string }[] }).items.some((i) => i.slug === 'india/kerala/parippu') && stored !== before) return fail(400, 'plan_invalid', { problems: ['blocked: india/kerala/parippu'] }); stored = { ...(p as object), id: 'row' }; return ok({ plan: stored, checks: [] }); },
+    }, signedIn);
+    // The week as the panel read it on open (M3), so the card is built on the stored week.
+    rememberWeek('2026-11-09', { weekStart: before.weekStart, items: before.items, hard: false, slot: 'unanswered' } as never, 'cook@example.com');
+    const view = await planCard(store, 'plan my week: onigiri on Tuesday');
+    const out = await writer.confirm(view, 'tap');
+    if (!out.ok) throw new Error('not saved');
+    store.update((s) => ({ ...s, accountRules: [{ id: 'r', target: { kind: 'ingredient', ids: ['coconut'] }, type: 'avoid', severity: 'allergy' }] }));
+    const u = await writer.undo(out.trail);
+    expect(u.status).toBe('nothing');
+    expect(said(u.items)).toEqual(['plan.blocked_dish']);
+  });
+
+  test('N4: an account switch while a plan card\'s save is on its way: no undo for the new session, nothing remembered for it', async () => {
+    const { store, writer } = setup({
+      getPlan: () => ok({ plan: null, weekStart: '2026-11-09', checks: [] }),
+      putPlan: (p) => { store.update((s) => ({ ...s, account: { email: 'other@example.com' } })); return ok({ plan: { ...(p as object), id: 'row' }, checks: [] }); },
+    }, signedIn);
+    const out = await writer.confirm(await planCard(store), 'tap');
+    expect(out).toMatchObject({ ok: false, reason: 'closed', items: [] });
+    expect(rememberedWeek('other@example.com')).toBeNull();
+    expect(plannedOn('india/kerala/parippu', '2026-11-15', 'other@example.com')).toBe(false);
+  });
+
+  test('partsToItems: a go part is a chip item carrying its nav.offer line', () => {
+    const items = partsToItems([{ kind: 'go', target: { to: 'plan' }, line: { trigger: 'nav.offer', vars: { place: "the week's plan" } } }], createDialogue(content.pan));
+    expect(items).toMatchObject([{ kind: 'go', target: { to: 'plan' }, said: { trigger: 'nav.offer' } }]);
+  });
+});
+
+describe('M5 Step 11: book cards (margin notes, Cooked for Someone)', () => {
+  const note = { recipe: 'india/kerala/parippu', ops: [{ op: 'add' as const, name: 'lime' }], text: null, at: '2026-11-10' };
+  const noteCard = () => ({ kind: 'margin_note' as const, note, summary: 'added lime' });
+  const sharedCard = (count: 'just_me' | 'one' = 'one') => ({ kind: 'cooked_for' as const, entry: { cookedOn: '2026-11-10', recipe: 'india/kerala/parippu', frame: null, cookedFor: { count, who: null } }, summary: 'x' });
+  const check = { status: 'ok', findings: [], severe: false, disclaimer: null };
+
+  test('signed out: nothing is called; a note says margin.needs_account, Cooked for Someone says nothing', async () => {
+    const { calls, writer } = setup({});
+    const a = await writer.keep(noteCard());
+    const b = await writer.keep(sharedCard());
+    expect(a).toMatchObject({ ok: false, reason: 'needs_account' });
+    expect(said(a.items)).toEqual(['margin.needs_account']);
+    expect(b).toMatchObject({ ok: false, reason: 'needs_account', items: [] });
+    expect(calls).toEqual([]);
+  });
+  test('Family Table: nothing is kept, nothing is called (C31)', async () => {
+    const { calls, writer } = setup({}, { ...signedIn, settings: { ...createStore(null).get().settings, familyTable: true } });
+    expect(await writer.keep(noteCard())).toMatchObject({ ok: false, reason: 'family_table' });
+    expect(calls).toEqual([]);
+  });
+  test('a note: POST /notes with the local date; the server check comes back; each card is kept once', async () => {
+    const { calls, writer } = setup({ createNote: () => ok({ note: { ...note, id: 'n1', check } }, 201) }, signedIn);
+    const card = noteCard();
+    const [a, b] = await Promise.all([writer.keep(card), writer.keep(card)]);
+    expect(a).toMatchObject({ ok: true, id: 'n1', check });
+    expect(b).toMatchObject({ ok: false, reason: 'busy' });
+    expect(await writer.keep(card)).toMatchObject({ ok: false, reason: 'busy' });
+    expect(calls).toEqual([{ name: 'createNote', args: [note, '2026-11-10'] }]);
+  });
+  test('403 consent_required → consent.health_first and the 3-C card; 400 too_many_notes → too_many; the cap → limited', async () => {
+    const c = setup({ createNote: () => fail(403, 'consent_required') }, signedIn);
+    const out = await c.writer.keep(noteCard());
+    expect(out).toMatchObject({ ok: false, reason: 'consent_required' });
+    expect(out.items.map((i) => i.kind)).toEqual(['said', 'consent']);
+    expect(await setup({ createNote: () => fail(400, 'too_many_notes') }, signedIn).writer.keep(noteCard())).toMatchObject({ ok: false, reason: 'too_many' });
+    expect(await setup({ recordShared: () => writeCap() }, signedIn).writer.keep(sharedCard())).toMatchObject({ ok: false, reason: 'limited' });
+  });
+  test('Cooked for Someone: equal warmth, alone or shared; unkeep deletes exactly that row (404 counts as done)', async () => {
+    const { calls, writer } = setup({ recordShared: () => ok({ id: 's1' }, 201), deleteShared: () => fail(404, 'not_found') }, signedIn);
+    expect(said((await writer.keep(sharedCard('just_me'))).items)).toEqual(['cooked_for.alone']);
+    expect(said((await writer.keep(sharedCard('one'))).items)).toEqual(['cooked_for.shared']);
+    expect(await writer.unkeep('cooked_for', 's1')).toBe('undone');
+    expect(calls.at(-1)).toEqual({ name: 'deleteShared', args: ['s1'] });
+  });
+  test('unkeep a note offline → failed (the undo stays)', async () => {
+    const { writer } = setup({ deleteNote: () => fail(0, 'network') }, signedIn);
+    expect(await writer.unkeep('margin_note', 'n1')).toBe('failed');
+  });
+});
+
+describe('M5 Step 11 fix I1: Family Table writes nothing from the book', () => {
+  test('unkeep in Family Table calls nothing (no DELETE)', async () => {
+    const { calls, writer } = setup({ deleteNote: () => ok(null, 204), deleteShared: () => ok(null, 204) }, { ...signedIn, settings: { ...createStore(null).get().settings, familyTable: true } });
+    expect(await writer.unkeep('margin_note', 'n1')).toBe('family_table');
+    expect(await writer.unkeep('cooked_for', 's1')).toBe('family_table');
     expect(calls).toEqual([]);
   });
 });

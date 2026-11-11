@@ -110,7 +110,7 @@ describe('parseIntakeAnswer (AI off)', () => {
 });
 
 const ok = <T>(data: T, status = 200): ApiResult<T> => ({ ok: true, status, data });
-const NOTICES: Consents['notices'] = { health_data: { version: 'v2', text: 'The health notice.' }, ai_health: { version: 'v1', text: 'The AI notice.' } };
+const NOTICES: Consents['notices'] = { health_data: { version: 'v3', text: 'The health notice.' }, ai_health: { version: 'v1', text: 'The AI notice.' } };
 
 function setup(opts: { patch?: Partial<PlayerState>; consents?: Consents; ai?: (client: ApiClient, store: ReturnType<typeof createStore>) => MentorBackend; mentorTurn?: ApiClient['mentorTurn'] } = {}) {
   document.body.replaceChildren();
@@ -253,7 +253,7 @@ describe('createIntake', () => {
 
   test('signed in: agreeing files the grant by tap, then asks about allergies; a stale notice asks again', async () => {
     const stale: Consents = {
-      consents: [{ purpose: 'health_data', noticeVersion: 'v1', noticeSha256: 'x', method: 'tap', grantedAt: '2026-01-01T00:00:00Z', withdrawnAt: null, endedReason: null, current: false }],
+      consents: [{ purpose: 'health_data', noticeVersion: 'v2', noticeSha256: 'x', method: 'tap', grantedAt: '2026-01-01T00:00:00Z', withdrawnAt: null, endedReason: null, current: false }],
       needsReconsent: ['health_data'], notices: NOTICES,
     };
     const m = setup({ patch: { account: { email: 'a@b.c' }, accountRules: [], intake: { step: 'allergies' } }, consents: stale });
@@ -261,7 +261,7 @@ describe('createIntake', () => {
     m.intake.start();
     await flush();
     await m.tap('I agree');
-    expect(m.client.grantConsent).toHaveBeenCalledWith('health_data', 'v2');
+    expect(m.client.grantConsent).toHaveBeenCalledWith('health_data', 'v3');
     expect(lines('intake.allergies.ask')).toContain(m.lastPan());
     expect(m.intake.expecting).toBe('answer');
   });
@@ -382,7 +382,7 @@ describe('createIntake', () => {
   });
 
   test('Family Table never starts the intake', async () => {
-    const m = setup({ patch: { settings: { showCalories: false, reducedMotion: 'system', familyTable: true, iosNoteDismissed: false, aiMentor: true } } });
+    const m = setup({ patch: { settings: { showCalories: false, reducedMotion: 'system', familyTable: true, iosNoteDismissed: false, aiMentor: true, rescueNudges: true } } });
     m.intake.start();
     await flush();
     expect(m.intake.step).toBeNull();

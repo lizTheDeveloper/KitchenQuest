@@ -7,13 +7,15 @@ const OUTFITTER_NOTE = "*Stamps are kept with your papers. The Bureau's outfitte
 /**
  * The apprentice's card in the kitchen: the level and the stamps, quietly. No bar to the next level, no XP still
  * to go, no streak, no daily target and no count of anything not yet done (Step 9, audit M-1). Step 11 adds the
- * Shared Table tally here.
+ * Shared Table tally (`shared`, meals cooked for others; null shows nothing): a plain count, never compared with
+ * anyone, never a goal, and absent rather than zero, since eating alone gets equal warmth (audit M-9).
  */
-export function renderApprenticeCard(view: Pick<ProgressView, 'level' | 'stamps'>): HTMLElement {
+export function renderApprenticeCard(view: Pick<ProgressView, 'level' | 'stamps'>, shared: number | null = null): HTMLElement {
   return h('section', { class: 'apprentice-card', 'aria-labelledby': 'apprentice-card-title' },
     h('h2', { id: 'apprentice-card-title', tabindex: -1 }, 'Your apprentice papers'),
     h('p', { class: 'apprentice-level' }, `Apprentice level ${view.level}`),
     h('p', { class: 'apprentice-stamps' }, view.stamps === 1 ? 'One Bureau Stamp' : `Bureau Stamps: ${view.stamps}`),
+    shared === null || !(shared > 0) ? null : h('p', { class: 'apprentice-shared' }, shared === 1 ? 'Shared Table: one meal cooked for company' : `Shared Table: ${shared} meals cooked for company`),
     h('p', { class: 'bureau-footnote' }, OUTFITTER_NOTE),
   );
 }
@@ -40,4 +42,13 @@ export function renderGuestOffer(opts: { add(): Promise<boolean>; dismiss(): voi
     h('h2', { id: 'guest-offer-title' }, "Add this device's progress to your account?"),
     h('p', null, 'What you cooked and learned here while signed out stays on this device unless you add it.'),
     h('div', { class: 'button-row' }, add, later), status);
+}
+
+/**
+ * The Shared Table count the card shows, from GET /shared-table/tally (read defensively): a whole number above zero,
+ * else null (nothing shown). Zero is never shown: eating alone gets equal warmth and is never counted (audit M-9).
+ */
+export function sharedCount(tally: unknown): number | null {
+  const n = typeof tally === 'object' && tally !== null ? (tally as { shared?: unknown }).shared : undefined;
+  return typeof n === 'number' && Number.isInteger(n) && n > 0 ? n : null;
 }

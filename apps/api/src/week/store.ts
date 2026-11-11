@@ -26,7 +26,7 @@ export interface SealedRun {
 }
 
 /** Exactly the stored fields of a plan, in core's shape (nothing else is ever sealed or returned). */
-const planOf = (weekStart: string, s: SealedPlan): Plan => ({ weekStart, items: s.items, hard: s.hard, slot: s.slot });
+const planOf = (weekStart: string, s: SealedPlan): Plan => ({ weekStart, items: s.items, hard: s.hard, slot: s.slot, ...(s.offer ? { offer: s.offer } : {}) });
 
 /** The player's plan for `weekStart`, decrypted, with its row id; null when there is none. */
 export async function loadPlan(db: Reader, keyring: Keyring, userId: string, weekStart: string): Promise<(Plan & { id: string }) | null> {

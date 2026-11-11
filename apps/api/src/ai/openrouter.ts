@@ -165,7 +165,9 @@ export function normaliseToolArguments(args: string, parameters: Record<string, 
     if (typeof next === 'string' && (types.includes('array') || types.includes('object'))) {
       try {
         const decoded: unknown = JSON.parse(next);
-        if (typeof decoded === 'object' && decoded !== null) next = decoded;
+        // M5 final (parked m2): only into the kind the schema names (an array for an array field, an object for an object one).
+        const kind = Array.isArray(decoded) ? 'array' : typeof decoded === 'object' && decoded !== null ? 'object' : null;
+        if (kind !== null && types.includes(kind)) next = decoded;
       } catch {
         // Not JSON: left as a string, and the validator rejects it.
       }

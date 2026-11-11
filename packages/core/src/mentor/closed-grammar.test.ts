@@ -23,6 +23,19 @@ describe('planIntent: the whole message, each clause a closed form', () => {
     expect(planIntent("it's a hard week", DISHES)).toEqual({ days: null, pick: null, hard: true, after: null });
   });
 
+  test('M5 final I1: "pick N more" (in addition to the named days) is a closed pick clause', () => {
+    expect(planIntent('plan my week: parippu sunday, pick 2 more', DISHES)).toEqual({ days: [{ weekday: 'sunday', dish: 'parippu' }], pick: 2, hard: null, after: null });
+    expect(planIntent('Plan my week: parippu on Sunday, pick two more', DISHES)?.pick).toBe(2);
+    expect(planIntent('pick two more dishes', DISHES)).toEqual({ days: null, pick: 2, hard: null, after: null });
+    expect(planIntent('pick 2 dinners more', DISHES)?.pick).toBe(2);
+    expect(planIntent('pick 2 more after saturday', DISHES)).toEqual({ days: null, pick: 2, hard: null, after: 'saturday' });
+    expect(planWordsIn('put parippu on sunday, pick 2 more', DISHES)).toEqual({ days: [{ weekday: 'sunday', dish: 'parippu' }], pick: 2, hard: null, after: null });
+    expect(planWordsIn('pick two more dishes', DISHES)?.pick).toBe(2);
+    // Still closed: one "more" only, and nothing else left over.
+    expect(planIntent('pick 2 more more', DISHES)).toBeNull();
+    expect(planIntent('pick 2 more easy ones', DISHES)).toBeNull();
+  });
+
   test('N1 probes: a dish clause with any word left over is no code clause, so the message is not planned by code', () => {
     for (const t of [
       'plan my week: parippu minus the peanuts on monday',
@@ -61,10 +74,10 @@ describe('planWordsIn: closed plan clauses inside a longer message', () => {
       hard: null,
       after: null,
     });
-    // Fix round 5 (5a): a clause M4's meal-log parser reads whole, and the filler "idk", are consumed.
+    // Fix round 5 (5a): a clause M4's meal-log parser reads whole is consumed. M5 final (parked m6): "idk" is no filler.
     expect(planWordsIn('had toast for lunch. put onigiri on monday, and remind me about dinner at 6:30 pm', DISHES)?.days).toEqual([{ weekday: 'monday', dish: 'onigiri' }]);
     expect(planWordsIn("pick 3. market's saturday", DISHES)).toEqual({ days: null, pick: 3, hard: null, after: null });
-    expect(planWordsIn("idk. pick 3. market's saturday", DISHES)).toEqual({ days: null, pick: 3, hard: null, after: null });
+    expect(planWordsIn("idk. pick 3. market's saturday", DISHES)).toBeNull();
     expect(planWordsIn("idk what. pick 3. market's saturday", DISHES)).toBeNull();
     expect(planWordsIn("Had dal for dinner. Also put the frijoles on Saturday's plan.", DISHES)).toBeNull();
     expect(planWordsIn('put the parippu minus the peanuts on monday', DISHES)).toBeNull();

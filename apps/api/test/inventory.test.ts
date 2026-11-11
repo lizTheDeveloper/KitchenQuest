@@ -89,3 +89,14 @@ describe('column index parser (N-8)', () => {
     expect([...idx.get('c')!]).toEqual(['c.x']);
   });
 });
+
+// M5 final review m13: each ROADMAP item id (C-n, N-n) names one item: no id is given to two checklist lines.
+describe('ROADMAP item ids', () => {
+  it('are unique', () => {
+    const roadmap = readFileSync(new URL('../../../docs/compliance/ROADMAP.md', import.meta.url), 'utf8');
+    // A split item names its part: "**N-1 (M2 part)**", "**N-1 (remainder)**". A bare "**C-45**" is the whole item.
+    const ids = [...roadmap.matchAll(/^- \[[ x~]\] \*\*([CN]-\d+)\*\*/gm)].map((m) => m[1]);
+    expect(ids.length).toBeGreaterThan(30);
+    expect(ids.filter((id, i) => ids.indexOf(id) !== i)).toEqual([]);
+  });
+});

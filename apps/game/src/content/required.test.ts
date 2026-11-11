@@ -168,6 +168,10 @@ describe('M4 Pan triggers', () => {
     for (const line of lines('rule.unknown_term')) {
       expect(line).toMatch(/nothing(?:'s| has) been saved|haven't saved|not saved/i);
       expect(line).toMatch(/label/i);
+      // Ruling 3 (Task 10 fix round 1): shown beside "Cook the frame", so it never says it won't offer one, and it
+      // promises nothing.
+      expect(line).not.toMatch(/won't (?:suggest|offer)|no suggestion|nothing I can verify/i);
+      expect(line).not.toMatch(/\b(safe|guarantee|sure)\b/i);
     }
   });
 });
@@ -247,10 +251,11 @@ describe('M5 Step 4: the weekly-loop lines', () => {
     'plan.dish_unknown': "I don't know a dish called {dish}. None of the cooks has taught it, so I haven't guessed. Which dish did you mean?",
     'plan.unverified_dish': "{dish} gets a ❓: I can't verify everything in it against your rules. Check the labels before you cook it.",
     'plan.fewer_than_asked': "Fewer pass your rules this week than you asked for. Number picked: {count}. I won't fill the gaps with dishes I can't check.",
-    'rescue.unverified': "I can't check a dish for the {item} against your rules, so I won't suggest one. Check the labels if you cook it yourself, or the compost is fine.",
+    'rescue.unverified': "I can't check a dish for the {item} against your rules. Check the label before you cook.",
+    'week.move_partial': "Your plan is with your account now, but the ticked items didn't all follow. Everything is still on this device too; tap Move it again to finish.",
     'frame.slot_empty': "I can't fill the {slot} with anything that passes your rules, so it stays unfilled. I won't guess. Pick something you've checked, or choose another frame.",
     'margin.readback': 'In the margin: {summary}. Shall I write it in?',
-    'margin.blocked': "That change clashes with your rules: {finding}. I won't put it in the notes you cook from.",
+    'margin.blocked': "That change clashes with your rules: {finding}. If you keep this note, 'Cook with my notes' stays off for this dish while it clashes. The recipe as the cook wrote it is still there.",
     'margin.needs_account': "Margin notes live with your account, so they're kept private. Sign in from Settings, and the margin is yours.",
     'log.dish_offer': 'Log {dish} as a meal? One tap, or skip it.',
     'book.exported': "Your Recipe Book is saved to your device. It's yours, always free.",
@@ -269,6 +274,7 @@ describe('M5 Step 4: the weekly-loop lines', () => {
     'rescue.offer': ['item', 'technique', 'dish'],
     'rescue.compost': ['item'],
     'rescue.unverified': ['item'],
+    'week.move_partial': [],
     'frame.offer': ['frame', 'technique'],
     'frame.slot_empty': ['slot'],
     'margin.readback': ['summary'],
@@ -282,7 +288,7 @@ describe('M5 Step 4: the weekly-loop lines', () => {
 
   it('requires every M5 trigger, each with the plan\'s ai value', async () => {
     const { M5_LOOP_TRIGGERS_AI } = await import('./required');
-    expect(Object.keys(M5_LOOP_TRIGGERS_AI)).toHaveLength(30);
+    expect(Object.keys(M5_LOOP_TRIGGERS_AI)).toHaveLength(31);
     for (const [id, ai] of Object.entries(M5_LOOP_TRIGGERS_AI)) {
       expect(REQUIRED_PAN_TRIGGERS, id).toContain(id);
       expect(triggers[id], id).toBeDefined();
@@ -331,10 +337,16 @@ describe('M5 Step 4: the weekly-loop lines', () => {
   });
 
   it('fix round 1: a ❓ line never calls the dish fine; plan.fewer_than_asked reads for 0 and 1; plan.unverified_dish names no single cause', () => {
+    // Ruling 5 (Task 10 fix round 1): a blocked save always names the dish.
+    for (const line of lines('plan.blocked_dish')) expect(line).toContain('{dish}');
     for (const line of lines('rescue.unverified')) {
       expect(line).not.toMatch(/judgement/i);
       expect(line.replace(/compost is fine/g, '')).not.toMatch(/\bfine\b/i);
       expect(line).toMatch(/label/i);
+      // Ruling 3 (Task 10 fix round 1): shown beside "Cook the frame", so it never says it won't offer one, and it
+      // promises nothing.
+      expect(line).not.toMatch(/won't (?:suggest|offer)|no suggestion|nothing I can verify/i);
+      expect(line).not.toMatch(/\b(safe|guarantee|sure)\b/i);
     }
     for (const line of lines('plan.fewer_than_asked')) expect(line, line).not.toMatch(/\{count\}\s+(?:dishes|that|of)\b/);
     for (const line of lines('plan.unverified_dish')) expect(line).not.toMatch(/depends on the label/);
@@ -417,6 +429,31 @@ describe('M5 Step 8 fix round 5 (5c): the which-time ask after a corrected meal 
     for (const line of t.lines) {
       expect(line).toContain('{meal}');
       expect(line).not.toMatch(/saved|inked|stamped|kept|noted/i);
+    }
+  });
+});
+
+describe('M5 final m6: the which-count ask after a corrected pick count', () => {
+  it("core's CORRECTION_COUNT_TRIGGER is required, ai: never, pinned, 4–6 lines, and claims nothing was picked", async () => {
+    const { CORRECTION_COUNT_TRIGGER } = await import('@kitchenquest/core/engine');
+    expect(CORRECTION_COUNT_TRIGGER).toBe('plan.which_count');
+    expect(REQUIRED_PAN_TRIGGERS).toContain(CORRECTION_COUNT_TRIGGER);
+    const t = content.pan.triggers[CORRECTION_COUNT_TRIGGER];
+    expect(t.ai).toBe('never');
+    expect(t.lines[0]).toBe("How many dishes should I pick for the week? Tell me one number and I'll choose them.");
+    expect(t.lines.length).toBeGreaterThanOrEqual(4);
+    expect(t.lines.length).toBeLessThanOrEqual(6);
+    for (const line of t.lines) expect(line).not.toMatch(/saved|inked|stamped|kept|noted|planned\b/i);
+  });
+
+  it("core's weight deflection is required, ai: never, and holds no number or target (M5 final I2)", () => {
+    expect(REQUIRED_PAN_TRIGGERS).toContain('rule.weight_deflect');
+    const t = content.pan.triggers['rule.weight_deflect'];
+    expect(t.ai).toBe('never');
+    expect(t.lines.length).toBeGreaterThanOrEqual(4);
+    for (const line of t.lines) {
+      expect(line).not.toMatch(/\d|calorie|kg|pound|bmi|goal|target weight/i);
+      expect(line).toMatch(/doctor|dietitian/i);
     }
   });
 });

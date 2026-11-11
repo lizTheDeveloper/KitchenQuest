@@ -316,5 +316,5 @@ test('H2: a server card tap names the conversation the panel is in (index.ts giv
   await send('My market day is Saturday.', 50);
   [...document.querySelectorAll('button')].find((b) => b.textContent === 'Ink it ✔')!.click();
   await sleep(10);
-  expect(confirms).toEqual([['P1', undefined, 'c1']]);
+  expect(confirms).toEqual([['P1', undefined, 'c1', undefined]]);
 });

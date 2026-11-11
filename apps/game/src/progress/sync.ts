@@ -58,6 +58,11 @@ export interface ProgressSync {
   addGuestProgress(): Promise<boolean>;
   /** Before a sign-out: post what the account still holds, if online, waiting at most a few seconds. */
   flush(): Promise<void>;
+  /**
+   * Fix round 1 I2: a meal log was undone (DELETE /meals/:id): its `meal_logged` event, if still waiting on this device,
+   * goes now and is never posted.
+   */
+  forgetMeal(mealLogId: string): void;
   /** Ask the account's view (GET /progress), when signed in; it is cached with that account's partition. */
   refreshAccountView(): Promise<void>;
   stop(): void;
@@ -90,6 +95,8 @@ export function createProgressSync(deps: ProgressSyncDeps): ProgressSync {
   const setTimer = deps.setTimer ?? ((fn, ms) => setTimeout(fn, ms));
   const clearTimer = deps.clearTimer ?? ((t) => clearTimeout(t as ReturnType<typeof setTimeout>));
   let stopped = false;
+  /** Meal logs undone in this session (I2): their events are never posted. */
+  const forgotten = new Set<string>();
   let lastAt = -Infinity;
   /** A 429 keeps everything unsent until then (Step 5 N2). */
   let blockedUntil = 0;
@@ -113,7 +120,10 @@ export function createProgressSync(deps: ProgressSyncDeps): ProgressSync {
       if (delay > 0) await wait(delay);
       if (stopped || liveKey() !== as || !deps.online()) return null;
       lastAt = now();
-      const r = await client.postProgressEvents(events, upload ? true : undefined);
+      // I2: a meal undone while its event waited is never posted.
+      const send = events.filter((e) => e.kind !== 'meal_logged' || e.mealLogId === undefined || !forgotten.has(e.mealLogId));
+      if (send.length === 0) return null;
+      const r = await client.postProgressEvents(send, upload ? true : undefined);
       if (!r.ok && r.status === 429) {
         blockedUntil = now() + retryAfterMs(r);
         scheduleRetry(blockedUntil - now());
@@ -143,6 +153,10 @@ export function createProgressSync(deps: ProgressSyncDeps): ProgressSync {
    */
   function landed(as: string, from: string | null, sent: ProgressEvent[], r: ProgressPostResponse) {
     const ids = sent.map((e) => e.id);
+    // I2: a meal_logged waited here only until the server answered (accepted, duplicate or refused, unknown_meal_log
+    // included); the server holds the record now, so it leaves the device at once (Task 9 minimisation).
+    const meals = sent.filter((e) => e.kind === 'meal_logged').map((e) => e.id);
+    if (from !== null && meals.length > 0) store.update((s) => dropEvents(s, from, meals));
     // Every id sent was answered (accepted, duplicate or refused for good), so none is posted again.
     if (from !== null && liveKey() !== as) store.update((s) => dropEvents(s, from, ids));
     else markUploaded(store, from, ids);
@@ -219,6 +233,14 @@ export function createProgressSync(deps: ProgressSyncDeps): ProgressSync {
       // Store `result.event` (a dropped claim removed), never the event as sent. Meal logs are account-only.
       const kept = ok.filter((r) => r.event.kind !== 'meal_logged');
       appendEvents(store, key, kept.map((r) => r.event), kept.flatMap((r) => r.grants), { cat });
+      // I2: signed in, a meal_logged waits in that account's partition (never the guest's), holding only its own
+      // fields and no grant (nothing is shown from it), until the server accepts or refuses it; then it leaves.
+      if (key !== null) {
+        const meals = ok.flatMap((r): ProgressEvent[] => (r.event.kind === 'meal_logged'
+          ? [{ id: r.event.id, kind: 'meal_logged', at: r.event.at, minute: r.event.minute, ...(r.event.mealLogId === undefined ? {} : { mealLogId: r.event.mealLogId }) }]
+          : []));
+        appendEvents(store, key, meals, [], { cat });
+      }
       const local = ok.flatMap((r) => r.grants);
       if (key === null || !deps.online() || blockedUntil > now()) return local;
 
@@ -257,6 +279,15 @@ export function createProgressSync(deps: ProgressSyncDeps): ProgressSync {
     async flush() {
       if (liveKey() === null || !deps.online()) return;
       await Promise.race([sync.uploadDeviceLog(), wait(FLUSH_WAIT_MS)]);
+    },
+
+    forgetMeal(mealLogId) {
+      forgotten.add(mealLogId);
+      const key = liveKey();
+      if (key === null) return;
+      const ids = partitionOf(store.get(), key).events
+        .filter((e) => e.kind === 'meal_logged' && e.mealLogId === mealLogId).map((e) => e.id);
+      if (ids.length > 0) store.update((s) => dropEvents(s, key, ids));
     },
 
     async refreshAccountView() {

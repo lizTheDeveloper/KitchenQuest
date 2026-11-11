@@ -24,6 +24,12 @@ registerKitchenScreen();
 registerScreen('map', () => lazyScreen(SCREEN_TITLES.map, async () => (await import('./world/map-screen')).mapScreen()));
 registerScreen('visit', () => lazyScreen(SCREEN_TITLES.visit, async () => (await import('./world/visit-screen')).visitScreen()));
 registerRulesScreen(); // replaces Step 9's placeholder
+// The week (M5 Step 10): each screen loads on first visit, so first paint carries none of them.
+registerScreen('plan', () => lazyScreen(SCREEN_TITLES.plan, async () => (await import('./week/plan-screen')).planScreen(api)));
+registerScreen('market', () => lazyScreen(SCREEN_TITLES.market, async () => (await import('./week/market-screen')).marketScreen(api)));
+registerScreen('frame', () => lazyScreen(SCREEN_TITLES.frame, async () => (await import('./cook/cook-screen')).cookScreen()));
+// The Recipe Book (M5 Step 11): loads on first visit.
+registerScreen('book', () => lazyScreen(SCREEN_TITLES.book, async () => (await import('./book/book-screen')).bookScreen(api)));
 const session = (() => { try { return window.sessionStorage; } catch { return null; } })();
 // Wiped by "Delete everything" in another tab: reload onto the fresh state, without bringing the worker back.
 const store = createStore(safeLocalStorage(), window, () => { skipServiceWorkerOnce(session); window.location.reload(); });

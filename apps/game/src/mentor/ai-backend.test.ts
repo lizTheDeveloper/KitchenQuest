@@ -30,7 +30,7 @@ function fakeClient(script: Partial<Record<keyof ApiClient, Handler>>) {
 }
 
 const consents = (purposes: ('health_data' | 'ai_health')[]): Consents => ({
-  consents: purposes.map((purpose) => ({ purpose, noticeVersion: 'v1', noticeSha256: 'x', method: 'tap', grantedAt: T0.toISOString(), withdrawnAt: null, current: true })),
+  consents: purposes.map((purpose) => ({ purpose, noticeVersion: purpose === 'health_data' ? 'v3' : 'v1', noticeSha256: 'x', method: 'tap', grantedAt: T0.toISOString(), withdrawnAt: null, current: true })),
   needsReconsent: [], notices: {},
 } as unknown as Consents);
 const BOTH = () => ok(consents(['health_data', 'ai_health']));

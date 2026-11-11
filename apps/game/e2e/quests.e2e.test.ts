@@ -132,6 +132,8 @@ describe('quests and the progress log (M5 Step 9)', () => {
     expect(kinds).toEqual(['step1', 'step2', 'step3', 'drill', 'step4', 'step5', 'cooked', 'step6', 'quest_done']);
     expect(s.progress.pendingUpload).toEqual(s.progress.events.map((e) => e.id));
     await page.getByRole('dialog', { name: /Certificate of a Dish Cooked/ }).getByRole('button', { name: 'Continue' }).click();
+    // Step 11: the after-cook questions come next; one tap leaves them.
+    await page.getByRole('button', { name: 'Back to the kitchen' }).click();
     await page.waitForFunction(() => location.hash === '#/kitchen');
     const card = page.locator('.apprentice-card');
     await card.waitFor();
@@ -229,6 +231,8 @@ describe('quests and the progress log (M5 Step 9)', () => {
     const { page } = app;
     await playLeelaQuest(page);
     await page.getByRole('dialog', { name: /Certificate of a Dish Cooked/ }).getByRole('button', { name: 'Continue' }).click();
+    // Step 11: the after-cook questions come next; one tap leaves them.
+    await page.getByRole('button', { name: 'Back to the kitchen' }).click();
     await page.waitForFunction(() => location.hash === '#/kitchen');
     await page.evaluate(() => { location.hash = '#/map'; });
     await page.locator('#pin-state-leela').waitFor();

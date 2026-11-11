@@ -1,8 +1,34 @@
 import {
-  EMPTY_TOOLKIT, isValidDate, MEAL_SLOTS, type IntakeStep, type MealSlot, type PantryItem, type ProgressEvent, type ProgressSnapshot,
-  type ProgressView, type RewardGrant, type Rule, type Tier, type ToolkitState,
+  EMPTY_TOOLKIT, isValidDate, MEAL_SLOTS, type IntakeStep, type MarketRunView, type MealSlot, type PantryItem, type Plan, type ProgressEvent,
+  type ProgressSnapshot, type ProgressView, type RewardGrant, type Rule, type Tier, type ToolkitState,
 } from '@kitchenquest/core/engine';
 import { sha256Hex } from './sha256';
+
+/** How long a plan (and its run) stays on the device after its week ends: the server's retention (H-11, Ruling 18). */
+const PLAN_RETENTION_WEEKS = 8;
+const DAY_MS = 86_400_000;
+/** The player's LOCAL calendar date as YYYY-MM-DD (as recipes/rules.ts `localDate`, which re-exports this). */
+export function localDate(now: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+
+/** The device week without plans and runs whose week ended more than PLAN_RETENTION_WEEKS before `today`. */
+export function retainedWeek(w: PlayerState['localWeek'], today: string): PlayerState['localWeek'] {
+  const oldest = new Date(Date.parse(`${today}T00:00:00Z`) - 7 * (PLAN_RETENTION_WEEKS + 1) * DAY_MS).toISOString().slice(0, 10);
+  const plans = w.plans.filter((p) => p.weekStart >= oldest);
+  const runs = w.runs.filter((r) => r.weekStart >= oldest);
+  return plans.length === w.plans.length && runs.length === w.runs.length ? w : { plans, runs };
+}
+
+/**
+ * M5 final I3: `s` with old device weeks gone (H-11's 8 weeks, as data-inventory L-5 says). The store applies it when
+ * it loads and on each sign-in and sign-out, so a week nothing saves again still leaves on time.
+ */
+const withRetainedWeek = (s: PlayerState, today: string): PlayerState => {
+  const localWeek = retainedWeek(s.localWeek, today);
+  return localWeek === s.localWeek ? s : { ...s, localWeek };
+};
 
 /** The device log's cap (C15): over it, the oldest events fold into `progress.base` (progress/log.ts). */
 export const MAX_DEVICE_EVENTS = 2000;
@@ -96,7 +122,28 @@ export function withPartition(s: PlayerState, key: string | null, p: DeviceProgr
   return { ...s, accountProgress: { ...s.accountProgress, [key]: { ...old, progress: p, view: view === undefined ? old.view : view } } };
 }
 
-export interface PlayerSettings { showCalories: boolean; reducedMotion: 'system' | 'on' | 'off'; familyTable: boolean; iosNoteDismissed: boolean }
+export interface PlayerSettings {
+  showCalories: boolean; reducedMotion: 'system' | 'on' | 'off'; familyTable: boolean; iosNoteDismissed: boolean;
+  /** Use-It-Up Rescue nudges in the kitchen (audit M-14: "can be turned off"). On by default. */
+  rescueNudges: boolean;
+}
+/** A market run kept on this device (C40's shape) and the pantry row each tick added, by list key (Ruling 16). */
+export interface LocalRun extends MarketRunView { pantryIds: Record<string, string> }
+/**
+ * Signed out, the week lives here (Step 10): each plan week's plan and its market run, in the API's shapes. Kept for
+ * PLAN_RETENTION_WEEKS after the week, like the server's. Dish slugs, dates and list rows only: never a status.
+ */
+interface LocalWeek { plans: Plan[]; runs: LocalRun[] }
+/**
+ * Today's Use-It-Up nudge (RESCUE_NUDGES_PER_DAY) for one partition: the local date, the pantry row it named and
+ * whether the player answered it (Cook, Compost or Not now). A date and an id only; another day starts afresh.
+ */
+interface RescueNudge { on: string; itemId: string; answered: boolean }
+/**
+ * M5 final m11: one nudge record per partition (the account key, or 'guest'), so A, then B, then A again on one
+ * device is still one nudge a day for A. Pruned to today on each write.
+ */
+type RescueNudges = Record<string, RescueNudge>;
 /** A signed-out player's profile, kept on this device (the same fields as M2's `/profile`). */
 export interface LocalProfile { marketDays: number[]; mealsPerWeek: number | null; country: string | null; region: string | null; mealWindows: { name: MealSlot; start: string; end: string }[] }
 export interface PlayerState {
@@ -111,6 +158,10 @@ export interface PlayerState {
   dialogueHistory: Record<string, number[]>; settings: PlayerSettings & { aiMentor: boolean };
   /** Signed out, the Pan's profile and pantry cards are written here (M4). */
   localProfile: LocalProfile | null; localPantry: (PantryItem & { id: string })[];
+  /** Signed out, the week's plan and market run (Step 10). */
+  localWeek: LocalWeek;
+  /** Today's Use-It-Up nudge, or null (Step 10). */
+  rescue: RescueNudges;
   /** Form 1-A: null = not started. */
   intake: { step: IntakeStep | 'done' | null };
   aiDisclosureSeen: boolean; aiHealthOffered: boolean;
@@ -147,9 +198,9 @@ function freshState(): PlayerState {
     v: 1, firstOpenedAt: null, lastOpenedAt: null,
     localRules: [], accountRules: null, account: null,
     toolkit: EMPTY_TOOLKIT, cookProgress: null, dialogueHistory: {}, progress: EMPTY_PROGRESS, accountProgress: {},
-    settings: { showCalories: false, reducedMotion: 'system', familyTable: false, iosNoteDismissed: false, aiMentor: true },
+    settings: { showCalories: false, reducedMotion: 'system', familyTable: false, iosNoteDismissed: false, aiMentor: true, rescueNudges: true },
     rulesUnreadable: false, signOutPending: false,
-    localProfile: null, localPantry: [], intake: { step: null }, aiDisclosureSeen: false, aiHealthOffered: false,
+    localProfile: null, localPantry: [], localWeek: { plans: [], runs: [] }, rescue: {}, intake: { step: null }, aiDisclosureSeen: false, aiHealthOffered: false,
   };
 }
 
@@ -176,7 +227,26 @@ const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 const INTAKE_STEP_SET: Readonly<Record<IntakeStep, true>> = { market_day: true, meals_per_week: true, region: true, allergies: true, pantry: true };
 const isIntakeStep = (x: unknown): boolean => x === null || x === 'done' || (typeof x === 'string' && Object.hasOwn(INTAKE_STEP_SET, x));
 const isPantryRow = (x: unknown): boolean =>
-  isObj(x) && typeof x.id === 'string' && typeof x.name === 'string' && isStrOrNull(x.ingredientId);
+  isObj(x) && typeof x.id === 'string' && typeof x.name === 'string' && isStrOrNull(x.ingredientId) &&
+  (x.addedOn === undefined || typeof x.addedOn === 'string') && (x.source === undefined || x.source === 'told' || x.source === 'market');
+/** The shape only: core `validatePlan` judges a stored plan against the canon when it is read (week/local-week.ts). */
+const isPlanShape = (x: unknown): boolean =>
+  isObj(x) && typeof x.weekStart === 'string' && isObjArray(x.items) && typeof x.hard === 'boolean' && typeof x.slot === 'string';
+const isRunShape = (x: unknown): boolean =>
+  isObj(x) && typeof x.id === 'string' && typeof x.weekStart === 'string' && isObjArray(x.items) && isStrOrNull(x.doneAt) &&
+  isObj(x.pantryIds) && Object.values(x.pantryIds).every((v) => typeof v === 'string');
+const isLocalWeek = (x: unknown): boolean =>
+  isObj(x) && Array.isArray(x.plans) && x.plans.every(isPlanShape) && Array.isArray(x.runs) && x.runs.every(isRunShape);
+const isNudge = (x: unknown): boolean => isObj(x) && typeof x.on === 'string' && typeof x.itemId === 'string' && typeof x.answered === 'boolean';
+/** The M5 Step 10 shape (one record with its `key`), or null. */
+const isOldRescue = (x: unknown): x is RescueNudge & { key: string } => isObj(x) && typeof x.key === 'string' && isNudge(x);
+const isRescue = (x: unknown): boolean => x === null || isOldRescue(x) || (isObj(x) && Object.values(x).every(isNudge));
+/** The stored nudges as M5 final's map: Step 10's single record (or null) becomes its partition's entry. */
+function rescueOf(x: unknown): RescueNudges {
+  if (x === null) return {};
+  if (isOldRescue(x)) return { [x.key]: { on: x.on, itemId: x.itemId, answered: x.answered } };
+  return Object.fromEntries(Object.entries(x as RescueNudges));
+}
 const isMealWindow = (x: unknown): boolean =>
   isObj(x) && (MEAL_SLOTS as readonly unknown[]).includes(x.name) && typeof x.start === 'string' && HHMM.test(x.start) &&
   typeof x.end === 'string' && HHMM.test(x.end);
@@ -208,13 +278,15 @@ function merge(p: Record<string, unknown>): PlayerState | null {
   if (has('signOutPending') && typeof p.signOutPending !== 'boolean') return null;
   if (has('localProfile') && p.localProfile !== null && !isLocalProfile(p.localProfile)) return null;
   if (has('localPantry') && !(Array.isArray(p.localPantry) && p.localPantry.every(isPantryRow))) return null;
+  if (has('localWeek') && !isLocalWeek(p.localWeek)) return null;
+  if (has('rescue') && !isRescue(p.rescue)) return null;
   if (has('intake') && !(isObj(p.intake) && Object.hasOwn(p.intake, 'step') && isIntakeStep(p.intake.step))) return null;
   if (has('aiDisclosureSeen') && typeof p.aiDisclosureSeen !== 'boolean') return null;
   if (has('aiHealthOffered') && typeof p.aiHealthOffered !== 'boolean') return null;
   if (has('settings') && !isObj(p.settings)) return null;
   const s = (isObj(p.settings) ? p.settings : {});
   const ds = d.settings;
-  for (const k of ['showCalories', 'familyTable', 'iosNoteDismissed', 'aiMentor'] as const) {
+  for (const k of ['showCalories', 'familyTable', 'iosNoteDismissed', 'aiMentor', 'rescueNudges'] as const) {
     if (s[k] !== undefined && typeof s[k] !== 'boolean') return null;
   }
   if (s.reducedMotion !== undefined && s.reducedMotion !== 'system' && s.reducedMotion !== 'on' && s.reducedMotion !== 'off') return null;
@@ -237,11 +309,14 @@ function merge(p: Record<string, unknown>): PlayerState | null {
       familyTable: (s.familyTable as boolean | undefined) ?? ds.familyTable,
       iosNoteDismissed: (s.iosNoteDismissed as boolean | undefined) ?? ds.iosNoteDismissed,
       aiMentor: (s.aiMentor as boolean | undefined) ?? ds.aiMentor,
+      rescueNudges: (s.rescueNudges as boolean | undefined) ?? ds.rescueNudges,
     },
     rulesUnreadable: (has('rulesUnreadable') ? p.rulesUnreadable : d.rulesUnreadable) as boolean,
     signOutPending: (has('signOutPending') ? p.signOutPending : d.signOutPending) as boolean,
     localProfile: has('localProfile') ? (p.localProfile as LocalProfile | null) : d.localProfile,
     localPantry: has('localPantry') ? (p.localPantry as (PantryItem & { id: string })[]) : d.localPantry,
+    localWeek: has('localWeek') ? (p.localWeek as LocalWeek) : d.localWeek,
+    rescue: has('rescue') ? rescueOf(p.rescue) : d.rescue,
     intake: has('intake') ? { step: (p.intake as { step: IntakeStep | 'done' | null }).step } : d.intake,
     aiDisclosureSeen: (has('aiDisclosureSeen') ? p.aiDisclosureSeen : d.aiDisclosureSeen) as boolean,
     aiHealthOffered: (has('aiHealthOffered') ? p.aiHealthOffered : d.aiHealthOffered) as boolean,
@@ -424,6 +499,8 @@ export function createStore(
   events?: Pick<EventTarget, 'addEventListener'>,
   /** Called when another tab deleted this device's data (pass a page reload). */
   onWiped?: () => void,
+  /** The clock for on-device week retention (I3). */
+  now: () => Date = () => new Date(),
 ): PlayerStore {
   let notice: 'corrupt' | 'unsaved' | null = null;
   let persisted = false; // storage has held our data, so "gone" later means deleted
@@ -454,7 +531,7 @@ export function createStore(
   if (storage) {
     const r = readStored(storage);
     if (r.kind === 'ok') {
-      state = importM3Toolkit(r.state);
+      state = withRetainedWeek(importM3Toolkit(r.state), localDate(now()));
       persisted = true;
       // Saved at once, so the next read (this tab's or another's) finds the imports and never makes them again.
       if (state !== r.state) {
@@ -509,6 +586,8 @@ export function createStore(
         else if (r.kind === 'error') memoryOnly = true;
       }
       next ??= fn(base);
+      // I3: a sign-in or a sign-out is a retention point for the device week.
+      if ((base.account?.email ?? null) !== (next.account?.email ?? null)) next = withRetainedWeek(next, localDate(now()));
       // Earned data never goes down: the toolkit, and every progress event still held (a compaction in `fn` is kept).
       state = { ...next, toolkit: mergeToolkit(base.toolkit, next.toolkit), ...mergePartitions(base, next, { pendingFrom: 'b' }) };
       // A conflict found by this very rebase was never seen by the caller, so this update cannot clear the flag.

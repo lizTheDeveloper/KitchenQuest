@@ -1,4 +1,4 @@
-import type { CardAction, IntakeStep, ProposalCard, Severity, TrailEntry, TurnNotice } from '@kitchenquest/core/engine';
+import type { CardAction, IntakeStep, NavTarget, ProposalCard, Severity, TrailEntry, TurnNotice } from '@kitchenquest/core/engine';
 import type { Said } from './dialogue';
 
 /**
@@ -32,6 +32,8 @@ export type PanItem =
   | { kind: 'quick'; label: string; options: { label: string; value: string }[]; onPick(value: string, ctx: TurnContext): Promise<PanReply> }
   /** The saved rules need review (API 409 `rules_need_review`): code-owned player copy and a link to Your rules. */
   | { kind: 'rules_error'; message: string; href: string }
+  /** A navigation chip (Ruling 15): a button carrying its `nav.offer` line. Only a tap navigates; nothing else does. */
+  | { kind: 'go'; target: NavTarget; said: Said }
   /** The AI failed twice on this text: a "Try again" button that sends it again. The text lives in memory only (N-4). */
   | { kind: 'retry'; text: string };
 

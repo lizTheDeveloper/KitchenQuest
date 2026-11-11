@@ -57,3 +57,33 @@ describe('adjudication A: normalised provider artifacts, then the unchanged stri
     expect(parse({ meal_windows: '[{"name": "dinner", "start": "18:30"}]</parameter> and more' })).toBeNull();
   });
 });
+
+// M5 final review m4: what 5b did for propose_profile, for every tool: no nullable union anywhere, and only the
+// fields every call must carry are required (a missing optional field is read as null by zod `opt()`).
+describe('every tool schema (m4)', () => {
+  const unions = (node: unknown): string[] =>
+    node && typeof node === 'object'
+      ? Object.entries(node as Record<string, unknown>).flatMap(([k, v]) => (k === 'anyOf' || k === 'oneOf' || (k === 'type' && (v === 'null' || Array.isArray(v))) ? [k] : unions(v)))
+      : [];
+  test.each(MENTOR_TOOLS.map((t) => [t.name, t] as const))('%s has no nullable union', (_name, tool) => {
+    expect(unions(tool.parameters)).toEqual([]);
+    expect(JSON.stringify(tool.parameters)).not.toMatch(/"null"/);
+  });
+  test('required fields are only the ones a call cannot go without', () => {
+    const required = Object.fromEntries(MENTOR_TOOLS.map((t) => [t.name, (t.parameters as { required?: string[] }).required ?? []]));
+    expect(required).toEqual({
+      propose_rule: ['term'],
+      propose_meal_log: ['when'],
+      propose_profile: [],
+      propose_pantry_change: ['add', 'remove'],
+      propose_plan: [],
+      propose_navigation: ['to'],
+    });
+  });
+  test('a call with the optional fields left out parses, each as null', () => {
+    expect(parseToolCall({ id: 'c', name: 'propose_plan', arguments: JSON.stringify({ pick: 2 }) })?.args).toEqual({ days: null, pick: 2, hard_week: null, after: null });
+    expect(parseToolCall({ id: 'c', name: 'propose_rule', arguments: JSON.stringify({ term: 'sesame' }) })?.args).toEqual({ term: 'sesame', severity: null });
+    expect(parseToolCall({ id: 'c', name: 'propose_meal_log', arguments: JSON.stringify({ when: 'today', description: 'soup' }) })?.args).toEqual({ slot: null, when: 'today', dish: null, servings: null, description: 'soup' });
+    expect(parseToolCall({ id: 'c', name: 'propose_navigation', arguments: JSON.stringify({ to: 'market' }) })?.args).toEqual({ to: 'market', id: null });
+  });
+});

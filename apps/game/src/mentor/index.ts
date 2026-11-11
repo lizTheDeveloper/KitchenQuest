@@ -16,6 +16,7 @@ import type { PanReply } from './reply';
 import { createScriptedEngine, type ScriptedEngine } from './scripted';
 import { savedRules } from './saved-rules';
 import { createCardWriter, type CardWriter } from './writer';
+import type { WeekTurn } from './week-turn';
 
 export { createDialogue } from './dialogue';
 export type { MentorPanel } from './panel';
@@ -145,8 +146,19 @@ export function mountMentor(doc: Document, store: PlayerStore, bank: LineBank, c
     const child = createChildFlag();
     const dialogue: Dialogue = createDialogue(bank, historyOptions(store));
     const recipes = Object.entries(content.recipes).map(([slug, r]) => ({ slug, title: r.meta.title }));
-    const engine: ScriptedEngine = createScriptedEngine({ dialogue, graph, ruleTerms: content.ruleTerms, recipes, now, savedRules: () => savedRules(store.get()), child });
-    const writer = createCardWriter({ client, store, dialogue, graph, ruleTerms: content.ruleTerms, now, conversationId: () => conversation?.id });
+    // M5 Step 10 (Ruling 1): the week's turn code (plan cards, chips, the plan card's body and write) loads on first
+    // use, never before first paint; the panel starts loading it when it opens.
+    let weekTurn: Promise<WeekTurn> | null = null;
+    const week = (): Promise<WeekTurn> => {
+      weekTurn ??= import('./week-turn').then((m) => m.createWeekTurn({
+        store, client, now, dialogue, recipes, cooks: Object.fromEntries(Object.entries(content.cooks).map(([id, c]) => [id, c.name])),
+      }), (err: unknown) => { weekTurn = null; throw err; });
+      return weekTurn;
+    };
+    const engine: ScriptedEngine = createScriptedEngine({
+      dialogue, graph, ruleTerms: content.ruleTerms, recipes, now, savedRules: () => savedRules(store.get()), child, week,
+    });
+    const writer = createCardWriter({ client, store, dialogue, graph, ruleTerms: content.ruleTerms, now, conversationId: () => conversation?.id, week });
     const backend = switchingBackend(store, (kind) => {
       if (kind !== 'ai') return createScriptedBackend(engine, dialogue);
       // A new AI backend is a new server conversation: its own server id. The child flag is the panel's (m-4).
@@ -160,6 +172,7 @@ export function mountMentor(doc: Document, store: PlayerStore, bank: LineBank, c
       }));
     });
     const panel = mountMentorPanel(root, {
+      week,
       mode: familyTable ? 'familyTable' : 'standard',
       backend, dialogue, writer, engine, client, forms: content.bureau.forms, store, now, child,
       reducedMotion: () => reducedMotion(store.get().settings.reducedMotion, mql),
@@ -173,6 +186,8 @@ export function mountMentor(doc: Document, store: PlayerStore, bank: LineBank, c
       })
       : null;
     if (intake) panel.onOpen(() => { intake.start(); });
+    // Preload the week's code when the panel opens, and read the signed-in week once (M3), so a plan turn rarely waits.
+    panel.onOpen(() => { void week().then((w) => w.prefetch()).catch((err: unknown) => { console.error(err); }); });
     services = { client, dialogue, engine, writer, intake };
     // Clearing is a new conversation on both sides: no server id, no child flag (fix round 4, G4).
     current = { panel, backend, familyTable, resetChild: () => { child.reset(); if (conversation) newConversation(conversation); } };

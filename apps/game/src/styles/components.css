@@ -206,6 +206,9 @@ input[type="email"] { width: min(100%, 22rem); }
 .pan-card .bureau-field dt label { font: inherit; }
 .pan-card .bureau-buttons { margin-top: .5rem; }
 .pan-card .bureau-stamp { font-size: 1.5rem; right: .5rem; bottom: .5rem; }
+/* A slip on a page (after cook, the book): its rotated stamp stays inside the slip, so a narrow screen never scrolls sideways. */
+.bureau-slip { overflow: clip; }
+.bureau-slip .bureau-stamp { max-width: calc(100% - 1rem); white-space: normal; }
 .pan-card.is-stamping .bureau-stamp { animation: stamp-in .3s steps(4) forwards; }
 [data-motion="reduced"] .pan-card.is-stamping .bureau-stamp { opacity: 1; transform: rotate(-12deg); }
 .pan-card.is-closed { opacity: .85; }
@@ -446,3 +449,21 @@ input[type="search"] {
 }
 .guest-offer h2 { margin: 0 0 .25rem; color: var(--parchment-ink); }
 .quest-rules-link { color: var(--parchment-ink); }
+
+/* The week (M5 Step 10): Form 7-W, Form 12-M, the rescue offer and the frame slot picker. Readable at 320 px. */
+.plan-days, .plan-items, .market-rows, .plan-findings, .plan-alternatives { list-style: none; padding: 0; margin: 0; }
+.plan-day { padding: 0.5rem 0; border-bottom: 1px solid rgba(255, 255, 255, 0.12); }
+.plan-day-name { font-size: 1rem; margin: 0 0 0.25rem; }
+.plan-item { margin: 0.25rem 0; overflow-wrap: anywhere; }
+.plan-findings { font-size: 0.9em; margin-left: 1rem; }
+.plan-line, .plan-flag, .rescue-line { overflow-wrap: anywhere; }
+.plan-add-row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.plan-add-row label { flex-basis: 100%; }
+.plan-add-select, .frame-form select { min-width: 0; max-width: 100%; }
+.plan-slot, .rescue { border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; padding: 0.75rem; margin: 0.75rem 0; }
+.market-row { display: flex; flex-wrap: wrap; gap: 0.25rem 0.5rem; align-items: center; margin: 0.35rem 0; overflow-wrap: anywhere; }
+.market-for { font-size: 0.9em; opacity: 0.85; }
+.frame-slot { border: 1px solid rgba(255, 255, 255, 0.2); margin: 0.5rem 0; min-width: 0; }
+.frame-candidate label { overflow-wrap: anywhere; }
+.pan-go-item { list-style: none; }
+.pan-go { max-width: 100%; white-space: normal; text-align: left; }

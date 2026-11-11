@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { DISCLAIMER, type Rule } from '@kitchenquest/core/engine';
+import { DISCLAIMER, type NoteOp, type Rule } from '@kitchenquest/core/engine';
 import { content, graph } from '../content';
 import type { ClientContent } from '../content/types';
 import { buildRecipeCard } from './card-model';
@@ -149,5 +149,54 @@ describe('an empty frame slot (M5 Step 3 fix round 1, M4)', () => {
     const f = { ingredient: 'rice', kind: 'empty_slot', fromRule: false, status: 'unverified', path: null, ruleNote: null, swapLabel: null } as const;
     expect(findingText(f)).toBe(EMPTY_SLOT_TEXT);
     expect(findingText(f)).not.toMatch(/identify|label/);
+    // M5 final m10: no word about the cupboard (audit M-4); it says the rules can't check anything there.
+    expect(EMPTY_SLOT_TEXT).not.toMatch(/cupboard|pantry|fridge|shelf/i);
+    expect(EMPTY_SLOT_TEXT).toMatch(/check against your rules/);
+  });
+});
+
+describe('cook with my notes (M5 Step 11)', () => {
+  const peanutSevere: Rule = { id: 'p1', target: { kind: 'ingredient', ids: ['peanut'] }, type: 'avoid', severity: 'anaphylactic' };
+  const note = (text: string | null, ops: NoteOp[] = []) => ({ recipe: SLUG, ops, text, at: today });
+  const withNotes = (rules: RulesState, notes: ReturnType<typeof note>[], slug = SLUG) =>
+    buildRecipeCard({ slug, content, graph, rules, today, showCalories: false, notes });
+
+  test('a stamped "used peanut butter" note is ⛔ for a peanut rule, though the canon is not', () => {
+    expect(card(ready([peanutSevere])).status).not.toBe('blocked');
+    const c = withNotes(ready([peanutSevere]), [note(null, [{ op: 'add', name: 'peanut butter' }])]);
+    expect(c).toMatchObject({ status: 'blocked', cookable: false, withNotes: true });
+  });
+  test('unread note text never changes the recipe but always counts for safety', () => {
+    const c = withNotes(ready([peanutSevere]), [note('a spoon of peanut butter, just because')]);
+    expect(c.status).toBe('blocked');
+  });
+  test('never safer than canon: a note that removes the blocking ingredient still checks it', () => {
+    const canon = card(ready([coconutSevere]));
+    const c = withNotes(ready([coconutSevere]), [note(null, [{ op: 'remove', name: 'coconut' }])]);
+    expect(canon.status).toBe('blocked');
+    expect(c.status).toBe('blocked');
+  });
+  test('notes on another dish are ignored; no notes is the canon card', () => {
+    const other = { ...note(null, [{ op: 'add', name: 'peanut butter' }]), recipe: 'japan/osaka/onigiri' };
+    const c = withNotes(ready([peanutSevere]), [other]);
+    expect(c.withNotes).toBe(false);
+    expect(c.status).toBe(card(ready([peanutSevere])).status);
+  });
+  test('rules that can\'t be read: ❓, never ok, whatever the notes say', () => {
+    const c = withNotes({ status: 'error', reason: 'unreadable', message: 'x', problems: [] }, [note('no changes really')]);
+    expect(c.status).toBe('unverified');
+  });
+});
+
+describe('fix I3 (M2): a sacred dish takes no notes', () => {
+  test('notes on a sacred dish are ignored: no withNotes, the status is the canon one', () => {
+    const peanutSevere: Rule = { id: 'p1', target: { kind: 'ingredient', ids: ['peanut'] }, type: 'avoid', severity: 'anaphylactic' };
+    const sacred: ClientContent = { ...content, recipes: { ...content.recipes, [SLUG]: { ...content.recipes[SLUG], meta: { ...content.recipes[SLUG].meta, sacred: true } } } };
+    const notes = [{ recipe: SLUG, ops: [{ op: 'add' as const, name: 'peanut butter' }], text: null, at: today }];
+    const canon = buildRecipeCard({ slug: SLUG, content: sacred, graph, rules: ready([peanutSevere]), today, showCalories: false });
+    const c = buildRecipeCard({ slug: SLUG, content: sacred, graph, rules: ready([peanutSevere]), today, showCalories: false, notes });
+    expect(c.withNotes).toBe(false);
+    expect(c.status).toBe(canon.status);
+    expect(c.findings).toEqual(canon.findings);
   });
 });

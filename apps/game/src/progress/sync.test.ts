@@ -357,3 +357,74 @@ describe('progress sync', () => {
     expect(posts).toEqual([]);
   });
 });
+
+describe('M5 Step 11 fix I2: a signed-in meal_logged waits in its own account until the server answers', () => {
+  const meal = (mealLogId: string, extra: Record<string, unknown> = {}): ProgressEvent =>
+    ({ id: newEventId(), kind: 'meal_logged', at: '2026-11-10', minute: 600, mealLogId, ...extra });
+  const meals = (store: PlayerStore, email: string | null) => part(store, email).events.filter((e) => e.kind === 'meal_logged');
+  const posted = (posts: Post[]) => posts.flatMap((p) => p.events).filter((e) => e.kind === 'meal_logged');
+
+  test('offline, then back online: it posts once, with the same mealLogId; then it leaves the device', async () => {
+    let online = false;
+    const { store, posts, sync } = setup({ online: () => online });
+    signIn(store);
+    await sync.record([meal('m1', { note: 'never kept' })]);
+    expect(posts).toEqual([]);
+    expect(meals(store, A)).toEqual([{ id: expect.any(String), kind: 'meal_logged', at: '2026-11-10', minute: 600, mealLogId: 'm1' }]);
+    expect(meals(store, null)).toEqual([]);
+    online = true;
+    await sync.uploadDeviceLog();
+    await sync.uploadDeviceLog();
+    expect(posted(posts).map((e) => (e as { mealLogId?: string }).mealLogId)).toEqual(['m1']);
+    expect(meals(store, A)).toEqual([]);
+  });
+  test('a server failure keeps it; unknown_meal_log drops it', async () => {
+    let fail = true;
+    const { store, sync } = setup({ answer: (p) => (fail ? { ok: false, status: 500, error: { code: 'x', message: '' } } : ok({ rejected: p.events.map((e) => ({ clientId: e.id, problems: ['unknown_meal_log'] })) })) });
+    signIn(store);
+    await sync.record([meal('m1')]);
+    expect(meals(store, A)).toHaveLength(1);
+    fail = false;
+    await sync.uploadDeviceLog();
+    expect(meals(store, A)).toEqual([]);
+  });
+  test('undo while pending: nothing is posted', async () => {
+    let online = false;
+    const { store, posts, sync } = setup({ online: () => online });
+    signIn(store);
+    await sync.record([meal('m1')]);
+    sync.forgetMeal('m1');
+    expect(meals(store, A)).toEqual([]);
+    online = true;
+    await sync.uploadDeviceLog();
+    expect(posted(posts)).toEqual([]);
+  });
+  test('undo while its post waits in line: the meal is never posted', async () => {
+    const { store, posts, sync, time } = setup({ gapMs: 5_000 });
+    signIn(store);
+    await sync.record([lesson('2026-11-10')]); // sets the pacing clock: the next post waits
+    void sync.record([meal('m2')]);
+    await new Promise((r) => setTimeout(r, 0));
+    sync.forgetMeal('m2');
+    await time.advance(10_000);
+    expect(posted(posts)).toEqual([]);
+  });
+  test('an account switch while pending: nothing is posted under the new account; it stays with its own', async () => {
+    let online = false;
+    const { store, posts, sync } = setup({ online: () => online });
+    signIn(store, A);
+    await sync.record([meal('m1')]);
+    signOutOf(store);
+    signIn(store, B);
+    online = true;
+    await sync.uploadDeviceLog();
+    expect(posted(posts)).toEqual([]);
+    expect(meals(store, B)).toEqual([]);
+    expect(meals(store, A)).toHaveLength(1);
+  });
+  test('signed out: a meal_logged is never kept in the guest partition', async () => {
+    const { store, sync } = setup();
+    await sync.record([meal('m1')]);
+    expect(meals(store, null)).toEqual([]);
+  });
+});

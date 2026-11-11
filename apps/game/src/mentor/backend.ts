@@ -24,7 +24,7 @@ export function createScriptedBackend(engine: ScriptedEngine, dialogue: Dialogue
     kind: 'scripted',
     reply(input, ctx) {
       // Deferred so a throw from the engine or dialogue.say still arrives as a rejection, as callers expect.
-      return Promise.resolve().then((): PanReply =>
+      return Promise.resolve().then((): PanReply | Promise<PanReply> =>
         input.kind === 'voice'
           ? { items: [{ kind: 'said', said: dialogue.say('voice.not_yet') }], cards: [], intents: [], actions: [], notice: null }
           : engine.reply(input.text, ctx));

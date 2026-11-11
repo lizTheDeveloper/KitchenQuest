@@ -9,6 +9,7 @@ import { localDate } from '../recipes/rules';
 import type { ChildFlag } from './child-flag';
 import type { Dialogue } from './dialogue';
 import type { CardView, LocalCardView, LocalIntent, PanItem, PanReply, TurnContext } from './reply';
+import type { WeekTurn } from './week-turn';
 
 /**
  * The scripted mentor: no AI, no network, no account. Every decision the server agent also makes comes from
@@ -18,10 +19,12 @@ import type { CardView, LocalCardView, LocalIntent, PanItem, PanReply, TurnConte
  * writes: confirming is the writer's job, on a tap or a typed yes it hands over as a LocalIntent.
  */
 export interface ScriptedEngine {
-  reply(text: string, ctx: TurnContext): PanReply;
+  /** Steps 1–3 resolve without waiting on anything; a plan or navigation turn may wait for the week's code (Ruling 1). */
+  reply(text: string, ctx: TurnContext): Promise<PanReply>;
   /** A local rule card for the option the player tapped in a `choices` item. */
   cardFromChoice(id: string, severity: Severity | null, turn: number): LocalCardView;
 }
+
 
 /** The player says when they shop: a profile `marketDays` card, with the days named. */
 const MARKET_WORD = /\b(market|shop|shopping)\b/;
@@ -47,6 +50,12 @@ export function createScriptedEngine(deps: {
   savedRules?: () => readonly Rule[];
   /** The conversation's child flag (m-4), shared with the local safety check and the intake. */
   child?: ChildFlag;
+  /**
+   * M5 Step 10 (Ruling 1): the week's turn code (plan cards, navigation chips, the plan asks), loaded on first use so
+   * first paint doesn't carry it. Only steps after the fixed lines wait for it: an emergency, medical, child or
+   * allowance answer, and a plain yes, no or undo, never do. Without it the engine plans nothing.
+   */
+  week?: () => Promise<WeekTurn>;
 }): ScriptedEngine {
   const { dialogue, graph, ruleTerms, recipes } = deps;
   const say = (l: LineRef): PanItem => ({ kind: 'said', said: dialogue.say(l.trigger, l.vars) });
@@ -147,60 +156,85 @@ export function createScriptedEngine(deps: {
     return { items, cards };
   }
 
+  /** Steps 1–3, synchronous: the fixed lines and the short replies. A string: the stripped text, go on. */
+  function early(text: string, ctx: TurnContext): PanReply | string {
+    // 1. Page-event lookalikes never arrive as the player's words (§7.6b.4).
+    const stripped = stripPageEvents(text).text.trim();
+    const intent = classifyTurn(stripped);
+    // §19 / m-4: once a child spoke in this conversation, every later turn gets the grown-up line and nothing is
+    // offered or written. Only an emergency still gets its line (below), with no ask.
+    if (intent === 'child') deps.child?.set();
+    const child = intent === 'child' || deps.child?.on === true;
+    if (child && intent !== 'emergency') return reply([line('child.grownup')]);
+    if (stripped === '') return reply([line('didnt_understand')]);
+    // 2. The fixed lines (emergency, medical, child, allowance, thanks): the server's own function.
+    const fixed = preRoute(intent);
+    if (fixed !== null) {
+      // E2/F3 (ruling M-2): an emergency that also states a rule gets the emergency line first, then an ask for every
+      // allergen named, exactly as the server answers it (turn.ts stage 2a). No card of any kind on an emergency turn.
+      if (intent !== 'emergency' || child || !emergencyStatesRule(text, graph)) return reply([say(fixed)]);
+      return reply([say(fixed), ...emergencyRuleAsks(text, [], graph).map(say)]);
+    }
+    // 3. A plain yes, no or undo: core decides which card it means. A typed yes never confirms a severe card.
+    if (intent === 'yes' || intent === 'no' || intent === 'undo') {
+      // Step 9 carry: while more than one card of either origin is open, a plain yes or no never picks one.
+      const recentCount = ctx.openCards.filter((c) => c.issuedTurn === ctx.turn - 1).length;
+      // Undo goes by the trail, not the cards (fix round 1, M1).
+      if (intent !== 'undo' && recentCount > 0 && ctx.openCards.length > 1) return reply([line('confirm.tap_card')]);
+      // Server cards count too: with a local and a server card both open, a yes never confirms either.
+      const refs: OpenCardRef[] = ctx.openCards.map((c) => ({
+        ref: c.origin === 'local' ? c.localId : `server:${c.proposalId}`,
+        severe: c.card.kind === 'rule' && c.card.severe, ingredient: c.card.kind === 'rule' ? c.card.display.ingredient : null, issuedTurn: c.issuedTurn,
+      }));
+      const target = shortReplyTarget(intent, refs, ctx.turn);
+      switch (target.kind) {
+        case 'confirm':
+        case 'reject':
+          // A server card is answered by its own tap here: this engine never sends a typed yes for it.
+          if (target.ref.startsWith('server:')) return reply([line('confirm.tap_card')]);
+          return reply([], { intents: [{ kind: target.kind, localId: target.ref }] });
+        case 'undo':
+          return reply([], { intents: [{ kind: 'undo' }] });
+        case 'line':
+          return reply([say(target.line)]);
+        case 'none':
+          break;
+      }
+    }
+    return stripped;
+  }
+
+  /** Steps 4–5: every parser, then (with nothing read) the week's plan asks or the plain line. */
+  function parsed(text: string, stripped: string, ctx: TurnContext, week: WeekTurn | null): PanReply {
+    const { items, cards } = parseAll(text, stripped, ctx);
+    if (items.length === 0 && week !== null && !isHealthText(stripped, graph, ruleTerms)) {
+      // A plan the closed grammar refused: only the asks for what can't be placed (Ruling 22: "dal" is never a guess).
+      const asks = week.asks(stripped);
+      if (asks.length > 0) return reply(asks);
+    }
+    // A health turn is never silently lost: with nothing read, the plain ask, as the server does (fix round 2, E4).
+    if (items.length === 0) {
+      const health = isHealthText(stripped, graph, ruleTerms) || ctx.intakeStep === 'allergies' ||
+        ctx.openCards.some((c) => c.card.kind === 'rule' || c.card.kind === 'meal');
+      return reply([line(health ? 'rule.ask_keep_off' : 'didnt_understand')]);
+    }
+    return reply(items, { cards: cards.map((c) => view(c, ctx.turn)) });
+  }
+
   return {
     reply(text, ctx) {
-      // 1. Page-event lookalikes never arrive as the player's words (§7.6b.4).
-      const stripped = stripPageEvents(text).text.trim();
-      const intent = classifyTurn(stripped);
-      // §19 / m-4: once a child spoke in this conversation, every later turn gets the grown-up line and nothing is
-      // offered or written. Only an emergency still gets its line (below), with no ask.
-      if (intent === 'child') deps.child?.set();
-      const child = intent === 'child' || deps.child?.on === true;
-      if (child && intent !== 'emergency') return reply([line('child.grownup')]);
-      if (stripped === '') return reply([line('didnt_understand')]);
-      // 2. The fixed lines (emergency, medical, child, allowance, thanks): the server's own function.
-      const fixed = preRoute(intent);
-      if (fixed !== null) {
-        // E2/F3 (ruling M-2): an emergency that also states a rule gets the emergency line first, then an ask for every
-        // allergen named, exactly as the server answers it (turn.ts stage 2a). No card of any kind on an emergency turn.
-        if (intent !== 'emergency' || child || !emergencyStatesRule(text, graph)) return reply([say(fixed)]);
-        return reply([say(fixed), ...emergencyRuleAsks(text, [], graph).map(say)]);
-      }
-      // 3. A plain yes, no or undo: core decides which card it means. A typed yes never confirms a severe card.
-      if (intent === 'yes' || intent === 'no' || intent === 'undo') {
-        // Step 9 carry: while more than one card of either origin is open, a plain yes or no never picks one.
-        const recentCount = ctx.openCards.filter((c) => c.issuedTurn === ctx.turn - 1).length;
-        // Undo goes by the trail, not the cards (fix round 1, M1).
-        if (intent !== 'undo' && recentCount > 0 && ctx.openCards.length > 1) return reply([line('confirm.tap_card')]);
-        // Server cards count too: with a local and a server card both open, a yes never confirms either.
-        const refs: OpenCardRef[] = ctx.openCards.map((c) => ({
-          ref: c.origin === 'local' ? c.localId : `server:${c.proposalId}`,
-          severe: c.card.kind === 'rule' && c.card.severe, ingredient: c.card.kind === 'rule' ? c.card.display.ingredient : null, issuedTurn: c.issuedTurn,
-        }));
-        const target = shortReplyTarget(intent, refs, ctx.turn);
-        switch (target.kind) {
-          case 'confirm':
-          case 'reject':
-            // A server card is answered by its own tap here: this engine never sends a typed yes for it.
-            if (target.ref.startsWith('server:')) return reply([line('confirm.tap_card')]);
-            return reply([], { intents: [{ kind: target.kind, localId: target.ref }] });
-          case 'undo':
-            return reply([], { intents: [{ kind: 'undo' }] });
-          case 'line':
-            return reply([say(target.line)]);
-          case 'none':
-            break;
-        }
-      }
-      // 4. Every parser; 5. nothing found.
-      const { items, cards } = parseAll(text, stripped, ctx);
-      // A health turn is never silently lost: with nothing read, the plain ask, as the server does (fix round 2, E4).
-      if (items.length === 0) {
-        const health = isHealthText(stripped, graph, ruleTerms) || ctx.intakeStep === 'allergies' ||
-          ctx.openCards.some((c) => c.card.kind === 'rule' || c.card.kind === 'meal');
-        return reply([line(health ? 'rule.ask_keep_off' : 'didnt_understand')]);
-      }
-      return reply(items, { cards: cards.map((c) => view(c, ctx.turn)) });
+      // Steps 1–3 are answered at once: an emergency, medical, child or allowance line never waits on any import.
+      let first: PanReply | string;
+      try { first = early(text, ctx); } catch (err) { return Promise.reject(err instanceof Error ? err : new Error(String(err))); }
+      if (typeof first !== 'string') return Promise.resolve(first);
+      const stripped = first;
+      if (!deps.week) return Promise.resolve().then(() => parsed(text, stripped, ctx, null));
+      // 3b. M5 Step 10: the week by code alone (§7.5): a plan in the closed grammar, else a navigation chip. If its
+      // code can't load (offline, no worker) the turn goes on without it: never left unanswered.
+      return deps.week().then((w) => w, (err: unknown) => { console.error(err); return null; }).then((w) => {
+        const r = w?.intent(text, ctx.turn) ?? null;
+        return r ?? parsed(text, stripped, ctx, w);
+      });
     },
 
     cardFromChoice(id, severity, turn) {

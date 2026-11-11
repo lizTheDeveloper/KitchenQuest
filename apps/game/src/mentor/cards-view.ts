@@ -68,15 +68,9 @@ function valuesFor(card: ProposalCard): Partial<Record<string, string>> {
       if (card.remove.length > 0) out.removed = join(card.remove);
       return out;
     }
-    case 'plan': {
-      // M5 Step 8 (C22): the code-built summary and each item's check; the read-back lines come with the reply.
-      const mark = { ok: '✅', swap: '🔁', unverified: '❓' } as const;
-      return {
-        days: card.summary,
-        checks: join(card.checks.map((c) => `${c.slug.slice(c.slug.lastIndexOf('/') + 1).replace(/-/g, ' ')} ${mark[c.status]}`)) || 'None',
-        hard_week: card.hard ? 'Yes' : 'No',
-      };
-    }
+    case 'plan':
+      // The day rows are drawn by plan-view.ts (below); the form's fields keep the summary and the hard week.
+      return { dishes: card.summary, hard_week: card.hard ? 'Yes' : 'No' };
   }
 }
 
@@ -112,6 +106,11 @@ export function renderCard(view: CardView, opts: {
   onConfirm(edits?: { severity?: Severity }): void | Promise<void>; onReject(): void | Promise<void>;
   /** A plain note under the fields (Step 11: "*Kept on this device only." on a signed-out rule card). */
   footnote?: string;
+  /**
+   * A plan card's Form 7-W day rows, drawn by the week's own code (week-turn.ts `planCardBody`, loaded on first use:
+   * Ruling 1). A plan card without it is never drawn.
+   */
+  planBody?: HTMLElement;
 }): HTMLElement {
   const { card } = view;
   const form = opts.forms[formIdFor(card)] as BureauForm | undefined;
@@ -126,6 +125,11 @@ export function renderCard(view: CardView, opts: {
         ...SEVERITY_OPTIONS.map((o) => h('option', { value: o.value }, o.label)));
       picker.value = 'anaphylactic';
       dl.append(h('div', { class: 'bureau-field' }, h('dt', null, contentText('label', f.label, { for: id })), h('dd', null, picker)));
+      continue;
+    }
+    if (card.kind === 'plan' && f.key === 'days') {
+      if (opts.planBody === undefined) throw new Error('renderCard: a plan card needs its day rows');
+      dl.append(bureauFieldRow(f.label, opts.planBody));
       continue;
     }
     const v = values[f.key];

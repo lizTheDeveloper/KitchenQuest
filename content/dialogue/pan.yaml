@@ -230,7 +230,7 @@ triggers:
     ai: allowed
     when: Intake step 5, asking what's in the cupboard right now.
     lines:
-      - "Last one: what's in the cupboard? Roughly. 'Rice, half an onion, and regret' is a perfectly acceptable inventory."
+      - "Last one: what's in the cupboard right now? A rough list is plenty, and whatever's there is a fine place to start."
       - "What have you got in right now? Fridge, cupboard, that one shelf. I'll plan around it so nothing goes to waste."
       - "Question five: what's in the kitchen? Just the main things. I'm not auditing your spice rack. Yet."
       - "Tell me what you've got. Staples, leftovers, the thing at the back you've been avoiding. All of it counts."
@@ -244,9 +244,9 @@ triggers:
     lines:
       - "Added: {items}. That's the opening line of several good stories."
       - "{items}. Noted. I'll try to use those before they get ideas."
-      - "Got it. {items}. Regret, if mentioned, filed under condiments. It goes with everything, sadly."
-      - "Pantry noted: {items}. You're better stocked than a lighthouse I once knew."
-      - "{items}. Excellent. I can work with that. I've worked with less. 1911."
+      - "Got it. {items}. Filed in the ledger, in the Bureau's best handwriting."
+      - "Pantry noted: {items}. A lighthouse keeper I once knew would have approved."
+      - "{items}. Excellent. I can work with that. I've been cooking with what's to hand since 1891."
 
   intake.skip:
     ai: allowed
@@ -582,6 +582,16 @@ triggers:
       - "That's a question for a clinician. I can help you plan meals for whatever they recommend, and I'll read any rules back to you."
       - "That's a clinician's question, not a pan's. If something's happening right now, call your local emergency number. Otherwise, a doctor or dietitian can help, and I'll help you cook whatever they suggest."
 
+  rule.weight_deflect:
+    ai: never
+    when: The player talks about losing weight, their weight or BMI, or counting calories (M5 final review I2; spec §5 safeguards, voice §0.9–10). Code answers; the model never sees the turn.
+    notes: "No numbers, no targets, no praise for eating less, and never imply the player is ill. Plain words; no joke touches bodies or weight. Points to a clinician, and keeps the door open to cooking."
+    lines:
+      - "Weight is outside what a pan can help with: I don't do scales, numbers or targets. A doctor or dietitian can talk it through with you properly. What I can do is help you cook and eat enough, every day."
+      - "That's one for a doctor or a dietitian, not a pan. I keep no numbers about bodies. I'm here for cooking, and for making sure you're well fed."
+      - "I'll leave weight to the people trained for it: a doctor or a dietitian. If food has been feeling hard lately, they're good people to talk to, and there's no shame in it. I'll keep helping you cook."
+      - "I'm a pan. I know about food, not about numbers on a scale. For anything about weight, please ask a doctor or dietitian. Meanwhile, shall we plan something good to eat?"
+
   rule.unknown_term:
     ai: never
     when: The player named something to avoid that isn't in the ingredient graph or data/rule-terms.json (a missing ingredient, or a word such as halal, kosher or Jain that no one target can express). Nothing is saved.
@@ -701,7 +711,7 @@ triggers:
       - "Planned. I've turned it into a shopping list, sorted by stall, minus what you already have."
       - "That's the week. The list's ready for market day."
       - "Saved. The plan is now a list, and the list is now Form 12-M. Don't worry, I'll carry it."
-      - "Done. A plan's only a guess about the future, but it's a well-fed guess."
+      - "Done. A plan's just a guess about the future, but it's a well-fed guess."
 
   plan.gap_green:
     ai: allowed
@@ -742,9 +752,9 @@ triggers:
       finding: "the engine's finding, e.g. 'Worcestershire contains anchovy, which is fish'"
     lines:
       - "{dish} won't work with your rules: {finding}. The cook will teach you an adapted version if there is one. Shall I check?"
-      - "Not that one, I'm afraid. {finding}. Let me look for an adapted version or another dish."
+      - "Not {dish}, I'm afraid: {finding}. Let me look for an adapted version or another dish."
       - "{dish} clashes with your rules: {finding}. I'll ask the cook about an adapted version, or we can pick something else."
-      - "That one's blocked for you: {finding}. Let's pick another dish, or an adapted version if the cook has one."
+      - "{dish} is blocked for you: {finding}. Let's pick another dish, or an adapted version if the cook has one."
 
   plan.dish_sacred:
     ai: never
@@ -1076,7 +1086,7 @@ triggers:
     notes: "Plain. Never guesses, never suggests the nearest name."
     lines:
       - "I don't know a dish called {dish}. None of the cooks has taught it, so I haven't guessed. Which dish did you mean?"
-      - "{dish} isn't a dish the cooks have taught, so I've left it out rather than guess. Tell me the dish's name another way?"
+      - "{dish} isn't a dish the cooks have taught, so I've kept it out rather than guess. Tell me the dish's name another way?"
       - "I can't match {dish} to a dish the cooks teach. Nothing's been guessed. Say its name another way, or ask me to pick."
       - "No cook has taught {dish} yet, so it isn't in the plan. I won't guess at it. What did you have in mind?"
 
@@ -1114,6 +1124,16 @@ triggers:
       - "{dish} needs a day of its own. Which one would you like?"
       - "I haven't placed {dish} yet. Which day of the week is it for?"
       - "Pick a single day for {dish} and I'll add it to the plan."
+
+  plan.which_count:
+    ai: never
+    when: The player corrected how many dishes to pick ("pick 2, actually 3"); nothing is picked and the Pan asks how many (M5 final review m6).
+    notes: "Plain. Nothing is planned until the player says the number."
+    lines:
+      - "How many dishes should I pick for the week? Tell me one number and I'll choose them."
+      - "I haven't picked anything yet. How many dishes would you like?"
+      - "Give me a single number of dishes and I'll pick that many."
+      - "Just to be sure: how many dishes shall I pick this week?"
 
   profile.which_time:
     ai: never
@@ -1246,15 +1266,25 @@ triggers:
 
   rescue.unverified:
     ai: never
-    when: The rescue's frame or dish is ❓ for the player's rules, so nothing is suggested for the item.
+    when: The rescue's frame or dish is ❓ for the player's rules. It is still offered, beside "Cook the frame", with the ❓ badge (Ruling 3 of fix round 1).
     vars:
       item: "the item"
-    notes: "Plain. No joke touches a ❓ line."
+    notes: "Plain and honest beside a Cook button: says what can't be checked and what to do. No guarantee, no joke. Compost is always an option."
     lines:
-      - "I can't check a dish for the {item} against your rules, so I won't suggest one. Check the labels if you cook it yourself, or the compost is fine."
-      - "There's nothing I can verify for the {item} under your rules, so no suggestion from me. Check labels if you cook it yourself."
-      - "The dish for the {item} gets a ❓ for your rules, so I won't offer it. Read the labels before cooking it any other way, or compost it."
-      - "I can't verify a dish for the {item} against your rules, so there's no suggestion from me. If you cook it, check every label first."
+      - "I can't check a dish for the {item} against your rules. Check the label before you cook."
+      - "There's a frame that would use the {item}, but I can't check all of it against your rules. Check every label before you cook it."
+      - "I can't verify the {item}'s frame for your rules, so it shows ❓. If you cook it, read the labels first; the compost is fine too."
+      - "The {item} could go in this frame, but I can't check it against your rules. Read the labels before you cook, or compost the {item}."
+
+  week.move_partial:
+    ai: never
+    when: "The player tapped 'Move this week to your account?' and the plan reached the account, but the ticked market items or the finished shop didn't all follow (Task 10 fix round 2, N2). Nothing was removed from the device; a second tap carries on."
+    notes: "Plain and truthful: says what moved and what didn't. No joke, no blame."
+    lines:
+      - "Your plan is with your account now, but the ticked items didn't all follow. Everything is still on this device too; tap Move it again to finish."
+      - "The plan moved to your account. Some of the market list didn't, so this device keeps its copy for now. Tap Move it again to send the rest."
+      - "Half there: the plan is on your account, the ticks aren't all. Nothing has left this device; tap Move it again when you're ready."
+      - "Your account has the plan. The shopping ticks didn't all go through, so I've kept everything here as well. Try Move it again."
 
   frame.offer:
     ai: allowed
@@ -1278,7 +1308,7 @@ triggers:
       - "I can't fill the {slot} with anything that passes your rules, so it stays unfilled. I won't guess. Pick something you've checked, or choose another frame."
       - "No {slot} I can verify for your rules. That part stays open, and the dish shows ❓ until it's filled."
       - "The {slot} needs something that passes your rules, and I can't verify anything for it. It stays unfilled; I won't guess."
-      - "Nothing I can verify fits the {slot} under your rules, so I've left it unfilled. The dish shows ❓ until you pick something you've checked."
+      - "Nothing I can verify fits the {slot} under your rules, so I haven't filled it. The dish shows ❓ until you pick something I can check."
 
   cook.who_ate:
     ai: allowed
@@ -1330,15 +1360,15 @@ triggers:
 
   margin.blocked:
     ai: never
-    when: A margin note's swap or addition clashes with the player's rules; "cook with my notes" stays off for it.
+    when: A margin note's swap or addition clashes with the player's rules. The note can still be kept, but while it clashes "Cook with my notes" stays off for the whole dish (Task 11 fix I4).
     vars:
       finding: "the engine's finding, e.g. 'peanut butter contains peanut'"
-    notes: "Plain. No joke touches an allergen line."
+    notes: "Plain and true (voice §0.8). Says what happens: the note is kept if the player writes it in, and 'Cook with my notes' stays off for this dish while it clashes; the cook's recipe is still there. No joke touches an allergen line. # REVIEW: reworded in Task 11 fix round 1, for content review."
     lines:
-      - "That change clashes with your rules: {finding}. I won't put it in the notes you cook from."
-      - "{finding}. That's against your rules, so it can't go in your cooking notes."
-      - "Your rules say no to that: {finding}. The recipe stays as the cook wrote it."
-      - "I can't use that change with your rules: {finding}. Your cooking notes stay without it."
+      - "That change clashes with your rules: {finding}. If you keep this note, 'Cook with my notes' stays off for this dish while it clashes. The recipe as the cook wrote it is still there."
+      - "{finding}. That's against your rules. You can keep the note, but 'Cook with my notes' stays off for this dish until it no longer clashes."
+      - "Your rules say no to that: {finding}. Keep the note if you like; 'Cook with my notes' stays off for this dish while it's there. The cook's recipe is unchanged."
+      - "I can't cook that change with your rules: {finding}. If the note is kept, 'Cook with my notes' stays off for this dish. You can still cook the recipe as the cook wrote it."
 
   margin.needs_account:
     ai: never

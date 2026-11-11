@@ -62,3 +62,32 @@ describe('progress view', () => {
     expect(m.toolkit.techniques.tempering).toEqual({ tier: 'yours', firstAt: '2026-01-15', lastUsedAt: '2026-04-01', recipes: ['a', 'b'] });
   });
 });
+
+// M5 final review m12: view() runs on every store change, from each subscriber. It is folded once per partition log
+// (and cached account view), not once per call: an unrelated change re-uses it, a new event re-folds.
+describe('m12: the view is memoised on the partition', () => {
+  test('the same partition log gives the same view object; a change to it gives a new, correct one', () => {
+    const store = playedStore();
+    const first = currentProgress(store.get(), cat);
+    store.update((s) => ({ ...s, settings: { ...s.settings, showCalories: !s.settings.showCalories } }));
+    expect(currentProgress(store.get(), cat)).toBe(first);
+    const e: ProgressEvent = { id: newEventId(), kind: 'cooked', at: '2026-10-20', recipe: 'india/kerala/parippu', planned: false };
+    const r = grantsForBatch([e], historyOf(store.get().progress), cat, content.rewards, content.techniques.freshness);
+    appendEvents(store, null, r.map((x) => x.event), r.flatMap((x) => x.grants));
+    const next = currentProgress(store.get(), cat);
+    expect(next).not.toBe(first);
+    expect(next).toEqual(deviceView(store.get().progress, cat));
+    expect(next.xp).toBeGreaterThanOrEqual(first.xp);
+  });
+
+  test('signed in: a new account view over the same log is shown at once (the cache keys on the view too)', () => {
+    const played = playedStore().get().progress;
+    const store = createStore(null);
+    const key = accountKey('a@example.test');
+    store.update((s) => withPartition({ ...s, account: { email: 'a@example.test' } }, key, played, { ...EMPTY, xp: 1 }));
+    const low = currentProgress(store.get(), cat);
+    store.update((s) => withPartition(s, key, played, { ...EMPTY, xp: 9_999_999 }));
+    expect(currentProgress(store.get(), cat).xp).toBe(9_999_999);
+    expect(low.xp).toBeLessThan(9_999_999);
+  });
+});

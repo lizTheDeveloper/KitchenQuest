@@ -523,6 +523,7 @@ describe('abuse limits (I4)', () => {
     const refused = await call(p.cookie, { method: 'POST', url: '/progress/events', payload: { events: [cooked(PARIPPU)] } });
     expect(refused.statusCode).toBe(429);
     expect(refused.json()).toMatchObject({ error: { code: 'rate_limited', details: { retryAfterSeconds: expect.any(Number) } } });
+    expect(refused.json().error.details.scope).toBeUndefined(); // M5 final m2: per-minute, not the daily cap
     expect(refused.headers['retry-after']).toBeDefined();
     expect((await rows(p.id)).events).toEqual([]);
     // Another player is not limited.

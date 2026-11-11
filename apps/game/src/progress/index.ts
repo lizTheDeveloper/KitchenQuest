@@ -2,6 +2,8 @@ import { setBeforeSignOut } from '../api/account';
 import type { ApiClient } from '../api/client';
 import { accountKey, prunePartition, type PlayerStore } from '../state/store';
 import type { ProgressService } from './service';
+import { forgetWeek, setToolkitSource } from '../week/memory';
+import { dropNotesHandOff } from '../cook/with-notes';
 
 /**
  * The shell's handle on progress. It holds no progress code: the log, sync, view and lines load with the first
@@ -29,6 +31,10 @@ export function initProgress(client: ApiClient, store: PlayerStore, win: Window)
     // only its unsynced events stay on the device, for its own next sign-in (the view is rebuilt from the server then).
     // N4: the cook-mode resume point and the line history belong to that session too; neither outlives it.
     if (was !== null) store.update((st) => ({ ...prunePartition(st, accountKey(was)), cookProgress: null, dialogueHistory: {} }));
+    // The week remembered for the old session goes too (M2): another account, or the guest, never reads it.
+    forgetWeek();
+    // Step 11 fix M2: a "cook with my notes" hand-off belongs to the session that made it.
+    dropNotesHandOff();
     if (now !== null) signedIn();
   });
   // C1 ruling: a sign-out first posts what the account still holds (when online), then its partition is hidden.
@@ -40,6 +46,10 @@ export function initProgress(client: ApiClient, store: PlayerStore, win: Window)
 export function progressService(): Promise<ProgressService> {
   if (!deps) return Promise.reject(new Error('progress is not initialised'));
   const d = deps;
-  loading ??= import('./service').then((m) => m.createProgressService(d));
+  loading ??= import('./service').then((m) => {
+    const svc = m.createProgressService(d);
+    setToolkitSource(() => svc.view().toolkit);
+    return svc;
+  });
   return loading;
 }

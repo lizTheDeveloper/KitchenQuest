@@ -120,6 +120,13 @@
       "when": 1794397130495,
       "tag": "0016_lively_doctor_spectrum",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1794430206978,
+      "tag": "0017_reward_grants_append_only",
+      "breakpoints": true
     }
   ]
 }

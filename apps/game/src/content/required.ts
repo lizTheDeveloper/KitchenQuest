@@ -30,6 +30,8 @@ export const M5_LOOP_TRIGGERS_AI = {
   'book.empty': 'allowed',
   'book.exported': 'never',
   'nav.offer': 'never',
+  // Task 10 fix round 2 (N2): the move tap's plan landed but its ticks or finish didn't all follow.
+  'week.move_partial': 'never',
 } as const satisfies Record<string, 'never' | 'allowed'>;
 const M5_LOOP_TRIGGERS = Object.keys(M5_LOOP_TRIGGERS_AI);
 
@@ -66,6 +68,8 @@ export const REQUIRED_PAN_TRIGGERS: readonly string[] = [
   'plan.after_which_day',
   // M5 Step 8 fix round 5 (5c): the server asks which time after a corrected meal time (core CORRECTION_TIME_TRIGGER).
   'profile.which_time',
+  // M5 final m6: the server asks how many after a corrected pick count (core CORRECTION_COUNT_TRIGGER).
+  'plan.which_count',
   // M5 Step 8: core confirmedLines says plan.saved for a plan card; buildPlanCard reads a ⛔ dish back with plan.blocked_dish.
   'plan.saved',
   'plan.blocked_dish',
@@ -80,6 +84,8 @@ export const REQUIRED_PAN_TRIGGERS: readonly string[] = [
   'toolkit.rusty_invite',
   // M4: the mentor (server agent and scripted engine) emits these by id.
   'rule.unknown_term',
+  // M5 final I2: core preRoute's fixed line for weight loss and calorie counting (the model never sees the turn).
+  'rule.weight_deflect',
   'rule.which_one',
   // M5 Step 4 fix round 1 (C1): a category too broad to be one rule ("herbs"); core buildRuleCard asks which kind.
   'rule.which_kind',

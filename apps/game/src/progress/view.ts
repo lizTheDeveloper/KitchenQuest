@@ -65,7 +65,15 @@ export function maxView(a: ProgressView, b: ProgressView): ProgressView {
  */
 export function currentProgress(state: PlayerState, cat: Catalogue = catalogueOf()): ProgressView {
   const key = partitionKey(state);
-  const device = deviceView(partitionOf(state, key), cat);
+  const log = partitionOf(state, key);
   const account = key === null ? null : accountViewOf(state, key);
-  return account === null ? device : maxView(account, device);
+  // M5 final m12: folded once per partition log (and cached account view), not once per subscriber per change. The
+  // log and the view are replaced, never changed in place, on every write, so their identity is the cache key.
+  const hit = memo.get(log);
+  if (hit !== undefined && hit.cat === cat && hit.account === account) return hit.view;
+  const device = deviceView(log, cat);
+  const view = account === null ? device : maxView(account, device);
+  memo.set(log, { cat, account, view });
+  return view;
 }
+const memo = new WeakMap<object, { cat: Catalogue; account: ProgressView | null; view: ProgressView }>();

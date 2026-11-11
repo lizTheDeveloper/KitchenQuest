@@ -16,7 +16,8 @@ import {
   marketDayStated,
   codeCardHealth,
   correctionAsks,
-  correctionCue,
+  correctionScope,
+  CORRECTION_COUNT_TRIGGER,
   CORRECTION_TIME_TRIGGER,
   WEEKDAY_NAMES,
   leftoverNamedIngredients,
@@ -461,13 +462,13 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
   const own = stripPageEvents(playerOwnWords(f.raw)).text;
   const healthWords = codeCardHealth(own, graph, deps.catalog.ruleTerms);
   const dishes = [...index].map(([slug, r]) => ({ slug, title: r.meta.title }));
-  const words = !healthWords && offered.has('propose_plan') && !calls.some((c) => c.name === 'propose_plan') ? planWordsIn(f.raw, dishes) : null;
+  const words = !healthWords && offered.has('propose_plan') && !calls.some((c) => c.name === 'propose_plan') ? planWordsIn(f.raw, dishes, graph) : null;
   if (words !== null) calls.push({ name: 'propose_plan', args: { days: words.days, pick: words.pick, hard_week: words.hard, after: words.after } });
-  const timed = !healthWords && offered.has('propose_profile') && !calls.some((c) => c.name === 'propose_profile') ? reminderSlots(f.raw, dishes) : [];
+  const timed = !healthWords && offered.has('propose_profile') && !calls.some((c) => c.name === 'propose_profile') ? reminderSlots(f.raw, dishes, graph) : [];
   if (timed.length > 0) calls.push({ name: 'propose_profile', args: { market_days: null, meals_per_week: null, region: null, country: null, meal_windows: timed } });
   const market =
     !healthWords && offered.has('propose_profile') && !calls.some((c) => c.name === 'propose_profile' && c.args.market_days !== null && c.args.market_days.length > 0)
-      ? marketDayStated(f.raw, dishes)
+      ? marketDayStated(f.raw, dishes, graph)
       : null;
   if (market !== null) {
     const profileCall = calls.find((c): c is Extract<ToolArgs, { name: 'propose_profile' }> => c.name === 'propose_profile');
@@ -476,17 +477,39 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
   }
   const codeProfile = timed.length > 0 || market !== null;
   // Fix round 5 (5c ruling): a correction cue ("no wait", "actually", "instead", "scratch that", "i mean") means no
-  // plan or profile card from code or from the model; the asks say which day, time or market day the player means.
+  // plan or profile card from code or from the model for what it corrects; the asks say which day, time, count or
+  // market day the player means. M5 final m5: only the corrected parts go (core correctionScope: the cue's clause and
+  // the one before it, or every part of the kind the correction names); the rest of the message's cards stand.
   const corrected = correctionAsks(f.raw, dishes);
-  if (correctionCue(f.raw, dishes)) {
+  const scope = correctionScope(f.raw, dishes);
+  if (scope !== null) {
+    const kept: ToolArgs[] = [];
     for (const c of calls) {
-      if (c.name === 'propose_plan') for (const d of c.args.days ?? []) corrected.push({ trigger: 'plan.which_day', vars: { dish: d.dish } });
-      if (c.name === 'propose_profile') {
-        for (const w of c.args.meal_windows ?? []) corrected.push({ trigger: CORRECTION_TIME_TRIGGER, vars: { meal: w.name } });
-        if ((c.args.market_days ?? []).length > 0) corrected.push({ trigger: 'intake.market_day.ask', vars: {} });
-      }
+      if (c.name === 'propose_plan') {
+        const days = (c.args.days ?? []).filter((d) => {
+          const gone = scope.corrected('day', d.dish);
+          if (gone) corrected.push({ trigger: 'plan.which_day', vars: { dish: d.dish } });
+          return !gone;
+        });
+        // M5 final m6: a corrected count is never picked; the which-count ask instead (pick-only calls too).
+        const pickGone = c.args.pick !== null && scope.corrected('pick', 'pick');
+        if (pickGone) corrected.push({ trigger: CORRECTION_COUNT_TRIGGER, vars: {} });
+        const pick = pickGone ? null : c.args.pick;
+        if (days.length > 0 || pick !== null) kept.push({ ...c, args: { ...c.args, days: days.length > 0 ? days : null, pick } });
+      } else if (c.name === 'propose_profile') {
+        const windows = (c.args.meal_windows ?? []).filter((w) => {
+          const gone = scope.corrected('meal', w.name);
+          if (gone) corrected.push({ trigger: CORRECTION_TIME_TRIGGER, vars: { meal: w.name } });
+          return !gone;
+        });
+        const marketGone = (c.args.market_days ?? []).length > 0 && scope.corrected('market', 'market');
+        if (marketGone) corrected.push({ trigger: 'intake.market_day.ask', vars: {} });
+        const args = { ...c.args, meal_windows: windows.length > 0 ? windows : null, market_days: marketGone ? null : c.args.market_days };
+        const left = (args.meal_windows ?? []).length > 0 || (args.market_days ?? []).length > 0 || args.meals_per_week !== null || args.region !== null || args.country !== null;
+        if (left) kept.push({ ...c, args });
+      } else kept.push(c);
     }
-    calls.splice(0, calls.length, ...calls.filter((c) => c.name !== 'propose_plan' && c.name !== 'propose_profile'));
+    calls.splice(0, calls.length, ...kept);
   }
   const correctionLines = corrected.filter((a, i) => corrected.findIndex((b) => b.trigger === a.trigger && JSON.stringify(b.vars) === JSON.stringify(a.vars)) === i);
   return deps.db.transaction(async (tx) => {

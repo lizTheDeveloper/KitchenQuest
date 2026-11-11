@@ -17,6 +17,12 @@ export interface VoiceAllowance {
   /** The line, exactly as shipped. */
   line: string;
   reason: string;
+  /**
+   * Which scan's pattern the line trips: 'voice' (the content scan in voice-scan.test.ts, the default) or 'countdown'
+   * (Step 12's never-rules sweep, which bans "only", "left", "hurry" and "expires" on the plan, market and rescue
+   * screens and in their lines). Each scan proves its own entries are needed.
+   */
+  scan?: 'voice' | 'countdown';
 }
 
 export const VOICE_ALLOWLIST: readonly VoiceAllowance[] = [
@@ -91,5 +97,22 @@ export const VOICE_ALLOWLIST: readonly VoiceAllowance[] = [
     where: 'faq[8].a',
     line: "In their broth, in the fridge, for three or four days. They freeze very well too, in their broth, for a few months — freeze them in portions so you can take out just a lunch. Cool them quickly; don't leave a big warm pot on the stove overnight.",
     reason: "Marisol's storage FAQ: a food-safety keep time for leftovers, not a count of days played or missed.",
+  },
+  // Step 12 fix round 1 (I2): the countdown words in plain, unhurried senses. None sets a time limit or a scarcity.
+  // M5 final m14: plan.saved[3], plan.dish_unknown[1] and frame.slot_empty[3] were reworded instead ("just a guess",
+  // "kept it out", "haven't filled it"), so they need no entry.
+  {
+    file: 'content/dialogue/pan.yaml',
+    where: 'triggers.one_more.refresh[3]',
+    line: '{technique} is waiting where you left it. {dish} is a nice way back in, whenever suits.',
+    reason: "one_more.refresh: 'left' is the past of leave (where you put it down); with 'whenever suits' it says nothing is lost and there is no deadline.",
+    scan: 'countdown',
+  },
+  {
+    file: 'content/dialogue/pan.yaml',
+    where: 'triggers.week.move_partial[2]',
+    line: "Half there: the plan is on your account, the ticks aren't all. Nothing has left this device; tap Move it again when you're ready.",
+    reason: "week.move_partial: 'left' is the past of leave (nothing was taken off the device), a reassurance; 'when you're ready' sets no time.",
+    scan: 'countdown',
   },
 ];

@@ -11,6 +11,9 @@ import { readdirSync, readFileSync } from 'node:fs';
  *   the core modules it reaches and the prompt render code (`prompt.ts`) among them; the API's `db/` and `crypto/`
  *   and type-only imports are left out. The gate test recomputes the closure from the source and fails when this
  *   list and it differ, so a new decision module can't be missed.
+ * - M5 final review (parked m7): the modules the turn reaches through its injected deps are extra closure roots
+ *   (`mentor/routes.ts`, `mentor/memory.ts`, `recipes/recipe-index.ts`, `catalog.ts`), and `app.ts`, which wires
+ *   them, is hashed as a file (not its whole closure).
  * - The data the turn decides with: `data/ingredients.json` (the graph: `mentionsHealthTerm`, `resolve`),
  *   `data/rule-terms.json` (rule terms and cards) and every file of the canon recipes directory (the exact dish
  *   names `planIntent` accepts).
@@ -23,10 +26,13 @@ export const EVAL_FILES: readonly string[] = [
   './snapshot.ts',
   './run.ts',
   '../src/ai/openrouter.ts',
+  '../src/app.ts',
   '../src/audit/audit.ts',
   '../src/auth/live-user.ts',
+  '../src/auth/rate-limit.ts',
   '../src/auth/session.ts',
   '../src/auth/tokens.ts',
+  '../src/catalog.ts',
   '../src/consent/ledger.ts',
   '../src/consent/notices.ts',
   '../src/entitlements/entitlements.ts',
@@ -39,11 +45,13 @@ export const EVAL_FILES: readonly string[] = [
   '../src/mentor/filter.ts',
   '../src/mentor/health.ts',
   '../src/mentor/lines.ts',
+  '../src/mentor/memory.ts',
   '../src/mentor/plan-turn.ts',
   '../src/mentor/postchecks.ts',
   '../src/mentor/prompt.ts',
   '../src/mentor/proposals.ts',
   '../src/mentor/requests.ts',
+  '../src/mentor/routes.ts',
   '../src/mentor/tools.ts',
   '../src/mentor/turn.ts',
   '../src/mentor/writes.ts',
@@ -54,10 +62,12 @@ export const EVAL_FILES: readonly string[] = [
   '../src/progress/catalogue.ts',
   '../src/progress/service.ts',
   '../src/progress/store.ts',
+  '../src/recipes/recipe-index.ts',
   '../src/rules/service.ts',
   '../src/rules/store.ts',
   '../src/usage/usage.ts',
   '../src/usage/write-cap.ts',
+  '../src/week/local-date.ts',
   '../src/week/plan-service.ts',
   '../src/week/store.ts',
   '../../../packages/core/src/index.ts',
@@ -71,6 +81,7 @@ export const EVAL_FILES: readonly string[] = [
   '../../../packages/core/src/mentor/parse.ts',
   '../../../packages/core/src/mentor/plan-card.ts',
   '../../../packages/core/src/mentor/protocol.ts',
+  '../../../packages/core/src/mentor/rule-terms.ts',
   '../../../packages/core/src/mentor/route.ts',
   '../../../packages/core/src/mentor/saved.ts',
   '../../../packages/core/src/mentor/spell.ts',
@@ -88,9 +99,14 @@ export const EVAL_FILES: readonly string[] = [
   '../../../packages/core/src/rules/check.ts',
   '../../../packages/core/src/rules/types.ts',
   '../../../packages/core/src/toolkit/one-more.ts',
+  '../../../packages/core/src/toolkit/techniques.ts',
   '../../../packages/core/src/toolkit/toolkit.ts',
+  '../../../packages/core/src/week/data.ts',
+  '../../../packages/core/src/week/frames.ts',
   '../../../packages/core/src/week/index.ts',
+  '../../../packages/core/src/week/market-list.ts',
   '../../../packages/core/src/week/plan.ts',
+  '../../../packages/core/src/week/use-it-up.ts',
   '../../../data/ingredients.json',
   '../../../data/rule-terms.json',
   '../../../recipes/',

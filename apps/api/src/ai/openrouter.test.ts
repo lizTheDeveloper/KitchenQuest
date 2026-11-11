@@ -372,3 +372,19 @@ describe('normaliseToolArguments (model tool arguments only)', () => {
   });
 });
 
+
+// M5 final review (parked m2): a JSON string is decoded only into the kind the schema names: an array for an array
+// field, an object for an object field. Anything else stays a string, for the strict validator to reject.
+describe('normaliseToolArguments: the decoded kind must match the schema', () => {
+  const params = { type: 'object', properties: { list: { type: 'array' }, obj: { type: 'object' } } };
+  test('an object string for an array field, or an array string for an object field, is left as it was', () => {
+    const a = JSON.stringify({ list: '{"name": "dinner"}' });
+    expect(normaliseToolArguments(a, params)).toBe(a);
+    const b = JSON.stringify({ obj: '[1, 2]' });
+    expect(normaliseToolArguments(b, params)).toBe(b);
+  });
+  test('the matching kind is still decoded', () => {
+    expect(JSON.parse(normaliseToolArguments(JSON.stringify({ list: '[1, 2]' }), params))).toEqual({ list: [1, 2] });
+    expect(JSON.parse(normaliseToolArguments(JSON.stringify({ obj: '{"a": 1}' }), params))).toEqual({ obj: { a: 1 } });
+  });
+});

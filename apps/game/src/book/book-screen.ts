@@ -1,0 +1,212 @@
+import type { ProgressView, SharedTally, Tier } from '@kitchenquest/core/engine';
+import type { ApiClient } from '../api/client';
+import type { BureauForm } from '../content/types';
+import { content, graph } from '../content';
+import { getMentorServices } from '../mentor';
+import { renderConsentCard } from '../mentor/consent-card';
+import { progressService } from '../progress';
+import { activeRules, localDate } from '../recipes/rules';
+import { RouteNotFound, type AppContext, type Screen } from '../shell/app';
+import { routeHref } from '../shell/router';
+import { SCREEN_TITLES } from '../shell/titles';
+import { contentText, h } from '../ui/dom';
+import { copy } from '../content/copy';
+import { cookWithNotes } from '../cook/with-notes';
+import { BOOK_FILE_NAME, bookFile, redactNotes } from './book-export';
+import { bookPages, NO_TALLY, notesBySlug, type BookNote, type BookPage } from './book-model';
+import { fmtDate, notesPanel } from './notes-panel';
+import { sessionDrawer } from './session';
+
+/**
+ * The Recipe Book (M5 Step 11): `#/book` lists one page per dish a cook taught the player, in the order they first
+ * cooked them, with the frames in their own section; `#/book/<slug>` is one page. Signed in, it reads every note with
+ * one `GET /notes` (filtered here by slug, C32) and the Shared Table counts with `GET /shared-table/tally` (C21);
+ * nothing is cached on the device. "Download my book" is always there, signed in or out, and always free (audit
+ * M-7): the file is made here and saved only on that tap. Never on these screens: a price, the Guild, a streak, a
+ * count of dishes not yet taught, or a comparison with anyone.
+ */
+
+const TIER_WORD: Readonly<Record<Tier, string>> = { seen: 'Seen', tried: 'Tried', yours: 'Yours' };
+const INTRO = 'One page for each dish a cook has taught you, in the order you first cooked them.';
+const NOTES_UNREAD = "Your margin notes couldn't be loaded just now, so they aren't shown. They're safe; try again in a moment.";
+const DOWNLOAD = 'Download my book';
+
+/**
+ * `notesShown`: the notes were read and may be shown (signed in, not Family Table). `unread`: they should have been,
+ * but GET /notes failed.
+ */
+interface BookData { notes: BookNote[]; tally: SharedTally; notesShown: boolean; unread: boolean }
+
+/**
+ * The book's private data. Signed out there is none. In Family Table mode (§19, Ruling 25, C31, fix I1) none is even
+ * read: no margin notes (health data) and no Shared Table count, so a child at the screen sees dishes, dates and
+ * techniques only, and the export holds nothing else.
+ */
+export async function loadBook(client: ApiClient, who: { signedIn: boolean; familyTable: boolean }): Promise<BookData> {
+  if (!who.signedIn || who.familyTable) return { notes: [], tally: NO_TALLY, notesShown: false, unread: false };
+  const [n, t] = await Promise.all([client.listNotes(), client.sharedTally()]);
+  // Read defensively: what the server sent is data, never trusted for shape.
+  const rawNotes: unknown = n.ok ? (n.data as { notes?: unknown }).notes : null;
+  const notes = Array.isArray(rawNotes) ? (rawNotes as BookNote[]) : [];
+  const rawTally: unknown = t.ok ? t.data : null;
+  const ok = typeof rawTally === 'object' && rawTally !== null && typeof (rawTally as { byRecipe?: unknown }).byRecipe === 'object' && (rawTally as { byRecipe?: unknown }).byRecipe !== null;
+  const read = n.ok && Array.isArray(rawNotes);
+  return { notes, tally: ok ? (rawTally as SharedTally) : NO_TALLY, notesShown: read, unread: !read };
+}
+
+/** The account's email never goes into the file, even quoted in a note. */
+
+
+export function bookScreen(client: ApiClient): Screen {
+  let alive = true;
+  const stops: (() => void)[] = [];
+  return {
+    title: SCREEN_TITLES.book,
+    async mount(el, route, ctx) {
+      if (route.name !== 'book') throw new RouteNotFound();
+      const slug = route.slug;
+      if (slug !== null && (!Object.hasOwn(content.recipes, slug) || content.recipes[slug].meta.sacred)) throw new RouteNotFound();
+      el.replaceChildren(h('h1', { tabindex: -1 }, SCREEN_TITLES.book), h('p', { role: 'status' }, 'Opening the book…'));
+      const svc = await progressService();
+      if (!alive) return;
+      let viewKey = '';
+      /** What the book shows from progress: a redraw happens only when one of these changes. */
+      const keyOf = () => { const v = svc.view(); return JSON.stringify([v.cookedOn, v.framesCookedOn, v.questsDone, v.toolkit]); };
+      /** Whose book it is: the account and the mode. A change of either drops what was shown at once (M1). */
+      const sessionOf = () => { const st = ctx.store.get(); return JSON.stringify([st.account?.email ?? null, st.settings.familyTable]); };
+      let session = sessionOf();
+      const draw = sessionDrawer<BookData>({
+        session: sessionOf,
+        alive: () => alive,
+        clear: () => { el.replaceChildren(h('h1', { tabindex: -1 }, SCREEN_TITLES.book), h('p', { role: 'status' }, 'Opening the book…')); },
+        load: () => { const st = ctx.store.get(); return loadBook(client, { signedIn: st.account !== null, familyTable: st.settings.familyTable }); },
+        show: (data) => {
+          const st = ctx.store.get();
+          viewKey = keyOf();
+          session = sessionOf();
+          render(el, slug, ctx, svc.view(), data, { email: st.account?.email ?? null, familyTable: st.settings.familyTable }, client);
+        },
+      });
+      await draw();
+      stops.push(svc.subscribe(() => {
+        if (alive && (sessionOf() !== session || keyOf() !== viewKey)) void draw();
+      }));
+    },
+    unmount() { alive = false; for (const stop of stops.splice(0)) stop(); },
+  };
+}
+
+const NOT_IN_BOOK = "This dish isn't in your book yet. A page is written once a cook has taught it to you.";
+
+function render(
+  el: HTMLElement, slug: string | null, ctx: AppContext, view: ProgressView, data: BookData, who: { email: string | null; familyTable: boolean }, client: ApiClient,
+): void {
+  const { email } = who;
+  const pages = bookPages(view, content, notesBySlug(data.notes), data.tally);
+  const status = h('p', { class: 'book-status', role: 'status', 'data-content': '' });
+  const download = h('button', { type: 'button', class: 'btn btn-secondary book-download' }, DOWNLOAD);
+  download.addEventListener('click', () => {
+    const file = bookFile(bookPages(view, content, notesBySlug(redactNotes(data.notes, email)), data.tally),
+      new Map(pages.dishes.map((p) => [p.slug, content.recipes[p.slug].source])));
+    saveFile(el.ownerDocument, file);
+    status.textContent = getMentorServices().dialogue.say('book.exported').text;
+  });
+  const tail = [h('div', { class: 'button-row' }, download), status];
+  const unread = data.unread ? h('p', { class: 'book-notes-unread' }, NOTES_UNREAD) : null;
+  const back = h('p', null, h('a', { href: routeHref({ name: 'book', slug: null }) }, 'Back to the Recipe Book'));
+  if (slug === null) { el.replaceChildren(...bookIndex(pages), ...(unread ? [unread] : []), ...tail); return; }
+  const page = pages.dishes.find((p) => p.slug === slug);
+  // Never a page for a dish not taught (or sacred, C39), and never its name.
+  if (page === undefined) { el.replaceChildren(h('h1', { tabindex: -1 }, SCREEN_TITLES.book), h('p', null, NOT_IN_BOOK), back); return; }
+  el.ownerDocument.title = `${page.dish} · Kitchen Quest`;
+  const notesSlot = h('div', { class: 'book-notes-slot' });
+  // Family Table (fix I1): no notes panel at all (no notes, no text box, no delete). Signed out it says notes need an account.
+  const panel = !who.familyTable && unread === null;
+  el.replaceChildren(...dishPage(page), ...(unread ? [unread] : panel ? [notesSlot] : []), ...tail, back);
+  if (panel) mountNotes(notesSlot, page, ctx, client);
+}
+
+function bookIndex(pages: ReturnType<typeof bookPages>): HTMLElement[] {
+  const { dialogue } = getMentorServices();
+  const head = h('h1', { tabindex: -1 }, SCREEN_TITLES.book);
+  if (pages.dishes.length === 0 && pages.frames.length === 0) return [head, contentText('p', dialogue.say('book.empty').text, { class: 'book-empty' })];
+  return [
+    head,
+    h('p', null, INTRO),
+    h('ul', { class: 'book-index' }, ...pages.dishes.map((p) => h('li', { class: 'book-index-item', 'data-slug': p.slug },
+      contentText('a', p.dish, { href: routeHref({ name: 'book', slug: p.slug }) }), ' ', contentText('span', `· ${p.credit}`, { class: 'book-credit' })))),
+    ...(pages.frames.length === 0 ? [] : [
+      h('h2', null, 'Pantry Frames'),
+      h('ul', { class: 'book-frames' }, ...pages.frames.map((f) => h('li', { class: 'book-frame', 'data-frame': f.id },
+        contentText('strong', f.title), ` · ${f.technique} · `, contentText('span', f.credit, { class: 'book-credit' }),
+        h('span', { class: 'book-dates' }, ` · cooked ${f.cookedOn.map(fmtDate).join(', ')}`)))),
+    ]),
+  ];
+}
+
+function dishPage(p: BookPage): HTMLElement[] {
+  return [
+    contentText('h1', p.dish, { tabindex: -1 }),
+    h('blockquote', { class: 'book-gift' }, ...p.gift.map((g) => contentText('p', g))),
+    contentText('p', p.credit, { class: 'book-credit' }),
+    h('h2', null, 'Techniques'),
+    h('ul', { class: 'book-techniques' }, ...p.techniques.map((t) => h('li', null, contentText('span', t.name), ` · ${TIER_WORD[t.tier]}`))),
+    h('h2', null, 'Cooked on'),
+    p.cookedOn.length === 0 ? h('p', null, 'Not cooked yet. The cook mode is ready when you are.') : h('ul', { class: 'book-dates' }, ...p.cookedOn.map((d) => h('li', null, fmtDate(d)))),
+    ...(p.sharedMeals === 0 ? [] : [h('p', { class: 'book-shared' }, p.sharedMeals === 1 ? 'Shared at your table once.' : `Shared at your table ${p.sharedMeals} times.`)]),
+    h('p', null, h('a', { href: routeHref({ name: 'recipe', slug: p.slug }) }, 'The recipe, as the cook wrote it')),
+  ];
+}
+
+function mountNotes(slot: HTMLElement, page: BookPage, ctx: AppContext, client: ApiClient): void {
+  const { writer, dialogue } = getMentorServices();
+  const store = ctx.store;
+  notesPanel(slot, { slug: page.slug, recipe: content.recipes[page.slug], notes: page.notes }, {
+    writer, signedIn: store.get().account !== null, now: ctx.now, today: () => localDate(ctx.now()),
+    say: (t, v) => dialogue.say(t, v).text,
+    rules: () => activeRules(store.get(), graph),
+    notes: () => Promise.resolve(page.notes),
+    askConsent: (box) => askConsentIn(box, client),
+    cook: (notes) => {
+      const email = store.get().account?.email;
+      if (email === undefined) return;
+      cookWithNotes(page.slug, notes, email);
+      ctx.navigate({ name: 'cook', slug: page.slug });
+    },
+  });
+}
+
+/**
+ * The 3-C card in `box` (the M4 path, the v3 notice from the API, verbatim). True once granted. A notice that can't
+ * load, or a grant that fails, says so plainly and answers false (fix M6): the caller never waits forever.
+ */
+export function askConsentIn(box: HTMLElement, client: ApiClient): Promise<boolean> {
+  return new Promise((resolve) => {
+    void client.consents().then((r) => {
+      const notice = r.ok ? r.data.notices.health_data : undefined;
+      const form = content.bureau.forms.consent_health as BureauForm | undefined;
+      if (notice === undefined || form === undefined) { box.append(h('p', { role: 'status' }, copy('ui.rules.consent_unavailable'))); resolve(false); return; }
+      const card = renderConsentCard('health_data', {
+        form, notice,
+        onAgree: async () => {
+          const g = await client.grantConsent('health_data', notice.version);
+          card.remove();
+          if (!g.ok) box.append(h('p', { role: 'status' }, copy('ui.rules.consent_failed')));
+          resolve(g.ok);
+        },
+        onDecline: () => { card.remove(); resolve(false); },
+      });
+      box.append(card);
+    });
+  });
+}
+
+/** Saves `file` to the player's device as BOOK_FILE_NAME, on their tap. Nothing is uploaded anywhere. */
+function saveFile(doc: Document, file: Blob): void {
+  const url = URL.createObjectURL(file);
+  const a = h('a', { href: url, download: BOOK_FILE_NAME, hidden: true });
+  doc.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}

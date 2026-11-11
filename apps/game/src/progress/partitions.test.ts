@@ -42,6 +42,22 @@ describe('account partitions on the device (sign-out ruling)', () => {
     expect(store.get().accountProgress[live].progress.events.map((x) => x.id)).toEqual(['mine']); // the live one is untouched
   });
 
+  test('Step 11 fix M2: an account change drops a "cook with my notes" hand-off that was never taken', async () => {
+    vi.resetModules();
+    const { initProgress: init } = await import('./index');
+    const { createStore: make } = await import('../state/store');
+    const { cookWithNotes, takeNotes } = await import('../cook/with-notes');
+    const store = make(null);
+    store.update((s) => ({ ...s, account: { email: EMAIL } }));
+    init({ getProgress: () => new Promise(() => undefined), postProgressEvents: () => new Promise(() => undefined) } as unknown as ApiClient, store,
+      { document, navigator: { onLine: false }, addEventListener: () => undefined } as unknown as Window);
+    const slug = 'india/kerala/parippu';
+    cookWithNotes(slug, [{ recipe: slug, ops: [], text: 'x', at: '2026-11-10' }], EMAIL);
+    store.update((s) => ({ ...s, account: null }));
+    store.update((s) => ({ ...s, account: { email: EMAIL } }));
+    expect(takeNotes(slug, EMAIL)).toBeNull();
+  });
+
   test('synced → pruned on sign-out; offline sign-out keeps only the unsynced; the same account back → view from the server, kept events uploaded; no email in any key', async () => {
     const storage = memStorage();
     const store = createStore(storage);
@@ -106,5 +122,20 @@ describe('account partitions on the device (sign-out ruling)', () => {
     }
     expect(Object.keys(stored().accountProgress)).toEqual([key]);
     expect(key).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+describe('M2 (Task 10 fix round 1): the remembered week leaves with its session', () => {
+  test('a sign-out forgets the week remembered for that account', async () => {
+    vi.resetModules();
+    const { initProgress: init } = await import('./index');
+    const { createStore: make } = await import('../state/store');
+    const memory = await import('../week/memory');
+    const store = make(null);
+    store.update((s) => ({ ...s, account: { email: EMAIL } }));
+    init({ getProgress: () => new Promise(() => undefined), postProgressEvents: () => new Promise(() => undefined) } as unknown as ApiClient, store, { document, navigator: { onLine: false }, addEventListener: () => undefined } as unknown as Window);
+    memory.rememberWeek('2026-11-09', null, EMAIL);
+    store.update((s) => ({ ...s, account: null }));
+    expect(memory.rememberedWeek(EMAIL)).toBeNull();
   });
 });
