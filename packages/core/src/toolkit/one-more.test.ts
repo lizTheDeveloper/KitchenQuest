@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { graph, recipes, subs, techniqueNodes } from '../quests/fixtures';
 import type { ParsedRecipe } from '../recipe/types';
 import type { Rule } from '../rules/types';
+import { check } from '../rules/check';
 import { ONE_MORE_PER_WEEK, weeklySlot, type WeeklySlotInput } from './one-more';
 import type { Tier, ToolkitState } from './types';
 
@@ -108,12 +109,17 @@ describe('weeklySlot', () => {
 
   it('N1: a dish that is a swap on some days of the week and ❓ on others is never offered (not even as a swap)', () => {
     const p = recipes.get(PARIPPU)!;
-    const noPappadam: ParsedRecipe = { ...p, ingredients: p.ingredients.filter((i) => i.name !== 'pappadam') };
-    const ghee = avoid('ingredient', 'ghee'); // a swap all week (ghee → neutral oil)
-    expect(weeklySlot(input({ recipes: withRecipe(PARIPPU, noPappadam), rules: [ghee] }))).toMatchObject({ status: 'swap' });
-    // From Thursday a sulphites rule makes every other line a label check: ❓ from then on.
+    const line = (name: string) => ({ name, displayName: null, quantity: 100, unit: 'g', note: null });
+    // A tempering dish of ghee, dal and salt: a swap under a ghee rule (ghee → neutral oil), nothing ⛔.
+    const simple: ParsedRecipe = { ...p, ingredients: [line('ghee'), line('split moong dal'), line('salt')] };
+    const rs = withRecipe(PARIPPU, simple);
+    const ghee = avoid('ingredient', 'ghee');
+    expect(weeklySlot(input({ recipes: rs, rules: [ghee] }))).toMatchObject({ status: 'swap' });
+    // From Thursday a sulphites rule makes every line a label check: ❓ (not ⛔) from then on.
     const sulphites = avoid('ingredient', 'sulphites', { start: '2026-11-12' });
-    expect(weeklySlot(input({ recipes: withRecipe(PARIPPU, noPappadam), rules: [ghee, sulphites] }))).toBeNull();
+    expect(check(simple, [ghee, sulphites], graph, subs, '2026-11-12').status).toBe('unverified');
+    expect(check(simple, [ghee, sulphites], graph, subs, '2026-11-11').status).toBe('swap');
+    expect(weeklySlot(input({ recipes: rs, rules: [ghee, sulphites] }))).toBeNull();
   });
 
   it('N1: the window is the plan week from weekStart, even when today is later in the week', () => {
