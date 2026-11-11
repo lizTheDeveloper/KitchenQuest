@@ -1703,12 +1703,26 @@ describe('Step 12 ruling (S13): never a rule card below the saved rule', () => {
     await addRule(p.cookie, ['peanut'], 'anaphylactic');
     const r = await turn(p.cookie, "Is Doña Marisol's frijoles safe for my peanut allergy?");
     expect(r.cards).toEqual([]);
-    expect(r.parts).toContainEqual(lineOf('rule.already_saved', { ingredient: 'peanut', severity: 'a severe allergy' }));
+    expect(r.parts).toContainEqual(lineOf('rule.already_saved', { ingredient: 'peanut', rule: 'peanut', severity: 'a severe allergy' }));
     expect(JSON.stringify(r.parts)).not.toMatch(/rule\.stamped|ask_what_else/);
     expect(await countOf('rules', p.userId)).toBe(1);
   });
 
   // ("I'm anaphylactic to X" routes to the emergency line first (E6); this is the same severity said without it.)
+  test('fix round 2 N4: a saved tree nut category rule is named as the Rules screen shows it', async () => {
+    await makeApp(fakeAi([toolCall('propose_rule', { term: 'cashews', severity: 'allergy' })]));
+    const p = await player(AI_HEALTH);
+    const res = await call(p.cookie, {
+      method: 'POST',
+      url: '/rules',
+      payload: { rule: { target: { kind: 'category', ids: ['tree_nut'] }, type: 'avoid', severity: 'anaphylactic' }, confirmed: true },
+    });
+    expect(res.statusCode).toBe(201);
+    const r = await turn(p.cookie, "I'm allergic to cashews");
+    expect(r.cards).toEqual([]);
+    expect(r.parts).toContainEqual(lineOf('rule.already_saved', { ingredient: 'cashew', rule: 'tree nut', severity: 'a severe allergy' }));
+  });
+
   test('a saved intolerance: "I have a severe peanut allergy" still gets the stricter card', async () => {
     await makeApp(fakeAi([toolCall('propose_rule', { term: 'peanuts', severity: 'anaphylactic' })]));
     const p = await player(AI_HEALTH);

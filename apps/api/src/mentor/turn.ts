@@ -165,6 +165,22 @@ interface Reply {
 
 const SEVERITY_RANK: Readonly<Record<Severity, number>> = { preference: 0, intolerance: 1, allergy: 2, anaphylactic: 3 };
 
+const sameIds = (a: readonly string[], b: readonly string[]) => {
+  const x = [...a].sort();
+  const y = [...b].sort();
+  return x.length === y.length && x.every((id, i) => id === y[i]);
+};
+
+/**
+ * A saved rule's name as the Rules screen shows it (apps/game/src/rules/rules-screen.ts `ruleName`): a rule
+ * term's name with its targets, or the ledger names of its targets (fix round 2, N4).
+ */
+function savedRuleName(rule: Rule, catalog: Catalog): string {
+  const term = catalog.ruleTerms.find((t) => sameIds(t.ids, rule.target.ids));
+  const names = rule.target.ids.map((id) => (catalog.graph.has(id) ? catalog.graph.get(id).name : id));
+  return term ? `${term.name} (${names.join(', ')})` : names.join(', ');
+}
+
 /**
  * Step 12 controller ruling (S13): the player's saved avoid rule that covers every target of `card` (the same
  * ids, or a saved category they are kinds of) at a STRICTER severity than the card's, or null. Such a card is
@@ -215,7 +231,13 @@ function cardsFromCalls(
         if (r.ok && stricter !== null) {
           // Already on file at a stricter level: say so, offer nothing (never a milder read-back).
           onFile.push(...r.card.rule.target.ids);
-          parts.push(line('rule.already_saved', { ingredient: r.card.display.ingredient, severity: SEVERITY_WORDS[stricter.severity] }));
+          parts.push(
+            line('rule.already_saved', {
+              ingredient: r.card.display.ingredient,
+              rule: savedRuleName(stricter, deps.catalog),
+              severity: SEVERITY_WORDS[stricter.severity],
+            }),
+          );
         } else if (r.ok) add(r.card);
         else if (r.reason === 'unknown_term') parts.push({ kind: 'line', line: r.line });
         else parts.push({ kind: 'line', line: r.line }, { kind: 'choices', options: r.options, severity: call.args.severity });

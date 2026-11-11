@@ -618,12 +618,13 @@ triggers:
     ai: never
     when: A rule card would read back a milder level than the player's saved rule for the same ingredient, so no card is offered (M4 Step 12).
     vars:
-      ingredient: "the ingredient, as the ledger names it"
+      ingredient: "the ingredient the card was for, as the ledger names it"
+      rule: "the saved rule, as the Rules screen shows it (e.g. 'tree nut')"
       severity: "the saved level, e.g. 'a severe allergy'"
     notes: "Plain. No jokes. Nothing was written this turn; never says a dish is safe."
     lines:
-      - "{ingredient} is already on your list as {severity}, and that stays as it is. Check the dish card to see how a dish fares against it."
-      - "You already have {ingredient} filed as {severity}. I haven't changed it. The dish card shows how each dish fares against your rules."
+      - "Your rule for {rule} already covers {ingredient}, as {severity}, and that stays as it is. Check the dish card to see how a dish fares against it."
+      - "{ingredient} is already covered by your {rule} rule, filed as {severity}. I haven't changed it. The dish card shows how each dish fares against your rules."
 
   rule.exclusion_not_kept:
     ai: never
