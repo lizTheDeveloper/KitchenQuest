@@ -23,11 +23,16 @@ import type { Quest } from './types';
 const DAY = '2026-11-10';
 const leela = quests['leela-tempering'];
 const marisol = quests['marisol-salt-question'];
+/** Leela's cook step, the last (after the recognize step Step 4 ships). */
+const LEELA_COOK = leela.steps.findIndex((s) => s.type === 'cook');
 
-/** Marisol's quest with a recognize step before its cook step, as Step 4 will ship it (C2: tempering). */
+/**
+ * A quest with its shipped recognize step (Step 4, C2: Marisol on tempering) replaced by one with lines of its own, so
+ * a test can tell `lines` from `otherwise` (the shipped ones are empty until M10).
+ */
 const withRecognize = (q: Quest, technique: string): Quest => {
-  const cookAt = q.steps.findIndex((s) => s.type === 'cook');
-  const steps = [...q.steps];
+  const steps = q.steps.filter((s) => s.type !== 'recognize');
+  const cookAt = steps.findIndex((s) => s.type === 'cook');
   steps.splice(cookAt, 0, { type: 'recognize', technique, lines: ['I know that hand.'], otherwise: ['Watch closely.'] });
   return { ...q, steps };
 };
@@ -115,14 +120,14 @@ const questRewards = (h: ProgressHistory) => {
 };
 
 describe('quest engine', () => {
-  it('leela-tempering runs talk → errand → drill → riddle → cook → done (the order in leela.yaml), emitting quest_step events in order', () => {
-    expect(leela.steps.map((s) => s.type)).toEqual(['talk', 'errand', 'drill', 'riddle', 'cook']);
+  it('leela-tempering runs talk → errand → drill → riddle → recognize → cook → done (the order in leela.yaml), emitting quest_step events in order', () => {
+    expect(leela.steps.map((s) => s.type)).toEqual(['talk', 'errand', 'drill', 'riddle', 'recognize', 'cook']);
     const p0 = view(EMPTY_HISTORY, cat);
     expect(questStatus(leela, p0)).toBe('open');
     expect(currentStep(leela, p0)).toEqual({ index: 0, step: leela.steps[0] });
 
     const { h, emitted } = playQuest(leela, EMPTY_HISTORY);
-    expect(emitted.map((e) => (e.kind === 'quest_step' ? `step${e.step}` : e.kind))).toEqual(['step1', 'step2', 'step3', 'drill', 'step4', 'step5', 'quest_done']);
+    expect(emitted.map((e) => (e.kind === 'quest_step' ? `step${e.step}` : e.kind))).toEqual(['step1', 'step2', 'step3', 'drill', 'step4', 'step5', 'step6', 'quest_done']);
     expect(emitted.find((e) => e.kind === 'drill')).toMatchObject({ quest: 'leela-tempering', step: 3, technique: 'knife' });
     const p = view(h, cat);
     expect(questStatus(leela, p)).toBe('done');
@@ -240,7 +245,7 @@ describe('quest engine', () => {
   });
 
   describe('a quest cook step whose dish the rules block (concern-1 ruling)', () => {
-    const cookStep = leela.steps[4];
+    const cookStep = leela.steps[LEELA_COOK];
     if (cookStep.type !== 'cook') throw new Error('fixture');
     const p0 = recipes.get('india/kerala/parippu')!;
     const line = (name: string) => ({ name, displayName: null, quantity: 100, unit: 'g', note: null });
@@ -280,6 +285,17 @@ describe('quest engine', () => {
       expect(pA.toolkit.techniques.tempering.tier).toBe('seen');
     });
 
+    it("a cook step's technique narrows its stand-ins to that technique (Step 4 schema carry)", () => {
+      expect(cookStep.recipe).toBe('india/kerala/parippu');
+      expect(alternativesFor({ ...cookStep, technique: 'legumes' }, altCtx([ALLIUM]))).toEqual([{ kind: 'recipe', slug: 'test/plain-dal', status: 'ok' }]);
+      // The plain dal practises legumes only: a tempering step accepts nothing it can offer.
+      expect(alternativesFor({ ...cookStep, technique: 'tempering' }, altCtx([ALLIUM]))).toEqual([]);
+      // A technique the recipe doesn't teach leaves nothing, never every technique.
+      expect(alternativesFor({ ...cookStep, technique: 'shaping' }, altCtx([ALLIUM]))).toEqual([]);
+      const frames = [{ id: 'f-temper', technique: 'tempering', status: 'ok' as const }, { id: 'f-legume', technique: 'legumes', status: 'ok' as const }];
+      expect(alternativesFor({ ...cookStep, technique: 'tempering' }, { ...ctx([ALLIUM]), frames })).toEqual([{ kind: 'frame', id: 'f-temper', status: 'ok' }]);
+    });
+
     it("…else through the adapted lesson: a seen event, quest.cook_adapted, identical quest rewards; Marisol's quest then opens", () => {
       const normal = playQuest(leela, EMPTY_HISTORY);
       const lesson = playQuest(leela, EMPTY_HISTORY, DAY, { rules: [ALLIUM] });
@@ -302,7 +318,7 @@ describe('quest engine', () => {
     it('I2: a dairy player cooking the ❓ parippu (labels checked) completes the step; the lesson stays an option only while it is uncooked', () => {
       const MILK: Rule = { id: 'r-milk', target: { kind: 'ingredient', ids: ['milk'] }, type: 'avoid', severity: 'allergy' };
       expect(dishStatus('india/kerala/parippu', ctx([MILK]))).toBe('unverified');
-      const h = playSteps(leela, EMPTY_HISTORY, 4);
+      const h = playSteps(leela, EMPTY_HISTORY, LEELA_COOK);
       // Not cooked yet: no ✅ alternative in the canon (all ❓), so the adapted lesson is open.
       expect(alternativesFor(cookStep, ctx([MILK]))).toEqual([]);
       expect(advance(leela, view(h, cat), { type: 'cook', lesson: true }, DAY, newId, ctx([MILK])).ok).toBe(true);
@@ -320,7 +336,7 @@ describe('quest engine', () => {
     });
 
     it('M1: a cook dated after the step (clock skew, a forged upload) does not complete it', () => {
-      const h = playSteps(leela, EMPTY_HISTORY, 4);
+      const h = playSteps(leela, EMPTY_HISTORY, LEELA_COOK);
       const future: ProgressEvent = { id: newId(), kind: 'cooked', at: '2026-11-11', recipe: 'india/kerala/parippu', planned: false };
       const h2 = record(h, [future], cat);
       expect(advance(leela, view(h2, cat), { type: 'cook', cookedEventId: future.id }, DAY, newId, ctx())).toMatchObject({ ok: false, reason: 'not_current' });
@@ -337,7 +353,7 @@ describe('quest engine', () => {
       expect(offered.some((a) => a.kind === 'recipe' && a.slug === 'mexico/oaxaca/frijoles-de-olla')).toBe(false);
       expect(offered.some((a) => a.kind === 'recipe' && a.slug === 'japan/osaka/onigiri')).toBe(false);
       // Cooking the ⛔ frijoles (it shares legumes) is not an alternative; nor is the adapted lesson while one exists.
-      let h = playSteps(leela, EMPTY_HISTORY, 4);
+      let h = playSteps(leela, EMPTY_HISTORY, LEELA_COOK);
       const frijoles: ProgressEvent = { id: newId(), kind: 'cooked', at: DAY, recipe: 'mexico/oaxaca/frijoles-de-olla', planned: false };
       h = record(h, [frijoles], catAlt);
       expect(advance(leela, view(h, catAlt), { type: 'cook', cookedEventId: frijoles.id }, DAY, newId, altCtx([ALLIUM]))).toEqual({ ok: false, reason: 'not_current', say: [] });
@@ -365,7 +381,7 @@ describe('quest engine', () => {
       expect(alternativesFor(cookStep, { ...ctx([ALLIUM]), frames })).toEqual([{ kind: 'frame', id: 'quick-tomato', status: 'swap' }]);
       // A frame_cooked for it since the quest started completes the step.
       const c = { ...ctx([ALLIUM]), frames };
-      const view4 = view(playSteps(leela, EMPTY_HISTORY, 4), cat);
+      const view4 = view(playSteps(leela, EMPTY_HISTORY, LEELA_COOK), cat);
       const withFrame = { ...view4, framesCookedOn: { 'quick-tomato': [DAY] } };
       const r = advance(leela, withFrame, { type: 'cook', cookedEventId: 'f1' }, DAY, newId, c);
       expect(r).toMatchObject({ ok: true, cook: { via: { kind: 'frame', id: 'quick-tomato' }, trigger: null } });
@@ -377,7 +393,7 @@ describe('quest engine', () => {
     const START = '2026-11-12';
     // Cooked parippu before the quest started: it does not count.
     let h = record(EMPTY_HISTORY, [{ id: newId(), kind: 'cooked', at: DAY, recipe: 'india/kerala/parippu', planned: false }], cat);
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < LEELA_COOK; i++) {
       const r = advance(leela, view(h, cat), rightInput(leela, i, h), START, newId, ctx());
       if (!r.ok) throw new Error(r.reason);
       h = record(h, r.events, cat);
@@ -432,7 +448,7 @@ describe('quest engine', () => {
     expect(questStatus(marisol, p)).toBe('waiting');
     expect(advance(marisol, p, { type: 'talk' }, DAY, newId, ctx())).toEqual({ ok: false, reason: 'waiting', say: [] });
     // Part-way through Leela's quest is still waiting.
-    const part = view(playSteps(leela, EMPTY_HISTORY, 4), cat);
+    const part = view(playSteps(leela, EMPTY_HISTORY, LEELA_COOK), cat);
     expect(questStatus(marisol, part)).toBe('waiting');
     expect(advance(marisol, part, { type: 'talk' }, DAY, newId, ctx())).toMatchObject({ ok: false, reason: 'waiting' });
     const done = view(playQuest(leela, EMPTY_HISTORY).h, cat);
@@ -458,7 +474,7 @@ describe('quest engine', () => {
   });
 
   it('every step passed but quest_done lost → advance gives just quest_done', () => {
-    let h = playSteps(leela, EMPTY_HISTORY, 4);
+    let h = playSteps(leela, EMPTY_HISTORY, LEELA_COOK);
     h = record(h, [{ id: newId(), kind: 'cooked', at: DAY, recipe: 'india/kerala/parippu', planned: false }], cat);
     const r = advance(leela, view(h, cat), { type: 'cook', cookedEventId: 'c' }, DAY, newId, ctx());
     if (!r.ok) throw new Error(r.reason);

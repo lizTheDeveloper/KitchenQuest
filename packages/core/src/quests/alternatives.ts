@@ -41,9 +41,12 @@ export function statusOn(slug: string, date: string, ctx: RulesContext): CheckSt
 /**
  * What can stand in for `recipe` on `date`: every other non-sacred recipe, and every frame, that practises one of
  * its techniques (its `skills`) and whose rules check is ✅ or a labelled swap. Recipes by slug, then frames by id.
+ * `only` narrows the techniques to that one, when it is one of the recipe's skills (a quest cook step's `technique`);
+ * a technique the recipe doesn't teach leaves nothing.
  */
-export function alternativesOn(recipe: string, date: string, ctx: RulesContext): CookAlternative[] {
-  const skills = new Set(ctx.recipes.get(recipe)?.meta.skills ?? []);
+export function alternativesOn(recipe: string, date: string, ctx: RulesContext, only?: string): CookAlternative[] {
+  const own = ctx.recipes.get(recipe)?.meta.skills ?? [];
+  const skills = new Set(only === undefined ? own : own.filter((t) => t === only));
   const out: CookAlternative[] = [];
   for (const slug of [...ctx.recipes.keys()].sort(byId)) {
     const r = ctx.recipes.get(slug)!;

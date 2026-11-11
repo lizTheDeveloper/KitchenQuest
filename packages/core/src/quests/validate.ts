@@ -13,7 +13,8 @@ const isStrList = (v: unknown): v is string[] => Array.isArray(v) && v.every((x)
 /**
  * Every problem with the quests: each step's references (recipe, technique, stall, ingredient, cook to travel to),
  * riddles with exactly one correct option, `requires` naming known quests with no cycle, `unlock.trust` in 0–5, and
- * every `recognize` step's technique learned elsewhere (not a skill of any of the quest's own cook's recipes).
+ * every `recognize` step's technique learned elsewhere (not a skill of any of the quest's own cook's recipes), and a
+ * cook step's optional `technique` one of its recipe's skills.
  * Reads its input defensively: a quest parsed from YAML may not be the shape its type says.
  */
 export function validateQuests(
@@ -106,9 +107,16 @@ export function validateQuests(
             p.push(`${at}: recognize "${s.technique}" is taught by ${String(q.cook)}'s own recipe; recognition must be of something learned elsewhere`);
           if (!isStrList(s.lines) || !isStrList(s.otherwise)) p.push(`${at}: recognize needs lines and otherwise lists`);
           break;
-        case 'cook':
-          if (!isStr(s.recipe) || !cat.recipes.has(s.recipe)) p.push(`${at}: cook names unknown recipe "${String(s.recipe)}"`);
+        case 'cook': {
+          const recipe = isStr(s.recipe) ? cat.recipes.get(s.recipe) : undefined;
+          if (!recipe) p.push(`${at}: cook names unknown recipe "${String(s.recipe)}"`);
+          if (s.technique !== undefined) {
+            if (!isStr(s.technique) || !cat.techniques.has(s.technique)) p.push(`${at}: cook technique "${String(s.technique)}" is not a technique`);
+            else if (recipe && !recipe.skills.includes(s.technique))
+              p.push(`${at}: cook technique "${s.technique}" is not one of ${String(s.recipe)}'s skills`);
+          }
           break;
+        }
         default:
           p.push(`${at}: unknown step type "${String(s.type)}"`);
       }

@@ -84,6 +84,14 @@ quest:
           reaction: "Water in hot oil? Luck is exactly what you would need. Your pan just flinched, and it is not even on the stove."
       explain: "Mustard seeds need the hottest oil to pop and release their flavour; shallots go in next to turn golden, and curry leaves need only a few seconds, so they go last or they burn."
 
+    # M5: recognition of a technique learned in another cook's kitchen (audit M-3). Empty in M5: the game speaks
+    # the Pan's generic quest.recognize line when the technique is known, and nothing otherwise. The cook's own
+    # lines need a reviewer from this cuisine and wait for M10.
+    - type: recognize
+      technique: patience
+      lines: []
+      otherwise: []
+
     - type: cook
       recipe: india/kerala/parippu
 

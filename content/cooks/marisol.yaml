@@ -80,6 +80,14 @@ quest:
         - "When the water dips below the beans, add hot water from the kettle. Never cold. Cold stops everything and the beans take offence."
         - "Now we wait. In this house, waiting is a skill. You'll get points for it from the Bureau. You'll get beans from me, which are better."
 
+    # M5: recognition of a technique learned in another cook's kitchen (audit M-3). Empty in M5: the game speaks
+    # the Pan's generic quest.recognize line when the technique is known, and nothing otherwise. The cook's own
+    # lines need a reviewer from this cuisine and wait for M10.
+    - type: recognize
+      technique: tempering
+      lines: []
+      otherwise: []
+
     - type: cook
       recipe: mexico/oaxaca/frijoles-de-olla
 

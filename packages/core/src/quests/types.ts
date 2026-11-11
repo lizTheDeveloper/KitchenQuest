@@ -22,7 +22,11 @@ export type QuestStep =
   | { type: 'errand'; stall: string; item: string; lines: string[]; adapted?: string[] }
   /** Audit M-3: `lines` when the player already has `technique` at Tried from another cook's dish, else `otherwise`. */
   | { type: 'recognize'; technique: string; lines: string[]; otherwise: string[] }
-  | { type: 'cook'; recipe: string };
+  /**
+   * `technique` (optional, M5 Step 4) is one of the recipe's own skills: when the player's rules block the dish, only
+   * stand-ins that practise that technique count (`alternativesFor`). Without it, any of the recipe's skills does.
+   */
+  | { type: 'cook'; recipe: string; technique?: string };
 
 export type QuestStepType = QuestStep['type'];
 

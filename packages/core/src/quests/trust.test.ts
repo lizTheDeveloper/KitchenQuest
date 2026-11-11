@@ -25,7 +25,7 @@ const ctx = (rules: Rule[], frames?: RulesContext['frames']): RulesContext => ({
 
 const MON = '2026-11-09';
 const leelaDone = (at: string): ProgressEvent[] => [
-  ...Array.from({ length: 5 }, (_, i): ProgressEvent => ({ id: newId(), kind: 'quest_step', at, quest: 'leela-tempering', step: i + 1 })),
+  ...Array.from({ length: quests['leela-tempering'].steps.length }, (_, i): ProgressEvent => ({ id: newId(), kind: 'quest_step', at, quest: 'leela-tempering', step: i + 1 })),
   { id: newId(), kind: 'quest_done', at, quest: 'leela-tempering' },
 ];
 const dal = (at: string, standsInFor?: string[]): ProgressEvent => ({ id: newId(), kind: 'cooked', at, recipe: 'test/plain-dal', planned: false, ...(standsInFor ? { standsInFor } : {}) });

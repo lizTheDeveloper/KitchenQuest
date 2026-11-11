@@ -71,6 +71,12 @@ export const SHIPPED_QUESTS: Quest[] = [
         "explain": "Mustard seeds need the hottest oil to pop and release their flavour; shallots go in next to turn golden, and curry leaves need only a few seconds, so they go last or they burn."
       },
       {
+        "type": "recognize",
+        "technique": "patience",
+        "lines": [],
+        "otherwise": []
+      },
+      {
         "type": "cook",
         "recipe": "india/kerala/parippu"
       }
@@ -150,6 +156,12 @@ export const SHIPPED_QUESTS: Quest[] = [
           "When the water dips below the beans, add hot water from the kettle. Never cold. Cold stops everything and the beans take offence.",
           "Now we wait. In this house, waiting is a skill. You'll get points for it from the Bureau. You'll get beans from me, which are better."
         ]
+      },
+      {
+        "type": "recognize",
+        "technique": "tempering",
+        "lines": [],
+        "otherwise": []
       },
       {
         "type": "cook",
@@ -232,6 +244,12 @@ export const SHIPPED_QUESTS: Quest[] = [
           "Firm enough to hold, soft enough that the grains are still grains. If you squeeze the air out, it becomes a stone with a filling. Customers do not want a stone.",
           "Again. Wet hands. Every single one. Not most. Every."
         ]
+      },
+      {
+        "type": "recognize",
+        "technique": "patience",
+        "lines": [],
+        "otherwise": []
       },
       {
         "type": "cook",

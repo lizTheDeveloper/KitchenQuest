@@ -129,11 +129,11 @@ export function dishStatus(slug: string, ctx: StepContext): CheckStatus {
 
 /**
  * What can stand in for a cook step's dish today (`alternativesOn`): other non-sacred recipes and frames that practise
- * one of its techniques and pass the rules (✅ or a labelled swap). ⛔ and ❓ are never listed. Meant for when
- * `dishStatus` of the step's own dish is ⛔, or ❓ and not cooked.
+ * one of its techniques (only the step's `technique`, when it names one) and pass the rules (✅ or a labelled swap).
+ * ⛔ and ❓ are never listed. Meant for when `dishStatus` of the step's own dish is ⛔, or ❓ and not cooked.
  */
 export function alternativesFor(step: Extract<QuestStep, { type: 'cook' }>, ctx: StepContext): CookAlternative[] {
-  return alternativesOn(step.recipe, ctx.today, ctx);
+  return alternativesOn(step.recipe, ctx.today, ctx, step.technique);
 }
 
 /** The other cook from whom the player has `technique` at Tried (audit M-3), or null. */

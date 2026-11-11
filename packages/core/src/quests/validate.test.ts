@@ -16,9 +16,12 @@ describe('validateQuests', () => {
     expect(run(all)).toEqual([]);
   });
 
-  it('Step 4\'s planned recognize steps pass (C2: Leela patience, Marisol tempering, Haruka patience)', () => {
+  it('ships one recognize step per cook, just before the cook step (C2: Leela patience, Marisol tempering, Haruka patience)', () => {
     const rec = (technique: string): QuestStep => ({ type: 'recognize', technique, lines: [], otherwise: [] });
-    expect(run([withStep(leela, rec('patience')), withStep(marisol, rec('tempering')), withStep(haruka, rec('patience'))])).toEqual([]);
+    for (const [q, technique] of [[leela, 'patience'], [marisol, 'tempering'], [haruka, 'patience']] as const) {
+      expect(q.steps.filter((s) => s.type === 'recognize')).toEqual([rec(technique)]);
+      expect(q.steps.slice(-2).map((s) => s.type)).toEqual(['recognize', 'cook']);
+    }
   });
 
   it("validateQuests: two correct options, unknown recipe, requires cycle, recognize of own cook's technique → problems", () => {
@@ -31,7 +34,7 @@ describe('validateQuests', () => {
     expect(run([noCorrect, marisol, haruka])).toEqual(['quest "leela-tempering" step 4: a riddle needs exactly one correct option (has 0)']);
 
     const unknownRecipe: Quest = { ...leela, steps: leela.steps.map((s) => (s.type === 'cook' ? { type: 'cook', recipe: 'india/kerala/sambar' } : s)) };
-    expect(run([unknownRecipe, marisol, haruka])).toEqual(['quest "leela-tempering" step 5: cook names unknown recipe "india/kerala/sambar"']);
+    expect(run([unknownRecipe, marisol, haruka])).toEqual(['quest "leela-tempering" step 6: cook names unknown recipe "india/kerala/sambar"']);
 
     const cycle: Quest = { ...leela, unlock: { requires: ['haruka-gluey-rice'], trust: 0 } };
     expect(run([cycle, marisol, haruka])).toEqual(['unlock.requires cycle: leela-tempering → haruka-gluey-rice → marisol-salt-question → leela-tempering']);
@@ -39,8 +42,21 @@ describe('validateQuests', () => {
     // heat-control is a skill of Leela's own parippu (C2), so it isn't recognition of something learned elsewhere.
     const own = withStep(leela, { type: 'recognize', technique: 'heat-control', lines: [], otherwise: [] });
     expect(run([own, marisol, haruka])).toEqual([
-      "quest \"leela-tempering\" step 5: recognize \"heat-control\" is taught by leela's own recipe; recognition must be of something learned elsewhere",
+      "quest \"leela-tempering\" step 6: recognize \"heat-control\" is taught by leela's own recipe; recognition must be of something learned elsewhere",
     ]);
+  });
+
+  it("a cook step's optional technique must be one of its recipe's skills", () => {
+    const withTechnique = (technique: unknown): Quest => ({
+      ...leela,
+      steps: leela.steps.map((s) => (s.type === 'cook' ? ({ ...s, technique } as QuestStep) : s)),
+    });
+    expect(run([withTechnique('tempering'), marisol, haruka])).toEqual([]);
+    expect(run([withTechnique('shaping'), marisol, haruka])).toEqual([
+      'quest "leela-tempering" step 6: cook technique "shaping" is not one of india/kerala/parippu\'s skills',
+    ]);
+    expect(run([withTechnique('levitation'), marisol, haruka])).toEqual(['quest "leela-tempering" step 6: cook technique "levitation" is not a technique']);
+    expect(run([withTechnique(7), marisol, haruka])).toEqual(['quest "leela-tempering" step 6: cook technique "7" is not a technique']);
   });
 
   it('unknown technique, stall, ingredient, cook, travel place, quest and step type → problems', () => {
