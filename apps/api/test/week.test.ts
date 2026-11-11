@@ -46,9 +46,14 @@ beforeAll(async () => {
 afterAll(async () => {
   await closeDb?.();
 });
-const build = async (logger: Parameters<typeof buildApp>[0]['logger'] = false) => {
+const build = async (logger: Parameters<typeof buildApp>[0]['logger'] = false, at: Date = NOW) => {
   mailer = new CaptureMailer();
-  app = await buildApp({ config, db, mailer, ai: null, now: () => NOW, logger });
+  app = await buildApp({ config, db, mailer, ai: null, now: () => at, logger });
+};
+/** Rebuilds the app on another clock (the database and the players stay). */
+const rebuildAt = async (at: Date) => {
+  await app.close();
+  await build(false, at);
 };
 beforeEach(async () => {
   await build();
@@ -427,5 +432,152 @@ describe('erasure and logs', () => {
     await current(p.cookie);
     expect(logs.lines().length).toBeGreaterThan(0);
     expect(logs.text()).not.toMatch(/parippu|onigiri|umeboshi|nori|coconut|kerala|osaka/i);
+  });
+});
+
+describe('fix round 1', () => {
+  it('I1: a tick recomputes against the current rules: a row of a dish blocked mid-run is 404 and never reaches the pantry', async () => {
+    const p = await player();
+    await put(p.cookie, planOf(MONDAY, [dish(PARIPPU, 0), dish(ONIGIRI, 2)]));
+    const run = await open(p.cookie);
+    await addRule(p.cookie); // coconut: parippu is ⛔ now
+    const res = await tick(p.cookie, run.id, row(run, 'turmeric').key, true);
+    expect(res.statusCode).toBe(404);
+    expect(await loadPantry(db, config.keyring, p.id)).toEqual([]);
+    // A row still on the list ticks, and the response carries no row of the blocked dish.
+    const ok = await tick(p.cookie, run.id, row(run, 'nori sheets').key, true);
+    expect(ok.statusCode, ok.body).toBe(200);
+    const view = ok.json<MarketRunView>();
+    expect(view.items.filter((i) => i.forDishes.includes(PARIPPU) && !i.ticked)).toEqual([]);
+    expect(view.items.map((i) => i.name)).not.toContain('grated coconut');
+    // Onigiri's ❓ lines are flagged in the tick response (computed now).
+    expect(row(view, 'umeboshi').unverified).toBe(true);
+  });
+
+  it('I2 Auckland (UTC+13, Saturday market): at 09:00 Saturday local the current week is that Saturday', async () => {
+    await rebuildAt(new Date('2026-11-13T20:00:00Z')); // Friday 20:00 UTC = Saturday 09:00 in Auckland
+    const p = await player();
+    await call(p.cookie, { method: 'PUT', url: '/profile', payload: { marketDays: [6] } });
+    const local = await call(p.cookie, { method: 'GET', url: '/plans/current?today=2026-11-14' });
+    expect(local.statusCode, local.body).toBe(200);
+    expect(local.json().weekStart).toBe('2026-11-14');
+    // Without the local date, the UTC date is used (the fallback).
+    expect((await current(p.cookie)).weekStart).toBe('2026-11-07');
+    // A tick dates the purchase with the local day.
+    const saved = await call(p.cookie, { method: 'PUT', url: '/plans/2026-11-14', payload: { plan: planOf('2026-11-14', [dish(ONIGIRI)]), confirmed: true, today: '2026-11-14' } });
+    expect(saved.statusCode, saved.body).toBe(200);
+    const run = await open(p.cookie, '2026-11-14');
+    const t = await call(p.cookie, { method: 'POST', url: `/market-runs/${run.id}/ticks`, payload: { key: row(run, 'umeboshi').key, ticked: true, today: '2026-11-14' } });
+    expect(t.statusCode, t.body).toBe(200);
+    expect((await loadPantry(db, config.keyring, p.id))[0].addedOn).toBe('2026-11-14');
+  });
+
+  it('I2 Los Angeles (UTC−8): at 19:00 Friday local the week is still the current one, and a tick is dated Friday', async () => {
+    await rebuildAt(new Date('2026-11-14T03:00:00Z')); // Friday 19:00 in Los Angeles
+    const p = await player();
+    await call(p.cookie, { method: 'PUT', url: '/profile', payload: { marketDays: [6] } });
+    const local = await call(p.cookie, { method: 'GET', url: '/plans/current?today=2026-11-13' });
+    expect(local.json().weekStart).toBe('2026-11-07');
+    expect((await current(p.cookie)).weekStart).toBe('2026-11-14');
+    await call(p.cookie, { method: 'PUT', url: '/plans/2026-11-07', payload: { plan: planOf('2026-11-07', [dish(ONIGIRI)]), confirmed: true, today: '2026-11-13' } });
+    const run = await open(p.cookie, '2026-11-07');
+    const t = await call(p.cookie, { method: 'POST', url: `/market-runs/${run.id}/ticks`, payload: { key: row(run, 'umeboshi').key, ticked: true, today: '2026-11-13' } });
+    expect(t.statusCode, t.body).toBe(200);
+    expect((await loadPantry(db, config.keyring, p.id))[0].addedOn).toBe('2026-11-13');
+  });
+
+  it('I2: a local date outside [UTC−1, UTC+1], or not a date, is 400', async () => {
+    const p = await player();
+    for (const bad of ['2026-11-08', '2026-11-12', '2026-13-01', 'today']) {
+      const res = await call(p.cookie, { method: 'GET', url: `/plans/current?today=${bad}` });
+      expect(res.statusCode, bad).toBe(400);
+    }
+    for (const ok of ['2026-11-09', '2026-11-10', '2026-11-11']) {
+      expect((await call(p.cookie, { method: 'GET', url: `/plans/current?today=${ok}` })).statusCode, ok).toBe(200);
+    }
+    await put(p.cookie, planOf(MONDAY, [dish(ONIGIRI)]));
+    const run = await open(p.cookie);
+    const t = await call(p.cookie, { method: 'POST', url: `/market-runs/${run.id}/ticks`, payload: { key: row(run, 'umeboshi').key, ticked: true, today: '2026-11-12' } });
+    expect(t.statusCode).toBe(400);
+    expect(await loadPantry(db, config.keyring, p.id)).toEqual([]);
+  });
+
+  it('I3: plans only for weeks from the current week − 1 to + 4', async () => {
+    const p = await player();
+    const at = async (weekStart: string) => (await put(p.cookie, planOf(weekStart, [dish(ONIGIRI)]))).statusCode;
+    // Current plan week (no market days): Monday 2026-11-09.
+    expect(await at('2026-11-02')).toBe(200);
+    expect(await at('2026-12-07')).toBe(200);
+    for (const out of ['2026-10-26', '2026-12-14', '2099-01-05', '2020-01-06']) {
+      const res = await put(p.cookie, planOf(out, [dish(ONIGIRI)]));
+      expect(res.statusCode, out).toBe(400);
+      expect(res.json().error).toMatchObject({ code: 'plan_invalid', details: { problems: ['plan: weekStart is outside the weeks you can plan'] } });
+    }
+  });
+
+  it('M1: a tick takes pantry: before plan: (plan: is still free while it waits on pantry:)', async () => {
+    const p = await player();
+    await put(p.cookie, planOf(MONDAY, [dish(ONIGIRI)]));
+    const run = await open(p.cookie);
+    const blocker = await sql.reserve();
+    const probe = await sql.reserve();
+    try {
+      await blocker`begin`;
+      await blocker`select pg_advisory_xact_lock(${ADVISORY_LOCK.pantry}, hashtext(${p.id}))`;
+      const pending = tick(p.cookie, run.id, row(run, 'umeboshi').key, true);
+      for (let i = 0; ; i++) {
+        const [w] = await sql<{ n: number }[]>`
+          select count(*)::int as n from pg_stat_activity
+          where datname = current_database() and wait_event_type = 'Lock' and wait_event = 'advisory'`;
+        if (w.n >= 1) break;
+        if (i > 300) throw new Error('the tick never waited on pantry:');
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      await probe`begin`;
+      const [got] = await probe<{ ok: boolean }[]>`select pg_try_advisory_xact_lock(${ADVISORY_LOCK.plan}, hashtext(${p.id})) as ok`;
+      expect(got.ok).toBe(true);
+      await probe`rollback`;
+      await blocker`commit`;
+      expect((await pending).statusCode).toBe(200);
+    } finally {
+      await blocker`rollback`.catch(() => {});
+      await probe`rollback`.catch(() => {});
+      blocker.release();
+      probe.release();
+    }
+  });
+
+  it('M2: after a "keep" withdrawal the run can still be read (no write, current rules); ticks and finish still need consent', async () => {
+    const p = await player();
+    await put(p.cookie, planOf(MONDAY, [dish(PARIPPU, 0), dish(ONIGIRI, 2)]));
+    const run = await open(p.cookie);
+    await tick(p.cookie, run.id, row(run, 'nori sheets').key, true);
+    await addRule(p.cookie);
+    const [before] = await db.select().from(marketRuns).where(eq(marketRuns.id, run.id));
+    expect((await call(p.cookie, { method: 'DELETE', url: '/me/consents/health_data', payload: { healthData: 'keep' } })).statusCode).toBe(204);
+    const read = await open(p.cookie);
+    expect(read.id).toBe(run.id);
+    expect(row(read, 'nori sheets').ticked).toBe(true);
+    // Read with the current rules: the ⛔ dish's unticked rows are not shown as a list to buy.
+    expect(read.items.filter((i) => i.forDishes.includes(PARIPPU) && !i.ticked)).toEqual([]);
+    const [after] = await db.select().from(marketRuns).where(eq(marketRuns.id, run.id));
+    expect(after.sealed.equals(before.sealed)).toBe(true);
+    expect((await tick(p.cookie, run.id, row(read, 'umeboshi').key, true)).statusCode).toBe(403);
+    expect((await finish(p.cookie, run.id)).statusCode).toBe(403);
+    // No run yet and no consent: opening would be a write.
+    const q = await player({ consent: false });
+    expect((await call(q.cookie, { method: 'POST', url: '/market-runs', payload: { weekStart: MONDAY } })).statusCode).toBe(403);
+  });
+
+  it('M3: PUT accepts the plan exactly as GET returned it (its id is ignored)', async () => {
+    const p = await player();
+    await put(p.cookie, planOf(MONDAY, [dish(ONIGIRI, 1)]));
+    const got = (await current(p.cookie)).plan!;
+    const res = await put(p.cookie, { ...got, items: [...got.items, dish(ONIGIRI, 3)] } as Plan);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json<{ plan: { id: string } }>().plan.id).toBe(got.id);
+    const forged = await put(p.cookie, { ...got, id: '00000000-0000-4000-8000-000000000000' } as Plan);
+    expect(forged.statusCode).toBe(200);
+    expect(forged.json<{ plan: { id: string } }>().plan.id).toBe(got.id);
   });
 });
