@@ -71,6 +71,25 @@ describe('validateQuests', () => {
     ]);
   });
 
+  it('M2: riddle options need string text and reaction and a boolean correct; prompt and explain are strings; lines are string lists', () => {
+    const riddle = (over: Record<string, unknown>): Quest => ({
+      ...leela,
+      steps: leela.steps.map((s) => (s.type === 'riddle' ? ({ ...s, ...over } as unknown as QuestStep) : s)),
+    });
+    const r = leela.steps[3];
+    if (r.type !== 'riddle') throw new Error('fixture');
+    expect(run([riddle({ options: [{ ...r.options[0], reaction: undefined }, ...r.options.slice(1)] }), marisol, haruka])).toEqual([
+      'quest "leela-tempering" step 4: riddle option 1 needs text, reaction and correct',
+    ]);
+    expect(run([riddle({ options: [r.options[0], { text: 3, correct: false, reaction: 'x' }] }), marisol, haruka])).toEqual([
+      'quest "leela-tempering" step 4: riddle option 2 needs text, reaction and correct',
+    ]);
+    expect(run([riddle({ explain: undefined }), marisol, haruka])).toEqual(['quest "leela-tempering" step 4: a riddle needs a prompt and an explain']);
+    expect(run([riddle({ options: 'nope' }), marisol, haruka])).toContain('quest "leela-tempering" step 4: a riddle needs exactly one correct option (has 0)');
+    const talk: Quest = { ...leela, steps: leela.steps.map((s) => (s.type === 'talk' ? ({ type: 'talk', lines: 'hi' } as unknown as QuestStep) : s)) };
+    expect(run([talk, marisol, haruka])).toEqual(['quest "leela-tempering" step 1: lines must be a list of lines']);
+  });
+
   it('unlock.trust must be a whole number in 0–5', () => {
     for (const trust of [-1, 6, 1.5, Number.NaN]) {
       expect(run([{ ...leela, unlock: { requires: [], trust } }, marisol, haruka])).toEqual([

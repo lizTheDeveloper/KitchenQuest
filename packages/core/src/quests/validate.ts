@@ -74,6 +74,7 @@ export function validateQuests(
         return;
       }
       const s = raw;
+      if (['talk', 'travel', 'drill', 'errand'].includes(s.type as string) && !isStrList(s.lines)) p.push(`${at}: lines must be a list of lines`);
       switch (s.type) {
         case 'talk':
           break;
@@ -81,9 +82,14 @@ export function validateQuests(
           if (!isStr(s.place) || !cooks.has(s.place)) p.push(`${at}: travel to unknown place "${String(s.place)}"`);
           break;
         case 'riddle': {
-          const options = Array.isArray(s.options) ? s.options : [];
+          const options: unknown[] = Array.isArray(s.options) ? s.options : [];
           const correct = options.filter((o) => isObj(o) && o.correct === true).length;
           if (correct !== 1) p.push(`${at}: a riddle needs exactly one correct option (has ${correct})`);
+          options.forEach((o, oi) => {
+            if (!isObj(o) || typeof o.text !== 'string' || typeof o.reaction !== 'string' || typeof o.correct !== 'boolean')
+              p.push(`${at}: riddle option ${oi + 1} needs text, reaction and correct`);
+          });
+          if (typeof s.prompt !== 'string' || typeof s.explain !== 'string') p.push(`${at}: a riddle needs a prompt and an explain`);
           break;
         }
         case 'drill':
