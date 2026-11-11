@@ -80,8 +80,10 @@ describe('shareTally', () => {
       e('two_to_three', 'japan/osaka/onigiri'),
       e('one', null, 'fried-rice'),
       e('just_me', null, 'green-sauce'),
+      // A frame cook that also names the dish it stood in for still counts as a frame: shared only.
+      e('two_to_three', 'india/kerala/parippu', 'fried-rice'),
     ]);
-    expect(tally).toEqual({ shared: 4, byRecipe: { 'india/kerala/parippu': 2, 'japan/osaka/onigiri': 1 } });
+    expect(tally).toEqual({ shared: 5, byRecipe: { 'india/kerala/parippu': 2, 'japan/osaka/onigiri': 1 } });
     expect(Object.keys(tally).sort()).toEqual(['byRecipe', 'shared']);
   });
 
