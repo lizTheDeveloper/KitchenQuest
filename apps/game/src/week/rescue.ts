@@ -27,10 +27,18 @@ const RANK: Record<CheckStatus, number> = { ok: 0, swap: 1, unverified: 2, block
 /** Whose nudge memory this is: the live account's partition key, else the guest's. Nothing crosses accounts. */
 const nudgeKey = (s: PlayerState): string => partitionKey(s) ?? 'guest';
 
-/** Today's nudge for this partition, or null. */
-function todays(s: PlayerState, today: string) {
-  const r = s.rescue;
-  return r !== null && r.key === nudgeKey(s) && r.on === today ? r : null;
+/** Today's nudge for this partition, or null (M5 final m11: each partition keeps its own). */
+export function todaysNudge(s: PlayerState, today: string): { on: string; itemId: string; answered: boolean } | null {
+  const key = nudgeKey(s);
+  const r = Object.hasOwn(s.rescue, key) ? s.rescue[key] : undefined;
+  return r !== undefined && r.on === today ? r : null;
+}
+const todays = todaysNudge;
+
+/** The nudge map with this partition's record set, and every record from another day dropped. */
+function withNudge(s: PlayerState, today: string, rec: { itemId: string; answered: boolean }): PlayerState['rescue'] {
+  const kept = Object.entries(s.rescue).filter(([, r]) => r.on === today);
+  return Object.fromEntries([...kept.filter(([k]) => k !== nudgeKey(s)), [nudgeKey(s), { on: today, ...rec }]]);
 }
 
 /** The frame, filled with `item`, that rescues it best (✅, then 🔁, then ❓; never ⛔), or null. */
@@ -75,12 +83,12 @@ export function rescueOffer(
 
 /** The offer was shown: it is today's one nudge (for this partition). */
 export function noteNudge(store: PlayerStore, offer: RescueOffer, today: string): void {
-  store.update((s) => (todays(s, today) !== null ? s : { ...s, rescue: { key: nudgeKey(s), on: today, itemId: offer.item.id, answered: false } }));
+  store.update((s) => (todays(s, today) !== null ? s : { ...s, rescue: withNudge(s, today, { itemId: offer.item.id, answered: false }) }));
 }
 
 /** Cook, Compost or Not now: today's nudge is answered, and nothing more is offered today. */
 export function answerNudge(store: PlayerStore, offer: RescueOffer, today: string): void {
-  store.update((s) => ({ ...s, rescue: { key: nudgeKey(s), on: today, itemId: offer.item.id, answered: true } }));
+  store.update((s) => ({ ...s, rescue: withNudge(s, today, { itemId: offer.item.id, answered: true }) }));
 }
 
 /**

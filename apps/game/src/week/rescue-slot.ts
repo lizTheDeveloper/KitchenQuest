@@ -8,7 +8,7 @@ import { contentText, h } from '../ui/dom';
 import { canonRecipes, rulesOf } from './context';
 import { handOffPick, rememberWeek } from './memory';
 import { writtenLine } from './plan-view';
-import { answerNudge, compost, noteNudge, rescueOffer, type RescueOffer } from './rescue';
+import { answerNudge, compost, noteNudge, rescueOffer, todaysNudge, type RescueOffer } from './rescue';
 import { createWeekSource } from './source';
 
 /**
@@ -20,7 +20,7 @@ export async function mountRescue(slot: HTMLElement, ctx: AppContext, client: Ap
   const s = ctx.store.get();
   const today = localDate(ctx.now());
   if (!s.settings.rescueNudges || s.settings.familyTable) return;
-  if (s.rescue !== null && s.rescue.on === today && s.rescue.answered) return;
+  if (todaysNudge(s, today)?.answered === true) return;
   const rules = rulesOf(s);
   if (rules === null) return; // can't verify: nothing is suggested
   let pantry: (PantryItem & { id: string })[] = s.localPantry;

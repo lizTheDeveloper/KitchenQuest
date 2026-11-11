@@ -242,6 +242,27 @@ describe('Use-It-Up Rescue', () => {
     expect(rescueOffer(s.get(), [told('spinach', 'spinach')], null, TODAY, content.frames, content.keeps, uses([]))).toBeNull();
   });
 
+  test('M5 final m11: the nudge memory is per partition: A answered, B signs in and is nudged, A back the same day → no second nudge', () => {
+    const s = store({ localPantry: pantry });
+    const A = { email: 'a@example.com' }, B = { email: 'b@example.com' };
+    const offerNow = () => rescueOffer(s.get(), pantry, null, TODAY, content.frames, content.keeps, uses([COCONUT]));
+    s.update((x) => ({ ...x, account: A }));
+    const a = offerNow()!;
+    noteNudge(s, a, TODAY);
+    answerNudge(s, a, TODAY); // "Not now"
+    expect(offerNow()).toBeNull();
+    s.update((x) => ({ ...x, account: B }));
+    const b = offerNow()!;
+    expect(b).not.toBeNull(); // B's own day: one nudge for B
+    noteNudge(s, b, TODAY);
+    s.update((x) => ({ ...x, account: A }));
+    expect(offerNow()).toBeNull(); // A already had today's one
+    // Another day starts afresh, and yesterday's records are pruned on the next write.
+    expect(rescueOffer(s.get(), pantry, null, '2026-11-12', content.frames, content.keeps, uses([COCONUT]))).not.toBeNull();
+    noteNudge(s, rescueOffer(s.get(), pantry, null, '2026-11-12', content.frames, content.keeps, uses([COCONUT]))!, '2026-11-12');
+    expect(Object.values(s.get().rescue).every((r) => r.on === '2026-11-12')).toBe(true);
+  });
+
   test('a ❓ frame is offered (rescue.unverified); a ⛔ one never is', () => {
     const s = store();
     // No rice: the frame's required rice slot stays empty, so the filled frame is ❓, never a guess.

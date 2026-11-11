@@ -604,3 +604,12 @@ describe('I3: on-device retention for week data', () => {
     expect(s.get().localWeek).toEqual({ plans: [], runs: [] });
   });
 });
+
+describe('M5 final m11: rescue nudges are kept per partition', () => {
+  it("reads Step 10's single record as its partition's entry, and null as none", () => {
+    const old = { key: 'guest', on: '2026-11-11', itemId: 'spinach', answered: true };
+    expect(createStore(memStorage({ [STORE_KEY]: JSON.stringify({ v: 1, rescue: old }) })).get().rescue).toEqual({ guest: { on: '2026-11-11', itemId: 'spinach', answered: true } });
+    expect(createStore(memStorage({ [STORE_KEY]: JSON.stringify({ v: 1, rescue: null }) })).get().rescue).toEqual({});
+    expect(createStore(memStorage({ [STORE_KEY]: JSON.stringify({ v: 1, rescue: { guest: { on: 'x' } } }) })).notice).toBe('corrupt');
+  });
+});

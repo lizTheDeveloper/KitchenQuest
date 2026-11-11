@@ -135,11 +135,15 @@ export interface LocalRun extends MarketRunView { pantryIds: Record<string, stri
  */
 interface LocalWeek { plans: Plan[]; runs: LocalRun[] }
 /**
- * Today's Use-It-Up nudge (RESCUE_NUDGES_PER_DAY): which partition it was for (the account key, or 'guest'), the
- * local date, the pantry row it named and whether the player answered it (Cook, Compost or Not now). A date and an
- * id only; another day, or another partition, starts afresh.
+ * Today's Use-It-Up nudge (RESCUE_NUDGES_PER_DAY) for one partition: the local date, the pantry row it named and
+ * whether the player answered it (Cook, Compost or Not now). A date and an id only; another day starts afresh.
  */
-interface RescueNudge { key: string; on: string; itemId: string; answered: boolean }
+interface RescueNudge { on: string; itemId: string; answered: boolean }
+/**
+ * M5 final m11: one nudge record per partition (the account key, or 'guest'), so A, then B, then A again on one
+ * device is still one nudge a day for A. Pruned to today on each write.
+ */
+type RescueNudges = Record<string, RescueNudge>;
 /** A signed-out player's profile, kept on this device (the same fields as M2's `/profile`). */
 export interface LocalProfile { marketDays: number[]; mealsPerWeek: number | null; country: string | null; region: string | null; mealWindows: { name: MealSlot; start: string; end: string }[] }
 export interface PlayerState {
@@ -157,7 +161,7 @@ export interface PlayerState {
   /** Signed out, the week's plan and market run (Step 10). */
   localWeek: LocalWeek;
   /** Today's Use-It-Up nudge, or null (Step 10). */
-  rescue: RescueNudge | null;
+  rescue: RescueNudges;
   /** Form 1-A: null = not started. */
   intake: { step: IntakeStep | 'done' | null };
   aiDisclosureSeen: boolean; aiHealthOffered: boolean;
@@ -196,7 +200,7 @@ function freshState(): PlayerState {
     toolkit: EMPTY_TOOLKIT, cookProgress: null, dialogueHistory: {}, progress: EMPTY_PROGRESS, accountProgress: {},
     settings: { showCalories: false, reducedMotion: 'system', familyTable: false, iosNoteDismissed: false, aiMentor: true, rescueNudges: true },
     rulesUnreadable: false, signOutPending: false,
-    localProfile: null, localPantry: [], localWeek: { plans: [], runs: [] }, rescue: null, intake: { step: null }, aiDisclosureSeen: false, aiHealthOffered: false,
+    localProfile: null, localPantry: [], localWeek: { plans: [], runs: [] }, rescue: {}, intake: { step: null }, aiDisclosureSeen: false, aiHealthOffered: false,
   };
 }
 
@@ -233,8 +237,16 @@ const isRunShape = (x: unknown): boolean =>
   isObj(x.pantryIds) && Object.values(x.pantryIds).every((v) => typeof v === 'string');
 const isLocalWeek = (x: unknown): boolean =>
   isObj(x) && Array.isArray(x.plans) && x.plans.every(isPlanShape) && Array.isArray(x.runs) && x.runs.every(isRunShape);
-const isRescue = (x: unknown): boolean =>
-  x === null || (isObj(x) && typeof x.key === 'string' && typeof x.on === 'string' && typeof x.itemId === 'string' && typeof x.answered === 'boolean');
+const isNudge = (x: unknown): boolean => isObj(x) && typeof x.on === 'string' && typeof x.itemId === 'string' && typeof x.answered === 'boolean';
+/** The M5 Step 10 shape (one record with its `key`), or null. */
+const isOldRescue = (x: unknown): x is RescueNudge & { key: string } => isObj(x) && typeof x.key === 'string' && isNudge(x);
+const isRescue = (x: unknown): boolean => x === null || isOldRescue(x) || (isObj(x) && Object.values(x).every(isNudge));
+/** The stored nudges as M5 final's map: Step 10's single record (or null) becomes its partition's entry. */
+function rescueOf(x: unknown): RescueNudges {
+  if (x === null) return {};
+  if (isOldRescue(x)) return { [x.key]: { on: x.on, itemId: x.itemId, answered: x.answered } };
+  return Object.fromEntries(Object.entries(x as RescueNudges));
+}
 const isMealWindow = (x: unknown): boolean =>
   isObj(x) && (MEAL_SLOTS as readonly unknown[]).includes(x.name) && typeof x.start === 'string' && HHMM.test(x.start) &&
   typeof x.end === 'string' && HHMM.test(x.end);
@@ -304,7 +316,7 @@ function merge(p: Record<string, unknown>): PlayerState | null {
     localProfile: has('localProfile') ? (p.localProfile as LocalProfile | null) : d.localProfile,
     localPantry: has('localPantry') ? (p.localPantry as (PantryItem & { id: string })[]) : d.localPantry,
     localWeek: has('localWeek') ? (p.localWeek as LocalWeek) : d.localWeek,
-    rescue: has('rescue') ? (p.rescue as RescueNudge | null) : d.rescue,
+    rescue: has('rescue') ? rescueOf(p.rescue) : d.rescue,
     intake: has('intake') ? { step: (p.intake as { step: IntakeStep | 'done' | null }).step } : d.intake,
     aiDisclosureSeen: (has('aiDisclosureSeen') ? p.aiDisclosureSeen : d.aiDisclosureSeen) as boolean,
     aiHealthOffered: (has('aiHealthOffered') ? p.aiHealthOffered : d.aiHealthOffered) as boolean,

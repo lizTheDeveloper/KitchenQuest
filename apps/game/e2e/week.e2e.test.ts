@@ -100,7 +100,7 @@ describe('the week (M5 Step 10)', () => {
     await page.locator('#overlay-root [role="dialog"]').waitFor();
     // The nudge was answered: none again today.
     const s2 = await stored(page);
-    expect(s2.rescue).toMatchObject({ on: today, answered: true });
+    expect(s2.rescue.guest).toMatchObject({ on: today, answered: true }); // M5 final m11: per partition
     expect(app.requests.filter((u) => new URL(u).pathname.startsWith('/api/') && new URL(u).pathname !== '/api/me')).toEqual([]);
     expect(app.consoleErrors).toEqual([]);
   });
