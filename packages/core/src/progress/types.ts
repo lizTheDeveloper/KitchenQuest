@@ -76,6 +76,8 @@ export interface ProgressView {
   questsDone: string[];
   /** quest id → steps done (the highest step reached). */
   questSteps: Record<string, number>;
+  /** quest id → local date of its first `quest_step` (a quest's `cook` step counts cooks from then on, Step 2). */
+  questStartedOn: Record<string, string>;
   /** recipe slug → local dates it was cooked, sorted, without repeats. Sacred dishes are kept here too. */
   cookedOn: Record<string, string[]>;
   /** frame id → local dates of `frame_cooked` (the book's frames section, Step 11). */

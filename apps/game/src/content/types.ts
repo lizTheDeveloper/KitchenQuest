@@ -4,9 +4,13 @@ import type {
   FreshnessThresholds,
   IngredientData,
   ParsedRecipe,
+  Quest,
   RuleTerm,
   Substitution,
 } from '@kitchenquest/core/engine';
+
+/** The quest types live in core (C33), shared with the API and the quest engine. */
+export type { Quest, QuestStep, RiddleOption } from '@kitchenquest/core/engine';
 
 export interface BureauFormField { key: string; label: string; hint?: string }
 
@@ -38,21 +42,6 @@ export interface Faq {
   a: string;
   a_if_blocked?: string;
   tags?: string[];
-}
-export interface RiddleOption { text: string; correct: boolean; reaction: string }
-export type QuestStep =
-  | { type: 'talk'; lines: string[] }
-  | { type: 'riddle'; prompt: string; options: RiddleOption[]; explain: string }
-  | { type: 'drill'; skill: string; prompt: string; lines: string[] }
-  | { type: 'errand'; stall: string; item: string; lines: string[] }
-  | { type: 'cook'; recipe: string };
-export interface Quest {
-  id: string;
-  cook: string;
-  title: string;
-  unlock: { requires: string[]; trust: number };
-  steps: QuestStep[];
-  rewards: { xp: number; trust: number; skills: Record<string, number> };
 }
 export interface StallOption { text: string; correct: boolean; reaction: string; contains?: string[] }
 export interface StallQuestion {

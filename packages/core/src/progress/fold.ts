@@ -38,6 +38,7 @@ export interface FoldState {
   toolkit: ToolkitState;
   questsDone: string[];
   questSteps: Map<string, number>;
+  questStartedOn: Map<string, string>;
   cookedOn: Map<string, Set<string>>;
   framesCookedOn: Map<string, Set<string>>;
 }
@@ -94,6 +95,7 @@ function fromBase(base: ProgressSnapshot | null): FoldState {
     toolkit: EMPTY_TOOLKIT,
     questsDone: [],
     questSteps: new Map(),
+    questStartedOn: new Map(),
     cookedOn: new Map(),
     framesCookedOn: new Map(),
   };
@@ -115,6 +117,7 @@ function fromBase(base: ProgressSnapshot | null): FoldState {
   if (isObj(v.toolkit) && isObj(v.toolkit.techniques)) s.toolkit = v.toolkit;
   s.questsDone = strings(v.questsDone);
   for (const [q, n] of entries(v.questSteps)) s.questSteps.set(q, nonNeg(n));
+  for (const [q, d] of entries(v.questStartedOn)) if (typeof d === 'string' && isValidDate(d)) s.questStartedOn.set(q, d);
   for (const [r, ds] of entries(v.cookedOn)) s.cookedOn.set(r, new Set(strings(ds)));
   for (const [fr, ds] of entries(v.framesCookedOn)) s.framesCookedOn.set(fr, new Set(strings(ds)));
   return s;
@@ -144,6 +147,7 @@ export function applyEvent(s: FoldState, e: ProgressEvent, cat: Catalogue): void
       break;
     case 'quest_step':
       if (e.step > (s.questSteps.get(e.quest) ?? 0)) s.questSteps.set(e.quest, e.step);
+      if (e.step === 1 && !s.questStartedOn.has(e.quest)) s.questStartedOn.set(e.quest, e.at);
       break;
     case 'quest_done':
       if (!s.questsDone.includes(e.quest)) s.questsDone.push(e.quest);
@@ -220,6 +224,7 @@ export function viewOf(s: FoldState): ProgressView {
     toolkit: s.toolkit,
     questsDone: [...s.questsDone],
     questSteps: Object.fromEntries(s.questSteps),
+    questStartedOn: Object.fromEntries(s.questStartedOn),
     cookedOn: sortedRecord(s.cookedOn),
     framesCookedOn: sortedRecord(s.framesCookedOn),
   };

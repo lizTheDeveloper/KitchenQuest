@@ -67,7 +67,7 @@ describe('trustLevel', () => {
 
 describe('deriveProgress', () => {
   test('empty history', () => {
-    expect(deriveProgress(EMPTY, CAT)).toEqual({ xp: 0, level: 1, stamps: 0, trust: {}, toolkit: { techniques: {} }, questsDone: [], questSteps: {}, cookedOn: {}, framesCookedOn: {} });
+    expect(deriveProgress(EMPTY, CAT)).toEqual({ xp: 0, level: 1, stamps: 0, trust: {}, toolkit: { techniques: {} }, questsDone: [], questSteps: {}, questStartedOn: {}, cookedOn: {}, framesCookedOn: {} });
   });
 
   test('sums grants and folds events', () => {
