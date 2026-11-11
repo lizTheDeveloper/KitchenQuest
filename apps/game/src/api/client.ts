@@ -1,7 +1,7 @@
-import { MENTOR_CLIENT_TIMEOUT_MS, type Rule, type Severity } from '@kitchenquest/core/engine';
+import { MENTOR_CLIENT_TIMEOUT_MS, type ProgressEvent, type Rule, type Severity } from '@kitchenquest/core/engine';
 import type {
   ApiErrorBody, ApiResult, ConfirmRequest, ConfirmResponse, ConsentPurpose, Consents, ConsentRecord, MealEntry, Me, PantryItem, Profile,
-  RecipeDetail, RecipeSummary, ReplyPart, TurnRequest, TurnResponse,
+  ProgressPostResponse, ProgressResponse, RecipeDetail, RecipeSummary, ReplyPart, TurnRequest, TurnResponse,
 } from './types';
 
 /**
@@ -44,6 +44,14 @@ export interface ApiClient {
   changePantry(
     change: { add: PantryItem[]; removeNames: string[]; removeIds: string[] }, confirmed: true,
   ): Promise<ApiResult<{ items: (PantryItem & { id: string })[]; removed: (PantryItem & { id: string })[]; addedIds: string[] }>>; // POST /pantry/changes
+  /** M5 Step 5: the account's progress view. */
+  getProgress(): Promise<ApiResult<ProgressResponse>>;                                                         // GET /progress
+  /**
+   * M5 Step 5: at most 100 content-free events (the server computes what they earn). `upload` marks the sign-in
+   * upload of the device log (Ruling 8): older dates and `imported` events are accepted. 429 `rate_limited` carries
+   * `retryAfterSeconds`.
+   */
+  postProgressEvents(events: ProgressEvent[], upload?: true): Promise<ApiResult<ProgressPostResponse>>;        // POST /progress/events
 }
 
 const isObj = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x);
@@ -142,6 +150,8 @@ export function createApiClient(opts: { baseUrl?: string; fetch?: typeof fetch; 
     deleteMeal: (id) => call('DELETE', `/meals/${enc(id)}`),
     getPantry: () => call('GET', '/pantry'),
     changePantry: (change, confirmed) => call('POST', '/pantry/changes', { ...change, confirmed }),
+    getProgress: () => call('GET', '/progress', undefined, timeoutMs),
+    postProgressEvents: (events, upload) => call('POST', '/progress/events', upload ? { events, upload } : { events }, timeoutMs),
   };
 }
 

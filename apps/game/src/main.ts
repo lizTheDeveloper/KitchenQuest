@@ -6,6 +6,7 @@ import { registerKitchenScreen } from './kitchen/kitchen-screen';
 import { captureInstallPrompt } from './pwa/install';
 import { deleteOfflineCopy, noteWaitingUpdate, registerServiceWorker, skipServiceWorkerOnce, takeServiceWorkerSkip } from './pwa/register';
 import { registerRulesScreen } from './rules';
+import { initProgress } from './progress';
 import { mountApp, registerScreen } from './shell/app';
 import { lazyScreen } from './shell/lazy';
 import { SCREEN_TITLES } from './shell/titles';
@@ -27,6 +28,8 @@ const session = (() => { try { return window.sessionStorage; } catch { return nu
 // Wiped by "Delete everything" in another tab: reload onto the fresh state, without bringing the worker back.
 const store = createStore(safeLocalStorage(), window, () => { skipServiceWorkerOnce(session); window.location.reload(); });
 mountApp(document, { store, now: () => new Date() });
+// Progress (M5 Step 9): the device log, and its one upload on sign-in. Its code loads with the first screen that needs it.
+initProgress(api, store, window);
 
 // Who is signed in, and their rules: on start, when the connection comes back and when the app is shown again.
 // Nothing else calls the API on load; a sign-in token in this page's address is never read here (only /auth/verify does, on a tap).
