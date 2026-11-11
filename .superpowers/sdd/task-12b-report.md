@@ -85,3 +85,38 @@ Controller ruling applied: the round-3 background post queue is gone. Locally an
   - Build passes (first paint 287.9 KB).
   - e2e: two full runs were each 187/188. The first failed "severe coconut … pin stays on the map" and the second failed the known "pins are at least 44px" at width 320. The machine was loaded (load average about 6) and the other tree was using port 4173. `e2e/world` alone passed 19/19 twice. The mentor e2e passed in both full runs.
 - N4 not touched.
+
+## Fix round 5
+Controller rulings H1–H3 applied (review-task12b-fix4.md).
+- H1 (a): `createApiClient` gives `mentorTurn` and `consents` a client timeout (`AbortSignal.timeout`, 20 s, `timeoutMs` option for tests). This covers both the headers and the body. A timed-out call settles as `status 0` with code `timeout`, which the AI backend treats as an outage. So a hung delivery always settles and the queue moves on. Other calls are not timed.
+- H1 (b): `dispose()` settles a `gone` promise. Every server call inside a queue step races it (`unlessGone`: `mentorTurn`, `consents`, and `refreshAccount` on a 401). A hung step lets go at once, and every step behind it is answered by the script (`answer` checks `isDisposed` first), so nothing is sent after AI off.
+- H1 (c): the panel's submit takes an emergency, medical or child text (core `classifyTurn` on the stripped text) even while a turn is pending, and it is answered at once on the device. Any other text stays in the box while a turn waits.
+  - Send is no longer disabled while pending, so a click can always send an emergency.
+  - `aria-busy` and the "thinking" status are unchanged.
+  - Pending is a count, so an answered emergency does not clear another turn's pending state.
+- H2:
+  - The panel keeps a clear epoch. A turn reply, a card write, a turn-down or an undo that started before `clearConversation()` is dropped when it lands.
+  - A server-card tap now names the current conversation. Core `ConfirmRequest.conversationId`, the client's `confirmProposal(id, edits, conversationId)`, and the writer's `conversationId` dep (wired in index.ts to the shared ref) carry it.
+  - `confirmProposalIn` (API) closes a proposal from any other conversation, or from none, with 409 `proposal_closed`, and writes nothing. A tap that names no conversation is unchanged.
+  - After a clear the ref is null, so any older card is refused.
+- H3: `scheduleRetry` captures `gen` when it schedules. `retry` drops itself if the conversation was cleared before it runs, and when its reply lands after a clear it shows nothing and keeps no id.
+- Tests:
+  - mount-safety.test.ts runs the reviewer's probe through the real `mountMentor` and the real API client over a fake fetch:
+    - a hung delivery, then a normal turn (pending), then "he's not breathing": the emergency line shows at once;
+    - after the client timeout the queue settles, the waiting turn is sent and answered, and pending clears;
+    - with a hung delivery, turning the AI off answers the waiting turn and the panel works again;
+    - the tap carries the shared conversation id.
+  - client.test.ts: the timeout for headers and for the body; `conversationId` in the confirm body.
+  - ai-backend.test.ts: dispose releases a hung turn, a hung consents read and a hung account refresh; a retry is dropped after a clear, before it runs and while it is on its way.
+  - panel.test.ts: a safety text while pending; an ordinary text waits; replies, writes, turn-downs and undos after a clear are not drawn.
+  - writer.test.ts: the current id is passed.
+  - API mentor-confirm: other conversation, null and none give 409; the same conversation and no field give 200.
+  - The e2e tap-body expectation now includes `conversationId`.
+- Mutations, each killed: either timeout removed; the signal removed; `release()` removed; `unlessGone` removed from `send`, `consents` or `refreshAccount`; either `gen` check in retry removed; the panel's safety bypass removed or the pending gate dropped; the panel's epoch check or bump removed; the confirm, reject or undo after-clear checks removed; the writer or index.ts conversation wiring removed; the server conversation check removed (API).
+- Two guards were removed as redundant, because their mutations survived: the serial chain's own race on `gone` (every call in a step already races it), and the retry's fire-time `gen` check (`retry` checks first thing).
+- Gates:
+  - typecheck and lint pass (0 errors).
+  - Tests: core 1610, game 729, API 893.
+  - Build passes (first paint 288.3 KB).
+  - e2e 188/188.
+- N4 not touched.
