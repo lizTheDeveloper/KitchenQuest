@@ -15,6 +15,7 @@ export const REQUIRED_PAN_TRIGGERS: readonly string[] = [
   'travel.depart',
   // M5 Step 2: core advance() names it for a rule-adapted errand (ERRAND_ADAPTED_TRIGGER).
   'quest.errand_adapted',
+  'quest.cook_adapted',
   'ai_unavailable',
   'thanks',
   'intake.ios_home_screen',

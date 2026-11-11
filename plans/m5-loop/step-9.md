@@ -56,7 +56,7 @@ export function runQuest(slot: HTMLElement, q: Quest, deps: { progress: Progress
 
   At most two lines per event, in that order. Nourishment XP has **no line and no toast**: logging food is never applauded by a number (audit R4).
 - Riddles: a wrong option shows its `reaction` and keeps the step, with no penalty. Riddle answers are buttons, keyboard-reachable, and axe-clean.
-- Errands: the step shows "I've got it" (a tap), and passes on its own if the item is in the pantry or ticked on this week's list. A blocked item shows the cook's adapted line.
+- Errands: the step shows "I've got it" (a tap), and passes on its own if the item is in the pantry or ticked on this week's list. A rule-blocked item completes the step as adapted: the cook's `adapted` lines or the Pan's `quest.errand_adapted`, plus a labelled swap card when core returns a rules-safe swap. A rule-blocked quest dish offers `alternativesFor` (recipes and frames, ✅ or swap only), else the adapted lesson (`quest.cook_adapted`).
 - The Travel step is satisfied on arrival.
 - Recognize: on a known technique, the Pan says `quest.recognize`, the event is recorded, and the certificate line may follow.
 - "Cook it anyway" is available on every canon dish card, whatever the trust or tier. The ⛔ status still disables Cook (M3 rule, Review Focus 1).
@@ -71,7 +71,7 @@ test('sync: signed out → local grants; sign-in → device log uploaded once wi
 test('sync: signed out, the 201st event of one day gets no grants, as on the server (C14)', ...);
 test('view: signed in, an account view lower than the device view (compacted events) shows the device values (C14, C15)', ...);
 test('quest runner: Leela\'s quest talk → errand → drill → riddle → recognize → cook, events in order; wrong riddle → reaction, same step', ...);
-test('quest runner: an errand item blocked by the player\'s rules → blocked + the cook\'s adapted line (C5); a waiting quest is not started (C4)', ...);
+test('quest runner: an errand item blocked by the player\'s rules → adapted, with the cook\'s lines or the Pan fallback, plus a swap card (C5); a waiting quest is not started (C4)', ...);
 test('trust lines: level 2 shows a trust_lines[2] line on return; level 0 never shows return lines', ...);
 test('map: unintroduced cook → "Awaiting an introduction" + Travel anyway; introduced → "expecting you"; no locked pin', ...);
 test('nourishment grants produce no line, no toast', ...);

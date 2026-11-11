@@ -213,13 +213,15 @@ describe('M4 rule terms', () => {
   });
 });
 
-describe('M5 Step 2: the rule-adapted errand line', () => {
-  it("core's ERRAND_ADAPTED_TRIGGER is required, ai: never, and every line names the cook", async () => {
-    const { ERRAND_ADAPTED_TRIGGER } = await import('@kitchenquest/core/engine');
-    expect(REQUIRED_PAN_TRIGGERS).toContain(ERRAND_ADAPTED_TRIGGER);
-    const t = content.pan.triggers[ERRAND_ADAPTED_TRIGGER];
-    expect(t.ai).toBe('never');
-    expect(t.lines.length).toBeGreaterThanOrEqual(4);
-    for (const line of t.lines) expect(line).toContain('{cook}');
+describe('M5 Step 2: the rule-adapted quest lines', () => {
+  it("core's ERRAND_ADAPTED_TRIGGER and COOK_ADAPTED_TRIGGER are required, ai: never, and every line names the cook", async () => {
+    const { COOK_ADAPTED_TRIGGER, ERRAND_ADAPTED_TRIGGER } = await import('@kitchenquest/core/engine');
+    for (const id of [ERRAND_ADAPTED_TRIGGER, COOK_ADAPTED_TRIGGER]) {
+      expect(REQUIRED_PAN_TRIGGERS).toContain(id);
+      const t = content.pan.triggers[id];
+      expect(t.ai, id).toBe('never');
+      expect(t.lines.length, id).toBeGreaterThanOrEqual(4);
+      for (const line of t.lines) expect(line, id).toContain('{cook}');
+    }
   });
 });
