@@ -57,3 +57,31 @@ apps/api tests need TEST_DATABASE_URL (no DB here); only content/dialogue/pan.ya
 - Note: a signed-in AI player's emergency/medical/child text is posted to the server only in the background; the visible answer is local.
 - Gates: typecheck, lint (0 errors), core 1610, game 703, build (first paint 288.2 KB); e2e see below.
 - e2e: 187/188 in two full runs with the world-map pin-size test failing (320 and 400 widths, a layout measurement; the other tree was running e2e on the same machine). e2e/world alone: 19/19. Not touched by this change.
+
+## Fix round 4
+Controller ruling applied: the round-3 background post queue is gone. Locally answered safety turns now go to the server only through the loaded AI backend's own queue.
+- `createLocalSafety` (outage.ts) sends nothing. It takes only `dialogue` and `graph`, and returns `{ reply, deliver }`. `deliver` is true only when the turn's own intent is emergency, medical or child. A turn answered with `child.grownup` only because of the sticky flag is `deliver: false` and is never sent anywhere (G2).
+- `lazyBackend` still returns the local reply before loading or awaiting anything (emergency line first; child before AI). When `deliver` is true and the AI backend is already loaded (and not disposed), it calls `real.deliver(input, ctx)`. If the chunk is not loaded, nothing is delivered and nothing is queued for later.
+- `createAiBackend` puts every text turn, the one retry and every delivered turn on one serial queue (`serial`), entered in arrival order. Each step reads the conversation id the step before it set (G3).
+  - `deliver` applies the same consent gate as a normal turn (`isHealthTurn`, then `hasAiHealth`), so health text without `ai_health` stays on the device (G1).
+  - The server's reply to a delivered turn is never shown. Only its conversation id is kept.
+- G4: `ConversationRef` gained `gen`. `newConversation(ref)` nulls the id and bumps `gen`, and a reply already in flight no longer writes its old id back. `clearConversation()` → `resetChild` now resets the child flag and calls `newConversation`.
+- G5: a queued delivery, or a queued text turn, is dropped once the backend is disposed. A dropped text turn is answered by the script. A delivery that waited on the consent check re-checks after it.
+- G6, tests:
+  - `mount-safety.test.ts` runs through the real `mountMentor`, with a fresh module per test, and covers the review's probes:
+    - no chunk: S23 and the egg turn are local and nothing is posted;
+    - no consents: neither the emergency nor the medical turn is posted;
+    - "im 8" then "what should I cook tonight": the second turn is never sent;
+    - an emergency, a medical turn and "hello" sent 5 ms apart reach the server in order, under one new id, with the server replies not shown;
+    - a "yes" after an emergency is sent after it;
+    - turning the AI off drops a queued delivery;
+    - `clearConversation` gives the next turn no id and is not on the grown-up line.
+  - `ai-backend.test.ts` covers the deliver gate and hidden reply, a clear while a reply is in flight, a dispose while turns are queued, and the retry waiting its turn. `outage.test.ts` covers the `deliver` flag and `newConversation`.
+- Mutations, each killed (game `src`, 604 tests): `conversation` not passed to `createAiBackend`; `onClear` not called; `safety = mine` removed; `newConversation` on clear removed; `reply` not queued; the deliver consent gate removed; the deliver dispose check removed; the `gen` guard removed; the retry not queued; the disposed text-turn check removed; `deliver` ignored in lazy; the `real.deliver` call removed; `deliver` always true; the sticky flag removed.
+- Also: knip flagged `LOAD_TIMEOUT_MS` as an unused export. The flag was already present at 29b3429. The lazy-backend test now uses the constant.
+- Gates:
+  - typecheck and lint pass (0 errors).
+  - Tests: core 1610, game 713, API 892.
+  - Build passes (first paint 287.9 KB).
+  - e2e: two full runs were each 187/188. The first failed "severe coconut … pin stays on the map" and the second failed the known "pins are at least 44px" at width 320. The machine was loaded (load average about 6) and the other tree was using port 4173. `e2e/world` alone passed 19/19 twice. The mentor e2e passed in both full runs.
+- N4 not touched.
