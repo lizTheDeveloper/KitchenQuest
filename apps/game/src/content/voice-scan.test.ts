@@ -26,6 +26,8 @@ function kindsOf(triggerId: string): string[] {
   if (/^(log|cooked_for)\./.test(triggerId) || triggerId === 'cook.who_ate') k.push('nourishment');
   if (/^rescue\./.test(triggerId) || triggerId === 'reminder.use_it_up') k.push('rescue');
   if (/^frame\./.test(triggerId)) k.push('frame');
+  // M5 final I4: the intake interview and the pantry's lines, where a near-empty cupboard is most likely to come up.
+  if (/^(intake|pantry|reminder\.use_it_up)\b/.test(triggerId)) k.push('pantry');
   return k;
 }
 
@@ -42,7 +44,7 @@ const scanned = (file: string, where: string, text: string, kinds: readonly stri
   file,
   where,
   text,
-  kinds: new Set([...kinds, ...(/Okafor-Sato/.test(text) ? ['okafor'] : [])]),
+  kinds: new Set([...kinds, ...(/Okafor-Sato/.test(text) ? ['okafor'] : []), ...(CUPBOARD.test(text) ? ['cupboard'] : [])]),
 });
 
 /** What the client bundle shows: lines, forms, frames, recipes' words and the names of things. */
@@ -74,6 +76,12 @@ function collect(c: ClientContent): Scanned[] {
   for (const [id, n] of Object.entries(c.stallNames)) add(id === 'general' ? BUREAU : `content/market/${id}.yaml`, `stallNames.${id}`, n);
   return out;
 }
+
+/** M5 final I4: scarcity words and joke cues about a cupboard ("rice, half an onion, and regret"). */
+const SCARCITY =
+  /\b(regret\w*|sad\w*|pathetic|bare|empty (?:fridge|cupboard|shelf|shelves|pantry|kitchen)|tragic|tumbleweeds?|meagre|meager|slim pickings|sorry state|perfectly acceptable inventory|(?:worked|work|made do|make do|managed|manage) with less|better stocked|stocked than|desperat\w*|grim|lol|haha)\b/i;
+/** A line that talks about the player's cupboard: its scarcity words are scanned wherever it is (M5 final I4). */
+const CUPBOARD = /\b(cupboards?|fridge|pantry(?! bureau)|shelf|shelves|larder)\b/i;
 
 const NUMBER_WORD = String.raw`(?:\d+|X|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)`;
 
@@ -111,6 +119,10 @@ const PATTERNS: { name: string; re: RegExp; kinds?: string }[] = [
   // audit M-4: a sparse cupboard is never a joke
   { name: 'sparse cupboard', re: /\b(only|just|empty|bare|sad)\b/i, kinds: 'frame' },
   { name: 'sparse cupboard', re: /\b(only|just|empty|bare|sad)\b/i, kinds: 'rescue' },
+  // M5 final I4 (audit M-4): no joke about what is, or isn't, in the cupboard, in intake and pantry lines, or in any
+  // line that names the cupboard, fridge, pantry or a shelf. Scarcity words and joke cues alike.
+  { name: 'scarcity joke', re: SCARCITY, kinds: 'pantry' },
+  { name: 'scarcity joke', re: SCARCITY, kinds: 'cupboard' },
 ];
 
 /** Keyed by location (file and path) and exact text (fix round 1, M7): the same words anywhere else are scanned. */
@@ -204,6 +216,14 @@ describe('voice scan of the client content (C29)', () => {
     ['Only an onion? Sad cupboard.', ['frame']],
     ['The cupboard is bare, so here is a tiny sauce.', ['rescue']],
     ['Use it in 2 days or lose it.', ['rescue']],
+    // M5 final I4: the shipped intake joke, and its cousins, anywhere a cupboard comes up.
+    ["Last one: what's in the cupboard? Roughly. 'Rice, half an onion, and regret' is a perfectly acceptable inventory.", ['pantry']],
+    ["Last one: what's in the cupboard? Roughly. 'Rice, half an onion, and regret' is a perfectly acceptable inventory.", []],
+    ['An empty fridge? Classic.', []],
+    ['Tumbleweeds in there, I see.', ['pantry']],
+    ['That shelf looks pathetic.', []],
+    ["{items}. Excellent. I can work with that. I've worked with less. 1911.", ['pantry']],
+    ["Pantry noted: {items}. You're better stocked than a lighthouse I once knew.", ['pantry']],
   ])('a planted %j fails', (text, kinds) => {
     expect(scan([line(text, kinds)])).not.toEqual([]);
   });

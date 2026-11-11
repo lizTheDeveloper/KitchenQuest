@@ -230,7 +230,7 @@ triggers:
     ai: allowed
     when: Intake step 5, asking what's in the cupboard right now.
     lines:
-      - "Last one: what's in the cupboard? Roughly. 'Rice, half an onion, and regret' is a perfectly acceptable inventory."
+      - "Last one: what's in the cupboard right now? A rough list is plenty, and whatever's there is a fine place to start."
       - "What have you got in right now? Fridge, cupboard, that one shelf. I'll plan around it so nothing goes to waste."
       - "Question five: what's in the kitchen? Just the main things. I'm not auditing your spice rack. Yet."
       - "Tell me what you've got. Staples, leftovers, the thing at the back you've been avoiding. All of it counts."
@@ -244,9 +244,9 @@ triggers:
     lines:
       - "Added: {items}. That's the opening line of several good stories."
       - "{items}. Noted. I'll try to use those before they get ideas."
-      - "Got it. {items}. Regret, if mentioned, filed under condiments. It goes with everything, sadly."
-      - "Pantry noted: {items}. You're better stocked than a lighthouse I once knew."
-      - "{items}. Excellent. I can work with that. I've worked with less. 1911."
+      - "Got it. {items}. Filed in the ledger, in the Bureau's best handwriting."
+      - "Pantry noted: {items}. A lighthouse keeper I once knew would have approved."
+      - "{items}. Excellent. I can work with that. I've been cooking with what's to hand since 1891."
 
   intake.skip:
     ai: allowed
