@@ -5,6 +5,7 @@ import { eq } from 'drizzle-orm';
 import type { FastifyInstance, InjectOptions } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
+import { audit } from '../src/audit/audit.js';
 import { BOOK_REQUESTS_PER_MINUTE } from '../src/book/routes.js';
 import { createNoteIn } from '../src/book/notes-service.js';
 import { defaultCatalog } from '../src/catalog.js';
@@ -99,8 +100,9 @@ describe('margin notes', () => {
     expect(saved.check.status).toBeDefined();
     expect(await listNotes(p.cookie)).toEqual([{ ...note, id: saved.id }]);
     const [stored] = await db.select().from(marginNotes).where(eq(marginNotes.userId, p.id));
-    expect(stored.recipe).toBe(PARIPPU);
-    for (const word of ['oat milk', 'oat', 'salt', 'lovely', 'swap', 'moong']) {
+    // I1 (fix round 1): the recipe is sealed too; no column holds the slug, so a dump can't read "a note on this dish".
+    expect(Object.keys(stored).sort()).toEqual(['createdAt', 'id', 'sealed', 'userId']);
+    for (const word of ['oat milk', 'oat', 'salt', 'lovely', 'swap', 'moong', 'parippu', 'kerala', 'india']) {
       expect(stored.sealed.toString('latin1').toLowerCase()).not.toContain(word);
       expect(await rowsMentioning('margin_notes', word), word).toBe(0);
       expect(await rowsMentioning('audit_events', word), word).toBe(0);
@@ -178,6 +180,13 @@ describe('margin notes', () => {
     const check = res.json<{ note: { check: CheckResult } }>().note.check;
     expect(check.status).toBe('blocked');
     expect(JSON.stringify(check)).toContain('peanut');
+    // I2 (fix round 1): the check covers ALL the player's notes on the recipe, not only the new one: a harmless note
+    // posted after the peanut swap still comes back blocked, with the finding.
+    const later = await postNote(p.cookie, noteOf({ ops: [{ op: 'add', name: 'lime' }] }));
+    expect(later.statusCode, later.body).toBe(201);
+    const laterCheck = later.json<{ note: { check: CheckResult } }>().note.check;
+    expect(laterCheck.status).toBe('blocked');
+    expect(JSON.stringify(laterCheck)).toContain('peanut');
     // Unreadable text still counts for safety (Step 3 C1): a peanut named only in the words is checked too.
     const q = await player();
     expect((await call(q.cookie, { method: 'POST', url: '/rules', payload: { rule: PEANUT, confirmed: true } })).statusCode).toBe(201);
@@ -326,6 +335,16 @@ describe('Cooked for Someone (the Shared Table)', () => {
     }
     expect(await db.select().from(sharedTable).where(eq(sharedTable.userId, p.id))).toEqual([]);
     expect(await rowsMentioning('audit_events', 'Sam')).toBe(0);
+    // M2 (fix round 1): an unknown top-level body key is refused without being echoed (R-19).
+    for (const [url, payload] of [
+      ['/shared-table', { entry: entryOf(), confirmed: true, Samwise: 'Gran' }],
+      ['/notes', { note: noteOf(), confirmed: true, Samwise: 'Gran' }],
+    ] as const) {
+      const res = await call(p.cookie, { method: 'POST', url, payload });
+      expect(res.statusCode, url).toBe(400);
+      expect(res.body, url).not.toMatch(/Samwise|Gran/);
+    }
+    expect(await db.select().from(sharedTable).where(eq(sharedTable.userId, p.id))).toEqual([]);
     // A frame is a valid dish too.
     expect((await postShared(p.cookie, entryOf({ recipe: null, frame: 'fried-rice' }))).statusCode).toBe(201);
   });
@@ -346,6 +365,15 @@ describe('Cooked for Someone (the Shared Table)', () => {
     expect(Object.keys(t).sort()).toEqual(['byRecipe', 'shared']);
     expect(JSON.stringify(t)).not.toMatch(/partner|friends|neighbours|2026|just_me|green-sauce/);
     expect(await tally((await player()).cookie)).toEqual({ shared: 0, byRecipe: {} });
+  });
+
+  it('M1 (fix round 1): Shared Table writes are serialized under the shared daily write cap (199 seeded + 5 racing → one more)', async () => {
+    const p = await player();
+    const at = new Date(NOW.getTime() - 3_600_000);
+    for (let i = 0; i < 199; i++) await audit(db, { actorKind: 'user', actorId: p.id, subjectUserId: p.id, action: 'shared_table.create' }, at);
+    const codes = (await Promise.all(Array.from({ length: 5 }, () => postShared(p.cookie, entryOf())))).map((r) => r.statusCode).sort();
+    expect(codes).toEqual([201, 429, 429, 429, 429]);
+    expect(await db.select().from(sharedTable).where(eq(sharedTable.userId, p.id))).toHaveLength(1);
   });
 
   it('notes and shared entries never create a progress_event or reward_grant', async () => {

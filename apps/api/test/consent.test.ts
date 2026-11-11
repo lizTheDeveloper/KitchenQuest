@@ -174,6 +174,8 @@ describe('consent ledger (C-1)', () => {
           values (${randomUUID()}, ${userId}, 'pantry_location', 'v1', ${sha('a')}, now(), 'api', 'child_profile', ${randomUUID()})`,
     ).rejects.toThrow(/consents_subject_kind_check/);
     await expect(sql`update consents set subject_kind = 'household' where user_id = ${userId}`).rejects.toThrow(/consents_subject_kind_check/);
+    // M3 (fix round 1): a 'user' row names no other subject; subject_id stays null until M13.
+    await expect(sql`update consents set subject_id = ${randomUUID()} where user_id = ${userId}`).rejects.toThrow(/consents_subject_id_check/);
   });
 
   it('records consent changes in the audit log', async () => {
