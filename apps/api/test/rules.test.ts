@@ -516,6 +516,53 @@ describe('PUT /rules/:id with If-Match (M4 final N4: a conditional write)', () =
     }
   });
 
+  it('m-1: GET /rules pairs each rule with the version of the same row read, even with a write landing mid-read', async () => {
+    const c = await player();
+    const id = (await post(c, { rule: ALLERGY, confirmed: true })).json().rule.id as string;
+    // A db whose first read of sealed rule rows lets another device's raise land before it returns.
+    let fired = false;
+    const wrap = <T extends object>(b: T): T =>
+      new Proxy(b, {
+        get(target, prop, receiver) {
+          const v = Reflect.get(target, prop, receiver) as unknown;
+          if (prop === 'then') {
+            return (ok: (x: unknown) => unknown, bad: (e: unknown) => unknown) =>
+              (target as unknown as PromiseLike<unknown>).then(async (rows) => {
+                if (!fired && Array.isArray(rows) && rows.length > 0 && 'sealed' in (rows[0] as object)) {
+                  fired = true;
+                  expect((await putIf(c, id, ANAPHYLACTIC, 1)).statusCode).toBe(200);
+                }
+                return rows;
+              }).then(ok, bad);
+          }
+          if (typeof v !== 'function') return v;
+          return (...args: unknown[]) => {
+            const out = (v as (...a: unknown[]) => unknown).apply(target, args);
+            return out && typeof out === 'object' ? wrap(out) : out;
+          };
+        },
+      });
+    const racy = new Proxy(db, {
+      get(target, prop, receiver) {
+        const v = Reflect.get(target, prop, receiver) as unknown;
+        if (prop !== 'select' || typeof v !== 'function') return v;
+        return (...args: unknown[]) => wrap((v as (...a: unknown[]) => object).apply(target, args));
+      },
+    }) as Db;
+    const racyApp = await buildApp({ config, db: racy, mailer, ai: null, now: () => NOW, logger: false });
+    try {
+      const res = await racyApp.inject({ method: 'GET', url: '/rules', cookies: { kq_session: c } });
+      expect(fired).toBe(true);
+      const body = res.json();
+      // The content read is the pre-raise rule, so its version must be the pre-raise 1, never the new 2.
+      expect(body.rules[0].severity).toBe('allergy');
+      expect(body.versions[id]).toBe(1);
+    } finally {
+      await racyApp.close();
+    }
+    expect((await list(c)).json().versions[id]).toBe(2);
+  });
+
   it('a malformed If-Match is a 400; without If-Match the write is unconditional, as before', async () => {
     const c = await player();
     const id = (await post(c, { rule: ALLERGY, confirmed: true })).json().rule.id as string;

@@ -7,7 +7,7 @@ import type { Catalog } from '../catalog.js';
 import type { Tx } from '../consent/ledger.js';
 import { ApiError } from '../errors.js';
 import { createRuleIn, deleteRuleIn, RuleBody, updateRuleIn } from './service.js';
-import { loadRules, loadRuleVersions, type StoredRule } from './store.js';
+import { loadRulesWithVersions, type StoredRule } from './store.js';
 
 export { MAX_RULES_PER_USER } from './service.js';
 
@@ -81,8 +81,8 @@ export async function rulesRoutes(app: FastifyInstance, catalog: Catalog): Promi
 
   // Reading needs no consent: after a "keep" withdrawal the rules stay readable.
   app.get('/rules', { preHandler: requireUser }, async (req) => {
-    const list = await loadRules(db, keyring, req.user.id);
-    const versions = await loadRuleVersions(db, req.user.id);
+    // One statement for content and versions (m-1): they always describe the same row state.
+    const { rules: list, versions } = await loadRulesWithVersions(db, keyring, req.user.id);
     await countSelfRead(db, req.user.id, 'rules', now());
     return { rules: list, versions };
   });
