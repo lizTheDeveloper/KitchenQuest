@@ -7,8 +7,10 @@ import ruleTerms from '../../../../data/rule-terms.json';
 import { IngredientGraph } from '../ingredients/graph';
 import { classifyTurn } from './intents';
 import type { RuleTerm } from './rule-terms';
-import { codeCardHealth, isHealthText, preRoute } from './route';
+import { canon } from '../week/fixtures';
+import { codeCardHealth, correctionAsks, correctionCue, isHealthText, marketDayStated, planWordsIn, preRoute, reminderClauses, reminderSlots } from './route';
 
+const DISHES = [...canon].map(([slug, r]) => ({ slug, title: r.meta.title }));
 const graph = IngredientGraph.fromData(ingredients);
 const terms = ruleTerms as RuleTerm[];
 
@@ -55,5 +57,52 @@ describe('I2: weight-loss forms take the fixed weight deflection, never the mode
     expect(classifyTurn('i need to lose weight and my throat is closing')).toBe('emergency');
     expect(classifyTurn("i'm 9 and i need to lose weight")).toBe('child');
     expect(classifyTurn('should i take tablets to lose weight')).toBe('medical');
+  });
+});
+
+describe('m7: child self-statements', () => {
+  test.each([
+    'im 7yo', 'i’m 7yo', '7 yo', '8 y.o. here', 'im 8yrs', 'i am 9 yrs', 'im a kid', "i'm just a kid", 'i am a child', 'i am age 8', 'age 10',
+    'ich bin 9 jahre alt', 'tengo 9 años', "j'ai 8 ans", 'tenho 10 anos', 'ho 9 anni',
+  ])('%s → child', (t) => expect(classifyTurn(t)).toBe('child'));
+
+  test('the emergency line still comes first', () => {
+    expect(classifyTurn('im 7yo and my throat is closing')).toBe('emergency');
+  });
+});
+
+describe('parked m3: "actually:" with punctuation is still a correction cue', () => {
+  test.each(['put parippu on monday, actually: tuesday', 'put parippu on monday, actually- tuesday', 'put parippu on monday, actually, tuesday'])('%s', (t) => {
+    expect(correctionCue(t, DISHES)).toBe(true);
+    expect(correctionAsks(t, DISHES)).toContainEqual({ trigger: 'plan.which_day', vars: { dish: 'parippu' } });
+    expect(planWordsIn(t, DISHES)).toBeNull();
+  });
+});
+
+describe('parked m4: two clocks in one reminder clause are no card', () => {
+  test.each(['remind me about dinner at 6pm 7pm', 'remind me about dinner at 6:30 7:30', 'remind me about dinner at half six half seven'])('%s', (t) => {
+    expect(reminderSlots(t, DISHES)).toEqual([]);
+    expect(reminderClauses(t)).toEqual([]);
+  });
+  test('one clock still makes its card', () => {
+    expect(reminderSlots('remind me about dinner at 6pm', DISHES)).toEqual([{ name: 'dinner', start: '18:00' }]);
+    expect(reminderSlots('remind me to eat lunch at like half twelve', DISHES)).toEqual([{ name: 'lunch', start: '12:30' }]);
+    expect(reminderSlots('remind me about dinner at 6:30 pm', DISHES)).toEqual([{ name: 'dinner', start: '18:30' }]);
+  });
+});
+
+describe('parked m5: a pantry clause is consumed only when every item it names is a food the graph knows', () => {
+  test('non-food "pantry" clauses block code cards', () => {
+    for (const t of ["ran out of patience, my market's saturday", "i got my brother. my market's saturday", "out of time. put onigiri on monday"]) {
+      expect(marketDayStated(t, DISHES, graph), t).toBeNull();
+      expect(planWordsIn(t, DISHES, graph), t).toBeNull();
+    }
+  });
+  test('food pantry clauses are still consumed', () => {
+    expect(marketDayStated("ran out of rice, my market's saturday", DISHES, graph)).toBe(6);
+    expect(planWordsIn('bought spinach. put onigiri on monday', DISHES, graph)?.days).toEqual([{ weekday: 'monday', dish: 'onigiri' }]);
+  });
+  test('without the graph no pantry clause is consumed (never a guess)', () => {
+    expect(marketDayStated("ran out of rice, my market's saturday", DISHES)).toBeNull();
   });
 });

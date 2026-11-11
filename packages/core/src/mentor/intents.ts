@@ -79,6 +79,12 @@ export const CHILD_PATTERNS: readonly RegExp[] = [
   new RegExp(`\\b(?:year|grade) ${SCHOOL_YEAR}\\b`),
   /\b(?:[1-9]|1[0-2])(?:st|nd|rd|th) grade\b|\b(?:first|second|third|fourth|fifth|sixth|seventh|eighth) grade\b/,
   /\b(?:in|at|go to|attend) (?:primary|elementary|middle school|junior high|kindergarten|reception class)\b|\b(?:primary|elementary) school\b/,
+  // M5 final m7: "im 7yo", "8 y.o. here", "9 yrs", "i'm a kid", "i am age 8", and a short non-English set
+  // ("ich bin 9 jahre alt", "tengo 9 años", "j'ai 8 ans", "tenho 10 anos", "ho 9 anni"). False positives are accepted (N9).
+  /\b(?:[1-9]|1[0-7])\s*(?:yo|y\.\s?o\.?|y\/o|yrs?(?:\s*old)?)(?![a-z])/,
+  /\b(?:i'?m|im|i am)\s+(?:just\s+|only\s+)?a\s+(?:little\s+)?(?:kid|child)\b/,
+  /\b(?:age|aged)\s+(?:[1-9]|1[0-7])\b(?!\s*(?::|am\b|pm\b|%|kg|lb))/,
+  /\b(?:[1-9]|1[0-7])\s+(?:jahre?|anos|ans|anni|jaar|lat|let)\b/,
 ];
 
 // Medicines and milligram doses too (I4): "how many mg of ibuprofen with dinner".

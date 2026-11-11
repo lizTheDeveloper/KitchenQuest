@@ -729,10 +729,12 @@ export function planIntent(text: string, dishes: readonly { slug: string; title:
 }
 
 /**
- * Fix round 5 (5a ruling): the closed neutral fillers: idk, lol, ok, please, thanks (also, and and so already break
- * clauses, SEP). They break a clause like punctuation and are no clause of their own; nothing else is a filler.
+ * Fix round 5 (5a ruling): the closed neutral fillers: ok, please, thanks (also, and and so already break clauses,
+ * SEP). They break a clause like punctuation and are no clause of their own; nothing else is a filler. M5 final
+ * (parked m6): "idk" and "lol" are not fillers: they signal doubt, as "maybe" does, so a message with one gets no
+ * code card.
  */
-const FILLER = /\s*\b(?:idk|lol|ok|okay|please|pls|thanks|thank you)\b\s*/;
+const FILLER = /\s*\b(?:ok|okay|please|pls|thanks|thank you)\b\s*/;
 /** The clauses of the player's words for the closed readers: split at SEP and at the fillers, empty ones dropped. */
 const closedSplit = (own: string): string[] =>
   own
@@ -756,7 +758,8 @@ const ACTUALLY_CONNECTOR = /^(?:make|it|its|it's|to|on|at|for|the|a|put|have|do|
 const TIME_TOKEN = /^(?:\d{1,2}(?:[:.]\d{2})?(?:am|pm|ish)?|am|pm|noon|midday|midnight|half|quarter|o'?clock)$/;
 const WEEKDAY_TOKEN = new RegExp(`^${WD}$`);
 function actuallyCue(own: string, forms: ReadonlySet<string>): boolean {
-  const words = own.replace(/[^\p{L}\p{N}':.\s]+/gu, ' ').replace(/[.]+(?=\s|$)/g, ' ').split(/\s+/).filter((w) => w !== '');
+  // M5 final (parked m3): a token's trailing ":" (or "," "-", already spaces) is punctuation, so "actually:" is "actually".
+  const words = own.replace(/[^\p{L}\p{N}':.\s]+/gu, ' ').replace(/[.:]+(?=\s|$)/g, ' ').split(/\s+/).filter((w) => w !== '');
   for (let i = 0; i < words.length; i++) {
     if (words[i] !== 'actually') continue;
     for (let k = i + 1; k <= i + 3 && k < words.length; k++) {
@@ -785,10 +788,15 @@ const REMINDER = new RegExp(
 const CLOCK_WORD = /^(?:\d{1,2}(?:[:.]\d{2})?(?:am|pm|ish)?|am|pm|a\.m|p\.m|ish|like|half|quarter|past|to|noon|midday|o'?clock|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|thirty|forty-five)$/;
 const MARKET = new RegExp(`^(?:my )?market(?: day)?(?:'s| is)(?: on)? ${WD}$`);
 
-/** One meal-time reminder clause, read whole: the meal and its clock, or null. */
+/** A clock's anchor: its hour (digits, an hour word) or noon. Two in one clause is two clocks (M5 final, parked m4). */
+const CLOCK_ANCHOR = /^(?:\d{1,2}(?:[:.]\d{2})?(?:am|pm|ish)?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|noon|midday)$/;
+
+/** One meal-time reminder clause, read whole: the meal and its ONE clock, or null ("at 6pm 7pm" is a doubt: no card). */
 function reminderClause(c: string): { name: MealSlot; start: string } | null {
   const m = REMINDER.exec(c);
-  if (m === null || !m[2].split(/\s+/).every((w) => CLOCK_WORD.test(w))) return null;
+  if (m === null) return null;
+  const words = m[2].split(/\s+/);
+  if (!words.every((w) => CLOCK_WORD.test(w)) || words.filter((w) => CLOCK_ANCHOR.test(w)).length !== 1) return null;
   const clock = parseClock(c);
   return clock === null ? null : { name: SLOT_FORMS[m[1]], start: clock };
 }
@@ -801,7 +809,7 @@ type CodeClause =
   | { kind: 'consumed' };
 
 /** One clause, read whole by a closed form code builds a card from, or null. */
-function codeClause(c: string, forms: ReadonlySet<string>): CodeClause | null {
+function codeClause(c: string, forms: ReadonlySet<string>, graph: IngredientGraph | null): CodeClause | null {
   let m: RegExpExecArray | null;
   if ((m = DISH_DAY.exec(c)) !== null && m.at(1) !== undefined && forms.has(m[2])) return { kind: 'day', weekday: dayOf(m[3]), dish: m[2] };
   if ((m = PICK_CLAUSE.exec(c)) !== null) {
@@ -811,7 +819,7 @@ function codeClause(c: string, forms: ReadonlySet<string>): CodeClause | null {
   const timed = reminderClause(c);
   if (timed !== null) return { kind: 'reminder', ...timed };
   if ((m = MARKET.exec(c)) !== null) return { kind: 'market', day: WEEKDAY_NAMES.indexOf(dayOf(m[1]) as (typeof WEEKDAY_NAMES)[number]) };
-  if (mealLogClause(c) || pantryClause(c)) return { kind: 'consumed' };
+  if (mealLogClause(c) || pantryClause(c, graph)) return { kind: 'consumed' };
   return null;
 }
 
@@ -824,8 +832,24 @@ const mealLogClause = (c: string): boolean => MEAL_LOG_CLAUSE.test(c) && parseMe
  */
 const PANTRY_SUBJECT = "(?:(?:i|we)(?:'ve| have)? (?:just )?(?:got )?)?";
 const PANTRY_CLAUSES: readonly RegExp[] = [...PANTRY_REMOVAL_PATTERNS, PANTRY_ADD_PATTERN].map((p) => new RegExp(`^${PANTRY_SUBJECT}(?:${p.source})$`));
-const pantryClause = (c: string): boolean =>
-  PANTRY_CLAUSES.some((p) => p.test(c)) && parsePantryRemovals(c).length + parsePantryAdds(c).length > 0;
+/**
+ * M5 final (parked m5): and every item it names is a food the ingredient graph resolves ("ran out of rice"), so "ran
+ * out of patience" or "i got my brother" is no pantry clause. Without the graph, no clause is consumed this way.
+ */
+function pantryClause(c: string, graph: IngredientGraph | null): boolean {
+  if (graph === null || !PANTRY_CLAUSES.some((p) => p.test(c))) return false;
+  const items = [...parsePantryRemovals(c), ...parsePantryAdds(c)];
+  return items.length > 0 && items.every((i) => knownFood(i, graph));
+}
+
+/** A food the graph knows: a name or alias it resolves, or a whole word run inside one ("rice" in "short-grain white rice"). */
+function knownFood(item: string, graph: IngredientGraph): boolean {
+  if (graph.resolve(item) !== null) return true;
+  const q = normalizeName(item);
+  if (q === '') return false;
+  const runs = [q, q.replace(/(?:es|s)$/, '')].filter((r) => r.length >= 3).map((r) => ` ${r} `);
+  return graph.search(q.replace(/(?:es|s)$/, ''), 50).some((h) => runs.some((r) => ` ${normalizeName(h.matched)} `.includes(r) || ` ${normalizeName(h.name)} `.includes(r)));
+}
 
 /**
  * Fix round 4 (N6 ruling): the message read whole for code-built cards. Every clause must be exactly one closed form
@@ -834,13 +858,13 @@ const pantryClause = (c: string): boolean =>
  * my brother", "actually tuesday", "bitte") and code builds no card from the message. A second pick, or a second
  * time for one meal, is a doubt: no card either. Null too for a safety turn and outside the player's own words.
  */
-function codeClauses(text: string, dishes: readonly { slug: string; title: string }[]): { own: string; clauses: CodeClause[] } | null {
+function codeClauses(text: string, dishes: readonly { slug: string; title: string }[], graph: IngredientGraph | null): { own: string; clauses: CodeClause[] } | null {
   const own = ownClauseText(text);
   const forms = dishForms(dishes);
   if (own === null || correctionIn(own, forms)) return null;
   const clauses: CodeClause[] = [];
   for (const c of closedSplit(own)) {
-    const read = codeClause(c, forms);
+    const read = codeClause(c, forms, graph);
     if (read === null) return null;
     clauses.push(read);
   }
@@ -855,8 +879,12 @@ function codeClauses(text: string, dishes: readonly { slug: string; title: strin
  * )?<weekday>` and `pick N( dishes)?( for this week)?`. The server proposes them when the model made no plan call.
  * Null when there are none, when any clause is not closed, for a safety turn, and outside the player's own words.
  */
-export function planWordsIn(text: string, dishes: readonly { slug: string; title: string }[]): { days: { weekday: string; dish: string }[] | null; pick: number | null; hard: null; after: null } | null {
-  const read = codeClauses(text, dishes);
+export function planWordsIn(
+  text: string,
+  dishes: readonly { slug: string; title: string }[],
+  graph: IngredientGraph | null = null,
+): { days: { weekday: string; dish: string }[] | null; pick: number | null; hard: null; after: null } | null {
+  const read = codeClauses(text, dishes, graph);
   if (read === null) return null;
   const days = read.clauses.flatMap((c) => (c.kind === 'day' ? [{ weekday: c.weekday, dish: c.dish }] : []));
   const pick = read.clauses.flatMap((c) => (c.kind === 'pick' ? [c.pick] : [])).at(0) ?? null;
@@ -874,8 +902,8 @@ const symptomOrDiet = (own: string): boolean => HEALTH_WORDS.test(own) || dietCu
  * `dishes` so a closed plan clause counts as closed). None in a message with a symptom, condition or diet word, from
  * a safety turn, or outside the player's own words.
  */
-export function reminderSlots(text: string, dishes: readonly { slug: string; title: string }[] = []): { name: MealSlot; start: string }[] {
-  const read = codeClauses(text, dishes);
+export function reminderSlots(text: string, dishes: readonly { slug: string; title: string }[] = [], graph: IngredientGraph | null = null): { name: MealSlot; start: string }[] {
+  const read = codeClauses(text, dishes, graph);
   if (read === null || symptomOrDiet(read.own)) return [];
   return read.clauses.flatMap((c) => (c.kind === 'reminder' ? [{ name: c.name, start: c.start }] : []));
 }
@@ -902,8 +930,8 @@ export function reminderClauses(text: string): { name: MealSlot; start: string }
  * `market( day)?('s| is) (on )?<weekday>`, in a message whose every clause is closed (`codeClauses`, N6), naming
  * exactly one weekday, with no symptom, condition or diet word. The weekday (0 = Sunday), or null.
  */
-export function marketDayStated(text: string, dishes: readonly { slug: string; title: string }[] = []): number | null {
-  const read = codeClauses(text, dishes);
+export function marketDayStated(text: string, dishes: readonly { slug: string; title: string }[] = [], graph: IngredientGraph | null = null): number | null {
+  const read = codeClauses(text, dishes, graph);
   if (read === null || symptomOrDiet(read.own) || parseWeekdays(read.own).length !== 1) return null;
   return read.clauses.flatMap((c) => (c.kind === 'market' ? [c.day] : [])).at(0) ?? null;
 }

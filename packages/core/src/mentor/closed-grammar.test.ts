@@ -74,10 +74,10 @@ describe('planWordsIn: closed plan clauses inside a longer message', () => {
       hard: null,
       after: null,
     });
-    // Fix round 5 (5a): a clause M4's meal-log parser reads whole, and the filler "idk", are consumed.
+    // Fix round 5 (5a): a clause M4's meal-log parser reads whole is consumed. M5 final (parked m6): "idk" is no filler.
     expect(planWordsIn('had toast for lunch. put onigiri on monday, and remind me about dinner at 6:30 pm', DISHES)?.days).toEqual([{ weekday: 'monday', dish: 'onigiri' }]);
     expect(planWordsIn("pick 3. market's saturday", DISHES)).toEqual({ days: null, pick: 3, hard: null, after: null });
-    expect(planWordsIn("idk. pick 3. market's saturday", DISHES)).toEqual({ days: null, pick: 3, hard: null, after: null });
+    expect(planWordsIn("idk. pick 3. market's saturday", DISHES)).toBeNull();
     expect(planWordsIn("idk what. pick 3. market's saturday", DISHES)).toBeNull();
     expect(planWordsIn("Had dal for dinner. Also put the frijoles on Saturday's plan.", DISHES)).toBeNull();
     expect(planWordsIn('put the parippu minus the peanuts on monday', DISHES)).toBeNull();

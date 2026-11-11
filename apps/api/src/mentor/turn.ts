@@ -461,13 +461,13 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
   const own = stripPageEvents(playerOwnWords(f.raw)).text;
   const healthWords = codeCardHealth(own, graph, deps.catalog.ruleTerms);
   const dishes = [...index].map(([slug, r]) => ({ slug, title: r.meta.title }));
-  const words = !healthWords && offered.has('propose_plan') && !calls.some((c) => c.name === 'propose_plan') ? planWordsIn(f.raw, dishes) : null;
+  const words = !healthWords && offered.has('propose_plan') && !calls.some((c) => c.name === 'propose_plan') ? planWordsIn(f.raw, dishes, graph) : null;
   if (words !== null) calls.push({ name: 'propose_plan', args: { days: words.days, pick: words.pick, hard_week: words.hard, after: words.after } });
-  const timed = !healthWords && offered.has('propose_profile') && !calls.some((c) => c.name === 'propose_profile') ? reminderSlots(f.raw, dishes) : [];
+  const timed = !healthWords && offered.has('propose_profile') && !calls.some((c) => c.name === 'propose_profile') ? reminderSlots(f.raw, dishes, graph) : [];
   if (timed.length > 0) calls.push({ name: 'propose_profile', args: { market_days: null, meals_per_week: null, region: null, country: null, meal_windows: timed } });
   const market =
     !healthWords && offered.has('propose_profile') && !calls.some((c) => c.name === 'propose_profile' && c.args.market_days !== null && c.args.market_days.length > 0)
-      ? marketDayStated(f.raw, dishes)
+      ? marketDayStated(f.raw, dishes, graph)
       : null;
   if (market !== null) {
     const profileCall = calls.find((c): c is Extract<ToolArgs, { name: 'propose_profile' }> => c.name === 'propose_profile');
