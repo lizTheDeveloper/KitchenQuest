@@ -156,7 +156,7 @@ describe('transcripts (C-12)', () => {
     expect(await recentMessages(db, keyring, mem, no, c2.id, false, NOW)).toEqual([PLAYER, PAN]);
     // The conversation row itself holds no content.
     const [conv] = await rowsOf('conversations', no);
-    expect(Object.keys(conv).sort()).toEqual(['id', 'last_turn_at', 'started_at', 'turn_seq', 'user_id']);
+    expect(Object.keys(conv).sort()).toEqual(['id', 'last_turn_at', 'last_turn_key', 'started_at', 'turn_seq', 'user_id']);
   });
 
   it('recentMessages returns the last HISTORY_MESSAGES, oldest first, and never another user\'s', async () => {

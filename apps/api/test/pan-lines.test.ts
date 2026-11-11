@@ -21,11 +21,15 @@ function files(dir: string): string[] {
 /** Each literal trigger id the code emits, with the var names it passes (`line('id', { a, b: x })`, `trigger: 'id', vars: { … }`). */
 function emitted(): Map<string, Set<string>> {
   const out = new Map<string, Set<string>>();
-  const keysOf = (body: string | undefined) =>
-    (body ?? '')
+  const keysOf = (body: string | undefined) => {
+    // Calls and indexes inside a value ("savedRuleName(a, b)") hold commas that are no var names.
+    let flat = body ?? '';
+    for (let prev = ''; prev !== flat; ) [prev, flat] = [flat, flat.replace(/\([^()]*\)|\[[^[\]]*\]/g, '')];
+    return flat
       .split(',')
       .map((part) => /^\s*([A-Za-z_]\w*)\s*(?::|$)/.exec(part)?.[1])
       .filter((k): k is string => k !== undefined);
+  };
   const add = (id: string, keys: string[]) => {
     const set = out.get(id) ?? new Set<string>();
     for (const k of keys) set.add(k);

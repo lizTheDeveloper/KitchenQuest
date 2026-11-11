@@ -285,10 +285,10 @@ Every column the migrations create, as `table.column`, with the inventory row th
 | `login_tokens` | `login_tokens.id`, `login_tokens.email`, `login_tokens.token_hash`, `login_tokens.expires_at`, `login_tokens.used_at`, `login_tokens.created_at` | A-2, A-3 |
 | `sessions` | `sessions.id`, `sessions.user_id`, `sessions.token_hash`, `sessions.expires_at`, `sessions.created_at` | A-6 |
 | `profiles` | `profiles.user_id`, `profiles.market_days`, `profiles.meals_per_week`, `profiles.country`, `profiles.region`, `profiles.meal_windows`, `profiles.updated_at` | P-1, P-2, P-3 |
-| `rules` | `rules.id`, `rules.user_id`, `rules.sealed`, `rules.created_at`, `rules.updated_at` | H-1, H-2, H-3 |
+| `rules` | `rules.id`, `rules.user_id`, `rules.sealed`, `rules.created_at`, `rules.updated_at`, `rules.version` | H-1, H-2, H-3 |
 | `meal_logs` | `meal_logs.id`, `meal_logs.user_id`, `meal_logs.eaten_on`, `meal_logs.slot`, `meal_logs.sealed`, `meal_logs.created_at` | H-7 |
 | `pantry_items` | `pantry_items.id`, `pantry_items.user_id`, `pantry_items.sealed`, `pantry_items.created_at` | H-11 |
-| `conversations` | `conversations.id`, `conversations.user_id`, `conversations.started_at`, `conversations.last_turn_at`, `conversations.turn_seq` | I-1 |
+| `conversations` | `conversations.id`, `conversations.user_id`, `conversations.started_at`, `conversations.last_turn_at`, `conversations.turn_seq`, `conversations.last_turn_key` | I-1 |
 | `messages` | `messages.id`, `messages.conversation_id`, `messages.user_id`, `messages.seq`, `messages.role`, `messages.sealed`, `messages.created_at` | I-1 |
 | `mentor_proposals` | `mentor_proposals.id`, `mentor_proposals.user_id`, `mentor_proposals.conversation_id`, `mentor_proposals.turn_seq`, `mentor_proposals.kind`, `mentor_proposals.severe`, `mentor_proposals.status`, `mentor_proposals.sealed`, `mentor_proposals.undo_sealed`, `mentor_proposals.write_ref`, `mentor_proposals.channel`, `mentor_proposals.created_at`, `mentor_proposals.expires_at`, `mentor_proposals.decided_at` | I-4 |
 | `canon_recipes` | `canon_recipes.path`, `canon_recipes.slug`, `canon_recipes.title`, `canon_recipes.country`, `canon_recipes.region`, `canon_recipes.status`, `canon_recipes.source`, `canon_recipes.content_hash`, `canon_recipes.contributors`, `canon_recipes.synced_at` | W-1 (`contributors`), W-2 (`source`), W-3 (the rest; no player data) |
