@@ -10,17 +10,22 @@ import {
   classifyTurn,
   isSevereCard,
   isSuitabilityQuestion,
+  leftoverNamedIngredients,
   matchDish,
   normalizeTurn,
   parseRuleStatement,
+  playerOwnWords,
   preRoute,
+  ruleTermsInPlayerWords,
   severityFromText,
   shortReplyTarget,
+  statesSevere,
   slotForTime,
   stripPageEvents,
   SUITABILITY_PATTERN,
   weekdayNumbers,
   type CardAction,
+  type IngredientGraph,
   type OpenCardRef,
   type ProfilePatchInput,
   type ProposalCard,
@@ -267,7 +272,50 @@ async function lockConversation(tx: Tx, userId: string, conversationId: string):
   return rows.length > 0;
 }
 
-const RULE_OUTCOME_LINES = new Set(['rule.unknown_term', 'rule.which_one', 'consent.health_first', 'rule.ask_what_else', 'rule.ask_keep_off']);
+/**
+ * Ingredient ids the turn's cards and option lists account for: rule targets, ambiguous-term
+ * options, and the graph names on meal and pantry cards ("toast for breakfast and kiwi" never asks about bread).
+ */
+function coveredIds(reply: Reply, graph: IngredientGraph): string[] {
+  const named = (text: string) => leftoverNamedIngredients(text, [], graph).left.flatMap((n) => graph.resolve(n) ?? []);
+  const ids: string[] = [];
+  for (const c of reply.cards) {
+    if (c.kind === 'rule') ids.push(...c.rule.target.ids);
+    else if (c.kind === 'meal') ids.push(...named(c.summary));
+    else if (c.kind === 'pantry') ids.push(...c.add.flatMap((i) => named(i.name)), ...c.remove.flatMap(named));
+  }
+  for (const p of reply.parts) if (p.kind === 'choices') ids.push(...p.options.map((o) => o.id));
+  return ids;
+}
+
+/**
+ * Step 12 carry of the Step 11 structural ruling, "every named allergen gets a card or an ask", with the
+ * client's intake rule (core `leftoverNamedIngredients`): on a turn whose player words state a rule (or
+ * answer the allergies step), each ledger name no card covers gets `rule.ask_what_else` naming it, and a
+ * name said as fine ("but not tree nuts") is never a card and gets `rule.exclusion_not_kept`. Replaces
+ * the single ask of `askForDroppedTerms`. Edits `reply` in place.
+ */
+function askForLeftoverNames(reply: Reply, raw: string, intakeStep: TurnRequest['intakeStep'], graph: IngredientGraph): void {
+  const own = stripPageEvents(playerOwnWords(raw)).text;
+  const statesRule = intakeStep === 'allergies' || ruleTermsInPlayerWords(raw).length > 0 || statesSevere(raw, graph) || severityFromText(own, graph) !== null;
+  // Without health_data nothing can be filed: the consent card asks the player to say it again.
+  if (!statesRule || reply.parts.some((p) => p.kind === 'consent')) return;
+  const { left, excluded } = leftoverNamedIngredients(raw, coveredIds(reply, graph), graph);
+  if (left.length === 0 && excluded.length === 0) return;
+  // The named asks replace askForDroppedTerms' single ask, and a bare "didn't understand".
+  reply.parts = reply.parts.filter((p) => !(p.kind === 'line' && (p.line.trigger === 'rule.ask_what_else' || p.line.trigger === 'didnt_understand')));
+  for (const term of left) reply.parts.push(line('rule.ask_what_else', { term }));
+  for (const term of excluded) reply.parts.push(line('rule.exclusion_not_kept', { term }));
+}
+
+const RULE_OUTCOME_LINES = new Set([
+  'rule.unknown_term',
+  'rule.which_one',
+  'consent.health_first',
+  'rule.ask_what_else',
+  'rule.ask_keep_off',
+  'rule.exclusion_not_kept',
+]);
 const hasRuleOutcome = (reply: Reply) =>
   reply.cards.some((c) => c.kind === 'rule') || reply.parts.some((p) => p.kind === 'line' && RULE_OUTCOME_LINES.has(p.line.trigger));
 
@@ -294,6 +342,8 @@ interface FinishInput {
 async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: Date): Promise<TurnResponse> {
   const graph = deps.catalog.graph;
   const offered = new Set(f.offered.map((t) => t.name));
+  // A name the player said is fine ("peanuts but not sesame", "PECAN not peanut") is never a card (Step 11 ruling).
+  const fine = new Set(leftoverNamedIngredients(f.raw, [], graph).excluded.flatMap((n) => graph.resolve(n) ?? []));
   const calls = applyPostChecks(
     f.result.toolCalls
       .filter((c) => offered.has(c.name))
@@ -302,7 +352,7 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
     f.raw,
     graph,
     deps.catalog.ruleTerms,
-  );
+  ).filter((c) => !(c.name === 'propose_rule' && fine.has(graph.resolve(c.args.term) ?? '')));
   return deps.db.transaction(async (tx) => {
     await lockLiveUser(tx, userId);
     await recordUsage(tx, userId, 'mentor_text', 1, f.result.usage.costMicroUsd, now);
@@ -329,6 +379,8 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
       dropBareFallback();
       reply.parts.push({ kind: 'line', line: ask });
     }
+    // Every named allergen gets a card or an ask (Step 11 structural ruling, carried to the server here).
+    askForLeftoverNames(reply, f.raw, f.req.intakeStep, graph);
     // A health statement is never silently lost (fix round 1 ruling on call 3): a health turn
     // that made no card at all, or whose model rule was dropped (C4), with no rule outcome,
     // asks plainly.

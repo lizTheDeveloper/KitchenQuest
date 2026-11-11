@@ -828,7 +828,8 @@ describe('fix round 1: adversarial repros', () => {
     const p = await player(AI_HEALTH);
     await seedUsage(p.userId, 15);
     const r = await turn(p.cookie, "I avoid gluten. What's for dinner?");
-    expect(r).toMatchObject({ route: 'ai', cards: [], parts: [lineOf('rule.ask_keep_off')] }); // a health statement is never lost
+    // A health statement is never lost; the named ingredient is asked for by name (Step 12 carry of the Step 11 ruling).
+    expect(r).toMatchObject({ route: 'ai', cards: [], parts: [lineOf('rule.ask_what_else', { term: 'gluten' })] });
     expect(await usageRows(p.userId)).toBe(16); // metered as usual
   });
 
@@ -1575,5 +1576,55 @@ describe('fix round 5: a write request that is also a suitability question, with
     const r = await turn(p.cookie, q, { screen: { route: 'recipe', slug: FRIJOLES } });
     seesNoModelText(r, 'It is safe.');
     expect(triggers(r)).toEqual(expected);
+  });
+});
+
+describe('Step 12 carry: every named allergen gets a card or an ask (Step 11 structural ruling, core leftoverNamedIngredients)', () => {
+  const kinds = (r: TurnResponse) => r.cards.map((c) => c.card.kind);
+  const lines = (r: TurnResponse) => r.parts.flatMap((p) => (p.kind === 'line' ? [p.line] : []));
+
+  test('a named allergen no card covers is asked for by name, after the card that was made', async () => {
+    await makeApp(fakeAi([toolCall('propose_rule', { term: 'peanuts', severity: 'allergy' })]));
+    const p = await player(AI_HEALTH);
+    const r = await turn(p.cookie, "I'm allergic to peanuts and sesame");
+    expect(kinds(r)).toEqual(['rule']);
+    expect(lines(r).at(-1)).toEqual({ trigger: 'rule.ask_what_else', vars: { term: 'sesame' } });
+    expect(await countOf('rules', p.userId)).toBe(0);
+  });
+
+  test('with no card at all, each named allergen gets its own ask', async () => {
+    await makeApp(fakeAi([reply('Noted!')]));
+    const p = await player(AI_HEALTH);
+    const r = await turn(p.cookie, "I'm allergic to peanuts and sesame");
+    expect(r.cards).toEqual([]);
+    expect(lines(r)).toEqual([
+      { trigger: 'rule.ask_what_else', vars: { term: 'peanut' } },
+      { trigger: 'rule.ask_what_else', vars: { term: 'sesame' } },
+    ]);
+  });
+
+  test('a name said as fine is never a card and gets rule.exclusion_not_kept', async () => {
+    await makeApp(fakeAi([withCalls([
+      { id: 'a', name: 'propose_rule', arguments: JSON.stringify({ term: 'peanuts', severity: 'allergy' }) },
+      { id: 'b', name: 'propose_rule', arguments: JSON.stringify({ term: 'sesame', severity: 'allergy' }) },
+    ])]));
+    const p = await player(AI_HEALTH);
+    const r = await turn(p.cookie, "I'm allergic to peanuts but not sesame");
+    // The model's sesame card is dropped: sesame is not in the player's rule statement (C4).
+    expect(r.cards.map((c) => c.card)).toMatchObject([{ kind: 'rule', rule: { target: { ids: ['peanut'] } } }]);
+    expect(lines(r)).toContainEqual({ trigger: 'rule.exclusion_not_kept', vars: { term: 'sesame' } });
+    expect(lines(r).map((l) => l.trigger)).not.toContain('rule.ask_what_else');
+  });
+
+  test('a name on the turn\'s meal card is accounted for; a turn stating no rule never asks', async () => {
+    const mealCall = { id: 'm', name: 'propose_meal_log', arguments: JSON.stringify({ slot: 'breakfast', when: 'today', dish: null, servings: null, description: 'rice' }) };
+    const ruleCall = { id: 'r', name: 'propose_rule', arguments: JSON.stringify({ term: 'sesame', severity: 'allergy' }) };
+    await makeApp(fakeAi([withCalls([mealCall, ruleCall]), withCalls([mealCall])]));
+    const p = await player(AI_HEALTH);
+    const r = await turn(p.cookie, "I had rice for breakfast and I'm allergic to sesame");
+    expect(kinds(r).sort()).toEqual(['meal', 'rule']);
+    expect(lines(r).map((l) => l.trigger)).not.toContain('rule.ask_what_else');
+    const plain = await turn(p.cookie, 'I had rice and peanuts for breakfast');
+    expect(lines(plain).map((l) => l.trigger)).not.toContain('rule.ask_what_else');
   });
 });

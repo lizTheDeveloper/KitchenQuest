@@ -25,9 +25,23 @@ function sourceFiles(dir: string): string[] {
   });
 }
 
-/** Hosts of `https://` string literals in a source file. */
+/** Loopback hosts are never outbound (e.g. the APP_ORIGIN default `http://localhost:5173`). */
+const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+/** Hosts of `https://` and `http://` string literals in a source file (Step 4 review: http too), loopback left out. */
 export function outboundHosts(text: string): string[] {
-  return [...text.matchAll(/['"`]https:\/\/([^/:'"`\s]+)/g)].map((m) => m[1].toLowerCase());
+  return [...text.matchAll(/['"`]https?:\/\/(\[[^\]]*\]|[^/:'"`\s]+)/gi)].map((m) => m[1].toLowerCase()).filter((h) => !LOOPBACK.has(h));
+}
+
+/**
+ * Each `new URL(` call whose target is not a literal: one that resolves a relative literal against
+ * `import.meta.url` (a file next to the source) is local; anything else could build an outbound
+ * address from a variable, out of the literal scan's sight (Step 4 review).
+ */
+export function dynamicUrls(text: string): string[] {
+  return [...text.matchAll(/new URL\(([^)]*)\)/g)]
+    .map((m) => m[1].trim())
+    .filter((args) => !/^(['"`])[^'"`]*\1\s*,\s*import\.meta\.url$/.test(args) && !/^(['"`])https?:\/\//i.test(args));
 }
 
 describe('processors.json', () => {
@@ -64,8 +78,23 @@ describe('processors.json', () => {
 describe('outbound hosts (N-9)', () => {
   const files = sourceFiles(SRC).map((f) => ({ rel: relative(SRC, f).split('\\').join('/'), text: readFileSync(f, 'utf8') }));
 
-  it('finds https literals', () => {
+  it('finds https and http literals, never loopback', () => {
     expect(outboundHosts(`const a = 'https://openrouter.ai/api'; const b = "https://Example.com:443/x";`)).toEqual(['openrouter.ai', 'example.com']);
+    expect(outboundHosts("const c = 'http://evil.example/x'; const d = `HTTP://Plain.test`; const e = 'http://localhost:5173';")).toEqual([
+      'evil.example',
+      'plain.test',
+    ]);
+    expect(outboundHosts("new URL('/v1', 'https://api.example.com')")).toEqual(['api.example.com']);
+  });
+
+  it('flags new URL( calls built from a variable, not a file next to the source', () => {
+    expect(dynamicUrls("new URL('../data/', import.meta.url); new URL(`../x-${v}.md`, import.meta.url)")).toEqual([]);
+    expect(dynamicUrls("new URL('https://openrouter.ai/x')")).toEqual([]);
+    expect(dynamicUrls('new URL(path, base); new URL(process.env.X)')).toEqual(['path, base', 'process.env.X']);
+  });
+
+  it('builds no URL in src from a variable (every outbound address is a scanned literal)', () => {
+    for (const { rel, text } of files) expect(dynamicUrls(text), `${rel} builds a URL from a variable`).toEqual([]);
   });
 
   it('maps every outbound host in src to a registered processor', () => {

@@ -8,6 +8,7 @@
     "test": "NODE_OPTIONS=--no-warnings=ExperimentalWarning vitest run",
     "sync:recipes": "node --import tsx src/recipes/sync-cli.ts",
     "grant": "node --import tsx scripts/grant.ts",
+    "eval:mentor": "node --import tsx eval/run.ts",
     "rekey": "node --import tsx scripts/rekey.ts",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json"
   },
