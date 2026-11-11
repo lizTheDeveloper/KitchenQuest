@@ -61,7 +61,9 @@ describe('never rules, every screen', () => {
   });
 
   it('the mentor list catches sells words and voice.md §7, and passes the Pan\'s plain lines', () => {
-    for (const t of ['Join the Guild', 'subscribers', 'a paid plan', 'guilt-free', 'a cheat day', 'good job skipping', 'that weird dish', 'Recipe unlocked', 'HIPAA']) {
+    for (const t of ['Join the Guild', 'subscribers', 'a paid plan', 'guilt-free', 'a cheat day', 'good job skipping', 'that weird dish', 'Recipe unlocked', 'HIPAA',
+      // Fix round 1 (M7): the rest of voice.md §7.
+      'collect them all', 'you missed 3 days', 'Come in, mijo', 'gracias, mija']) {
       expect(MENTOR_BANNED.test(t), t).toBe(true);
     }
     for (const t of ['Check the card on screen.', 'I may have missed peanut.', "I can't find milk in your pantry"]) expect(MENTOR_BANNED.test(t), t).toBe(false);

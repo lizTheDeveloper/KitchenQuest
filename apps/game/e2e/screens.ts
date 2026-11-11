@@ -53,6 +53,7 @@ export const MENTOR_BANNED_WORDS = [
   ...CONTENT_BANNED_WORDS, 'subscri\\w*', 'membership', 'paid plan',
   'exotic', 'weird', 'strange', 'discover(ed)?', 'unlock(ed)?', 'loot(ed)?', 'acquired?',
   'guilt-free', 'cheat day', 'junk', 'clean eating', 'sinful', 'skipped a meal', 'good job', 'streak lost', 'authentic', 'broken english',
+  'collect', 'you missed \\w+ days', 'mijo', 'mija',
 ];
 export const MENTOR_BANNED = bannedPattern(MENTOR_BANNED_WORDS);
 
