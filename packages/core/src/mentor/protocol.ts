@@ -67,6 +67,11 @@ export interface TurnResponse {
 export interface ConfirmRequest {
   channel: 'tap';
   edits?: { severity?: Severity };
+  /**
+   * The conversation the player is in now. When sent, a proposal from any other conversation (an earlier one, one
+   * since forgotten, or none) is closed, never written (409 `proposal_closed`).
+   */
+  conversationId?: string | null;
 }
 
 export interface ConfirmResponse {

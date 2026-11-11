@@ -112,10 +112,23 @@ describe('card writer', () => {
       confirmProposal: () => ok({ trail, parts: [{ kind: 'line', line: { trigger: 'rule.stamped', vars: { ingredient: 'milk' } } }, { kind: 'text', text: 'It is saved and safe!' }] }),
     }, signedIn);
     const out = await writer.confirm(server(milk()), 'tap', { severity: 'allergy' });
-    expect(calls).toEqual([{ name: 'confirmProposal', args: ['P1', { severity: 'allergy' }] }]);
+    expect(calls).toEqual([{ name: 'confirmProposal', args: ['P1', { severity: 'allergy' }, undefined] }]);
     expect(out).toMatchObject({ ok: true, trail });
     expect(said(out.items)).toEqual(['rule.stamped']);
     expect(JSON.stringify(out.items)).not.toContain('safe!');
+  });
+
+  test('H2: a server card tap names the conversation the player is in now', async () => {
+    const trail = { id: 'P1', origin: 'server' as const, kind: 'rule' as const, summary: 'milk', undoUntil: '2026-11-10T12:05:00Z' };
+    const store = createStore(null);
+    store.update((s) => ({ ...s, ...signedIn }));
+    const { client, calls } = fakeClient({ confirmProposal: () => ok({ trail, parts: [] }) });
+    let current: string | null = 'c1';
+    const writer = createCardWriter({ client, store, dialogue: createDialogue(content.pan), graph, ruleTerms: content.ruleTerms, now: () => T0, conversationId: () => current });
+    await writer.confirm(server(milk(), 'P1'), 'tap');
+    current = null;
+    await writer.confirm(server(milk(), 'P2'), 'tap');
+    expect(calls.map((c) => c.args)).toEqual([['P1', undefined, 'c1'], ['P2', undefined, null]]);
   });
 
   test('403 → a consent item; the card stays open', async () => {

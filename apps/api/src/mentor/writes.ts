@@ -73,6 +73,9 @@ interface PantryUndo {
  * or expired), 400 `tap_required` (a severe card on any channel but a tap),
  * 400 `bad_request` (an edit on a card that is not a rule, or the service's
  * validation). Any throw rolls the transaction back, so the card stays open.
+ * With `inConversation` given (the tap names the conversation the player is in
+ * now), a proposal from any other conversation, or from none, is 409
+ * `proposal_closed`: a card from before a clear is never written (fix round 5, H2).
  */
 export async function confirmProposalIn(
   tx: Tx,
@@ -83,6 +86,7 @@ export async function confirmProposalIn(
   edits: { severity?: Severity } | undefined,
   at: Date,
   requestId?: string,
+  inConversation?: string | null,
 ): Promise<ConfirmResponse> {
   await lockLiveUser(tx, userId);
   const peeked = await peekProposal(tx, deps.keyring, userId, proposalId);
@@ -91,6 +95,7 @@ export async function confirmProposalIn(
   const p = await lockProposal(tx, deps.keyring, userId, proposalId, at);
   if (p === null) throw notFound();
   if (p.status !== 'open') throw closed();
+  if (inConversation !== undefined && (p.conversationId === null || p.conversationId !== inConversation)) throw closed();
   // The stored flag and the card itself: either one makes it severe.
   if ((p.severe || isSevereCard(p.card)) && channel !== 'tap')
     throw new ApiError(400, 'tap_required', 'A severe rule needs a tap on its card');

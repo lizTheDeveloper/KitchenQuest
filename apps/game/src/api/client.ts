@@ -30,7 +30,7 @@ export interface ApiClient {
   /** M4. The player's text rides in the POST body only, never in the URL (P-5). */
   mentorTurn(req: TurnRequest): Promise<ApiResult<TurnResponse>>;                                              // POST /mentor/turn
   /** A tap on a server card: the body is `{ channel: 'tap', edits? }`; the type has no other channel (§7.6b.1). */
-  confirmProposal(id: string, edits?: { severity?: Severity }): Promise<ApiResult<ConfirmResponse>>;          // POST /mentor/proposals/:id/confirm
+  confirmProposal(id: string, edits?: { severity?: Severity }, conversationId?: string | null): Promise<ApiResult<ConfirmResponse>>;          // POST /mentor/proposals/:id/confirm
   rejectProposal(id: string): Promise<ApiResult<{ parts: ReplyPart[] }>>;                                      // POST /mentor/proposals/:id/reject
   undoWrite(id: string): Promise<ApiResult<{ parts: ReplyPart[]; undone: boolean }>>;                                        // POST /mentor/writes/:id/undo
   forgetConversations(): Promise<ApiResult<null>>;                                                            // DELETE /mentor/conversations (204)
@@ -123,8 +123,10 @@ export function createApiClient(opts: { baseUrl?: string; fetch?: typeof fetch; 
     exportAccount: () => call('GET', '/me/export'),
     deleteAccount: (confirm) => call('DELETE', '/me', { confirm }),
     mentorTurn: (req) => call('POST', '/mentor/turn', req, timeoutMs),
-    confirmProposal: (id, edits) => {
-      const body: ConfirmRequest = edits === undefined ? { channel: 'tap' } : { channel: 'tap', edits };
+    confirmProposal: (id, edits, conversationId) => {
+      const body: ConfirmRequest = {
+        channel: 'tap', ...(edits === undefined ? {} : { edits }), ...(conversationId === undefined ? {} : { conversationId }),
+      };
       return call('POST', `/mentor/proposals/${enc(id)}/confirm`, body);
     },
     rejectProposal: (id) => call('POST', `/mentor/proposals/${enc(id)}/reject`),

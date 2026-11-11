@@ -138,7 +138,7 @@ export function mountMentor(doc: Document, store: PlayerStore, bank: LineBank, c
     const dialogue: Dialogue = createDialogue(bank, historyOptions(store));
     const recipes = Object.entries(content.recipes).map(([slug, r]) => ({ slug, title: r.meta.title }));
     const engine: ScriptedEngine = createScriptedEngine({ dialogue, graph, ruleTerms: content.ruleTerms, recipes, now });
-    const writer = createCardWriter({ client, store, dialogue, graph, ruleTerms: content.ruleTerms, now });
+    const writer = createCardWriter({ client, store, dialogue, graph, ruleTerms: content.ruleTerms, now, conversationId: () => conversation?.id });
     const backend = switchingBackend(store, (kind) => {
       if (kind !== 'ai') return createScriptedBackend(engine, dialogue);
       // A new AI backend is a new conversation: its own server id and a fresh child flag.

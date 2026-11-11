@@ -37,6 +37,14 @@ describe('M4 mentor, meal and pantry requests', () => {
     expect(body(1)).toEqual({ channel: 'tap', edits: { severity: 'allergy' } });
   });
 
+  test('H2: confirmProposal names the current conversation when given one (null after a clear)', async () => {
+    script.push(json(200, { trail: {}, parts: [] }), json(200, { trail: {}, parts: [] }));
+    await client.confirmProposal('p1', undefined, 'c1');
+    await client.confirmProposal('p2', { severity: 'allergy' }, null);
+    expect(body(0)).toEqual({ channel: 'tap', conversationId: 'c1' });
+    expect(body(1)).toEqual({ channel: 'tap', edits: { severity: 'allergy' }, conversationId: null });
+  });
+
   test('mentorTurn posts the TurnRequest as JSON', async () => {
     const req: TurnRequest = {
       conversationId: null, input: { kind: 'text', text: "I'm allergic to sesame" }, localDate: '2026-11-10', localTime: '12:30', screen: { route: 'kitchen' }, intakeStep: null,

@@ -79,6 +79,11 @@ const isConsentPurpose = (x: unknown): x is 'health_data' | 'ai_health' => x ===
 
 export function createCardWriter(deps: {
   client: ApiClient; store: PlayerStore; dialogue: Dialogue; graph: IngredientGraph; ruleTerms: readonly RuleTerm[]; now: () => Date;
+  /**
+   * The AI conversation the player is in now (undefined: none). A server card's tap names it, so the server closes a
+   * card from an earlier or cleared conversation instead of writing it (fix round 5, H2).
+   */
+  conversationId?: () => string | null | undefined;
 }): CardWriter {
   const { client, store, dialogue, graph, ruleTerms } = deps;
   const inFlight = new Set<string>();
@@ -300,7 +305,7 @@ export function createCardWriter(deps: {
       try {
         let out: WriteOutcome;
         if (view.origin === 'server') {
-          const r = await client.confirmProposal(view.proposalId, edits);
+          const r = await client.confirmProposal(view.proposalId, edits, deps.conversationId?.());
           out = r.ok ? { ok: true, trail: r.data.trail, items: partsToItems(r.data.parts, dialogue) } : refused(r, card);
         } else {
           if (severity !== undefined && card.kind === 'rule') card = withSeverity(card, severity, graph, ruleTerms);
