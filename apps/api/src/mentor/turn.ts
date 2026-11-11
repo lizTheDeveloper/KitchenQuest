@@ -29,6 +29,7 @@ import {
   type IngredientGraph,
   type OpenCardRef,
   type ProfilePatchInput,
+  type RuleCard,
   type Rule,
   type Severity,
   type ProposalCard,
@@ -169,7 +170,7 @@ const SEVERITY_RANK: Readonly<Record<Severity, number>> = { preference: 0, intol
  * ids, or a saved category they are kinds of) at a STRICTER severity than the card's, or null. Such a card is
  * never offered: it would read back a milder level than the one on file.
  */
-function stricterSaved(card: Extract<ProposalCard, { kind: 'rule' }>, saved: readonly Rule[], graph: IngredientGraph): Rule | null {
+function stricterSaved(card: RuleCard, saved: readonly Rule[], graph: IngredientGraph): Rule | null {
   const covers = (r: Rule, id: string) => r.target.ids.includes(id) || r.target.ids.some((s) => graph.has(s) && graph.descendants(s).includes(id));
   return (
     saved
@@ -210,8 +211,8 @@ function cardsFromCalls(
           break;
         }
         const r = buildRuleCard(call.args, deps.catalog.graph, deps.catalog.ruleTerms);
-        const stricter = r.ok && r.card.kind === 'rule' ? stricterSaved(r.card, saved, deps.catalog.graph) : null;
-        if (r.ok && r.card.kind === 'rule' && stricter !== null) {
+        const stricter = r.ok ? stricterSaved(r.card, saved, deps.catalog.graph) : null;
+        if (r.ok && stricter !== null) {
           // Already on file at a stricter level: say so, offer nothing (never a milder read-back).
           onFile.push(...r.card.rule.target.ids);
           parts.push(line('rule.already_saved', { ingredient: r.card.display.ingredient, severity: SEVERITY_WORDS[stricter.severity] }));
