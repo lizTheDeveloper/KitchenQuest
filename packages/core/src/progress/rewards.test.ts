@@ -192,12 +192,12 @@ describe('quests', () => {
     ];
     for (const [event, problem] of cases) {
       const r = grantsFor(event, base, CAT, DATA, T);
-      expect(r, JSON.stringify(event)).toEqual({ grants: [], problems: [problem] });
+      expect(r, JSON.stringify(event)).toMatchObject({ grants: [], problems: [problem], warnings: [] });
     }
   });
 
   test('a quest_step of a quest whose unlock.requires is not done → problems, no grants (C4)', () => {
-    expect(grantsFor(ev.step('marisol-salt-question', 1, MON), EMPTY, CAT, DATA, T)).toEqual({ grants: [], problems: ['quest_waiting'] });
+    expect(grantsFor(ev.step('marisol-salt-question', 1, MON), EMPTY, CAT, DATA, T)).toMatchObject({ grants: [], problems: ['quest_waiting'], warnings: [] });
     expect(grantsFor(ev.drill('marisol-salt-question', 2, 'legumes', MON), EMPTY, CAT, DATA, T).problems).toEqual(['quest_waiting']);
     const p = play(finishQuest('leela-tempering', MON));
     expect(grantsFor(ev.step('marisol-salt-question', 1, MON), p.history, CAT, DATA, T).problems).toEqual([]);
@@ -231,7 +231,7 @@ describe('caps and weeks', () => {
   test('the 201st event with one local date → problem too_many_events for that event only; other dates still accepted (C14)', () => {
     const p = play(Array.from({ length: MAX_PROGRESS_EVENTS_PER_DAY }, (_, i) => ev.meal(MON, i % 1440)));
     expect(p.history.events).toHaveLength(200);
-    expect(grantsFor(ev.cooked('parippu', MON), p.history, CAT, DATA, T)).toEqual({ grants: [], problems: ['too_many_events'] });
+    expect(grantsFor(ev.cooked('parippu', MON), p.history, CAT, DATA, T)).toMatchObject({ grants: [], problems: ['too_many_events'], warnings: [] });
     const next = grantsFor(ev.cooked('parippu', addDays(MON, 1)), p.history, CAT, DATA, T);
     expect(next.problems).toEqual([]);
     expect(xpOf(next.grants)).toBe(30);
@@ -341,11 +341,11 @@ describe('fix round 1', () => {
   test('M1: a sacred or imported event carries no level grant, even after a retune', () => {
     const p = play([ev.cooked('parippu', MON)]);
     const gentle: RewardsData = { ...DATA, levels: [10, 20, 30] };
-    expect(grantsFor(ev.cooked('ofrenda', MON), p.history, CAT, gentle, T)).toEqual({ grants: [], problems: [] });
+    expect(grantsFor(ev.cooked('ofrenda', MON), p.history, CAT, gentle, T)).toMatchObject({ grants: [], problems: [], warnings: [] });
     const imp: ProgressEvent = { id: 'imp', kind: 'imported', at: MON, technique: 'grains', tier: 'tried', firstAt: MON, lastUsedAt: MON, recipes: ['onigiri'] };
-    expect(grantsFor(imp, p.history, CAT, gentle, T)).toEqual({ grants: [], problems: [] });
+    expect(grantsFor(imp, p.history, CAT, gentle, T)).toMatchObject({ grants: [], problems: [], warnings: [] });
     // Nor any event that earned no XP: a same-day re-cook.
-    expect(grantsFor(ev.cooked('parippu', MON), p.history, CAT, gentle, T)).toEqual({ grants: [], problems: [] });
+    expect(grantsFor(ev.cooked('parippu', MON), p.history, CAT, gentle, T)).toMatchObject({ grants: [], problems: [], warnings: [] });
     // The catch-up comes with the next event that earns XP.
     const next = grantsFor(ev.lesson('onigiri', MON), p.history, CAT, gentle, T);
     expect(kinds(next.grants)).toEqual(['xp:lesson:10', 'level:2', 'level:3', 'level:4']);
@@ -356,7 +356,7 @@ describe('fix round 1', () => {
     for (const bad of [imp('knife', 'tried', ['onigiri']), imp('knife', 'tried', ['pizza']), imp('legumes', 'yours', ['parippu']), imp('legumes', 'tried', []), imp('legumes', 'seen', ['parippu']), imp('legumes', 'tried', ['parippu', 'sambar'])])
       expect(grantsFor(bad, EMPTY, CAT, DATA, T).problems, bad.id).toEqual(['bad_field']);
     for (const good of [imp('knife', 'seen', []), imp('legumes', 'tried', ['parippu']), imp('legumes', 'yours', ['parippu', 'frijoles-de-olla'])])
-      expect(grantsFor(good, EMPTY, CAT, DATA, T), good.id).toEqual({ grants: [], problems: [] });
+      expect(grantsFor(good, EMPTY, CAT, DATA, T), good.id).toMatchObject({ grants: [], problems: [], warnings: [] });
     // The laundering probe: no forged Tried knife from onigiri, so no certificate through recognition.
     const p = play([...finishQuest('leela-tempering', MON), imp('knife', 'tried', ['onigiri']), ev.recognized('leela-tempering', 'knife', MON)]);
     expect(p.history.grants.filter((g) => g.kind === 'certificate')).toEqual([]);

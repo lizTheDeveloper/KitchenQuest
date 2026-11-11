@@ -63,22 +63,51 @@ describe('trust through a stand-in dish (I3)', () => {
     expect(trustOf(h, 'leela')).toBe(1);
     // A lesson carrying a stand-in claim is not a stand-in either.
     const forged = { id: newId(), kind: 'lesson', at: addDays(MON, 100), recipe: PARIPPU, standsInFor: ['leela'] } as unknown as ProgressEvent;
+    const r = grantsFor(forged, h, cat, DATA, T, c);
+    expect(r).toMatchObject({ problems: [], warnings: ['stand_in_dropped'] });
+    expect(r.event).not.toHaveProperty('standsInFor');
+    expect(r.grants.some((g) => g.kind === 'trust')).toBe(false);
     const h2 = record(h, [forged], cat, c);
     expect(trustOf(h2, 'leela')).toBe(1);
   });
 
-  it('a stand-in claim must hold: rejected without the rules context, when the dish is not ⛔, for its own cook, or for an unknown cook', () => {
-    const base = record(EMPTY_HISTORY, leelaDone(MON), cat, ctx([]));
-    const problems = (e: ProgressEvent, c?: RulesContext) => grantsFor(e, base, cat, DATA, T, c).problems;
-    expect(problems(dal(addDays(MON, 7), ['leela']))).toEqual(['bad_field']);
-    expect(problems(dal(addDays(MON, 7), ['leela']), ctx([]))).toEqual(['bad_field']);
-    expect(problems(dal(addDays(MON, 7), ['marisol']), ctx([ALLIUM]))).toEqual(['bad_field']);
-    expect(problems(dal(addDays(MON, 7), ['nobody']), ctx([ALLIUM]))).toEqual(['bad_field']);
-    expect(problems(dal(addDays(MON, 7), ['leela', 'leela']), ctx([ALLIUM]))).toEqual(['bad_field']);
-    expect(problems(dal(addDays(MON, 7), 'leela' as unknown as string[]), ctx([ALLIUM]))).toEqual(['bad_field']);
-    expect(problems(dal(addDays(MON, 7), ['leela']), ctx([ALLIUM]))).toEqual([]);
+  it('an invalid or unverifiable claim is dropped, never the event: normal cook grants, no stand-in week, a warning', () => {
+    const base = record(EMPTY_HISTORY, [dal(MON, ['leela']), ...leelaDone(MON)], cat, ctx([ALLIUM])); // one Leela week
+    const plain = grantsFor(dal(addDays(MON, 7)), base, cat, DATA, T);
+    const kinds = (gs: readonly { kind: string }[]) => gs.map((g) => g.kind);
+    const cases: [ProgressEvent, RulesContext | undefined][] = [
+      [dal(addDays(MON, 7), ['leela'])], // no rules context
+      [dal(addDays(MON, 7), ['leela']), ctx([])], // parippu is not ⛔ without rules
+      [dal(addDays(MON, 7), ['marisol']), ctx([ALLIUM])], // the dal's own cook
+      [dal(addDays(MON, 7), ['nobody']), ctx([ALLIUM])],
+      [dal(addDays(MON, 7), ['leela', 'leela']), ctx([ALLIUM])],
+      [dal(addDays(MON, 7), ['leela', 'haruka']), ctx([ALLIUM])], // one cook that doesn't hold drops the claim
+      [dal(addDays(MON, 7), 'leela' as unknown as string[]), ctx([ALLIUM])],
+      [dal(addDays(MON, 7), [] as string[]), ctx([ALLIUM])],
+    ].map(([e, c]) => [e as ProgressEvent, c as RulesContext | undefined]);
+    for (const [e, c] of cases) {
+      const r = grantsFor(e, base, cat, DATA, T, c);
+      expect(r.problems).toEqual([]);
+      expect(r.warnings).toEqual(['stand_in_dropped']);
+      expect(r.event).not.toHaveProperty('standsInFor');
+      expect(r.event).toEqual(Object.fromEntries(Object.entries(e).filter(([k]) => k !== 'standsInFor')));
+      expect(kinds(r.grants)).toEqual(kinds(plain.grants)); // cook XP (and its own cook-week), nothing for Leela
+      expect(r.grants.some((g) => g.kind === 'trust' && g.cook === 'leela')).toBe(false);
+      // Stored as accepted, the event credits no Leela week.
+      const h = { ...base, events: [...base.events, r.event], grants: [...base.grants, ...r.grants] };
+      expect(deriveProgress(h, cat).trust.leela).toBe(1);
+    }
+    // A claim that holds is kept, with no warning.
+    const ok = grantsFor(dal(addDays(MON, 7), ['leela']), base, cat, DATA, T, ctx([ALLIUM]));
+    expect(ok).toMatchObject({ problems: [], warnings: [], event: { standsInFor: ['leela'] } });
+    expect(ok.grants.some((g) => g.kind === 'trust' && g.cook === 'leela')).toBe(true);
     // No claim, no context needed: an ordinary cook is unchanged.
-    expect(problems(dal(addDays(MON, 7)))).toEqual([]);
+    expect(grantsFor(dal(addDays(MON, 7)), base, cat, DATA, T)).toMatchObject({ problems: [], warnings: [] });
+    // grantsForBatch reports the drop too, and returns the event as accepted.
+    const [b] = grantsForBatch([dal(addDays(MON, 7), ['leela'])], base, cat, DATA, T);
+    expect(b.warnings).toEqual(['stand_in_dropped']);
+    expect(b.event).not.toHaveProperty('standsInFor');
+    expect(b.grants.length).toBeGreaterThan(0);
   });
 
   it('a frame stands in too, when its technique is one of the dish\'s and it passes the rules', () => {
@@ -93,7 +122,7 @@ describe('trust through a stand-in dish (I3)', () => {
     for (const status of ['blocked', 'unverified'] as const) {
       const bad = ctx([ALLIUM], [{ id: 'quick-tomato', technique: 'tempering', status }]);
       expect(standInCooks({ kind: 'frame', id: 'quick-tomato' }, MON, catF, bad)).toEqual([]);
-      expect(grantsFor(frame(addDays(MON, 14)), h, catF, DATA, T, bad).problems).toEqual(['bad_field']);
+      expect(grantsFor(frame(addDays(MON, 14)), h, catF, DATA, T, bad)).toMatchObject({ problems: [], warnings: ['stand_in_dropped'] });
     }
   });
 
@@ -104,8 +133,8 @@ describe('trust through a stand-in dish (I3)', () => {
     let h = EMPTY_HISTORY;
     const seq = events.map((e) => {
       const r = grantsFor(e, h, cat, DATA, T, c);
-      if (r.problems.length === 0) h = { ...h, events: [...h.events, e], grants: [...h.grants, ...r.grants] };
-      return { event: e, ...r };
+      if (r.problems.length === 0) h = { ...h, events: [...h.events, r.event], grants: [...h.grants, ...r.grants] };
+      return r;
     });
     expect(batch).toEqual(seq);
   });
@@ -130,8 +159,8 @@ describe('trust through a stand-in dish (I3)', () => {
         let prev = deriveProgress(h, cat);
         events.forEach((e, i) => {
           const r = grantsFor(e, h, cat, DATA, T, c);
-          expect(batch[i]).toEqual({ event: e, ...r });
-          if (r.problems.length === 0) h = { ...h, events: [...h.events, e], grants: [...h.grants, ...r.grants] };
+          expect(batch[i]).toEqual({ ...r, event: r.event });
+          if (r.problems.length === 0) h = { ...h, events: [...h.events, r.event], grants: [...h.grants, ...r.grants] };
           const v = deriveProgress(h, cat);
           expect(v.xp).toBeGreaterThanOrEqual(prev.xp);
           expect(v.stamps).toBeGreaterThanOrEqual(prev.stamps);

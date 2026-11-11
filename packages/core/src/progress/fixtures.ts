@@ -69,8 +69,8 @@ export function play(events: readonly ProgressEvent[], start: ProgressHistory = 
   const results: Played['results'] = [];
   for (const event of events) {
     const r = grantsFor(event, history, cat, data, T);
-    results.push({ event, ...r });
-    if (r.problems.length === 0) history = { ...history, events: [...history.events, event], grants: [...history.grants, ...r.grants] };
+    results.push({ ...r, event });
+    if (r.problems.length === 0) history = { ...history, events: [...history.events, r.event], grants: [...history.grants, ...r.grants] };
   }
   return { history, results };
 }

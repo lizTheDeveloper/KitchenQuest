@@ -55,7 +55,7 @@ export function record(h: ProgressHistory, events: readonly ProgressEvent[], cat
   for (const e of events) {
     const r = grantsFor(e, out, cat, DATA, T, rules);
     if (r.problems.length > 0) throw new Error(`rejected ${e.kind}: ${r.problems.join(', ')}`);
-    out = { ...out, events: [...out.events, e], grants: [...out.grants, ...r.grants] };
+    out = { ...out, events: [...out.events, r.event], grants: [...out.grants, ...r.grants] };
   }
   return out;
 }

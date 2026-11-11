@@ -32,7 +32,7 @@ describe('I1: a grant whose event is gone still marks its id as seen', () => {
     const done = p.history.events[p.history.events.length - 1];
     const erased = eraseEvents(p.history, [done.id]);
     expect(deriveProgress(erased, CAT).xp).toBe(40);
-    expect(grantsFor(done, erased, CAT, DATA, T)).toEqual({ grants: [], problems: ['duplicate_id'] });
+    expect(grantsFor(done, erased, CAT, DATA, T)).toMatchObject({ grants: [], problems: ['duplicate_id'], warnings: [] });
     const meal = ev.meal(MON, 600);
     const m = eraseEvents(play([meal]).history, [meal.id]);
     expect(grantsFor(meal, m, CAT, DATA, T).problems).toEqual(['duplicate_id']);

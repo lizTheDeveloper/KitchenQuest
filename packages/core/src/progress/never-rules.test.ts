@@ -122,7 +122,8 @@ describe('never rules', () => {
         const probe = { id: 'probe', kind: 'cooked', at: '2026-06-01', recipe: 'parippu', planned: true } as const;
         const a = grantsFor(probe, history, CAT, DATA, T);
         const b = grantsFor({ ...probe, guild: true, entitlements: ['guild'] } as unknown as ProgressEvent, history, CAT, DATA, T);
-        expect(b).toEqual(a);
+        // The result echoes the event as accepted; what it earned ignores the extra fields.
+        expect({ grants: b.grants, problems: b.problems, warnings: b.warnings }).toEqual({ grants: a.grants, problems: a.problems, warnings: a.warnings });
         expect(grantsFor(probe, history, CAT, DATA, T)).toEqual(a);
       }),
       { numRuns: 50 },
