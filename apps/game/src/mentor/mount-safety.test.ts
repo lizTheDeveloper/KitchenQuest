@@ -126,14 +126,23 @@ test('G3: an emergency, a medical question and "hello" typed 5 ms apart reach th
   expect(said().filter((l) => lines('didnt_understand').includes(l))).toHaveLength(1); // the last "hello" reply (the clear removed the first), nothing more
 });
 
-test('G3: a "yes" typed just after an emergency reaches the server after the emergency', async () => {
+test('G3: an emergency typed while a turn waits reaches the server after it, in the same conversation', async () => {
+  const h = harness({ delay: 40 });
+  await mount(h.client);
+  await loadAi();
+  await send('what should I cook tonight', 0);
+  await send(EMERGENCY, 200);
+  expect(h.texts()).toEqual(['hello', 'what should I cook tonight', EMERGENCY]);
+  expect(h.ids()).toEqual([null, 'c1', 'c1']);
+});
+
+test('I-1: a plain "yes" with no recent server card on screen is answered on the device and never sent', async () => {
   const h = harness({ delay: 40 });
   await mount(h.client);
   await loadAi();
   await send(EMERGENCY);
   await send('yes', 200);
-  expect(h.texts()).toEqual(['hello', EMERGENCY, 'yes']);
-  expect(h.ids()).toEqual([null, 'c1', 'c1']);
+  expect(h.texts()).toEqual(['hello', EMERGENCY]);
 });
 
 test('G5: a delivery still waiting when the AI is turned off is never sent', async () => {

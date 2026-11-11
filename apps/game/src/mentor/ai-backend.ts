@@ -157,9 +157,10 @@ export function createAiBackend(deps: {
     return { items, cards, intents: [], actions, notice: res.notice };
   }
 
-  async function hasAiHealth(): Promise<boolean> {
+  /** 'gone' when the backend was disposed meanwhile (J1): the caller answers from the script and offers nothing. */
+  async function hasAiHealth(): Promise<boolean | 'gone'> {
     const r = await unlessGone(client.consents());
-    if (r === 'gone') return false;
+    if (r === 'gone' || isDisposed()) return 'gone';
     // Not known is not granted: the turn stays on the device.
     return r.ok && granted(r.data, 'health_data') && granted(r.data, 'ai_health');
   }
@@ -201,6 +202,9 @@ export function createAiBackend(deps: {
 
   async function retry(req: TurnRequest, ctx: TurnContext, scripted: PanReply, gen: number | undefined): Promise<void> {
     if (disposed || conversation.gen !== gen) return;
+    // M-3: the health gate again, as for a new turn: ai_health withdrawn since the first try keeps the text on the device.
+    if (isHealthTurn(stripPageEvents(req.input.text).text.trim(), ctx) && (await hasAiHealth()) !== true) return;
+    if (isDisposed() || conversation.gen !== gen) return;
     const r = await unlessGone(client.mentorTurn({ ...req, conversationId: conversation.id }));
     const emit = (reply: PanReply) => { if (!isDisposed()) for (const fn of listeners) fn(reply); };
     // Disposed, or the conversation was cleared while it was on its way: nothing of it is kept or shown.
@@ -218,10 +222,15 @@ export function createAiBackend(deps: {
     emit({ items: [say('ai.try_again'), { kind: 'retry', text: req.input.text }], cards: [], intents: [], actions: [], notice: null });
   }
 
-  const request = (text: string): TurnRequest => {
+  /**
+   * A new player turn: its own `turnKey` (J2), which its automatic retry reuses (the same request), so the server
+   * processes it once. `answering` names the one server card a plain yes or no answers (I-1).
+   */
+  const request = (text: string, answering?: string): TurnRequest => {
     const now = deps.now();
     return {
       conversationId: conversation.id, input: { kind: 'text', text }, localDate: localDate(now), localTime: hhmm(now), screen: deps.screen(), intakeStep: deps.intakeStep(),
+      ...(answering === undefined ? {} : { answering }), turnKey: crypto.randomUUID(),
     };
   };
 
@@ -230,10 +239,10 @@ export function createAiBackend(deps: {
     ctx.intakeStep === 'allergies' || ctx.openCards.some((c) => c.card.kind === 'rule' || c.card.kind === 'meal') ||
     isHealthText(stripped, deps.graph, deps.ruleTerms);
 
-  async function send(text: string, ctx: TurnContext): Promise<PanReply> {
+  async function send(text: string, ctx: TurnContext, answering?: string): Promise<PanReply> {
     // Turned off (or the account switched) while this turn waited its place: the script answers and nothing is sent (G5).
     if (isDisposed()) return engine.reply(text, ctx);
-    const req = request(text);
+    const req = request(text, answering);
     const gen = conversation.gen;
     const r = await unlessGone(client.mentorTurn(req));
     if (r === 'gone') return engine.reply(text, ctx);
@@ -257,18 +266,26 @@ export function createAiBackend(deps: {
     const stripped = stripPageEvents(text).text.trim();
     const intent = classifyTurn(stripped);
     // A plain yes or no: a local card is the engine's; two open cards of either origin are never guessed between.
+    // M4 final I-1: it goes to the server only when exactly one recent server card is on screen, naming that card;
+    // with no recent card it is answered here (no model text is ever shown, R9, so there is nothing else it could answer).
     if (intent === 'yes' || intent === 'no') {
       const recent = ctx.openCards.filter((c) => c.issuedTurn === ctx.turn - 1);
       if (recent.length > 0 && ctx.openCards.length > 1) return lines('confirm.tap_card');
-      if (recent.length === 1 && recent[0].origin === 'local') return engine.reply(text, ctx);
-      if (recent.length === 1) return send(text, ctx);
+      const [one] = recent;
+      if (recent.length !== 1 || one.origin === 'local') return engine.reply(text, ctx);
+      return send(text, ctx, one.proposalId);
     }
     // A plain undo goes by the newest live trail entry (pre-flight C36).
     if (intent === 'undo') {
       const newest = ctx.trail.at(-1);
       return newest?.origin === 'server' ? send(text, ctx) : engine.reply(text, ctx);
     }
-    if (isHealthTurn(stripped, ctx) && !(await hasAiHealth())) return offerAiHealth(engine.reply(text, ctx));
+    if (isHealthTurn(stripped, ctx)) {
+      const ok = await hasAiHealth();
+      // J1: disposed while asking: the script answers, and no consent card is offered (it may well be granted).
+      if (ok === 'gone') return engine.reply(text, ctx);
+      if (!ok) return offerAiHealth(engine.reply(text, ctx));
+    }
     return send(text, ctx);
   }
 
@@ -294,7 +311,7 @@ export function createAiBackend(deps: {
       // Queued now, in arrival order; the reply is never shown, only its conversation id is kept.
       serial(async () => {
         const { text } = input;
-        if (isHealthTurn(stripPageEvents(text).text.trim(), ctx) && !(await hasAiHealth())) return;
+        if (isHealthTurn(stripPageEvents(text).text.trim(), ctx) && (await hasAiHealth()) !== true) return;
         if (isDisposed()) return;
         const req = request(text);
         const gen = conversation.gen;

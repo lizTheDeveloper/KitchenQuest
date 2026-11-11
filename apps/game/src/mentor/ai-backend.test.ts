@@ -127,7 +127,7 @@ describe('AI backend', () => {
     });
     const r = await backend.reply(text('My market day is Saturday.'), ctx({ turn: 3 }));
     const req = turns(calls)[0].args[0] as TurnRequest;
-    expect(req).toEqual({ conversationId: null, input: { kind: 'text', text: 'My market day is Saturday.' }, localDate: '2026-11-10', localTime: expect.stringMatching(/^\d\d:\d\d$/) as string, screen: { route: 'kitchen' }, intakeStep: null });
+    expect(req).toEqual({ conversationId: null, input: { kind: 'text', text: 'My market day is Saturday.' }, localDate: '2026-11-10', localTime: expect.stringMatching(/^\d\d:\d\d$/) as string, screen: { route: 'kitchen' }, intakeStep: null, turnKey: expect.stringMatching(/^[0-9a-f-]{36}$/) as string });
     expect(said(r)).toEqual(['profile.readback']);
     expect(r.cards).toEqual([{ origin: 'server', proposalId: 'P1', expiresAt: '2026-11-10T12:30:00Z', card, issuedTurn: 3 }]);
     expect(backend.conversationId).toBe('c1');
@@ -217,9 +217,60 @@ describe('AI backend', () => {
     const older: CardView = { ...localCard, localId: 'L0', issuedTurn: 0 };
     expect(said(await backend.reply(text('yes'), ctx({ turn: 2, openCards: [older, localCard] })))).toEqual(['confirm.tap_card']);
     expect(turns(calls)).toEqual([]);
-    // One server card: the server's own typed-yes path.
+    // One server card: the server's own typed-yes path, naming that card (I-1).
     await backend.reply(text('yes'), ctx({ turn: 2, openCards: [serverCard] }));
     expect(turns(calls)).toHaveLength(1);
+    expect((turns(calls)[0].args[0] as TurnRequest).answering).toBe('P1');
+  });
+
+  test('I-1 scenario A: a yes after a turn the server never saw (a local card, stamped) stays on the device', async () => {
+    const { backend, calls } = setup({ consents: () => ok(consents(['health_data'])), mentorTurn: () => ok(response({})) });
+    // Turn 1: a server profile card. Turn 2: a health turn answered on the device (no ai_health), its card stamped.
+    const serverCard: CardView = { origin: 'server', proposalId: 'P1', expiresAt: '2026-11-10T12:30:00Z', card: buildProfileCard({ marketDays: [6] }), issuedTurn: 1 };
+    const r = await backend.reply(text('yes'), ctx({ turn: 3, openCards: [serverCard] }));
+    expect(turns(calls)).toEqual([]);
+    expect(r.intents).toEqual([]);
+    expect(r.actions).toEqual([]);
+    // And with no card at all.
+    await backend.reply(text('no'), ctx({ turn: 4 }));
+    expect(turns(calls)).toEqual([]);
+  });
+
+  test('J2: every turn has its own turnKey; the automatic retry sends the same one', async () => {
+    let n = 0;
+    const { backend, calls } = setup({ consents: BOTH, mentorTurn: () => (++n === 1 ? fail(0, 'network') : ok(response({}))) });
+    await backend.reply(text('tell me about knives'), ctx());
+    await vi.advanceTimersByTimeAsync(RETRY_AFTER_MS);
+    await backend.reply(text('tell me about pans'), ctx({ turn: 2 }));
+    const keys = turns(calls).map((c) => (c.args[0] as TurnRequest).turnKey);
+    expect(keys).toHaveLength(3);
+    expect(keys[0]).toMatch(/^[0-9a-f-]{36}$/);
+    expect(keys[1]).toBe(keys[0]);
+    expect(keys[2]).not.toBe(keys[0]);
+  });
+
+  test('M-3: a scheduled retry of health text checks ai_health again; withdrawn meanwhile, nothing is sent', async () => {
+    let both = true;
+    const { backend, calls, late } = setup({ consents: () => ok(consents(both ? ['health_data', 'ai_health'] : ['health_data'])), mentorTurn: () => fail(503) });
+    await backend.reply(text("I'm allergic to sesame"), ctx());
+    expect(turns(calls)).toHaveLength(1);
+    both = false;
+    await vi.advanceTimersByTimeAsync(RETRY_AFTER_MS);
+    expect(turns(calls)).toHaveLength(1);
+    expect(late).toEqual([]);
+  });
+
+  test('J1: disposed while the consents are read, a health turn is answered by the script with no ai_health offer', async () => {
+    let answer!: (r: ApiResult<unknown>) => void;
+    const { backend, calls } = setup({ consents: () => new Promise<ApiResult<unknown>>((r) => { answer = r; }), mentorTurn: () => ok(response({})) });
+    const r = backend.reply(text("I'm allergic to sesame"), ctx());
+    await vi.advanceTimersByTimeAsync(0);
+    backend.dispose!();
+    answer(BOTH());
+    const out = await r;
+    expect(out.items.some((i) => i.kind === 'consent')).toBe(false);
+    expect(out.cards).toMatchObject([{ origin: 'local' }]);
+    expect(turns(calls)).toHaveLength(0);
   });
 
   test('a text part from the server is never shown (Ruling R9: only scripted lines and cards)', async () => {

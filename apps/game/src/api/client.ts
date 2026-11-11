@@ -1,4 +1,4 @@
-import type { Rule, Severity } from '@kitchenquest/core/engine';
+import { MENTOR_CLIENT_TIMEOUT_MS, type Rule, type Severity } from '@kitchenquest/core/engine';
 import type {
   ApiErrorBody, ApiResult, ConfirmRequest, ConfirmResponse, ConsentPurpose, Consents, ConsentRecord, MealEntry, Me, PantryItem, Profile,
   RecipeDetail, RecipeSummary, ReplyPart, TurnRequest, TurnResponse,
@@ -55,11 +55,11 @@ function m2Error(body: unknown): ApiErrorBody | null {
 }
 
 /**
- * How long a mentor turn or a consents read may take before it counts as unreachable (status 0). Above the server's
- * own bound on its model call (AI_TIMEOUT_MS, 10 s by default, 30 s at most is cut short here and gets the outage path),
- * so a stalled connection never holds the Pan's turn queue (fix round 5, H1).
+ * How long a mentor turn or a consents read may take before it counts as unreachable (status 0), so a stalled
+ * connection never holds the Pan's turn queue (fix round 5, H1). Core's MENTOR_CLIENT_TIMEOUT_MS: above the server's
+ * own turn deadline (MENTOR_TURN_DEADLINE_MS, M4 final J2), so the server always answers first.
  */
-const MENTOR_TIMEOUT_MS = 20_000;
+const MENTOR_TIMEOUT_MS = MENTOR_CLIENT_TIMEOUT_MS;
 
 export function createApiClient(opts: { baseUrl?: string; fetch?: typeof fetch; timeoutMs?: number } = {}): ApiClient {
   const timeoutMs = opts.timeoutMs ?? MENTOR_TIMEOUT_MS;
