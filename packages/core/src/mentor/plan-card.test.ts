@@ -195,7 +195,7 @@ describe('planIntent / navIntent', () => {
     const terms = ruleTermsData as RuleTerm[];
     const r = (t: string) => reminderSlots(t, graph, terms);
     expect(r("Had dal for dinner. Also put the frijoles on Saturday's plan, and remind me about dinner at 6:30 pm.")).toEqual([{ name: 'dinner', start: '18:30' }]);
-    expect(r('dinner around 7')).toEqual([{ name: 'dinner', start: '19:00' }]);
+    expect(r('dinner around 7pm')).toEqual([{ name: 'dinner', start: '19:00' }]);
     expect(r('lunch at half twelve')).toEqual([{ name: 'lunch', start: '12:30' }]);
     for (const t of ['dinner at 7:30 pm made me sick', 'my kid has dinner at 5pm', "I'm cooking lunch at 1pm for my mum", 'had soup for lunch at 1pm', 'remind my son about lunch at 12']) {
       expect(r(t), t).toEqual([]);

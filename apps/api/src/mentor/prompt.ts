@@ -124,7 +124,8 @@ export function loadPanPrompt(bank: PanBank, voiceGuide: URL = VOICE_MD): PanPro
       meal_windows: [{ name: 'lunch', start: '12:30' }],
     }),
     // M5 Step 8: a plan copies the player's dish words with their days (the game matches them, even an unknown one),
-    // and "pick N" leaves the choosing to the game, after the day the player names.
+    // and "pick N" leaves the choosing to the game, after the day the player names (fix round 1, M5: worded unlike
+    // any eval case).
     { role: 'user', content: 'Plan my week: the soup on Tuesday and onigiri on Friday.' },
     exampleCall('example_3', 'propose_plan', {
       days: [
@@ -135,19 +136,8 @@ export function loadPanPrompt(bank: PanBank, voiceGuide: URL = VOICE_MD): PanPro
       hard_week: null,
       after: null,
     }),
-    { role: 'user', content: "just choose 2 for me. market's on thursday, so after that" },
-    {
-      role: 'assistant',
-      content: null,
-      toolCalls: [
-        { id: 'example_4', name: 'propose_plan', arguments: JSON.stringify({ days: null, pick: 2, hard_week: null, after: 'Thursday' }) },
-        {
-          id: 'example_5',
-          name: 'propose_profile',
-          arguments: JSON.stringify({ market_days: ['Thursday'], meals_per_week: null, region: null, country: null, meal_windows: null }),
-        },
-      ],
-    },
+    { role: 'user', content: 'Pick two dinners for me after Wednesday, please.' },
+    exampleCall('example_4', 'propose_plan', { days: null, pick: 2, hard_week: null, after: 'Wednesday' }),
   ];
   return { system, examples };
 }

@@ -466,24 +466,44 @@ export function clockForSlot(text: string, slot: MealSlot): string | null {
 
 /** Words that say a meal was already eaten: its clock time is when, never a reminder. */
 const EATEN = /\b(had|ate|eaten|eating|was|were)\b/i;
+/** Reminder or habit words (fix round 1, I2): "remind me … at 6:30 pm", "dinner around 7", "usually at 12". */
+const REMINDER_CUE = /\b(remind\w*|reminders?|usually|normally|every ?day|daily|around|about|ish)\b|\d(ish)\b/i;
+/** Another person as the subject or the one fed: their meal times are never the player's reminder (I2). */
+const THIRD_PARTY =
+  /\b(my|our|his|her|their|the) (kids?|child(ren)?|son|sons|daughters?|mum|mom|mother|dad|father|parents?|partner|wife|husband|gran|grandma|grandpa|nan|friends?|flatmates?|baby|boyfriend|girlfriend|family|team|guests?)\b|\b(he|she|they|him|them)\b|\bfor (my|our|the) \w+/i;
+/** Words a bare "lunch at half twelve" clause may hold besides its slot word and its time. */
+const BARE_WORDS = new Set([
+  'at', 'by', 'is', 'my', 'and', 'also', 'then', 'oh', 'please', 'pls', 'like', 'half', 'quarter', 'past', 'to', 'pm', 'am', 'p.m', 'a.m',
+  "o'clock", 'oclock', 'noon', 'midday', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve',
+  'thirty', 'fifteen', 'forty-five',
+]);
 
 /**
- * M5 Step 8 ruling (b): every meal slot whose clause in `text` carries a clock time, with that time, read by M4's
- * clock parser: for each slot, the first clause naming it that has a time ("Had dal for dinner. … remind me about
- * dinner at 6:30 pm" → dinner 18:30). Slots in their fixed order; none named, none returned.
+ * M5 Step 8 rulings (b) and fix round 1 I2: the meal reminders the player's own words set for themself, read by M4's
+ * clock parser. For each slot, the first clause naming it with a time, when that clause is reminder phrasing (a
+ * reminder or habit word, or a bare "lunch at half twelve"), is about the player (no other person), says no meal
+ * was eaten, and carries no health or symptom word ("dinner at 7:30 pm made me sick" sets nothing). Fixed slot order.
  */
-export function clockedSlots(text: string, opts: { remindersOnly?: boolean } = {}): { name: MealSlot; start: string }[] {
-  // `remindersOnly`: a clause that says the meal was eaten ("had soup for lunch at 1pm") times no reminder.
-  const clauses = text.split(CLAUSE_SPLIT).filter((c) => !(opts.remindersOnly === true && EATEN.test(c)));
+export function reminderSlots(text: string, graph: IngredientGraph, terms: readonly RuleTerm[]): { name: MealSlot; start: string }[] {
   const out: { name: MealSlot; start: string }[] = [];
+  const clauses = text.split(CLAUSE_SPLIT).map((c) => normalizeTurn(c)).filter((c) => c !== '');
   for (const [slot, word] of Object.entries(SLOT_WORDS) as [MealSlot, RegExp | null][]) {
     if (word === null) continue;
     for (const c of clauses) {
-      const clock = word.test(c) ? parseClock(c) : null;
-      if (clock !== null) {
-        out.push({ name: slot, start: clock });
-        break;
-      }
+      if (!word.test(c)) continue;
+      const clock = parseClock(c);
+      if (clock === null) continue;
+      const bare = c
+        .replace(word, ' ')
+        .split(/\s+/)
+        .filter((w) => w !== '' && !/^[\d:.]+(am|pm)?$/.test(w))
+        .every((w) => BARE_WORDS.has(w));
+      // Health or symptom words (HEALTH_WORDS: "made me sick"), any ingredient or rule term, a severity or a rule
+      // statement. Not classifyTurn: the M4 gate's health intent over-catches every meal time on purpose.
+      const health = HEALTH_WORDS.test(c) || mentionsHealthTerm(c, graph, terms) || severityFromText(c, graph) !== null || parseRuleStatement(c, graph) !== null;
+      if (!(REMINDER_CUE.test(c) || bare) || THIRD_PARTY.test(c) || EATEN.test(c) || health) continue;
+      out.push({ name: slot, start: clock });
+      break;
     }
   }
   return out;
@@ -581,6 +601,21 @@ const DISH_ON_DAY = new RegExp(`^(?:(?:put|have|do|make|cook|plan)\\s+)?(.+?)${O
 const PUT_ON_DAY = new RegExp(`^put\\s+(.+?)${ON_DAY}`);
 const DAY_FIRST = new RegExp(`^${DAY}\\s*[:-]?\\s+(.+)$`);
 const DISH_THEN_DAY = new RegExp(`^(.+?)\\s+${DAY}$`);
+/** Words that make an ingredient named in a plan clause a rule, not a dish ("no peanuts", "peanut free"). */
+const AVOID_CUE = /\b(no|not|nothing|none|without|free|avoid\w*|allerg\w*|except|skip\w*|never)\b|-free\b/;
+
+/**
+ * Fix round 1 I1: a plan clause's dish words state a health rule ("no peanuts", "nothing with nuts", "peanut free",
+ * "i'm allergic to eggs"): a rule statement, a severity or health word, or an avoid cue with an ingredient or rule
+ * term named. Such words are never a dish: the turn takes M4's health path for them. A dish that only names an
+ * ingredient ("your eggs") is still a dish.
+ */
+export function planClauseHasHealth(phrase: string, graph: IngredientGraph, terms: readonly RuleTerm[]): boolean {
+  const t = normalizeTurn(phrase);
+  if (HEALTH_WORDS.test(t) || severityFromText(t, graph) !== null || parseRuleStatement(t, graph) !== null) return true;
+  return AVOID_CUE.test(t) && mentionsHealthTerm(t, graph, terms);
+}
+
 /** A dish phrase is a short name: at most this many words. */
 const DISH_MAX_WORDS = 6;
 const CLAUSE = /\s*(?:[,;.!?]|\band then\b|\bthen\b|\band\b|\balso\b|\bplus\b)\s*/;
@@ -600,7 +635,11 @@ const dishWords = (s: string): string | null => {
  * needs "put". Null for a safety turn (emergency, medical, child: they win) and for text cut by the injection
  * marker or a pasted block (only the player's own words plan).
  */
-export function planIntent(text: string): { days: { weekday: string; dish: string }[] | null; pick: number | null; hard: boolean | null; after: string | null } | null {
+export function planIntent(
+  text: string,
+  /** Fix round 1 I1: with the graph and rule terms, a plan clause that states a health rule makes the whole reading null. */
+  health?: { graph: IngredientGraph; terms: readonly RuleTerm[] },
+): { days: { weekday: string; dish: string }[] | null; pick: number | null; hard: boolean | null; after: string | null } | null {
   const whole = stripPageEvents(text).text;
   if (SAFETY_INTENTS.has(classifyTurn(whole))) return null;
   const own = normalizeTurn(ownWords(text));
@@ -629,6 +668,7 @@ export function planIntent(text: string): { days: { weekday: string; dish: strin
   }
   if (days.length === 0 && pick === null && hard === null) return null;
   if (pick !== null && (pick < 1 || pick > 7)) return null;
+  if (health !== undefined && days.some((d) => planClauseHasHealth(d.dish, health.graph, health.terms))) return null;
   return { days: days.length > 0 ? days : null, pick, hard, after };
 }
 
@@ -642,7 +682,11 @@ const LEADING_FILLER = /^(?:(?:also|and|then|so|now|please|pls|idk|just|oh|ok|ok
  * Only "put <dish> on <day>" clauses and "pick N"; nothing else is guessed. The server adds them as the plan call
  * when the model made none. Null when there are none, for a safety turn, and outside the player's own words.
  */
-export function planWordsIn(text: string): { days: { weekday: string; dish: string }[] | null; pick: number | null; hard: boolean | null; after: null } | null {
+export function planWordsIn(
+  text: string,
+  /** Fix round 1 I1: with the graph and rule terms, a clause that states a health rule is never a dish. */
+  health?: { graph: IngredientGraph; terms: readonly RuleTerm[] },
+): { days: { weekday: string; dish: string }[] | null; pick: number | null; hard: boolean | null; after: null } | null {
   if (SAFETY_INTENTS.has(classifyTurn(stripPageEvents(text).text))) return null;
   const own = normalizeTurn(ownWords(text));
   const days: { weekday: string; dish: string }[] = [];
@@ -651,7 +695,10 @@ export function planWordsIn(text: string): { days: { weekday: string; dish: stri
     for (const raw of sentence.split(CLAUSE)) {
       const clause = raw.trim().replace(LEADING_FILLER, '');
       const put = PUT_ON_DAY.exec(clause);
-      if (put !== null && dishWords(put[1]) !== null) days.push({ weekday: dayWord(put[2]), dish: dishWords(put[1])! });
+      const dish = put === null ? null : dishWords(put[1]);
+      if (put !== null && dish !== null && !(health !== undefined && planClauseHasHealth(dish, health.graph, health.terms))) {
+        days.push({ weekday: dayWord(put[2]), dish });
+      }
       const n = PICK_ANYWHERE.exec(clause);
       if (n !== null && pick === null) pick = /^\d$/.test(n[1]) ? Number(n[1]) : NUMBER_WORDS[n[1]];
     }

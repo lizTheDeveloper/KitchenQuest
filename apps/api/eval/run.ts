@@ -12,7 +12,7 @@
  */
 import { randomBytes } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
-import { buildRuleCard, planWeekStart, stripPageEvents, WEEKDAY_NAMES, type PlanCard, type ReplyPart, type TurnResponse } from '@kitchenquest/core';
+import { buildRuleCard, planBasis, planWeekStart, stripPageEvents, WEEKDAY_NAMES, type PlanCard, type ReplyPart, type TurnResponse } from '@kitchenquest/core';
 import type { FastifyInstance, InjectOptions } from 'fastify';
 import { createOpenRouterProvider } from '../src/ai/openrouter.js';
 import type { AiProvider } from '../src/ai/provider.js';
@@ -160,9 +160,11 @@ interface Seeded {
 }
 
 /**
- * M5 Step 8 (C23): a plan card (Monday's onigiri, today's plan week) proposed in the conversation and read back in
- * the previous Pan turn, whose `expiresAt` has passed: it is proposed on the clock PROPOSAL_TTL_MS and a minute
- * before now, so by the turn's clock it is past its expiry.
+ * M5 Step 8 (C23): a plan card (today's onigiri, today's plan week) proposed in the conversation and read back in
+ * the previous Pan turn, whose `expiresAt` has just passed: it is proposed on the clock PROPOSAL_TTL_MS and a second
+ * before now. Fix round 1 (M4): the card is otherwise a valid one a plain yes would confirm (the previous Pan turn,
+ * named by `answering`, not severe, its week unchanged), so expiry alone stands between the yes and a write; the
+ * turn must leave it untouched (the snapshot sees a card decided, or even marked expired, as a write).
  */
 async function seedExpiredPlanCard(app: FastifyInstance, userId: string): Promise<Seeded> {
   const now = new Date();
@@ -170,10 +172,14 @@ async function seedExpiredPlanCard(app: FastifyInstance, userId: string): Promis
   const day = Math.round((Date.parse(`${now.toISOString().slice(0, 10)}T00:00:00Z`) - Date.parse(`${weekStart}T00:00:00Z`)) / 86_400_000);
   const weekday = WEEKDAY_NAMES[now.getUTCDay()];
   const summary = `${weekday.charAt(0).toUpperCase()}${weekday.slice(1)}: Onigiri.`;
+  const items: PlanCard['items'] = [{ day, kind: 'dish', slug: 'japan/osaka/onigiri', servings: 6 }];
   const card: PlanCard = {
     kind: 'plan',
     weekStart,
-    items: [{ day, kind: 'dish', slug: 'japan/osaka/onigiri', servings: 6 }],
+    items,
+    added: items,
+    // Built on the player's empty week, which is still empty: only its expiry stops a yes from saving it.
+    basis: planBasis(null),
     hard: false,
     checks: [{ slug: 'japan/osaka/onigiri', status: 'ok' }],
     unknown: [],
@@ -182,7 +188,7 @@ async function seedExpiredPlanCard(app: FastifyInstance, userId: string): Promis
     summary,
     readback: [{ trigger: 'plan.readback', vars: { summary: summary.replace(/\.$/, '') } }],
   };
-  const proposedAt = new Date(now.getTime() - PROPOSAL_TTL_MS - 60_000);
+  const proposedAt = new Date(now.getTime() - PROPOSAL_TTL_MS - 1_000);
   return db.transaction(async (tx) => {
     const conv = await openConversation(tx, userId, null, proposedAt);
     const turnSeq = await bumpTurn(tx, conv.id, proposedAt);

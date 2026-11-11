@@ -25,6 +25,8 @@ import { ZodError } from 'zod';
  *   rejected, undone or expired), or an undo of a write that is not confirmed.
  * - 409 `rule_changed`: `PUT /rules/:id` with `If-Match` found another version of
  *   the rule (`details.version`, the current one); nothing was written.
+ * - 409 `plan_changed`: a plan card's week changed since it was shown; the card is closed and, in `details`, offered
+ *   again on the week as it is now (`card`, a new proposal, and its `parts`) (M5 Step 8 fix round 1, M2).
  * - 409 `run_closed`: a tick on a market run that is already done (M5 Step 6).
  * - 409 `undo_window_closed`: the confirmed write is older than UNDO_WINDOW_MS.
  * - 429 `rate_limited`: with a `retry-after` header. The daily write cap on meal logs and

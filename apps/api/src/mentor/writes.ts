@@ -1,6 +1,8 @@
 import {
   blockedDishLine,
   confirmedLines,
+  planBasis,
+  rebasePlanCard,
   isSevereCard,
   rejectedLine,
   trailSummary,
@@ -13,13 +15,14 @@ import {
   type PlanCard,
   type ProposalKind,
   type ReplyPart,
+  type ServerCard,
   type Severity,
   type TrailEntry,
 } from '@kitchenquest/core';
 import { and, desc, eq, gte } from 'drizzle-orm';
 import { audit } from '../audit/audit.js';
 import { lockLiveUser } from '../auth/live-user.js';
-import type { Catalog, LoopContent } from '../catalog.js';
+import type { Catalog } from '../catalog.js';
 import { lockConsentIn, type Tx } from '../consent/ledger.js';
 import type { Keyring } from '../crypto/keyring.js';
 import { mealLogs, mentorProposals, rules } from '../db/schema.js';
@@ -28,13 +31,13 @@ import { createMealLogIn, deleteMealLogIn } from '../meals/service.js';
 import { lockUserPlan, lockUserProgress } from '../db/advisory-locks.js';
 import { changePantryIn, lockUserPantry, restorePantryIn } from '../pantry/service.js';
 import { applyProfilePatchIn } from '../profile/routes.js';
-import type { RecipeIndexSource } from '../recipes/recipe-index.js';
 import { createRuleIn, deleteRuleIn, lockUserRules } from '../rules/service.js';
 import type { Db } from '../types.js';
 import { checksFor, restorePlanIn, savePlanIn, type WeekDeps } from '../week/plan-service.js';
 import { loadPlan } from '../week/store.js';
 import { line } from './lines.js';
-import { lockProposal, markDecided, peekProposal } from './proposals.js';
+import { planCardContext, type WeekSource } from './plan-turn.js';
+import { createProposal, lockProposal, markDecided, peekProposal } from './proposals.js';
 
 /**
  * The write guard (spec §7.6b.1). A proposal card becomes a write only here,
@@ -58,11 +61,6 @@ export interface ConfirmDeps {
   catalog: Catalog;
   /** The week's content and recipe index, for a plan card (M5 Step 8). A plan card can't be written without it. */
   week?: WeekSource;
-}
-/** Where a plan card's write reads the canon and the loop content from (the app's one recipe index, C7). */
-export interface WeekSource {
-  loop: LoopContent;
-  recipes: RecipeIndexSource;
 }
 
 async function weekDepsOf(tx: Tx, deps: ConfirmDeps): Promise<WeekDeps> {
@@ -104,6 +102,8 @@ interface PlanUndo {
  */
 async function planOfCard(tx: Tx, week: WeekDeps, userId: string, card: PlanCard): Promise<Plan> {
   const stored = await loadPlan(tx, week.keyring, userId, card.weekStart);
+  // Fix round 1 M2: the week changed since the card was shown (an edit on Form 7-W): never saved over it.
+  if (planBasis(stored) !== card.basis) throw new ApiError(409, 'plan_changed', 'This week changed since the card was shown');
   const slot = stored?.slot ?? 'unanswered';
   const plan: Plan = { weekStart: card.weekStart, items: card.items, hard: card.hard, slot: card.offer !== null && slot === 'unanswered' ? 'offered' : slot };
   const blocked = (await checksFor(tx, week, userId, plan)).filter((c) => c.status === 'blocked');
@@ -245,10 +245,16 @@ export async function confirmProposal(
   requestId?: string,
   inConversation?: string | null,
   today?: string,
+  /** Where a re-offered card goes (a typed yes: the current turn); the stale card's own turn when absent. */
+  reoffer?: { conversationId: string; turnSeq: number },
 ): Promise<ConfirmResponse> {
   try {
     return await db.transaction((tx) => confirmProposalIn(tx, deps, userId, proposalId, channel, edits, at, requestId, inConversation, today));
   } catch (e) {
+    if (e instanceof ApiError && e.code === 'plan_changed') {
+      const offered = await reofferPlanCard(db, deps, userId, proposalId, at, today ?? at.toISOString().slice(0, 10), requestId, reoffer);
+      throw new ApiError(409, 'plan_changed', e.message, offered);
+    }
     if (e instanceof ApiError && e.code === 'plan_invalid') {
       await db.transaction(async (tx) => {
         await lockLiveUser(tx, userId);
@@ -260,6 +266,43 @@ export async function confirmProposal(
     }
     throw e;
   }
+}
+
+/**
+ * Fix round 1 M2: a plan card whose week changed since it was shown is closed (rejected), and the same new items are
+ * offered again on the week as it is now, re-checked: a fresh card (stored like any card) with its read-back, or
+ * only the lines when nothing would change. Live user → `plan:` → health_data → the proposal rows, the global order.
+ */
+async function reofferPlanCard(
+  db: Db,
+  deps: ConfirmDeps,
+  userId: string,
+  proposalId: string,
+  at: Date,
+  today: string,
+  requestId: string | undefined,
+  reoffer: { conversationId: string; turnSeq: number } | undefined,
+): Promise<{ card?: ServerCard; parts: ReplyPart[] }> {
+  if (deps.week === undefined) throw new Error('mentor writes: a plan card needs the week deps');
+  const week = deps.week;
+  return db.transaction(async (tx) => {
+    await lockLiveUser(tx, userId);
+    await lockUserPlan(tx, userId);
+    await lockConsentIn(tx, userId, 'health_data', at);
+    const p = await lockProposal(tx, deps.keyring, userId, proposalId, at);
+    if (p === null || p.status !== 'open' || p.card.kind !== 'plan') return { parts: [line('card.rejected')] };
+    await markDecided(tx, p.id, 'rejected', null, null, null, deps.keyring, userId, at);
+    await audit(tx, { actorKind: 'user', actorId: userId, subjectUserId: userId, action: 'mentor.reject', target: p.id, requestId }, at);
+    const fresh = rebasePlanCard(p.card, await planCardContext(tx, { keyring: deps.keyring, catalog: deps.catalog, week }, userId, today));
+    if ('none' in fresh) return { parts: fresh.none.map((l): ReplyPart => ({ kind: 'line', line: l })) };
+    const card = await createProposal(
+      tx,
+      deps.keyring,
+      { userId, conversationId: reoffer?.conversationId ?? p.conversationId, turnSeq: reoffer?.turnSeq ?? p.turnSeq, card: fresh },
+      at,
+    );
+    return { card, parts: fresh.readback.map((l): ReplyPart => ({ kind: 'line', line: l })) };
+  });
 }
 
 /**

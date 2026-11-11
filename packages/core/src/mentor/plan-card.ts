@@ -89,12 +89,62 @@ export function buildPlanCard(req: PlanRequest, ctx: PlanContext & { slot: Weekl
     picked = suggestPlan(pick, { ...ctx, existing: [...ctx.existing, ...named] }, avoid);
   }
 
+  const fewer = pick !== null && pick > 0 && r.afterNoDay === null && picked.length < pick ? [line('plan.fewer_than_asked', { count: String(picked.length) })] : [];
+  return assemble(ctx, [...named, ...picked], req.hard, {
+    unknown: r.unknown,
+    dropped: r.dropped.map((d) => d.slug),
+    after: [
+      ...r.sacred.map((slug) => line(PLAN_DISH_SACRED_TRIGGER, { dish: dishName(slug, ctx.recipes) })),
+      ...r.noDay.map((dish) => line('plan.which_day', { dish })),
+      ...(r.afterNoDay === null ? [] : [line('plan.after_which_day', { day: r.afterNoDay })]),
+      ...fewer,
+    ],
+  });
+}
+
+/**
+ * Fix round 1 M2: the version of a stored week a card was built on (its items, `hard` and slot; none is an empty
+ * week). A confirm saves the card only while the stored week still has this basis, so an edit made since on Form 7-W
+ * is never overwritten. A short FNV-1a hash of the canonical shape.
+ */
+export function planBasis(stored: { items: readonly PlanItem[]; hard: boolean; slot: string } | null): string {
+  const p = stored ?? { items: [], hard: false, slot: 'unanswered' };
+  const key = JSON.stringify({
+    items: [...p.items].map((i) => [i.day, i.kind, i.slug, i.kind === 'dish' ? i.servings : null]).sort((x, y) => (JSON.stringify(x) < JSON.stringify(y) ? -1 : 1)),
+    hard: p.hard,
+    slot: p.slot,
+  });
+  let h = 0x811c9dc5;
+  for (let i = 0; i < key.length; i++) {
+    h ^= key.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, '0');
+}
+
+/**
+ * Fix round 1 M2: a card built on a week that has changed since, rebuilt on the week as it is now (`ctx`): the
+ * same new items (`added`), checked again, on the stored items. Its read-back is a fresh `plan.readback` with the
+ * lines for anything the rules now block; the old card's unknown words were already said.
+ */
+export function rebasePlanCard(card: PlanCard, ctx: PlanContext & { slot: WeeklySlotInput }): PlanCard | { none: LineRef[] } {
+  const hardSaid = card.hard !== ctx.slot.week.hard ? card.hard : null;
+  return assemble(ctx, card.added, hardSaid, { unknown: [], dropped: [], after: [] });
+}
+
+/** The card for `ctx`'s stored week plus `newItems`, re-checked now, or the lines when nothing would change. */
+function assemble(
+  ctx: PlanContext & { slot: WeeklySlotInput },
+  newItems: readonly PlanItem[],
+  hardSaid: boolean | null,
+  extra: { unknown: string[]; dropped: string[]; after: LineRef[] },
+): PlanCard | { none: LineRef[] } {
   // The week as it stands, re-checked now: an item the rules block today leaves the card and is read back.
   const merged: PlanItem[] = [];
-  for (const item of [...ctx.existing, ...named, ...picked]) if (!merged.some((m) => sameItem(m, item))) merged.push(item);
-  const hard = req.hard ?? ctx.slot.week.hard;
+  for (const item of [...ctx.existing, ...newItems]) if (!merged.some((m) => sameItem(m, item))) merged.push(item);
+  const hard = hardSaid ?? ctx.slot.week.hard;
   const checked = checkPlan({ weekStart: ctx.weekStart, items: merged, hard, slot: ctx.slot.week.slot }, ctx);
-  const dropped = r.dropped.map((d) => d.slug);
+  const dropped = [...extra.dropped];
   const status = new Map<PlanItem, PlanCard['checks'][number]['status']>();
   for (const c of checked) {
     if (c.status === 'blocked') {
@@ -106,17 +156,14 @@ export function buildPlanCard(req: PlanRequest, ctx: PlanContext & { slot: Weekl
   const checks: PlanCard['checks'] = items.map((i) => ({ slug: i.slug, status: status.get(i)! }));
 
   const tail: LineRef[] = [
-    ...r.unknown.map((dish) => line('plan.dish_unknown', { dish })),
+    ...extra.unknown.map((dish) => line('plan.dish_unknown', { dish })),
     ...[...new Set(checks.filter((c) => c.status === 'unverified').map((c) => c.slug))].map((slug) => line('plan.unverified_dish', { dish: dishName(slug, ctx.recipes) })),
     ...dropped.map((slug) => blockedDishLine(slug, findingsWhenBlocked(slug, ctx), ctx.recipes, ctx.graph)),
-    ...r.sacred.map((slug) => line(PLAN_DISH_SACRED_TRIGGER, { dish: dishName(slug, ctx.recipes) })),
-    ...r.noDay.map((dish) => line('plan.which_day', { dish })),
-    ...(r.afterNoDay === null ? [] : [line('plan.after_which_day', { day: r.afterNoDay })]),
-    ...(pick !== null && pick > 0 && r.afterNoDay === null && picked.length < pick ? [line('plan.fewer_than_asked', { count: String(picked.length) })] : []),
+    ...extra.after,
   ];
-  const added = items.some((i) => !ctx.existing.some((e) => sameItem(e, i)));
-  const hardChanged = req.hard !== null && req.hard !== ctx.slot.week.hard;
-  if (!added && !hardChanged) return { none: tail.length > 0 ? tail : [line('didnt_understand')] };
+  const added = items.filter((i) => !ctx.existing.some((e) => sameItem(e, i)));
+  const hardChanged = hardSaid !== null && hardSaid !== ctx.slot.week.hard;
+  if (added.length === 0 && !hardChanged) return { none: tail.length > 0 ? tail : [line('didnt_understand')] };
   const offer = hard ? null : weeklySlot({ ...ctx.slot, planned: items.map((i) => i.slug), week: { hard, slot: ctx.slot.week.slot } });
   const summary = summaryOf(ctx.weekStart, items, ctx.recipes);
   return {
@@ -125,12 +172,14 @@ export function buildPlanCard(req: PlanRequest, ctx: PlanContext & { slot: Weekl
     items,
     hard,
     checks,
-    unknown: [...r.unknown],
+    unknown: [...extra.unknown],
     dropped,
     offer,
     summary,
+    added,
+    basis: planBasis({ items: ctx.existing, hard: ctx.slot.week.hard, slot: ctx.slot.week.slot }),
     // The line adds its own full stop.
-    readback: [line('plan.readback', { summary: summary.replace(/\.$/, '') }), ...(req.hard === true ? [line('plan.hard_week')] : []), ...tail],
+    readback: [line('plan.readback', { summary: summary.replace(/\.$/, '') }), ...(hardSaid === true ? [line('plan.hard_week')] : []), ...tail],
   };
 }
 

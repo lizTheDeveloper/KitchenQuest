@@ -40,6 +40,8 @@ const planCard = (over: Partial<PlanCard> = {}): PlanCard => ({
   dropped: [],
   offer: null,
   summary: 'Monday: Onigiri.',
+  added: [],
+  basis: '',
   readback: [{ trigger: 'plan.readback', vars: { summary: 'Monday: Onigiri' } }],
   ...over,
 });

@@ -21,13 +21,20 @@ import { profiles } from '../db/schema.js';
 import { loadRules } from '../rules/store.js';
 import { planContext } from '../week/plan-service.js';
 import { loadPlan } from '../week/store.js';
-import type { WeekSource } from './writes.js';
+import type { LoopContent } from '../catalog.js';
+import type { RecipeIndexSource } from '../recipes/recipe-index.js';
 
 /**
  * The plan and navigation pieces of a mentor turn (M5 Step 8). Code builds every card from core: the model's
  * `propose_plan` and the scripted `planIntent` reach the same `buildPlanCard` with the same context, and a
  * navigation is only ever a `go` part, a chip the player taps (Ruling 15).
  */
+
+/** Where a plan card reads the canon and the loop content from (the app's one recipe index, C7). */
+export interface WeekSource {
+  loop: LoopContent;
+  recipes: RecipeIndexSource;
+}
 
 export interface PlanTurnDeps {
   keyring: Keyring;

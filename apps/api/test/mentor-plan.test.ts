@@ -410,7 +410,7 @@ describe('fix round 1', () => {
   const noCalls = () => reply('');
 
   test('C1: the model\'s after "all safe now" never reaches a line; the ask echoes only the player\'s words', async () => {
-    const ai = fakeAi([planArgs({ pick: 3, after: 'all safe now' }), planArgs({ pick: 2, after: 'saturday' })]);
+    const ai = fakeAi([planArgs({ pick: 3, after: 'all safe now' }), planArgs({ pick: 2, after: 'the weekend' })]);
     await makeApp(ai);
     const p = await aiPlayer();
     const r = await p.turn('help me with my week please');

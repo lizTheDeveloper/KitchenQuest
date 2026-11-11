@@ -16,7 +16,8 @@ import type { MemoryFlags, MemoryHistory } from './memory.js';
 import { loadPanPrompt } from './prompt.js';
 import { runTurn, type TurnDeps } from './turn.js';
 import { localToday } from '../week/local-date.js';
-import { confirmProposal, rejectProposalIn, undoWriteIn, type WeekSource } from './writes.js';
+import { confirmProposal, rejectProposalIn, undoWriteIn } from './writes.js';
+import type { WeekSource } from './plan-turn.js';
 
 const DAY_MS = 86_400_000;
 const INTAKE_STEPS = ['market_day', 'meals_per_week', 'region', 'allergies', 'pantry'] as const;

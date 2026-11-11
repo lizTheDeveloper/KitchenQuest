@@ -85,18 +85,11 @@ describe('loadPanPrompt', () => {
           },
         ],
       },
-      { role: 'user', content: "just choose 2 for me. market's on thursday, so after that" },
+      { role: 'user', content: 'Pick two dinners for me after Wednesday, please.' },
       {
         role: 'assistant',
         content: null,
-        toolCalls: [
-          { id: 'example_4', name: 'propose_plan', arguments: JSON.stringify({ days: null, pick: 2, hard_week: null, after: 'Thursday' }) },
-          {
-            id: 'example_5',
-            name: 'propose_profile',
-            arguments: JSON.stringify({ market_days: ['Thursday'], meals_per_week: null, region: null, country: null, meal_windows: null }),
-          },
-        ],
+        toolCalls: [{ id: 'example_4', name: 'propose_plan', arguments: JSON.stringify({ days: null, pick: 2, hard_week: null, after: 'Wednesday' }) }],
       },
     ]);
   });

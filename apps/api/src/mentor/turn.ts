@@ -12,7 +12,7 @@ import {
   isSevereCard,
   isSuitabilityQuestion,
   broadKindsAsked,
-  clockedSlots,
+  reminderSlots,
   leftoverNamedIngredients,
   matchDish,
   MENTOR_TURN_DEADLINE_MS,
@@ -64,6 +64,7 @@ import type { Db } from '../types.js';
 import { completeUsage, recordSent } from '../usage/usage.js';
 import { aiTurnsLeft, recordAiCost, type BudgetGuard } from './allowance.js';
 import { appendMessages, bumpTurn, openConversation, recentMessages, type StoredMessage } from './conversations.js';
+import { filterReply, touchesHealth } from './filter.js';
 import { isHealthText } from './health.js';
 import { line, listWords, type PanBank } from './lines.js';
 import type { MemoryFlags, MemoryHistory } from './memory.js';
@@ -71,9 +72,9 @@ import { applyPostChecks } from './postchecks.js';
 import { buildPromptContext, minimiseHistory, renderMessages, type PanPrompt } from './prompt.js';
 import { createProposal, hasOpenHealthProposal, openProposalsOfConversation } from './proposals.js';
 import { isWriteRequest } from './requests.js';
-import { goPart, planCardContext, planReply, type PlanCardContext } from './plan-turn.js';
+import { goPart, planCardContext, planReply, type PlanCardContext, type WeekSource } from './plan-turn.js';
 import { MENTOR_TOOLS, parseToolCall, type ToolArgs } from './tools.js';
-import { confirmProposal, latestUndoable, rejectProposalIn, undoWriteIn, type WeekSource } from './writes.js';
+import { confirmProposal, latestUndoable, rejectProposalIn, undoWriteIn } from './writes.js';
 import type { RecipeIndex } from '../recipes/recipe-index.js';
 
 export interface TurnDeps {
@@ -448,13 +449,18 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
   // M5 Step 8: a plan clause code reads in the player's own words ("put the frijoles on Saturday's plan", "pick 3")
   // is proposed when the model made no plan call, as a removal the player said is (M4 post-checks): code wins where
   // it can read the player's words. Only when the plan tool is offered this turn.
-  const words = offered.has('propose_plan') && !calls.some((c) => c.name === 'propose_plan') ? planWordsIn(f.raw) : null;
+  const words =
+    offered.has('propose_plan') && !calls.some((c) => c.name === 'propose_plan') ? planWordsIn(f.raw, { graph, terms: deps.catalog.ruleTerms }) : null;
   if (words !== null) calls.push({ name: 'propose_plan', args: { days: words.days, pick: words.pick, hard_week: words.hard, after: words.after } });
   // M5 Step 8 ruling: a meal time the player's own words set as a reminder ("remind me about dinner at 6:30 pm",
   // "lunch at half twelve") is a profile card code builds itself, meal windows only, when the model made no valid
   // profile call (none, or one whose arguments didn't parse: a malformed call is never used). Only when the profile
   // tool is offered (R4: without ai_health too); the safety pre-routes ran before any of this.
-  const timed = offered.has('propose_profile') && !calls.some((c) => c.name === 'propose_profile') ? clockedSlots(stripPageEvents(playerOwnWords(f.raw)).text, { remindersOnly: true }) : [];
+  // Fix round 1 I2: only reminder phrasing about the player, never with a symptom, a health word or another person.
+  const timed =
+    offered.has('propose_profile') && !calls.some((c) => c.name === 'propose_profile')
+      ? reminderSlots(stripPageEvents(playerOwnWords(f.raw)).text, graph, deps.catalog.ruleTerms)
+      : [];
   if (timed.length > 0) calls.push({ name: 'propose_profile', args: { market_days: null, meals_per_week: null, region: null, country: null, meal_windows: timed } });
   return deps.db.transaction(async (tx) => {
     await lockLiveUser(tx, userId);
@@ -512,7 +518,10 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
     }
     const proposedRule = f.result.toolCalls.some((c) => c.name === 'propose_rule' && offered.has(c.name));
     const droppedRule = proposedRule && keptRuleTerms.length === 0;
-    if (f.health && !suitabilityOnly && !hasRuleOutcome(reply) && (reply.cards.length === 0 || droppedRule)) {
+    // Fix round 1 I1/I2: a plan card, or a profile card code built from a clock clause, never stands in for the ask:
+    // neither answers what the player said about their health.
+    const answering = reply.cards.filter((c) => c.kind !== 'plan' && !(c.kind === 'profile' && timed.length > 0));
+    if (f.health && !suitabilityOnly && !hasRuleOutcome(reply) && (answering.length === 0 || droppedRule)) {
       dropBareFallback();
       reply.parts.push(line('rule.ask_keep_off'));
     }
@@ -635,9 +644,17 @@ async function shortReply(
     case 'confirm':
       try {
         // A plan card's week window reads the player's local date (Step 6 I2); a plan the rules now refuse is closed.
-        const r = await confirmProposal(deps.db, deps, userId, target.ref, 'typed_yes', undefined, now, requestId, undefined, req.localDate);
+        const r = await confirmProposal(deps.db, deps, userId, target.ref, 'typed_yes', undefined, now, requestId, undefined, req.localDate, {
+          conversationId: id,
+          turnSeq: opened.turnSeq,
+        });
         return done(r.parts, [{ kind: 'confirmed', proposalId: target.ref, trail: r.trail }]);
       } catch (e) {
+        // Fix round 1 M2: the week changed since the card was shown; it is closed and offered again, as a card.
+        if (e instanceof ApiError && e.code === 'plan_changed') {
+          const d = (e.details ?? { parts: [] }) as { card?: ServerCard; parts: ReplyPart[] };
+          return respond(id, 'deterministic', d.parts, null, { cards: d.card === undefined ? [] : [d.card] });
+        }
         return done(refusalParts(e));
       }
     case 'reject':
@@ -659,7 +676,11 @@ async function shortReply(
  */
 async function codeRoute(deps: TurnDeps, userId: string, raw: string, req: TurnRequest, opened: Opened, now: Date): Promise<TurnResponse | null> {
   const id = opened.conversationId;
-  const plan = planIntent(raw);
+  // Fix round 1 I1: a plan clause that states a health rule ("no peanuts on sunday") is never planned by code: the
+  // turn goes on to M4's health path (the model and its rule handling, or the scripted engine), and a dish word code
+  // would echo must pass the output filter and the health screen.
+  const read = planIntent(raw, { graph: deps.catalog.graph, terms: deps.catalog.ruleTerms });
+  const plan = read !== null && (read.days ?? []).every((d) => filterReply(d.dish, { finish: 'stop' }).ok && !touchesHealth(d.dish)) ? read : null;
   const index = await deps.week.recipes.current(deps.db);
   const nav = plan === null ? navIntent(raw, { cooks: deps.week.loop.cooks, slugs: new Set(index.keys()) }) : null;
   if (nav !== null) return respond(id, 'deterministic', [goPart(nav, deps, index)]);

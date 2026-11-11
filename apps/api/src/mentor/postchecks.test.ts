@@ -81,7 +81,9 @@ describe('applyPostChecks', () => {
     expect(post([plan(null)], 'pick 3 after that')).toEqual([plan('that')]);
     // No "after …" words: nothing is added; the model's own after stays.
     expect(post([plan(null)], 'pick 3, market is saturday')).toEqual([plan(null)]);
-    expect(post([plan('sunday')], 'pick 3 after that, market is saturday')).toEqual([plan('sunday')]);
+    // The model's own after stays only when it is the player's words (fix round 1, C1); else the words decide.
+    expect(post([plan('sunday')], 'pick 3 after sunday, market is saturday')).toEqual([plan('sunday')]);
+    expect(post([plan('sunday')], 'pick 3 after that, market is saturday')).toEqual([plan('saturday')]);
   });
 
   test('fix round 1 C1/M3: every model string in a plan call must be the player\'s own words and pass the screens, else it is dropped', () => {

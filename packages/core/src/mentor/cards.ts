@@ -101,6 +101,10 @@ export interface PlanCard {
   dropped: string[];
   offer: SlotOffer | null;
   summary: string;
+  /** Fix round 1 M2: the items this card adds to the stored week (a stale card is rebuilt from them). */
+  added: PlanItem[];
+  /** Fix round 1 M2: `planBasis` of the stored week the card was built on; a confirm saves it only while it matches. */
+  basis: string;
   readback: LineRef[];
 }
 export type ProposalCard = RuleCard | MealCard | ProfileCard | PantryCard | PlanCard;
