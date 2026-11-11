@@ -93,10 +93,42 @@ function finishOf(reason: string | null | undefined): 'stop' | 'tool_calls' | 'l
   return reason === 'stop' || reason === 'tool_calls' || reason === 'length' ? reason : 'other';
 }
 
-/** Adjudication A: a provider markup suffix on a string argument, from its first `<parameter` / `</parameter` on. */
-const MARKUP_SUFFIX = /\s*<\/?parameter[^]*$/;
-/** The suffix may hold markup tokens only: `</parameter>`, `<parameter=name>`, a lone `<` or `>`, whitespace. */
-const MARKUP_ONLY = /^(?:\s+|<\/?parameter(?:=[\w-]*)?>?|<|>)*$/;
+/**
+ * Adjudication A: where a provider markup suffix starts on a string argument (its first `<parameter` /
+ * `</parameter`, plus the whitespace just before it), or -1. A linear scan, never a backtracking regex: the
+ * model controls this string.
+ */
+function markupSuffixStart(v: string): number {
+  const a = v.indexOf('<parameter');
+  const b = v.indexOf('</parameter');
+  let i = a < 0 ? b : b < 0 ? a : Math.min(a, b);
+  if (i < 0) return -1;
+  while (i > 0 && /\s/.test(v[i - 1]!)) i--;
+  return i;
+}
+
+/** The suffix may hold markup tokens only: `</parameter>`, `<parameter=name>`, a lone `<` or `>`, whitespace. Linear. */
+function isMarkupOnly(tail: string): boolean {
+  let i = 0;
+  while (i < tail.length) {
+    const c = tail[i]!;
+    if (/\s/.test(c)) {
+      i++;
+    } else if (tail.startsWith('</parameter', i) || tail.startsWith('<parameter', i)) {
+      i += tail.startsWith('</', i) ? 11 : 10;
+      if (tail[i] === '=') {
+        i++;
+        while (i < tail.length && /[\w-]/.test(tail[i]!)) i++;
+      }
+      if (tail[i] === '>') i++;
+    } else if (c === '<' || c === '>') {
+      i++;
+    } else {
+      return false;
+    }
+  }
+  return true;
+}
 
 /** The JSON types a parameter schema allows (`type`, or each branch of `anyOf` / `oneOf`). */
 function schemaTypes(schema: unknown): string[] {
@@ -127,8 +159,8 @@ export function normaliseToolArguments(args: string, parameters: Record<string, 
   for (const [key, v] of Object.entries(out)) {
     if (typeof v !== 'string') continue;
     let next: unknown = v;
-    const m = MARKUP_SUFFIX.exec(v);
-    if (m !== null && MARKUP_ONLY.test(m[0])) next = v.slice(0, m.index);
+    const start = markupSuffixStart(v);
+    if (start >= 0 && isMarkupOnly(v.slice(start))) next = v.slice(0, start);
     const types = schemaTypes(props[key]);
     if (typeof next === 'string' && (types.includes('array') || types.includes('object'))) {
       try {

@@ -400,3 +400,37 @@ input[type="search"] {
 .ai-health-notice .consent-card, .health-data-notice .consent-card { margin: 1rem 6px; }
 .health-withdraw { margin: 1rem 3px; padding: .75rem; background: var(--iron); box-shadow: 0 0 0 3px var(--sky); }
 .health-withdraw h3 { margin: 0 0 .5rem; }
+
+/* M5 Step 9: pin states (Ruling 3: never a lock), quests, the apprentice card and reward toasts. */
+.map-pin-state {
+  position: absolute; transform: translate(-50%, 2.4rem); pointer-events: none; white-space: nowrap;
+  font-family: var(--display); font-size: .85rem; padding: 0 .35rem; background: var(--parchment); color: var(--parchment-ink);
+  box-shadow: 0 0 0 2px var(--iron);
+}
+@media (max-width: 30rem) { .map-pin-state { font-size: .7rem; transform: translate(-50%, 1.5rem); } }
+.quest-panel {
+  max-width: 60rem; margin: .5rem auto; padding: .75rem 1rem; background: var(--parchment); color: var(--parchment-ink);
+  box-shadow: 0 0 0 3px var(--parchment-ink), 0 0 0 6px var(--iron);
+}
+.quest-speaker { font-family: var(--display); margin: 0 0 .25rem; }
+.quest-prompt { margin: 0 0 .75rem; }
+.quest-reaction { margin: .5rem 0; font-style: italic; }
+.quest-choices { flex-wrap: wrap; }
+.quest-swap { margin: .5rem 0; padding: .5rem; border: 2px dashed var(--parchment-ink); }
+.quest-swap .swap-label { font-family: var(--display); margin: 0; }
+.quest-swap p { margin: .25rem 0; }
+.quest-alternatives { margin: 0 0 .75rem; padding-left: 1.25rem; }
+.quest-alternatives a { color: var(--parchment-ink); }
+.apprentice-card {
+  max-width: 32rem; margin: 1.5rem 6px; padding: .75rem 1rem; background: var(--parchment); color: var(--parchment-ink);
+  box-shadow: 0 0 0 3px var(--parchment-ink), 0 0 0 6px var(--iron);
+}
+.apprentice-card h2 { margin: 0 0 .25rem; color: var(--parchment-ink); }
+.apprentice-card p { margin: .25rem 0; }
+.apprentice-level, .apprentice-stamps { font-family: var(--mono); font-size: 1.25rem; }
+.toolkit-cert { display: block; font-family: var(--mono); }
+.progress-toasts { position: fixed; right: 1rem; bottom: 1rem; display: grid; gap: .5rem; max-width: min(24rem, calc(100vw - 2rem)); z-index: 30; pointer-events: none; }
+.progress-toast {
+  margin: 0; padding: .5rem .75rem; background: var(--parchment); color: var(--parchment-ink);
+  box-shadow: 0 0 0 3px var(--parchment-ink), 0 0 0 6px var(--iron);
+}
