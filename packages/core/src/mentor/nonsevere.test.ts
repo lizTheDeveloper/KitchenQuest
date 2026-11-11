@@ -727,6 +727,20 @@ describe('M4 Step 12 controller ruling (T10): a symptom with the player\'s own a
     }
   });
 
+  test('fix round 1 I1: a denial binds only to its own symptom group; a second group gets the ask', () => {
+    for (const t of [
+      'garlic wrecks my stomach, not an allergy, peanuts make me sick',
+      'Garlic makes me sick: not an allergy. Peanuts make me sick.',
+      'garlic wrecks my stomach, not an allergy, i feel sick after peanuts',
+    ]) {
+      expect(readNonSevere(t, graph), t).toBeNull();
+      expect(severityFromText(t, graph), t).not.toBe('intolerance');
+      expect(parseRuleStatement(t, graph)?.items.some((i) => i.severity === 'intolerance') ?? false, t).toBe(false);
+    }
+    // One group naming two ingredients, denied once, stays as ruled.
+    expect(readNonSevere('garlic and onions wreck my stomach, not an allergy', graph)).toMatchObject({ severity: 'intolerance' });
+  });
+
   test('two denials, or a word the grammar does not hold, read nothing', () => {
     expect(readNonSevere('not an allergy, garlic wrecks my stomach, not allergic', graph)).toBeNull();
     expect(readNonSevere('garlic wrecks my stomach on tuesdays, not an allergy', graph)).toBeNull();

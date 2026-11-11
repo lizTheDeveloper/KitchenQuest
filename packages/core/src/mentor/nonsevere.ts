@@ -88,9 +88,11 @@ const PREFERENCE_GROUP = `(?:p,?${TERMS_AFTER}|a${TERMS_AFTER}b|m?gw?)`;
 /** The whole message: groups of one class, each pair split by a break. */
 const INTOLERANCE_SHAPE = new RegExp(`^${INTOLERANCE_GROUP}(?:[,.]${INTOLERANCE_GROUP})*$`);
 const PREFERENCE_SHAPE = new RegExp(`^${PREFERENCE_GROUP}(?:[,.]${PREFERENCE_GROUP})*$`);
-/** "garlic wrecks my stomach", "I feel rough after garlic", each optionally followed by more symptom words. */
+/** "garlic wrecks my stomach", "I feel rough after garlic", optionally followed by more symptom words about the same terms. */
 const SYMPTOM_GROUP = `(?:${TERMS_BEFORE},?y|f${TERMS_AFTER})(?:[,.]?[yf])*`;
-const SYMPTOM_SHAPE = new RegExp(`^${SYMPTOM_GROUP}(?:[,.]${SYMPTOM_GROUP})*$`);
+// Exactly one group (fix round 1, I1): the one denial is about that group's ingredients only, so a second
+// symptom group, undenied, reads as nothing and is asked.
+const SYMPTOM_SHAPE = new RegExp(`^${SYMPTOM_GROUP}$`);
 
 /** Fixed phrases by symbol; tried longest first, then in this order. */
 const PHRASES: readonly [Sym, readonly string[]][] = [
