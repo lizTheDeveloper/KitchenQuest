@@ -246,6 +246,9 @@ Every string the API accepts from a player, with its maximum. A field not listed
 | pantry `add[].ingredientId` | `pantry_items.sealed` | 64 | null or an id in the ingredient graph |
 | pantry `removeNames[]`, `removeIds[]` | nowhere (matched, then dropped) | 80 / 64 each, at most 300 entries | unmatched entries are ignored |
 | pantry items per player (`POST /pantry/changes`) | `pantry_items` | 300 rows | not a string cap: bounds each request's decrypting (M-5); 400 `too_many_items`. Serialized per player by an advisory lock, so two racing adds cannot pass it |
+| progress event `id` (`POST /progress/events`) | `progress_events.client_id` | 128 | the game's own random id, not free text; an event outside its strict shape is rejected `bad_event` |
+| progress event ids and refs (`recipe`, `quest`, `technique`, `frame`, `standsInFor[]`, `recipes[]`) | `progress_events.body` | 200 each; at most 20 `standsInFor`, 100 `recipes` | not free text: each must be a canon slug, quest, technique, frame or cook id the catalogue knows, or the event is rejected and nothing is stored |
+| progress events per request / per day (`POST /progress/events`) | `progress_events` | 100 a request (more is 400); 200 a local day | not a string cap. The daily cap is core's, per event (C14): the event over it is rejected `too_many_events`, the rest are recorded |
 | `q` (`GET /ingredients/search`) | nowhere; never logged | 100 | |
 | `date` (`GET /recipes`) | nowhere | 10 | `YYYY-MM-DD` within a day of today |
 | `noticeVersion` (`POST /me/consents`) | `consents.notice_version` | 64 | must equal the current notice's version |
