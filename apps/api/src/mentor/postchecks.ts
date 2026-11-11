@@ -88,6 +88,27 @@ const MEAL_JOINER = /((?:\s*(?:,|&|\band\b|\bwith\b)\s*)+)/i;
 /** Words that, within two tokens before a part, mean the player did not eat it (fix round 2, N1). */
 const NOT_EATEN = /\b(no|not|without|never|later|tomorrow|tonight|maybe|thinking about)\s*$/;
 
+/**
+ * M4 final R1 (structural): what may stand in the player's text between two joined parts. Connectors (`,` `&`
+ * "and" "with"), uptalk ("?"), hedges and articles ("i think", "lol", "some", "a") — never a verb, a negation or
+ * any other word, so "toast, and I did not eat butter", "soup w/o bread" and "toast; butter" all drop the card.
+ * An allow-list: an unknown word fails closed. A pasted list (S19) may skip whole bullet lines between two parts.
+ */
+const BETWEEN_WORDS: ReadonlySet<string> = new Set([
+  'and', 'with', ',', '&', '?', 'i', 'think', 'guess', 'lol', 'like', 'um', 'uh', 'er', 'oh', 'so', 'then', 'also', 'plus', 'too', 'a', 'an', 'some', 'the', 'of',
+]);
+const BULLET = /^\s*[-*•·]\s*/;
+const tokensOf = (seg: string) => seg.split(/\s+|(?=[,&?])|(?<=[,&?])/).filter((w) => w !== '');
+function onlyConnectors(between: string): boolean {
+  const lines = between.split('\n');
+  // Lines wholly between the parts are other items of a pasted list: each must be a bullet line.
+  if (lines.slice(1, -1).some((l) => !BULLET.test(l))) return false;
+  const edges = lines.length > 1 ? [lines[0], lines.at(-1)!.replace(BULLET, '')] : [between];
+  return edges.every((seg) => tokensOf(seg).every((w) => BETWEEN_WORDS.has(w)));
+}
+/** Right after a part: a deferral ("butter tomorrow"), or a question mark after the last part ("and butter?"). */
+const DEFERRED_AFTER = /^\s*(later|tomorrow|tonight)\b/;
+
 /** Where `part` (or a plural of it) next occurs in `t` at or after `from`, as whole words; null if nowhere. */
 function findPart(t: string, part: string, from: number): { start: number; end: number } | null {
   const variants = [...new Set(forms(screenText(part)).flatMap((f) => [f, `${f}s`, `${f}es`]))].filter((v) => v !== '');
@@ -106,12 +127,19 @@ function findPart(t: string, part: string, from: number): { start: number; end: 
  * model joined from the player's phrases ("half a sandwich, ham n cheese, and some crisps") is kept when,
  * split on ", " / "and" / "with" / "&", EVERY part is the player's own words and passes the screens, the parts
  * come in the player's order, no part follows a negation or deferral within two words ("no", "without",
- * "later", "maybe", …), no "." ends a sentence between two parts, and "with" joins two parts only where the
- * player wrote "with" between them. Anything else drops it. Rule terms and severities are never read this way.
+ * "later", "maybe", …), no "." ends a sentence between two parts, only connectors, hedges and articles stand
+ * between two parts (R1, `onlyConnectors`), no part is deferred right after it, and "with" joins two parts only
+ * where the player wrote "with" between them. Anything else drops it. Rule terms and severities are never read this way.
  */
 const mealDescription = (value: string | null, text: string): string | null => {
   const whole = mealString(value, text);
-  if (whole !== null || value === null) return whole;
+  if (whole !== null) {
+    // R1: "toast and butter tomorrow" (or "…butter?") is not a meal eaten, even word for word.
+    const at = findPart(screenText(text).toLowerCase(), whole, 0);
+    const rest = at === null ? '' : screenText(text).toLowerCase().slice(at.end);
+    return DEFERRED_AFTER.test(rest) || /^\s*\?/.test(rest) ? null : whole;
+  }
+  if (value === null) return null;
   const v = value.replace(/\s+/g, ' ').trim();
   const pieces = v.split(MEAL_JOINER);
   // pieces alternate: part, joiner, part, …; a leading or trailing joiner leaves an empty part.
@@ -128,9 +156,11 @@ const mealDescription = (value: string | null, text: string): string | null => {
     if (found === null) return null; // not in the player's order
     const before = t.slice(Math.max(0, found.start - 30), found.start).split(/\s+/).slice(-3).join(' ');
     if (NOT_EATEN.test(before)) return null;
+    const after = t.slice(found.end);
+    if (DEFERRED_AFTER.test(after) || (i === parts.length - 1 && /^\s*\?/.test(after))) return null;
     if (i > 0) {
       const between = t.slice(prevEnd, found.start);
-      if (/\./.test(between)) return null;
+      if (/\./.test(between) || !onlyConnectors(between)) return null;
       // "with" needs the player's own "with" between the parts, or a list line under a dish ("SALAD\n- lemon", S19).
       if (/\bwith\b/i.test(joiners[i - 1]) && !/\bwith\b/.test(between) && !/\n/.test(between)) return null;
     }

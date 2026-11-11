@@ -238,6 +238,26 @@ describe('Step 12 ruling: a meal description joined from the player\'s own phras
     expect(post([meal('soup and bread')], 'soup and some bread for lunch')).toEqual([meal('soup and bread')]);
   });
 
+  test('M4 final R1: only connectors, hedges and articles may stand between two joined parts; no deferral after a part', () => {
+    const dropped: [string, string][] = [
+      ['toast, and I did not eat butter', 'toast and butter'],
+      ['toast, and I didnt eat butter', 'toast and butter'],
+      ['soup w/o bread', 'soup with bread'],
+      ['toast; butter tomorrow', 'toast and butter'],
+      ['toast and butter tomorrow', 'toast and butter'],
+      ['rice instead of pasta', 'rice and pasta'],
+      ['eggs, skipped the bacon', 'eggs and bacon'],
+      ['had toast and butter?', 'toast and butter'],
+      ['toast\nI did not have\nbutter', 'toast and butter'],
+    ];
+    for (const [said, desc] of dropped) expect(post([meal(desc)], said), `${said} → ${desc}`).toEqual([]);
+    // Still kept: T02's uptalk and hedges, S19's pasted list, plain lists.
+    expect(post([meal('half a sandwich, ham n cheese, and some crisps')], 'ugh so lunch was like, half a sandwich? ham n cheese i think, and some crisps lol')).toHaveLength(1);
+    expect(post([meal('chickpea salad with lemon and parsley')], S19)).toHaveLength(1);
+    expect(post([meal('soup and bread')], 'soup and some bread for lunch')).toHaveLength(1);
+    expect(post([meal('eggs, beans and toast')], 'eggs, beans & toast for breakfast')).toHaveLength(1);
+  });
+
   test('rule terms are never joined', () => {
     expect(post([rule('peanuts and sesame', 'allergy')], "I'm allergic to peanuts. Sesame too")).toEqual([]);
   });
