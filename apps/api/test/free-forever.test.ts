@@ -57,7 +57,13 @@ async function makeApp(ai: AiProvider | null) {
   app = await buildApp({ config, db, mailer, ai, now: () => NOW, logger: false });
 }
 
-const call = (cookie: string, opts: InjectOptions) => app.inject({ ...opts, cookies: { kq_session: cookie } });
+/** Every response body in this file (fix round 1, M9: not only the mentor's). */
+const allBodies: { url: string; body: string }[] = [];
+async function call(cookie: string, opts: InjectOptions) {
+  const res = await app.inject({ ...opts, cookies: { kq_session: cookie } });
+  allBodies.push({ url: typeof opts.url === 'string' ? opts.url : '', body: res.body });
+  return res;
+}
 
 /** No entitlements, the free cap used up in the last day. */
 async function cappedFreePlayer() {
@@ -157,6 +163,20 @@ describe('free forever (§16)', () => {
     const dinner = await turn(p.cookie, "what's for dinner?");
     expect(dinner).toMatchObject({ route: 'scripted', notice: 'rate_limited' });
     expect(ai.requests).toHaveLength(1);
+  });
+
+  it('no response body in this file sells (never rule 7), the export\'s processor register aside', () => {
+    expect(allBodies.length).toBeGreaterThan(20);
+    for (const { url, body } of allBodies) {
+      let text = body;
+      // The export lists every processor in the register, the planned payment provider ("Guild billing") included:
+      // a legal disclosure (GDPR Art. 15(1)(c)), not an offer. Everything else in the export is scanned.
+      if (url === '/me/export') {
+        const { processors: _processors, ...rest } = JSON.parse(body) as Record<string, unknown>;
+        text = JSON.stringify(rest);
+      }
+      expect(text, url).not.toMatch(SELLS);
+    }
   });
 
   it('no mentor response in this file sells (never rule 7)', () => {
