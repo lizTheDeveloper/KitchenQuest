@@ -44,7 +44,7 @@ const cookName = (id: string, c: ClientContent) => (Object.hasOwn(c.cooks, id) ?
 export function linesForEvent(event: ProgressEvent | undefined, grants: readonly RewardGrant[], c: ClientContent = content): GrantLine[] {
   if (event?.kind === 'meal_logged' || grants.some((g) => g.kind === 'xp' && g.reason === 'nourishment')) return [];
   const out: GrantLine[] = [];
-  const level = grants.filter((g) => g.kind === 'level').sort((a, b) => b.level - a.level)[0];
+  const level = grants.filter((g) => g.kind === 'level').sort((a, b) => b.level - a.level).at(0);
   if (level) out.push({ trigger: 'levelup', vars: { level: String(level.level) } });
   for (const g of grants) {
     if (g.kind !== 'trust') continue;

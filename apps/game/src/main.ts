@@ -27,9 +27,9 @@ registerRulesScreen(); // replaces Step 9's placeholder
 const session = (() => { try { return window.sessionStorage; } catch { return null; } })();
 // Wiped by "Delete everything" in another tab: reload onto the fresh state, without bringing the worker back.
 const store = createStore(safeLocalStorage(), window, () => { skipServiceWorkerOnce(session); window.location.reload(); });
-mountApp(document, { store, now: () => new Date() });
 // Progress (M5 Step 9): the device log, and its one upload on sign-in. Its code loads with the first screen that needs it.
 initProgress(api, store, window);
+mountApp(document, { store, now: () => new Date() });
 
 // Who is signed in, and their rules: on start, when the connection comes back and when the app is shown again.
 // Nothing else calls the API on load; a sign-in token in this page's address is never read here (only /auth/verify does, on a tap).

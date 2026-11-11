@@ -407,7 +407,13 @@ input[type="search"] {
   font-family: var(--display); font-size: .85rem; padding: 0 .35rem; background: var(--parchment); color: var(--parchment-ink);
   box-shadow: 0 0 0 2px var(--iron);
 }
-@media (max-width: 30rem) { .map-pin-state { font-size: .7rem; transform: translate(-50%, 1.5rem); } }
+.map-pin-state.pin-label-start { transform: translate(-22px, 2.4rem); }
+.map-pin-state.pin-label-end { transform: translate(calc(-100% + 22px), 2.4rem); }
+@media (max-width: 30rem) {
+  .map-pin-state { font-size: .7rem; transform: translate(-50%, 1.5rem); white-space: normal; max-width: 7rem; text-align: center; }
+  .map-pin-state.pin-label-start { transform: translate(-22px, 1.5rem); }
+  .map-pin-state.pin-label-end { transform: translate(calc(-100% + 22px), 1.5rem); }
+}
 .quest-panel {
   max-width: 60rem; margin: .5rem auto; padding: .75rem 1rem; background: var(--parchment); color: var(--parchment-ink);
   box-shadow: 0 0 0 3px var(--parchment-ink), 0 0 0 6px var(--iron);

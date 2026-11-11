@@ -12,7 +12,7 @@ export const MAX_DEVICE_EVENTS = 2000;
  * (`pendingUpload`, in log order). Content-free: ids, dates and numbers only.
  */
 export interface DeviceProgress { events: ProgressEvent[]; grants: RewardGrant[]; base: ProgressSnapshot | null; pendingUpload: string[] }
-export const EMPTY_PROGRESS: DeviceProgress = Object.freeze({ events: [], grants: [], base: null, pendingUpload: [] }) as unknown as DeviceProgress;
+export const EMPTY_PROGRESS: DeviceProgress = { events: [], grants: [], base: null, pendingUpload: [] };
 
 export interface PlayerSettings { showCalories: boolean; reducedMotion: 'system' | 'on' | 'off'; familyTable: boolean; iosNoteDismissed: boolean }
 /** A signed-out player's profile, kept on this device (the same fields as M2's `/profile`). */

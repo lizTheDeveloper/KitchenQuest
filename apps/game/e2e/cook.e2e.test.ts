@@ -165,7 +165,10 @@ describe('cook mode', () => {
     expect(await dialog.textContent()).not.toContain('{place}');
     await expectNoA11yViolations(page, 'certificate');
     const s = await stored(app);
-    expect(s.toolkit.techniques.tempering.tier).toBe('tried');
+    // M5 Step 9: cook mode records one `cooked` progress event; the toolkit is a fold over the log (Ruling 7).
+    const cooks = (s.progress.events as { kind: string; recipe?: string; planned?: boolean }[]).filter((e) => e.kind === 'cooked');
+    expect(cooks).toEqual([expect.objectContaining({ kind: 'cooked', recipe: 'india/kerala/parippu', planned: false })]);
+    expect(s.progress.grants.some((g: { kind: string; reason?: string }) => g.kind === 'xp' && g.reason === 'cook')).toBe(true);
     expect(s.cookProgress).toBeNull();
     expect(lines('cook.done').some((l) => l.includes('{dish}'))).toBe(true);
     expect(phaser).toEqual([]);

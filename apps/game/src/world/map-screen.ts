@@ -79,7 +79,9 @@ export function mapScreen(): Screen {
         const at = MAP_PINS[cook.id];
         const sprite = assets[`char.${cook.id}`];
         const state = pinState(cook.id, known);
-        const label = h('span', { class: `map-pin-state pin-${state}`, id: `pin-state-${cook.id}`, 'data-state': state }, PIN_STATE_TEXT[state]);
+        // Anchored toward the map's middle, so a label by the edge never pushes the page sideways.
+        const side = at.x < 30 ? 'start' : at.x > 70 ? 'end' : 'mid';
+        const label = h('span', { class: `map-pin-state pin-${state} pin-label-${side}`, id: `pin-state-${cook.id}`, 'data-state': state }, PIN_STATE_TEXT[state]);
         label.style.left = `${at.x}%`;
         label.style.top = `${at.y}%`;
         labels.push(label);

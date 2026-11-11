@@ -105,7 +105,10 @@ describe('home kitchen', () => {
       const color = await row.locator(sel).evaluate((e) => getComputedStyle(e).color);
       expect(color, sel).not.toBe('rgb(200, 66, 58)'); // --chili
     }
-    expect(await dialog.textContent()).not.toMatch(/\d|%/);
+    // The M3 record came through as an `imported` progress event (Ruling 8): Yours, with its Certificate of Technique.
+    expect(await row.locator('.toolkit-cert').textContent()).toBe('Form 51-T: Certificate of Technique');
+    // No totals, percentages or counts: the only digits are the certificate's form number.
+    expect((await dialog.textContent())!.replace('51-T', '')).not.toMatch(/\d|%/);
     await expectNoA11yViolations(page, 'knife roll');
     await page.keyboard.press('Escape');
     expect(await page.getByRole('dialog', { name: 'Your knife roll' }).count()).toBe(0);
