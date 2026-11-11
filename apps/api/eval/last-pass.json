@@ -1,5 +1,5 @@
 {
-  "fingerprint": "b11b264e0d1105fc9004404550f230f08ba5f8415a7d2178b383de10e741b6c5",
+  "fingerprint": "17de160bc762dea799919f0df2a44f3ce080db17344ff523e890fc855b28ec31",
   "evalHash": "89be73aff81bd08fa57cf9b61b9b472ebc608121b6f7fe18fd9b73efc0e65a0b",
   "model": "qwen/qwen3.8-27b",
   "providers": [
@@ -155,11 +155,9 @@
       "id": "T07",
       "category": "deferred",
       "rep": 0,
-      "pass": false,
+      "pass": true,
       "hard": false,
-      "problems": [
-        "cards [meal], expected none"
-      ]
+      "problems": []
     },
     {
       "id": "T07",
