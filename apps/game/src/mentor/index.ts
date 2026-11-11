@@ -42,10 +42,14 @@ export function getMentor(): MentorPanel {
  * Where the line history lives. Standard mode keeps it in the player store. Family Table mode keeps nothing
  * (§19): history stays in this page's memory only and is never written.
  */
-export function historyOptions(store: PlayerStore): { history: Record<string, number[]>; onHistory?: (h: Record<string, number[]>) => void } {
+export function historyOptions(store: PlayerStore): {
+  history: Record<string, number[]>; onHistory?: (h: Record<string, number[]>) => void; session: () => string;
+} {
   const { dialogueHistory, settings } = store.get();
-  if (settings.familyTable) return { history: dialogueHistory };
-  return { history: dialogueHistory, onHistory: (h) => { store.update((s) => ({ ...s, dialogueHistory: h })); } };
+  // The history is the signed-in session's: a sign-out, another account, a 401 or another tab's change starts it afresh (N4).
+  const session = () => store.get().account?.email ?? '';
+  if (settings.familyTable) return { history: dialogueHistory, session };
+  return { history: dialogueHistory, onHistory: (h) => { store.update((s) => ({ ...s, dialogueHistory: h })); }, session };
 }
 
 /** Which backend a player gets: Family Table → scripted (§19); signed in with the AI mentor on → AI; otherwise scripted. */
