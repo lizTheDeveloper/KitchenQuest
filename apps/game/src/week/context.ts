@@ -1,5 +1,5 @@
 import {
-  addDays, planWeekStart, type ParsedRecipe, type Plan, type PlanContext, type PlanItem, type Rule, type ToolkitState, type WeeklySlotInput,
+  planWeekStart, type ParsedRecipe, type Plan, type PlanContext, type PlanItem, type Rule, type ToolkitState, type WeeklySlotInput,
 } from '@kitchenquest/core/engine';
 import { content, graph } from '../content';
 import { activeRules } from '../recipes/rules';
@@ -10,6 +10,10 @@ import type { PlayerState } from '../state/store';
  * while they can't be read: "can't verify" is never safe), the plan week and One More Technique's slot input. The
  * scripted engine, the writer and the week screens all read the week through these, so each judges it alike.
  */
+
+const DAY_MS = 86_400_000;
+/** The local date `days` after `date` (whole calendar days, as core's own). */
+export const addDays = (date: string, days: number): string => new Date(Date.parse(`${date}T00:00:00Z`) + days * DAY_MS).toISOString().slice(0, 10);
 
 /** How long a plan (and its run) stays on the device after its week ends: the server's retention (Ruling 18). */
 export const PLAN_RETENTION_WEEKS = 8;

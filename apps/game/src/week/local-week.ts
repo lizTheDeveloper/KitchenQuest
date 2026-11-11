@@ -1,9 +1,9 @@
 import {
-  addDays, checkPlan, marketList, normalizeName, STALL_IDS, validatePlan, type ListItem, type MarketRunView, type Plan,
+  checkPlan, marketList, normalizeName, STALL_IDS, validatePlan, type ListItem, type MarketRunView, type Plan,
 } from '@kitchenquest/core/engine';
 import { content } from '../content';
 import type { LocalRun, PlayerState, PlayerStore } from '../state/store';
-import { canonRecipes, planContextFor, PLAN_RETENTION_WEEKS, rulesOf } from './context';
+import { addDays, canonRecipes, planContextFor, PLAN_RETENTION_WEEKS, rulesOf } from './context';
 
 /**
  * The week on this device (M5 Step 10, Ruling 8): signed out, the plan and its market run live in the player store,
