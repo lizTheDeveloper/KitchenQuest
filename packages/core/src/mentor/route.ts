@@ -540,7 +540,7 @@ export const HARD_WEEK_PATTERN = new RegExp(`\\b${HARD_WORDS}\\b`);
 
 /** One day word as a plan names it: a weekday (or its abbreviation or plural), "weekend", "tonight" or "tomorrow". */
 const DAY_NAME = "(sunday|monday|tuesday|wednesday|thursday|friday|saturday|sun|mon|tues|tue|weds|wed|thurs|thur|thu|fri|sat|weekend|tonight|tomorrow)(?:'s|s)?";
-const DAY = `(?:(?:on|for)\\s+)?(?:the\\s+)?${DAY_NAME}`;
+const DAY = `(?:(?:on|for|at|over)\\s+)?(?:the\\s+)?${DAY_NAME}`;
 const NUMBER_WORDS: Readonly<Record<string, number>> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7 };
 const PLAN_LEAD =
   /^(?:(?:please|pls|can you|could you|would you|help me)\s+)?(?:plan|sort out|sort)\s+(?:out\s+)?(?:my|the|this|our)\s+week(?:'s)?(?:\s+(?:plan|meals|dinners))?(?:\s+for me)?\s*(?:[:,.;!-]+\s*|$)/;
@@ -551,7 +551,7 @@ const AFTER = new RegExp(`^(?:(?:do|put|have|plan)\\s+(?:them|it|those|the rest)
 const HARD_CLAUSE = new RegExp(
   `^(?:(?:it'?s|it is|this is|it'?ll be|its gonna be|it's going to be)\\s+)?(?:a\\s+)?(?:(?:really|very|super|pretty)\\s+)?${HARD_WORDS}(?:\\s+for me)?$`,
 );
-const ON_DAY = `\\s+(?:on|for)\\s+(?:the\\s+)?${DAY_NAME}(?:\\s+(?:plan|night|dinner|lunch|supper|tea))?$`;
+const ON_DAY = `\\s+(?:on|for|at|over)\\s+(?:the\\s+)?${DAY_NAME}(?:\\s+(?:plan|night|dinner|lunch|supper|tea))?$`;
 const DISH_ON_DAY = new RegExp(`^(?:(?:put|have|do|make|cook|plan)\\s+)?(.+?)${ON_DAY}`);
 const PUT_ON_DAY = new RegExp(`^put\\s+(.+?)${ON_DAY}`);
 const DAY_FIRST = new RegExp(`^${DAY}\\s*[:-]?\\s+(.+)$`);
