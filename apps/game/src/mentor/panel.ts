@@ -78,7 +78,8 @@ export function mountMentorPanel(root: HTMLElement, opts: {
   const opener = doc.getElementById('pan-button');
   const standard = mode === 'standard';
 
-  const bubbles = h('ol', { class: 'bubbles', 'aria-live': 'polite' });
+  // Focusable and named so a keyboard can scroll a long conversation (axe: scrollable-region-focusable).
+  const bubbles = h('ol', { class: 'bubbles', 'aria-live': 'polite', tabindex: 0, 'aria-label': 'Conversation with the Pan' });
   const status = h('p', { class: 'pan-status', role: 'status' });
   const closeBtn = h('button', { type: 'button', class: 'btn btn-secondary pan-close' }, 'Close');
   const panel = h('aside', { id: 'pan-panel', class: 'pan-panel', role: 'dialog', 'aria-labelledby': 'pan-title', hidden: true },
