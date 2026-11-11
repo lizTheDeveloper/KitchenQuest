@@ -1,21 +1,23 @@
 import { and, eq } from 'drizzle-orm';
 import { audit } from '../audit/audit.js';
-import { mealLogs, mentorProposals, messages, progressEvents, rules } from '../db/schema.js';
+import { mealLogs, mealPlans, mentorProposals, messages, progressEvents, rules } from '../db/schema.js';
 import type { Tx } from './ledger.js';
 
 /**
  * Every table holding a user's health data (C-1 "delete health data now").
  * `pantry_items` is not one (H-11: contract basis, [lawyer]), so it stays,
- * nor are the content-free `conversations` (P-14). Each later milestone that
+ * nor are the content-free `conversations` (P-14). `meal_plans` is one (M5 Step 6 ruling, conservative: the dishes
+ * planned, and the swaps on a market list, can reveal a diet, a religion or a rule, GDPR Art. 9, WA MHMDA; [lawyer]);
+ * deleting a plan cascades to its `market_runs` row. Each later milestone that
  * adds one (journeys, symptoms) must add it here; the C-10 architecture test
  * lists them too. Deleted in this order (README lock order):
  * `forgetConversations` deletes messages before mentor_proposals too.
  */
-const HEALTH_TABLES = [rules, mealLogs, messages, mentorProposals] as const;
+const HEALTH_TABLES = [rules, mealLogs, messages, mentorProposals, mealPlans] as const;
 
 /**
  * Deletes all of the user's health data inside the caller's transaction
- * (which has taken `lockLiveUser`, then `lockUserProgress`, first) and returns how many rows went.
+ * (which has taken `lockLiveUser`, then `lockUserPlan` and `lockUserProgress`, first) and returns how many rows went.
  * Deleting `meal_logs` cascades to their `meal_logged` progress events (I1 ruling); after `HEALTH_TABLES` any left
  * (none should be) are erased too. Only that kind (when they ate, M5),
  * never another, and never a reward grant, so XP, level and stamps stay (spec §6, I2 ruling; [lawyer] grants keep

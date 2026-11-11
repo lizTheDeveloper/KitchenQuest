@@ -32,6 +32,7 @@ import type { ProgressRouteDeps } from '../progress/routes.js';
 import { progressViewOf } from '../progress/service.js';
 import { loadProgressForExport } from '../progress/store.js';
 import { loadRules } from '../rules/store.js';
+import { loadPlansForExport, loadRunsForExport } from '../week/store.js';
 import { AI_PROCESSOR_IDS } from '../ai/processors.js';
 
 /** The exact words the player types to delete their account. */
@@ -172,12 +173,15 @@ async function buildExport(tx: Tx, config: Config, userId: string, now: Date, re
     item,
     createdAt: iso(createdAt),
   }));
-  const pantry = (await loadPantryForExport(tx, config.keyring, userId)).map(({ id, name, ingredientId, createdAt }) => ({
-    id,
-    name,
-    ingredientId,
+  // With each item's purchase date and source when it has them (M5 Step 6).
+  const pantry = (await loadPantryForExport(tx, config.keyring, userId)).map(({ createdAt, ...item }) => ({
+    ...item,
     createdAt: iso(createdAt),
   }));
+
+  // Weekly plans and their market runs (H-11, M5 Step 6), decrypted, with the pantry rows each tick added.
+  const plans = await loadPlansForExport(tx, config.keyring, userId);
+  const marketRunList = await loadRunsForExport(tx, config.keyring, userId);
 
   // Pan conversations with their stored messages, and proposal cards, decrypted (I-1, I-4, C-12).
   const convs = (await loadConversationsForExport(tx, config.keyring, userId)).map((c) => ({
@@ -271,6 +275,8 @@ async function buildExport(tx: Tx, config: Config, userId: string, now: Date, re
     rules: decrypted,
     meals,
     pantry,
+    plans,
+    marketRuns: marketRunList,
     conversations: convs,
     proposals,
     progress,
@@ -368,7 +374,7 @@ export async function accountRoutes(app: FastifyInstance, progressDeps: Pick<Pro
     const at = now();
     const { id: userId, email } = req.user;
     // One transaction, in this order: the delete event first (so it is pseudonymized
-    // with the rest), then the user (cascading to sessions, profile, rules, meal logs, pantry,
+    // with the rest), then the user (cascading to sessions, profile, rules, meal logs, pantry, meal plans, market runs,
     // conversations, messages, mentor proposals, progress events, reward grants, consents, user_keys, entitlements, usage,
     // self-read counts), then sign-in links by email,
     // then the audit trail, which the database pseudonymizes only once the user is gone.

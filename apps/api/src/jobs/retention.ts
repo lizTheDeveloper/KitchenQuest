@@ -1,7 +1,8 @@
-import { and, isNotNull, lt, lte, or } from 'drizzle-orm';
+import { and, inArray, isNotNull, lt, lte, or } from 'drizzle-orm';
 import { purgeAuditBefore } from '../audit/audit.js';
 import { loggableError } from '../errors.js';
-import { aiCostHours, conversations, loginTokens, mentorProposals, messages, selfReadCounts, sessions, usageEvents } from '../db/schema.js';
+import { aiCostHours, conversations, loginTokens, marketRuns, mealPlans, mentorProposals, messages, selfReadCounts, sessions, usageEvents } from '../db/schema.js';
+import { PLAN_RETENTION_WEEKS } from '../week/store.js';
 import { TRANSCRIPT_RETENTION_DAYS } from '../mentor/constants.js';
 import { undecidedExpired } from '../mentor/proposals.js';
 import type { Db } from '../types.js';
@@ -158,6 +159,26 @@ registerRetention({
         .where(or(undecidedExpired(now), lt(mentorProposals.createdAt, new Date(now.getTime() - 24 * HOUR))))
         .returning({ id: mentorProposals.id }),
     ),
+});
+
+// Plans and market runs (H-11, Ruling 18): PLAN_RETENTION_WEEKS weeks after the plan week ends. A plan week runs 7
+// days from `week_start`, so a plan goes once `week_start + 7 + 7 × PLAN_RETENTION_WEEKS` days is today or earlier
+// (UTC date of `now`); this week's, and the last 8 weeks', stay. Runs first (they would go with their plan anyway).
+const DAY = 24 * HOUR;
+/** The newest `week_start` whose plan and run have expired at `now`. */
+export function expiredPlanWeek(now: Date): string {
+  return new Date(Date.parse(now.toISOString().slice(0, 10)) - (7 + 7 * PLAN_RETENTION_WEEKS) * DAY).toISOString().slice(0, 10);
+}
+registerRetention({
+  table: 'market_runs',
+  run: async (db, now) => {
+    const expired = db.select({ id: mealPlans.id }).from(mealPlans).where(lte(mealPlans.weekStart, expiredPlanWeek(now)));
+    return deleted(db.delete(marketRuns).where(inArray(marketRuns.planId, expired)).returning({ id: marketRuns.id }));
+  },
+});
+registerRetention({
+  table: 'meal_plans',
+  run: (db, now) => deleted(db.delete(mealPlans).where(lte(mealPlans.weekStart, expiredPlanWeek(now))).returning({ id: mealPlans.id })),
 });
 
 /**

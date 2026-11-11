@@ -24,6 +24,7 @@ import { rulesRoutes } from './rules/routes.js';
 import { loadRules } from './rules/store.js';
 import { loadPantry } from './pantry/store.js';
 import { assertUnderWriteCap } from './usage/write-cap.js';
+import { weekRoutes } from './week/routes.js';
 import type { Config } from './config.js';
 import { ApiError, loggableError } from './errors.js';
 import type { Db, Mailer } from './types.js';
@@ -132,6 +133,8 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
     writeCapFor: (tx, userId, at) => assertUnderWriteCap(tx, userId, ['progress.record'], at),
   };
   await progressRoutes(app, progress);
+  // Step 6: plans and market runs, on the same recipe index and loop content.
+  await weekRoutes(app, { catalog, loop, recipes });
   await accountRoutes(app, progress);
 
   return app;
