@@ -75,8 +75,14 @@ export const RUSTY_SEED: Partial<PlayerState> = {
   firstOpenedAt: new Date().toISOString(), lastOpenedAt: new Date().toISOString(),
   toolkit: { techniques: { tempering: { tier: 'yours', firstAt: daysAgo(300), lastUsedAt: daysAgo(200), recipes: [PARIPPU, 'mexico/oaxaca/frijoles'] } } },
 };
+/** This plan week's Monday (no market day set) and a plan with parippu on its Sunday (M5 Step 10). */
+const monday = (() => { const d = new Date(); return daysAgo((d.getDay() + 6) % 7); })();
+const WEEK_SEED: Partial<PlayerState> = {
+  ...{ intake: { step: 'done' as const }, aiDisclosureSeen: true },
+  localWeek: { plans: [{ weekStart: monday, items: [{ day: 6, kind: 'dish', slug: PARIPPU, servings: 3 }], hard: false, slot: 'unanswered' }], runs: [] },
+};
 const coconutSevere = { id: 'r1', target: { kind: 'ingredient' as const, ids: ['coconut'] }, type: 'avoid' as const, severity: 'anaphylactic' as const };
-const settings = (familyTable: boolean) => ({ showCalories: false, reducedMotion: 'system' as const, familyTable, iosNoteDismissed: false, aiMentor: true });
+const settings = (familyTable: boolean) => ({ showCalories: false, reducedMotion: 'system' as const, familyTable, iosNoteDismissed: false, aiMentor: true, rescueNudges: true });
 const h1 = (page: Page, text: string | RegExp) => page.locator('h1', { hasText: text }).first().waitFor();
 const button = (page: Page, name: string | RegExp) => page.getByRole('button', { name });
 const json = (status: number, body: unknown) => ({ status, contentType: 'application/json', body: JSON.stringify(body) });
@@ -328,6 +334,9 @@ export const SCREENS: ScreenCase[] = [
     open: async (p) => { await say(p, "I'm allergic to sesame", 2); await p.locator('#pan-panel .pan-card').waitFor(); },
     primary: (p) => p.locator('#pan-panel .pan-card').getByRole('button', { name: 'Stamp it ✔' }),
   },
+  { label: 'plan (Form 7-W)', path: '/#/plan', seed: WEEK_SEED, open: (p) => p.locator('.plan-item').first().waitFor(), primary: (p) => p.locator('.plan-save') },
+  { label: 'market list (Form 12-M)', path: '/#/market', seed: WEEK_SEED, open: (p) => p.locator('.market-tick').first().waitFor(), primary: (p) => button(p, "That's the shop done") },
+  { label: 'pantry frame: the slot picker', path: '/#/frame/fried-rice', seed: PAN_READY, open: (p) => p.locator('.frame-cook').waitFor(), primary: (p) => p.locator('.frame-cook') },
   { label: '/auth/verify', path: '/auth/verify?token=x', open: (p) => p.locator('#verify').waitFor(), primary: (p) => p.locator('#verify') },
   {
     label: '/auth/verify: the age screen', path: '/auth/verify?token=x', beforeGoto: ageRequired,
