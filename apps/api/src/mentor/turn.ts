@@ -12,6 +12,7 @@ import {
   isSevereCard,
   isSuitabilityQuestion,
   broadKindsAsked,
+  clockedSlots,
   leftoverNamedIngredients,
   matchDish,
   MENTOR_TURN_DEADLINE_MS,
@@ -449,6 +450,12 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
   // it can read the player's words. Only when the plan tool is offered this turn.
   const words = offered.has('propose_plan') && !calls.some((c) => c.name === 'propose_plan') ? planWordsIn(f.raw) : null;
   if (words !== null) calls.push({ name: 'propose_plan', args: { days: words.days, pick: words.pick, hard_week: words.hard, after: words.after } });
+  // M5 Step 8 ruling: a meal time the player's own words set as a reminder ("remind me about dinner at 6:30 pm",
+  // "lunch at half twelve") is a profile card code builds itself, meal windows only, when the model made no valid
+  // profile call (none, or one whose arguments didn't parse: a malformed call is never used). Only when the profile
+  // tool is offered (R4: without ai_health too); the safety pre-routes ran before any of this.
+  const timed = offered.has('propose_profile') && !calls.some((c) => c.name === 'propose_profile') ? clockedSlots(stripPageEvents(playerOwnWords(f.raw)).text, { remindersOnly: true }) : [];
+  if (timed.length > 0) calls.push({ name: 'propose_profile', args: { market_days: null, meals_per_week: null, region: null, country: null, meal_windows: timed } });
   return deps.db.transaction(async (tx) => {
     await lockLiveUser(tx, userId);
     const persist = await consentHeldIn(tx, userId, 'health_data', now);

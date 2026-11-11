@@ -464,13 +464,17 @@ export function clockForSlot(text: string, slot: MealSlot): string | null {
   return clause === null ? null : parseClock(clause);
 }
 
+/** Words that say a meal was already eaten: its clock time is when, never a reminder. */
+const EATEN = /\b(had|ate|eaten|eating|was|were)\b/i;
+
 /**
  * M5 Step 8 ruling (b): every meal slot whose clause in `text` carries a clock time, with that time, read by M4's
  * clock parser: for each slot, the first clause naming it that has a time ("Had dal for dinner. … remind me about
  * dinner at 6:30 pm" → dinner 18:30). Slots in their fixed order; none named, none returned.
  */
-export function clockedSlots(text: string): { name: MealSlot; start: string }[] {
-  const clauses = text.split(CLAUSE_SPLIT);
+export function clockedSlots(text: string, opts: { remindersOnly?: boolean } = {}): { name: MealSlot; start: string }[] {
+  // `remindersOnly`: a clause that says the meal was eaten ("had soup for lunch at 1pm") times no reminder.
+  const clauses = text.split(CLAUSE_SPLIT).filter((c) => !(opts.remindersOnly === true && EATEN.test(c)));
   const out: { name: MealSlot; start: string }[] = [];
   for (const [slot, word] of Object.entries(SLOT_WORDS) as [MealSlot, RegExp | null][]) {
     if (word === null) continue;

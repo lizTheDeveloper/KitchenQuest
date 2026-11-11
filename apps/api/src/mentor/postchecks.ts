@@ -58,6 +58,24 @@ function occursVerbatim(text: string, term: string): boolean {
 }
 
 const isSevere = (s: Severity | null): s is Severity => s !== null && SEVERE.has(s);
+/** "after that", "after market (day)", "after it": the picks go after a day the message names (M5 Step 8 ruling). */
+const AFTER_WORDS = /\bafter (that|market(?: day)?|it)\b/;
+
+/**
+ * The `after` a pick request leaves out, read from the player's own words (M5 Step 8 ruling): with "after
+ * that/market/it" and exactly one weekday named (the market day the message states, "market's saturday"), that
+ * weekday; with none or several, the words themselves, so core asks which day (`plan.after_which_day`) and picks
+ * nothing. Null without such words or without a pick. Never a guess.
+ */
+function afterFromWords(pick: number | null, own: string): string | null {
+  if (pick === null) return null;
+  const t = normalizeTurn(own);
+  const m = AFTER_WORDS.exec(t);
+  if (m === null) return null;
+  const days = parseWeekdays(own);
+  return days.length === 1 ? WEEKDAY_NAMES[days[0]] : m[1];
+}
+
 /** "Pick N" is clamped to 1–7 (one dish a day of the plan week). */
 const PLAN_PICK_MAX = 7;
 
@@ -279,7 +297,7 @@ export function applyPostChecks(
         // The model can't declare the player's week hard (or not), so it can't suppress or force the slot.
         const hard = call.args.hard_week === true && HARD_WEEK_PATTERN.test(normalizeTurn(own)) ? true : null;
         if (days.length === 0 && pick === null && hard === null) break;
-        out.push({ name: 'propose_plan', args: { days: days.length > 0 ? days : null, pick, hard_week: hard, after: call.args.after } });
+        out.push({ name: 'propose_plan', args: { days: days.length > 0 ? days : null, pick, hard_week: hard, after: call.args.after ?? afterFromWords(pick, own) } });
         break;
       }
       case 'propose_navigation': {

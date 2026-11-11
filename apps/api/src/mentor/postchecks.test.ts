@@ -73,6 +73,17 @@ describe('applyPostChecks', () => {
     expect(post([profile({ market_days: ['Saturday'] })], 'My market day is Saturday.')).toEqual([profile({ market_days: ['saturday'] })]);
   });
 
+  test('ruling: a plan pick with after null takes the one weekday an "after that/market/it" message names; else the ask; never a guess', () => {
+    const plan = (after: string | null, pick: number | null = 3): ToolArgs => ({ name: 'propose_plan', args: { days: null, pick, hard_week: null, after } });
+    expect(post([plan(null)], "pick 3. market's saturday so do them after that")).toEqual([plan('saturday')]);
+    expect(post([plan(null)], 'pick 3 after market, market is on friday')).toEqual([plan('friday')]);
+    expect(post([plan(null)], 'pick 3, busy friday and saturday so after that')).toEqual([plan('that')]);
+    expect(post([plan(null)], 'pick 3 after that')).toEqual([plan('that')]);
+    // No "after …" words: nothing is added; the model's own after stays.
+    expect(post([plan(null)], 'pick 3, market is saturday')).toEqual([plan(null)]);
+    expect(post([plan('sunday')], 'pick 3 after that, market is saturday')).toEqual([plan('sunday')]);
+  });
+
   test('T03: the weekdays the player named set the market days', () => {
     expect(post([profile({ market_days: ['Sunday'] })], 'My market day is Saturday.')).toEqual([profile({ market_days: ['saturday'] })]);
     expect(post([profile({ meals_per_week: 5 })], 'Saturday, five meals')).toEqual([profile({ meals_per_week: 5 })]);

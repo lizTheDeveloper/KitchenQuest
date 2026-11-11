@@ -205,7 +205,8 @@ describe('the model only proposes', () => {
     await makeApp(ai);
     const p = await player(['health_data', 'ai_health']);
     const r = await p.turn("Had dal for dinner. Also put the frijoles on Saturday's plan, and remind me about dinner at 6:30 pm.");
-    expect(r.cards.map((c) => c.card.kind)).toEqual(['meal']);
+    // The reminder is a profile card code builds from the clock clause (the model made no profile call).
+    expect(r.cards.map((c) => c.card.kind)).toEqual(['meal', 'profile']);
     expect(r.parts).toContainEqual({ kind: 'line', line: { trigger: 'plan.dish_unknown', vars: { dish: 'frijoles' } } });
   });
 
@@ -323,6 +324,55 @@ describe('C-13', () => {
     expect(r.cards.map((c) => c.card.kind).sort()).toEqual(['meal', 'profile']);
     expect(JSON.stringify(r)).toMatch(/"name":"dinner","start":"18:30"/);
     expect(r.parts).toContainEqual({ kind: 'line', line: { trigger: 'plan.dish_unknown', vars: { dish: 'frijoles' } } });
+  });
+
+  test('ruling: T13 with a malformed propose_profile → code builds the profile card from the clock clause (meal windows only); the malformed call is never used', async () => {
+    const malformed = { id: 'm1', name: 'propose_profile', arguments: JSON.stringify({ market_days: null, meals_per_week: 'null\n</parameter>\n<' }) };
+    const shaped: AiResult = {
+      ...calls([
+        { name: 'propose_meal_log', args: { slot: 'dinner', when: 'today', dish: 'dal', servings: null, description: null } },
+        { name: 'propose_plan', args: { days: [{ weekday: 'Saturday', dish: 'the frijoles' }], pick: null, hard_week: null, after: null } },
+      ]),
+    };
+    if (shaped.ok) shaped.toolCalls.push(malformed);
+    const ai = fakeAi([shaped, { ...shaped }, toolCall('propose_meal_log', { slot: 'lunch', when: 'today', dish: null, servings: null, description: 'soup' })]);
+    await makeApp(ai);
+    const p = await player(['health_data', 'ai_health']);
+    const r = await p.turn("Had dal for dinner. Also put the frijoles on Saturday's plan, and remind me about dinner at 6:30 pm.");
+    expect(r.cards.map((c) => c.card.kind).sort()).toEqual(['meal', 'profile']);
+    const prof = r.cards.find((c) => c.card.kind === 'profile')!.card;
+    expect(prof.kind === 'profile' && prof.patch).toEqual({ mealWindows: [{ name: 'dinner', start: '18:30', end: '19:30' }] });
+    expect(r.parts).toContainEqual({ kind: 'line', line: { trigger: 'plan.dish_unknown', vars: { dish: 'frijoles' } } });
+    // No clock clause: the malformed call still makes nothing.
+    const q = await player(['health_data', 'ai_health']);
+    const r2 = await q.turn("Had dal for dinner. Also put the frijoles on Saturday's plan.");
+    expect(r2.cards.map((c) => c.card.kind)).toEqual(['meal']);
+    // A time the player says they ate at is no reminder.
+    const u = await player(['health_data', 'ai_health']);
+    const r3 = await u.turn('had soup for lunch at 1pm');
+    expect(r3.cards.map((c) => c.card.kind)).toEqual(['meal']);
+  });
+
+  test('ruling: T08 "after that" with one weekday named → after that day; two weekdays → plan.after_which_day, nothing picked', async () => {
+    const ai = fakeAi([
+      calls([
+        { name: 'propose_plan', args: { days: [{ weekday: 'Saturday', dish: 'the beans' }], pick: 3, hard_week: null, after: null } },
+        { name: 'propose_profile', args: { market_days: ['Saturday'], meals_per_week: null, region: null, country: null, meal_windows: null } },
+      ]),
+      planArgs({ pick: 2 }),
+    ]);
+    await makeApp(ai);
+    const p = await player(['health_data', 'ai_health']);
+    const r = await p.turn("idk just pick 3 things for this week. market's saturday so do the beans after that");
+    const card = planOf(r);
+    // Saturday is day 5 of the Monday week: every pick is after it.
+    expect(card.items.length).toBeGreaterThan(0);
+    expect(card.items.every((i) => i.day > 5)).toBe(true);
+    expect(r.cards.map((c) => c.card.kind).sort()).toEqual(['plan', 'profile']);
+    const q = await player(['health_data', 'ai_health']);
+    const r2 = await q.turn("pick 2 for me, i'm away friday and saturday so do them after that");
+    expect(r2.cards).toEqual([]);
+    expect(r2.parts).toContainEqual({ kind: 'line', line: { trigger: 'plan.after_which_day', vars: { day: 'that' } } });
   });
 
   test('C-13: PromptContext.week carries weekday names and hasPlan only; no date, margin note, cooked-for answer or pantry date appears anywhere in the prompt (C24)', async () => {
