@@ -445,8 +445,11 @@ describe('tools — the model can only propose', () => {
     expect(kiwi.parts).toEqual([lineOf('rule.unknown_term', { term: 'kiwi' })]);
     expect(kiwi.cards).toEqual([]);
     const pea = await turn(p.cookie, "I'm allergic to pea");
-    // Search hits are offered, never picked: "pea" is a prefix of peanut and of "pearl barley".
-    expect(pea.parts).toEqual([lineOf('rule.which_one', { term: 'pea' }), { kind: 'choices', options: [{ id: 'barley', name: 'barley' }, { id: 'peanut', name: 'peanut' }], severity: 'allergy' }]);
+    // Search hits are offered, never picked: "pea" is a prefix of peanut, "peanut oil" (M5 Step 4) and "pearl barley".
+    expect(pea.parts).toEqual([
+      lineOf('rule.which_one', { term: 'pea' }),
+      { kind: 'choices', options: [{ id: 'barley', name: 'barley' }, { id: 'peanut', name: 'peanut' }, { id: 'peanut_oil', name: 'peanut oil' }], severity: 'allergy' },
+    ]);
     expect(pea.cards).toEqual([]);
     expect(await countOf('mentor_proposals', p.userId)).toBe(0);
   });

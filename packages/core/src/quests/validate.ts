@@ -111,7 +111,7 @@ export function validateQuests(
           const recipe = isStr(s.recipe) ? cat.recipes.get(s.recipe) : undefined;
           if (!recipe) p.push(`${at}: cook names unknown recipe "${String(s.recipe)}"`);
           if (s.technique !== undefined) {
-            if (!isStr(s.technique) || !cat.techniques.has(s.technique)) p.push(`${at}: cook technique "${String(s.technique)}" is not a technique`);
+            if (!isStr(s.technique) || !cat.techniques.has(s.technique)) p.push(`${at}: cook technique "${typeof s.technique === 'string' ? s.technique : JSON.stringify(s.technique)}" is not a technique`);
             else if (recipe && !recipe.skills.includes(s.technique))
               p.push(`${at}: cook technique "${s.technique}" is not one of ${String(s.recipe)}'s skills`);
           }

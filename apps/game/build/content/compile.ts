@@ -327,7 +327,7 @@ export function compileContent(files: Record<string, string>): GameContent {
     for (const id of REQUIRED_FORMS) {
       if (!(id in bureau.forms)) fail(BUREAU, `forms.${id} is missing`);
     }
-    if (bureau.forms.market_list && !bureau.forms.market_list.fields.some((f) => f.key === GENERAL_STALL_FIELD))
+    if (Object.hasOwn(bureau.forms, 'market_list') && !bureau.forms.market_list.fields.some((f) => f.key === GENERAL_STALL_FIELD))
       fail(BUREAU, `forms.market_list needs a "${GENERAL_STALL_FIELD}" field: its label names the general stall`);
     // Every stamp kind in data/rewards.yaml has a name to show (C13).
     if (rewards) {
@@ -415,10 +415,11 @@ export function compileContent(files: Record<string, string>): GameContent {
   }
 
   // Each stall's display name (C11): the content/market file's name, and the general stall from Form 12-M.
-  const generalStall = bureau?.forms.market_list?.fields.find((f) => f.key === GENERAL_STALL_FIELD)?.label;
+  const marketList = bureau && Object.hasOwn(bureau.forms, 'market_list') ? bureau.forms.market_list : undefined;
+  const generalStall = marketList?.fields.find((f) => f.key === GENERAL_STALL_FIELD)?.label;
   const stallNames: Partial<Record<StallId, string>> = {};
   for (const id of STALL_IDS) {
-    const name = id === 'general' ? generalStall : stalls[id]?.name;
+    const name = id === 'general' ? generalStall : Object.hasOwn(stalls, id) ? stalls[id].name : undefined;
     if (name !== undefined) stallNames[id] = name;
   }
   const namedAll = STALL_IDS.every((id) => stallNames[id] !== undefined);

@@ -1,7 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { parse as parseYaml } from 'yaml';
 import { describe, expect, it } from 'vitest';
 import { content } from './index';
 import { REQUIRED_DISCLAIMERS, REQUIRED_PAN_TRIGGERS } from './required';
@@ -52,7 +48,6 @@ const ALSO_REQUIRED = [
   'intake.pantry.followup', 'intake.skip', 'intake.complete',
 ];
 
-const repoRoot = fileURLToPath(new URL('../../../..', import.meta.url));
 const C16 = "The Pan and the cooks are AI characters. Don't rely on them for medical advice.";
 const triggers = content.pan.triggers;
 const lines = (id: string): string[] => triggers[id]?.lines ?? [];
@@ -351,12 +346,11 @@ describe('M5 Step 4: the weekly-loop lines', () => {
   });
 
   it('rewrites the lines the rulings contradict (C30): stamps buy nothing, introductions open no country, techniques have tiers', () => {
-    const src = parseYaml(readFileSync(join(repoRoot, 'content/dialogue/pan.yaml'), 'utf8')) as { triggers: Record<string, { when: string; lines: string[] }> };
+    // The `when` texts are writer-only and dropped from the bundle; build/content/compile.test.ts pins them.
     for (const line of lines('stamp_earned')) expect(line).not.toMatch(/\b(spend|spent|buy|hat)\b/i);
-    expect(src.triggers.introduction_received.when).toBe("A cook introduces the player to a friend; the friend's pin changes to 'expecting you'.");
     for (const line of lines('introduction_received')) expect(line).not.toMatch(/new country|new pin|opening/i);
-    expect(src.triggers.skill_up.when).toBe('A technique moves up a tier (Seen → Tried, Tried → Yours).');
     for (const line of lines('skill_up')) expect(line).not.toMatch(/\blevel\b/i);
+    expect(triggers.skill_up.vars).toEqual({ technique: expect.any(String) });
   });
 });
 

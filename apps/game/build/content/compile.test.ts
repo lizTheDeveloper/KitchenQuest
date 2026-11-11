@@ -388,6 +388,13 @@ describe('compileContent: real repo fidelity', () => {
     }
   });
 
+  it("rewrites the `when` of the triggers the rulings contradict (C30, Rulings 3 and 4)", () => {
+    const triggers = (src('content/dialogue/pan.yaml') as { triggers: Record<string, { when: string }> }).triggers;
+    expect(triggers.introduction_received.when).toBe("A cook introduces the player to a friend; the friend's pin changes to 'expecting you'.");
+    expect(triggers.skill_up.when).toBe('A technique moves up a tier (Seen → Tried, Tried → Yours).');
+    expect(triggers.stamp_earned.when).not.toMatch(/spend|hat/i);
+  });
+
   it('drops writer-only keys from the client bundle', () => {
     expect(Object.values(content.pan.triggers).some((t) => 'when' in t || 'notes' in t)).toBe(false);
     for (const stall of Object.values(content.stalls))
