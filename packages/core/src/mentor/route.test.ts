@@ -8,6 +8,7 @@ import {
   askForDroppedTerms,
   leftoverNamedIngredients,
   emergencyRuleAsk,
+  emergencyRuleAsks,
   emergencyStatesRule,
   isHealthText,
   clockForSlot,
@@ -248,6 +249,24 @@ test('emergencyRuleAsk (Step 9 fix round 3)', () => {
   expect(emergencyRuleAsk("I'm vegan, had eggs and my throat is closing", [], graph)).toEqual({ trigger: 'rule.ask_what_else', vars: { term: 'egg' } });
   expect(emergencyRuleAsk("I'm allergic to peanuts and my throat is tight", ['peanuts'], graph)).toBeNull();
   expect(emergencyRuleAsk("I'm vegetarian and I'm having an allergic reaction", [], graph)).toEqual({ trigger: 'rule.ask_keep_off', vars: {} });
+});
+
+test('emergencyRuleAsks names every stated allergen (M4 Step 12 fix round 1, I2)', () => {
+  const asks = (t: string, kept: string[] = []) => emergencyRuleAsks(t, kept, graph);
+  expect(asks('my throat is closing, allergic to peanuts and shellfish')).toEqual([
+    { trigger: 'rule.ask_what_else', vars: { term: 'peanut' } },
+    { trigger: 'rule.ask_what_else', vars: { term: 'shellfish' } },
+  ]);
+  expect(asks("I'm anaphylactic to cashews and sesame").map((l) => l.vars.term)).toEqual(['cashew', 'sesame']);
+  expect(asks('my throat is closing, allergic to peanuts and shellfish', ['peanuts']).map((l) => l.vars.term)).toEqual(['shellfish']);
+  expect(asks("I'm allergic to peanuts and my throat is tight", ['peanuts'])).toEqual([]);
+  expect(asks("I'm vegetarian and I'm having an allergic reaction")).toEqual([{ trigger: 'rule.ask_keep_off', vars: {} }]);
+  expect(asks('my throat is closing, allergic to peanuts but not sesame')).toEqual([
+    { trigger: 'rule.ask_what_else', vars: { term: 'peanut' } },
+    { trigger: 'rule.exclusion_not_kept', vars: { term: 'sesame' } },
+  ]);
+  // The single-line form is the first of them.
+  expect(emergencyRuleAsk('my throat is closing, allergic to peanuts and shellfish', [], graph)).toEqual({ trigger: 'rule.ask_what_else', vars: { term: 'peanut' } });
 });
 
 describe('leftoverNamedIngredients (M4 Step 11 fix round 2: every named allergen gets a card or an ask)', () => {

@@ -1675,3 +1675,13 @@ describe('Step 12 controller ruling (T10): a symptom with the player\'s own alle
     expect(ai.requests).toHaveLength(0);
   });
 });
+
+test('fix round 1 I2: an emergency naming two allergens asks for both, after the emergency line', async () => {
+  const ai = fakeAi([]);
+  await makeApp(ai);
+  const p = await player(AI_HEALTH);
+  const r = await turn(p.cookie, 'my throat is closing, allergic to peanuts and shellfish');
+  expect(r.parts).toEqual([lineOf('rule.emergency'), lineOf('rule.ask_what_else', { term: 'peanut' }), lineOf('rule.ask_what_else', { term: 'shellfish' })]);
+  expect(r.cards).toEqual([]);
+  expect(ai.requests).toHaveLength(0);
+});

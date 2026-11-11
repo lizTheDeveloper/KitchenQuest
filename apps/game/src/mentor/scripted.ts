@@ -1,5 +1,5 @@
 import {
-  askForDroppedTerms, buildMealCard, emergencyRuleAsk, emergencyStatesRule, isHealthText, isSevereCard, buildPantryCard, buildProfileCard, buildRuleCard, classifyTurn, dropMealsMatchingRemovals,
+  askForDroppedTerms, buildMealCard, emergencyRuleAsks, emergencyStatesRule, isHealthText, isSevereCard, buildPantryCard, buildProfileCard, buildRuleCard, classifyTurn, dropMealsMatchingRemovals,
   matchDish, MEAL_SLOTS, MEAL_VERB_PATTERN, normalizeName, normalizeTurn, PANTRY_ADD_PATTERN, PANTRY_REMOVAL_PATTERNS,
   parseClock, parseMealStatement, parsePantryAdds, parsePantryRemovals, parseRuleStatement, parseWeekdays, preRoute,
   shortReplyTarget, slotClause, slotForTime, stripPageEvents,
@@ -79,8 +79,8 @@ export function createScriptedEngine(deps: {
       const kept = severe.flatMap((f) => (f.card?.kind === 'rule' ? [f.card.display.ingredient] : []));
       severe.sort((a, b) => a.at - b.at);
       const items = severe.flatMap((f) => f.items);
-      const ask = emergencyRuleAsk(raw, kept, graph);
-      if (ask !== null) items.push(say(ask));
+      // Fix round 1 (I2): every named allergen gets its ask, as on the server.
+      for (const ask of emergencyRuleAsks(raw, kept, graph)) items.push(say(ask));
       return { items, cards: severe.flatMap((f) => (f.card ? [f.card] : [])) };
     }
 

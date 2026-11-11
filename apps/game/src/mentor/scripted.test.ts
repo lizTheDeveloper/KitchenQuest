@@ -35,6 +35,8 @@ describe('scripted engine', () => {
     ['My market day is Saturday.', { cards: [{ kind: 'profile', patch: { marketDays: [6] } }] }],
     // Shrimp is named: the ask follows the emergency line (fix round 3, E2 on emergency turns).
     ['I just ate shrimp and my lips are tingling and my throat feels tight. What should I take?', { said: ['rule.emergency', 'rule.ask_what_else'], cards: [] }],
+    // M4 Step 12 fix round 1 (I2): every named allergen gets its own ask, not only the first.
+    ['I ate shrimp and peanuts and my throat is closing', { said: ['rule.emergency', 'rule.ask_what_else', 'rule.ask_what_else'], cards: [] }],
   ])('%s', (text, want) => {
     const r = engine().reply(text, ctx());
     if (want.cards) expect(cards(r)).toMatchObject(want.cards);

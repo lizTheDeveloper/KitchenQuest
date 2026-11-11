@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   askForDroppedTerms,
-  emergencyRuleAsk,
+  emergencyRuleAsks,
   emergencyStatesRule,
   buildMealCard,
   buildPantryCard,
@@ -529,7 +529,8 @@ export async function runTurn(deps: TurnDeps, userId: string, req: TurnRequest, 
   if (intent === 'emergency') {
     const parts: ReplyPart[] = [line('rule.emergency')];
     if (!deps.childFlags.has(childKey, now.getTime()) && emergencyStatesRule(raw, deps.catalog.graph)) {
-      parts.push({ kind: 'line', line: emergencyRuleAsk(raw, [], deps.catalog.graph) ?? { trigger: 'rule.ask_keep_off', vars: {} } });
+      // Fix round 1 (I2): every allergen named gets its ask, not just the first.
+      for (const ask of emergencyRuleAsks(raw, [], deps.catalog.graph)) parts.push({ kind: 'line', line: ask });
     }
     return respond(id, 'deterministic', parts);
   }

@@ -471,13 +471,23 @@ export function emergencyStatesRule(playerText: string, graph: IngredientGraph):
 }
 
 /**
- * Fix round 3 (E2 on emergency turns): the ask after the emergency line. The symptom is the severity cue, so
- * any named ingredient no kept (severe) rule card covers is asked for by name; with nothing named or kept, the
- * plain ask. Null when the kept cards cover everything named. Server and engine both use it.
+ * Fix round 3 (E2 on emergency turns), widened in M4 Step 12 fix round 1 (I2): the asks after the emergency
+ * line. The symptom is the severity cue, so EVERY named ingredient no kept (severe) rule card covers is asked
+ * for by name, in order (`leftoverNamedIngredients`), and a name said as fine gets `rule.exclusion_not_kept`.
+ * With nothing named or kept, the plain ask. Empty when the kept cards cover everything named. Server and
+ * engine both use it.
  */
+export function emergencyRuleAsks(playerText: string, keptRuleTerms: readonly string[], graph: IngredientGraph): LineRef[] {
+  const covered = keptRuleTerms.flatMap((t) => graph.resolve(t) ?? []);
+  const { left, excluded } = leftoverNamedIngredients(playerText, covered, graph);
+  const asks = [
+    ...left.map((term) => line('rule.ask_what_else', { term })),
+    ...excluded.map((term) => line('rule.exclusion_not_kept', { term })),
+  ];
+  return left.length === 0 && keptRuleTerms.length === 0 ? [...asks, line('rule.ask_keep_off')] : asks;
+}
+
+/** The first of `emergencyRuleAsks`, or null (kept for callers that show one line). */
 export function emergencyRuleAsk(playerText: string, keptRuleTerms: readonly string[], graph: IngredientGraph): LineRef | null {
-  const covered = new Set(keptRuleTerms.map((t) => graph.resolve(t)).filter((id) => id !== null));
-  const missed = namedIngredients(ownWords(playerText), graph).find((id) => !covered.has(id));
-  if (missed !== undefined) return line('rule.ask_what_else', { term: graph.get(missed).name });
-  return keptRuleTerms.length > 0 ? null : line('rule.ask_keep_off');
+  return emergencyRuleAsks(playerText, keptRuleTerms, graph)[0] ?? null;
 }
