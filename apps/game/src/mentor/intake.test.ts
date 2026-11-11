@@ -400,3 +400,13 @@ describe('createIntake', () => {
   });
 });
 
+
+describe('M5 Step 4 fix round 1 (C1): herbs is never a rule', () => {
+  test.each(['herbs', 'allergic to herbs', 'fresh herbs and peanuts'])('"%s" files no herb rule: one which-kind ask, never a second', (text) => {
+    const r = parseIntakeAnswer('allergies', text, deps);
+    const results = r.kind === 'rules' ? r.results : r.kind === 'reply' ? [r.reply] : r.kind === 'card' ? [{ ok: true as const, card: r.card }] : [];
+    for (const x of results) if (x.ok && x.card.kind === 'rule') expect(x.card.rule.target.ids).not.toContain('herb');
+    const asks = results.filter((x) => !x.ok && x.line.trigger === 'rule.which_kind');
+    expect(asks).toHaveLength(1);
+  });
+});

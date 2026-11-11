@@ -367,6 +367,17 @@ export function leftoverNamedIngredients(
 }
 
 /**
+ * The broad categories ("herbs", C1 ruling) a which-kind ask has offered kinds of: every `broad` isA ancestor of the
+ * offered ids. A turn that asked "which herb?" has answered the player's "herbs", so `leftoverNamedIngredients`
+ * mustn't ask about it again. Sorted, each once.
+ */
+export function broadKindsAsked(offeredIds: readonly string[], graph: IngredientGraph): string[] {
+  const out = new Set<string>();
+  for (const id of offeredIds) if (graph.has(id)) for (const a of graph.ancestors(id)) if (graph.get(a).broad === true) out.add(a);
+  return [...out].sort();
+}
+
+/**
  * The major allergens (the EU's 14 and the US's 9) as ledger nodes: an ingredient that is one, a kind of one, or
  * contains one is a major allergen (M4 final, C1 over-ask).
  */

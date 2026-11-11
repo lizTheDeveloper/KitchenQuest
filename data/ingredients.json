@@ -28,7 +28,10 @@
       "name": "peanut oil",
       "aliases": [
         "groundnut oil",
-        "arachis oil"
+        "arachis oil",
+        "refined peanut oil",
+        "roasted peanut oil",
+        "cold-pressed peanut oil"
       ],
       "contains": [
         "peanut"
@@ -43,7 +46,8 @@
         "sodium_mg": 0
       },
       "densityGPerMl": 0.92,
-      "source": "Oil pressed from peanuts (groundnut, arachis), listed so a peanut rule covers it: refined or not, the graph treats it as containing peanut, since a label can't be verified from here. Values as for any vegetable oil (884 kcal and 100 g fat per 100 g); the FDC record to cite is for content review."
+      "source": "FDC 171410 (Oil, peanut, salad or cooking). Oil pressed from peanuts (groundnut, arachis), listed so a peanut rule covers it: refined, roasted or cold-pressed, the graph treats it as containing peanut, since a label can't be verified from here.",
+      "fdcId": 171410
     },
     {
       "id": "coconut",
@@ -375,6 +379,9 @@
         "curry leaves",
         "kariveppila"
       ],
+      "isA": [
+        "herb"
+      ],
       "per100g": {
         "energy_kcal": 108,
         "protein_g": 6.1,
@@ -519,6 +526,9 @@
       "name": "epazote",
       "aliases": [
         "epazote sprig"
+      ],
+      "isA": [
+        "herb"
       ],
       "per100g": {
         "energy_kcal": 32,
@@ -1791,7 +1801,9 @@
         "herb",
         "fresh herb"
       ],
-      "source": "A category for fresh leafy herbs (coriander, parsley, mint, basil and the like), listed for Pantry Frames and keep times. No FDC record for the category, so no nutrition values. It carries no isA, contains or unsafeFor edge: no herb in the graph is filed under it yet."
+      "labelDependent": true,
+      "broad": true,
+      "source": "A category for fresh leafy herbs (coriander, parsley, mint, basil, curry leaves, epazote and the like), listed for Pantry Frames and keep times. No FDC record for the category, so no nutrition values. Label-dependent: a line that says only \"herbs\" could be any herb (celery leaf, chives, lovage), so it is never verified under a restricting rule. Broad: too broad to be a rule target; a rule naming it gets an ask for which herb."
     },
     {
       "id": "spinach",
@@ -1845,13 +1857,11 @@
         "energy_kcal": 130,
         "protein_g": 2.36,
         "fat_g": 0.19,
-        "carb_g": 28.73,
-        "fiber_g": 0,
-        "sugars_g": 0,
+        "carb_g": 28.7,
         "sodium_mg": 0
       },
       "fdcId": 168932,
-      "source": "FDC 168932 (Rice, white, short-grain, enriched, cooked). It contains rice (the graph's rice node), so a rule on rice covers leftover rice too; it carries no other edge."
+      "source": "FDC 168932 (Rice, white, short-grain, cooked, unenriched); it declares no fibre or sugars, so none is given. It contains rice (the graph's rice node), so a rule on rice covers leftover rice too; it carries no other edge."
     }
   ]
 }

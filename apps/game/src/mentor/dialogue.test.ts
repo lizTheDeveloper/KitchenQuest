@@ -83,6 +83,7 @@ describe('dialogue engine', () => {
       summary: 'toast, breakfast', items: 'rice', day: 'Saturday', count: '5', region: 'Kerala, India', term: 'kiwi', rule: 'tree nut', meal: 'lunch',
       // M5 Step 4: the weekly loop's lines; code always supplies these.
       item: 'spinach', known: 'Heat control', frame: 'Green sauce', slot: 'rice', finding: 'peanut butter contains peanut',
+      examples: 'curry leaf or epazote',
     };
     for (const id of REQUIRED_PAN_TRIGGERS) expect(createDialogue(content.pan).say(id, sample).text, id).not.toMatch(/[{}]/);
   });

@@ -133,8 +133,12 @@ describe('buildRuleCard', () => {
   });
 
   test('every built rule passes validateRules', () => {
+    // A broad category ("herbs", C1 ruling) is never a rule target: its labels get the which-kind ask instead.
+    const broad = data.ingredients.filter((n) => n.broad === true);
+    expect(broad.map((n) => n.id)).toEqual(['herb']);
+    for (const label of broad.flatMap((n) => [n.name, ...(n.aliases ?? [])])) expect(buildRuleCard({ term: label, severity: null }, graph, terms)).toMatchObject({ ok: false, line: { trigger: 'rule.which_kind' } });
     const labels = [
-      ...data.ingredients.flatMap((n) => [n.name, ...(n.aliases ?? [])]),
+      ...data.ingredients.filter((n) => n.broad !== true).flatMap((n) => [n.name, ...(n.aliases ?? [])]),
       ...terms.flatMap((t) => t.phrases),
     ];
     let built = 0;

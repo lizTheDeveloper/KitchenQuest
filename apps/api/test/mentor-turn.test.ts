@@ -454,6 +454,20 @@ describe('tools — the model can only propose', () => {
     expect(await countOf('mentor_proposals', p.userId)).toBe(0);
   });
 
+  test('"allergic to herbs" files no rule: the Pan asks which herb, with the kinds it knows (M5 Step 4 fix round 1, C1)', async () => {
+    const ai = fakeAi([toolCall('propose_rule', { term: 'herbs', severity: 'anaphylactic' })]);
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    const r = await turn(p.cookie, "I'm allergic to herbs");
+    expect(r.parts).toEqual([
+      lineOf('rule.which_kind', { term: 'herbs', examples: 'curry leaf, curry leaf sprig or epazote' }),
+      { kind: 'choices', options: [{ id: 'curry_leaf', name: 'curry leaf' }, { id: 'curry_leaf_sprig', name: 'curry leaf sprig' }, { id: 'epazote', name: 'epazote' }], severity: 'allergy' },
+    ]);
+    expect(r.cards).toEqual([]);
+    expect(await countOf('mentor_proposals', p.userId)).toBe(0);
+    expect(await countOf('rules', p.userId)).toBe(0);
+  });
+
   test('a severe statement with an ingredient no card covers gets a scripted ask (Step 1 carry)', async () => {
     const ai = fakeAi([toolCall('propose_rule', { term: 'vegetarian', severity: null })]);
     await makeApp(ai);

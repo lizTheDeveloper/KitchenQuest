@@ -184,6 +184,13 @@ export function buildRuleCard(
     return { ok: true, card: cardFor(target, input.severity, graph) };
   }
   const id = graph.resolve(term);
+  if (id !== null && graph.get(id).broad === true) {
+    // "allergic to herbs": too broad to file (C1 ruling). Ask which one, offering the kinds the graph knows; never a card.
+    const kinds = graph.descendants(id).map((k) => ({ id: k, name: graph.get(k).name })).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    const names = kinds.map((k) => k.name);
+    const examples = names.length > 1 ? `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}` : (names[0] ?? graph.get(id).name);
+    return { ok: false, reason: 'ambiguous', options: kinds, line: { trigger: 'rule.which_kind', vars: { term, examples } } };
+  }
   if (id !== null) {
     const target = { ids: [id], name: graph.get(id).name, form: null, termSeverity: null };
     return { ok: true, card: cardFor(target, input.severity, graph) };

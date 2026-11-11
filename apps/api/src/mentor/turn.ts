@@ -11,6 +11,7 @@ import {
   classifyTurn,
   isSevereCard,
   isSuitabilityQuestion,
+  broadKindsAsked,
   leftoverNamedIngredients,
   matchDish,
   MENTOR_TURN_DEADLINE_MS,
@@ -314,7 +315,10 @@ function coveredIds(reply: Reply, graph: IngredientGraph): string[] {
     if (c.kind === 'meal') ids.push(...nonAllergenNamedIds(c.meal.item.kind === 'free' ? c.meal.item.description : c.summary, graph));
     if (c.kind === 'pantry') ids.push(...nonAllergenNamedIds([...c.add.map((a) => a.name), ...c.remove].join(', '), graph));
   }
-  for (const p of reply.parts) if (p.kind === 'choices') ids.push(...p.options.map((o) => o.id));
+  const offered = reply.parts.flatMap((p) => (p.kind === 'choices' ? p.options.map((o) => o.id) : []));
+  ids.push(...offered);
+  // A which-kind ask ("herbs", C1) accounts for its broad category too: the ask is its answer, never a second ask.
+  ids.push(...broadKindsAsked(offered, graph));
   return ids;
 }
 
@@ -352,6 +356,7 @@ function askForLeftoverNames(reply: Reply, raw: string, intakeStep: TurnRequest[
 const RULE_OUTCOME_LINES = new Set([
   'rule.unknown_term',
   'rule.which_one',
+  'rule.which_kind',
   'consent.health_first',
   'rule.ask_what_else',
   'rule.ask_keep_off',

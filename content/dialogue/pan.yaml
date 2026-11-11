@@ -603,6 +603,19 @@ triggers:
       - "The word {term} could mean more than one ingredient. Tap the one you mean, and I'll read it back before anything's filed."
       - "More than one ingredient matches {term}. Please tap the right one, so I file exactly that."
 
+  rule.which_kind:
+    ai: never
+    when: The player named a category too broad to be one rule ("allergic to herbs", fix round 1 C1). Nothing is filed; the kinds the graph knows are offered as buttons, and the player can name another.
+    vars:
+      term: "the player's word, e.g. 'herbs'"
+      examples: "the kinds the graph knows, built by code, e.g. 'curry leaf or epazote'"
+    notes: "Plain. No jokes. Never files a category rule."
+    lines:
+      - "{term} covers too many things for one rule, so I haven't filed anything. Which one do you need to avoid? Tap one, such as {examples}, or tell me its name."
+      - "I can't check dishes for {term} as one group; it's too broad to be sure of. Which one is it? For example {examples}, or name it and I'll read it back. Nothing's been saved."
+      - "Which {term} do you mean? Tap one, such as {examples}, or tell me its name plainly. Nothing's been saved yet."
+      - "{term} could mean a great many things, so nothing's been filed. Tell me the one to avoid, such as {examples}, and I'll read it back."
+
   rule.tap_needed:
     ai: never
     when: The player typed "yes" while a severe (anaphylactic or allergy) card is open. A typed yes never confirms a severe card.

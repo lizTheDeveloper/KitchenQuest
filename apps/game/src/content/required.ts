@@ -65,6 +65,8 @@ export const REQUIRED_PAN_TRIGGERS: readonly string[] = [
   // M4: the mentor (server agent and scripted engine) emits these by id.
   'rule.unknown_term',
   'rule.which_one',
+  // M5 Step 4 fix round 1 (C1): a category too broad to be one rule ("herbs"); core buildRuleCard asks which kind.
+  'rule.which_kind',
   'rule.tap_needed',
   'rule.ask_what_else',
   'mentor.check_card',
