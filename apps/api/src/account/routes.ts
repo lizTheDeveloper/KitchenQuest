@@ -28,6 +28,7 @@ import { loadProposalsForExport } from '../mentor/proposals.js';
 import { loadPantryForExport } from '../pantry/store.js';
 import { knownMealWindows } from '../profile/store.js';
 import { loadRules } from '../rules/store.js';
+import { AI_PROCESSOR_IDS } from '../ai/processors.js';
 
 /** The exact words the player types to delete their account. */
 const DELETE_PHRASE = 'delete my account';
@@ -38,6 +39,7 @@ const ProcessorRegister = z.object({
   processors: z
     .array(
       z.object({
+        id: z.string().min(1),
         name: z.string().min(1),
         purpose: z.string().min(1),
         country: z.string().min(1),
@@ -68,19 +70,21 @@ interface Processor {
 /**
  * The processor list the export carries (C-7), from the checked-in register.
  * Processors that receive no user data at all (build-time tools) are not
- * recipients and are left out.
+ * recipients and are left out. The AI processors are in use only when this
+ * server runs with the AI on (`aiOn`): the register says "built", but
+ * production keeps the AI off until their DPAs are signed (P-11).
  */
-function loadProcessors(): Processor[] {
+function loadProcessors(aiOn: boolean): Processor[] {
   const doc = ProcessorRegister.parse(JSON.parse(readFileSync(PROCESSORS_FILE, 'utf8')));
   return doc.processors
     .filter((p) => !p.data_categories.every((c) => /^none\b/i.test(c)))
-    .map(({ name, purpose, country, contact, status }) => ({
+    .map(({ id, name, purpose, country, contact, status }) => ({
       name,
       purpose,
       country,
       contact,
       status,
-      inUse: !/^planned\b/i.test(status),
+      inUse: !/^planned\b/i.test(status) && (aiOn || !(AI_PROCESSOR_IDS as readonly string[]).includes(id)),
       detailsConfirmed: !/\[verify|\bTBD\b/i.test(`${name} ${country} ${contact}`),
     }));
 }
@@ -279,7 +283,7 @@ async function buildExport(tx: Tx, config: Config, userId: string, now: Date, pr
 export async function accountRoutes(app: FastifyInstance): Promise<void> {
   const { db, config, now } = app.deps;
   // Read once at boot, so a missing or malformed register stops the server.
-  const processors = loadProcessors();
+  const processors = loadProcessors(config.ai !== null);
   // Per app instance; an export is heavy (every table, every rule decrypted).
   const exportLimiter = new SlidingWindowLimiter(5, HOUR);
   const stopSweeping = sweepPeriodically([exportLimiter], () => now().getTime());

@@ -20,7 +20,8 @@ import { MemoryHistory } from '../src/mentor/memory.js';
 import { createProposal, markDecided } from '../src/mentor/proposals.js';
 import type { Db } from '../src/types.js';
 import { signIn } from './helpers/auth.js';
-import { testConfig } from './helpers/config.js';
+import { testAiEnv, testConfig } from './helpers/config.js';
+import { loadConfig } from '../src/config.js';
 import { testDb, type Sql } from './helpers/db.js';
 import { captureLogs } from './helpers/logs.js';
 
@@ -285,13 +286,14 @@ describe('GET /me/export', () => {
     const receiving = register.processors.filter((r) => !r.data_categories.every((c) => /^none\b/i.test(c)));
     expect(receiving.map((r) => r.id)).not.toContain('pixellab');
     expect(x.processors).toEqual(
-      receiving.map(({ name, purpose, country, contact, status }) => ({
+      receiving.map(({ id, name, purpose, country, contact, status }) => ({
         name,
         purpose,
         country,
         contact,
         status,
-        inUse: !/^planned\b/i.test(status),
+        // The AI processors are built (M4) but in use only where the AI is on; this app runs with it off.
+        inUse: !/^planned\b/i.test(status) && !id.startsWith('openrouter'),
         detailsConfirmed: !/\[verify|\bTBD\b/i.test(`${name} ${country} ${contact}`),
       })),
     );
@@ -301,6 +303,19 @@ describe('GET /me/export', () => {
 
     // Secrets and ciphertext stay out: no token hashes, wrapped key or sealed blobs.
     expect(res.body).not.toMatch(/tokenHash|token_hash|wrapped|sealed/);
+  });
+
+  it('lists the AI processors as in use only on a server with the AI on (M4: built, but off in production until the DPA)', async () => {
+    const aiApp = await buildApp({ config: loadConfig(testAiEnv), db, mailer, ai: null, now: () => NOW, logger: false });
+    try {
+      const cookie = await signIn(aiApp, mailer, 'export-ai-on@example.com');
+      const res = await aiApp.inject({ method: 'GET', url: '/me/export', cookies: { kq_session: cookie } });
+      expect(res.statusCode).toBe(200);
+      const listed = res.json<{ processors: { name: string; inUse: boolean }[] }>().processors;
+      expect(listed.find((p) => p.name === 'OpenRouter')).toMatchObject({ inUse: true });
+    } finally {
+      await aiApp.close();
+    }
   });
 
   it('stamps every created/updated time from the injected clock, not the database or wall clock (M-3)', async () => {
