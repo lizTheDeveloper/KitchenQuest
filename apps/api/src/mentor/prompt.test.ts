@@ -69,7 +69,7 @@ describe('loadPanPrompt', () => {
           },
         ],
       },
-      { role: 'user', content: 'breakfast was toast, like two slices? and a coffee' },
+      { role: 'user', content: 'breakfast was toast, like two slices? might get pizza later' },
       {
         role: 'assistant',
         content: null,
@@ -118,7 +118,7 @@ describe('promptFingerprint', () => {
   test('changes when the prompt, tools, model or provider order change', () => {
     const base = promptFingerprint(prompt, MENTOR_TOOLS, 'qwen/qwen3.8-27b', ['tenstorrent', 'modelrun']);
     expect(base).toMatch(/^[0-9a-f]{64}$/);
-    expect(MENTOR_PROMPT_VERSION).toBe('pan-4');
+    expect(MENTOR_PROMPT_VERSION).toBe('pan-5');
     expect(promptFingerprint(prompt, MENTOR_TOOLS, 'qwen/qwen3.8-27b', ['tenstorrent', 'modelrun'])).toBe(base);
     expect(promptFingerprint({ ...prompt, system: `${prompt.system} ` }, MENTOR_TOOLS, 'qwen/qwen3.8-27b', ['tenstorrent', 'modelrun'])).not.toBe(base);
     expect(promptFingerprint({ ...prompt, examples: prompt.examples.slice(2) }, MENTOR_TOOLS, 'qwen/qwen3.8-27b', ['tenstorrent', 'modelrun'])).not.toBe(base);
