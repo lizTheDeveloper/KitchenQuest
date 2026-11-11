@@ -22,8 +22,9 @@ import type { Db } from '../types.js';
  * Account delete takes its sign-in-email lock, then the user row, before anything else, so it still serializes
  * ahead. Consent withdraw-with-delete takes the user row, then `progress:` (its `meal_logs` delete cascades to
  * `meal_logged` progress events), then the consent row, then deletes rules, meals (and their progress events),
- * messages and proposals, which fits the order. A meal-log delete takes the user row, then `progress:`, then the
- * meal log (cascading to its progress event). A progress post takes the user row, then `progress:`, then (for a
+ * messages and proposals, which fits the order. A meal-log delete (`DELETE /meals/:id`, and the mentor's meal-card
+ * confirm and undo in `mentor/writes.ts`) takes the user row, then `progress:`, then (a confirm only) the consent row,
+ * then the meal log (a delete cascading to its progress event), then the proposal row. A progress post takes the user row, then `progress:`, then (for a
  * meal-log event) the `health_data` grant, then reads `meal_logs` and writes `progress_events` → `reward_grants`.
  * Each service accepts locks its caller already holds (advisory and row locks are re-entrant within one transaction).
  *

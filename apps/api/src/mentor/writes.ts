@@ -37,10 +37,11 @@ import { lockProposal, markDecided, peekProposal } from './proposals.js';
  * Every write runs through the service its REST route uses. Undo is §7.0's
  * "second short window" (UNDO_WINDOW_MS).
  *
- * Lock order (README, pre-flight C13): live user → the kind's advisory lock
- * (`rules:` or `pantry:`) → `health_data` consent (rule and meal cards; never
+ * Lock order (README, pre-flight C13, M5): live user → the kind's advisory lock
+ * (`rules:` for a rule card, `pantry:` for a pantry card, `progress:` for a meal card, confirm and undo: a meal
+ * log's delete cascades to its `meal_logged` progress event) → `health_data` consent (rule and meal cards; never
  * for an undo) → for an undo of a rule or meal, the written row (`rules` /
- * `meal_logs`, fix round 1 C1) → the proposal row (`lockProposal`). No conversation row is
+ * `meal_logs`, fix round 1 C1; a meal log's progress event goes with it) → the proposal row (`lockProposal`). No conversation row is
  * ever taken (Step 6 carry), and the services re-take only locks already held.
  */
 
