@@ -59,7 +59,7 @@ OPENROUTER_API_KEY=… AI_PROVIDERS=tenstorrent npm run eval:mentor -w @kitchenq
 # behind an HTTPS proxy, add NODE_USE_ENV_PROXY=1 so Node's fetch uses it
 ```
 
-`apps/api/test/eval-gate.test.ts` (in `npm test`, no network) fails when the prompt, tools, model or `AI_PROVIDERS` in `.env.example` change without a new passing `last-pass.json`. `MENTOR_EVAL_GATE=skip-no-network` skips it, for a CI job with no recorded eval; the default CI job never sets it. Never write `last-pass.json` by hand.
+`apps/api/test/eval-gate.test.ts` (in `npm test`, no network) fails when the prompt, tools, model, request parameters (temperature, `max_tokens`, reasoning, `tool_choice`) or `AI_PROVIDERS` in `.env.example` change without a new passing `last-pass.json`. `MENTOR_EVAL_GATE=skip-no-network` skips it, for a CI job with no recorded eval; the default CI job never sets it. Never write `last-pass.json` by hand.
 
 ## Deploying the API
 

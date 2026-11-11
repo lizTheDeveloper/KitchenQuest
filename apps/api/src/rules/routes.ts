@@ -38,9 +38,9 @@ function parseWrite(req: FastifyRequest): StoredRule {
 
 /** `If-Match: "<version>"` (N4): the rule version the write expects, or undefined when absent; anything else is a 400. */
 function ifMatchVersion(req: FastifyRequest): number | undefined {
-  const raw = req.headers['if-match'];
+  const raw: unknown = req.headers['if-match'];
   if (raw === undefined) return undefined;
-  const m = /^"?([1-9]\d{0,9})"?$/.exec(Array.isArray(raw) ? (raw[0] ?? '') : raw.trim());
+  const m = typeof raw === 'string' ? /^"?([1-9]\d{0,9})"?$/.exec(raw.trim()) : null;
   if (!m) throw new ApiError(400, 'bad_request', 'If-Match must be a rule version, e.g. "3"');
   return Number(m[1]);
 }

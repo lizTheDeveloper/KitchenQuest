@@ -5,7 +5,7 @@ import { loadPanPrompt, promptFingerprint } from './prompt.js';
 import { MENTOR_TOOLS } from './tools.js';
 
 /** The recorded passing eval (`npm run eval:mentor` writes it; spec §7.6b.9). */
-export const LAST_PASS = new URL('../../eval/last-pass.json', import.meta.url);
+const LAST_PASS = new URL('../../eval/last-pass.json', import.meta.url);
 
 /**
  * M4 final I-3: the eval gate at production boot. The CI gate proves only that the repo's defaults were evaluated;

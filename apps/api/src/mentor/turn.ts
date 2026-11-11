@@ -115,7 +115,8 @@ async function openTurn(deps: TurnDeps, userId: string, req: TurnRequest, now: D
         .select({ id: conversations.id })
         .from(conversations)
         .where(and(eq(conversations.userId, userId), eq(conversations.lastTurnKey, req.turnKey)));
-      if (seen[0] !== undefined) return { conversationId: seen[0].id, repeat: true };
+      const hit = seen.at(0);
+      if (hit !== undefined) return { conversationId: hit.id, repeat: true };
     }
     const conv = await openConversation(tx, userId, req.conversationId, now);
     const turnSeq = await bumpTurn(tx, conv.id, now, req.turnKey);

@@ -306,7 +306,7 @@ export function createIntake(deps: {
       // The server's tools make the card (Step 7): the turn carries `intakeStep` (the AI backend reads the store).
       const r = await ai.reply({ kind: 'text', text }, ctx);
       // A child spoke earlier in this conversation (C-1): the grown-up line, as the backend answered it; the step waits.
-      const head = r.items[0];
+      const head = r.items.at(0);
       if (head?.kind === 'said' && head.said.trigger === 'child.grownup') return r;
       if (r.cards.length > 0 || r.intents.length > 0 || r.actions.length > 0) return r;
       // No card: the AI failed, is capped or read nothing. Keep only what it said about itself, then ask again.
