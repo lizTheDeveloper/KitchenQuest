@@ -493,6 +493,51 @@ describe('raiseRule (the rules screen raising an account rule)', () => {
     expect(same.box.puts).toEqual([]);
   });
 
+  test('N5: a rule gone from the server gets a truthful line, not "same level or stricter"', async () => {
+    const { writer, box } = account(at('intolerance'));
+    box.rule = { ...at('intolerance'), id: 'other' };
+    const out = await writer.raiseRule(local(raisedCard()), at('intolerance'));
+    expect(out).toMatchObject({ ok: false, reason: 'closed' });
+    expect(said(out.items)).toEqual(['rule.raise_gone']);
+    expect(box.puts).toEqual([]);
+  });
+
+  test('N6: a raise is refused when the rule under that id is now a different rule (target or type)', async () => {
+    const other = ruleCard('sesame', 'intolerance');
+    if (other.kind !== 'rule') throw new Error();
+    const diffTarget = { ...at('intolerance'), target: other.rule.target };
+    const a = account(diffTarget, at('intolerance'));
+    expect(said((await a.writer.raiseRule(local(raisedCard()), at('intolerance'))).items)).toEqual(['rule.raise_gone']);
+    expect(a.box.puts).toEqual([]);
+    const diffType: Rule = { ...at('intolerance'), type: 'limit' };
+    const b = account(diffType, at('intolerance'));
+    expect((await b.writer.raiseRule(local(raisedCard()), at('intolerance'))).ok).toBe(false);
+    expect(b.box.puts).toEqual([]);
+  });
+
+  test('N6: undo does nothing when the rule under that id changed target since the raise', async () => {
+    const other = ruleCard('sesame', 'allergy');
+    if (other.kind !== 'rule') throw new Error();
+    const { writer, box } = account(at('intolerance'));
+    const out = await writer.raiseRule(local(raisedCard()), at('intolerance'));
+    if (!out.ok) throw new Error('raise failed');
+    box.rule = { ...box.rule, target: other.rule.target }; // same id and severity, different target
+    const undone = await writer.undo(out.trail);
+    expect(undone.status).toBe('nothing');
+    expect(said(undone.items)).toEqual(['undo.rule_changed']);
+    expect(box.puts).toHaveLength(1);
+  });
+
+  test('N7: a raise keeps the account rule\'s note, and undo restores the whole earlier rule', async () => {
+    const noted: Rule = { ...at('intolerance'), note: 'since 2019' };
+    const { writer, box } = account(noted);
+    const out = await writer.raiseRule(local(raisedCard()), noted);
+    if (!out.ok) throw new Error('raise failed');
+    expect(box.rule).toMatchObject({ severity: 'allergy', note: 'since 2019' });
+    await writer.undo(out.trail);
+    expect(box.rule).toEqual(noted);
+  });
+
   test('I1 scenario A: the screen\'s rule is stale, so `before` comes from the server and undo restores what was really there', async () => {
     // Server holds allergy (raised on the phone); this tab still thinks intolerance, and raises to anaphylactic.
     const strongest = ruleCard('coconut', null);

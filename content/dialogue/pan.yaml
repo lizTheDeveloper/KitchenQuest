@@ -1507,3 +1507,9 @@ triggers:
       summary: "the trail summary, e.g. 'coconut, an allergy'"
     lines:
       - "✔ Stamped: {summary}"
+
+  rule.raise_gone:
+    ai: never
+    when: The player taps a raise, but the rule is no longer on the account the way it was (removed or replaced elsewhere). Nothing is written.
+    lines:
+      - "That rule isn't on your account the way it was any more, so nothing was changed. Check Your rules."

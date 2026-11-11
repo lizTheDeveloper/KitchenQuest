@@ -326,14 +326,22 @@ export function createCardWriter(deps: {
         const list = await client.listRules();
         if (!list.ok) return refused(list, card);
         const current = list.data.rules.find((x) => x.id === accountRule.id);
-        if (current === undefined || !sameTarget(current, card.rule) || SEVERITY_RANK[card.rule.severity] <= SEVERITY_RANK[current.severity]) {
-          // Not stricter than what the account has: a raise never lowers or sidesteps a rule. Nothing is written.
+        // Gone, or no longer the same rule (another type or target under that id): nothing is written.
+        if (current === undefined || !sameTarget(current, card.rule)) {
+          closed.add(key);
+          await refreshAccount(client, store);
+          return { ok: false, reason: 'closed', items: [line('rule.raise_gone')] };
+        }
+        // Not stricter than what the account has: a raise never lowers or sidesteps a rule. Nothing is written.
+        if (SEVERITY_RANK[card.rule.severity] <= SEVERITY_RANK[current.severity]) {
           closed.add(key);
           await refreshAccount(client, store);
           return { ok: false, reason: 'closed', items: [line('rule.raise_not_stricter')] };
         }
         const { id: _id, ...before } = current;
-        const r = await client.updateRule(current.id, card.rule, true);
+        // The account rule's note is kept: a raise changes the severity, nothing the player wrote beside it.
+        const raised: Omit<Rule, 'id'> = current.note === undefined ? card.rule : { ...card.rule, note: current.note };
+        const r = await client.updateRule(current.id, raised, true);
         if (!r.ok) return refused(r, card);
         const saved = r.data.rule;
         editAccountRules(email, (rules) => rules.map((x) => (x.id === saved.id ? saved : x)));

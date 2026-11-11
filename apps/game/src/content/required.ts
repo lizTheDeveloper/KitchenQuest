@@ -61,6 +61,7 @@ export const REQUIRED_PAN_TRIGGERS: readonly string[] = [
   'undo.nothing',
   'undo.rule_changed',
   'rule.raise_not_stricter',
+  'rule.raise_gone',
   'didnt_understand',
   'rate_limited',
   // Form 1-A intake, every step by id (no globs).
