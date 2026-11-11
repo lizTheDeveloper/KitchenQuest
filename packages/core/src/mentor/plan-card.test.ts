@@ -9,7 +9,7 @@ import { confirmedLines, trailSummary } from './outcomes';
 import { buildPlanCard } from './plan-card';
 import type { RuleTerm } from './rule-terms';
 import ruleTermsData from '../../../../data/rule-terms.json';
-import { HARD_WEEK_PATTERN, navIntent, planClauseHasHealth, planIntent, planWordsIn, reminderSlots } from './route';
+import { HARD_WEEK_PATTERN, marketDayStated, navIntent, planClauseHasHealth, planIntent, planWordsIn, reminderSlots } from './route';
 import { buildPlanCard as build, planBasis, rebasePlanCard } from './plan-card';
 
 const PARIPPU = 'india/kerala/parippu';
@@ -212,6 +212,17 @@ describe('planIntent / navIntent', () => {
     expect(rebased.items).toEqual([{ day: 0, kind: 'dish', slug: ONIGIRI, servings: 6 }, { day: 3, kind: 'dish', slug: PARIPPU, servings: 3 }]);
     expect(rebased.basis).toBe(planBasis({ items: now, hard: false, slot: 'unanswered' }));
     expect(rebased.readback[0].trigger).toBe('plan.readback');
+  });
+
+  test('market-day ruling: the player\'s own market day, one weekday, no other person, no health word', () => {
+    const terms = ruleTermsData as RuleTerm[];
+    const m = (t: string) => marketDayStated(t, graph, terms);
+    expect(m('My market day is Saturday.')).toBe(6);
+    expect(m("idk just pick 3 things for this week. market's saturday so do the beans after that")).toBe(6);
+    expect(m('market is on Friday')).toBe(5);
+    for (const t of ["my mum's market is saturday", 'the market saturday made me sick', 'market is saturday or sunday', 'I went to the market on saturday', "market's saturday, peanuts make me sick"]) {
+      expect(m(t), t).toBeNull();
+    }
   });
 
   test('HARD_WEEK_PATTERN is the one hard-week list', () => {

@@ -538,4 +538,24 @@ describe('fix round 1', () => {
     expect(triggers(late)).not.toContain('plan.saved');
     expect(await currentPlan(q.cookie)).toBeNull();
   });
+
+  test('market-day ruling: T03 and T08 shapes with the model omitting the call still get the market-day card; another person or a symptom gets none', async () => {
+    const ai = fakeAi([
+      noCalls(),
+      calls([{ name: 'propose_plan', args: { days: [{ weekday: 'Saturday', dish: 'the beans' }], pick: 3, hard_week: null, after: null } }]),
+      noCalls(),
+      noCalls(),
+    ]);
+    await makeApp(ai);
+    const t03 = await (await aiPlayer()).turn('My market day is Saturday.');
+    expect(t03.cards.map((c) => c.card.kind)).toEqual(['profile']);
+    expect(JSON.stringify(t03)).toMatch(/"marketDays":\[6\]/);
+    const t08 = await (await aiPlayer()).turn("idk just pick 3 things for this week. market's saturday so do the beans after that");
+    expect(t08.cards.map((c) => c.card.kind).sort()).toEqual(['plan', 'profile']);
+    expect(JSON.stringify(t08)).toMatch(/"marketDays":\[6\]/);
+    for (const text of ["my mum's market is saturday", 'the market saturday made me sick']) {
+      const r = await (await aiPlayer()).turn(text);
+      expect(r.cards, text).toEqual([]);
+    }
+  });
 });
