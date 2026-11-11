@@ -27,7 +27,7 @@ const LIVE_DAYS_BACK = 30;
 /** The newest `at` for any post: the player's local date may be a day past the server's UTC date (as for meals). */
 const DAYS_AHEAD = 1;
 /** No event, and no imported record's date, is older than this (I4 ruling): before M3, nothing was played. */
-export const PROGRESS_EPOCH = '2026-01-01';
+const PROGRESS_EPOCH = '2026-01-01';
 
 const REF_MAX = 200;
 const MAX_CLAIMS = 20;

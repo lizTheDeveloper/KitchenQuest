@@ -22,6 +22,7 @@ import type { Keyring } from '../crypto/keyring.js';
 import { mealLogs, mentorProposals, rules } from '../db/schema.js';
 import { ApiError } from '../errors.js';
 import { createMealLogIn, deleteMealLogIn } from '../meals/service.js';
+import { lockUserProgress } from '../db/advisory-locks.js';
 import { changePantryIn, lockUserPantry, restorePantryIn } from '../pantry/service.js';
 import { applyProfilePatchIn } from '../profile/routes.js';
 import { createRuleIn, deleteRuleIn, lockUserRules } from '../rules/service.js';
@@ -56,6 +57,9 @@ const closed = () => new ApiError(409, 'proposal_closed', 'This card is no longe
 async function lockForKind(tx: Tx, userId: string, kind: ProposalKind, withConsent: boolean, at: Date): Promise<void> {
   if (kind === 'rule') await lockUserRules(tx, userId);
   if (kind === 'pantry') await lockUserPantry(tx, userId);
+  // A meal confirm or undo writes or deletes a meal log, whose delete cascades to its progress event (M5 I1):
+  // `progress:` is the last advisory lock, before the consent row.
+  if (kind === 'meal') await lockUserProgress(tx, userId);
   if (withConsent && (kind === 'rule' || kind === 'meal')) await lockConsentIn(tx, userId, 'health_data', at);
 }
 

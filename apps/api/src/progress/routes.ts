@@ -45,7 +45,6 @@ export async function progressRoutes(app: FastifyInstance, deps: ProgressRouteDe
     stopSweeping();
     done();
   });
-  // eslint-disable-next-line @typescript-eslint/require-await -- a Fastify preHandler returns a promise or calls done
   const limited = async (req: FastifyRequest, reply: FastifyReply) => {
     const t = now().getTime();
     const wait = limiter.waitMs(req.user.id, t);

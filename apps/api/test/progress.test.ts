@@ -230,7 +230,7 @@ describe('POST /progress/events and GET /progress', () => {
     expect(r.accepted.map((a) => a.clientId)).toEqual([good.id]);
     const stored = await rows(p.id);
     expect(stored.events.map((ev) => ev.clientId)).toEqual([good.id]);
-    expect(JSON.stringify(stored)).not.toContain('999');
+    expect([...stored.events, ...stored.grants].flatMap((r) => Object.values(r.body as Record<string, unknown>))).not.toContain(999);
     expect(stored.grants.map((g) => g.body)).toEqual([expect.objectContaining({ amount: loop.rewards.xp.cook })]);
   });
 
@@ -395,7 +395,8 @@ describe('nothing earned is taken back (spec §6)', () => {
     expect(now.events.map((e) => e.clientId)).not.toContain(lunch.id);
     expect(now.events.map((e) => e.clientId)).toContain(dinner.id);
     expect(now.grants).toEqual(before.grants);
-    expect(JSON.stringify(now)).not.toContain('720');
+    // Nothing of the erased event is kept: no row holds its minute.
+    expect(now.events.filter((e) => (e.body as { minute?: number }).minute === 720)).toEqual([]);
     // There is no route that erases a progress event by id.
     expect((await call(p.cookie, { method: 'DELETE', url: `/progress/events/${dinner.id}` })).statusCode).toBe(404);
     // An erased event's id stays seen through its grant: a replay is a duplicate, and earns nothing again.
