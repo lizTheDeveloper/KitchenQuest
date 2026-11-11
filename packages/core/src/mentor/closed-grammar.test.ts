@@ -23,6 +23,19 @@ describe('planIntent: the whole message, each clause a closed form', () => {
     expect(planIntent("it's a hard week", DISHES)).toEqual({ days: null, pick: null, hard: true, after: null });
   });
 
+  test('M5 final I1: "pick N more" (in addition to the named days) is a closed pick clause', () => {
+    expect(planIntent('plan my week: parippu sunday, pick 2 more', DISHES)).toEqual({ days: [{ weekday: 'sunday', dish: 'parippu' }], pick: 2, hard: null, after: null });
+    expect(planIntent('Plan my week: parippu on Sunday, pick two more', DISHES)?.pick).toBe(2);
+    expect(planIntent('pick two more dishes', DISHES)).toEqual({ days: null, pick: 2, hard: null, after: null });
+    expect(planIntent('pick 2 dinners more', DISHES)?.pick).toBe(2);
+    expect(planIntent('pick 2 more after saturday', DISHES)).toEqual({ days: null, pick: 2, hard: null, after: 'saturday' });
+    expect(planWordsIn('put parippu on sunday, pick 2 more', DISHES)).toEqual({ days: [{ weekday: 'sunday', dish: 'parippu' }], pick: 2, hard: null, after: null });
+    expect(planWordsIn('pick two more dishes', DISHES)?.pick).toBe(2);
+    // Still closed: one "more" only, and nothing else left over.
+    expect(planIntent('pick 2 more more', DISHES)).toBeNull();
+    expect(planIntent('pick 2 more easy ones', DISHES)).toBeNull();
+  });
+
   test('N1 probes: a dish clause with any word left over is no code clause, so the message is not planned by code', () => {
     for (const t of [
       'plan my week: parippu minus the peanuts on monday',

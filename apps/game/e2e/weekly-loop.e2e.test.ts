@@ -276,9 +276,8 @@ describe('the weekly loop (M5 Step 12)', () => {
       const { page } = app;
       const start = await card(page);
 
-      // The scripted grammar is closed (Step 8 rulings 5a/N6): "pick two more" is not one of its clauses, so the AI-off
-      // run says "pick two". Widening it changes eval-hashed decision code (Ruling N8) and needs an eval run.
-      await planTheWeek(page, 'Plan my week: parippu on Sunday, pick two');
+      // M5 final I1: the closed grammar reads "pick two more" (the headline phrase), so the AI-off run says it too.
+      await planTheWeek(page, 'Plan my week: parippu on Sunday, pick two more');
       expect((await stored(page)).localWeek.plans[0]).toMatchObject({ weekStart: WEEK, slot: 'declined' });
       await shop(page);
       expect((await stored(page)).localPantry.filter((p) => p.source === 'market')).toHaveLength(3);

@@ -628,7 +628,15 @@ const NUMBER = `(\\d|${Object.keys(NUMBER_WORDS).join('|')})`;
 /** Clause boundaries: punctuation and joining words only; a boundary is never a leftover word. */
 const SEP = /\s*(?:[,;.!?\n]+|\band\b|\balso\b|\bthen\b|\bso\b|\bbut\b)\s*/;
 const LEAD = /^(?:plan|sort) (?:my|the|this) week\s*(?::|,|-|$)\s*/;
-const PICK_CLAUSE = new RegExp(`^(?:pick|choose) ${NUMBER}(?: (?:dishes|dinners|meals|things))?(?: for (?:this|the|my) week)?(?: after ${WD})?$`);
+/**
+ * `pick N( dishes)?( for this week)?( after <weekday>)?`, with one optional "more" before or after the noun (M5 final
+ * I1: "pick two more", "pick 2 more dishes", "pick 2 dinners more"). N is the number of NEW picks: `resolvePlanRequest`
+ * runs `suggestPlan` after the named days, so "more" reads exactly as the bare form does.
+ */
+const PICK_NOUN = '(?:dishes|dinners|meals|things)';
+const PICK_CLAUSE = new RegExp(
+  `^(?:pick|choose) ${NUMBER}(?: more(?: ${PICK_NOUN})?| ${PICK_NOUN}(?: more)?)?(?: for (?:this|the|my) week)?(?: after ${WD})?$`,
+);
 const HARD_CLAUSE = /^(?:it'?s |it is )?(?:a )?(?:hard|busy|rough|tough) week$/;
 const DISH_DAY = new RegExp(`^(put )?(?:the )?(.+?) (?:on )?${WD}$`);
 const DAY_DISH = new RegExp(`^(?:on )?${WD}:? (?:the )?(.+)$`);
