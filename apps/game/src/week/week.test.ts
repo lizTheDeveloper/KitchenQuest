@@ -11,6 +11,7 @@ import { byStall, forText, marketScreen } from './market-screen';
 import { acceptSlot, offerFor, planScreen } from './plan-screen';
 import { practiceDay, renderPlanView, slotDay, writtenLine } from './plan-view';
 import { answerNudge, compost, noteNudge, rescueOffer } from './rescue';
+import { mountRescue } from './rescue-slot';
 import { createWeekSource } from './source';
 import { mergedWeek, moveCandidates, moveOffer, moveWeek } from './move';
 
@@ -281,7 +282,7 @@ describe('Ruling 5: a save blocked by a dish that is ⛔ now', () => {
     el.querySelector<HTMLButtonElement>('#plan-add-btn-1')!.click();
     el.querySelector<HTMLButtonElement>('.plan-save')!.click();
     await flush();
-    const note = el.querySelector('.week-note')!.textContent!;
+    const note = el.querySelector('.week-note')!.textContent;
     expect(note).toContain('Parippu Curry');
     expect(note).toMatch(/coconut/);
     expect(note).not.toMatch(/try again/i);
@@ -359,5 +360,89 @@ describe('Ruling 2: "Move this week to your account?"', () => {
     expect(await moveWeek(s, client, TODAY)).toBe('failed');
     expect(calls.map((c) => c.name)).toEqual(['getPlan', 'putPlan']); // no run is opened or ticked under the other account
     expect(s.get().localWeek.plans).toHaveLength(1);
+  });
+});
+
+describe('I5: guards pinned', () => {
+  const bought = (name: string, ingredientId: string, addedOn: string, id = name): PantryItem & { id: string } => ({ id, name, ingredientId, addedOn, source: 'market' });
+  const told = (name: string, ingredientId: string, id = name): PantryItem & { id: string } => ({ id, name, ingredientId });
+  const uses = (rules: Rule[]) => ({ recipes: canonRecipes(), graph, rules, subs: [...content.substitutions] });
+  const pantry = [bought('spinach', 'spinach', '2026-11-09'), told('cooked rice', 'cooked_rice'), told('sunflower oil', 'neutral_oil')];
+
+  test('a rescue whose filled frame leaves the rescued item out is never offered (Step 3 carry)', () => {
+    // A frame that says it rescues spinach but has no slot spinach fits: picking it fills the slot with the onion instead.
+    const frame = { ...content.frames.find((f) => f.id === 'fried-rice')!, id: 'odd', rescues: ['spinach'], slots: [{ key: 'veg', accepts: ['onion'], optional: false }], steps: ['Fry {veg}.'] };
+    const s = store();
+    expect(rescueOffer(s.get(), [...pantry, told('onion', 'onion')], null, TODAY, [frame], content.keeps, uses([]))).toBeNull();
+  });
+
+  test('Family Table: no rescue even with a rescuable pantry; compost writes nothing; a tick is refused without a call', async () => {
+    const s = store({ localPantry: pantry });
+    s.update((x) => ({ ...x, settings: { ...x.settings, familyTable: true } }));
+    expect(rescueOffer(s.get(), pantry, null, TODAY, content.frames, content.keeps, uses([]))).toBeNull();
+    expect(rescueOffer({ ...s.get(), settings: { ...s.get().settings, familyTable: false } }, pantry, null, TODAY, content.frames, content.keeps, uses([]))).not.toBeNull();
+    expect(await compost(s, noClient, pantry[0])).toBe(false);
+    expect(s.get().localPantry).toHaveLength(3);
+    const run = { id: 'r', weekStart: MON, items: [], doneAt: null };
+    expect(await createWeekSource({ store: s, client: noClient }).tick(run, 'k', true, TODAY)).toMatchObject({ ok: false, kind: 'family_table' });
+    expect(await createWeekSource({ store: s, client: noClient }).finish(run, TODAY, NOW)).toMatchObject({ ok: false, kind: 'family_table' });
+  });
+
+  test('rules unreadable: nothing saved on the device, and the kitchen offers no rescue (and fetches nothing)', async () => {
+    const s = store({ rulesUnreadable: true, localPantry: pantry });
+    expect(createWeekStore({ store: s }).savePlan(plan([dish(1, ONIGIRI)]))).toMatchObject({ ok: false });
+    expect(s.get().localWeek.plans).toEqual([]);
+    const slot = document.createElement('div');
+    await mountRescue(slot, appCtx(s), noClient, () => true);
+    expect(slot.childElementCount).toBe(0);
+    // With the rules readable the same pantry is offered (the guard is what stopped it).
+    const ok = store({ localPantry: pantry });
+    await mountRescue(slot, appCtx(ok), noClient, () => true);
+    expect(slot.querySelector('.rescue')).not.toBeNull();
+  });
+
+  test('an untick removes only the row its tick added, never a same-name item already there', () => {
+    const s = store();
+    const w = createWeekStore({ store: s });
+    w.savePlan(plan([dish(0, PARIPPU)]));
+    const row = w.run(MON, TODAY)!.items.find((i) => i.ingredientId === 'green_chili')!;
+    w.tick(MON, row.key, true, TODAY);
+    // The same item, told to the Pan meanwhile: an untick must leave it.
+    s.update((x) => ({ ...x, localPantry: [...x.localPantry, told(row.name, row.ingredientId!, 'told-same')] }));
+    w.tick(MON, row.key, false, TODAY);
+    expect(s.get().localPantry.map((p) => p.id)).toEqual(['told-same']);
+  });
+
+  test('the market screen draws each ❓ row with its ❓ badge and each swap with 🔁; a plain row has neither', async () => {
+    const s = store();
+    // A shellfish rule makes onigiri's katsuobushi a labelled swap; nori and umeboshi are check-the-label lines.
+    s.update((x) => ({ ...x, localRules: [{ id: 'f', target: { kind: 'category', ids: ['fish'] }, type: 'avoid', severity: 'allergy' }] }));
+    createWeekStore({ store: s }).savePlan(plan([dish(1, ONIGIRI), dish(0, PARIPPU)]));
+    const run = createWeekStore({ store: s }).run(MON, TODAY)!;
+    const el = document.createElement('div');
+    await marketScreen(noClient).mount(el, { name: 'market' }, appCtx(s));
+    await flush();
+    let badges = 0;
+    for (const item of run.items) {
+      const li = el.querySelector(`.market-row[data-key="${CSS.escape(item.key)}"]`)!;
+      const chip = li.querySelector('.chip')?.getAttribute('data-status') ?? null;
+      expect(chip, item.name).toBe(item.unverified ? 'unverified' : item.swappedFor ? 'swap' : null);
+      if (chip !== null) badges++;
+    }
+    expect(badges).toBeGreaterThan(0);
+  });
+
+  test('M6: Remove hands focus to that day\'s heading, never the page', async () => {
+    const s = store();
+    createWeekStore({ store: s }).savePlan(plan([dish(3, ONIGIRI)]));
+    const el = document.createElement('div');
+    document.body.append(el);
+    await planScreen(noClient).mount(el, { name: 'plan' }, appCtx(s));
+    await flush();
+    const remove = el.querySelector<HTMLButtonElement>('.plan-remove')!;
+    remove.focus();
+    remove.click();
+    expect(document.activeElement?.id).toBe('plan-day-3');
+    el.remove();
   });
 });

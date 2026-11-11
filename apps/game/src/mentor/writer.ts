@@ -252,7 +252,11 @@ export function createCardWriter(deps: {
         switch (w.failure.kind) {
           case 'consent': return { ok: false, reason: 'consent_required', items: [line('consent.health_first'), { kind: 'consent', purpose: 'health_data' }] };
           case 'network': return { ok: false, reason: 'network', items: [] };
-          default: return { ok: false, reason: 'invalid', items: [line('write.not_done')] };
+          case 'closed':
+          case 'family_table':
+          case 'invalid':
+          case 'rules':
+            return { ok: false, reason: 'invalid', items: [line('write.not_done')] };
         }
     }
   }

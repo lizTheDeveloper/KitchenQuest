@@ -108,3 +108,18 @@ describe('account partitions on the device (sign-out ruling)', () => {
     expect(key).toMatch(/^[0-9a-f]{64}$/);
   });
 });
+
+describe('M2 (Task 10 fix round 1): the remembered week leaves with its session', () => {
+  test('a sign-out forgets the week remembered for that account', async () => {
+    vi.resetModules();
+    const { initProgress: init } = await import('./index');
+    const { createStore: make } = await import('../state/store');
+    const memory = await import('../week/memory');
+    const store = make(null);
+    store.update((s) => ({ ...s, account: { email: EMAIL } }));
+    init({ getProgress: () => new Promise(() => undefined), postProgressEvents: () => new Promise(() => undefined) } as unknown as ApiClient, store, { document, navigator: { onLine: false }, addEventListener: () => undefined } as unknown as Window);
+    memory.rememberWeek('2026-11-09', null, EMAIL);
+    store.update((s) => ({ ...s, account: null }));
+    expect(memory.rememberedWeek(EMAIL)).toBeNull();
+  });
+});

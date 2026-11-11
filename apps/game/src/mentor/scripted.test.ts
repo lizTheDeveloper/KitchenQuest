@@ -8,6 +8,7 @@ import { createScriptedEngine } from './scripted';
 import { createStore } from '../state/store';
 import type { ApiClient } from '../api/client';
 import { createWeekTurn } from './week-turn';
+import { forgetWeek, plannedOn, rememberWeek } from '../week/memory';
 
 // AI off, real compiled content: the engine runs on the same core toolkit as the server.
 const recipes = Object.entries(content.recipes).map(([slug, r]) => ({ slug, title: r.meta.title }));
@@ -388,6 +389,52 @@ describe('scripted engine: the week (M5 Step 10)', () => {
   test('a child turn: the grown-up line and no go chip', async () => {
     const r = await week.engine.reply("I'm 9, take me to the market list", ctx());
     expect(r.items.some((i) => i.kind === 'go')).toBe(false);
+  });
+});
+
+describe('I5: the week turn\'s contracts', () => {
+  const store = createStore(null);
+  const dialogue = createDialogue(content.pan);
+  const turn = createWeekTurn({ store, client: {} as ApiClient, now: () => NOW, dialogue, recipes, cooks: {} });
+  test('a plan the closed grammar refused gives asks only, never a card (even when one dish is real)', async () => {
+    const e = createScriptedEngine({ dialogue, graph, ruleTerms: content.ruleTerms, recipes, now: () => NOW, week: () => Promise.resolve(turn) });
+    const r = await e.reply('put parippu on sunday, dal on monday', ctx({ signedIn: false }));
+    expect(cards(r)).toEqual([]);
+    expect(said(r)).toEqual(['plan.dish_unknown']);
+  });
+  test('after a child spoke, a closed plan turn gets the grown-up line and no card; the week code is never asked', async () => {
+    const child = createChildFlag();
+    child.set();
+    let asked = 0;
+    const e = createScriptedEngine({ dialogue, graph, ruleTerms: content.ruleTerms, recipes, now: () => NOW, child, week: () => { asked++; return Promise.resolve(turn); } });
+    const r = await e.reply('plan my week: parippu on Sunday', ctx({ signedIn: false }));
+    expect(said(r)).toEqual(['child.grownup']);
+    expect(cards(r)).toEqual([]);
+    expect(asked).toBe(0);
+  });
+  test('M3: signed in, the week is read once when the panel opens, and a card is then built on it', async () => {
+    const s = createStore(null);
+    s.update((x) => ({ ...x, account: { email: 'cook@example.com' }, accountRules: [] }));
+    let gets = 0;
+    const client = { getPlan: () => { gets++; return Promise.resolve({ ok: true, status: 200, data: { plan: null, weekStart: '2026-11-07', checks: [] } }); } } as unknown as ApiClient;
+    const t = createWeekTurn({ store: s, client, now: () => NOW, dialogue, recipes, cooks: {} });
+    await t.prefetch();
+    await t.prefetch();
+    expect(gets).toBe(1);
+    // A Saturday market week (the 7th): Sunday is its day 1, not the Monday week's day 6.
+    const r = t.intent('plan my week: parippu on Sunday', 1)!;
+    expect(r.cards[0].card).toMatchObject({ weekStart: '2026-11-07', items: [{ day: 1 }] });
+  });
+});
+
+describe('M2: the remembered week is the account\'s own', () => {
+  test('plannedOn reads only the signed-in account\'s week, and nothing after forgetWeek', () => {
+    rememberWeek('2026-11-09', { weekStart: '2026-11-09', items: [{ day: 1, kind: 'dish', slug: 'india/kerala/parippu', servings: 3 }], hard: false, slot: 'unanswered' }, 'a@example.com');
+    expect(plannedOn('india/kerala/parippu', '2026-11-10', 'a@example.com')).toBe(true);
+    expect(plannedOn('india/kerala/parippu', '2026-11-10', null)).toBe(false);
+    expect(plannedOn('india/kerala/parippu', '2026-11-10', 'b@example.com')).toBe(false);
+    forgetWeek();
+    expect(plannedOn('india/kerala/parippu', '2026-11-10', 'a@example.com')).toBe(false);
   });
 });
 

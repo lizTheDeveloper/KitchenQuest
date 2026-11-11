@@ -70,7 +70,7 @@ function loosePlan(own: string): PlanRequest | null {
 const ASK_TRIGGERS: ReadonlySet<string> = new Set(['plan.dish_unknown', 'plan.which_day', 'plan.after_which_day', 'plan.dish_sacred']);
 
 /** What a plan card's write came to (the writer turns it into its outcome). */
-export type PlanWrite =
+type PlanWrite =
   | { kind: 'saved'; weekStart: string; previous: Plan | null }
   /** The week changed since the card was shown: nothing saved; the card again on the week now, or only lines. */
   | { kind: 'reoffer'; lines: LineRef[]; card: PlanCard | null }

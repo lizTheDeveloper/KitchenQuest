@@ -257,3 +257,25 @@ describe('healthConsent', () => {
     expect(healthConsent(consents([rec()], ['health_data']))).toBe('reconsent');
   });
 });
+
+describe('M5 Step 10: the week routes send today (Step 6 I2)', () => {
+  const body = (i: number): unknown => JSON.parse(calls[i].init.body!);
+  test('getPlan, putPlan, openRun, tick, finishRun and a plan card confirm each carry the local date; deletePlan none', async () => {
+    for (let i = 0; i < 7; i++) script.push(json(200, {}));
+    const plan = { weekStart: '2026-11-09', items: [], hard: false, slot: 'unanswered' as const };
+    await client.getPlan('2026-11-11');
+    await client.putPlan(plan, '2026-11-11');
+    await client.openRun('2026-11-09', '2026-11-11');
+    await client.tick('r1', 'k', true, '2026-11-11');
+    await client.finishRun('r1', '2026-11-11');
+    await client.confirmProposal('p', undefined, 'c', '2026-11-11');
+    expect(calls[0]).toMatchObject({ url: '/api/plans/current?today=2026-11-11', init: { method: 'GET' } });
+    expect(calls[1].url).toBe('/api/plans/2026-11-09');
+    expect(body(1)).toEqual({ plan, confirmed: true, today: '2026-11-11' });
+    expect(body(2)).toEqual({ weekStart: '2026-11-09', today: '2026-11-11' });
+    expect(calls[3].url).toBe('/api/market-runs/r1/ticks');
+    expect(body(3)).toEqual({ key: 'k', ticked: true, today: '2026-11-11' });
+    expect(body(4)).toEqual({ confirmed: true, today: '2026-11-11' });
+    expect(body(5)).toEqual({ channel: 'tap', conversationId: 'c', today: '2026-11-11' });
+  });
+});
