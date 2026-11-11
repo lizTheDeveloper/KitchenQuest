@@ -319,6 +319,44 @@ The new Bureau forms: `margin_note` (2-M/MARGIN, a plain safety form: notes are 
 
 `apps/game/src/content/voice-scan.test.ts` runs over every line, form, frame and recipe (title, steps, ingredient display names and notes) the client bundle carries: voice §7's banned words; unlock, loot, collect, acquire, discover, and "found" about recipes; streak, "missed" and "x days"; "version of"; Guild, price, upgrade, premium, subscribe; HIPAA and "medical-grade"; hours or calories in nourishment or rescue lines; a frame or rescue line about a sparse cupboard; and spending stamps. No pattern is weakened (Ruling 24): a legitimate teaching line a pattern catches goes in `apps/game/src/content/voice-allowlist.ts`, by file, location (its key path) and exact text, with its reason; the same words pasted anywhere else are scanned. Edit an allowlisted line and the scan fails again until the entry is re-justified. The market stall files aren't in the client bundle yet; they are scanned when M6 gives them a screen.
 
+## Content review for the founder: everything M5 flagged, in one place
+
+Each line below was flagged during M5 (Steps 1–12, from the SDD ledger and the step reports). None of them failed a scan: every one passes the voice scan and the never-rules sweep. They are listed because a person should read them before launch. Pan triggers are in `dialogue/pan.yaml`, and forms are in `bureau/forms.yaml`. "Chrome" means the words are written in code, not in `content/`.
+
+**Pan lines: read these first**
+- [ ] `quest.errand_adapted`, `quest.cook_adapted`: a rule-blocked errand or dish, passed the adapted way (Step 2, kept as written).
+- [ ] `plan.dish_sacred`: a sacred dish named in a plan. Line 2 ("I'll leave it out of the plan, with respect") and line 3 ("like an ordinary supper") were singled out by the Step 3 review (Step 3).
+- [ ] `plan.which_day`, `plan.after_which_day`: new asks (Step 8).
+- [ ] Reworded so that a refresher never names the absence, compost carries no word of shame, and an introduction opens no door: `one_more.refresh[1]`, `rescue.compost[2]`, `introduction_received[3]` (Step 4 fix round 1).
+- [ ] Rewritten for C30: `stamp_earned` spends nothing, `introduction_received` opens no new country, and `skill_up` is about tiers, with `{technique}` (Step 4).
+- [ ] Reworded when the voice scan caught them: intake "twice for the price of once" → "the effort of once", and `plan.blocked_dish[3]` "find another dish" → "pick another dish" (Step 4).
+- [ ] Reworded so that a ❓ is never "fine": `rescue.unverified[0]`, `plan.unverified_dish[2]`, and `plan.fewer_than_asked`, rewritten for any count (Step 4 fix round 1).
+- [ ] `rescue.unverified`, all four lines: "I can't check a dish for the {item} against your rules. Check the label before you cook." and three like it. They must not contradict the ❓ frame offer (Step 10 fix round 1, Ruling 3).
+- [ ] `plan.blocked_dish`: the two lines that did not name the dish now name `{dish}` (Step 10 fix round 1).
+- [ ] `week.move_partial`: a truthful line when only part of a week moved to the account (Step 10 fix round 2).
+- [ ] `margin.blocked`, all four lines: the note can be kept, and "Cook with my notes" stays off for the dish while it clashes. Each is flagged `# REVIEW` (Step 11 fix round 1, I4).
+- [ ] `quest.not_saved`: the runner's line when a step did not land (Step 9).
+- [ ] **All 30 new M5 triggers and the four new forms** (`margin_note` 2-M, `cooked_for` 5-S, `technique_certificate` 51-T, `frame` 8-F, plus the Form 7-W and 12-M fields). Start with the `ai: never` read-backs: `plan.readback`, `plan.dish_unknown`, `plan.unverified_dish`, `plan.fewer_than_asked`, `rescue.unverified`, `frame.slot_empty`, `margin.*`, `log.dish_offer`, `book.exported`, `nav.offer` (Step 4).
+
+**Chrome: words written in code**
+- [ ] The guest-progress offer ("Add this device's progress to your account?", `kitchen/apprentice-card.ts`) and the ❓ quest panel ("Learn it as a lesson", "Cook it anyway", `quests/`) (Step 9).
+- [ ] The after-cook status lines: "Stamped.", "Skipped. Nothing was kept.", "Not logged. That costs nothing.", "I couldn't read that as who ate…", the full-margin notice, "not in your book yet" and the unreadable-notes line (`cook/after-cook.ts`, `book/`) (Step 11).
+- [ ] The Cooked for Someone count words ("Just me", "You and one more", "You and two or three more", "You and four or more") and the who chips, "Flatmate" among them (`book/slips.ts`) (Step 11).
+- [ ] `EMPTY_SLOT_TEXT` in `apps/game/src/recipes/card-view.ts`, "nothing in your cupboard fits this yet…". This is cupboard copy, and audit M-4 says a sparse cupboard is never a joke. It comes from Step 3 and was parked for the final review in Step 10.
+- [ ] The apprentice card's outfitter note, "*Stamps are kept with your papers. The Bureau's outfitter opens later." (Ruling 17: no price, no shop) (Step 9).
+
+**Food safety and data (a quick check against a current source)**
+- [ ] Every `# REVIEW: food safety` line in the three seed frames (`frames/`): cold rice, reheating, raw egg, herb washing and soft tomatoes. The fried-rice egg line, the green-sauce line and the tomato-sauce line could not be verified (Step 4 data check).
+- [ ] Every `data/keeps.json` day count. `cooked_rice` is 1 day, the most conservative figure (NHS/FSA). Herbs (4 days) and epazote (4 days) could not be verified (Step 4 data check).
+- [ ] The M5 graph nodes (C12): `tomato`, `herb` (label-dependent and broad), `spinach`, `lime` and `cooked_rice` (FDC 168932), plus `peanut_oil` (FDC 171410) and its aliases. They carry no allergen claim beyond their data (Step 4).
+- [ ] The `cooked_rice` aliases ("leftover rice", "cold rice", "day-old rice"), which read any leftover as plain cooked rice (Step 4 fix round 1, M9).
+- [ ] The placements in `data/stalls.json` and `data/food-groups.json` (Step 4).
+- [ ] The storage FAQ keep times for Leela ("three or four days") and Marisol (corrected from four or five days to three or four, FSIS) (Step 4).
+- [ ] The 12 `VOICE_ALLOWLIST` entries and their reasons (`apps/game/src/content/voice-allowlist.ts`, Ruling 24) (Step 4).
+
+**Not copy, but noticed in Step 12**
+- The scripted plan grammar is closed (Step 8 rulings 5a and N6), so "pick two more" is not one of its clauses. With the AI off, "Plan my week: parippu on Sunday, pick two more" gets `didnt_understand`, while "…, pick two" plans. Widening the grammar changes eval-hashed decision code (Ruling N8), so it needs an eval run.
+
 ## Review flags
 
 Any claim a writer isn't sure of is marked with a `# REVIEW:` comment on the line above it. Cultural and culinary claims in a cook's file need a reviewer from that cuisine's community before the cook's recipe can be `status: reviewed` (spec §10). Shopping and food-safety facts need a quick check against a current source (USDA/FSIS, a national food-safety agency, or the relevant growers' board).
