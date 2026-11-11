@@ -480,6 +480,29 @@ describe('fix round 1', () => {
     err.mockRestore();
   });
 
+  test('after destroy a late scripted or AI reply draws nothing and a pending consent card is never counted as offered', async () => {
+    let late!: (r: PanReply) => void;
+    let release!: (r: PanReply) => void;
+    const backend: MentorBackend = {
+      kind: 'scripted',
+      reply: () => new Promise<PanReply>((res) => { release = res; }),
+      onLate: (fn) => { late = fn; return () => {}; },
+    };
+    const { root, pan, store, send } = mount({ backend, patch: { account: { email: 'a@b.c' } } });
+    const inflight = send('hello'); // a turn waiting on the backend
+    pan.show({ items: [{ kind: 'consent', purpose: 'ai_health' }], cards: [], intents: [], actions: [], notice: null }); // consents() still in flight
+    const bubbles = root.querySelector('.bubbles')!;
+    pan.destroy();
+    release(reply(['too late'], { cards: [local(buildProfileCard({ marketDays: [6] }))] }));
+    late(reply(['also too late']));
+    pan.show(reply(['and this']));
+    await inflight;
+    await flush();
+    expect(bubbles.textContent).not.toMatch(/too late|and this/);
+    expect(bubbles.querySelector('.pan-card')).toBeNull();
+    expect(store.get().aiHealthOffered).toBe(false);
+  });
+
   test('destroy takes the panel out and drops its listeners', () => {
     const { root, pan } = mount();
     pan.destroy();

@@ -103,6 +103,8 @@ export function mountMentorPanel(root: HTMLElement, opts: {
   let open = false;
   let turn = 0;
   let pending = false;
+  /** Set by `destroy()`: a reply (scripted or AI) that lands later is dropped, never drawn into a detached panel. */
+  let destroyed = false;
   const cards = new Map<string, OpenCard>();
   /** Cards whose write or turn-down is in flight: a typed yes or no meanwhile is ignored (the tap answers). */
   const busyCards = new Set<string>();
@@ -358,6 +360,7 @@ export function mountMentorPanel(root: HTMLElement, opts: {
   function renderConsent(purpose: 'health_data' | 'ai_health', onAnswer?: (answer: ConsentAnswer) => void): void {
     const li = addLi('pan-item pan-consent-item');
     void client.consents().then((r) => {
+      if (destroyed) return; // nobody saw this card: it is not "offered" (aiHealthOffered stays false)
       const notice = r.ok ? r.data.notices[purpose] : undefined;
       const form = forms[purpose === 'ai_health' ? 'consent_ai' : 'consent_health'] as BureauForm | undefined;
       if (notice === undefined || form === undefined) {
@@ -446,6 +449,7 @@ export function mountMentorPanel(root: HTMLElement, opts: {
   }
 
   function render(r: PanReply): void {
+    if (destroyed) return;
     let { items, cards: replyCards, intents, actions } = r;
     if (!standard) {
       // §19: Family Table is scripted lines only. Nothing is written, offered or kept.
@@ -603,6 +607,7 @@ export function mountMentorPanel(root: HTMLElement, opts: {
       if (hadFocus && open) (textBox ?? closeBtn).focus();
     },
     destroy() {
+      destroyed = true;
       doc.removeEventListener('keydown', onDocKey);
       opener?.removeEventListener('click', onOpener);
       stopLate?.();
