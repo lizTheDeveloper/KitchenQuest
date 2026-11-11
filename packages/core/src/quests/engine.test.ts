@@ -314,8 +314,17 @@ describe('quest engine', () => {
       h = record(h, [frijoles], catAlt);
       expect(advance(leela, view(h, catAlt), { type: 'cook', cookedEventId: frijoles.id }, DAY, newId, altCtx([ALLIUM]))).toEqual({ ok: false, reason: 'not_current', say: [] });
       expect(advance(leela, view(h, catAlt), { type: 'cook', lesson: true }, DAY, newId, altCtx([ALLIUM]))).toMatchObject({ ok: false, reason: 'not_current' });
-      // And the lesson is never a shortcut past a dish the rules allow.
-      expect(advance(leela, view(h, cat), { type: 'cook', lesson: true }, DAY, newId, ctx())).toMatchObject({ ok: false, reason: 'not_current' });
+      // The lesson input is only ever the adapted lesson: not with an alternative cooked, nor past a dish the rules allow.
+      const dal: ProgressEvent = { id: newId(), kind: 'cooked', at: DAY, recipe: 'test/plain-dal', planned: false };
+      const hDal = record(h, [dal], catAlt);
+      expect(advance(leela, view(hDal, catAlt), { type: 'cook', lesson: true }, DAY, newId, altCtx([ALLIUM]))).toMatchObject({ ok: false, reason: 'not_current' });
+      expect(advance(leela, view(hDal, catAlt), { type: 'cook', cookedEventId: dal.id }, DAY, newId, altCtx([ALLIUM])).ok).toBe(true);
+      const parippu: ProgressEvent = { id: newId(), kind: 'cooked', at: DAY, recipe: 'india/kerala/parippu', planned: false };
+      const hP = record(h, [parippu], cat);
+      expect(advance(leela, view(hP, cat), { type: 'cook', lesson: true }, DAY, newId, ctx())).toMatchObject({ ok: false, reason: 'not_current' });
+      // A sacred dish is never an alternative (spec §10), even one that would pass the rules.
+      const sacred = new Map([...withAlt, ['test/plain-dal', { ...plainDal, meta: { ...plainDal.meta, sacred: true } }]]);
+      expect(alternativesFor(cookStep, { ...altCtx([ALLIUM]), recipes: sacred })).toEqual([]);
     });
 
     it('frames plug in: an ok or swap frame for one of the dish\'s techniques is offered, a ⛔ or ❓ frame never', () => {
