@@ -63,6 +63,14 @@ beforeEach(() => { vi.useFakeTimers(); });
 afterEach(() => { vi.useRealTimers(); });
 
 describe('AI backend', () => {
+  test('N2: an emergency text keeps the emergency line first when the server says the AI is unavailable, and when it is unreachable', async () => {
+    const EMERGENCY = "my son's lips are swelling, he ate peanuts";
+    const viaNotice = setup({ consents: BOTH, mentorTurn: () => ok(response({ route: 'scripted', notice: 'ai_unavailable' })) });
+    expect(said(await viaNotice.backend.reply(text(EMERGENCY), ctx())).slice(0, 2)).toEqual(['rule.emergency', 'mentor.ai_unavailable']);
+    const viaOutage = setup({ consents: BOTH, mentorTurn: () => fail(503) });
+    expect(said(await viaOutage.backend.reply(text(EMERGENCY), ctx())).slice(0, 2)).toEqual(['rule.emergency', 'mentor.ai_unavailable']);
+  });
+
   test('a scripted route runs the engine on the same text, after the notice line', async () => {
     const { backend } = setup({ consents: BOTH, mentorTurn: () => ok(response({ route: 'scripted', notice: 'ai_unavailable' })) });
     const r = await backend.reply(text("I'm allergic to sesame"), ctx());

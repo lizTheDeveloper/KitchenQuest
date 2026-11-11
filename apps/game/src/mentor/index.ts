@@ -6,7 +6,8 @@ import type { LineBank } from '../content/types';
 import { reducedMotion } from '../shell/motion';
 import { parseRoute } from '../shell/router';
 import { createScriptedBackend, type MentorBackend } from './backend';
-import { lazyBackend, type LazyFallback } from './lazy-backend';
+import { lazyBackend } from './lazy-backend';
+import { localSafetyReply, scriptedWhenUnavailable } from './outage';
 import { createDialogue, type Dialogue } from './dialogue';
 import { createIntake, type Intake } from './intake';
 import { mountMentorPanel, type MentorPanel } from './panel';
@@ -16,15 +17,6 @@ import { createCardWriter, type CardWriter } from './writer';
 
 export { createDialogue } from './dialogue';
 export type { MentorPanel } from './panel';
-
-/** What answers a turn when the AI backend's code can't load: the script, led by the same "answering from the script" line as an unreachable server. */
-function scriptedWhenUnavailable(engine: ScriptedEngine, dialogue: Dialogue): LazyFallback {
-  const scripted = createScriptedBackend(engine, dialogue);
-  return async (input, ctx) => {
-    const r = await scripted.reply(input, ctx);
-    return input.kind === 'text' ? { ...r, items: [{ kind: 'said', said: dialogue.say('mentor.ai_unavailable') }, ...r.items] } : r;
-  };
-}
 
 let mentor: MentorPanel | null = null;
 
@@ -146,7 +138,7 @@ export function mountMentor(doc: Document, store: PlayerStore, bank: LineBank, c
     const engine: ScriptedEngine = createScriptedEngine({ dialogue, graph, ruleTerms: content.ruleTerms, recipes, now });
     const writer = createCardWriter({ client, store, dialogue, graph, ruleTerms: content.ruleTerms, now });
     const backend = switchingBackend(store, (kind) => (kind === 'ai'
-      ? lazyBackend('ai', scriptedWhenUnavailable(engine, dialogue), async () => (await import('./ai-backend')).createAiBackend({
+      ? lazyBackend('ai', { fallback: scriptedWhenUnavailable(engine, dialogue), local: localSafetyReply(engine) }, async () => (await import('./ai-backend')).createAiBackend({
         client, engine, dialogue, store, graph, ruleTerms: content.ruleTerms, now, events: win,
         screen: () => screenOf(win.location.hash),
         intakeStep: () => { const step = store.get().intake.step; return step === 'done' ? null : step; },

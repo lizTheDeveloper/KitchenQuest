@@ -11,6 +11,7 @@ import type { MentorBackend } from './backend';
 import type { Dialogue } from './dialogue';
 import type { PanItem, PanReply, ServerCardView, TurnContext } from './reply';
 import type { ScriptedEngine } from './scripted';
+import { withNotice } from './outage';
 import { partsToItems } from './writer';
 
 /** A failed turn is tried again once by itself after this long, or on the next `online` event if that comes first (pre-flight C23). */
@@ -96,7 +97,8 @@ export function createAiBackend(deps: {
   const listeners = new Set<(r: PanReply) => void>();
   const say = (trigger: string): PanItem => ({ kind: 'said', said: dialogue.say(trigger) });
   const lines = (...triggers: string[]): PanReply => ({ items: triggers.map(say), cards: [], intents: [], actions: [], notice: null });
-  const prefixed = (items: PanItem[], r: PanReply): PanReply => ({ ...r, items: [...items, ...r.items] });
+  /** A notice goes first, except after an emergency, medical or child line, which always leads (outage.ts). */
+  const prefixed = (items: PanItem[], r: PanReply): PanReply => items.reduceRight((acc, i) => withNotice(i, acc), r);
   /** Retries and late replies end here once the backend is replaced (fix round 1, I2). */
   let disposed = false;
   /** Read through a call, so a check after an await sees a dispose that happened meanwhile. */
