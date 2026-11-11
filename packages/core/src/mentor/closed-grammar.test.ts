@@ -2,7 +2,7 @@
 // and market-day cards come only from a closed grammar that consumes the whole clause. Any leftover word: no code card.
 import { describe, expect, test } from 'vitest';
 import { canon } from '../week/fixtures';
-import { dietCue, marketDayStated, planIntent, planWordsIn, reminderSlots } from './route';
+import { dietCue, marketDayStated, planIntent, planWordsIn, reminderClauses, reminderSlots } from './route';
 
 const DISHES = [...canon].map(([slug, r]) => ({ slug, title: r.meta.title }));
 const PARIPPU = 'india/kerala/parippu';
@@ -54,13 +54,16 @@ describe('planIntent: the whole message, each clause a closed form', () => {
 
 describe('planWordsIn: closed plan clauses inside a longer message', () => {
   test('"put <title> on <weekday>" and "pick N" clauses only; anything else in a clause is no clause', () => {
-    expect(planWordsIn('had toast for lunch. put onigiri on monday, and remind me about dinner at 6:30 pm', DISHES)).toEqual({
+    // Fix round 4 (N6): every clause of the message must be closed; "had toast for lunch" and "idk" are not.
+    expect(planWordsIn('put onigiri on monday, and remind me about dinner at 6:30 pm', DISHES)).toEqual({
       days: [{ weekday: 'monday', dish: 'onigiri' }],
       pick: null,
       hard: null,
       after: null,
     });
-    expect(planWordsIn("idk. pick 3. market's saturday", DISHES)).toEqual({ days: null, pick: 3, hard: null, after: null });
+    expect(planWordsIn('had toast for lunch. put onigiri on monday, and remind me about dinner at 6:30 pm', DISHES)).toBeNull();
+    expect(planWordsIn("pick 3. market's saturday", DISHES)).toEqual({ days: null, pick: 3, hard: null, after: null });
+    expect(planWordsIn("idk. pick 3. market's saturday", DISHES)).toBeNull();
     expect(planWordsIn("Had dal for dinner. Also put the frijoles on Saturday's plan.", DISHES)).toBeNull();
     expect(planWordsIn('put the parippu minus the peanuts on monday', DISHES)).toBeNull();
     expect(planWordsIn('put no peanuts on sunday', DISHES)).toBeNull();
@@ -71,9 +74,11 @@ describe('planWordsIn: closed plan clauses inside a longer message', () => {
 describe('reminderSlots: "(remind me to )?(eat|have) <meal> (at|around|about) <clock>"', () => {
   test('the closed forms', () => {
     expect(reminderSlots('remind me about dinner at 6:30 pm')).toEqual([{ name: 'dinner', start: '18:30' }]);
-    expect(reminderSlots("Had dal for dinner. Also put the frijoles on Saturday's plan, and remind me about dinner at 6:30 pm.")).toEqual([
-      { name: 'dinner', start: '18:30' },
-    ]);
+    // Fix round 4 (N6): a code card needs every clause closed. Clause by clause (`reminderClauses`) is only for the
+    // windows a model's own profile call left out (ruling b, T13).
+    const t13 = "Had dal for dinner. Also put the frijoles on Saturday's plan, and remind me about dinner at 6:30 pm.";
+    expect(reminderSlots(t13, DISHES)).toEqual([]);
+    expect(reminderClauses(t13)).toEqual([{ name: 'dinner', start: '18:30' }]);
     expect(reminderSlots('remind me to eat lunch at like half twelve and dinner around 7ish pm')).toEqual([
       { name: 'lunch', start: '12:30' },
       { name: 'dinner', start: '19:00' },
@@ -105,8 +110,10 @@ describe('marketDayStated: "my market( day)? is (on )?<weekday>" and "market(\'s
   test('the closed forms, with one weekday in the whole message', () => {
     expect(marketDayStated('My market day is Saturday.')).toBe(6);
     expect(marketDayStated('market is on Friday')).toBe(5);
-    expect(marketDayStated("idk just pick 3 things for this week. market's saturday so do the beans after that")).toBe(6);
-    expect(marketDayStated("Market's on Friday, and I've got no eggs left.")).toBe(5);
+    // Fix round 4 (N6): any other clause in the message, and code builds no market card (T08 is the model's).
+    expect(marketDayStated("idk just pick 3 things for this week. market's saturday so do the beans after that")).toBeNull();
+    expect(marketDayStated("Market's on Friday, and I've got no eggs left.")).toBeNull();
+    expect(marketDayStated("Market's on Friday, thanks!")).toBe(5);
   });
 
   test('N2 probes: another person, a name, a second weekday, a symptom clause: no card', () => {

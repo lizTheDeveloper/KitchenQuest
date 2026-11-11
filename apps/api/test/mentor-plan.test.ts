@@ -208,9 +208,10 @@ describe('the model only proposes', () => {
     await makeApp(ai);
     const p = await player(['health_data', 'ai_health']);
     const r = await p.turn("Had dal for dinner. Also put the frijoles on Saturday's plan, and remind me about dinner at 6:30 pm.");
-    // The reminder is a profile card code builds from the clock clause (the model made no profile call). Fix round 2:
-    // "put the frijoles on Saturday's plan" names no exact dish, so code proposes no plan clause: only the model can.
-    expect(r.cards.map((c) => c.card.kind)).toEqual(['meal', 'profile']);
+    // Fix round 2: "put the frijoles on Saturday's plan" names no exact dish, so code proposes no plan clause: only the
+    // model can. Fix round 4 (N6): "Had dal for dinner" and that clause are not closed, so code builds no reminder card
+    // either; the model's own profile call is the only way to one (the next tests).
+    expect(r.cards.map((c) => c.card.kind)).toEqual(['meal']);
     expect(JSON.stringify(r)).not.toMatch(/plan\.dish_unknown/);
   });
 
@@ -329,7 +330,7 @@ describe('C-13', () => {
     expect(JSON.stringify(r)).toMatch(/"name":"dinner","start":"18:30"/);
   });
 
-  test('ruling: T13 with a malformed propose_profile → code builds the profile card from the clock clause (meal windows only); the malformed call is never used', async () => {
+  test('ruling: T13 with a malformed propose_profile → the malformed call is never used; fix round 4 (N6): code builds no card from a message with unclosed clauses', async () => {
     const malformed = { id: 'm1', name: 'propose_profile', arguments: JSON.stringify({ market_days: null, meals_per_week: 'null\n</parameter>\n<' }) };
     const shaped: AiResult = {
       ...calls([
@@ -338,14 +339,18 @@ describe('C-13', () => {
       ]),
     };
     if (shaped.ok) shaped.toolCalls.push(malformed);
-    const ai = fakeAi([shaped, { ...shaped }, toolCall('propose_meal_log', { slot: 'lunch', when: 'today', dish: null, servings: null, description: 'soup' })]);
+    const malformedOnly: AiResult = { ok: true, text: '', toolCalls: [malformed], finish: 'tool_calls', usage: { inputTokens: 1, outputTokens: 1, costMicroUsd: 1 } };
+    const ai = fakeAi([shaped, malformedOnly, { ...shaped }, toolCall('propose_meal_log', { slot: 'lunch', when: 'today', dish: null, servings: null, description: 'soup' })]);
     await makeApp(ai);
     const p = await player(['health_data', 'ai_health']);
     const r = await p.turn("Had dal for dinner. Also put the frijoles on Saturday's plan, and remind me about dinner at 6:30 pm.");
-    expect(r.cards.map((c) => c.card.kind).sort()).toEqual(['meal', 'profile']);
-    const prof = r.cards.find((c) => c.card.kind === 'profile')!.card;
-    expect(prof.kind === 'profile' && prof.patch).toEqual({ mealWindows: [{ name: 'dinner', start: '18:30', end: '19:30' }] });
+    expect(r.cards.map((c) => c.card.kind).sort()).toEqual(['meal']);
     expect(r.parts).toContainEqual({ kind: 'line', line: { trigger: 'plan.dish_unknown', vars: { dish: 'frijoles' } } });
+    // A message whose every clause is closed: code builds the profile card from the clock clause (meal windows only).
+    const c = await player(['health_data', 'ai_health']);
+    const closed = await c.turn('remind me about dinner at 6:30 pm, thanks');
+    const prof = closed.cards.find((x) => x.card.kind === 'profile')!.card;
+    expect(prof.kind === 'profile' && prof.patch).toEqual({ mealWindows: [{ name: 'dinner', start: '18:30', end: '19:30' }] });
     // No clock clause: the malformed call still makes nothing.
     const q = await player(['health_data', 'ai_health']);
     const r2 = await q.turn("Had dal for dinner. Also put the frijoles on Saturday's plan.");
@@ -541,7 +546,7 @@ describe('fix round 1', () => {
     expect(await currentPlan(q.cookie)).toBeNull();
   });
 
-  test('market-day ruling: T03 and T08 shapes with the model omitting the call still get the market-day card; another person or a symptom gets none', async () => {
+  test('market-day ruling: T03 with the model omitting the call still gets the market-day card; T08 (fix round 4, N6: unclosed clauses), another person or a symptom gets none', async () => {
     const ai = fakeAi([
       noCalls(),
       calls([{ name: 'propose_plan', args: { days: [{ weekday: 'Saturday', dish: 'the beans' }], pick: 3, hard_week: null, after: null } }]),
@@ -553,8 +558,8 @@ describe('fix round 1', () => {
     expect(t03.cards.map((c) => c.card.kind)).toEqual(['profile']);
     expect(JSON.stringify(t03)).toMatch(/"marketDays":\[6\]/);
     const t08 = await (await aiPlayer()).turn("idk just pick 3 things for this week. market's saturday so do the beans after that");
-    expect(t08.cards.map((c) => c.card.kind).sort()).toEqual(['plan', 'profile']);
-    expect(JSON.stringify(t08)).toMatch(/"marketDays":\[6\]/);
+    expect(t08.cards.map((c) => c.card.kind).sort()).toEqual(['plan']);
+    expect(JSON.stringify(t08)).not.toMatch(/"marketDays"/);
     for (const text of ["my mum's market is saturday", 'the market saturday made me sick']) {
       const r = await (await aiPlayer()).turn(text);
       expect(r.cards, text).toEqual([]);
@@ -619,3 +624,210 @@ describe('fix round 2: closed grammar only; health first', () => {
   });
 });
 
+
+// Fix round 4 (review-task8-fix2.md): every N6, N7, N9 and N11 probe through /mentor/turn, and one behaviour test
+// for each code-card exclusion gate (N10). The model makes no call in every probe, so any card is code's.
+describe('fix round 4: the whole message, health first, a spelled age', () => {
+  const HEALTH_LINES = ['rule.ask_keep_off', 'rule.ask_what_else', 'rule.unknown_term', 'rule.which_one', 'rule.which_kind'];
+  const silent = (n: number) => fakeAi(Array.from({ length: n }, () => reply('')));
+  const codeCards = (r: TurnResponse) => r.cards.filter((c) => c.card.kind === 'plan' || c.card.kind === 'profile');
+  /**
+   * Each text in a conversation of its own, spread over a few players: sign-ins (20 per app), turns per minute (the
+   * clock is frozen) and the daily AI allowance are capped, and a capped turn would make no card for the wrong reason.
+   */
+  async function eachFresh(purposes: Purpose[], texts: string[], check: (r: TurnResponse, text: string) => void) {
+    for (let i = 0; i < texts.length; i += 10) {
+      const p = await player(purposes);
+      for (const text of texts.slice(i, i + 10)) {
+        const res = await call(p.cookie, {
+          method: 'POST',
+          url: '/mentor/turn',
+          payload: { conversationId: null, input: { kind: 'text', text }, localDate: TODAY, localTime: '18:30', screen: null, intakeStep: null },
+        });
+        expect(res.statusCode, res.body).toBe(200);
+        const r = res.json<TurnResponse>();
+        expect(r.notice, text).not.toBe('rate_limited');
+        expect(r.parts.filter((x) => x.kind === 'text')).toEqual([]);
+        check(r, text);
+      }
+    }
+  }
+
+  test('N6 probes: a clause outside the closed grammar anywhere in the message → no code card, for either player', async () => {
+    const texts = [
+      'remind me to eat dinner at 6pm, no wait, 7pm',
+      'remind me about dinner at 6pm, no, 7pm',
+      'remind me about dinner at 6pm, for my brother',
+      'remind me about dinner at 6pm, my son too',
+      'remind me about dinner at 6pm, for my daughter',
+      'remind me about dinner at 6pm, yesterday',
+      "remind me about dinner at 6pm, don't",
+      'remind me about dinner at 6pm, kidding',
+      'remind me about dinner at 6pm. never mind',
+      'remind me about dinner at 6pm, actually no',
+      'my market day is saturday, for my brother',
+      "my market day is saturday, my brother's",
+      'my market day is saturday, not mine',
+      'my market day is saturday, actually no',
+      'my market day is saturday, maybe',
+      'my market day is saturday, i think',
+      'my market day is saturday, used to be',
+      'my market day is saturday, last year',
+      "market's saturday, or not",
+      'put parippu on monday, actually tuesday',
+      'put parippu on monday, no wait',
+      'put parippu on monday, or not',
+      "put parippu on monday, don't",
+      'put parippu on monday, for my brother',
+      'put parippu on monday, last week',
+      'put parippu on monday, bitte',
+      'put parippu on monday, por favor',
+      'pick 2, no mushrooms',
+      'pick 2. i hate mushrooms',
+      'pick 2. no spicy',
+    ];
+    await makeApp(silent(texts.length * 2));
+    for (const purposes of [['health_data', 'ai_health'], ['health_data']] as Purpose[][]) {
+      await eachFresh(purposes, texts, (r, text) => expect(codeCards(r), `${purposes.join('+')}: ${text}`).toEqual([]));
+    }
+  });
+
+  test('N6: closed clauses with a neutral clause still make their cards', async () => {
+    await makeApp(silent(3));
+    const r = await (await player(['health_data', 'ai_health'])).turn('remind me about dinner at 6pm, thanks');
+    expect(r.cards.map((c) => c.card.kind)).toEqual(['profile']);
+    const m = await (await player(['health_data', 'ai_health'])).turn("hi pan, my market day is saturday");
+    expect(JSON.stringify(m.cards)).toMatch(/"marketDays":\[6\]/);
+    const p = await (await player(['health_data', 'ai_health'])).turn("put parippu on monday and my market's saturday, thanks");
+    expect(r.cards.length + p.cards.length).toBeGreaterThan(1);
+    expect(p.cards.map((c) => c.card.kind)).toEqual(['plan']); // two weekdays: no market card
+  });
+
+  test('N7: health_data only → the text never reaches the model (needs_ai_health), no code card', async () => {
+    const texts = [
+      "market's saturday, i get headaches",
+      "market's saturday, no beef",
+      'put parippu on monday, i have gout',
+      'put parippu on monday, no beef',
+      'pick 2, no mushrooms',
+      'put parippu on monday. 🥜',
+      'put parippu on monday, sin cacahuetes',
+      'remind me to eat dinner at 6pm, no beef',
+      'remind me to eat dinner at 6pm, or i get dizzy',
+      'remind me to eat dinner at 6pm, my blood sugar drops',
+      'remind me to eat dinner at 6pm, type 2',
+      'remind me to eat dinner at 6pm, sugar free',
+      ...[
+        'beef free', 'sugar free', 'no sugar', 'no alcohol', "i'm fasting", 'ramadan', "it's lent", 'type 2', 'i have gout',
+        'my cholesterol is high', 'high blood pressure', "i'm hypertensive", 'kidney disease', 'ckd', 'anemic', 'low iron',
+        "i'm breastfeeding", 'i get dizzy', 'i feel shaky after', 'my throat gets scratchy', 'no mushrooms', 'no rice',
+        'no lentils', 'no seaweed', 'no spice', 'not too spicy', 'nothing spicy', 'halal', 'kosher', 'low carb', '🦐', '🥛', '🌾',
+      ].map((x) => `put parippu on monday, ${x}`),
+    ];
+    const ai = silent(texts.length);
+    await makeApp(ai);
+    await eachFresh(['health_data'], texts, (r, text) => expect(r, text).toMatchObject({ route: 'scripted', notice: 'needs_ai_health', cards: [] }));
+    expect(ai.requests).toHaveLength(0);
+  });
+
+  test('N7: with ai_health the same texts get no code card and take the health path (an ask or a rule card)', async () => {
+    const texts = [
+      "market's saturday, i get headaches",
+      "market's saturday, no beef",
+      'put parippu on monday, i have gout',
+      'put parippu on monday, no beef',
+      'put parippu on monday. 🥜',
+      'remind me to eat dinner at 6pm, no beef',
+      'remind me to eat dinner at 6pm, type 2',
+    ];
+    await makeApp(silent(texts.length));
+    await eachFresh(['health_data', 'ai_health'], texts, (r, text) => {
+      expect(r.route, text).toBe('ai');
+      expect(codeCards(r), text).toEqual([]);
+      expect(triggers(r).some((t) => HEALTH_LINES.includes(t)) || r.cards.some((c) => c.card.kind === 'rule'), `${text}: ${JSON.stringify(r.parts)}`).toBe(true);
+    });
+  });
+
+  test('N9: a child who spells out their age gets the grown-up line and no card, for either player', async () => {
+    const texts = ["im seven, market's saturday", "i'm twelve, put parippu on monday", 'i am seven years old. remind me about dinner at 6pm', "year 4. market's saturday"];
+    const ai = silent(texts.length * 2);
+    await makeApp(ai);
+    for (const purposes of [['health_data', 'ai_health'], ['health_data']] as Purpose[][]) {
+      await eachFresh(purposes, texts, (r, text) => {
+        expect(r, text).toMatchObject({ route: 'deterministic', cards: [] });
+        expect(triggers(r), text).toEqual(['child.grownup']);
+      });
+    }
+    expect(ai.requests).toHaveLength(0);
+  });
+
+  test('N11 probes: a health turn beyond the meal-time words → no code card (the ask stays with ai_health)', async () => {
+    const texts = ["market's saturday, i'm on a diet", "market's saturday, i'm dieting", "market's saturday, mushrooms are rough after", "put parippu on monday, i'm on a diet"];
+    await makeApp(silent(texts.length));
+    await eachFresh(['health_data', 'ai_health'], texts, (r, text) => {
+      expect(codeCards(r), text).toEqual([]);
+      expect(triggers(r).some((t) => HEALTH_LINES.includes(t)), `${text}: ${JSON.stringify(r.parts)}`).toBe(true);
+    });
+  });
+
+  // N10: each exclusion gate, by behaviour. The canon title "Parippu Curry (Kerala dal with coconut)" names graph
+  // ingredients inside a closed clause, so these messages pass the closed grammar and only the health gate stops them.
+  const COCONUT = 'put the parippu curry (kerala dal with coconut) on monday';
+
+  test('N10 gate: no code plan card on a message with health words (planWordsIn behind !healthWords)', async () => {
+    await makeApp(silent(1));
+    const r = await (await player(['health_data', 'ai_health'])).turn(COCONUT);
+    expect(r.route).toBe('ai');
+    expect(codeCards(r)).toEqual([]);
+  });
+
+  test('N10 gate: no code reminder card on a message with health words (reminderSlots behind !healthWords)', async () => {
+    await makeApp(silent(1));
+    const r = await (await player(['health_data', 'ai_health'])).turn(`${COCONUT} and remind me about dinner at 6pm`);
+    expect(codeCards(r)).toEqual([]);
+  });
+
+  test('N10 gate: no code market card on a message with health words (marketDayStated behind !healthWords)', async () => {
+    await makeApp(silent(1));
+    const r = await (await player(['health_data', 'ai_health'])).turn("put the parippu curry (kerala dal with coconut) on saturday and my market's saturday");
+    expect(codeCards(r)).toEqual([]);
+  });
+
+  test('N10 gate: the diet cue and health words keep a plan message off code cards ("low-fodmap", "it makes me sick")', async () => {
+    await makeApp(silent(2));
+    for (const text of ['put parippu on monday, low-fodmap', 'put parippu on monday, it makes me sick']) {
+      const r = await (await player(['health_data', 'ai_health'])).turn(text);
+      expect(codeCards(r), text).toEqual([]);
+    }
+  });
+
+  test('N10 gate: the code route never runs on a health turn: the allergies intake step, or an open health card', async () => {
+    const ai = fakeAi([reply(''), toolCall('propose_rule', { term: 'peanut', severity: 'anaphylactic' }), reply('')]);
+    await makeApp(ai);
+    // The allergies intake step.
+    const p = await player(['health_data', 'ai_health']);
+    const res = await call(p.cookie, {
+      method: 'POST',
+      url: '/mentor/turn',
+      payload: { conversationId: null, input: { kind: 'text', text: 'plan my week: parippu on Sunday' }, localDate: TODAY, localTime: '18:30', screen: null, intakeStep: 'allergies' },
+    });
+    const r = res.json<TurnResponse>();
+    expect(r.route).not.toBe('deterministic');
+    expect(codeCards(r)).toEqual([]);
+    // An open health card from the previous turn.
+    const q = await player(['health_data', 'ai_health']);
+    const first = await q.turn("I'm allergic to peanuts");
+    expect(first.cards.map((c) => c.card.kind)).toEqual(['rule']);
+    const second = await q.turn('plan my week: parippu on Sunday');
+    expect(second.route).not.toBe('deterministic');
+    expect(codeCards(second)).toEqual([]);
+  });
+
+  test('N10 gate: without the lead, a dish clause needs "put" ("parippu on monday" inside a longer message is no code card)', async () => {
+    await makeApp(silent(2));
+    const r = await (await player(['health_data', 'ai_health'])).turn("my market's saturday and parippu on monday");
+    expect(r.cards.filter((c) => c.card.kind === 'plan')).toEqual([]);
+    const s = await (await player(['health_data', 'ai_health'])).turn("pick 2 and parippu on monday");
+    expect(s.cards.filter((c) => c.card.kind === 'plan')).toEqual([]);
+  });
+});
