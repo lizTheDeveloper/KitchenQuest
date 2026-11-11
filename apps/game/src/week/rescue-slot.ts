@@ -38,7 +38,7 @@ export async function mountRescue(slot: HTMLElement, ctx: AppContext, client: Ap
   slot.replaceChildren(renderRescue(offer, ctx, client, today));
 }
 
-export function renderRescue(offer: RescueOffer, ctx: AppContext, client: ApiClient, today: string): HTMLElement {
+function renderRescue(offer: RescueOffer, ctx: AppContext, client: ApiClient, today: string): HTMLElement {
   const unsure = offer.filled.check.status === 'unverified';
   const item = offer.item.name;
   const text = unsure

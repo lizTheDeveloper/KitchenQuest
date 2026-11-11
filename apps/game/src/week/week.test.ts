@@ -43,7 +43,7 @@ describe('plan view', () => {
     const el = renderPlanView({ weekStart: MON, rows, line: writtenLine, onCook: () => undefined });
     const [blocked, unsure] = [...el.querySelectorAll<HTMLElement>('.plan-item')];
     expect(blocked.querySelector<HTMLButtonElement>('.plan-cook')!.disabled).toBe(true);
-    expect(content.pan.triggers['plan.blocked_dish'].lines.some((l) => blocked.textContent!.includes(l.slice(l.indexOf('}') + 1, l.indexOf('}') + 15)))).toBe(true);
+    expect(content.pan.triggers['plan.blocked_dish'].lines.some((l) => blocked.textContent.includes(l.slice(l.indexOf('}') + 1, l.indexOf('}') + 15)))).toBe(true);
     expect(blocked.querySelector('[data-status]')!.getAttribute('data-status')).toBe('blocked');
     expect(unsure.querySelector<HTMLButtonElement>('.plan-cook')!.disabled).toBe(false);
     expect(unsure.querySelector('.chip')!.getAttribute('data-status')).toBe('unverified');

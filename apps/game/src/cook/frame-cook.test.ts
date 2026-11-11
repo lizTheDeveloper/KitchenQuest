@@ -37,7 +37,7 @@ describe('frame cook', () => {
     await flush();
     const oil = el.querySelector('[data-slot="oil"]')!;
     expect(oil.textContent).toContain(NOTHING_FITS);
-    expect(content.pan.triggers['frame.slot_empty'].lines.some((l) => oil.textContent!.includes(l.slice(l.indexOf('}') + 1, l.indexOf('}') + 12)))).toBe(true);
+    expect(content.pan.triggers['frame.slot_empty'].lines.some((l) => oil.textContent.includes(l.slice(l.indexOf('}') + 1, l.indexOf('}') + 12)))).toBe(true);
     expect(el.querySelector<HTMLButtonElement>('.frame-cook')!.disabled).toBe(true);
     expect(el.querySelector('[data-slot="veg"]')!.textContent).not.toContain('spinach');
     stop();
