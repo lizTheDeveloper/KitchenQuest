@@ -1,3 +1,4 @@
+import { SCREEN_TITLES } from '../shell/titles';
 import type { ApiClient } from '../api/client';
 import { type AppContext, type Screen } from '../shell/app';
 import { deleteOfflineCopy, skipServiceWorkerOnce } from '../pwa/register';
@@ -17,7 +18,7 @@ const within = <T>(p: Promise<T>, ms: number): Promise<T | null> =>
 export function settingsScreen(api: ApiClient): Screen {
   let stops: (() => void)[] = [];
   return {
-    title: 'Settings',
+    title: SCREEN_TITLES.settings,
     mount(el, _route, ctx: AppContext) {
       const set = (patch: Partial<PlayerSettings>) =>
         ctx.store.update((s) => ({ ...s, settings: { ...s.settings, ...patch } }));

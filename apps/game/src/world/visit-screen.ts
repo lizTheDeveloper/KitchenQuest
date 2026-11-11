@@ -1,3 +1,4 @@
+import { SCREEN_TITLES } from '../shell/titles';
 import assets from 'virtual:kq-assets';
 import { content, graph } from '../content';
 import { buildRecipeCard } from '../recipes/card-model';
@@ -18,7 +19,7 @@ const KITCHEN_WIDTH = 640;
 export function visitScreen(): Screen {
   let cleanup: (() => void) | null = null;
   return {
-    title: 'Visit',
+    title: SCREEN_TITLES.visit,
     mount(el, route, ctx) {
       if (route.name !== 'visit' || !Object.hasOwn(content.cooks, route.cookId)) throw new RouteNotFound();
       const id = route.cookId;

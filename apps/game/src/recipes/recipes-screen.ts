@@ -1,3 +1,4 @@
+import { SCREEN_TITLES } from '../shell/titles';
 import { content, graph } from '../content';
 import { type AppContext, type Screen } from '../shell/app';
 import { routeHref } from '../shell/router';
@@ -39,7 +40,7 @@ export function recipesScreen(): Screen {
   let unsubscribe: (() => void) | null = null;
   let stopDate: (() => void) | null = null;
   return {
-    title: 'Recipe shelf',
+    title: SCREEN_TITLES.recipes,
     mount(el, _route, ctx) {
       let key = cardInputsKey(ctx.store.get());
       draw(el, ctx);

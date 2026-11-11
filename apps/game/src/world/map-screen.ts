@@ -1,3 +1,4 @@
+import { SCREEN_TITLES } from '../shell/titles';
 import assets from 'virtual:kq-assets';
 import { content } from '../content';
 import type { CookFile } from '../content/types';
@@ -39,7 +40,7 @@ async function travelPermit(doc: Document, ctx: AppContext, cook: CookFile, sign
 export function mapScreen(): Screen {
   let cleanup: (() => void) | null = null;
   return {
-    title: 'World map',
+    title: SCREEN_TITLES.map,
     mount(el, _route, ctx) {
       const doc = el.ownerDocument;
       let alive = true;

@@ -8,19 +8,20 @@ import { deleteOfflineCopy, noteWaitingUpdate, registerServiceWorker, skipServic
 import { registerRulesScreen } from './rules';
 import { mountApp, registerScreen } from './shell/app';
 import { lazyScreen } from './shell/lazy';
+import { SCREEN_TITLES } from './shell/titles';
 import { registerPlaceholderScreens } from './shell/screens';
 import { createStore, safeLocalStorage } from './state/store';
 
 registerPlaceholderScreens();
 const api = createApiClient();
 // Everything but the kitchen (the landing screen) loads on first visit, so first paint carries only what it draws.
-registerScreen('settings', () => lazyScreen('Settings', async () => (await import('./settings/settings-screen')).settingsScreen(api)));
-registerScreen('recipes', () => lazyScreen('Recipe shelf', async () => (await import('./recipes/recipes-screen')).recipesScreen()));
-registerScreen('recipe', () => lazyScreen('Recipe', async () => (await import('./recipes/recipe-screen')).recipeScreen()));
-registerScreen('cook', () => lazyScreen('Cook', async () => (await import('./cook/cook-screen')).cookScreen()));
+registerScreen('settings', () => lazyScreen(SCREEN_TITLES.settings, async () => (await import('./settings/settings-screen')).settingsScreen(api)));
+registerScreen('recipes', () => lazyScreen(SCREEN_TITLES.recipes, async () => (await import('./recipes/recipes-screen')).recipesScreen()));
+registerScreen('recipe', () => lazyScreen(SCREEN_TITLES.recipe, async () => (await import('./recipes/recipe-screen')).recipeScreen()));
+registerScreen('cook', () => lazyScreen(SCREEN_TITLES.cook, async () => (await import('./cook/cook-screen')).cookScreen()));
 registerKitchenScreen();
-registerScreen('map', () => lazyScreen('World map', async () => (await import('./world/map-screen')).mapScreen()));
-registerScreen('visit', () => lazyScreen('Visit', async () => (await import('./world/visit-screen')).visitScreen()));
+registerScreen('map', () => lazyScreen(SCREEN_TITLES.map, async () => (await import('./world/map-screen')).mapScreen()));
+registerScreen('visit', () => lazyScreen(SCREEN_TITLES.visit, async () => (await import('./world/visit-screen')).visitScreen()));
 registerRulesScreen(); // replaces Step 9's placeholder
 const session = (() => { try { return window.sessionStorage; } catch { return null; } })();
 // Wiped by "Delete everything" in another tab: reload onto the fresh state, without bringing the worker back.

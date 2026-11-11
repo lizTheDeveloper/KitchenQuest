@@ -1,3 +1,4 @@
+import { SCREEN_TITLES } from '../shell/titles';
 import { content, graph } from '../content';
 import { RouteNotFound, type AppContext, type Screen } from '../shell/app';
 import { routeHref } from '../shell/router';
@@ -22,7 +23,7 @@ export function recipeScreen(): Screen {
   let unsubscribe: (() => void) | null = null;
   let stopDate: (() => void) | null = null;
   return {
-    title: 'Recipe',
+    title: SCREEN_TITLES.recipe,
     mount(el, route, ctx) {
       if (route.name !== 'recipe' || !Object.hasOwn(content.recipes, route.slug)) throw new RouteNotFound();
       const { slug } = route;

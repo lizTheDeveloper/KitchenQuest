@@ -63,7 +63,7 @@ export function mountRuleForm(el: HTMLElement, opts: { graph: IngredientGraph; r
 
   let picked: Pick | null = null;
   const showHint = () => {
-    severityHint.textContent = `If you leave this, it is filed as ${severityLabel(picked ? defaultSeverity(picked) : 'anaphylactic')}.`;
+    severityHint.textContent = copy('ui.rules.severity_default', { severity: severityLabel(picked ? defaultSeverity(picked) : 'anaphylactic') });
   };
   showHint();
 
@@ -77,7 +77,7 @@ export function mountRuleForm(el: HTMLElement, opts: { graph: IngredientGraph; r
         picked = p;
         for (const x of list.querySelectorAll('button')) x.setAttribute('aria-pressed', 'false');
         b.setAttribute('aria-pressed', 'true');
-        chosen.textContent = `Chosen: ${p.kind === 'term' ? p.term.name : p.name}`;
+        chosen.textContent = copy('ui.rules.chosen', { name: p.kind === 'term' ? p.term.name : p.name });
         fill.disabled = false;
         showHint();
       });

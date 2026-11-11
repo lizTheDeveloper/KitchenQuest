@@ -1,3 +1,4 @@
+import { SCREEN_TITLES } from '../shell/titles';
 import { recordTechnique, timerSeconds, type ParsedRecipe, type RecipeIngredient, type StepItem } from '@kitchenquest/core/engine';
 import { content, graph, techniqueName } from '../content';
 import { getMentor } from '../mentor';
@@ -51,7 +52,7 @@ function refusal(card: RecipeCard): HTMLElement {
 export function cookScreen(): Screen {
   let cleanup: (() => void) | null = null;
   return {
-    title: 'Cook',
+    title: SCREEN_TITLES.cook,
     mount(el, route, ctx) {
       if (route.name !== 'cook' || !Object.hasOwn(content.recipes, route.slug)) throw new RouteNotFound();
       const { slug } = route;

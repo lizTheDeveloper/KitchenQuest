@@ -81,6 +81,9 @@ export const REQUIRED_PAN_TRIGGERS: readonly string[] = [
   'intake.complete',
   // Screen copy: Your rules and Settings > The Pan (src/content/copy.ts).
   'ui.rules.undo_failed',
+  'ui.rules.severity_default',
+  'ui.rules.chosen',
+  'ui.rules.stamped_line',
   'ui.rules.bad_rule',
   'ui.rules.unreadable_confirm',
   'ui.rules.unreadable_empty',

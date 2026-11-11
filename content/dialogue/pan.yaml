@@ -1483,3 +1483,27 @@ triggers:
     when: The player taps a raise whose severity is not stricter than what the account now holds (it changed elsewhere). Nothing is written.
     lines:
       - "Your account already has that rule at the same level or stricter, so nothing was changed. Check Your rules."
+
+  ui.rules.severity_default:
+    ai: never
+    when: "Rule form: under the severity box; says what level the card is made out at if the player chooses none."
+    vars:
+      severity: "the default level in words, e.g. 'a Severe allergy'"
+    lines:
+      - "If you leave this, it is filed as {severity}."
+
+  ui.rules.chosen:
+    ai: never
+    when: "Rule form: the ingredient or diet rule the player picked."
+    vars:
+      name: "the ingredient or rule name"
+    lines:
+      - "Chosen: {name}"
+
+  ui.rules.stamped_line:
+    ai: never
+    when: "Your rules: after a card is stamped on this screen."
+    vars:
+      summary: "the trail summary, e.g. 'coconut, an allergy'"
+    lines:
+      - "✔ Stamped: {summary}"

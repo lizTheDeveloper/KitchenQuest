@@ -1,3 +1,4 @@
+import { SCREEN_TITLES } from '../shell/titles';
 import {
   buildRuleCard, SEVERE, SEVERITY_WORDS, validateRules,
   type IngredientGraph, type Rule, type RuleCard, type RuleTerm, type TrailEntry,
@@ -56,7 +57,7 @@ export function rulesScreen(): Screen {
   let stops: (() => void)[] = [];
   let leaving: AbortController | null = null;
   return {
-    title: 'Your rules',
+    title: SCREEN_TITLES.rules,
     mount(el, _route, ctx: AppContext) {
       const { client, writer, dialogue } = getMentorServices();
       const forms = content.bureau.forms;
@@ -98,7 +99,7 @@ export function rulesScreen(): Screen {
               return { ok: false as const, reason: 'network' as const, items: [] };
             });
             if (out.ok) {
-              box.replaceChildren(h('p', { class: 'rules-stamped' }, `✔ Stamped: ${out.trail.summary}`));
+              box.replaceChildren(h('p', { class: 'rules-stamped' }, copy('ui.rules.stamped_line', { summary: out.trail.summary })));
               // A raise has an undo like any mentor write. The list below redraws (the card's own box goes), so the entry lives in the status area.
               tell(...saidNodes(out.items), ...(write ? [trailEntry(out.trail)] : []));
               onDone();
