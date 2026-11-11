@@ -108,3 +108,18 @@ describe('the book export (M5 Step 11)', () => {
       .toBe('used chickpeas instead of lentils; left out chilli; less salt');
   });
 });
+
+describe('fix M3/M9: the export never carries an email', () => {
+  test('redactNotes removes the account email and any email-like string from the text and every ingredient-change field', async () => {
+    const { redactNotes } = await import('./book-export');
+    const n: BookNote = {
+      recipe: PARIPPU, id: 'n1', at: '2026-11-10', text: 'ask Cook@Example.com or x.y+z@mail.example.org',
+      ops: [{ op: 'add', name: 'me@here.io' }, { op: 'swap', from: 'a@b.co', to: 'c@d.co' }, { op: 'remove', name: 'chilli' }],
+    };
+    const [r] = redactNotes([n], 'cook@example.com');
+    expect(JSON.stringify(r)).not.toMatch(/@/);
+    expect(r.ops[2]).toEqual({ op: 'remove', name: 'chilli' });
+    const html = await bookFile(bookPages(view({ cookedOn: { [PARIPPU]: ['2026-11-05'] } }), content, notesBySlug(redactNotes([n], 'cook@example.com')), NO_TALLY), new Map()).text();
+    expect(html).not.toMatch(/[\w.+-]+@[\w-]+\.\w/);
+  });
+});

@@ -11,7 +11,7 @@ import { routeHref } from '../shell/router';
 import { SCREEN_TITLES } from '../shell/titles';
 import { contentText, h } from '../ui/dom';
 import { cookWithNotes } from '../cook/with-notes';
-import { BOOK_FILE_NAME, bookFile } from './book-export';
+import { BOOK_FILE_NAME, bookFile, redactNotes } from './book-export';
 import { bookPages, NO_TALLY, notesBySlug, type BookNote, type BookPage } from './book-model';
 import { fmtDate, notesPanel } from './notes-panel';
 
@@ -29,25 +29,31 @@ const INTRO = 'One page for each dish a cook has taught you, in the order you fi
 const NOTES_UNREAD = "Your margin notes couldn't be loaded just now, so they aren't shown. They're safe; try again in a moment.";
 const DOWNLOAD = 'Download my book';
 
-interface BookData { notes: BookNote[]; tally: SharedTally; notesLoaded: boolean }
+/**
+ * `notesShown`: the notes were read and may be shown (signed in, not Family Table). `unread`: they should have been,
+ * but GET /notes failed.
+ */
+interface BookData { notes: BookNote[]; tally: SharedTally; notesShown: boolean; unread: boolean }
 
-async function loadBook(client: ApiClient, signedIn: boolean): Promise<BookData> {
-  if (!signedIn) return { notes: [], tally: NO_TALLY, notesLoaded: true };
+/**
+ * The book's private data. Signed out there is none. In Family Table mode (§19, Ruling 25, C31, fix I1) none is even
+ * read: no margin notes (health data) and no Shared Table count, so a child at the screen sees dishes, dates and
+ * techniques only, and the export holds nothing else.
+ */
+export async function loadBook(client: ApiClient, who: { signedIn: boolean; familyTable: boolean }): Promise<BookData> {
+  if (!who.signedIn || who.familyTable) return { notes: [], tally: NO_TALLY, notesShown: false, unread: false };
   const [n, t] = await Promise.all([client.listNotes(), client.sharedTally()]);
   // Read defensively: what the server sent is data, never trusted for shape.
   const rawNotes: unknown = n.ok ? (n.data as { notes?: unknown }).notes : null;
   const notes = Array.isArray(rawNotes) ? (rawNotes as BookNote[]) : [];
   const rawTally: unknown = t.ok ? t.data : null;
   const ok = typeof rawTally === 'object' && rawTally !== null && typeof (rawTally as { byRecipe?: unknown }).byRecipe === 'object' && (rawTally as { byRecipe?: unknown }).byRecipe !== null;
-  return { notes, tally: ok ? (rawTally as SharedTally) : NO_TALLY, notesLoaded: n.ok && Array.isArray(rawNotes) };
+  const read = n.ok && Array.isArray(rawNotes);
+  return { notes, tally: ok ? (rawTally as SharedTally) : NO_TALLY, notesShown: read, unread: !read };
 }
 
 /** The account's email never goes into the file, even quoted in a note. */
-function redact(notes: readonly BookNote[], email: string | null): BookNote[] {
-  if (email === null || email === '') return [...notes];
-  const re = new RegExp(email.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
-  return notes.map((n) => (n.text === null ? n : { ...n, text: n.text.replace(re, '[your email]') }));
-}
+
 
 export function bookScreen(client: ApiClient): Screen {
   let alive = true;
@@ -61,29 +67,34 @@ export function bookScreen(client: ApiClient): Screen {
       el.replaceChildren(h('h1', { tabindex: -1 }, SCREEN_TITLES.book), h('p', { role: 'status' }, 'Opening the book…'));
       const svc = await progressService();
       if (!alive) return;
-      let shownFor: string | null | undefined;
+      let shownFor: string | undefined;
       let data: BookData | null = null;
       let viewKey = '';
       /** What the book shows from progress: a redraw happens only when one of these changes. */
       const keyOf = () => { const v = svc.view(); return JSON.stringify([v.cookedOn, v.framesCookedOn, v.questsDone, v.toolkit]); };
+      /** Whose book it is: the account and the mode. A change of either drops what was shown at once (M1). */
+      const sessionOf = () => { const st = ctx.store.get(); return JSON.stringify([st.account?.email ?? null, st.settings.familyTable]); };
       const draw = async () => {
-        const email = ctx.store.get().account?.email ?? null;
-        if (email !== shownFor) {
-          shownFor = email;
+        const session = sessionOf();
+        const st = ctx.store.get();
+        const email = st.account?.email ?? null;
+        if (session !== shownFor) {
+          shownFor = session;
           data = null;
-          const loaded = await loadBook(client, email !== null);
+          // The old session's page (its notes, its Download) goes now, not when the new data lands.
+          el.replaceChildren(h('h1', { tabindex: -1 }, SCREEN_TITLES.book), h('p', { role: 'status' }, 'Opening the book…'));
+          const loaded = await loadBook(client, { signedIn: email !== null, familyTable: st.settings.familyTable });
           // The book is the signed-in session's: a sign-out or another account meanwhile shows nothing of it.
-          if (!alive || (ctx.store.get().account?.email ?? null) !== email) return;
+          if (!alive || sessionOf() !== session) return;
           data = loaded;
         }
         if (data === null) return;
         viewKey = keyOf();
-        render(el, slug, ctx, svc.view(), data, email, client);
+        render(el, slug, ctx, svc.view(), data, { email, familyTable: st.settings.familyTable }, client);
       };
       await draw();
       stops.push(svc.subscribe(() => {
-        const email = ctx.store.get().account?.email ?? null;
-        if (alive && (email !== shownFor || keyOf() !== viewKey)) void draw();
+        if (alive && (sessionOf() !== shownFor || keyOf() !== viewKey)) void draw();
       }));
     },
     unmount() { alive = false; for (const stop of stops.splice(0)) stop(); },
@@ -92,18 +103,21 @@ export function bookScreen(client: ApiClient): Screen {
 
 const NOT_IN_BOOK = "This dish isn't in your book yet. A page is written once a cook has taught it to you.";
 
-function render(el: HTMLElement, slug: string | null, ctx: AppContext, view: ProgressView, data: BookData, email: string | null, client: ApiClient): void {
+function render(
+  el: HTMLElement, slug: string | null, ctx: AppContext, view: ProgressView, data: BookData, who: { email: string | null; familyTable: boolean }, client: ApiClient,
+): void {
+  const { email } = who;
   const pages = bookPages(view, content, notesBySlug(data.notes), data.tally);
   const status = h('p', { class: 'book-status', role: 'status', 'data-content': '' });
   const download = h('button', { type: 'button', class: 'btn btn-secondary book-download' }, DOWNLOAD);
   download.addEventListener('click', () => {
-    const file = bookFile(bookPages(view, content, notesBySlug(redact(data.notes, email)), data.tally),
+    const file = bookFile(bookPages(view, content, notesBySlug(redactNotes(data.notes, email)), data.tally),
       new Map(pages.dishes.map((p) => [p.slug, content.recipes[p.slug].source])));
     saveFile(el.ownerDocument, file);
     status.textContent = getMentorServices().dialogue.say('book.exported').text;
   });
   const tail = [h('div', { class: 'button-row' }, download), status];
-  const unread = data.notesLoaded ? null : h('p', { class: 'book-notes-unread' }, NOTES_UNREAD);
+  const unread = data.unread ? h('p', { class: 'book-notes-unread' }, NOTES_UNREAD) : null;
   const back = h('p', null, h('a', { href: routeHref({ name: 'book', slug: null }) }, 'Back to the Recipe Book'));
   if (slug === null) { el.replaceChildren(...bookIndex(pages), ...(unread ? [unread] : []), ...tail); return; }
   const page = pages.dishes.find((p) => p.slug === slug);
@@ -111,8 +125,10 @@ function render(el: HTMLElement, slug: string | null, ctx: AppContext, view: Pro
   if (page === undefined) { el.replaceChildren(h('h1', { tabindex: -1 }, SCREEN_TITLES.book), h('p', null, NOT_IN_BOOK), back); return; }
   el.ownerDocument.title = `${page.dish} · Kitchen Quest`;
   const notesSlot = h('div', { class: 'book-notes-slot' });
-  el.replaceChildren(...dishPage(page), ...(unread ? [unread] : [notesSlot]), ...tail, back);
-  if (data.notesLoaded) mountNotes(notesSlot, page, ctx, client);
+  // Family Table (fix I1): no notes panel at all (no notes, no text box, no delete). Signed out it says notes need an account.
+  const panel = !who.familyTable && unread === null;
+  el.replaceChildren(...dishPage(page), ...(unread ? [unread] : panel ? [notesSlot] : []), ...tail, back);
+  if (panel) mountNotes(notesSlot, page, ctx, client);
 }
 
 function bookIndex(pages: ReturnType<typeof bookPages>): HTMLElement[] {
@@ -156,7 +172,12 @@ function mountNotes(slot: HTMLElement, page: BookPage, ctx: AppContext, client: 
     rules: () => activeRules(store.get(), graph),
     notes: () => Promise.resolve(page.notes),
     askConsent: (box) => askConsentIn(box, client),
-    cook: (notes) => { cookWithNotes(page.slug, notes); ctx.navigate({ name: 'cook', slug: page.slug }); },
+    cook: (notes) => {
+      const email = store.get().account?.email;
+      if (email === undefined) return;
+      cookWithNotes(page.slug, notes, email);
+      ctx.navigate({ name: 'cook', slug: page.slug });
+    },
   });
 }
 

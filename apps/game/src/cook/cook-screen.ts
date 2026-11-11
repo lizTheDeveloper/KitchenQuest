@@ -50,7 +50,7 @@ export function cookScreen(): Screen {
       if (route.name !== 'cook' || !Object.hasOwn(content.recipes, route.slug)) throw new RouteNotFound();
       const { slug } = route;
       // "Cook with my notes" (Step 11): the notes the book handed over, applied to a copy; the canon is never changed.
-      const notes = takeNotes(slug);
+      const notes = takeNotes(slug, ctx.store.get().account?.email ?? null);
       const recipe: ParsedRecipe = notes === null ? content.recipes[slug] : applyNotes(content.recipes[slug], notes);
       const cook = content.cooks[recipe.meta.cook];
 

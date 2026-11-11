@@ -89,3 +89,20 @@ export function bookFile(pages: { dishes: BookPage[]; frames: FramePage[] }, rec
   ].join('\n');
   return new Blob([html], { type: 'text/html' });
 }
+
+const EMAIL_LIKE = /[\p{L}\p{N}._%+-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+/gu;
+const REDACTED = '[an email address]';
+
+/**
+ * The notes as they may go into the file (fix M3): the account's email, and anything shaped like an email address,
+ * replaced in the text and in every ingredient-change field. The player's notes are otherwise untouched.
+ */
+export function redactNotes<N extends Pick<BookNote, 'ops' | 'text'>>(notes: readonly N[], email: string | null): N[] {
+  const exact = email === null || email === '' ? null : new RegExp(email.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+  const clean = (t: string): string => (exact === null ? t : t.replace(exact, REDACTED)).replace(EMAIL_LIKE, REDACTED);
+  return notes.map((n) => ({
+    ...n,
+    text: n.text === null ? null : clean(n.text),
+    ops: n.ops.map((op): NoteOp => (op.op === 'swap' ? { op: 'swap', from: clean(op.from), to: clean(op.to) } : { op: op.op, name: clean(op.name) })),
+  }));
+}

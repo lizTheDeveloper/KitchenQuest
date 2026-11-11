@@ -893,3 +893,12 @@ describe('M5 Step 11: book cards (margin notes, Cooked for Someone)', () => {
     expect(await writer.unkeep('margin_note', 'n1')).toBe('failed');
   });
 });
+
+describe('M5 Step 11 fix I1: Family Table writes nothing from the book', () => {
+  test('unkeep in Family Table calls nothing (no DELETE)', async () => {
+    const { calls, writer } = setup({ deleteNote: () => ok(null, 204), deleteShared: () => ok(null, 204) }, { ...signedIn, settings: { ...createStore(null).get().settings, familyTable: true } });
+    expect(await writer.unkeep('margin_note', 'n1')).toBe('family_table');
+    expect(await writer.unkeep('cooked_for', 's1')).toBe('family_table');
+    expect(calls).toEqual([]);
+  });
+});

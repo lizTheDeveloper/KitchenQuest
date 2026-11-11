@@ -74,7 +74,7 @@ export interface CardWriter {
    */
   keep(card: BookCard): Promise<KeepOutcome>;
   /** Undo a kept book card: deletes exactly that row (a row already gone counts as undone). Never touches anything earned. */
-  unkeep(kind: BookCard['kind'], id: string): Promise<'undone' | 'failed'>;
+  unkeep(kind: BookCard['kind'], id: string): Promise<'undone' | 'failed' | 'family_table'>;
 }
 
 /** Strictest first: a raise may only move a rule up this ranking. */
@@ -539,6 +539,7 @@ export function createCardWriter(deps: {
     },
 
     async unkeep(kind, id) {
+      if (familyTable()) return 'family_table'; // §19, fix I1: Family Table deletes nothing
       const r = kind === 'margin_note' ? await client.deleteNote(id) : await client.deleteShared(id);
       return r.ok || r.status === 404 ? 'undone' : 'failed';
     },

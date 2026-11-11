@@ -69,6 +69,24 @@ describe('the Recipe Book (M5 Step 11)', () => {
     expect(app.consoleErrors).toEqual([]);
   });
 
+  it('Family Table (fix I1): dishes, dates and techniques only; no notes, no tally, no text box, no writes; the export holds no notes', async () => {
+    const sent: Request[] = [];
+    const settings = { showCalories: false, reducedMotion: 'system' as const, familyTable: true, iosNoteDismissed: false, aiMentor: false, rescueNudges: false };
+    app = await openApp(`/#/book/${PARIPPU}`, { reducedMotion: true, seed: { ...PAN_READY, settings }, beforeGoto: (page) => signedIn(page, sent) });
+    const { page } = app;
+    await page.locator('.book-techniques').waitFor();
+    await expectNoA11yViolations(page, 'book page, Family Table');
+    expect(await page.locator('.book-notes-panel, textarea, input[type="text"], .book-note-delete, .book-shared').count()).toBe(0);
+    expect(await page.locator('#view').textContent()).not.toContain('more garlic');
+    const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download my book' }).click()]);
+    const html = readFileSync(await download.path(), 'utf8');
+    expect(html).not.toContain('more garlic');
+    expect(html).not.toContain('Your margin notes');
+    expect(html).not.toContain('Shared at your table');
+    expect(sent.filter((r) => /\/api\/(notes|shared-table)/.test(new URL(r.url()).pathname))).toEqual([]);
+    expect(sent.filter((r) => r.method() !== 'GET')).toEqual([]);
+  });
+
   it('signed out: the book shows the device\'s progress, no notes, and still downloads', async () => {
     app = await openApp('/#/book', { reducedMotion: true, seed: PAN_READY });
     const { page } = app;
