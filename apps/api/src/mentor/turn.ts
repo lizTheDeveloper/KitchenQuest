@@ -478,7 +478,7 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
   // Fix round 5 (5c ruling): a correction cue ("no wait", "actually", "instead", "scratch that", "i mean") means no
   // plan or profile card from code or from the model; the asks say which day, time or market day the player means.
   const corrected = correctionAsks(f.raw, dishes);
-  if (correctionCue(f.raw)) {
+  if (correctionCue(f.raw, dishes)) {
     for (const c of calls) {
       if (c.name === 'propose_plan') for (const d of c.args.days ?? []) corrected.push({ trigger: 'plan.which_day', vars: { dish: d.dish } });
       if (c.name === 'propose_profile') {

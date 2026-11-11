@@ -590,10 +590,10 @@ const DIET_CUE =
 /**
  * Restriction forms on any word (N7): "no X", "X free", "sin X", "zero X", "not too X". The only exceptions are words
  * that are never food: "no thanks", "no problem", "no idea", "no money" (M4's "I have no money, what can I cook"),
- * "no time"; and "free" after a person, a verb or an adverb ("i'm free", "feel free", "for free").
+ * "no time", "no wait" (adjudication B: a correction, not a restriction); and "free" after a person, a verb or an adverb ("i'm free", "feel free", "for free").
  */
 const RESTRICTION_CUES: readonly RegExp[] = [
-  /\bno\s+(?!(?:thanks?|thank you|thx|problems?|probs|worries|worry|idea|clue|rush|money|cash|time)\b)\p{L}/u,
+  /\bno\s+(?!(?:thanks?|thank you|thx|problems?|probs|worries|worry|idea|clue|rush|money|cash|time|wait)\b)\p{L}/u,
   /(?<![\p{L}\p{N}'-])(?!(?:feel|for|i'?m|im|am|is|are|was|were|be|been|being|get|got|set|you|me|we|they|he|she|it'?s|it|totally|completely|so|very|pretty|really|break|toll|tax|duty|scot|hands|fancy|stay|keep|run|roam|home|walk)\s+free\b)\p{L}[\p{L}'-]*\s+free\b/u,
   /\b(?:sin|sans|ohne|senza|zonder|zero)\s+\p{L}/u,
   /\bnot too \p{L}/u,
@@ -672,8 +672,8 @@ type ClosedPlan = { days: { weekday: string; dish: string }[] | null; pick: numb
  */
 export function planIntent(text: string, dishes: readonly { slug: string; title: string }[]): ClosedPlan | null {
   const own = ownClauseText(text);
-  if (own === null || CORRECTION_CUE.test(own)) return null;
   const forms = dishForms(dishes);
+  if (own === null || correctionIn(own, forms)) return null;
   const s = own.replace(/[.!?]+$/, '');
   const lead = LEAD.exec(s);
   const clauses = closedSplit(lead ? s.slice(lead[0].length) : s);
@@ -719,9 +719,33 @@ const closedSplit = (own: string): string[] =>
  * "i mean"). Code builds no plan or profile card from such a message, and the model's are dropped too: the ask
  * (`correctionAsks`) instead. Over-catches on purpose ("I actually like Mondays").
  */
-const CORRECTION_CUE = /\b(?:no,? wait|wait,? no|actually|instead|scratch that|i mean|i meant)\b/;
-export function correctionCue(text: string): boolean {
-  return CORRECTION_CUE.test(normalizeTurn(ownWords(text)));
+const CORRECTION_CUE = /\b(?:no,? wait|wait,? no|instead|scratch that|i mean|i meant)\b/;
+/**
+ * Adjudication B: "actually" is a cue only when a time, a weekday or a dish follows within 3 words, with only
+ * connecting words between ("actually 7", "actually make it tuesday", "actually, the onigiri"); "I actually like
+ * parippu" is no correction.
+ */
+const ACTUALLY_CONNECTOR = /^(?:make|it|its|it's|to|on|at|for|the|a|put|have|do|i|mean|no|wait|that|then|um|er|erm|uh)$/;
+const TIME_TOKEN = /^(?:\d{1,2}(?:[:.]\d{2})?(?:am|pm|ish)?|am|pm|noon|midday|midnight|half|quarter|o'?clock)$/;
+const WEEKDAY_TOKEN = new RegExp(`^${WD}$`);
+function actuallyCue(own: string, forms: ReadonlySet<string>): boolean {
+  const words = own.replace(/[^\p{L}\p{N}':.\s]+/gu, ' ').replace(/[.]+(?=\s|$)/g, ' ').split(/\s+/).filter((w) => w !== '');
+  for (let i = 0; i < words.length; i++) {
+    if (words[i] !== 'actually') continue;
+    for (let k = i + 1; k <= i + 3 && k < words.length; k++) {
+      const w = words[k];
+      if (TIME_TOKEN.test(w) || WEEKDAY_TOKEN.test(w)) return true;
+      const rest = words.slice(k).join(' ');
+      if ([...forms].some((f) => rest === f || rest.startsWith(`${f} `))) return true;
+      if (!ACTUALLY_CONNECTOR.test(w)) break;
+    }
+  }
+  return false;
+}
+/** A correction cue in the player's own words (normalised `own`), with the canon dish forms for "actually". */
+const correctionIn = (own: string, forms: ReadonlySet<string>): boolean => CORRECTION_CUE.test(own) || actuallyCue(own, forms);
+export function correctionCue(text: string, dishes: readonly { slug: string; title: string }[] = []): boolean {
+  return correctionIn(normalizeTurn(ownWords(text)), dishForms(dishes));
 }
 /** The which-time ask after a corrected meal time (5c): a required, `ai: never` line naming the meal. */
 export const CORRECTION_TIME_TRIGGER = 'profile.which_time';
@@ -785,8 +809,8 @@ const pantryClause = (c: string): boolean =>
  */
 function codeClauses(text: string, dishes: readonly { slug: string; title: string }[]): { own: string; clauses: CodeClause[] } | null {
   const own = ownClauseText(text);
-  if (own === null || CORRECTION_CUE.test(own)) return null;
   const forms = dishForms(dishes);
+  if (own === null || correctionIn(own, forms)) return null;
   const clauses: CodeClause[] = [];
   for (const c of closedSplit(own)) {
     const read = codeClause(c, forms);
@@ -865,9 +889,10 @@ export function marketDayStated(text: string, dishes: readonly { slug: string; t
  */
 export function correctionAsks(text: string, dishes: readonly { slug: string; title: string }[]): LineRef[] {
   const own = normalizeTurn(ownWords(text));
-  if (!CORRECTION_CUE.test(own)) return [];
+  if (!correctionIn(own, dishForms(dishes))) return [];
   const asks: LineRef[] = [];
-  if (parseClock(own) !== null) {
+  // A time M4's clock parser reads, or a bare hour ("dinner at 6, actually 7"): the ask only, never a card.
+  if (parseClock(own) !== null || /\b\d{1,2}(?:[:.]\d{2})?\b/.test(own)) {
     for (const [word, slot] of Object.entries(SLOT_FORMS)) {
       if (new RegExp(`\\b${word}\\b`).test(own) && !asks.some((a) => a.vars.meal === slot)) asks.push(line(CORRECTION_TIME_TRIGGER, { meal: slot }));
     }

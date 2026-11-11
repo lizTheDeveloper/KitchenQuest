@@ -93,6 +93,59 @@ function finishOf(reason: string | null | undefined): 'stop' | 'tool_calls' | 'l
   return reason === 'stop' || reason === 'tool_calls' || reason === 'length' ? reason : 'other';
 }
 
+/** Adjudication A: a provider markup suffix on a string argument, from its first `<parameter` / `</parameter` on. */
+const MARKUP_SUFFIX = /\s*<\/?parameter[^]*$/;
+/** The suffix may hold markup tokens only: `</parameter>`, `<parameter=name>`, a lone `<` or `>`, whitespace. */
+const MARKUP_ONLY = /^(?:\s+|<\/?parameter(?:=[\w-]*)?>?|<|>)*$/;
+
+/** The JSON types a parameter schema allows (`type`, or each branch of `anyOf` / `oneOf`). */
+function schemaTypes(schema: unknown): string[] {
+  if (typeof schema !== 'object' || schema === null) return [];
+  const s = schema as { type?: unknown; anyOf?: unknown[]; oneOf?: unknown[] };
+  return [...(typeof s.type === 'string' ? [s.type] : []), ...[...(s.anyOf ?? []), ...(s.oneOf ?? [])].flatMap(schemaTypes)];
+}
+
+/**
+ * M5 Step 8 adjudication A: the provider's tool-call parser can leak its own markup into the model's last argument
+ * (`"null\n</parameter>\n<"`, `"[…]\n</parameter"`). For each top-level string argument: a trailing suffix that is
+ * only provider markup is cut; then, where the tool's schema says array or object, a string that is valid JSON is
+ * decoded. Nothing else changes, and the caller's strict validation, R5 verbatim checks and filters run on the
+ * result as before. Model tool arguments only: never the player's text or the model's text. Unchanged arguments are
+ * returned as given, byte for byte.
+ */
+export function normaliseToolArguments(args: string, parameters: Record<string, unknown>): string {
+  let value: unknown;
+  try {
+    value = JSON.parse(args);
+  } catch {
+    return args;
+  }
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return args;
+  const props = (parameters.properties ?? {}) as Record<string, unknown>;
+  const out: Record<string, unknown> = { ...(value as Record<string, unknown>) };
+  let changed = false;
+  for (const [key, v] of Object.entries(out)) {
+    if (typeof v !== 'string') continue;
+    let next: unknown = v;
+    const m = MARKUP_SUFFIX.exec(v);
+    if (m !== null && MARKUP_ONLY.test(m[0])) next = v.slice(0, m.index);
+    const types = schemaTypes(props[key]);
+    if (typeof next === 'string' && (types.includes('array') || types.includes('object'))) {
+      try {
+        const decoded: unknown = JSON.parse(next);
+        if (typeof decoded === 'object' && decoded !== null) next = decoded;
+      } catch {
+        // Not JSON: left as a string, and the validator rejects it.
+      }
+    }
+    if (next !== v) {
+      out[key] = next;
+      changed = true;
+    }
+  }
+  return changed ? JSON.stringify(out) : args;
+}
+
 type Attempt = AiResult | { ok: false; failure: AiFailure; status?: number; retry: boolean };
 
 export function createOpenRouterProvider(
@@ -167,7 +220,15 @@ export function createOpenRouterProvider(
       await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
       r = await attempt(body, req.signal);
     }
-    if (r.ok) return r;
+    if (r.ok) {
+      // Adjudication A: the request's own tool schemas say which arguments may be decoded.
+      const schemas = new Map(req.tools.map((t) => [t.name, t.parameters]));
+      const toolCalls = r.toolCalls.map((c) => {
+        const params = schemas.get(c.name);
+        return params === undefined ? c : { ...c, arguments: normaliseToolArguments(c.arguments, params) };
+      });
+      return { ...r, toolCalls };
+    }
     const failure: AiResult = { ok: false, failure: r.failure, ...(r.status === undefined ? {} : { status: r.status }) };
     // C-15: the failure kind and status only. Never a body, a prompt or an error message.
     deps.log.warn({ ai: 'openrouter', failure: r.failure, ...(r.status === undefined ? {} : { status: r.status }) }, 'ai call failed');

@@ -40,7 +40,7 @@ describe('adjudication A: normalised provider artifacts, then the unchanged stri
   const parse = (args: object) => parseToolCall({ id: 'c', name: 'propose_profile', arguments: normaliseToolArguments(JSON.stringify(args), params) });
 
   test('the eval5 payload parses to the dinner window', () => {
-    expect(parse({ meal_windows: '[{"name": "dinner", "start": "18:30"}]\n</parameter' })?.args.meal_windows).toEqual([{ name: 'dinner', start: '18:30' }]);
+    expect(parse({ meal_windows: '[{"name": "dinner", "start": "18:30"}]\n</parameter' })?.args).toMatchObject({ meal_windows: [{ name: 'dinner', start: '18:30' }] });
   });
 
   test('the eval4 payload is still rejected (an integer is never decoded)', () => {
