@@ -30,6 +30,7 @@ const riddleOption = obj({ text: z.string(), correct: z.boolean(), reaction: z.s
 
 const questStep = z.discriminatedUnion('type', [
   obj({ type: z.literal('talk'), lines: z.array(z.string()).min(1) }),
+  obj({ type: z.literal('travel'), place: z.string(), lines: z.array(z.string()) }),
   obj({
     type: z.literal('riddle'),
     prompt: z.string(),
@@ -37,8 +38,18 @@ const questStep = z.discriminatedUnion('type', [
     explain: z.string(),
   }),
   obj({ type: z.literal('drill'), skill: z.string(), prompt: z.string(), lines: z.array(z.string()).min(1) }),
-  obj({ type: z.literal('errand'), stall: z.string(), item: z.string(), lines: z.array(z.string()).min(1) }),
-  obj({ type: z.literal('cook'), recipe: z.string() }),
+  obj({
+    type: z.literal('errand'),
+    stall: z.string(),
+    item: z.string(),
+    lines: z.array(z.string()).min(1),
+    /** What the cook says instead when the player's rules block the item (M5 Step 2). */
+    adapted: z.array(z.string()).optional(),
+  }),
+  /** Audit M-3. Empty `lines` and `otherwise` in M5: the game speaks the Pan's quest.recognize line instead. */
+  obj({ type: z.literal('recognize'), technique: z.string(), lines: z.array(z.string()), otherwise: z.array(z.string()) }),
+  /** `technique` (optional) narrows the stand-ins for a rule-blocked dish to that one of the recipe's skills. */
+  obj({ type: z.literal('cook'), recipe: z.string(), technique: z.string().optional() }),
 ]);
 
 const quest = obj({
@@ -113,10 +124,17 @@ export const bureauFile = obj({
   disclaimers: z.record(z.string(), z.string()),
 });
 
+/** Only the freshness shape here: the per-technique checks (adjacent, prereqs) are core's `validateTechniques`. */
 export const techniquesFile = obj({
   freshness: obj({ warm_after_days: z.number(), rusty_after_days: z.number() }),
-  techniques: z.array(obj({ id: z.string(), name: z.string() })),
+  techniques: z.array(z.unknown()),
 });
+
+// Checked by core (validateRewards, validateFrames, validateKeeps, validateStallMap, validateFoodGroups), whose
+// messages name the field; the schemas only check the top-level shape.
+export const rewardsFile = z.unknown();
+export const frameFile = z.unknown();
+export const idMapFile = z.record(z.string(), z.unknown());
 
 export const ingredientsFile = obj({ ingredients: z.array(obj({ id: z.string(), name: z.string() })) });
 /** Only "a list" here: the per-term checks are core's `validateRuleTerms`, whose messages name the term. */

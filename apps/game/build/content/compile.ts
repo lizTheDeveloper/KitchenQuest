@@ -4,14 +4,28 @@ import type { ZodType } from 'zod';
 import {
   IngredientGraph,
   parseRecipe,
+  STALL_IDS,
   timerSeconds,
+  validateFoodGroups,
+  validateFrames,
+  validateKeeps,
+  validateQuests,
+  validateRewards,
   validateRuleTerms,
+  validateStallMap,
   validateSubstitutions,
+  validateTechniques,
   validateThresholds,
+  type FoodGroups,
   type IngredientData,
+  type KeepsMap,
   type ParsedRecipe,
+  type RewardsData,
   type RuleTerm,
+  type StallId,
+  type StallMap,
   type Substitution,
+  type TechniqueNode,
 } from '@kitchenquest/core';
 import { REQUIRED_DISCLAIMERS, REQUIRED_PAN_TRIGGERS } from '../../src/content/required';
 import type {
@@ -19,6 +33,7 @@ import type {
   BureauForm,
   LineTrigger,
   CookFile,
+  FrameFile,
   GameContent,
   LineBank,
   StallFile,
@@ -29,8 +44,11 @@ import {
   bureauFile,
   cookFile,
   FOOTNOTE_TAGS,
+  frameFile,
+  idMapFile,
   ingredientsFile,
   lineBank,
+  rewardsFile,
   ruleTermsFile,
   stallFile,
   substitutionsFile,
@@ -52,6 +70,15 @@ const TECHNIQUES = 'data/techniques.yaml';
 const INGREDIENTS = 'data/ingredients.json';
 const SUBSTITUTIONS = 'data/substitutions.json';
 const RULE_TERMS = 'data/rule-terms.json';
+const REWARDS = 'data/rewards.yaml';
+const KEEPS = 'data/keeps.json';
+const STALLS = 'data/stalls.json';
+const FOOD_GROUPS = 'data/food-groups.json';
+const FRAME_PATH = /^content\/frames\/[^/]+\.yaml$/;
+/** Forms the M5 screens show (Steps 9–11); the build fails without them. */
+const REQUIRED_FORMS = ['travel', 'certificate', 'plan', 'market_list', 'margin_note', 'cooked_for', 'technique_certificate', 'frame'] as const;
+/** Form 12-M's field whose label is the display name of the `general` stall (C11). */
+const GENERAL_STALL_FIELD = 'general_stall';
 
 const VAR = /\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
 const IGNORED_NAMES = new Set(['README.md', 'LICENSE', 'CONTRIBUTING.md']);
@@ -120,25 +147,27 @@ export function compileContent(files: Record<string, string>): GameContent {
   const substitutions = load<Substitution[]>(SUBSTITUTIONS, substitutionsFile, true);
   const rawTech = load<{
     freshness: { warm_after_days: number; rusty_after_days: number };
-    techniques: { id: string; name: string }[];
+    techniques: unknown[];
   }>(TECHNIQUES, techniquesFile);
 
   let techniques: TechniqueData | null = null;
   const techniqueIds = new Set<string>();
   if (rawTech) {
-    techniques = {
-      freshness: {
-        warmAfterDays: rawTech.freshness.warm_after_days,
-        rustyAfterDays: rawTech.freshness.rusty_after_days,
-      },
-      techniques: rawTech.techniques,
-    };
-    for (const p of validateThresholds(techniques.freshness)) fail(TECHNIQUES, `freshness thresholds: ${p}`);
-    for (const t of rawTech.techniques) {
-      if (techniqueIds.has(t.id)) fail(TECHNIQUES, `duplicate technique id "${t.id}"`);
-      techniqueIds.add(t.id);
+    const freshness = { warmAfterDays: rawTech.freshness.warm_after_days, rustyAfterDays: rawTech.freshness.rusty_after_days };
+    for (const p of validateThresholds(freshness)) fail(TECHNIQUES, `freshness thresholds: ${p}`);
+    // Core checks ids, names, adjacent and prereqs (an unknown id, a self reference, a prereqs cycle).
+    const techniqueProblems = validateTechniques(rawTech.techniques);
+    for (const p of techniqueProblems) fail(TECHNIQUES, p);
+    if (techniqueProblems.length === 0) {
+      techniques = { freshness, techniques: rawTech.techniques as TechniqueNode[] };
+      for (const t of techniques.techniques) techniqueIds.add(t.id);
     }
   }
+
+  const rawRewards = load<unknown>(REWARDS, rewardsFile);
+  const rewardsProblems = rawRewards === null ? [] : validateRewards(rawRewards);
+  for (const p of rewardsProblems) fail(REWARDS, p);
+  const rewards = rawRewards !== null && rewardsProblems.length === 0 ? (rawRewards as RewardsData) : null;
 
   let graph: IngredientGraph | null = null;
   if (ingredients) {
@@ -156,6 +185,17 @@ export function compileContent(files: Record<string, string>): GameContent {
   const ruleTermProblems = graph && rawRuleTerms !== null ? validateRuleTerms(rawRuleTerms, graph) : [];
   for (const p of ruleTermProblems) fail(RULE_TERMS, p);
   const ruleTerms = rawRuleTerms !== null && graph && ruleTermProblems.length === 0 ? (rawRuleTerms as RuleTerm[]) : null;
+
+  /** One of the week's id maps (keeps, stalls, food groups), checked by core against the graph. */
+  function idMap<T>(path: string, check: (d: unknown, g: IngredientGraph) => string[]): T | null {
+    const raw = load<Record<string, unknown>>(path, idMapFile, true);
+    if (raw === null || !graph) return null;
+    const found = check(raw, graph);
+    for (const p of found) fail(path, p);
+    return found.length === 0 ? (raw as T) : null;
+  }
+  const keeps = idMap<KeepsMap>(KEEPS, validateKeeps);
+  const foodGroups = idMap<FoodGroups>(FOOD_GROUPS, validateFoodGroups);
 
   // ---- line banks, cooks, stalls, bureau ---------------------------------
   const pan = load<LineBank>(PAN, lineBank);
@@ -185,13 +225,14 @@ export function compileContent(files: Record<string, string>): GameContent {
   const claimed = (p: string): boolean =>
     p === PAN ||
     p === BUREAU ||
+    FRAME_PATH.test(p) ||
     /^content\/cooks\/[^/]+\.yaml$/.test(p) ||
     /^content\/market\/[^/]+\.yaml$/.test(p) ||
     /^recipes\/.+\.cook$/.test(p);
   for (const p of Object.keys(files).sort()) {
     if (!p.startsWith('content/') && !p.startsWith('recipes/')) continue;
     if (claimed(p) || IGNORED_NAMES.has(p.slice(p.lastIndexOf('/') + 1))) continue;
-    fail(p, 'file is not loaded by anything (expected content/dialogue/pan.yaml, content/bureau/forms.yaml, content/cooks/*.yaml, content/market/*.yaml or recipes/**/*.cook)');
+    fail(p, 'file is not loaded by anything (expected content/dialogue/pan.yaml, content/bureau/forms.yaml, content/cooks/*.yaml, content/market/*.yaml, content/frames/*.yaml or recipes/**/*.cook)');
   }
 
   const cookPaths = Object.keys(files).filter((p) => /^content\/cooks\/[^/]+\.yaml$/.test(p)).sort();
@@ -255,10 +296,44 @@ export function compileContent(files: Record<string, string>): GameContent {
     }
   }
 
+  // data/stalls.json: every value a content/market stall or 'general' (C11); every core StallId has a stall file.
+  const stallIdSet = new Set([...Object.keys(stalls), 'general']);
+  const stallOf = idMap<StallMap>(STALLS, (d, g) => validateStallMap(d, g, stallIdSet));
+  for (const id of Object.keys(stalls)) {
+    if (!(STALL_IDS as readonly string[]).includes(id)) fail(`content/market/${id}.yaml`, `stall "${id}" is not a market stall the game knows (${STALL_IDS.join(', ')})`);
+  }
+  for (const id of STALL_IDS) {
+    if (id !== 'general' && stallPaths.length > 0 && !(id in stalls) && !stallPaths.includes(`content/market/${id}.yaml`))
+      fail(`content/market/${id}.yaml`, `file is missing: every market stall (${STALL_IDS.filter((s) => s !== 'general').join(', ')}) needs one`);
+  }
+
+  // ---- frames --------------------------------------------------------------------
+  const framePaths = Object.keys(files).filter((p) => FRAME_PATH.test(p)).sort();
+  const frames: FrameFile[] = [];
+  for (const path of framePaths) {
+    const frame = load<FrameFile>(path, frameFile);
+    if (frame === null) continue;
+    const fileId = path.slice('content/frames/'.length, -'.yaml'.length);
+    if ((frame as { id?: unknown }).id !== fileId) fail(path, `id "${String((frame as { id?: unknown }).id)}" must equal the file name "${fileId}"`);
+    // Core checks the slots (graph ids only), steps, technique and rescues; one file, one frame, so problems name it.
+    const found = graph && techniques ? validateFrames([frame], graph, techniqueIds) : [];
+    for (const p of found) fail(path, p);
+    if (found.length === 0) frames.push(frame);
+  }
+  frames.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+
   const bureau = load<BureauFile>(BUREAU, bureauFile);
   if (bureau) {
-    for (const id of ['travel', 'certificate']) {
+    for (const id of REQUIRED_FORMS) {
       if (!(id in bureau.forms)) fail(BUREAU, `forms.${id} is missing`);
+    }
+    if (bureau.forms.market_list && !bureau.forms.market_list.fields.some((f) => f.key === GENERAL_STALL_FIELD))
+      fail(BUREAU, `forms.market_list needs a "${GENERAL_STALL_FIELD}" field: its label names the general stall`);
+    // Every stamp kind in data/rewards.yaml has a name to show (C13).
+    if (rewards) {
+      for (const id of Object.keys(rewards.stamps)) {
+        if (!Object.hasOwn(bureau.stamp_names, id)) fail(BUREAU, `stamp_names.${id} is missing (a stamp kind in ${REWARDS})`);
+      }
     }
     for (const id of REQUIRED_DISCLAIMERS) {
       if (!Object.hasOwn(bureau.disclaimers, id)) fail(BUREAU, `disclaimers.${id} is missing`);
@@ -310,7 +385,6 @@ export function compileContent(files: Record<string, string>): GameContent {
   }
 
   // ---- cook cross-checks ------------------------------------------------------
-  const questIds = new Set(Object.values(cooks).map((c) => c.quest.id));
   const stallIds = new Set(Object.keys(stalls));
   for (const path of cookPaths) {
     const fileId = path.slice('content/cooks/'.length, -'.yaml'.length);
@@ -320,40 +394,39 @@ export function compileContent(files: Record<string, string>): GameContent {
     if (!(cook.recipe in recipes)) fail(path, `recipe "${cook.recipe}" does not exist (recipes/${cook.recipe}.cook)`);
     const quest = cook.quest;
     if (quest.cook !== cook.id) fail(path, `quest.cook "${quest.cook}" must equal the cook id "${cook.id}"`);
-    for (const req of quest.unlock.requires) {
-      if (!questIds.has(req)) fail(path, `quest.unlock.requires: "${req}" is not a quest id`);
-    }
-    quest.steps.forEach((step, i) => {
-      const at = `quest.steps[${i}] (${step.type})`;
-      switch (step.type) {
-        case 'cook':
-          if (!(step.recipe in recipes)) fail(path, `${at}: recipe "${step.recipe}" does not exist`);
-          break;
-        case 'errand':
-          if (!stallIds.has(step.stall)) fail(path, `${at}: stall "${step.stall}" is not a stall id`);
-          break;
-        case 'riddle': {
-          const correct = step.options.filter((o) => o.correct).length;
-          if (correct !== 1) fail(path, `${at}: needs exactly one correct option, has ${correct}`);
-          break;
-        }
-        case 'drill':
-          if (techniques && !techniqueIds.has(step.skill))
-            fail(path, `${at}: skill "${step.skill}" is not a technique id (${TECHNIQUES})`);
-          break;
-        case 'talk':
-          break;
-        case 'travel':
-        case 'recognize':
-          break; // core step types (C33) the schema does not accept yet; Step 4 adds them and runs validateQuests
-      }
-    });
     for (const level of Object.keys(cook.trust_lines)) {
       if (!/^[1-5]$/.test(level)) fail(path, `trust_lines key "${level}" must be 1 to 5`);
     }
   }
 
-  if (problems.length > 0 || !pan || !bureau || !ingredients || !substitutions || !techniques || !ruleTerms) {
+  // Every quest step's references, riddles, unlock.requires (no cycle), recognize steps of a technique learned
+  // elsewhere (C2) and cook-step techniques: core's validateQuests, shared with the API catalogue (Step 5).
+  if (graph && techniques) {
+    const pathOfQuest = new Map([...cookByPath].map(([path, c]) => [c.quest.id, path]));
+    const cat = {
+      recipes: new Map(Object.entries(recipes).map(([slug, r]) => [slug, { cook: r.meta.cook, skills: r.meta.skills, sacred: r.meta.sacred }])),
+      techniques: techniqueIds,
+    };
+    const quests = [...cookByPath.values()].map((c) => c.quest);
+    for (const p of validateQuests(quests, cat, cookIds, stallIds, graph)) {
+      const id = /^quest "([^"]+)"/.exec(p)?.[1] ?? /cycle: ([^ ]+)/.exec(p)?.[1];
+      fail(pathOfQuest.get(id ?? '') ?? cookPaths[0], p);
+    }
+  }
+
+  // Each stall's display name (C11): the content/market file's name, and the general stall from Form 12-M.
+  const generalStall = bureau?.forms.market_list?.fields.find((f) => f.key === GENERAL_STALL_FIELD)?.label;
+  const stallNames: Partial<Record<StallId, string>> = {};
+  for (const id of STALL_IDS) {
+    const name = id === 'general' ? generalStall : stalls[id]?.name;
+    if (name !== undefined) stallNames[id] = name;
+  }
+  const namedAll = STALL_IDS.every((id) => stallNames[id] !== undefined);
+
+  if (
+    problems.length > 0 || !pan || !bureau || !ingredients || !substitutions || !techniques || !ruleTerms ||
+    !rewards || !keeps || !foodGroups || !stallOf || !namedAll
+  ) {
     throw new ContentError(problems);
   }
   return {
@@ -372,5 +445,11 @@ export function compileContent(files: Record<string, string>): GameContent {
     substitutions,
     techniques,
     ruleTerms,
+    rewards,
+    frames,
+    keeps,
+    foodGroups,
+    stallOf,
+    stallNames: stallNames as Record<StallId, string>,
   };
 }

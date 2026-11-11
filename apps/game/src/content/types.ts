@@ -1,12 +1,18 @@
-// Content types. Step 3 defines BureauForm (needed by the Bureau form component);
-// Step 4 adds the rest of this file.
+// Content types: what the build compiles (build/content/compile.ts) and the app bundle carries.
 import type {
+  FoodGroups,
+  Frame,
   FreshnessThresholds,
   IngredientData,
+  KeepsMap,
   ParsedRecipe,
   Quest,
+  RewardsData,
   RuleTerm,
+  StallId,
+  StallMap,
   Substitution,
+  TechniqueNode,
 } from '@kitchenquest/core/engine';
 
 /** The quest types live in core (C33), shared with the API and the quest engine. */
@@ -85,10 +91,14 @@ export interface BureauFile {
   footnotes: { tag: string; text: string }[];
   disclaimers: Record<string, string>;
 }
+/** data/techniques.yaml: the freshness thresholds and every technique with its `adjacent` and `prereqs` (C33). */
 export interface TechniqueData {
   freshness: FreshnessThresholds;
-  techniques: { id: string; name: string }[];
+  techniques: TechniqueNode[];
 }
+
+/** A content/frames/*.yaml file: one Pantry Frame, in core's shape (Ruling 13). */
+export type FrameFile = Frame;
 export interface GameContent {
   /** First 12 hex of sha256 over all input files, sorted by path. */
   version: string;
@@ -103,10 +113,23 @@ export interface GameContent {
   techniques: TechniqueData;
   /** data/rule-terms.json: words that name a rule rather than one ingredient ("vegetarian"). */
   ruleTerms: RuleTerm[];
+  /** data/rewards.yaml (Ruling 7): XP amounts, the level curve, stamps and the trust ladder. Read on the device by Step 9. */
+  rewards: RewardsData;
+  /** content/frames/*.yaml, sorted by id: the Pantry Frames (Ruling 13). */
+  frames: FrameFile[];
+  /** data/keeps.json: ingredient id → days it keeps once bought (Ruling 12). No entry means no nudge. */
+  keeps: KeepsMap;
+  /** data/food-groups.json: ingredient or category id → food group, for the plan's balance line. */
+  foodGroups: FoodGroups;
+  /** data/stalls.json: ingredient or category id → stall, for the market list on the device (C35). */
+  stallOf: StallMap;
+  /** Each stall's display name: the content/market file's `name`, and `general` from Form 12-M's `general_stall` (C11). */
+  stallNames: Record<StallId, string>;
 }
 
 /**
  * What the app bundle carries: everything but the market stalls. No screen shows a stall yet, so their ~135 KB of
- * lines stays out of first paint (the build still validates them; `kq-content` strips them from the module).
+ * lines stays out of first paint (the build still validates them; `kq-content` strips them from the module). The
+ * stalls' names reach the client as `stallNames` (C11), and every M5 field above with them (C35).
  */
 export type ClientContent = Omit<GameContent, 'stalls'>;

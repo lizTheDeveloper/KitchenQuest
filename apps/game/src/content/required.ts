@@ -1,3 +1,38 @@
+/** The M5 weekly-loop triggers (Step 4), each with its `ai` value. `never` ones always use the written lines exactly. */
+export const M5_LOOP_TRIGGERS_AI = {
+  'plan.readback': 'never',
+  'plan.dish_unknown': 'never',
+  'plan.unverified_dish': 'never',
+  'plan.fewer_than_asked': 'never',
+  'plan.hard_week': 'allowed',
+  'one_more.offer': 'allowed',
+  'one_more.refresh': 'allowed',
+  'one_more.declined': 'allowed',
+  'one_more.accepted': 'allowed',
+  'market.ticked_pantry': 'allowed',
+  'market.run_done': 'allowed',
+  'rescue.offer': 'allowed',
+  'rescue.compost': 'allowed',
+  'rescue.unverified': 'never',
+  'frame.offer': 'allowed',
+  'frame.slot_empty': 'never',
+  'cook.who_ate': 'allowed',
+  'cooked_for.alone': 'allowed',
+  'cooked_for.shared': 'allowed',
+  'cook.changes_ask': 'allowed',
+  'margin.readback': 'never',
+  'margin.blocked': 'never',
+  'margin.needs_account': 'never',
+  'log.dish_offer': 'never',
+  'quest.recognize': 'allowed',
+  'quest.travel_anyway': 'allowed',
+  'certificate.technique': 'allowed',
+  'book.empty': 'allowed',
+  'book.exported': 'never',
+  'nav.offer': 'never',
+} as const satisfies Record<string, 'never' | 'allowed'>;
+const M5_LOOP_TRIGGERS = Object.keys(M5_LOOP_TRIGGERS_AI);
+
 /** Pan triggers the game fires by name. The build fails if pan.yaml lacks any of them. */
 export const REQUIRED_PAN_TRIGGERS: readonly string[] = [
   'greet.first_ever',
@@ -18,6 +53,9 @@ export const REQUIRED_PAN_TRIGGERS: readonly string[] = [
   'quest.cook_adapted',
   // M5 Step 3 fix round 1: core resolvePlanRequest's `sacred` list is read back with it (PLAN_DISH_SACRED_TRIGGER).
   'plan.dish_sacred',
+  // M5 Step 4: the weekly loop's lines (plan, One More Technique, market run, rescue, frames, cook → log, margin
+  // notes, quests, the Recipe Book, navigation chips). Written lines only (Ruling 21).
+  ...M5_LOOP_TRIGGERS,
   'ai_unavailable',
   'thanks',
   'intake.ios_home_screen',
