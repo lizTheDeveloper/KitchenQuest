@@ -186,7 +186,8 @@ export function buildRuleCard(
   const id = graph.resolve(term);
   if (id !== null && graph.get(id).broad === true) {
     // "allergic to herbs": too broad to file (C1 ruling). Ask which one, offering the kinds the graph knows; never a card.
-    const kinds = graph.descendants(id).map((k) => ({ id: k, name: graph.get(k).name })).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    // Only its direct kinds (N1): a sprig is a form of curry leaf, never offered as a peer of it.
+    const kinds = graph.descendants(id).filter((k) => graph.get(k).isA?.includes(id) === true).map((k) => ({ id: k, name: graph.get(k).name })).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
     const names = kinds.map((k) => k.name);
     const examples = names.length > 1 ? `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}` : (names[0] ?? graph.get(id).name);
     return { ok: false, reason: 'ambiguous', options: kinds, line: { trigger: 'rule.which_kind', vars: { term, examples } } };

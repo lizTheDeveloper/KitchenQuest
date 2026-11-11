@@ -107,8 +107,9 @@ describe('the Pantry Frame nodes (C12)', () => {
       expect(r.ok, term).toBe(false);
       if (r.ok) continue;
       expect(r.reason).toBe('ambiguous');
-      expect(r.line).toEqual({ trigger: 'rule.which_kind', vars: { term, examples: 'curry leaf, curry leaf sprig or epazote' } });
-      if (r.reason === 'ambiguous') expect(r.options.map((o) => o.id)).toEqual(['curry_leaf', 'curry_leaf_sprig', 'epazote']);
+      // Only the direct kinds (N1): a sprig is a form of curry leaf, never offered as its peer.
+      expect(r.line).toEqual({ trigger: 'rule.which_kind', vars: { term, examples: 'curry leaf or epazote' } });
+      if (r.reason === 'ambiguous') expect(r.options.map((o) => o.id)).toEqual(['curry_leaf', 'epazote']);
     }
     // A which-kind ask accounts for its category, so no second ask follows; a plain card on a herb does not.
     expect(broadKindsAsked(['curry_leaf', 'epazote'], graph)).toEqual(['herb']);

@@ -321,3 +321,15 @@ describe('scripted engine', () => {
     expect(strip(engine().reply(text, ctx()))).toEqual(strip(engine().reply(text, ctx())));
   });
 });
+
+describe('M5 Step 4 fix round 2: a herb ask beside a real allergen', () => {
+  test('"I\'m allergic to herbs and peanuts": the peanut card at the stated severity, plus one which-kind ask with direct kinds only (N1, N3)', () => {
+    const r = engine().reply("I'm allergic to herbs and peanuts", ctx());
+    const rules = cards(r).filter((c) => c.kind === 'rule');
+    expect(rules.map((c) => c.kind === 'rule' && c.rule.target.ids)).toEqual([['peanut']]);
+    expect(rules.map((c) => c.kind === 'rule' && c.rule.severity)).toEqual(['allergy']);
+    expect(said(r).filter((t) => t === 'rule.which_kind')).toHaveLength(1);
+    const choices = r.items.find((i) => i.kind === 'choices');
+    expect(choices?.kind === 'choices' && choices.options.map((o) => o.id)).toEqual(['curry_leaf', 'epazote']);
+  });
+});
