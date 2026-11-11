@@ -1125,6 +1125,16 @@ triggers:
       - "I haven't placed {dish} yet. Which day of the week is it for?"
       - "Pick a single day for {dish} and I'll add it to the plan."
 
+  plan.which_count:
+    ai: never
+    when: The player corrected how many dishes to pick ("pick 2, actually 3"); nothing is picked and the Pan asks how many (M5 final review m6).
+    notes: "Plain. Nothing is planned until the player says the number."
+    lines:
+      - "How many dishes should I pick for the week? Tell me one number and I'll choose them."
+      - "I haven't picked anything yet. How many dishes would you like?"
+      - "Give me a single number of dishes and I'll pick that many."
+      - "Just to be sure: how many dishes shall I pick this week?"
+
   profile.which_time:
     ai: never
     when: "A message times a meal and then corrects itself (\"dinner at 6pm, no wait, 7pm\"); no meal-time card is made, and the Pan asks which time (M5 Step 8 fix round 5)."

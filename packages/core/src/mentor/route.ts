@@ -757,28 +757,111 @@ const CORRECTION_CUE = /\b(?:no,? wait|wait,? no|instead|scratch that|i mean|i m
 const ACTUALLY_CONNECTOR = /^(?:make|it|its|it's|to|on|at|for|the|a|put|have|do|i|mean|no|wait|that|then|um|er|erm|uh)$/;
 const TIME_TOKEN = /^(?:\d{1,2}(?:[:.]\d{2})?(?:am|pm|ish)?|am|pm|noon|midday|midnight|half|quarter|o'?clock)$/;
 const WEEKDAY_TOKEN = new RegExp(`^${WD}$`);
-function actuallyCue(own: string, forms: ReadonlySet<string>): boolean {
+/** The player's words as tokens with their offsets in `own` (punctuation made spaces, one for one). */
+function tokensOf(own: string): { w: string; at: number }[] {
   // M5 final (parked m3): a token's trailing ":" (or "," "-", already spaces) is punctuation, so "actually:" is "actually".
-  const words = own.replace(/[^\p{L}\p{N}':.\s]+/gu, ' ').replace(/[.:]+(?=\s|$)/g, ' ').split(/\s+/).filter((w) => w !== '');
+  const clean = own.replace(/[^\p{L}\p{N}':.\s]/gu, ' ').replace(/[.:](?=[.:]*(?:\s|$))/g, ' ');
+  return [...clean.matchAll(/\S+/g)].map((m) => ({ w: m[0], at: m.index }));
+}
+
+/** M5 final m6: a count after "actually" ("pick 2, actually three") is a cue in a message with a pick clause. */
+const COUNT_TOKEN = new RegExp(`^(?:\\d|${Object.keys(NUMBER_WORDS).join('|')})$`);
+const PICK_WORD = /\b(?:pick|choose)\b/;
+
+/** The offsets of each "actually" that is a cue (adjudication B; a count too beside a pick, m6). */
+function actuallyAt(own: string, forms: ReadonlySet<string>): number[] {
+  const tokens = tokensOf(own);
+  const words = tokens.map((t) => t.w);
+  const picks = PICK_WORD.test(own);
+  const out: number[] = [];
   for (let i = 0; i < words.length; i++) {
     if (words[i] !== 'actually') continue;
     for (let k = i + 1; k <= i + 3 && k < words.length; k++) {
       const w = words[k];
-      if (TIME_TOKEN.test(w) || WEEKDAY_TOKEN.test(w)) return true;
+      if (TIME_TOKEN.test(w) || WEEKDAY_TOKEN.test(w) || (picks && COUNT_TOKEN.test(w))) { out.push(tokens[i].at); break; }
       const rest = words.slice(k).join(' ');
-      if ([...forms].some((f) => rest === f || rest.startsWith(`${f} `))) return true;
+      if ([...forms].some((f) => rest === f || rest.startsWith(`${f} `))) { out.push(tokens[i].at); break; }
       if (!ACTUALLY_CONNECTOR.test(w)) break;
     }
   }
-  return false;
+  return out;
 }
+const actuallyCue = (own: string, forms: ReadonlySet<string>): boolean => actuallyAt(own, forms).length > 0;
 /** A correction cue in the player's own words (normalised `own`), with the canon dish forms for "actually". */
 const correctionIn = (own: string, forms: ReadonlySet<string>): boolean => CORRECTION_CUE.test(own) || actuallyCue(own, forms);
 export function correctionCue(text: string, dishes: readonly { slug: string; title: string }[] = []): boolean {
   return correctionIn(normalizeTurn(ownWords(text)), dishForms(dishes));
 }
+
+/** A part of a plan or profile card a correction may touch: a dish's day, the pick count, a meal's time, the market day. */
+export type CorrectedPart = 'day' | 'pick' | 'meal' | 'market';
+export interface CorrectionScope {
+  /**
+   * The part named by `phrase` (a dish as the player wrote it, "pick", a meal slot, "market") is corrected: its clause,
+   * or the clause after it, holds a cue, or the correction names its kind (a weekday corrects days and the market day;
+   * a time corrects meal times; a count, the pick; a dish, the days). A correction that names none of these corrects
+   * everything, and a part not found in the player's words is corrected: never kept by guess.
+   */
+  corrected(part: CorrectedPart, phrase: string): boolean;
+}
+
+/** The clauses of `own` (split at SEP, as the closed readers split it) with their start and end offsets. */
+function clauseSpans(own: string): { text: string; start: number; end: number }[] {
+  const out: { text: string; start: number; end: number }[] = [];
+  let pos = 0;
+  for (const m of own.matchAll(new RegExp(SEP.source, 'g'))) {
+    if (m[0] === '') continue;
+    out.push({ text: own.slice(pos, m.index), start: pos, end: m.index });
+    pos = m.index + m[0].length;
+  }
+  out.push({ text: own.slice(pos), start: pos, end: own.length });
+  return out;
+}
+
+/**
+ * M5 final m5: the 5c ruling clause by clause. Null when the player's words hold no correction cue. Only the parts
+ * the correction touches are dropped (with their asks); the rest of the message's cards stand.
+ */
+export function correctionScope(text: string, dishes: readonly { slug: string; title: string }[]): CorrectionScope | null {
+  const own = normalizeTurn(ownWords(text));
+  const forms = dishForms(dishes);
+  const cues = [...[...own.matchAll(new RegExp(CORRECTION_CUE.source, 'g'))].map((m) => m.index), ...actuallyAt(own, forms)];
+  if (cues.length === 0) return null;
+  const spans = clauseSpans(own);
+  const clauseAt = (at: number): number => Math.max(0, spans.findIndex((c) => at < c.end || c === spans[spans.length - 1]));
+  const positional = new Set<number>();
+  const kinds = new Set<CorrectedPart>();
+  for (const at of cues) {
+    const k = clauseAt(at);
+    positional.add(k);
+    if (k > 0) positional.add(k - 1);
+    // What the correction says: from the cue to the end of the clause after it.
+    const said = own.slice(at, spans[Math.min(k + 1, spans.length - 1)].end);
+    const words = tokensOf(said).map((t) => t.w);
+    const named: CorrectedPart[] = [];
+    if (words.some((w) => WEEKDAY_TOKEN.test(w))) named.push('day', 'market');
+    if (words.some((w) => TIME_TOKEN.test(w)) || parseClock(said) !== null) named.push('meal');
+    if (words.some((w) => COUNT_TOKEN.test(w) || /^\d{1,2}$/.test(w))) named.push('pick');
+    if ([...forms].some((f) => occursAsWord(said, f))) named.push('day');
+    for (const n of named.length > 0 ? named : (['day', 'pick', 'meal', 'market'] as const)) kinds.add(n);
+  }
+  const phrasesOf = (part: CorrectedPart, phrase: string): string[] => {
+    if (part === 'meal') return Object.entries(SLOT_FORMS).filter(([, slot]) => slot === phrase).map(([w]) => w);
+    if (part === 'pick') return ['pick', 'choose'];
+    return [normalizeTurn(phrase)];
+  };
+  return {
+    corrected(part, phrase) {
+      if (kinds.has(part)) return true;
+      const found = spans.flatMap((c, i) => (phrasesOf(part, phrase).some((p) => p !== '' && occursAsWord(c.text, p)) ? [i] : []));
+      return found.length === 0 || found.some((i) => positional.has(i));
+    },
+  };
+}
 /** The which-time ask after a corrected meal time (5c): a required, `ai: never` line naming the meal. */
 export const CORRECTION_TIME_TRIGGER = 'profile.which_time';
+/** The how-many ask after a corrected pick count (M5 final m6): a required, `ai: never` line. */
+export const CORRECTION_COUNT_TRIGGER = 'plan.which_count';
 
 const SLOT_FORMS: Readonly<Record<string, MealSlot>> = { breakfast: 'breakfast', brekkie: 'breakfast', lunch: 'lunch', dinner: 'dinner', supper: 'dinner', snack: 'snack' };
 const REMINDER = new RegExp(
@@ -939,25 +1022,29 @@ export function marketDayStated(text: string, dishes: readonly { slug: string; t
 /**
  * Fix round 5 (5c): the asks for a corrected message, in the player's own words: `profile.which_time` for each meal
  * the message times ("dinner at 6pm, no wait, 7pm"), `plan.which_day` for each canon dish it names with a weekday
- * ("put parippu on monday, actually tuesday"; the dish as the player wrote it), and the market-day ask for a market
- * day it states. Empty without a correction cue. The server adds these after dropping every plan and profile card.
+ * ("put parippu on monday, actually tuesday"; the dish as the player wrote it), the market-day ask for a market
+ * day it states, and `plan.which_count` for a pick count (M5 final m6). Only for the parts the correction touches
+ * (`correctionScope`, M5 final m5). Empty without a correction cue. The server adds these after dropping those parts.
  */
 export function correctionAsks(text: string, dishes: readonly { slug: string; title: string }[]): LineRef[] {
   const own = normalizeTurn(ownWords(text));
-  if (!correctionIn(own, dishForms(dishes))) return [];
+  const scope = correctionScope(text, dishes);
+  if (scope === null) return [];
   const asks: LineRef[] = [];
   // A time M4's clock parser reads, or a bare hour ("dinner at 6, actually 7"): the ask only, never a card.
   if (parseClock(own) !== null || /\b\d{1,2}(?:[:.]\d{2})?\b/.test(own)) {
     for (const [word, slot] of Object.entries(SLOT_FORMS)) {
-      if (new RegExp(`\\b${word}\\b`).test(own) && !asks.some((a) => a.vars.meal === slot)) asks.push(line(CORRECTION_TIME_TRIGGER, { meal: slot }));
+      if (new RegExp(`\\b${word}\\b`).test(own) && scope.corrected('meal', slot) && !asks.some((a) => a.vars.meal === slot)) asks.push(line(CORRECTION_TIME_TRIGGER, { meal: slot }));
     }
   }
   if (parseWeekdays(own).length > 0) {
     const named = [...dishForms(dishes)].filter((f) => occursAsWord(own, f));
     // The longest form only ("parippu curry", not also "parippu").
-    for (const f of named.filter((f) => !named.some((g) => g !== f && g.includes(f)))) asks.push(line('plan.which_day', { dish: f }));
-    if (/\bmarket\b/.test(own)) asks.push(line('intake.market_day.ask'));
+    for (const f of named.filter((f) => !named.some((g) => g !== f && g.includes(f)))) if (scope.corrected('day', f)) asks.push(line('plan.which_day', { dish: f }));
+    if (/\bmarket\b/.test(own) && scope.corrected('market', 'market')) asks.push(line('intake.market_day.ask'));
   }
+  // M5 final m6: a corrected pick count ("pick 2, actually 3") asks how many; nothing is picked.
+  if (PICK_WORD.test(own) && scope.corrected('pick', 'pick')) asks.push(line(CORRECTION_COUNT_TRIGGER));
   return asks;
 }
 

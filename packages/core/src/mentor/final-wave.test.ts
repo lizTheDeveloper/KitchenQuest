@@ -8,7 +8,7 @@ import { IngredientGraph } from '../ingredients/graph';
 import { classifyTurn } from './intents';
 import type { RuleTerm } from './rule-terms';
 import { canon } from '../week/fixtures';
-import { codeCardHealth, correctionAsks, correctionCue, isHealthText, marketDayStated, planWordsIn, preRoute, reminderClauses, reminderSlots } from './route';
+import { codeCardHealth, correctionAsks, correctionCue, correctionScope, isHealthText, marketDayStated, planWordsIn, preRoute, reminderClauses, reminderSlots } from './route';
 
 const DISHES = [...canon].map(([slug, r]) => ({ slug, title: r.meta.title }));
 const graph = IngredientGraph.fromData(ingredients);
@@ -104,5 +104,46 @@ describe('parked m5: a pantry clause is consumed only when every item it names i
   });
   test('without the graph no pantry clause is consumed (never a guess)', () => {
     expect(marketDayStated("ran out of rice, my market's saturday", DISHES)).toBeNull();
+  });
+});
+
+describe('m5: 5c drops only the corrected clause, not the whole message', () => {
+  const T = 'remind me to eat dinner at 7, and parippu on monday, actually tuesday';
+  test('the review probe: the dinner time stands, the corrected dish day does not', () => {
+    const scope = correctionScope(T, DISHES)!;
+    expect(scope).not.toBeNull();
+    expect(scope.corrected('meal', 'dinner')).toBe(false);
+    expect(scope.corrected('day', 'parippu')).toBe(true);
+    expect(correctionAsks(T, DISHES)).toEqual([{ trigger: 'plan.which_day', vars: { dish: 'parippu' } }]);
+  });
+  test('the other half: a corrected time drops the time, and the dish day stands', () => {
+    const t = 'put parippu on monday, and remind me to eat dinner at 6pm, no wait, 7pm';
+    const scope = correctionScope(t, DISHES)!;
+    expect(scope.corrected('day', 'parippu')).toBe(false);
+    expect(scope.corrected('meal', 'dinner')).toBe(true);
+    expect(correctionAsks(t, DISHES)).toEqual([{ trigger: 'profile.which_time', vars: { meal: 'dinner' } }]);
+  });
+  test('a correction that names no day, time, number or dish corrects everything (the safe side)', () => {
+    const scope = correctionScope('remind me about dinner at 7, put parippu on monday, scratch that', DISHES)!;
+    expect(scope.corrected('meal', 'dinner')).toBe(true);
+    expect(scope.corrected('day', 'parippu')).toBe(true);
+  });
+  test('a part that is not in the player\'s words is corrected (never kept by guess)', () => {
+    expect(correctionScope('put parippu on monday, actually tuesday', DISHES)!.corrected('day', 'onigiri')).toBe(true);
+  });
+  test('no cue, no scope', () => {
+    expect(correctionScope('put parippu on monday', DISHES)).toBeNull();
+  });
+});
+
+describe('m6: "pick 2, actually 3" gets the which-count ask', () => {
+  test.each(['pick 2, actually 3', 'pick two, actually three', 'pick 2, no wait, 3', 'pick 2 dishes, actually make it 3'])('%s', (t) => {
+    expect(correctionCue(t, DISHES)).toBe(true);
+    expect(correctionAsks(t, DISHES)).toEqual([{ trigger: 'plan.which_count', vars: {} }]);
+    expect(correctionScope(t, DISHES)!.corrected('pick', 'pick')).toBe(true);
+    expect(planWordsIn(t, DISHES)).toBeNull();
+  });
+  test('"actually three" is no cue without a pick clause', () => {
+    expect(correctionCue('i actually three times a week', DISHES)).toBe(false);
   });
 });

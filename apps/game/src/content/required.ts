@@ -68,6 +68,8 @@ export const REQUIRED_PAN_TRIGGERS: readonly string[] = [
   'plan.after_which_day',
   // M5 Step 8 fix round 5 (5c): the server asks which time after a corrected meal time (core CORRECTION_TIME_TRIGGER).
   'profile.which_time',
+  // M5 final m6: the server asks how many after a corrected pick count (core CORRECTION_COUNT_TRIGGER).
+  'plan.which_count',
   // M5 Step 8: core confirmedLines says plan.saved for a plan card; buildPlanCard reads a ⛔ dish back with plan.blocked_dish.
   'plan.saved',
   'plan.blocked_dish',

@@ -432,3 +432,28 @@ describe('M5 Step 8 fix round 5 (5c): the which-time ask after a corrected meal 
     }
   });
 });
+
+describe('M5 final m6: the which-count ask after a corrected pick count', () => {
+  it("core's CORRECTION_COUNT_TRIGGER is required, ai: never, pinned, 4–6 lines, and claims nothing was picked", async () => {
+    const { CORRECTION_COUNT_TRIGGER } = await import('@kitchenquest/core/engine');
+    expect(CORRECTION_COUNT_TRIGGER).toBe('plan.which_count');
+    expect(REQUIRED_PAN_TRIGGERS).toContain(CORRECTION_COUNT_TRIGGER);
+    const t = content.pan.triggers[CORRECTION_COUNT_TRIGGER];
+    expect(t.ai).toBe('never');
+    expect(t.lines[0]).toBe("How many dishes should I pick for the week? Tell me one number and I'll choose them.");
+    expect(t.lines.length).toBeGreaterThanOrEqual(4);
+    expect(t.lines.length).toBeLessThanOrEqual(6);
+    for (const line of t.lines) expect(line).not.toMatch(/saved|inked|stamped|kept|noted|planned\b/i);
+  });
+
+  it("core's weight deflection is required, ai: never, and holds no number or target (M5 final I2)", () => {
+    expect(REQUIRED_PAN_TRIGGERS).toContain('rule.weight_deflect');
+    const t = content.pan.triggers['rule.weight_deflect'];
+    expect(t.ai).toBe('never');
+    expect(t.lines.length).toBeGreaterThanOrEqual(4);
+    for (const line of t.lines) {
+      expect(line).not.toMatch(/\d|calorie|kg|pound|bmi|goal|target weight/i);
+      expect(line).toMatch(/doctor|dietitian/i);
+    }
+  });
+});
