@@ -8,6 +8,8 @@ export * from './toolkit/techniques';
 export * from './toolkit/one-more';
 export * from './quests';
 export * from './progress';
+export * from './week';
+export * from './book';
 export * from './ingredients/types';
 export { IngredientGraph, normalizeName } from './ingredients/graph';
 export * from './rules/types';

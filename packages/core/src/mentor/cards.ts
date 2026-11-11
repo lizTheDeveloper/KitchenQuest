@@ -60,6 +60,13 @@ export interface ProfileCard {
 export interface PantryItem {
   name: string;
   ingredientId: string | null;
+  /**
+   * M5 (Ruling 12): the local date the player bought it. Only the market tick (Steps 6 and 10) sets it, together with
+   * `source: 'market'`. M4 rows, and everything told to the Pan, have neither field.
+   */
+  addedOn?: string;
+  /** Where it came from. Missing means told (C9): told food is never rescued, since it has no purchase date. */
+  source?: 'told' | 'market';
 }
 export interface PantryCard {
   kind: 'pantry';
