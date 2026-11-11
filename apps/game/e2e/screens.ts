@@ -18,6 +18,8 @@ export interface ScreenCase {
   /** Runs before the first navigation: mock `/api/**` here (signed-in screens). */
   beforeGoto?: (page: Page) => Promise<unknown>;
   primary: (page: Page) => Locator;
+  /** A mentor surface (panel, cards, consent cards, rules screen, Settings): its written content is also held to MENTOR_BANNED. */
+  mentor?: true;
 }
 
 // ---- Never rules: the banned-word lists. M4 extends these; keep them here, in one place. ----
@@ -42,6 +44,17 @@ export const CONTENT_BANNED_WORDS = [
 export const bannedPattern = (words: readonly string[]): RegExp => new RegExp(`\\b(${words.join('|')})\\b|\\$\\s?\\d`, 'i');
 export const CHROME_BANNED = bannedPattern(CHROME_BANNED_WORDS);
 export const CONTENT_BANNED = bannedPattern(CONTENT_BANNED_WORDS);
+/**
+ * M4 Step 12: what the Pan's lines, its cards and consent cards, the rules screen and Settings may never say:
+ * the content list, the sells words, and voice.md §7's banned words (the Bureau's own jokes quote some of
+ * these in negation elsewhere, so only the mentor surfaces get the full list).
+ */
+export const MENTOR_BANNED_WORDS = [
+  ...CONTENT_BANNED_WORDS, 'subscri\\w*', 'membership', 'paid plan',
+  'exotic', 'weird', 'strange', 'discover(ed)?', 'unlock(ed)?', 'loot(ed)?', 'acquired?',
+  'guilt-free', 'cheat day', 'junk', 'clean eating', 'sinful', 'skipped a meal', 'good job', 'streak lost', 'authentic', 'broken english',
+];
+export const MENTOR_BANNED = bannedPattern(MENTOR_BANNED_WORDS);
 
 // ---- Screens ----
 
@@ -74,6 +87,63 @@ async function signedInApi(page: Page): Promise<void> {
   await page.route((u) => u.pathname === '/api/me', (r) => r.fulfill(json(200, { id: 'u1', email: 'cook@example.com', entitlements: [] })));
   await page.route((u) => u.pathname === '/api/rules', (r) => r.fulfill(json(200, { rules: [] })));
   await page.route((u) => u.pathname === '/api/me/consents', (r) => r.fulfill(json(200, { consents: [], needsReconsent: [], notices: NOTICES })));
+}
+const BOTH_CONSENTS = {
+  consents: ['health_data', 'ai_health'].map((purpose) => ({ purpose, noticeVersion: purpose === 'health_data' ? 'v2' : 'v1', noticeSha256: 'x', method: 'tap', grantedAt: '2026-11-01T00:00:00Z', withdrawnAt: null, endedReason: null, current: true })),
+  needsReconsent: [], notices: NOTICES,
+};
+const line = (trigger: string, vars: Record<string, string> = {}) => ({ kind: 'line', line: { trigger, vars } });
+const inHalfAnHour = () => new Date(Date.now() + 30 * 60_000).toISOString();
+const SESAME_CARD = {
+  kind: 'rule', rule: { target: { kind: 'ingredient', ids: ['sesame'] }, type: 'avoid', severity: 'allergy' }, severe: true, severityUnclear: false, form: 'rule_allergen',
+  display: { ingredient: 'sesame', spelled: 'S-E-S-A-M-E', severity: 'an allergy', covers: 'sesame' },
+  readback: [{ trigger: 'rule.readback', vars: { ingredient: 'sesame', spelled: 'S-E-S-A-M-E', severity: 'an allergy', covers: 'sesame' } }],
+};
+const TOAST_CARD = {
+  kind: 'meal', meal: { eatenOn: '2026-11-10', slot: 'breakfast', item: { kind: 'free', description: 'toast' } }, summary: 'toast, breakfast', estimate: true,
+  readback: [{ trigger: 'log.confirm_readback', vars: { summary: 'toast, breakfast' } }],
+};
+const MARKET_CARD = {
+  kind: 'profile', patch: { marketDays: [6] }, summary: 'market day Saturday', readback: [{ trigger: 'profile.readback', vars: { summary: 'market day Saturday' } }],
+};
+const PANTRY_CARD = {
+  kind: 'pantry', add: [{ name: 'lentils', ingredientId: null }], remove: [], removeIds: [], summary: 'add lentils', readback: [{ trigger: 'pantry.readback', vars: { summary: 'add lentils' } }],
+};
+/**
+ * Signed in with both consents and the AI on; the server's turn answers with a card of every kind and the
+ * M4 lines a turn can carry (R9: lines and cards only), so the sweeps read all of them at once.
+ */
+async function serverCardsApi(page: Page): Promise<void> {
+  await page.route((u) => u.pathname === '/api/me', (r) => r.fulfill(json(200, { id: 'u1', email: 'cook@example.com', entitlements: [] })));
+  await page.route((u) => u.pathname === '/api/rules', (r) => r.fulfill(json(200, { rules: [] })));
+  await page.route((u) => u.pathname === '/api/me/consents', (r) => r.fulfill(json(200, BOTH_CONSENTS)));
+  const cards = [SESAME_CARD, TOAST_CARD, MARKET_CARD, PANTRY_CARD];
+  await page.route((u) => u.pathname === '/api/mentor/turn', (r) => r.fulfill(json(200, {
+    conversationId: 'c1', route: 'ai', notice: null, toolTurn: true, actions: [],
+    parts: [
+      ...cards.flatMap((c) => c.readback.map((l) => ({ kind: 'line', line: l }))),
+      line('rule.ask_what_else', { term: 'peanut' }), line('rule.exclusion_not_kept', { term: 'tree nut' }),
+      line('pantry.not_found', { items: 'milk' }), line('write.not_done'), line('mentor.check_card'),
+    ],
+    cards: cards.map((card, i) => ({ proposalId: `P${i + 1}`, expiresAt: inHalfAnHour(), card })),
+  })));
+}
+/** Signed in, AI on, the daily allowance used up: the server says scripted + rate_limited. */
+async function cappedApi(page: Page): Promise<void> {
+  await page.route((u) => u.pathname === '/api/me', (r) => r.fulfill(json(200, { id: 'u1', email: 'cook@example.com', entitlements: [] })));
+  await page.route((u) => u.pathname === '/api/rules', (r) => r.fulfill(json(200, { rules: [] })));
+  await page.route((u) => u.pathname === '/api/me/consents', (r) => r.fulfill(json(200, BOTH_CONSENTS)));
+  await page.route((u) => u.pathname === '/api/mentor/turn', (r) => r.fulfill(json(200, {
+    conversationId: null, route: 'scripted', parts: [], cards: [], actions: [], notice: 'rate_limited', toolTurn: false,
+  })));
+}
+const accountLoaded = (p: Page) => p.waitForFunction(() => Boolean((JSON.parse(localStorage.getItem('kq.player.v1') ?? '{}') as { account?: unknown }).account));
+async function say(p: Page, text: string, bubbles: number): Promise<void> {
+  await accountLoaded(p);
+  await p.locator('#pan-button').click();
+  await p.locator('#pan-text').fill(text);
+  await p.keyboard.press('Enter');
+  await p.waitForFunction((n) => document.querySelectorAll('#pan-panel .bubble.pan').length >= n, bubbles);
 }
 const ageRequired = (page: Page) => page.route('**/api/auth/verify', (r) => r.fulfill(json(400, { error: { code: 'bad_request', message: 'x', details: { code: 'age_confirmation_required' } } })));
 async function openAgeScreen(page: Page): Promise<void> {
@@ -149,15 +219,15 @@ export const SCREENS: ScreenCase[] = [
     },
     primary: (p) => p.getByRole('dialog', { name: /Certificate of a Dish Cooked/ }).getByRole('button', { name: 'Continue' }),
   },
-  { label: 'settings (signed out)', path: '/#/settings', open: (p) => button(p, 'Send me a sign-in link').waitFor(), primary: (p) => button(p, 'Send me a sign-in link') },
+  { label: 'settings (signed out)', mentor: true, path: '/#/settings', open: (p) => button(p, 'Send me a sign-in link').waitFor(), primary: (p) => button(p, 'Send me a sign-in link') },
   {
-    label: 'settings (signed in)', path: '/#/settings',
+    label: 'settings (signed in)', mentor: true, path: '/#/settings',
     beforeGoto: signedInApi,
     open: async (p) => { await p.getByText('Signed in as cook@example.com').waitFor(); await p.locator('#set-ai-health:not([disabled])').waitFor(); },
     primary: (p) => button(p, 'Sign out'),
   },
   {
-    label: 'settings: the ai_health notice open', path: '/#/settings',
+    label: 'settings: the ai_health notice open', mentor: true, path: '/#/settings',
     beforeGoto: signedInApi,
     open: async (p) => {
       await p.locator('#set-ai-health:not([disabled])').waitFor();
@@ -167,7 +237,7 @@ export const SCREENS: ScreenCase[] = [
     primary: (p) => p.locator('.ai-health-notice').getByRole('button', { name: 'I agree' }),
   },
   {
-    label: 'settings: stopping health details (keep or delete)', path: '/#/settings',
+    label: 'settings: stopping health details (keep or delete)', mentor: true, path: '/#/settings',
     beforeGoto: async (page) => {
       await signedInApi(page);
       await page.route((u) => u.pathname === '/api/me/consents', (r) => r.fulfill(json(200, {
@@ -182,29 +252,29 @@ export const SCREENS: ScreenCase[] = [
     },
     primary: (p) => button(p, 'Stop, and keep what is saved'),
   },
-  { label: 'your rules', path: '/#/rules', seed: { ...PAN_READY, localRules: [coconutSevere] }, open: (p) => h1(p, 'Your rules'), primary: (p) => button(p, 'Add a rule') },
+  { label: 'your rules', mentor: true, path: '/#/rules', seed: { ...PAN_READY, localRules: [coconutSevere] }, open: (p) => h1(p, 'Your rules'), primary: (p) => button(p, 'Add a rule') },
   {
-    label: 'your rules: unreadable, with a 27-B card', path: '/#/rules', seed: { ...PAN_READY, localRules: [coconutSevere], rulesUnreadable: true },
+    label: 'your rules: unreadable, with a 27-B card', mentor: true, path: '/#/rules', seed: { ...PAN_READY, localRules: [coconutSevere], rulesUnreadable: true },
     open: openRuleCard,
     primary: (p) => p.locator('.rules-card').getByRole('button', { name: 'Stamp it ✔' }),
   },
   {
-    label: 'your rules: removing a severe rule', path: '/#/rules', seed: { ...PAN_READY, localRules: [coconutSevere] },
+    label: 'your rules: removing a severe rule', mentor: true, path: '/#/rules', seed: { ...PAN_READY, localRules: [coconutSevere] },
     open: async (p) => { await button(p, 'Remove').click(); await p.getByRole('dialog', { name: 'Removal of a Rule' }).waitFor(); },
     primary: (p) => p.getByRole('dialog', { name: 'Removal of a Rule' }).getByRole('button', { name: 'Remove', exact: true }),
   },
   {
-    label: 'your rules (signed in, a device rule to copy)', path: '/#/rules', seed: { ...PAN_READY, localRules: [coconutSevere] }, beforeGoto: signedInApi,
+    label: 'your rules (signed in, a device rule to copy)', mentor: true, path: '/#/rules', seed: { ...PAN_READY, localRules: [coconutSevere] }, beforeGoto: signedInApi,
     open: (p) => p.locator('.rules-copy').waitFor(),
     primary: (p) => button(p, 'Copy to my account'),
   },
   {
-    label: 'mentor panel open (standard)', path: '/', seed: PAN_READY,
+    label: 'mentor panel open (standard)', mentor: true, path: '/', seed: PAN_READY,
     open: async (p) => { await p.locator('#pan-button').click(); await p.locator('#pan-panel').waitFor(); },
     primary: (p) => p.locator('#pan-panel').getByRole('button', { name: 'Send', exact: true }),
   },
   {
-    label: 'mentor panel, first open: AI disclosure and Form 1-A', path: '/',
+    label: 'mentor panel, first open: AI disclosure and Form 1-A', mentor: true, path: '/',
     open: async (p) => {
       await p.locator('#pan-button').click();
       await p.locator('#pan-panel .pan-disclosure').waitFor();
@@ -214,7 +284,7 @@ export const SCREENS: ScreenCase[] = [
     primary: (p) => p.locator('#pan-panel').getByRole('button', { name: 'Send', exact: true }),
   },
   {
-    label: 'mentor panel: the intake consent card (signed in)', path: '/', seed: { aiDisclosureSeen: true, intake: { step: 'allergies' } }, beforeGoto: signedInApi,
+    label: 'mentor panel: the intake consent card (signed in)', mentor: true, path: '/', seed: { aiDisclosureSeen: true, intake: { step: 'allergies' } }, beforeGoto: signedInApi,
     open: async (p) => {
       await p.waitForFunction(() => Boolean((JSON.parse(localStorage.getItem('kq.player.v1') ?? '{}') as { account?: unknown }).account));
       await p.locator('#pan-button').click();
@@ -223,9 +293,19 @@ export const SCREENS: ScreenCase[] = [
     primary: (p) => p.locator('#pan-panel .consent-card').getByRole('button', { name: 'I agree' }),
   },
   {
-    label: 'mentor panel open (Family Table)', path: '/', seed: { settings: settings(true) },
+    label: 'mentor panel open (Family Table)', mentor: true, path: '/', seed: { settings: settings(true) },
     open: async (p) => { await p.locator('#pan-button').click(); await p.locator('#pan-panel').waitFor(); },
     primary: (p) => p.locator('#pan-panel .pan-close'),
+  },
+  {
+    label: 'mentor panel: server cards of every kind and the M4 lines', path: '/', seed: PAN_READY, beforeGoto: serverCardsApi, mentor: true,
+    open: async (p) => { await say(p, 'all the things', 9); await p.waitForFunction(() => document.querySelectorAll('#pan-panel .pan-card').length === 4); },
+    primary: (p) => p.locator('#pan-panel').getByRole('button', { name: 'Send', exact: true }),
+  },
+  {
+    label: 'mentor panel: capped chat (rate_limited) and a scripted rule card', path: '/', seed: PAN_READY, beforeGoto: cappedApi, mentor: true,
+    open: async (p) => { await say(p, "I'm allergic to sesame", 2); await p.locator('#pan-panel .pan-card').waitFor(); },
+    primary: (p) => p.locator('#pan-panel .pan-card').getByRole('button', { name: 'Stamp it ✔' }),
   },
   { label: '/auth/verify', path: '/auth/verify?token=x', open: (p) => p.locator('#verify').waitFor(), primary: (p) => p.locator('#verify') },
   {

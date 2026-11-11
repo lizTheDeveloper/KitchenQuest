@@ -1,6 +1,9 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, inject, it } from 'vitest';
+import { parse } from 'yaml';
 import { offOrigin, type OpenedApp } from './helpers';
-import { CHROME_BANNED, CONTENT_BANNED, RUSTY_SEED, SCREENS, bannedPattern, openScreen } from './screens';
+import { CHROME_BANNED, CONTENT_BANNED, MENTOR_BANNED, RUSTY_SEED, SCREENS, bannedPattern, openScreen } from './screens';
 
 let app: OpenedApp | null = null;
 afterEach(async () => { await app?.close(); app = null; });
@@ -57,6 +60,25 @@ describe('never rules, every screen', () => {
     expect(CHROME_BANNED.test('Never referred to by gender')).toBe(false);
   });
 
+  it('the mentor list catches sells words and voice.md §7, and passes the Pan\'s plain lines', () => {
+    for (const t of ['Join the Guild', 'subscribers', 'a paid plan', 'guilt-free', 'a cheat day', 'good job skipping', 'that weird dish', 'Recipe unlocked', 'HIPAA']) {
+      expect(MENTOR_BANNED.test(t), t).toBe(true);
+    }
+    for (const t of ['Check the card on screen.', 'I may have missed peanut.', "I can't find milk in your pantry"]) expect(MENTOR_BANNED.test(t), t).toBe(false);
+  });
+
+  it('every line the M4 mentor can say, and every mentor form, is free of the mentor list (all variants, not just the one shown)', () => {
+    const read = (rel: string) => parse(readFileSync(fileURLToPath(new URL(`../../../content/${rel}`, import.meta.url)), 'utf8')) as Record<string, unknown>;
+    const pan = read('dialogue/pan.yaml') as { triggers: Record<string, { lines: string[] }> };
+    const MENTOR = /^(rule\.|log\.|pantry\.|profile\.|consent\.|intake\.|mentor\.|write\.|confirm\.|undo|card\.|ai\.|forget\.|voice\.)|^(child\.grownup|allowance\.explain|didnt_understand|rate_limited|thanks)$/;
+    const ids = Object.keys(pan.triggers).filter((id) => MENTOR.test(id));
+    expect(ids.length).toBeGreaterThan(40);
+    const bad = ids.flatMap((id) => pan.triggers[id].lines.filter((l) => MENTOR_BANNED.test(l)).map((l) => `${id}: ${l}`));
+    expect(bad).toEqual([]);
+    const forms = JSON.stringify(read('bureau/forms.yaml').forms ?? read('bureau/forms.yaml'));
+    expect(forms.match(/HIPAA|medical-grade|\b(guild|upgrade|subscri\w*|premium)\b|\$\s?\d/gi) ?? []).toEqual([]);
+  });
+
   for (const sc of SCREENS) {
     it(sc.label, async () => {
       app = await openScreen(sc);
@@ -65,6 +87,7 @@ describe('never rules, every screen', () => {
       expect(chrome.length, 'some chrome was read').toBeGreaterThan(0);
       expect(hits(chrome, CHROME_BANNED), `${sc.label}: UI chrome`).toEqual([]);
       expect(hits(content, CONTENT_BANNED), `${sc.label}: written content`).toEqual([]);
+      if (sc.mentor) expect(hits(content, MENTOR_BANNED), `${sc.label}: mentor content (sells, voice.md §7)`).toEqual([]);
       expect(offOrigin(app.requests, inject('baseUrl')), `${sc.label}: requests off the app's origin`).toEqual([]);
       if (sc.label === 'mentor panel open (Family Table)') {
         expect(await page.locator('textarea, input[type="text"], #pan-talk').count(), 'Family Table: no text box').toBe(0);
