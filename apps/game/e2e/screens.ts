@@ -20,6 +20,10 @@ export interface ScreenCase {
   primary: (page: Page) => Locator;
   /** A mentor surface (panel, cards, consent cards, rules screen, Settings): its written content is also held to MENTOR_BANNED. */
   mentor?: true;
+  /** An M5 weekly-loop screen: held to LOOP_NEVER in chrome and content alike (Step 12). */
+  loop?: true;
+  /** A plan, market or rescue screen: no countdown word either (audit M-4, never rule 5). */
+  countdown?: true;
 }
 
 // ---- Never rules: the banned-word lists. M4 extends these; keep them here, in one place. ----
@@ -57,6 +61,31 @@ export const MENTOR_BANNED_WORDS = [
 ];
 export const MENTOR_BANNED = bannedPattern(MENTOR_BANNED_WORDS);
 
+/**
+ * M5 Step 12: the never rules for every weekly-loop screen, as strict in UI chrome as in written content (Ruling 24,
+ * C29). Inside `[data-content]` only, an element whose whole text is exactly a VOICE_ALLOWLIST line passes; UI
+ * chrome has no allowlist. No pattern is weakened for a line: the copy is fixed in content/ instead.
+ */
+export const LOOP_NEVER: Readonly<Record<string, RegExp>> = {
+  /** Never rules 3, 5 and 7: nothing sells, no price, no Guild. */
+  sells: /\b(guild|upgrade|subscri\w*|premium)\b|\$\s?\d/i,
+  /** voice.md §7's banned words. */
+  voice: /\b(exotic|ethnic|weird|strange|guilt-free|cheat day|junk|clean eating|sinful|skipped a meal|good job|streak lost|authentic|broken english|mijo|mija)\b|you missed \w+ days/i,
+  /** §3.3 and voice §0.3: recipes are taught and gifted, never unlocked, looted, collected, acquired or discovered. */
+  loot: /\b(unlock\w*|loot\w*|collect\w*|acquir\w*|discover\w*)\b/i,
+  /** §2.3: no streaks, no runs of days, nothing "missed". */
+  streak: /\bstreaks?\b|\bin a row\b|\bmissed\b/i,
+  /** No completion meter across cultures: no "n/9", "n of 9" or percentage. */
+  score: /\b\d+\s*(\/|of)\s*9\b|\d\s*%|\bper ?cent\b/i,
+  /** Compliance: never claim HIPAA or medical-grade anything. */
+  compliance: /HIPAA|medical-grade/i,
+};
+/** Audit M-4, never rule 5: no countdown on the rescue, market or plan screens. */
+export const COUNTDOWN = /\b(only|left|hurry|expires?|expiring)\b/i;
+/** A line from VOICE_ALLOWLIST as a whole-text matcher: `{var}` placeholders stand for the words the Pan fills in. */
+export const allowedLine = (line: string): RegExp =>
+  new RegExp(`^${line.split(/\{\w+\}/).map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.+')}$`);
+
 // ---- Screens ----
 
 const yaml = <T>(rel: string): T => parse(readFileSync(fileURLToPath(new URL(`../../../content/${rel}`, import.meta.url)), 'utf8')) as T;
@@ -77,7 +106,7 @@ export const RUSTY_SEED: Partial<PlayerState> = {
 };
 /** This plan week's Monday (no market day set) and a plan with parippu on its Sunday (M5 Step 10). */
 const monday = (() => { const d = new Date(); return daysAgo((d.getDay() + 6) % 7); })();
-const WEEK_SEED: Partial<PlayerState> = {
+export const WEEK_SEED: Partial<PlayerState> = {
   ...{ intake: { step: 'done' as const }, aiDisclosureSeen: true },
   localWeek: { plans: [{ weekStart: monday, items: [{ day: 6, kind: 'dish', slug: PARIPPU, servings: 3 }], hard: false, slot: 'unanswered' }], runs: [] },
 };
@@ -197,6 +226,218 @@ async function toQuestPanel(page: Page): Promise<void> {
 }
 const cookReady = (page: Page) => page.locator('.cook-progress').waitFor();
 
+// ---- M5 Step 12: every weekly-loop screen, in standard and in Family Table mode (C31) ----
+
+const FRIJOLES = 'mexico/oaxaca/frijoles-de-olla';
+const MARISOL_PIN = 'Visit Doña Marisol — Oaxaca, Mexico';
+const ft = { settings: settings(true) };
+/** Frijoles de olla cooked a week ago (C27): legumes, heat-control and patience Tried, so tempering is on offer. */
+const PRIOR_COOK = { id: '7a1c2b7e-0d3a-4c55-9b8e-1a2b3c4d5e6f', kind: 'cooked' as const, at: daysAgo(7), recipe: FRIJOLES, planned: false };
+const PRIOR: Partial<PlayerState> = {
+  ...PAN_READY, firstOpenedAt: new Date().toISOString(), lastOpenedAt: new Date().toISOString(),
+  progress: {
+    events: [PRIOR_COOK],
+    grants: [{ id: `${PRIOR_COOK.id}#0`, eventId: PRIOR_COOK.id, isoDay: PRIOR_COOK.at, kind: 'xp', amount: 30, reason: 'cook' }],
+    base: null, pendingUpload: [PRIOR_COOK.id],
+  },
+};
+/** A Use-It-Up offer: spinach bought two days ago, with cooked rice and oil told to the Pan (Step 10's rescue). */
+export const RESCUE_SEED: Partial<PlayerState> = {
+  ...PAN_READY,
+  localPantry: [
+    { id: 'sp', name: 'spinach', ingredientId: 'spinach', addedOn: daysAgo(2), source: 'market' },
+    { id: 'rice', name: 'cooked rice', ingredientId: 'cooked_rice' },
+    { id: 'oil', name: 'sunflower oil', ingredientId: 'neutral_oil' },
+  ],
+};
+const shallotSevere = { id: 'r2', target: { kind: 'ingredient' as const, ids: ['shallot'] }, type: 'avoid' as const, severity: 'anaphylactic' as const };
+const peanutSevere = { id: 'r3', target: { kind: 'ingredient' as const, ids: ['peanut'] }, type: 'avoid' as const, severity: 'anaphylactic' as const };
+const VIEW_COOKED = {
+  xp: 70, level: 1, stamps: 1, trust: { leela: 1 }, toolkit: { techniques: {} }, questsDone: ['leela-tempering'], questSteps: { 'leela-tempering': 6 }, questStartedOn: {},
+  cookedOn: { [PARIPPU]: [daysAgo(3)] }, framesCookedOn: {},
+};
+const BOOK_NOTES = [{ id: 'aaaaaaaa-0000-4000-8000-000000000001', recipe: PARIPPU, ops: [{ op: 'add', name: 'lime' }], text: 'more garlic next time', at: daysAgo(3) }];
+const HEALTH_GRANTED = {
+  consents: [{ purpose: 'health_data', noticeVersion: 'v3', noticeSha256: 'x', method: 'tap', grantedAt: '2026-11-01T00:00:00Z', withdrawnAt: null, endedReason: null, current: true }],
+  needsReconsent: [], notices: NOTICES,
+};
+/** Signed in with health_data: the book, the progress and the after-cook routes answer. */
+export async function loopApi(page: Page): Promise<void> {
+  await page.route((u) => u.pathname === '/api/me', (r) => r.fulfill(json(200, { id: 'u1', email: 'cook@example.com', entitlements: [] })));
+  await page.route((u) => u.pathname === '/api/rules', (r) => r.fulfill(json(200, { rules: [] })));
+  await page.route((u) => u.pathname === '/api/me/consents', (r) => r.fulfill(json(200, HEALTH_GRANTED)));
+  await page.route((u) => u.pathname === '/api/pantry', (r) => r.fulfill(json(200, { items: [] })));
+  await page.route((u) => u.pathname === '/api/progress', (r) => r.fulfill(json(200, { view: VIEW_COOKED })));
+  await page.route((u) => u.pathname === '/api/progress/events', (r) => {
+    const body = r.request().postDataJSON() as { events: { id: string }[] };
+    return r.fulfill(json(200, { accepted: body.events.map((e) => ({ clientId: e.id, grants: [] })), duplicate: [], rejected: [], warnings: [], view: VIEW_COOKED }));
+  });
+  await page.route((u) => u.pathname === '/api/notes', (r) => (r.request().method() === 'GET'
+    ? r.fulfill(json(200, { notes: BOOK_NOTES }))
+    : r.fulfill(json(201, { note: { ...(r.request().postDataJSON() as { note: object }).note, id: 'bbbbbbbb-0000-4000-8000-000000000001', check: { status: 'ok', findings: [], severe: false, disclaimer: null } } }))));
+  await page.route((u) => u.pathname.startsWith('/api/notes/'), (r) => r.fulfill({ status: 204 }));
+  await page.route((u) => u.pathname === '/api/shared-table', (r) => r.fulfill(json(201, { id: 'aaaaaaaa-0000-4000-8000-000000000002' })));
+  await page.route((u) => u.pathname === '/api/shared-table/tally', (r) => r.fulfill(json(200, { shared: 2, byRecipe: { [PARIPPU]: 2 } })));
+  await page.route((u) => u.pathname === '/api/meals', (r) => r.fulfill(json(201, { meal: { ...(r.request().postDataJSON() as { meal: object }).meal, id: 'cccccccc-0000-4000-8000-000000000001' } })));
+  await page.route((u) => u.pathname === '/api/plans/current', (r) => r.fulfill(json(200, { plan: null, weekStart: monday, checks: [] })));
+}
+/** Leela's quest, answered until `stop` holds. */
+async function questTo(page: Page, answer: (panel: string) => string, stop: (p: Page) => Promise<boolean>) {
+  const riddle = (yaml<{ quest: { steps: { type: string; prompt?: string; options?: { text: string; correct: boolean }[] }[] } }>('cooks/leela.yaml')).quest.steps.find((s) => s.type === 'riddle')!;
+  for (let i = 0; i < 120; i++) {
+    if (await stop(page)) return;
+    const panel = page.locator('.quest-panel');
+    if (await panel.count()) {
+      const text = (await panel.textContent()) ?? '';
+      const name = text.includes(riddle.prompt!) ? riddle.options!.find((o) => o.correct)!.text : answer(text);
+      await panel.getByRole('button', { name, exact: true }).click();
+      continue;
+    }
+    if (await page.locator('.dialogue .dialogue-next').count()) { await page.locator('.dialogue .dialogue-next').click(); continue; }
+    await page.waitForTimeout(50);
+  }
+  throw new Error('the quest never got there');
+}
+const errandAnswer = (panel: string) => (panel.includes('Fetch') ? "I've got it" : panel.includes('Cook it anyway') ? 'Cook it anyway' : "I've practised it");
+const panelWith = (text: string) => async (p: Page) => (await p.locator('.quest-panel', { hasText: text }).count()) > 0;
+/** Cook parippu to the certificate and through it: the after-cook questions (or, in Family Table mode, the kitchen). */
+export async function cookThrough(page: Page): Promise<void> {
+  await page.locator('.cook-progress').waitFor();
+  for (let i = 0; i < 10 && (await button(page, 'Done ▶').count()) === 0; i++) await button(page, /Next step/).click();
+  await button(page, 'Done ▶').click();
+  await page.getByRole('dialog', { name: /Certificate of a Dish Cooked/ }).getByRole('button', { name: 'Continue' }).click();
+}
+const afterCookSignedIn = async (p: Page) => {
+  await p.waitForFunction(() => Boolean((JSON.parse(localStorage.getItem('kq.player.v1') ?? '{}') as { account?: unknown }).account));
+  await cookThrough(p);
+  await p.locator('.bureau-slip[data-kind="cooked_for"]').waitFor();
+};
+
+export const LOOP_SCREENS: ScreenCase[] = [
+  // The quest runner: each step kind and the adapted panels (Step 9).
+  {
+    label: 'visit (a quest step: the drill)', loop: true, path: '/#/visit/leela', seed: PAN_READY,
+    open: (p) => questTo(p, errandAnswer, panelWith("I've practised it")),
+    primary: (p) => p.locator('.quest-panel').getByRole('button', { name: "I've practised it" }),
+  },
+  {
+    label: 'visit (a quest step: the riddle)', loop: true, path: '/#/visit/leela', seed: PAN_READY,
+    open: async (p) => {
+      for (let i = 0; i < 120 && (await p.locator('.quest-panel button', { hasText: 'Mustard seeds' }).count()) === 0; i++) {
+        if (await p.locator('.quest-panel').count()) { await p.locator('.quest-panel button').first().click(); continue; }
+        if (await p.locator('.dialogue .dialogue-next').count()) await p.locator('.dialogue .dialogue-next').click(); else await p.waitForTimeout(50);
+      }
+      await p.locator('.quest-panel button', { hasText: 'Mustard seeds' }).waitFor();
+    },
+    primary: (p) => p.locator('.quest-panel button').first(),
+  },
+  {
+    label: 'visit (a quest step: recognize, then the cook step\'s card)', loop: true, path: '/#/visit/leela', seed: PRIOR,
+    open: (p) => questTo(p, errandAnswer, async (pg) => (await pg.getByRole('dialog', { name: PARIPPU_TITLE }).count()) > 0),
+    primary: (p) => p.getByRole('dialog', { name: PARIPPU_TITLE }).getByRole('button', { name: /Cook it/ }),
+  },
+  {
+    label: 'visit (adapted: a blocked errand passes, the ⛔ dish taught as a lesson)', loop: true, path: '/#/visit/leela', seed: { ...PAN_READY, localRules: [shallotSevere] },
+    open: (p) => questTo(p, (t) => (t.includes('Learn it as a lesson') ? 'Learn it as a lesson' : "I've practised it"), panelWith('Learn it as a lesson')),
+    primary: (p) => p.locator('.quest-panel').getByRole('button', { name: 'Learn it as a lesson' }),
+  },
+  {
+    label: 'visit (adapted: a ❓ dish, the lesson or "Cook it anyway")', loop: true, path: '/#/visit/leela', seed: { ...PAN_READY, localRules: [peanutSevere] },
+    open: (p) => questTo(p, (t) => (t.includes('Fetch') ? "I've got it" : "I've practised it"), panelWith('Cook it anyway')),
+    primary: (p) => p.locator('.quest-panel').getByRole('button', { name: 'Cook it anyway' }),
+  },
+  {
+    label: 'visit (the rules can\'t be read: the quest waits, with a link)', loop: true, path: '/#/visit/leela', seed: { ...PAN_READY, rulesUnreadable: true },
+    open: (p) => questTo(p, () => 'Later', async (pg) => (await pg.locator('.quest-panel a.quest-rules-link').count()) > 0),
+    primary: (p) => p.locator('.quest-panel a.quest-rules-link'),
+  },
+  {
+    label: 'map: a cook awaiting an introduction (Travel anyway)', loop: true, path: '/#/map', seed: PAN_READY,
+    open: async (p) => { await button(p, MARISOL_PIN).click(); await p.getByRole('dialog', { name: 'Travel Permit' }).getByRole('button', { name: 'Travel anyway' }).waitFor(); },
+    primary: (p) => p.getByRole('dialog', { name: 'Travel Permit' }).getByRole('button', { name: 'Travel anyway' }),
+  },
+  { label: 'visit (Family Table: the cook\'s lines, no quest runner)', loop: true, path: '/#/visit/leela', seed: { ...PAN_READY, ...ft }, open: (p) => p.locator('.dialogue .dialogue-text .typed-full').waitFor(), primary: (p) => p.locator('.dialogue .dialogue-next') },
+
+  // The week (Step 10).
+  {
+    label: 'plan: the weekly slot offers tempering (C27)', loop: true, countdown: true, path: '/#/plan', seed: { ...PRIOR, localWeek: WEEK_SEED.localWeek },
+    open: (p) => p.locator('.plan-slot').waitFor(), primary: (p) => p.locator('.plan-slot').getByRole('button', { name: 'Not this week' }),
+  },
+  {
+    label: 'plan: a ⛔ dish, Cook disabled', loop: true, countdown: true, path: '/#/plan', seed: { ...WEEK_SEED, localRules: [coconutSevere] },
+    open: (p) => p.locator('.plan-item[data-status="blocked"]').waitFor(), primary: (p) => p.locator('.plan-save'),
+  },
+  { label: 'plan (Family Table)', loop: true, countdown: true, path: '/#/plan', seed: { ...WEEK_SEED, ...PRIOR, localWeek: WEEK_SEED.localWeek, ...ft }, open: (p) => p.locator('.plan-item').first().waitFor(), primary: (p) => p.getByRole('link', { name: 'The market list' }) },
+  { label: 'market list (Family Table)', loop: true, countdown: true, path: '/#/market', seed: { ...WEEK_SEED, ...ft }, open: (p) => p.locator('.market-row').first().waitFor(), primary: (p) => p.getByRole('link', { name: "This week's plan" }) },
+  { label: 'pantry frame (Family Table)', loop: true, path: '/#/frame/fried-rice', seed: { ...PAN_READY, ...ft }, open: (p) => p.locator('.frame-cook').waitFor(), primary: (p) => p.locator('.frame-cook') },
+  {
+    label: 'kitchen: the Use-It-Up rescue', loop: true, countdown: true, path: '/', seed: RESCUE_SEED,
+    open: (p) => p.locator('.rescue').waitFor(), primary: (p) => p.locator('.rescue').getByRole('button', { name: 'Cook the frame' }),
+  },
+  {
+    label: 'plan (signed in): the move-this-week card', loop: true, path: '/#/plan', seed: WEEK_SEED, beforeGoto: loopApi,
+    open: (p) => p.locator('.week-move-offer').waitFor(), primary: (p) => p.locator('.week-move-offer').getByRole('button', { name: 'Move it' }),
+  },
+
+  // The kitchen's apprentice card and the guest offer (Step 9).
+  { label: 'kitchen: the apprentice card', loop: true, path: '/', seed: PRIOR, open: (p) => p.locator('.apprentice-card').waitFor(), primary: (p) => button(p, 'Go out to the world map') },
+  {
+    label: 'kitchen (signed in): the guest-progress offer', loop: true, path: '/', seed: PRIOR, beforeGoto: loopApi,
+    open: (p) => p.getByRole('region', { name: "Add this device's progress to your account?" }).waitFor(),
+    primary: (p) => button(p, 'Add it to my account'),
+  },
+  { label: 'kitchen: the apprentice card (Family Table)', loop: true, path: '/', seed: { ...PRIOR, ...ft }, open: (p) => p.locator('.apprentice-card').waitFor(), primary: (p) => button(p, 'Go out to the world map') },
+
+  // After the cooking (Step 11): the new slips.
+  {
+    label: 'after cook (signed in): who ate with you', loop: true, path: `/#/cook/${PARIPPU}`, seed: PAN_READY, beforeGoto: loopApi,
+    open: afterCookSignedIn, primary: (p) => p.locator('.bureau-slip[data-kind="cooked_for"]').getByRole('button', { name: 'Skip' }),
+  },
+  {
+    label: 'after cook (signed in): "Just me", then the margin note slip', loop: true, path: `/#/cook/${PARIPPU}`, seed: PAN_READY, beforeGoto: loopApi,
+    open: async (p) => {
+      await afterCookSignedIn(p);
+      const who = p.locator('.bureau-slip[data-kind="cooked_for"]');
+      await who.getByRole('button', { name: 'Just me' }).click();
+      await who.getByRole('button', { name: 'Stamp it ✔' }).click();
+      await p.locator('.note-text').fill('added lime');
+      await button(p, 'Read it back').click();
+      await p.locator('.bureau-slip[data-kind="margin_note"]').waitFor();
+    },
+    primary: (p) => p.locator('.bureau-slip[data-kind="margin_note"]').getByRole('button', { name: 'Write it in ✔' }),
+  },
+  {
+    label: 'after cook (signed in): the one-tap log, logged', loop: true, path: `/#/cook/${PARIPPU}`, seed: PAN_READY, beforeGoto: loopApi,
+    open: async (p) => {
+      await afterCookSignedIn(p);
+      await p.locator('.bureau-slip[data-kind="cooked_for"]').getByRole('button', { name: 'Skip' }).click();
+      await p.locator('.note-skip').click();
+      const log = p.locator('.bureau-slip[data-kind="meal"]');
+      await log.waitFor();
+      await log.getByRole('button', { name: 'Log it' }).click();
+      await p.locator('.after-cook-step', { hasText: 'Log it?' }).getByRole('button', { name: /Undo/ }).waitFor();
+    },
+    primary: (p) => button(p, 'Back to the kitchen'),
+  },
+  {
+    label: 'after cook (signed out): the account-only questions say so', loop: true, path: `/#/cook/${PARIPPU}`, seed: PAN_READY,
+    open: async (p) => { await cookThrough(p); await p.locator('.after-cook').waitFor(); },
+    primary: (p) => button(p, 'Back to the kitchen'),
+  },
+  {
+    label: 'after cook (Family Table): straight back to the kitchen', loop: true, path: `/#/cook/${PARIPPU}`, seed: { ...PAN_READY, ...ft }, beforeGoto: loopApi,
+    open: async (p) => { await cookThrough(p); await p.waitForFunction(() => location.hash === '#/kitchen'); await h1(p, 'Your kitchen'); },
+    primary: (p) => button(p, 'Go out to the world map'),
+  },
+
+  // The Recipe Book (Step 11).
+  { label: 'book (signed in)', loop: true, path: '/#/book', seed: PAN_READY, beforeGoto: loopApi, open: (p) => p.locator('.book-index-item').first().waitFor(), primary: (p) => button(p, 'Download my book') },
+  { label: 'book page (signed in): notes and the Shared Table', loop: true, path: `/#/book/${PARIPPU}`, seed: PAN_READY, beforeGoto: loopApi, open: (p) => p.locator('.book-notes-panel').waitFor(), primary: (p) => button(p, 'Download my book') },
+  { label: 'book (signed out)', loop: true, path: '/#/book', seed: PRIOR, open: (p) => p.locator('.book-index, .book-empty').first().waitFor(), primary: (p) => button(p, 'Download my book') },
+  { label: 'book (Family Table)', loop: true, path: '/#/book', seed: { ...PAN_READY, ...ft }, beforeGoto: loopApi, open: (p) => p.locator('.book-index-item').first().waitFor(), primary: (p) => button(p, 'Download my book') },
+  { label: 'book page (Family Table)', loop: true, path: `/#/book/${PARIPPU}`, seed: { ...PAN_READY, ...ft }, beforeGoto: loopApi, open: (p) => p.locator('.book-techniques').waitFor(), primary: (p) => button(p, 'Download my book') },
+];
+
 export const SCREENS: ScreenCase[] = [
   { label: 'kitchen', path: '/', open: (p) => h1(p, 'Your kitchen'), primary: (p) => button(p, 'Go out to the world map') },
   {
@@ -217,7 +458,7 @@ export const SCREENS: ScreenCase[] = [
     open: (p) => p.locator('.dialogue .dialogue-text .typed-full').waitFor(), primary: (p) => p.locator('.dialogue .dialogue-next'),
   },
   {
-    label: 'visit (a quest step: the errand)', path: '/#/visit/leela',
+    label: 'visit (a quest step: the errand)', loop: true, path: '/#/visit/leela',
     open: toQuestPanel, primary: (p) => p.locator('.quest-panel').getByRole('button', { name: "I've got it" }),
   },
   {
@@ -334,9 +575,9 @@ export const SCREENS: ScreenCase[] = [
     open: async (p) => { await say(p, "I'm allergic to sesame", 2); await p.locator('#pan-panel .pan-card').waitFor(); },
     primary: (p) => p.locator('#pan-panel .pan-card').getByRole('button', { name: 'Stamp it ✔' }),
   },
-  { label: 'plan (Form 7-W)', path: '/#/plan', seed: WEEK_SEED, open: (p) => p.locator('.plan-item').first().waitFor(), primary: (p) => p.locator('.plan-save') },
-  { label: 'market list (Form 12-M)', path: '/#/market', seed: WEEK_SEED, open: (p) => p.locator('.market-tick').first().waitFor(), primary: (p) => button(p, "That's the shop done") },
-  { label: 'pantry frame: the slot picker', path: '/#/frame/fried-rice', seed: PAN_READY, open: (p) => p.locator('.frame-cook').waitFor(), primary: (p) => p.locator('.frame-cook') },
+  { label: 'plan (Form 7-W)', loop: true, countdown: true, path: '/#/plan', seed: WEEK_SEED, open: (p) => p.locator('.plan-item').first().waitFor(), primary: (p) => p.locator('.plan-save') },
+  { label: 'market list (Form 12-M)', loop: true, countdown: true, path: '/#/market', seed: WEEK_SEED, open: (p) => p.locator('.market-tick').first().waitFor(), primary: (p) => button(p, "That's the shop done") },
+  { label: 'pantry frame: the slot picker', loop: true, path: '/#/frame/fried-rice', seed: PAN_READY, open: (p) => p.locator('.frame-cook').waitFor(), primary: (p) => p.locator('.frame-cook') },
   { label: '/auth/verify', path: '/auth/verify?token=x', open: (p) => p.locator('#verify').waitFor(), primary: (p) => p.locator('#verify') },
   {
     label: '/auth/verify: the age screen', path: '/auth/verify?token=x', beforeGoto: ageRequired,
@@ -353,6 +594,7 @@ export const SCREENS: ScreenCase[] = [
     primary: (p) => p.getByRole('link', { name: 'Back to the kitchen' }),
   },
   { label: 'not found', path: '/#/no-such-page', open: (p) => h1(p, 'Not found'), primary: (p) => p.getByRole('link', { name: 'Back to the kitchen' }) },
+  ...LOOP_SCREENS,
 ];
 
 /** Open a screen the way a player meets it: load, then do what the case says. */
