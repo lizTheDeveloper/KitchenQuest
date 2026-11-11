@@ -1628,3 +1628,34 @@ describe('Step 12 carry: every named allergen gets a card or an ask (Step 11 str
     expect(lines(plain).map((l) => l.trigger)).not.toContain('rule.ask_what_else');
   });
 });
+
+describe('Step 12 controller ruling (T10): a symptom with the player\'s own allergy denial is an intolerance card', () => {
+  const T10 = 'garlic kinda wrecks my stomach tbh, not like an allergy, i just feel rough after';
+
+  test('T10 → one garlic intolerance card', async () => {
+    await makeApp(fakeAi([toolCall('propose_rule', { term: 'garlic', severity: 'intolerance' })]));
+    const p = await player(AI_HEALTH);
+    const r = await turn(p.cookie, T10);
+    expect(r.cards.map((c) => c.card)).toMatchObject([{ kind: 'rule', rule: { target: { ids: ['garlic'] }, severity: 'intolerance' } }]);
+    expect(await countOf('rules', p.userId)).toBe(0);
+  });
+
+  test('without the denial: the plain ask, no card', async () => {
+    await makeApp(fakeAi([toolCall('propose_rule', { term: 'garlic', severity: 'intolerance' })]));
+    const p = await player(AI_HEALTH);
+    const r = await turn(p.cookie, 'garlic kinda wrecks my stomach tbh, i just feel rough after');
+    expect(r.cards).toEqual([]);
+    expect(r.parts).toEqual([lineOf('rule.ask_keep_off')]);
+  });
+
+  test('a swelling throat with it is an emergency first, with no card', async () => {
+    const ai = fakeAi([toolCall('propose_rule', { term: 'peanuts', severity: 'intolerance' })]);
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    const r = await turn(p.cookie, 'peanuts wreck my stomach, not an allergy, and my throat is swelling');
+    expect(r.route).toBe('deterministic');
+    expect(r.parts[0]).toEqual(lineOf('rule.emergency'));
+    expect(r.cards).toEqual([]);
+    expect(ai.requests).toHaveLength(0);
+  });
+});

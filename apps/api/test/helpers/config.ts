@@ -19,7 +19,7 @@ export const testAiEnv = {
   ...testEnv,
   AI_ENABLED: 'true',
   OPENROUTER_API_KEY: 'sk-or-test',
-  AI_PROVIDERS: 'tenstorrent,modelrun',
+  AI_PROVIDERS: 'tenstorrent',
   AI_DAILY_BUDGET_USD: '5',
 };
 

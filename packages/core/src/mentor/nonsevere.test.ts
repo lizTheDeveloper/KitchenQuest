@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import ingredients from '../../../../data/ingredients.json';
 import { IngredientGraph } from '../ingredients/graph';
-import { stripPageEvents } from './intents';
+import { classifyTurn, stripPageEvents } from './intents';
 import { NON_SEVERE_FILLERS, readNonSevere } from './nonsevere';
 import { parseRuleStatement, severityFromText } from './parse';
 import { buildRuleCard } from './cards';
@@ -689,5 +689,46 @@ describe('fix round 5: the reviewer probes c12, c14, c15', () => {
   test.each([...CONSUMED_ROUND_5])('%s is consumed whole', (raw) => {
     const own = stripPageEvents(raw).text;
     expect(readNonSevere(own, graph)).not.toBeNull();
+  });
+});
+
+describe('M4 Step 12 controller ruling (T10): a symptom with the player\'s own allergy denial is an intolerance', () => {
+  const T10 = 'garlic kinda wrecks my stomach tbh, not like an allergy, i just feel rough after';
+
+  test('T10 reads as a garlic intolerance, and the rule statement carries it', () => {
+    expect(readNonSevere(T10, graph)).toEqual({ severity: 'intolerance', terms: ['garlic'], stated: true });
+    expect(severityFromText(T10, graph)).toBe('intolerance');
+    expect(parseRuleStatement(T10, graph)).toMatchObject({ terms: ['garlic'], severity: 'intolerance' });
+    const card = buildRuleCard({ term: 'garlic', severity: 'intolerance' }, graph, ruleTerms as RuleTerm[]);
+    expect(card).toMatchObject({ ok: true, card: { rule: { target: { ids: ['garlic'] }, severity: 'intolerance' } } });
+  });
+
+  test('the other symptom shapes, with a denial', () => {
+    for (const t of ['I feel rough after garlic, not an allergy', 'onions upset my gut. not allergic', "it's not an allergy, milk makes me feel bloated"]) {
+      expect(readNonSevere(t, graph)?.severity, t).toBe('intolerance');
+    }
+  });
+
+  test('without the denial nothing is read (the player is asked)', () => {
+    for (const t of ['garlic kinda wrecks my stomach tbh, i just feel rough after', 'garlic wrecks my stomach', 'I feel rough after garlic']) {
+      expect(readNonSevere(t, graph), t).toBeNull();
+      expect(severityFromText(t, graph), t).toBeNull();
+      expect(parseRuleStatement(t, graph), t).toBeNull();
+    }
+  });
+
+  test('an emergency or a severity word always wins', () => {
+    const emergency = 'peanuts wreck my stomach, not an allergy, and my throat is swelling';
+    expect(classifyTurn(emergency)).toBe('emergency');
+    expect(readNonSevere(emergency, graph)).toBeNull();
+    for (const t of ['garlic severely wrecks my stomach, not an allergy', 'garlic wrecks my stomach, not an allergy, it is severe', 'anaphylactic: garlic wrecks my stomach, not an allergy']) {
+      expect(readNonSevere(t, graph), t).toBeNull();
+      expect(severityFromText(t, graph), t).not.toBe('intolerance');
+    }
+  });
+
+  test('two denials, or a word the grammar does not hold, read nothing', () => {
+    expect(readNonSevere('not an allergy, garlic wrecks my stomach, not allergic', graph)).toBeNull();
+    expect(readNonSevere('garlic wrecks my stomach on tuesdays, not an allergy', graph)).toBeNull();
   });
 });

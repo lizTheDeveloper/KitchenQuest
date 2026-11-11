@@ -141,7 +141,7 @@ describe('loadConfig: AI (C-14, P-11)', () => {
     expect(ai?.apiKey).toBe('sk-or-test');
     expect({ ...ai, apiKey: undefined }).toEqual({
       model: 'qwen/qwen3.8-27b',
-      providers: ['tenstorrent', 'modelrun'],
+      providers: ['tenstorrent'],
       timeoutMs: 10000,
       dailyBudgetMicroUsd: 5_000_000,
     });

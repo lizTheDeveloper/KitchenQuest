@@ -145,7 +145,7 @@ const AiEnv = z.object({
   // Spike §6.6: re-check the order monthly from /models/qwen/qwen3.8-27b/endpoints; exclude fp4 providers.
   AI_PROVIDERS: required('AI_PROVIDERS')
     .transform((v) => v.split(',').map((p) => p.trim()).filter(Boolean))
-    .refine((list) => list.length > 0, { error: 'AI_PROVIDERS must list at least one OpenRouter provider slug, e.g. tenstorrent,modelrun' }),
+    .refine((list) => list.length > 0, { error: 'AI_PROVIDERS must list at least one OpenRouter provider slug, e.g. tenstorrent' }),
   AI_DAILY_BUDGET_USD: required('AI_DAILY_BUDGET_USD').pipe(
     z.coerce.number<string>({ error: 'AI_DAILY_BUDGET_USD must be a number of US dollars' }).positive('AI_DAILY_BUDGET_USD must be greater than 0'),
   ),

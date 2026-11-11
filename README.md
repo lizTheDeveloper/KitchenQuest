@@ -53,7 +53,7 @@ The Pan is the mentor in the panel on every screen. It always works without AI: 
 
 ```bash
 eval "$(scripts/dev-db.sh url)"; export TEST_DATABASE_URL
-OPENROUTER_API_KEY=… AI_PROVIDERS=tenstorrent,modelrun npm run eval:mentor -w @kitchenquest/api
+OPENROUTER_API_KEY=… AI_PROVIDERS=tenstorrent npm run eval:mentor -w @kitchenquest/api
 # behind an HTTPS proxy, add NODE_USE_ENV_PROXY=1 so Node's fetch uses it
 ```
 

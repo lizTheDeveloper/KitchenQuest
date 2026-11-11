@@ -30,7 +30,7 @@ The request body is pinned in `apps/api/src/ai/openrouter.ts` (`buildRequestBody
 | `reasoning: { enabled: false }`, `temperature: 0.3`, `max_tokens: 200` | §7.6b.6 inference settings | **[verify]** |
 | no `user`, `metadata`, `transforms`, `HTTP-Referer`, `X-Title` | No identifiers leave us (C-13) | (code: tested) |
 
-Also re-check the allow-list monthly from `/models/qwen/qwen3.8-27b/endpoints` (spike §6.6): exclude fp4 providers, and confirm each listed slug still serves the model. On 2026-11-11 the endpoints list showed Tenstorrent (fp8) but not ModelRun; `AI_PROVIDERS=tenstorrent,modelrun` then routes to Tenstorrent alone **[verify before production]**.
+Also re-check the allow-list monthly from `/models/qwen/qwen3.8-27b/endpoints` (spike §6.6): exclude fp4 providers, and confirm each listed slug still serves the model. On 2026-11-11 the endpoints list showed Tenstorrent (fp8) but no longer ModelRun, so `AI_PROVIDERS` is now `tenstorrent` alone (controller ruling, M4 Step 12). One provider means no fallback: an outage or its rate limits (seen in the eval as many 429s) show as `ai_unavailable`, and the scripted Pan answers.
 
 ## 3. Account-level settings (founder actions)
 
@@ -38,4 +38,5 @@ Also re-check the allow-list monthly from `/models/qwen/qwen3.8-27b/endpoints` (
 - [ ] Training / data-sharing opt-ins **off** for the account; the account's provider data policy set to deny providers that train or retain.
 - [ ] MFA or a passkey on the OpenRouter account (C-36).
 - [ ] A spend limit on the production key, separate from the synthetic-data dev key.
+- [ ] Review the provider allow-list (`AI_PROVIDERS`, now `tenstorrent` alone): confirm each provider's ZDR and no-training status on OpenRouter, consider adding a second vetted non-fp4 provider for fallback, and record the date checked. A change moves the prompt fingerprint, so re-run `npm run eval:mentor`.
 - [ ] Sign the DPA, then set `dpa_status` to `signed` for `openrouter` and `openrouter-model-providers` in `processors.json` (this is what lets production boot with AI on).

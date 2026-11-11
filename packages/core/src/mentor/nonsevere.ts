@@ -13,6 +13,8 @@ import { capText, normalizeTurn } from './intents';
 export const NON_SEVERE_FILLERS: ReadonlySet<string> = new Set([
   'i', "i'm", 'im', 'i am', 'am', 'just', 'so', 'and', 'also', 'a', 'an', 'my', "it's", 'its', 'to', 'with', 'of',
   'the', 'have', 'got', 'quite', 'very', 'mildly', 'slightly', 'a bit',
+  // M4 Step 12 (T10's messy phrasing): hedges that state nothing.
+  'kinda', 'kind of', 'sort of', 'tbh',
 ]);
 /**
  * The only negation clauses, matched token for token, at most one, first or last. None is a
@@ -21,6 +23,22 @@ export const NON_SEVERE_FILLERS: ReadonlySet<string> = new Set([
 export const NEGATION_CLAUSES: readonly string[] = [
   'not an allergy', 'not allergic', "isn't an allergy", 'isnt an allergy', 'no allergy', 'rather than an allergy',
 ];
+/** M4 Step 12 controller ruling (T10): the denial said loosely, which counts only in a symptom reading. */
+const LOOSE_NEGATION_CLAUSES: readonly string[] = ['not like an allergy', 'not like allergic'];
+/**
+ * M4 Step 12 controller ruling (T10): "<terms> <symptom>" and "<symptom after> <terms>" read as an
+ * intolerance ONLY in a message that also holds exactly one allergy denial (NEGATION_CLAUSES), here
+ * in any position. Without the denial they read as nothing and the player is asked. A severity or
+ * emergency word is never consumed, so it always wins.
+ */
+const SYMPTOM_VERBS = ['wrecks', 'wreck', 'upsets', 'upset', 'messes up', 'mess up'];
+const SYMPTOM_OBJECTS = ['my stomach', 'my gut', 'stomach', 'gut'];
+const SYMPTOM_FEELINGS = ['rough', 'sick', 'bloated'];
+const SYMPTOM_BEFORE_PHRASES = [
+  ...SYMPTOM_VERBS.flatMap((v) => SYMPTOM_OBJECTS.map((o) => `${v} ${o}`)),
+  ...SYMPTOM_FEELINGS.flatMap((f) => [`makes me feel ${f}`, `make me feel ${f}`, `makes me ${f}`, `make me ${f}`]),
+];
+const SYMPTOM_AFTER_PHRASES = SYMPTOM_FEELINGS.flatMap((f) => [`feel ${f} after`, `feel ${f}`, `get ${f} after`]);
 /** Intolerance words: "<terms> intolerant", "intolerant to <terms>", "<terms> intolerance", … */
 const INTOLERANCE_WORDS = ['intolerant', 'intolerance', 'intolerances'];
 const DIGEST_WORDS = ["can't digest", 'cant digest', 'cannot digest', 'can not digest'];
@@ -53,10 +71,10 @@ const WORD = /^[a-z]+(?:['-][a-z]+)*$/;
 export const ALLERGY_STEMS = /lerg|alerg|anaph|anaf[iy]l/;
 const MAX_PHRASE = 4;
 
-type Sym = 'term' | 'intol' | 'digest' | 'prefix' | 'avoid' | 'choice' | 'diet' | 'mod' | 'suffix' | 'sep' | 'neg' | 'fill';
-type ShapeSym = Exclude<Sym, 'fill' | 'neg'> | 'stop' | 'comma';
+type Sym = 'looseneg' | 'term' | 'intol' | 'digest' | 'prefix' | 'avoid' | 'choice' | 'diet' | 'mod' | 'suffix' | 'sep' | 'neg' | 'fill' | 'symptom' | 'after';
+type ShapeSym = Exclude<Sym, 'fill' | 'neg' | 'looseneg'> | 'stop' | 'comma';
 const SYM_CHAR: Readonly<Record<ShapeSym, string>> = {
-  term: 't', intol: 'i', digest: 'd', prefix: 'p', avoid: 'a', choice: 'b', diet: 'g', mod: 'm', suffix: 'w', sep: 's',
+  term: 't', intol: 'i', digest: 'd', prefix: 'p', avoid: 'a', choice: 'b', diet: 'g', mod: 'm', suffix: 'w', sep: 's', symptom: 'y', after: 'f',
   stop: '.', comma: ',',
 };
 /** Terms before a keyword: joined by and/or only ("milk and egg intolerance", never "peanuts, milk intolerant"). */
@@ -70,10 +88,14 @@ const PREFERENCE_GROUP = `(?:p,?${TERMS_AFTER}|a${TERMS_AFTER}b|m?gw?)`;
 /** The whole message: groups of one class, each pair split by a break. */
 const INTOLERANCE_SHAPE = new RegExp(`^${INTOLERANCE_GROUP}(?:[,.]${INTOLERANCE_GROUP})*$`);
 const PREFERENCE_SHAPE = new RegExp(`^${PREFERENCE_GROUP}(?:[,.]${PREFERENCE_GROUP})*$`);
+/** "garlic wrecks my stomach", "I feel rough after garlic", each optionally followed by more symptom words. */
+const SYMPTOM_GROUP = `(?:${TERMS_BEFORE},?y|f${TERMS_AFTER})(?:[,.]?[yf])*`;
+const SYMPTOM_SHAPE = new RegExp(`^${SYMPTOM_GROUP}(?:[,.]${SYMPTOM_GROUP})*$`);
 
 /** Fixed phrases by symbol; tried longest first, then in this order. */
 const PHRASES: readonly [Sym, readonly string[]][] = [
   ['neg', NEGATION_CLAUSES],
+  ['looseneg', LOOSE_NEGATION_CLAUSES],
   ['intol', INTOLERANCE_WORDS],
   ['digest', DIGEST_WORDS],
   ['prefix', PREFERENCE_PREFIXES],
@@ -83,6 +105,8 @@ const PHRASES: readonly [Sym, readonly string[]][] = [
   ['mod', DIET_MODIFIERS],
   ['suffix', [DIET_SUFFIX]],
   ['sep', TERM_SEPARATORS],
+  ['symptom', SYMPTOM_BEFORE_PHRASES],
+  ['after', SYMPTOM_AFTER_PHRASES],
 ];
 
 interface Piece {
@@ -149,9 +173,12 @@ export function readNonSevere(text: string, graph?: IngredientGraph): NonSevereR
   if (!addStretch(t.slice(at))) return null;
   // One negation clause, first or last, set aside with the break that joins it.
   const words = pieces.filter((p) => !isBreak(p));
-  const negs = words.filter((p) => p.sym === 'neg');
-  if (negs.length > 1 || (negs.length === 1 && negs[0] !== words[0] && negs[0] !== words[words.length - 1])) return null;
-  const body = pieces.filter((p) => p.sym !== 'neg');
+  const negs = words.filter((p) => p.sym === 'neg' || p.sym === 'looseneg');
+  const loose = negs.some((p) => p.sym === 'looseneg');
+  if (negs.length > 1) return null;
+  // First or last, except in a symptom reading (checked below), where the denial may sit anywhere.
+  const negInside = negs.length === 1 && negs[0] !== words[0] && negs[0] !== words[words.length - 1];
+  const body = pieces.filter((p) => p.sym !== 'neg' && p.sym !== 'looseneg');
   while (isBreak(body[0])) body.shift();
   while (isBreak(body[body.length - 1])) body.pop();
   if (body.length === 0) return null;
@@ -159,6 +186,9 @@ export function readNonSevere(text: string, graph?: IngredientGraph): NonSevereR
   if (ALLERGY_STEMS.test(body.map((p) => p.text).join('').replace(/[^a-z]+/g, ''))) return null;
   const shape = body.map((p) => SYM_CHAR[p.sym as ShapeSym]).join('');
   const terms = body.filter((p) => p.sym === 'term' || p.sym === 'diet').map((p) => p.text);
+  // A symptom said with the player's own allergy denial; without it, nothing is read (the player is asked).
+  if (SYMPTOM_SHAPE.test(shape)) return negs.length === 1 ? { severity: 'intolerance', terms, stated: true } : null;
+  if (negInside || loose) return null;
   if (INTOLERANCE_SHAPE.test(shape)) return { severity: 'intolerance', terms, stated: true };
   if (PREFERENCE_SHAPE.test(shape)) return { severity: 'preference', terms, stated: /[pa]/.test(shape) };
   return null;

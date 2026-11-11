@@ -2,7 +2,7 @@
  * The Pan's permanent eval (spec §7.6b.9, spike §6.10): the spike's 41 cases, REPS runs
  * each, through the real app and the real model on OpenRouter. Never part of `npm test`.
  *
- *   OPENROUTER_API_KEY=… AI_PROVIDERS=tenstorrent,modelrun TEST_DATABASE_URL=… npm run eval:mentor -w @kitchenquest/api
+ *   OPENROUTER_API_KEY=… AI_PROVIDERS=tenstorrent TEST_DATABASE_URL=… npm run eval:mentor -w @kitchenquest/api
  *
  * Synthetic data only: every player is made up here, in a fresh database dropped at the
  * end, with keys generated for this run. Refuses to run with NODE_ENV=production. Behind
