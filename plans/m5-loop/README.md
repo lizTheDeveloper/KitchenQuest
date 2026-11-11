@@ -141,7 +141,7 @@ Rulings 22–27 come from the pre-flight scan (`.superpowers/sdd/README-m5-loop/
 
 - [x] [Step 1 — Core: progress events, rewards, levels, trust and toolkit growth](step-1.md)
 - [x] [Step 2 — Core: the quest engine, lessons and the weekly technique slot](step-2.md)
-- [ ] [Step 3 — Core: the week (plan, market list, pantry dates, Use-It-Up, Pantry Frames, margin notes, cooked-for)](step-3.md)
+- [x] [Step 3 — Core: the week (plan, market list, pantry dates, Use-It-Up, Pantry Frames, margin notes, cooked-for)](step-3.md)
 - [ ] [Step 4 — Content and data: loop lines, forms, seed frames, keeps, recognize steps](step-4.md)
 - [ ] [Step 5 — API: progress events and reward grants](step-5.md)
 - [ ] [Step 6 — API: meal plans, market runs and dated pantry](step-6.md)
