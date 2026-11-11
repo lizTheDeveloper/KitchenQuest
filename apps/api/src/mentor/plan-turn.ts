@@ -1,5 +1,6 @@
 import {
   buildPlanCard,
+  planWeekStart,
   navPlace,
   dishName,
   type NavTarget,
@@ -15,8 +16,10 @@ import type { Keyring } from '../crypto/keyring.js';
 import { catalogueFor } from '../progress/catalogue.js';
 import { progressViewOf } from '../progress/service.js';
 import type { RecipeIndex } from '../recipes/recipe-index.js';
+import { eq } from 'drizzle-orm';
+import { profiles } from '../db/schema.js';
 import { loadRules } from '../rules/store.js';
-import { currentWeekStart, planContext } from '../week/plan-service.js';
+import { planContext } from '../week/plan-service.js';
 import { loadPlan } from '../week/store.js';
 import type { WeekSource } from './writes.js';
 
@@ -41,10 +44,12 @@ export type PlanCardContext = PlanContext & { slot: WeeklySlotInput };
  * toolkit, from their stored progress. Plans are health data (Step 6 ruling): the caller reads this only with
  * `health_data`.
  */
-export async function planCardContext(tx: Tx, deps: PlanTurnDeps, userId: string, today: string, at: Date): Promise<PlanCardContext> {
+export async function planCardContext(tx: Tx, deps: PlanTurnDeps, userId: string, today: string): Promise<PlanCardContext> {
   const recipes = await deps.week.recipes.current(tx);
   const week = { catalog: deps.catalog, loop: deps.week.loop, recipes };
-  const weekStart = await currentWeekStart(tx, userId, at, today);
+  // Read only: a turn never writes (the plan service's loadProfile creates an empty profile row on first use).
+  const row = (await tx.select({ marketDays: profiles.marketDays }).from(profiles).where(eq(profiles.userId, userId))).at(0);
+  const weekStart = planWeekStart(today, row?.marketDays ?? []);
   const rules = await loadRules(tx, deps.keyring, userId);
   const stored = await loadPlan(tx, deps.keyring, userId, weekStart);
   const ctx = { ...planContext(week, weekStart, rules), existing: stored?.items ?? [] };

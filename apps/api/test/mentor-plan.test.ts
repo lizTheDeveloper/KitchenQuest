@@ -149,6 +149,17 @@ describe('the scripted path (code alone)', () => {
     expect(await currentPlan(q.cookie)).toBeNull();
   });
 
+  test('a plan-card turn writes nothing: not even the empty profile row a first plan save creates (eval noWrite)', async () => {
+    await makeApp(null);
+    const p = await player();
+    const rows = async () => (await sql<{ n: number }[]>`select count(*)::int as n from profiles where user_id = ${p.userId}`)[0].n;
+    expect(await rows()).toBe(0);
+    const r = await p.turn('plan my week: onigiri on Monday');
+    expect(planOf(r).items).toEqual([{ day: 0, kind: 'dish', slug: ONIGIRI, servings: 6 }]);
+    expect(await rows()).toBe(0);
+    expect((await sql<{ n: number }[]>`select count(*)::int as n from meal_plans where user_id = ${p.userId}`)[0].n).toBe(0);
+  });
+
   test('scripted (AI off): "plan my week: dal on Sunday" → no card, plan.dish_unknown for "dal" (C1)', async () => {
     await makeApp(null);
     const p = await player();

@@ -462,7 +462,7 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
     // The saved rules, only when a rule card might be made (S13 ruling: never a card below one of them).
     const saved = persist && calls.some((c) => c.name === 'propose_rule') ? await loadRules(tx, deps.keyring, userId) : [];
     // M5 Step 8: the plan week's context, only for a plan call and only with health_data (plans are health data).
-    const planCtx = persist && calls.some((c) => c.name === 'propose_plan') ? await planCardContext(tx, deps, userId, f.req.localDate, now) : null;
+    const planCtx = persist && calls.some((c) => c.name === 'propose_plan') ? await planCardContext(tx, deps, userId, f.req.localDate) : null;
     if (calls.length > 0) reply = cardsFromCalls(deps, calls, f.req, persist, recipes, pantry, saved, { planCtx, recipes: index });
     else if (f.mode === 'rule_help') reply = { parts: [], cards: [], toolTurn: false }; // R3: rule help only
     else reply = scriptedReply(f.stripped, dishNamed, writeRequest);
@@ -661,7 +661,7 @@ async function codeRoute(deps: TurnDeps, userId: string, raw: string, req: TurnR
     await lockLiveUser(tx, userId);
     const persist = await consentHeldIn(tx, userId, 'health_data', now);
     if (!persist) return respond(id, 'deterministic', [line('consent.health_first'), { kind: 'consent', purpose: 'health_data' }]);
-    const built = planReply(plan, await planCardContext(tx, deps, userId, req.localDate, now));
+    const built = planReply(plan, await planCardContext(tx, deps, userId, req.localDate));
     if (!(await lockConversation(tx, userId, id))) return respond(id, 'deterministic', built.parts);
     const ids = built.card === null ? [] : [randomUUID()];
     const stripped = stripPageEvents(raw).text.trim();
