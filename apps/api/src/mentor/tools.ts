@@ -57,16 +57,19 @@ export const MENTOR_TOOLS: AiTool[] = [
   },
   {
     name: 'propose_profile',
+    // M5 Step 8 fix round 5 (5b): every field is optional with one plain type, never a required nullable union. The
+    // model had to write all five, each `anyOf [T, null]`, and the provider's parser leaked its own markup into the
+    // nullable integer (`"meals_per_week": "null\n</parameter>\n<"`) and cut off the rest of the call.
     description:
-      "Propose a change to the market days, meals a week, region or meal times. A meal reminder is a meal time ('remind me about dinner at 6:30 pm' is dinner at 18:30). Leave fields the player did not mention null.",
+      "Propose a change to the market days, meals a week, region or meal times. A meal reminder is a meal time ('remind me about dinner at 6:30 pm' is dinner at 18:30). Include only the fields the player mentioned; leave the others out.",
     parameters: {
       type: 'object',
       properties: {
-        market_days: nullable({ type: 'array', items: { type: 'string' }, description: 'Weekday names.' }),
-        meals_per_week: nullable({ type: 'integer' }),
-        region: nullable({ type: 'string' }),
-        country: nullable({ type: 'string' }),
-        meal_windows: nullable({
+        market_days: { type: 'array', items: { type: 'string' }, description: 'Weekday names.' },
+        meals_per_week: { type: 'integer' },
+        region: { type: 'string' },
+        country: { type: 'string' },
+        meal_windows: {
           type: 'array',
           items: {
             type: 'object',
@@ -74,9 +77,9 @@ export const MENTOR_TOOLS: AiTool[] = [
             required: ['name', 'start'],
             additionalProperties: false,
           },
-        }),
+        },
       },
-      required: ['market_days', 'meals_per_week', 'region', 'country', 'meal_windows'],
+      required: [],
       additionalProperties: false,
     },
   },

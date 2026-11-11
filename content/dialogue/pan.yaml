@@ -1106,6 +1106,18 @@ triggers:
       - "I haven't placed {dish} yet. Which day of the week is it for?"
       - "Pick a single day for {dish} and I'll add it to the plan."
 
+  profile.which_time:
+    ai: never
+    when: "A message times a meal and then corrects itself (\"dinner at 6pm, no wait, 7pm\"); no meal-time card is made, and the Pan asks which time (M5 Step 8 fix round 5)."
+    vars:
+      meal: "the meal the player timed, e.g. 'dinner'"
+    notes: "Plain. Nothing is pencilled in until the player says one time."
+    lines:
+      - "I heard two times for {meal}. Which one should I pencil in? Tell me once and I'll put it on a card."
+      - "Which time for {meal}? Say it once more and I'll make the card."
+      - "For {meal}, tell me the one time you'd like, and I'll put it on a card for you to check."
+      - "I'd rather not guess the time for {meal}. Which one did you mean?"
+
   plan.after_which_day:
     ai: never
     when: "'Pick N after …' names no single day (\"after the weekend\"); nothing was picked, and the Pan asks which day (M5 Step 8)."

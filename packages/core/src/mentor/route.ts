@@ -2,7 +2,20 @@ import { normalizeName, type IngredientGraph } from '../ingredients/graph';
 import { SEVERE, type Severity } from '../rules/types';
 import type { LineRef } from './cards';
 import { canonicalText, capText, classifyTurn, foldConfusables, normalizeTurn, stripPageEvents, type TurnIntent } from './intents';
-import { parseClock, parseRuleStatement, parseWeekdays, severityFromText, WEEKDAY_NAMES, weekdaysOf, type MealSlot } from './parse';
+import {
+  PANTRY_ADD_PATTERN,
+  PANTRY_REMOVAL_PATTERNS,
+  parseClock,
+  parseMealStatement,
+  parsePantryAdds,
+  parsePantryRemovals,
+  parseRuleStatement,
+  parseWeekdays,
+  severityFromText,
+  WEEKDAY_NAMES,
+  weekdaysOf,
+  type MealSlot,
+} from './parse';
 import type { NavTarget } from './protocol';
 import type { RuleTerm } from './rule-terms';
 
@@ -659,11 +672,11 @@ type ClosedPlan = { days: { weekday: string; dish: string }[] | null; pick: numb
  */
 export function planIntent(text: string, dishes: readonly { slug: string; title: string }[]): ClosedPlan | null {
   const own = ownClauseText(text);
-  if (own === null) return null;
+  if (own === null || CORRECTION_CUE.test(own)) return null;
   const forms = dishForms(dishes);
   const s = own.replace(/[.!?]+$/, '');
   const lead = LEAD.exec(s);
-  const clauses = (lead ? s.slice(lead[0].length) : s).split(SEP).filter((c) => c !== '');
+  const clauses = closedSplit(lead ? s.slice(lead[0].length) : s);
   if (clauses.length === 0) return null;
   const days: { weekday: string; dish: string }[] = [];
   let pick: number | null = null;
@@ -672,7 +685,6 @@ export function planIntent(text: string, dishes: readonly { slug: string; title:
   let closed = false;
   for (const c of clauses) {
     let m: RegExpExecArray | null;
-    if (NEUTRAL_CLAUSE.test(c)) continue;
     closed = true;
     if (HARD_CLAUSE.test(c)) hard = true;
     else if ((m = PICK_CLAUSE.exec(c)) !== null && pick === null) {
@@ -689,9 +701,30 @@ export function planIntent(text: string, dishes: readonly { slug: string; title:
   return { days: days.length > 0 ? days : null, pick, hard, after };
 }
 
-/** A closed neutral clause (fix round 4, N6): a greeting, please, thanks or ok. It adds nothing and takes nothing away. */
-const NEUTRAL_CLAUSE =
-  /^(?:please|pls|plz|thanks|thank you|thanks pan|thank you pan|thx|ta|cheers|ok|okay|ok pan|okay pan|hi|hello|hey|hi pan|hello pan|hey pan|cool|great)$/;
+/**
+ * Fix round 5 (5a ruling): the closed neutral fillers: idk, lol, ok, please, thanks (also, and and so already break
+ * clauses, SEP). They break a clause like punctuation and are no clause of their own; nothing else is a filler.
+ */
+const FILLER = /\s*\b(?:idk|lol|ok|okay|please|pls|thanks|thank you)\b\s*/;
+/** The clauses of the player's words for the closed readers: split at SEP and at the fillers, empty ones dropped. */
+const closedSplit = (own: string): string[] =>
+  own
+    .split(SEP)
+    .flatMap((c) => c.split(FILLER))
+    .map((c) => c.trim())
+    .filter((c) => c !== '');
+
+/**
+ * Fix round 5 (5c ruling): a correction cue in the player's words ("no wait", "actually", "instead", "scratch that",
+ * "i mean"). Code builds no plan or profile card from such a message, and the model's are dropped too: the ask
+ * (`correctionAsks`) instead. Over-catches on purpose ("I actually like Mondays").
+ */
+const CORRECTION_CUE = /\b(?:no,? wait|wait,? no|actually|instead|scratch that|i mean|i meant)\b/;
+export function correctionCue(text: string): boolean {
+  return CORRECTION_CUE.test(normalizeTurn(ownWords(text)));
+}
+/** The which-time ask after a corrected meal time (5c): a required, `ai: never` line naming the meal. */
+export const CORRECTION_TIME_TRIGGER = 'profile.which_time';
 
 const SLOT_FORMS: Readonly<Record<string, MealSlot>> = { breakfast: 'breakfast', brekkie: 'breakfast', lunch: 'lunch', dinner: 'dinner', supper: 'dinner', snack: 'snack' };
 const REMINDER = new RegExp(
@@ -714,11 +747,10 @@ type CodeClause =
   | { kind: 'pick'; pick: number }
   | { kind: 'reminder'; name: MealSlot; start: string }
   | { kind: 'market'; day: number }
-  | { kind: 'neutral' };
+  | { kind: 'consumed' };
 
 /** One clause, read whole by a closed form code builds a card from, or null. */
 function codeClause(c: string, forms: ReadonlySet<string>): CodeClause | null {
-  if (NEUTRAL_CLAUSE.test(c)) return { kind: 'neutral' };
   let m: RegExpExecArray | null;
   if ((m = DISH_DAY.exec(c)) !== null && m.at(1) !== undefined && forms.has(m[2])) return { kind: 'day', weekday: dayOf(m[3]), dish: m[2] };
   if ((m = PICK_CLAUSE.exec(c)) !== null) {
@@ -728,8 +760,21 @@ function codeClause(c: string, forms: ReadonlySet<string>): CodeClause | null {
   const timed = reminderClause(c);
   if (timed !== null) return { kind: 'reminder', ...timed };
   if ((m = MARKET.exec(c)) !== null) return { kind: 'market', day: WEEKDAY_NAMES.indexOf(dayOf(m[1]) as (typeof WEEKDAY_NAMES)[number]) };
+  if (mealLogClause(c) || pantryClause(c)) return { kind: 'consumed' };
   return null;
 }
+
+/** Fix round 5 (5a): a clause M4's meal-log parser reads whole: the player's own "(i )?had|ate …" that it reads as a meal. */
+const MEAL_LOG_CLAUSE = /^(?:i )?(?:had|ate)\b/;
+const mealLogClause = (c: string): boolean => MEAL_LOG_CLAUSE.test(c) && parseMealStatement(c) !== null;
+/**
+ * Fix round 5 (5a): a clause M4's pantry parser reads whole: one of its own removal or add patterns from the start
+ * of the clause (after the player as subject: "i", "we", "i've got") to its end, naming an item it reads.
+ */
+const PANTRY_SUBJECT = "(?:(?:i|we)(?:'ve| have)? (?:just )?(?:got )?)?";
+const PANTRY_CLAUSES: readonly RegExp[] = [...PANTRY_REMOVAL_PATTERNS, PANTRY_ADD_PATTERN].map((p) => new RegExp(`^${PANTRY_SUBJECT}(?:${p.source})$`));
+const pantryClause = (c: string): boolean =>
+  PANTRY_CLAUSES.some((p) => p.test(c)) && parsePantryRemovals(c).length + parsePantryAdds(c).length > 0;
 
 /**
  * Fix round 4 (N6 ruling): the message read whole for code-built cards. Every clause must be exactly one closed form
@@ -740,10 +785,10 @@ function codeClause(c: string, forms: ReadonlySet<string>): CodeClause | null {
  */
 function codeClauses(text: string, dishes: readonly { slug: string; title: string }[]): { own: string; clauses: CodeClause[] } | null {
   const own = ownClauseText(text);
-  if (own === null) return null;
+  if (own === null || CORRECTION_CUE.test(own)) return null;
   const forms = dishForms(dishes);
   const clauses: CodeClause[] = [];
-  for (const c of own.split(SEP).filter((x) => x !== '')) {
+  for (const c of closedSplit(own)) {
     const read = codeClause(c, forms);
     if (read === null) return null;
     clauses.push(read);
@@ -810,6 +855,30 @@ export function marketDayStated(text: string, dishes: readonly { slug: string; t
   const read = codeClauses(text, dishes);
   if (read === null || symptomOrDiet(read.own) || parseWeekdays(read.own).length !== 1) return null;
   return read.clauses.flatMap((c) => (c.kind === 'market' ? [c.day] : [])).at(0) ?? null;
+}
+
+/**
+ * Fix round 5 (5c): the asks for a corrected message, in the player's own words: `profile.which_time` for each meal
+ * the message times ("dinner at 6pm, no wait, 7pm"), `plan.which_day` for each canon dish it names with a weekday
+ * ("put parippu on monday, actually tuesday"; the dish as the player wrote it), and the market-day ask for a market
+ * day it states. Empty without a correction cue. The server adds these after dropping every plan and profile card.
+ */
+export function correctionAsks(text: string, dishes: readonly { slug: string; title: string }[]): LineRef[] {
+  const own = normalizeTurn(ownWords(text));
+  if (!CORRECTION_CUE.test(own)) return [];
+  const asks: LineRef[] = [];
+  if (parseClock(own) !== null) {
+    for (const [word, slot] of Object.entries(SLOT_FORMS)) {
+      if (new RegExp(`\\b${word}\\b`).test(own) && !asks.some((a) => a.vars.meal === slot)) asks.push(line(CORRECTION_TIME_TRIGGER, { meal: slot }));
+    }
+  }
+  if (parseWeekdays(own).length > 0) {
+    const named = [...dishForms(dishes)].filter((f) => occursAsWord(own, f));
+    // The longest form only ("parippu curry", not also "parippu").
+    for (const f of named.filter((f) => !named.some((g) => g !== f && g.includes(f)))) asks.push(line('plan.which_day', { dish: f }));
+    if (/\bmarket\b/.test(own)) asks.push(line('intake.market_day.ask'));
+  }
+  return asks;
 }
 
 const NAV_PLACES: Readonly<Record<string, 'kitchen' | 'map' | 'plan' | 'market' | 'book'>> = {

@@ -15,6 +15,9 @@ import {
   reminderSlots,
   marketDayStated,
   codeCardHealth,
+  correctionAsks,
+  correctionCue,
+  CORRECTION_TIME_TRIGGER,
   WEEKDAY_NAMES,
   leftoverNamedIngredients,
   matchDish,
@@ -472,6 +475,20 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
     else calls.push({ name: 'propose_profile', args: { market_days: [WEEKDAY_NAMES[market]], meals_per_week: null, region: null, country: null, meal_windows: null } });
   }
   const codeProfile = timed.length > 0 || market !== null;
+  // Fix round 5 (5c ruling): a correction cue ("no wait", "actually", "instead", "scratch that", "i mean") means no
+  // plan or profile card from code or from the model; the asks say which day, time or market day the player means.
+  const corrected = correctionAsks(f.raw, dishes);
+  if (correctionCue(f.raw)) {
+    for (const c of calls) {
+      if (c.name === 'propose_plan') for (const d of c.args.days ?? []) corrected.push({ trigger: 'plan.which_day', vars: { dish: d.dish } });
+      if (c.name === 'propose_profile') {
+        for (const w of c.args.meal_windows ?? []) corrected.push({ trigger: CORRECTION_TIME_TRIGGER, vars: { meal: w.name } });
+        if ((c.args.market_days ?? []).length > 0) corrected.push({ trigger: 'intake.market_day.ask', vars: {} });
+      }
+    }
+    calls.splice(0, calls.length, ...calls.filter((c) => c.name !== 'propose_plan' && c.name !== 'propose_profile'));
+  }
+  const correctionLines = corrected.filter((a, i) => corrected.findIndex((b) => b.trigger === a.trigger && JSON.stringify(b.vars) === JSON.stringify(a.vars)) === i);
   return deps.db.transaction(async (tx) => {
     await lockLiveUser(tx, userId);
     const persist = await consentHeldIn(tx, userId, 'health_data', now);
@@ -505,6 +522,11 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
     }
     // Every named allergen gets a card or an ask (Step 11 structural ruling, carried to the server here).
     askForLeftoverNames(reply, f.raw, f.req.intakeStep, graph);
+    // 5c: the correction asks, in place of the plan and profile cards dropped above.
+    if (correctionLines.length > 0) {
+      dropBareFallback();
+      for (const a of correctionLines) reply.parts.push({ kind: 'line', line: a });
+    }
     // A health statement is never silently lost (fix round 1 ruling on call 3): a health turn
     // that made no card at all, or whose model rule was dropped (C4), with no rule outcome,
     // asks plainly.

@@ -35,7 +35,7 @@ import { loadPlan } from '../week/store.js';
 import { openProposalsOfConversation } from './proposals.js';
 
 /** Bump on any change to the system text, examples or context shape (Step 12's eval gate reads the fingerprint). */
-export const MENTOR_PROMPT_VERSION = 'pan-4';
+export const MENTOR_PROMPT_VERSION = 'pan-5';
 
 const VOICE_MD = new URL('../../../../docs/style/voice.md', import.meta.url);
 const PANTRY_IN_CONTEXT = 50;
@@ -116,13 +116,8 @@ export function loadPanPrompt(bank: PanBank, voiceGuide: URL = VOICE_MD): PanPro
     { role: 'user', content: 'Oh and I finished the milk.' },
     exampleCall('example_1', 'propose_pantry_change', { add: [], remove: ['milk'] }),
     { role: 'user', content: 'Lunch at half twelve, please.' },
-    exampleCall('example_2', 'propose_profile', {
-      market_days: null,
-      meals_per_week: null,
-      region: null,
-      country: null,
-      meal_windows: [{ name: 'lunch', start: '12:30' }],
-    }),
+    // Fix round 5 (5b): profile fields are optional; an example sets only what the player said.
+    exampleCall('example_2', 'propose_profile', { meal_windows: [{ name: 'lunch', start: '12:30' }] }),
     // M5 Step 8: a plan copies the player's dish words with their days (the game matches them, even an unknown one),
     // and "pick N" leaves the choosing to the game, after the day the player names (fix round 1, M5: worded unlike
     // any eval case).
@@ -138,6 +133,17 @@ export function loadPanPrompt(bank: PanBank, voiceGuide: URL = VOICE_MD): PanPro
     }),
     { role: 'user', content: 'Pick two dinners for me after Wednesday, please.' },
     exampleCall('example_4', 'propose_plan', { days: null, pick: 2, hard_week: null, after: 'Wednesday' }),
+    // Fix round 5 (5b): ONE generic two-call example (a shopping day and a pick in one message), worded unlike any
+    // eval case (prompt.test checks that no 4-word span is shared with one).
+    { role: 'user', content: 'Thursday is my shopping day now. Choose two dishes for the days after Thursday.' },
+    {
+      role: 'assistant',
+      content: null,
+      toolCalls: [
+        { id: 'example_5a', name: 'propose_profile', arguments: JSON.stringify({ market_days: ['Thursday'] }) },
+        { id: 'example_5b', name: 'propose_plan', arguments: JSON.stringify({ days: null, pick: 2, hard_week: null, after: 'Thursday' }) },
+      ],
+    },
   ];
   return { system, examples };
 }

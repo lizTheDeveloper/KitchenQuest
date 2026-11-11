@@ -56,6 +56,8 @@ export const REQUIRED_PAN_TRIGGERS: readonly string[] = [
   // M5 Step 8: core buildPlanCard asks which day for a plan dish or an `after` that names no single day.
   'plan.which_day',
   'plan.after_which_day',
+  // M5 Step 8 fix round 5 (5c): the server asks which time after a corrected meal time (core CORRECTION_TIME_TRIGGER).
+  'profile.which_time',
   // M5 Step 8: core confirmedLines says plan.saved for a plan card; buildPlanCard reads a ⛔ dish back with plan.blocked_dish.
   'plan.saved',
   'plan.blocked_dish',

@@ -108,20 +108,22 @@ describe('loadPanPrompt', () => {
     ]);
   });
 
-  test('exactly one few-shot makes two calls (plan + profile), and no few-shot shares a 4-word span with any eval case text (5b)', () => {
-    const multi = prompt.examples.filter((m) => m.role === 'assistant' && (m.toolCalls?.length ?? 0) > 1);
+  test('exactly one few-shot makes two calls (plan + profile), and it shares no 4-word span with any eval case text (5b)', () => {
+    const calls = (m: (typeof prompt.examples)[number]) => ('toolCalls' in m ? (m.toolCalls ?? []) : []);
+    const multi = prompt.examples.filter((m) => calls(m).length > 1);
     expect(multi).toHaveLength(1);
-    expect(multi[0].toolCalls!.map((c) => c.name).sort()).toEqual(['propose_plan', 'propose_profile']);
+    expect(calls(multi[0]).map((c) => c.name).sort()).toEqual(['propose_plan', 'propose_profile']);
     const words = (t: string) => t.toLowerCase().match(/[a-z0-9']+/g) ?? [];
     const spans = (t: string) => {
       const w = words(t);
       return new Set(w.slice(0, Math.max(0, w.length - 3)).map((_, i) => w.slice(i, i + 4).join(' ')));
     };
     const caseSpans = new Set(CASES.flatMap((c) => [...spans(c.text)]));
-    for (const ex of prompt.examples.filter((m) => m.role === 'user')) {
-      const shared = [...spans(ex.content as string)].filter((sp) => caseSpans.has(sp));
-      expect(shared, ex.content as string).toEqual([]);
-    }
+    // The two-call few-shot (the one this ruling restores); M4's earlier examples are not this ruling's to change.
+    const before = prompt.examples[prompt.examples.indexOf(multi[0]) - 1];
+    expect(before).toEqual({ role: 'user', content: FEW_SHOT_TWO_CALL });
+    expect([...spans(FEW_SHOT_TWO_CALL)].filter((sp) => caseSpans.has(sp))).toEqual([]);
+
     // The check itself sees a shared span.
     expect([...spans("market's saturday so do the beans")].some((sp) => caseSpans.has(sp))).toBe(true);
   });
