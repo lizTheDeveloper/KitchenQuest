@@ -12,7 +12,15 @@ export const MAX_DEVICE_EVENTS = 2000;
  * a compacted `base` (C15, a totals snapshot that lowers nothing), and the ids not yet uploaded to an account
  * (`pendingUpload`, in log order). Content-free: ids, dates and numbers only.
  */
-export interface DeviceProgress { events: ProgressEvent[]; grants: RewardGrant[]; base: ProgressSnapshot | null; pendingUpload: string[] }
+export interface DeviceProgress {
+  events: ProgressEvent[]; grants: RewardGrant[]; base: ProgressSnapshot | null; pendingUpload: string[];
+  /**
+   * Bumped whenever events are deliberately removed (a sign-out prune, synced events of a signed-out account, guest
+   * progress moved to an account). A higher epoch replaces a lower one outright on merge, so a removal is never undone
+   * by another tab's older copy.
+   */
+  epoch?: number;
+}
 const EMPTY_PROGRESS: DeviceProgress = { events: [], grants: [], base: null, pendingUpload: [] };
 
 /**
@@ -23,8 +31,6 @@ const EMPTY_PROGRESS: DeviceProgress = { events: [], grants: [], base: null, pen
 interface AccountPartition {
   progress: DeviceProgress;
   view: ProgressView | null;
-  /** Bumped by `prunePartition`: a higher epoch replaces a lower one outright on merge, so a prune is never undone. */
-  epoch?: number;
 }
 
 const keyCache = new Map<string, string>();
@@ -48,9 +54,28 @@ export function prunePartition(s: PlayerState, key: string): PlayerState {
   const old = s.accountProgress[key];
   const pending = new Set(old.progress.pendingUpload);
   const events = old.progress.events.filter((e) => pending.has(e.id));
+  // Already minimal (a start-up sweep over a pruned partition): nothing to write.
+  if (old.view === null && old.progress.base === null && events.length === old.progress.events.length) return s;
   const ids = new Set(events.map((e) => e.id));
-  const progress: DeviceProgress = { events, grants: old.progress.grants.filter((g) => ids.has(g.eventId)), base: null, pendingUpload: events.map((e) => e.id) };
-  return { ...s, accountProgress: { ...s.accountProgress, [key]: { progress, view: null, epoch: (old.epoch ?? 0) + 1 } } };
+  const progress: DeviceProgress = {
+    events, grants: old.progress.grants.filter((g) => ids.has(g.eventId)), base: null, pendingUpload: events.map((e) => e.id),
+    epoch: (old.progress.epoch ?? 0) + 1,
+  };
+  return { ...s, accountProgress: { ...s.accountProgress, [key]: { progress, view: null } } };
+}
+
+/** Remove events (and their grants) from partition `key` for good: they are the server's now (N1, N5). */
+export function dropEvents(s: PlayerState, key: string | null, ids: Iterable<string>): PlayerState {
+  const gone = new Set(ids);
+  const p = partitionOf(s, key);
+  if (!p.events.some((e) => gone.has(e.id))) return s;
+  return withPartition(s, key, {
+    events: p.events.filter((e) => !gone.has(e.id)),
+    grants: p.grants.filter((g) => !gone.has(g.eventId)),
+    base: p.base,
+    pendingUpload: p.pendingUpload.filter((id) => !gone.has(id)),
+    epoch: (p.epoch ?? 0) + 1,
+  });
 }
 
 /** A partition's log: the guest's is `progress`; an account's lives in `accountProgress` (empty until it has one). */
@@ -142,10 +167,10 @@ const isProgress = (x: unknown): boolean =>
   Array.isArray(x.events) && x.events.every((e) => isObj(e) && typeof e.id === 'string' && typeof e.kind === 'string' && typeof e.at === 'string') &&
   Array.isArray(x.grants) && x.grants.every((g) => isObj(g) && typeof g.id === 'string' && typeof g.eventId === 'string' && typeof g.kind === 'string') &&
   (x.base === null || (isObj(x.base) && isObj(x.base.view))) &&
-  isStrArray(x.pendingUpload);
+  isStrArray(x.pendingUpload) &&
+  (x.epoch === undefined || (typeof x.epoch === 'number' && Number.isInteger(x.epoch) && x.epoch >= 0));
 const isPartitions = (x: unknown): boolean =>
-  isObj(x) && Object.values(x).every((a) => isObj(a) && isProgress(a.progress) && (a.view === null || isObj(a.view)) &&
-    (a.epoch === undefined || (typeof a.epoch === 'number' && Number.isInteger(a.epoch) && a.epoch >= 0)));
+  isObj(x) && Object.values(x).every((a) => isObj(a) && isProgress(a.progress) && (a.view === null || isObj(a.view)));
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 /** Every core `IntakeStep`: a step core adds fails to compile here until it is listed. */
 const INTAKE_STEP_SET: Readonly<Record<IntakeStep, true>> = { market_day: true, meals_per_week: true, region: true, allergies: true, pantry: true };
@@ -267,6 +292,9 @@ function higherBase(a: ProgressSnapshot | null, b: ProgressSnapshot | null): Pro
  */
 export function mergeProgress(a: DeviceProgress, b: DeviceProgress, opts: { pendingFrom?: 'both' | 'b' } = {}): DeviceProgress {
   if (a === b) return a;
+  // A deliberate removal (a higher epoch) wins outright: what it removed never comes back from an older copy.
+  const ea = a.epoch ?? 0, eb = b.epoch ?? 0;
+  if (ea !== eb) return ea > eb ? a : b;
   const base = higherBase(a.base, b.base);
   const covered = baseIds(base);
   const seen = new Set<string>();
@@ -289,7 +317,7 @@ export function mergeProgress(a: DeviceProgress, b: DeviceProgress, opts: { pend
     grants.push(g);
   }
   const pendingUpload = [...new Set(opts.pendingFrom === 'b' ? b.pendingUpload : [...a.pendingUpload, ...b.pendingUpload])].filter((id) => seen.has(id));
-  return { events, grants, base, pendingUpload };
+  return { events, grants, base, pendingUpload, ...(ea > 0 ? { epoch: ea } : {}) };
 }
 
 /**
@@ -302,11 +330,11 @@ export function mergePartitions(
   const accounts = new Map<string, AccountPartition>(Object.entries(a.accountProgress));
   for (const [key, pb] of Object.entries(b.accountProgress)) {
     const pa = accounts.get(key);
-    const ea = pa?.epoch ?? 0, eb = pb.epoch ?? 0;
-    // A pruned partition (a higher epoch) replaces the older copy outright: what the prune removed never comes back.
+    const ea = pa?.progress.epoch ?? 0, eb = pb.progress.epoch ?? 0;
+    // A pruned partition (a higher epoch) replaces the older copy outright, view included: nothing removed comes back.
     if (!pa || eb > ea) accounts.set(key, pb);
     else if (ea > eb) accounts.set(key, pa);
-    else accounts.set(key, { ...pa, progress: mergeProgress(pa.progress, pb.progress, opts), view: pb.view ?? pa.view });
+    else accounts.set(key, { progress: mergeProgress(pa.progress, pb.progress, opts), view: pb.view ?? pa.view });
   }
   return { progress: mergeProgress(a.progress, b.progress, opts), accountProgress: Object.fromEntries(accounts) };
 }

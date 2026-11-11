@@ -60,7 +60,7 @@ function kitchenScreen(): Screen {
         if (!alive) return;
         const draw = () => {
           const offer = !guestOfferDismissed && svc.sync.guestOffer()
-            ? renderGuestOffer({ add: () => svc.sync.addGuestProgress(), dismiss: () => { guestOfferDismissed = true; draw(); } })
+            ? renderGuestOffer({ add: () => { const p = svc.sync.addGuestProgress(); draw(); return p; }, dismiss: () => { guestOfferDismissed = true; draw(); } })
             : null;
           if (offer === null && cardSlot.querySelector('.guest-offer')?.contains(doc.activeElement)) cardSlot.querySelector<HTMLElement>('.apprentice-card h2')?.focus();
           cardSlot.replaceChildren(renderApprenticeCard(svc.view()), ...(offer ? [offer] : []));

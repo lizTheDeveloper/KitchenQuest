@@ -4,7 +4,7 @@ import {
 import type { ApiClient } from '../api/client';
 import type { ApiResult, ProgressPostResponse } from '../api/types';
 import { content } from '../content';
-import { partitionKey, partitionOf, withPartition, type PlayerStore } from '../state/store';
+import { dropEvents, partitionKey, partitionOf, withPartition, type PlayerStore } from '../state/store';
 import { catalogueOf } from './catalogue';
 import { appendEvents, historyOf, markUploaded } from './log';
 
@@ -95,6 +95,8 @@ export function createProgressSync(deps: ProgressSyncDeps): ProgressSync {
   let blockedUntil = 0;
   let retryTimer: unknown = null;
   let uploading: Promise<void> | null = null;
+  /** The guest add in flight (N2): one at a time, and the offer is hidden meanwhile. */
+  let adding: Promise<boolean> | null = null;
   const liveKey = () => partitionKey(store.get());
 
   const wait = (ms: number) => new Promise<void>((resolve) => { setTimer(resolve, ms); });
@@ -134,10 +136,16 @@ export function createProgressSync(deps: ProgressSyncDeps): ProgressSync {
     store.update((s) => (partitionKey(s) !== as ? s : withPartition(s, as, partitionOf(s, as), view)));
   }
 
-  /** What the server answered, applied: reported ids are done in `from`'s partition, the view kept, warnings surfaced. */
+  /**
+   * What the server answered, applied: reported ids are done in `from`'s partition, the view kept, warnings surfaced.
+   * An answer that lands after its account signed out (N1): the server holds those events now, so they leave the
+   * hidden partition outright, as the sign-out prune would have removed them.
+   */
   function landed(as: string, from: string | null, sent: ProgressEvent[], r: ProgressPostResponse) {
+    const ids = sent.map((e) => e.id);
     // Every id sent was answered (accepted, duplicate or refused for good), so none is posted again.
-    markUploaded(store, from, sent.map((e) => e.id));
+    if (from !== null && liveKey() !== as) store.update((s) => dropEvents(s, from, ids));
+    else markUploaded(store, from, ids);
     keepView(as, r.view);
     if (Array.isArray(r.warnings) && r.warnings.length > 0) deps.onWarnings?.(r.warnings);
   }
@@ -183,13 +191,17 @@ export function createProgressSync(deps: ProgressSyncDeps): ProgressSync {
       if (events.length === 0) return true;
       const r = await post(as, events, true);
       if (r === null || !r.ok) return false; // offline, switched account, 429 (a retry is scheduled) or a server error: kept
-      landed(as, from, events, r.data);
       if (from === null) {
-        // The guest's progress the player chose to add now belongs to this account too: shown with it, never posted again.
+        // N5: the guest's progress the player chose to add moves to the account: shown with it (while it is still
+        // signed in), never posted again, and gone from the guest partition (the account's server holds it now).
         const g = partitionOf(store.get(), null);
         const ids = new Set(events.map((e) => e.id));
-        appendEvents(store, as, events, g.grants.filter((x) => ids.has(x.eventId)), { pending: false, cat });
-      }
+        if (liveKey() === as) appendEvents(store, as, events, g.grants.filter((x) => ids.has(x.eventId)), { pending: false, cat });
+        keepView(as, r.data.view);
+        if (Array.isArray(r.data.warnings) && r.data.warnings.length > 0) deps.onWarnings?.(r.data.warnings);
+        markUploaded(store, null, ids); // never posted again, even if the removal below were undone
+        store.update((st) => dropEvents(st, null, ids));
+      } else landed(as, from, events, r.data);
     }
     return false;
   }
@@ -231,13 +243,15 @@ export function createProgressSync(deps: ProgressSyncDeps): ProgressSync {
 
     guestOffer() {
       const s = store.get();
-      return partitionKey(s) !== null && !s.settings.familyTable && partitionOf(s, null).pendingUpload.length > 0;
+      return adding === null && partitionKey(s) !== null && !s.settings.familyTable && partitionOf(s, null).pendingUpload.length > 0;
     },
 
-    async addGuestProgress() {
+    addGuestProgress() {
+      if (adding) return adding;
       const as = liveKey();
-      if (as === null || stopped) return false;
-      return uploadFrom(as, null);
+      if (as === null || stopped) return Promise.resolve(false);
+      adding = uploadFrom(as, null).finally(() => { adding = null; });
+      return adding;
     },
 
     async flush() {

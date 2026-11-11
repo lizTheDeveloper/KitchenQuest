@@ -43,7 +43,10 @@ export function appendEvents(
     if (h.events.length > max) h = compactHistory(h, max, cat);
     const kept = new Set(h.events.map((e) => e.id));
     const pending = opts.pending === false ? p.pendingUpload : [...p.pendingUpload, ...fresh.map((e) => e.id)];
-    return withPartition(s, key, { events: [...h.events], grants: [...h.grants], base: h.base, pendingUpload: pending.filter((id) => kept.has(id)) });
+    return withPartition(s, key, {
+      events: [...h.events], grants: [...h.grants], base: h.base, pendingUpload: pending.filter((id) => kept.has(id)),
+      ...(p.epoch === undefined ? {} : { epoch: p.epoch }),
+    });
   });
 }
 

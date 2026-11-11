@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import type { ProgressEvent, ProgressView } from '@kitchenquest/core/engine';
 import { signOut } from '../api/account';
 import type { ApiClient } from '../api/client';
@@ -26,6 +26,22 @@ const allKeys = (v: unknown): string[] =>
   typeof v === 'object' && v !== null ? Object.entries(v).flatMap(([k, x]) => [...(Array.isArray(v) ? [] : [k]), ...allKeys(x)]) : [];
 
 describe('account partitions on the device (sign-out ruling)', () => {
+  test('N1: at start-up, every partition but the live one keeps only its unsynced events (no view)', async () => {
+    vi.resetModules();
+    const { initProgress: init } = await import('./index');
+    const { accountKey: key, createStore: make, withPartition: put } = await import('../state/store');
+    const store = make(null);
+    const e = (id: string): ProgressEvent => ({ id, kind: 'lesson', at: '2026-11-09', recipe: 'india/kerala/parippu' });
+    const k = key('gone@example.test');
+    store.update((s) => put(s, k, { events: [e('synced'), e('waiting')], grants: [], base: null, pendingUpload: ['waiting'] }, SERVER_VIEW));
+    const live = key(EMAIL);
+    store.update((s) => put({ ...s, account: { email: EMAIL } }, live, { events: [e('mine')], grants: [], base: null, pendingUpload: [] }, SERVER_VIEW));
+    init({} as ApiClient, store, { document, navigator: { onLine: false }, addEventListener: () => undefined } as unknown as Window);
+    expect(store.get().accountProgress[k].progress.events.map((x) => x.id)).toEqual(['waiting']);
+    expect(store.get().accountProgress[k].view).toBeNull();
+    expect(store.get().accountProgress[live].progress.events.map((x) => x.id)).toEqual(['mine']); // the live one is untouched
+  });
+
   test('synced → pruned on sign-out; offline sign-out keeps only the unsynced; the same account back → view from the server, kept events uploaded; no email in any key', async () => {
     const storage = memStorage();
     const store = createStore(storage);
@@ -54,7 +70,11 @@ describe('account partitions on the device (sign-out ruling)', () => {
     expect(stored().accountProgress[key].progress.events.map((e) => e.id)).toEqual([synced.id]);
 
     // Sign-out with everything synced: localStorage holds no events and no view for that account.
+    store.update((s) => ({ ...s, cookProgress: { slug: 'india/kerala/parippu', step: 3 }, dialogueHistory: { 'quest.cook_adapted': [1] } }));
     await signOut(client, store);
+    // N4: the cook-mode resume point and the session's line history go with it.
+    expect(store.get().cookProgress).toBeNull();
+    expect(store.get().dialogueHistory).toEqual({});
     expect(stored().accountProgress[key].progress.events).toEqual([]);
     expect(stored().accountProgress[key].progress.grants).toEqual([]);
     expect(stored().accountProgress[key].view).toBeNull();

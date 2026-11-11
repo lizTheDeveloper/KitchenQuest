@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 import { MAX_PROGRESS_EVENTS_PER_DAY, type Catalogue, type ProgressEvent, type ProgressView, type RewardGrant, type RulesContext } from '@kitchenquest/core/engine';
 import type { ApiClient } from '../api/client';
 import type { ApiResult, ProgressPostResponse } from '../api/types';
-import { accountKey, createStore, partitionOf, type PlayerStore } from '../state/store';
+import { accountKey, createStore, partitionOf, prunePartition, type PlayerStore } from '../state/store';
 import { standInFixture } from './stand-in.fixture';
 import { grantLines } from './announce';
 import { currentProgress } from './view';
@@ -96,6 +96,8 @@ describe('progress sync', () => {
     expect(posts.map((p) => p.events.length)).toEqual([EVENTS_PER_REQUEST, held.length - EVENTS_PER_REQUEST]);
     expect(posts.flatMap((p) => p.events.map((e) => e.id))).toEqual(held);
     expect(part(store, null).pendingUpload).toEqual([]);
+    expect(part(store, null).events).toEqual([]); // N5: moved, not copied: the account's server holds it now
+    expect(currentProgress({ ...store.get(), account: null }).xp).toBe(0);
     expect(part(store, A).events.map((e) => e.id)).toEqual(held);
     expect(part(store, A).pendingUpload).toEqual([]);
     expect(sync.guestOffer()).toBe(false);
@@ -114,6 +116,56 @@ describe('progress sync', () => {
     expect(posts[2]).toEqual({ events: [offline], upload: true });
     expect(part(store, A).pendingUpload).toEqual([]);
     expect(said.length).toBeLessThanOrEqual(2); // the one record's lines, and no second set from the replay
+  });
+
+  test('N2: the guest add runs once at a time (two taps, one post), and the offer hides while it runs', async () => {
+    let release: (() => void) | null = null;
+    const store = createStore(null);
+    const posts: ProgressEvent[][] = [];
+    const client = {
+      postProgressEvents: async (events: ProgressEvent[]) => {
+        posts.push(events);
+        await new Promise<void>((r) => { release = r; });
+        return ok({ accepted: events.map((e) => ({ clientId: e.id, grants: [] })) });
+      },
+    } as unknown as ApiClient;
+    const sync = createProgressSync({ store, client, online: () => true, gapMs: 0 });
+    await sync.record([cooked('2026-11-09')]);
+    signIn(store);
+    expect(sync.guestOffer()).toBe(true);
+    const one = sync.addGuestProgress();
+    const two = sync.addGuestProgress();
+    expect(sync.guestOffer()).toBe(false);
+    await new Promise((r) => setTimeout(r, 0));
+    release!();
+    expect(await one).toBe(true);
+    expect(await two).toBe(true);
+    expect(posts).toHaveLength(1);
+  });
+
+  test('N1: an answer that lands after its account signed out removes those events from the hidden partition', async () => {
+    let release: (() => void) | null = null;
+    const store = createStore(null);
+    const client = {
+      postProgressEvents: async (events: ProgressEvent[]) => {
+        await new Promise<void>((r) => { release = r; });
+        return ok({ accepted: events.map((e) => ({ clientId: e.id, grants: [] })) });
+      },
+    } as unknown as ApiClient;
+    const sync = createProgressSync({ store, client, online: () => true, gapMs: 0, liveWaitMs: 0 });
+    signIn(store);
+    const e = cooked('2026-11-09');
+    void sync.record([e]);
+    await new Promise((r) => setTimeout(r, 0));
+    // Signed out while the post is out: the prune keeps it, as still unsynced.
+    store.update((s) => prunePartition({ ...s, account: null }, accountKey(A)));
+    expect(part(store, A).events.map((x) => x.id)).toEqual([e.id]);
+    release!();
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(part(store, A).events).toEqual([]);
+    expect(part(store, A).grants).toEqual([]);
+    expect(part(store, A).pendingUpload).toEqual([]);
   });
 
   test('C1: A signs out, and the guest sees nothing of A', async () => {

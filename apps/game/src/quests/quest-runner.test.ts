@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
 import { describe, expect, test } from 'vitest';
-import { deriveProgress, type Catalogue, type ProgressEvent, type Quest, type Rule } from '@kitchenquest/core/engine';
+import { deriveProgress, frameOptions, type Catalogue, type ProgressEvent, type Quest, type Rule } from '@kitchenquest/core/engine';
 import { content, graph } from '../content';
 import { catalogueOf, stepContextOf } from '../progress/catalogue';
 import { cookStepEvents, runQuest, type QuestRunnerDeps } from './quest-runner';
+import { standInFixture } from '../progress/stand-in.fixture';
 
 const leela = content.cooks.leela.quest;
 const marisol = content.cooks.marisol.quest;
@@ -185,10 +186,54 @@ describe('quest runner', () => {
     const coconut: Rule = { id: 'r2', target: { kind: 'ingredient', ids: ['coconut'] }, type: 'avoid', severity: 'anaphylactic' };
     const done: ProgressEvent[] = [1, 2, 3, 4, 5].map((step) => ({ id: `s${step}`, kind: 'quest_step', at: TODAY, quest: leela.id, step }));
     const h = harness(leela, { rules: [coconut], events: done });
-    const r = await drive(h.slot, runQuest(h.slot, leela, h.deps), () => 'Learn it as a lesson');
+    let buttons: string[] = [];
+    const r = await drive(h.slot, runQuest(h.slot, leela, h.deps), (panel) => {
+      buttons = [...panel.querySelectorAll('button')].map((b) => b.textContent ?? '');
+      return 'Learn it as a lesson';
+    });
+    expect(buttons).toEqual(['Learn it as a lesson', 'Not yet']); // ⛔: never "Cook it anyway"
     expect(r).toBe('done');
     expect(h.panLines).toContain('quest.cook_adapted');
     expect(h.events.slice(5).map((e) => e.kind)).toEqual(['quest_step', 'lesson', 'quest_done']);
+  });
+
+  test('N3: a ❓ quest dish with a stand-in lists it and still offers "Cook it anyway" (no lesson while a stand-in exists)', async () => {
+    const fx = standInFixture();
+    const dal = fx.ctx.recipes.get(fx.standIn)!;
+    const withDal = { ...content, recipes: { ...content.recipes, [fx.standIn]: dal } };
+    const peanut: Rule = { id: 'r3', target: { kind: 'ingredient', ids: ['peanut'] }, type: 'avoid', severity: 'anaphylactic' };
+    const done: ProgressEvent[] = [1, 2, 3, 4, 5].map((step) => ({ id: `s${step}`, kind: 'quest_step', at: TODAY, quest: leela.id, step }));
+    const h = harness(leela, { rules: [peanut], events: done });
+    let buttons: string[] = [];
+    let links: string[] = [];
+    const r = await drive(h.slot, runQuest(h.slot, leela, { ...h.deps, content: withDal }), (panel) => {
+      buttons = [...panel.querySelectorAll('button')].map((b) => b.textContent ?? '');
+      links = [...panel.querySelectorAll('.quest-alternatives a')].map((a) => a.getAttribute('href') ?? '');
+      return 'Cook it anyway';
+    });
+    expect(links).toEqual([`#/recipe/${fx.standIn}`]);
+    expect(buttons).toEqual(['Cook it anyway', 'Not yet']);
+    expect(r).toBe('cook');
+  });
+
+  test('N3: Pantry Frames are not offered as stand-ins until frame cook mode exists (Step 10): the lesson is', async () => {
+    const coconut: Rule = { id: 'r2', target: { kind: 'ingredient', ids: ['coconut'] }, type: 'avoid', severity: 'anaphylactic' };
+    // A frame that practises legumes (one of parippu's techniques) and fills, ✅, from this pantry.
+    const frame = { ...content.frames[0], technique: 'legumes' };
+    const pantry = [{ name: 'cooked rice', ingredientId: 'cooked_rice' }, { name: 'sunflower oil', ingredientId: 'neutral_oil' }];
+    const withFrame = { ...content, frames: [frame] };
+    const passes = frameOptions([frame], pantry, { rules: [coconut], graph, subs: [...content.substitutions], today: TODAY, keeps: content.keeps })[0].status;
+    expect(['ok', 'swap']).toContain(passes); // the frame would stand in, if frames were offered
+    const done: ProgressEvent[] = [1, 2, 3, 4, 5].map((step) => ({ id: `s${step}`, kind: 'quest_step', at: TODAY, quest: leela.id, step }));
+    const h = harness(leela, { rules: [coconut], events: done });
+    let text = '';
+    const r = await drive(h.slot, runQuest(h.slot, leela, { ...h.deps, content: withFrame, pantry: () => pantry }), (panel) => {
+      text = panel.textContent ?? '';
+      return 'Not yet';
+    });
+    expect(r).toBe('paused');
+    expect(text).toContain('Learn it as a lesson');
+    expect(text).not.toContain(frame.title);
   });
 
   test('riddle answers are buttons, reachable by keyboard', async () => {
