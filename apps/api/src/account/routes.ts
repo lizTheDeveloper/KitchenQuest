@@ -63,22 +63,31 @@ interface Processor {
   country: string;
   contact: string;
   status: string;
+  /** "This server sends, or has sent, this player's data to it." */
   inUse: boolean;
   detailsConfirmed: boolean;
+  /** AI processors only: the first and last model turn of this player's on record (`usage_events`, mentor_text). */
+  sentFrom?: string;
+  sentUntil?: string;
 }
+
+/** The register entry with whether it is one of the AI processors (not exported). */
+type RegisteredProcessor = Processor & { ai: boolean };
 
 /**
  * The processor list the export carries (C-7), from the checked-in register.
  * Processors that receive no user data at all (build-time tools) are not
  * recipients and are left out. The AI processors are in use only when this
- * server runs with the AI on (`aiOn`): the register says "built", but
- * production keeps the AI off until their DPAs are signed (P-11).
+ * server runs with the AI on (`aiOn`), or (per player, in the export) when a
+ * turn of theirs reached the model: the register says "built", but production
+ * keeps the AI off until their DPAs are signed (P-11).
  */
-function loadProcessors(aiOn: boolean): Processor[] {
+function loadProcessors(aiOn: boolean): RegisteredProcessor[] {
   const doc = ProcessorRegister.parse(JSON.parse(readFileSync(PROCESSORS_FILE, 'utf8')));
   return doc.processors
     .filter((p) => !p.data_categories.every((c) => /^none\b/i.test(c)))
     .map(({ id, name, purpose, country, contact, status }) => ({
+      ai: (AI_PROCESSOR_IDS as readonly string[]).includes(id),
       name,
       purpose,
       country,
@@ -114,7 +123,7 @@ const iso = (d: Date | null) => (d ? d.toISOString() : null);
  * ids, and the audit actor id (the player themselves,
  * or a staff identifier).
  */
-async function buildExport(tx: Tx, config: Config, userId: string, now: Date, processors: Processor[]) {
+async function buildExport(tx: Tx, config: Config, userId: string, now: Date, registered: RegisteredProcessor[]) {
   const user = (
     await tx
       .select({ id: users.id, email: users.email, createdAt: users.createdAt, ageConfirmedAt: users.ageConfirmedAt })
@@ -272,7 +281,12 @@ async function buildExport(tx: Tx, config: Config, userId: string, now: Date, pr
     })),
     dataKey: dataKey ? { keyId: dataKey.keyId, createdAt: iso(dataKey.createdAt) } : null,
     auditEvents: events.map((e) => ({ ...e, at: iso(e.at) })),
-    processors,
+    processors: registered.map(({ ai, ...p }): Processor => {
+      // GDPR Art. 15(1)(c): recipients the data "have been" disclosed to, so a past model turn counts even with the AI off now.
+      const sent = ai ? usage.find((u) => u.feature === 'mentor_text') : undefined;
+      if (sent === undefined) return p;
+      return { ...p, inUse: true, sentFrom: iso(sent.firstAt) ?? undefined, sentUntil: iso(sent.lastAt) ?? undefined };
+    }),
   };
 }
 
