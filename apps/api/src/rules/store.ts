@@ -11,6 +11,12 @@ export type StoredRule = Omit<Rule, 'id'>;
 /** The seal context of a rule row (C-3): bound to the table, owner and row. */
 export const ruleSealContext = (userId: string, rowId: string) => ({ table: 'rules', userId, rowId });
 
+/** Each of the user's rules' write version (`rules.version`, M4 final N4), by row id: content-free. */
+export async function loadRuleVersions(db: Pick<Db, 'select'>, userId: string): Promise<Record<string, number>> {
+  const rows = await db.select({ id: rules.id, version: rules.version }).from(rules).where(eq(rules.userId, userId));
+  return Object.fromEntries(rows.map((r) => [r.id, r.version]));
+}
+
 /** All of the user's rules, decrypted, oldest first, with `id` = row id. Throws if any cannot be opened. */
 export async function loadRules(db: Pick<Db, 'select'>, keyring: Keyring, userId: string): Promise<Rule[]> {
   const rows = await db

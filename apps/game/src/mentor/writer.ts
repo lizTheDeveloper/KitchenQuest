@@ -20,7 +20,8 @@ import type { CardView, PanItem } from './reply';
 export type WriteOutcome =
   | { ok: true; trail: TrailEntry; items: PanItem[] }
   /** `busy`: this card's write is already in flight (a tap and a typed yes at once); nothing to show, the first one answers. */
-  | { ok: false; reason: 'tap_required' | 'consent_required' | 'needs_account' | 'invalid' | 'closed' | 'network' | 'busy'; items: PanItem[] };
+  /** `limited`: the daily write limit (the same for every plan, never sold): the card stays open, the line says so. */
+  | { ok: false; reason: 'tap_required' | 'consent_required' | 'needs_account' | 'invalid' | 'closed' | 'network' | 'busy' | 'limited'; items: PanItem[] };
 
 /**
  * What an undo did (Step 8 fix round 1 carry). `undone`: reversed, drop the trail entry. `nothing`: there was
@@ -122,10 +123,15 @@ export function createCardWriter(deps: {
     if ((status === 409 && error.code === 'proposal_closed') || status === 404) return { ok: false, reason: 'closed', items: [] };
     if (status === 400 && error.code === 'tap_required') return { ok: false, reason: 'tap_required', items: [tapNeeded(card)] };
     if (status === 401) return { ok: false, reason: 'needs_account', items: [] };
+    // The daily write cap (only it sets details.retryAfterSeconds; the per-minute limiters set the header only):
+    // trying again would fail for hours, so say so instead of "try again" (M4 final, 429 on the tap).
+    if (isWriteCap(r)) return { ok: false, reason: 'limited', items: [line('write.daily_limit')] };
     // Offline, rate-limited or a server error: nothing is known to be written, and the card stays open to try again.
     if (status === 0 || status === 429 || status >= 500) return { ok: false, reason: 'network', items: [] };
     return { ok: false, reason: 'invalid', items: [line('write.not_done')] };
   }
+  const isWriteCap = (r: Extract<ApiResult<unknown>, { ok: false }>) =>
+    r.status === 429 && (r.error.details as { retryAfterSeconds?: unknown } | undefined)?.retryAfterSeconds !== undefined;
   const tapNeeded = (card: ProposalCard): PanItem => line('rule.tap_needed', { ingredient: card.kind === 'rule' ? card.display.ingredient : '' });
 
   /** A local card written to the account (signed in) or the device (signed out). */
@@ -249,13 +255,13 @@ export function createCardWriter(deps: {
     const list = await client.listRules();
     if (!list.ok) return { status: 'failed', items: [] };
     const now = list.data.rules.find((x) => x.id === u.id);
-    if (now === undefined || now.severity !== u.wrote.severity || !sameTarget(now, u.wrote)) {
-      undos.delete(entryId);
-      return { status: 'nothing', items: [line('undo.rule_changed')] };
-    }
+    const changed = (): UndoOutcome => { undos.delete(entryId); return { status: 'nothing', items: [line('undo.rule_changed')] }; };
+    if (now === undefined || now.severity !== u.wrote.severity || !sameTarget(now, u.wrote)) return changed();
     if (SEVERITY_RANK[u.before.severity] >= SEVERITY_RANK[now.severity]) { undos.delete(entryId); return { status: 'nothing', items: [line('undo.nothing')] }; }
-    const put = await client.updateRule(u.id, u.before, true);
-    if (!put.ok) return { status: 'failed', items: [] };
+    // N4: written only over the version just read, so a stricter edit another device makes meanwhile is never lowered.
+    const put = await client.updateRule(u.id, u.before, true, list.data.versions?.[u.id]);
+    if (!put.ok && put.status === 409 && put.error.code === 'rule_changed') { await refreshAccount(client, store); return changed(); }
+    if (!put.ok) return { status: 'failed', items: isWriteCap(put) ? [line('write.daily_limit')] : [] };
     const back = put.data.rule;
     editAccountRules(email, (rules) => rules.map((x) => (x.id === back.id ? back : x)));
     await refreshAccount(client, store);
@@ -346,7 +352,13 @@ export function createCardWriter(deps: {
         const { id: _id, ...before } = current;
         // The account rule's note is kept: a raise changes the severity, nothing the player wrote beside it.
         const raised: Omit<Rule, 'id'> = current.note === undefined ? card.rule : { ...card.rule, note: current.note };
-        const r = await client.updateRule(current.id, raised, true);
+        // N4: written only over the version just read; another write since (another tab or device) is a 409.
+        const r = await client.updateRule(current.id, raised, true, list.data.versions?.[current.id]);
+        if (!r.ok && r.status === 409 && r.error.code === 'rule_changed') {
+          closed.add(key);
+          await refreshAccount(client, store);
+          return { ok: false, reason: 'closed', items: [line('rule.raise_gone')] };
+        }
         if (!r.ok) return refused(r, card);
         const saved = r.data.rule;
         editAccountRules(email, (rules) => rules.map((x) => (x.id === saved.id ? saved : x)));

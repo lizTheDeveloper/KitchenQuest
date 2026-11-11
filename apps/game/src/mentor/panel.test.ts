@@ -247,6 +247,17 @@ describe('cards', () => {
     expect(button(root, 'Ink it ✔')!.disabled).toBe(false);
   });
 
+  test('429 on the tap: the daily write limit shows its line, no "try again" note, and the card stays open', async () => {
+    const writer = fakeWriter({ confirm: vi.fn(() => Promise.resolve({ ok: false as const, reason: 'limited' as const, items: [say('write.daily_limit')] })) });
+    const { root, pan } = mount({ writer });
+    pan.show(reply([], { cards: [local(buildProfileCard({ marketDays: [6] }))] }));
+    button(root, 'Ink it ✔')!.click();
+    await flush();
+    expect(lines('write.daily_limit')).toContain(panTexts(root).at(-1));
+    expect(root.querySelector('.pan-card-note')).toBeNull();
+    expect(button(root, 'Ink it ✔')).toBeDefined();
+  });
+
   test('a closed card says so and is closed; rules_error shows the invalid-rules message and the #/rules link', async () => {
     let out: WriteOutcome = { ok: false, reason: 'closed', items: [] };
     const writer = fakeWriter({ confirm: vi.fn(() => Promise.resolve(out)) });

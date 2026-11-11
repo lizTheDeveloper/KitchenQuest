@@ -173,6 +173,11 @@ export function atLeastAsStrict(prev: StoredRule, next: StoredRule, graph?: Ingr
 /**
  * Replaces one of the user's rules, inside the caller's transaction, in the
  * same lock order as `createRuleIn`; 404 when `rowId` is not the user's.
+ * With `expectedVersion` (the `If-Match` of `PUT /rules/:id`, M4 final N4) the
+ * write happens only over that version, compared under the row lock: another
+ * write since (another tab or device) is a 409 `rule_changed` and nothing is
+ * written, so a raise or its undo can never land over a stricter edit made
+ * meanwhile. Every update moves the version on by one.
  * A loosening edit past WRITES_PER_DAY in a day is a 429 (usage/write-cap.ts).
  * Audits 'rules.update'.
  */
@@ -184,16 +189,20 @@ export async function updateRuleIn(
   input: StoredRule,
   at: Date,
   requestId?: string,
-): Promise<Rule> {
+  expectedVersion?: number,
+): Promise<{ rule: Rule; version: number }> {
   const value = parseStoredRule(input);
   await lockForHealthWrite(tx, userId, at);
   const rowId = ruleRowId(rowIdParam);
   const [row] = await tx
-    .select({ id: rules.id })
+    .select({ id: rules.id, version: rules.version })
     .from(rules)
     .where(and(eq(rules.id, rowId), eq(rules.userId, userId)))
     .for('update');
   if (!row) throw notFound();
+  if (expectedVersion !== undefined && row.version !== expectedVersion) {
+    throw new ApiError(409, 'rule_changed', 'The rule was changed since it was read', { version: row.version });
+  }
   const all = await loadRules(tx, deps.keyring, userId);
   const before = all.find((r) => r.id === rowId);
   // A loosening (or sideways) edit counts against the daily write cap; a stricter one never does.
@@ -201,9 +210,9 @@ export async function updateRuleIn(
   const others = all.filter((r) => r.id !== rowId);
   assertValid({ ...value, id: rowId }, others, deps.catalog);
   const sealed = await sealFor(tx, deps.keyring, ruleSealContext(userId, rowId), value, at);
-  await tx.update(rules).set({ sealed, updatedAt: at }).where(and(eq(rules.id, rowId), eq(rules.userId, userId)));
+  await tx.update(rules).set({ sealed, updatedAt: at, version: row.version + 1 }).where(and(eq(rules.id, rowId), eq(rules.userId, userId)));
   await audit(tx, { actorKind: 'user', actorId: userId, subjectUserId: userId, action: 'rules.update', target: rowId, requestId }, at);
-  return { ...value, id: rowId };
+  return { rule: { ...value, id: rowId }, version: row.version + 1 };
 }
 
 /**

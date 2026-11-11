@@ -265,6 +265,7 @@ export function mountMentorPanel(root: HTMLElement, opts: {
         return;
       case 'tap_required':
       case 'consent_required':
+      case 'limited': // the daily write limit: the card stays open, the line says why (no "try again")
         renderItems(out.items, []);
         return;
       case 'network':

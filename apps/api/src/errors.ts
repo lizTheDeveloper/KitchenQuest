@@ -19,6 +19,8 @@ import { ZodError } from 'zod';
  * - 409 `rules_need_review`: saved rules no longer validate against the catalog.
  * - 409 `proposal_closed`: the mentor card is no longer open (confirmed,
  *   rejected, undone or expired), or an undo of a write that is not confirmed.
+ * - 409 `rule_changed`: `PUT /rules/:id` with `If-Match` found another version of
+ *   the rule (`details.version`, the current one); nothing was written.
  * - 409 `undo_window_closed`: the confirmed write is older than UNDO_WINDOW_MS.
  * - 429 `rate_limited`: with a `retry-after` header. The daily write cap on meal logs and
  *   loosening rule edits (usage/write-cap.ts) also puts it in `details.retryAfterSeconds`.

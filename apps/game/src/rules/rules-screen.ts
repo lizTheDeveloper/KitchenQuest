@@ -113,6 +113,9 @@ export function rulesScreen(): Screen {
               case 'network':
                 setCardNote(cardEl, NOT_SAVED_TEXT);
                 return;
+              case 'limited': // the daily write limit: the card stays, the line says why
+                extra.replaceChildren(...saidNodes(out.items));
+                return;
               case 'tap_required':
               case 'busy':
                 return;

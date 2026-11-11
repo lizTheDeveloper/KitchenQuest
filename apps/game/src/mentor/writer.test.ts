@@ -45,6 +45,8 @@ function setup(script: Partial<Record<keyof ApiClient, Handler>>, patch: Partial
   const writer = createCardWriter({ client, store, dialogue: createDialogue(content.pan), graph, ruleTerms: content.ruleTerms, now: () => now });
   return { store, calls, writer, later: (ms: number) => { now = new Date(T0.getTime() + ms); } };
 }
+/** The daily write cap's 429: only it carries details.retryAfterSeconds. */
+const writeCap = (): ApiResult<never> => ({ ok: false, status: 429, error: { code: 'rate_limited', message: '', details: { retryAfterSeconds: 3600 }, retryAfter: 3600 } });
 const signedIn: Partial<PlayerState> = { account: { email: 'cook@example.com' }, accountRules: [] };
 const milk = () => ruleCard('milk', 'intolerance');
 
@@ -147,6 +149,17 @@ describe('card writer', () => {
     expect(second).toMatchObject({ ok: true, trail: { id: 'm1', kind: 'meal' } });
     expect(calls.map((c) => c.name)).toEqual(['createMeal', 'createMeal']);
     expect(calls[1].args).toEqual([meal.meal, true]);
+  });
+
+  test('429 on the tap: the daily write cap is `limited` with write.daily_limit; a per-minute 429 stays `network`', async () => {
+    const meal = buildMealCard({ eatenOn: '2026-11-10', slot: 'breakfast', description: 'toast' });
+    const capped = setup({ createMeal: () => writeCap(), confirmProposal: () => writeCap() }, signedIn);
+    const out = await capped.writer.confirm(local(meal), 'tap');
+    expect(out).toMatchObject({ ok: false, reason: 'limited' });
+    expect(said(out.items)).toEqual(['write.daily_limit']);
+    expect(await capped.writer.confirm(server(milk()), 'tap')).toMatchObject({ ok: false, reason: 'limited' });
+    const busy = setup({ createMeal: () => fail(429, 'rate_limited') }, signedIn);
+    expect(await busy.writer.confirm(local(meal), 'tap')).toMatchObject({ ok: false, reason: 'network' });
   });
 
   test('HTTP mapping: 409 proposal_closed → closed, status 0 → network', async () => {
@@ -454,12 +467,24 @@ describe('raiseRule (the rules screen raising an account rule)', () => {
   const raisedCard = (term: 'allergy' | 'intolerance' = 'allergy'): ProposalCard => ruleCard('coconut', term);
   const me = () => ok({ id: 'u1', email: 'cook@example.com', entitlements: [] });
 
-  /** A fake account whose server copy is `box.rule`; PUT overwrites it, as the API does. */
+  /**
+   * A fake account whose server copy is `box.rule` at `box.version`; PUT overwrites it, as the API does, and with
+   * an If-Match version (the 4th argument) only over that version (N4). `beforePut` runs first: another device's write.
+   */
   function account(initial: Rule, storeRule: Rule = initial) {
-    const box = { rule: initial, puts: [] as unknown[][] };
+    const box = { rule: initial, version: 1, puts: [] as unknown[][], beforePut: null as (() => void) | null, capped: false };
     const env = setup({
-      updateRule: (...a) => { box.puts.push(a); box.rule = { ...(a[1] as object), id: 's1' } as Rule; return ok({ rule: box.rule }); },
-      me, listRules: () => ok({ rules: [box.rule] }),
+      updateRule: (...a) => {
+        box.beforePut?.();
+        box.beforePut = null;
+        box.puts.push(a);
+        if (box.capped) return writeCap();
+        if (a[3] !== undefined && a[3] !== box.version) return fail(409, 'rule_changed');
+        box.rule = { ...(a[1] as object), id: 's1' } as Rule;
+        box.version++;
+        return ok({ rule: box.rule, version: box.version });
+      },
+      me, listRules: () => ok({ rules: [box.rule], versions: { s1: box.version } }),
     }, { ...signedIn, accountRules: [storeRule] });
     return { ...env, box };
   }
@@ -469,7 +494,7 @@ describe('raiseRule (the rules screen raising an account rule)', () => {
     if (card.kind !== 'rule') throw new Error();
     const { store, writer, box } = account(at('intolerance'));
     const out = await writer.raiseRule(local(card), at('intolerance'));
-    expect(box.puts[0]).toEqual(['s1', card.rule, true]);
+    expect(box.puts[0]).toEqual(['s1', card.rule, true, 1]);
     expect(out.ok).toBe(true);
     if (!out.ok) return;
     expect(out.trail).toMatchObject({ origin: 'local', kind: 'rule' });
@@ -486,7 +511,7 @@ describe('raiseRule (the rules screen raising an account rule)', () => {
     expect(undone.status).toBe('undone');
     expect(said(undone.items)).toEqual(['undo']);
     const { id: _id, ...before } = at('intolerance');
-    expect(box.puts[1]).toEqual(['s1', before, true]);
+    expect(box.puts[1]).toEqual(['s1', before, true, 2]);
     expect(store.get().accountRules).toEqual([at('intolerance')]);
     expect((await writer.undo(out.trail)).status).toBe('nothing');
   });
@@ -560,6 +585,37 @@ describe('raiseRule (the rules screen raising an account rule)', () => {
     expect(box.rule.severity).toBe('anaphylactic');
     expect((await writer.undo(out.trail)).status).toBe('undone');
     expect(box.rule.severity).toBe('allergy'); // not intolerance: never weaker than before the raise
+  });
+
+  test('N4: another device raises the rule between the raise\'s read and its write: 409, nothing lowered, raise_gone', async () => {
+    const { writer, box } = account(at('intolerance'));
+    box.beforePut = () => { box.rule = at('anaphylactic'); box.version++; };
+    const out = await writer.raiseRule(local(raisedCard('allergy')), at('intolerance'));
+    expect(out.ok).toBe(false);
+    expect(said(out.items)).toEqual(['rule.raise_gone']);
+    expect(box.rule.severity).toBe('anaphylactic');
+  });
+
+  test('N4: another device raises the rule between the undo\'s read and its write: 409, the stricter rule stays, undo.rule_changed', async () => {
+    const { writer, box } = account(at('intolerance'));
+    const out = await writer.raiseRule(local(raisedCard('allergy')), at('intolerance'));
+    if (!out.ok) throw new Error('raise failed');
+    box.beforePut = () => { box.rule = { ...at('anaphylactic') }; box.version++; };
+    const undone = await writer.undo(out.trail);
+    expect(undone.status).toBe('nothing');
+    expect(said(undone.items)).toEqual(['undo.rule_changed']);
+    expect(box.rule.severity).toBe('anaphylactic');
+  });
+
+  test('429 on the tap: the daily write cap on undoing a raise says write.daily_limit, and the undo stays possible', async () => {
+    const { writer, box } = account(at('intolerance'));
+    const out = await writer.raiseRule(local(raisedCard('allergy')), at('intolerance'));
+    if (!out.ok) throw new Error('raise failed');
+    box.capped = true;
+    const undone = await writer.undo(out.trail);
+    expect(undone.status).toBe('failed');
+    expect(said(undone.items)).toEqual(['write.daily_limit']);
+    expect(box.rule.severity).toBe('allergy');
   });
 
   test('I1 scenario B: a rule changed after the raise is left alone by undo', async () => {

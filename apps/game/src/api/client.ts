@@ -15,10 +15,12 @@ export interface ApiClient {
   me(): Promise<ApiResult<Me>>;
   getProfile(): Promise<ApiResult<Profile>>;
   putProfile(p: Partial<Profile>): Promise<ApiResult<Profile>>;
-  listRules(): Promise<ApiResult<{ rules: Rule[] }>>;
+  /** `versions`: each rule's write version, by id (M4 final N4), for a conditional `updateRule`. */
+  listRules(): Promise<ApiResult<{ rules: Rule[]; versions?: Record<string, number> }>>;
   /** §7.0 "Writes need a yes": `confirmed` is the literal `true`, sent only after a read-back. Needs health_data consent (403 consent_required). */
   createRule(rule: Omit<Rule, 'id'>, confirmed: true): Promise<ApiResult<{ rule: Rule }>>;
-  updateRule(id: string, rule: Omit<Rule, 'id'>, confirmed: true): Promise<ApiResult<{ rule: Rule }>>;
+  /** With `version` (If-Match, N4) the write lands only over that version: another one since is 409 `rule_changed`. */
+  updateRule(id: string, rule: Omit<Rule, 'id'>, confirmed: true, version?: number): Promise<ApiResult<{ rule: Rule; version?: number }>>;
   deleteRule(id: string): Promise<ApiResult<null>>;
   /** 409 `rules_need_review` when stored rules no longer validate: treat every dish as unchecked. */
   listRecipes(): Promise<ApiResult<{ recipes: RecipeSummary[] }>>;
@@ -67,13 +69,15 @@ export function createApiClient(opts: { baseUrl?: string; fetch?: typeof fetch; 
   // Bound, so a bare `window.fetch` reference is not called with the wrong `this`.
   const doFetch = opts.fetch ?? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init));
 
-  async function call<T>(method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, body?: unknown, timeout?: number): Promise<ApiResult<T>> {
+  async function call<T>(
+    method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, body?: unknown, timeout?: number, headers: Record<string, string> = {},
+  ): Promise<ApiResult<T>> {
     const init: RequestInit = { method, credentials: 'same-origin' };
     // A timed call that runs out (headers or body) reads as unreachable: status 0, never a pending promise.
     if (timeout !== undefined) init.signal = AbortSignal.timeout(timeout);
     if (method !== 'GET') {
       // JSON only: M2 refuses text/plain. Fastify also refuses an empty application/json body, so send {}.
-      init.headers = { 'content-type': 'application/json' };
+      init.headers = { 'content-type': 'application/json', ...headers };
       init.body = JSON.stringify(body ?? {});
     }
     let res: Response;
@@ -114,7 +118,8 @@ export function createApiClient(opts: { baseUrl?: string; fetch?: typeof fetch; 
     putProfile: (p) => call('PUT', '/profile', p),
     listRules: () => call('GET', '/rules'),
     createRule: (rule, confirmed) => call('POST', '/rules', { rule, confirmed }),
-    updateRule: (id, rule, confirmed) => call('PUT', `/rules/${enc(id)}`, { rule, confirmed }),
+    updateRule: (id, rule, confirmed, version) =>
+      call('PUT', `/rules/${enc(id)}`, { rule, confirmed }, undefined, version === undefined ? {} : { 'if-match': `"${version}"` }),
     deleteRule: (id) => call('DELETE', `/rules/${enc(id)}`),
     listRecipes: () => call('GET', '/recipes'),
     getRecipe: (slug) => call('GET', `/recipes/${slug.split('/').map(enc).join('/')}`),
