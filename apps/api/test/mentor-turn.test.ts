@@ -1616,15 +1616,31 @@ describe('Step 12 carry: every named allergen gets a card or an ask (Step 11 str
     expect(lines(r).map((l) => l.trigger)).not.toContain('rule.ask_what_else');
   });
 
-  test('a name on the turn\'s meal card is accounted for; a turn stating no rule never asks', async () => {
-    const mealCall = { id: 'm', name: 'propose_meal_log', arguments: JSON.stringify({ slot: 'breakfast', when: 'today', dish: null, servings: null, description: 'rice' }) };
+  test('fix round 1 C1: a meal card never covers an allergen; a severe ask is never removed', async () => {
+    const mealCall = {
+      id: 'm',
+      name: 'propose_meal_log',
+      arguments: JSON.stringify({ slot: 'breakfast', when: 'today', dish: null, servings: null, description: 'peanut butter toast' }),
+    };
+    await makeApp(fakeAi([withCalls([mealCall])]));
+    const p = await player(AI_HEALTH);
+    const r = await turn(p.cookie, "I had peanut butter toast for breakfast. I'm allergic to peanuts and sesame");
+    expect(kinds(r)).toEqual(['meal']);
+    const asked = lines(r).filter((l) => l.trigger === 'rule.ask_what_else').map((l) => l.vars.term);
+    expect(asked).toEqual(expect.arrayContaining(['peanut', 'sesame']));
+    expect(new Set(asked).size).toBe(asked.length); // each named once
+  });
+
+  test('a rule card covers its name; a turn stating no rule never asks', async () => {
+    const mealCall = { id: 'm', name: 'propose_meal_log', arguments: JSON.stringify({ slot: 'breakfast', when: 'today', dish: null, servings: null, description: 'porridge with milk' }) };
     const ruleCall = { id: 'r', name: 'propose_rule', arguments: JSON.stringify({ term: 'sesame', severity: 'allergy' }) };
     await makeApp(fakeAi([withCalls([mealCall, ruleCall]), withCalls([mealCall])]));
     const p = await player(AI_HEALTH);
-    const r = await turn(p.cookie, "I had rice for breakfast and I'm allergic to sesame");
+    const r = await turn(p.cookie, "I had porridge with milk for breakfast and I'm allergic to sesame");
     expect(kinds(r).sort()).toEqual(['meal', 'rule']);
-    expect(lines(r).map((l) => l.trigger)).not.toContain('rule.ask_what_else');
-    const plain = await turn(p.cookie, 'I had rice and peanuts for breakfast');
+    // Only a rule card covers a name (C1), so the milk the player named in a rule-stating turn is asked about too.
+    expect(lines(r).filter((l) => l.trigger === 'rule.ask_what_else').map((l) => l.vars.term)).toEqual(['milk']);
+    const plain = await turn(p.cookie, 'I had porridge with milk and peanuts for breakfast');
     expect(lines(plain).map((l) => l.trigger)).not.toContain('rule.ask_what_else');
   });
 });

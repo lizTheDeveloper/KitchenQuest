@@ -273,17 +273,13 @@ async function lockConversation(tx: Tx, userId: string, conversationId: string):
 }
 
 /**
- * Ingredient ids the turn's cards and option lists account for: rule targets, ambiguous-term
- * options, and the graph names on meal and pantry cards ("toast for breakfast and kiwi" never asks about bread).
+ * Ingredient ids the turn accounts for as rules: rule-card targets and ambiguous-term options.
+ * A meal or pantry card never covers a name (fix round 1, C1): "peanut butter toast … allergic to
+ * peanuts" still asks about peanut.
  */
-function coveredIds(reply: Reply, graph: IngredientGraph): string[] {
-  const named = (text: string) => leftoverNamedIngredients(text, [], graph).left.flatMap((n) => graph.resolve(n) ?? []);
+function coveredIds(reply: Reply): string[] {
   const ids: string[] = [];
-  for (const c of reply.cards) {
-    if (c.kind === 'rule') ids.push(...c.rule.target.ids);
-    else if (c.kind === 'meal') ids.push(...named(c.summary));
-    else if (c.kind === 'pantry') ids.push(...c.add.flatMap((i) => named(i.name)), ...c.remove.flatMap(named));
-  }
+  for (const c of reply.cards) if (c.kind === 'rule') ids.push(...c.rule.target.ids);
   for (const p of reply.parts) if (p.kind === 'choices') ids.push(...p.options.map((o) => o.id));
   return ids;
 }
@@ -300,11 +296,22 @@ function askForLeftoverNames(reply: Reply, raw: string, intakeStep: TurnRequest[
   const statesRule = intakeStep === 'allergies' || ruleTermsInPlayerWords(raw).length > 0 || statesSevere(raw, graph) || severityFromText(own, graph) !== null;
   // Without health_data nothing can be filed: the consent card asks the player to say it again.
   if (!statesRule || reply.parts.some((p) => p.kind === 'consent')) return;
-  const { left, excluded } = leftoverNamedIngredients(raw, coveredIds(reply, graph), graph);
+  const { left, excluded } = leftoverNamedIngredients(raw, coveredIds(reply), graph);
   if (left.length === 0 && excluded.length === 0) return;
-  // The named asks replace askForDroppedTerms' single ask, and a bare "didn't understand".
-  reply.parts = reply.parts.filter((p) => !(p.kind === 'line' && (p.line.trigger === 'rule.ask_what_else' || p.line.trigger === 'didnt_understand')));
-  for (const term of left) reply.parts.push(line('rule.ask_what_else', { term }));
+  // A named ask already there (askForDroppedTerms' severe ask) is never removed (C1); only its unnamed
+  // form and a bare "didn't understand" give way to the named asks, and no name is asked twice.
+  const isAsk = (p: ReplyPart) => p.kind === 'line' && p.line.trigger === 'rule.ask_what_else';
+  const askedAlready = new Set(reply.parts.flatMap((p) => (isAsk(p) && p.kind === 'line' && p.line.vars.term ? [p.line.vars.term] : [])));
+  // A name the player said is fine ("but not sesame") is the one exception: asking about it would contradict exclusion_not_kept.
+  reply.parts = reply.parts.filter(
+    (p) =>
+      !(
+        p.kind === 'line' &&
+        (p.line.trigger === 'didnt_understand' ||
+          (p.line.trigger === 'rule.ask_what_else' && (!p.line.vars.term || excluded.includes(p.line.vars.term))))
+      ),
+  );
+  for (const term of left) if (!askedAlready.has(term)) reply.parts.push(line('rule.ask_what_else', { term }));
   for (const term of excluded) reply.parts.push(line('rule.exclusion_not_kept', { term }));
 }
 
