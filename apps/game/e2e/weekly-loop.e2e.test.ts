@@ -11,12 +11,13 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import type { Page, Request, Route } from 'playwright';
+import type { Page } from 'playwright';
 import { afterEach, describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
-import { UNDO_WINDOW_MS, type Plan, type ProgressEvent, type ProgressView, type RewardGrant } from '@kitchenquest/core/engine';
+import type { ProgressEvent, ProgressView, RewardGrant } from '@kitchenquest/core/engine';
 import { STORE_KEY, type PlayerState } from '../src/state/store';
 import { expectNoA11yViolations, expectNoHorizontalScroll, openApp, type OpenedApp } from './helpers';
+import { FRIJOLES, NOW, PARIPPU, WEEK, fakeApi, newFake } from './loop-fake';
 
 const yaml = <T>(rel: string): T => parse(readFileSync(fileURLToPath(new URL(`../../../content/${rel}`, import.meta.url)), 'utf8')) as T;
 const pan = yaml<{ triggers: Record<string, { lines: string[] }> }>('dialogue/pan.yaml');
@@ -25,12 +26,7 @@ interface RiddleStep { type: 'riddle'; prompt: string; options: { text: string; 
 const leela = yaml<{ quest: { steps: ({ type: string } | RiddleStep)[] } }>('cooks/leela.yaml');
 const riddle = leela.quest.steps.find((s): s is RiddleStep => s.type === 'riddle')!;
 
-const PARIPPU = 'india/kerala/parippu';
-const FRIJOLES = 'mexico/oaxaca/frijoles-de-olla';
 const LEELA_PIN = 'Visit Ammachi Leela — Kochi, Kerala, India';
-/** Market day: Saturday 14 November 2026, mid-morning, local time. The plan week starts today. */
-const NOW = new Date(2026, 10, 14, 10, 0, 0);
-const WEEK = '2026-11-14';
 const LAST_WEEK = '2026-11-10';
 /** A line that speaks of a loss (Review Focus 2): none may follow an undo. */
 const LOSS = /\b(lost|lose|loses|losing|loss|taken back|minus|deducted|penalt\w*|forfeit\w*)\b|-\s?\d+\s*XP/i;
@@ -213,123 +209,16 @@ async function readTheBook(page: Page, note: boolean) {
   if (note) expect(html).toContain('lime');
 }
 
-// ---------------------------------------------------------------------------------------------------------------
-// The signed-in, AI-on run: a small stateful fake of the API.
-
-interface Fake { requests: Request[]; plan: Plan | null; events: ProgressEvent[]; uploads: boolean[]; rules: unknown[]; notes: unknown[]; meals: string[] }
-
-function planCard(): object {
-  const items = [
-    { day: 1, kind: 'dish', slug: PARIPPU, servings: 3 },
-    { day: 3, kind: 'dish', slug: 'japan/osaka/onigiri', servings: 2 },
-    { day: 5, kind: 'dish', slug: FRIJOLES, servings: 4 },
-  ];
-  return {
-    kind: 'plan', weekStart: WEEK, items, hard: false,
-    checks: items.map((i) => ({ slug: i.slug, status: 'ok' })), unknown: [], dropped: [], offer: null,
-    summary: 'Sunday: Parippu Curry; Tuesday: Onigiri; Thursday: Frijoles de Olla.', added: items, basis: '00000000',
-    readback: [{ trigger: 'plan.readback', vars: { summary: 'Sunday: Parippu Curry; Tuesday: Onigiri; Thursday: Frijoles de Olla' } }],
-  };
-}
-
-const RUN_ITEMS = [
-  { key: 'moong_dal', name: 'split moong dal', ingredientId: 'moong_dal', stall: 'okafor-sato', forDishes: [PARIPPU], ticked: false },
-  { key: 'shallot', name: 'shallots', ingredientId: 'shallot', stall: 'wen', forDishes: [PARIPPU], ticked: false },
-  { key: 'mustard_seed', name: 'mustard seeds', ingredientId: 'mustard_seed', stall: 'spice', forDishes: [PARIPPU], ticked: false },
-  { key: 'rice', name: 'Japanese short-grain rice', ingredientId: 'rice', stall: 'general', forDishes: ['japan/osaka/onigiri'], ticked: false },
-];
-
-async function fakeApi(page: Page, fake: Fake): Promise<void> {
-  const run = { id: 'run1', weekStart: WEEK, items: RUN_ITEMS.map((i) => ({ ...i })), doneAt: null as string | null };
-  const consents = {
-    consents: ['health_data', 'ai_health'].map((purpose) => ({ purpose, noticeVersion: purpose === 'health_data' ? 'v3' : 'v1', noticeSha256: 'x', method: 'tap', grantedAt: '2026-11-01T00:00:00Z', withdrawnAt: null, endedReason: null, current: true })),
-    needsReconsent: [], notices: {},
-  };
-  page.on('request', (r) => { if (new URL(r.url()).pathname.startsWith('/api/')) fake.requests.push(r); });
-  await page.route((u) => u.pathname.startsWith('/api/'), async (route: Route) => {
-    const req = route.request();
-    const path = new URL(req.url()).pathname.replace(/^\/api/, '');
-    const m = req.method();
-    const body = () => req.postDataJSON() as Record<string, unknown>;
-    if (path === '/me') return route.fulfill(json(200, { id: 'u1', email: 'cook@example.com', entitlements: [] }));
-    if (path === '/me/consents') return route.fulfill(json(200, consents));
-    if (path === '/profile') return route.fulfill(json(200, { marketDays: [6], mealsPerWeek: null, country: null, region: null, mealWindows: [] }));
-    if (path === '/rules' && m === 'GET') return route.fulfill(json(200, { rules: fake.rules }));
-    if (path === '/rules' && m === 'POST') {
-      const rule = { ...(body().rule as object), id: `s${fake.rules.length + 1}` };
-      fake.rules.push(rule);
-      return route.fulfill(json(201, { rule }));
-    }
-    if (path === '/pantry' && m === 'GET') return route.fulfill(json(200, { items: [] }));
-    if (path === '/progress') return route.fulfill(json(200, { view: ACCOUNT_VIEW }));
-    if (path === '/progress/events') {
-      const b = body() as { events: ProgressEvent[]; upload?: boolean };
-      fake.events.push(...b.events);
-      fake.uploads.push(b.upload === true);
-      return route.fulfill(json(200, { accepted: b.events.map((e) => ({ clientId: e.id, grants: [] })), duplicate: [], rejected: [], warnings: [], view: ACCOUNT_VIEW }));
-    }
-    if (path === '/plans/current') return route.fulfill(json(200, { plan: fake.plan ? { ...fake.plan, id: 'plan1' } : null, weekStart: WEEK, checks: [] }));
-    if (path === `/plans/${WEEK}` && m === 'PUT') {
-      fake.plan = (body() as { plan: Plan }).plan;
-      return route.fulfill(json(200, { plan: { ...fake.plan, id: 'plan1' }, checks: [] }));
-    }
-    if (path === '/mentor/turn') {
-      return route.fulfill(json(200, {
-        conversationId: 'c1', route: 'ai', notice: null, toolTurn: true, actions: [],
-        parts: [{ kind: 'line', line: (planCard() as { readback: unknown[] }).readback[0] }],
-        cards: [{ proposalId: 'P1', expiresAt: new Date(NOW.getTime() + 30 * 60_000).toISOString(), card: planCard() }],
-      }));
-    }
-    if (path === '/mentor/proposals/P1/confirm') {
-      const c = planCard() as Plan & { summary: string };
-      fake.plan = { weekStart: WEEK, items: c.items, hard: false, slot: 'unanswered' };
-      return route.fulfill(json(200, {
-        trail: { id: 'P1', origin: 'server', kind: 'plan', summary: c.summary, undoUntil: new Date(NOW.getTime() + UNDO_WINDOW_MS).toISOString() },
-        parts: [{ kind: 'line', line: { trigger: 'plan.saved', vars: {} } }],
-      }));
-    }
-    if (path === '/market-runs') return route.fulfill(json(200, run));
-    if (path === '/market-runs/run1/ticks') {
-      const b = body() as { key: string; ticked: boolean };
-      const row = run.items.find((i) => i.key === b.key)!;
-      row.ticked = b.ticked;
-      return route.fulfill(json(200, run));
-    }
-    if (path === '/market-runs/run1/finish') {
-      run.doneAt ??= NOW.toISOString();
-      return route.fulfill(json(200, run));
-    }
-    if (path === '/notes' && m === 'GET') return route.fulfill(json(200, { notes: fake.notes }));
-    if (path === '/notes' && m === 'POST') {
-      const note = { ...(body().note as object), id: randomUUID() };
-      fake.notes.push(note);
-      return route.fulfill(json(201, { note: { ...note, check: { status: 'ok', findings: [], severe: false, disclaimer: null } } }));
-    }
-    if (path === '/shared-table' && m === 'POST') return route.fulfill(json(201, { id: randomUUID() }));
-    if (path === '/shared-table/tally') return route.fulfill(json(200, { shared: 0, byRecipe: {} }));
-    if (path === '/meals' && m === 'POST') {
-      const id = randomUUID();
-      fake.meals.push(id);
-      return route.fulfill(json(201, { meal: { ...(body().meal as object), id } }));
-    }
-    if (path.startsWith('/meals/') && m === 'DELETE') {
-      fake.meals = fake.meals.filter((id) => !path.endsWith(id));
-      return route.fulfill({ status: 204 });
-    }
-    return route.fulfill(json(404, { error: { code: 'not_found', message: `no mock for ${m} ${path}` } }));
-  });
-}
-
 describe('the weekly loop (M5 Step 12)', () => {
   for (const width of [1280, 400]) {
     it(`AI on, signed in (${width} px): plan by the Pan, the slot, the market, Leela's quest, after-cook, the book, a rule`, async () => {
-      const fake: Fake = { requests: [], plan: null, events: [], uploads: [], rules: [], notes: [], meals: [] };
+      const fake = newFake();
       app = await openApp('/#/kitchen', {
         reducedMotion: true, width, seed: { ...BASE, settings: settings(true) },
         beforeGoto: async (page) => {
           await page.clock.install({ time: NOW });
           await page.clock.resume();
-          await fakeApi(page, fake);
+          await fakeApi(page, fake, { view: ACCOUNT_VIEW });
         },
       });
       const { page } = app;
@@ -345,8 +234,9 @@ describe('the weekly loop (M5 Step 12)', () => {
 
       await cookLeelasQuest(page);
       await afterCookSignedIn(page);
+      // The undo is DELETE /meals/:id: no meal log is left, so any meal_logged event already sent went with it (Step 5 I1).
       expect(fake.meals).toEqual([]);
-      expect(fake.events.filter((e) => e.kind === 'meal_logged')).toEqual([]); // undone before it was sent, or erased with the log
+      expect(fake.requests.filter((r) => r.method() === 'DELETE' && new URL(r.url()).pathname.startsWith('/api/meals/'))).toHaveLength(1);
       await page.getByRole('button', { name: 'Back to the kitchen' }).click();
       await page.waitForFunction(() => location.hash === '#/kitchen');
       const cooked = await card(page);
@@ -368,7 +258,7 @@ describe('the weekly loop (M5 Step 12)', () => {
 
     it(`AI off, signed out (${width} px): the same week on the device; then sign in, upload, and nothing shown drops`, async () => {
       let signedIn = false;
-      const fake: Fake = { requests: [], plan: null, events: [], uploads: [], rules: [], notes: [], meals: [] };
+      const fake = newFake();
       const seed: Partial<PlayerState> = {
         ...BASE, settings: settings(false),
         localProfile: { marketDays: [6], mealsPerWeek: null, country: null, region: null, mealWindows: [] },
@@ -379,7 +269,7 @@ describe('the weekly loop (M5 Step 12)', () => {
         beforeGoto: async (page) => {
           await page.clock.install({ time: NOW });
           await page.clock.resume();
-          await fakeApi(page, fake);
+          await fakeApi(page, fake, { view: ACCOUNT_VIEW });
           await page.route((u) => u.pathname.startsWith('/api/'), (route) => (signedIn ? route.fallback() : route.fulfill(json(401, { error: { code: 'unauthorized', message: 'Sign in required' } }))));
         },
       });
