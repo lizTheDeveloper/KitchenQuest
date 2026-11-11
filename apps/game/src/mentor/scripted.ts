@@ -1,9 +1,9 @@
 import {
-  askForDroppedTerms, buildMealCard, emergencyRuleAsks, emergencyStatesRule, isHealthText, buildPantryCard, buildProfileCard, buildRuleCard, classifyTurn, dropMealsMatchingRemovals,
+  alreadySavedLine, askForDroppedTerms, buildMealCard, emergencyRuleAsks, emergencyStatesRule, isHealthText, buildPantryCard, buildProfileCard, buildRuleCard, classifyTurn, dropMealsMatchingRemovals,
   matchDish, MEAL_SLOTS, MEAL_VERB_PATTERN, normalizeName, normalizeTurn, PANTRY_ADD_PATTERN, PANTRY_REMOVAL_PATTERNS,
   parseClock, parseMealStatement, parsePantryAdds, parsePantryRemovals, parseRuleStatement, parseWeekdays, preRoute,
   shortReplyTarget, slotClause, slotForTime, stripPageEvents,
-  type IngredientGraph, type LineRef, type MealSlot, type OpenCardRef, type ProposalCard, type RuleTerm, type Severity,
+  type IngredientGraph, type LineRef, type MealSlot, type OpenCardRef, type ProposalCard, type Rule, type RuleTerm, type Severity,
 } from '@kitchenquest/core/engine';
 import { localDate } from '../recipes/rules';
 import type { Dialogue } from './dialogue';
@@ -42,6 +42,8 @@ interface Found { at: number; items: PanItem[]; card?: ProposalCard }
 
 export function createScriptedEngine(deps: {
   dialogue: Dialogue; graph: IngredientGraph; ruleTerms: RuleTerm[]; recipes: { slug: string; title: string }[]; now: () => Date;
+  /** The player's saved rules (account or device): a rule card below one of them is never offered (S13, M-5). */
+  savedRules?: () => readonly Rule[];
 }): ScriptedEngine {
   const { dialogue, graph, ruleTerms, recipes } = deps;
   const say = (l: LineRef): PanItem => ({ kind: 'said', said: dialogue.say(l.trigger, l.vars) });
@@ -67,7 +69,9 @@ export function createScriptedEngine(deps: {
       const where = at < 0 ? ruleFallback : at;
       const built = buildRuleCard({ term: item.term, severity: item.severity }, graph, ruleTerms);
       ruleOutcome = true;
-      if (built.ok) found.push(withReadback(where, built.card));
+      const onFile = built.ok ? alreadySavedLine(built.card, deps.savedRules?.() ?? [], graph, ruleTerms) : null;
+      if (onFile !== null) found.push({ at: where, items: [say(onFile)] });
+      else if (built.ok) found.push(withReadback(where, built.card));
       else if (built.reason === 'unknown_term') found.push({ at: where, items: [say(built.line)] });
       else found.push({ at: where, items: [say(built.line), { kind: 'choices', options: built.options, severity: item.severity }] });
     }

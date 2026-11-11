@@ -146,6 +146,16 @@ describe('scripted engine', () => {
     expect(said(r).slice(1).length).toBeGreaterThan(0);
   });
 
+  test('M-5 (S13): a rule card milder than a saved rule is never offered; rule.already_saved instead; a stricter one still is', () => {
+    const saved = [{ id: 'r1', target: { kind: 'ingredient' as const, ids: ['peanut'] }, type: 'avoid' as const, severity: 'anaphylactic' as const }];
+    const e = createScriptedEngine({ dialogue: createDialogue(content.pan), graph, ruleTerms: content.ruleTerms, recipes, now: () => NOW, savedRules: () => saved });
+    const r = e.reply("I'm intolerant to peanuts", ctx());
+    expect(r.cards).toEqual([]);
+    expect(said(r)).toEqual(['rule.already_saved']);
+    const milk = e.reply("I'm allergic to milk", ctx());
+    expect(cards(milk)).toMatchObject([{ kind: 'rule', rule: { target: { ids: ['milk'] } } }]);
+  });
+
   test("I'm vegan, had eggs and my throat is closing → the emergency line, then the egg ask (no diet card)", () => {
     const r = engine().reply("I'm vegan, had eggs and my throat is closing", ctx());
     expect(said(r)).toEqual(['rule.emergency', 'rule.ask_what_else']);

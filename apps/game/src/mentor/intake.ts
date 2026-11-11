@@ -1,5 +1,5 @@
 import {
-  askForDroppedTerms, buildPantryCard, buildProfileCard, buildRuleCard, classifyTurn, leftoverNamedIngredients, LIST_SPLIT, normalizeName,
+  alreadySavedLine, askForDroppedTerms, buildPantryCard, buildProfileCard, buildRuleCard, classifyTurn, leftoverNamedIngredients, LIST_SPLIT, normalizeName,
   normalizeTurn, parseCount, parsePantryAdds, parseRuleStatement, parseWeekdays, preRoute, stripPageEvents, WEEKDAY_NAMES,
   type IngredientGraph, type IntakeStep, type LineRef, type ProposalCard, type RuleCardResult, type RuleTerm, type Severity,
 } from '@kitchenquest/core/engine';
@@ -8,6 +8,7 @@ import type { BureauForm } from '../content/types';
 import type { PlayerStore } from '../state/store';
 import { contentText, h } from '../ui/dom';
 import type { MentorBackend } from './backend';
+import { savedRules } from './saved-rules';
 import type { Dialogue } from './dialogue';
 import type { MentorPanel } from './panel';
 import type { CardView, ConsentAnswer, LocalCardView, PanItem, PanReply, TurnContext } from './reply';
@@ -319,11 +320,16 @@ export function createIntake(deps: {
     return reask(step, []);
   }
 
+  /** S13 (M-5): a rule card a stricter saved rule already covers is never offered; the line says it is on file. */
+  const onFile = (card: ProposalCard): LineRef | null => (card.kind === 'rule' ? alreadySavedLine(card, savedRules(store.get()), graph, ruleTerms) : null);
+
   function rulesReply(results: RuleCardResult[], ask: LineRef | null, turn: number, notes: LineRef[] = []): PanReply {
     const items: PanItem[] = [];
     const cards: CardView[] = [];
     for (const r of results) {
-      if (r.ok) { items.push(...r.card.readback.map(ref)); cards.push(view(r.card, turn)); }
+      const saved = r.ok ? onFile(r.card) : null;
+      if (saved !== null) items.push(ref(saved));
+      else if (r.ok) { items.push(...r.card.readback.map(ref)); cards.push(view(r.card, turn)); }
       else if (r.reason === 'unknown_term') items.push(ref(r.line));
       else items.push(ref(r.line), { kind: 'choices', options: r.options, severity: null });
     }
@@ -354,7 +360,10 @@ export function createIntake(deps: {
     switch (parsed.kind) {
       case 'none': return reply([say('intake.allergies.none'), ...(await moveOn())]);
       case 'done': return reply(await moveOn());
-      case 'card': return reply(parsed.card.readback.map(ref), [view(parsed.card, c.turn)]);
+      case 'card': {
+        const saved = onFile(parsed.card);
+        return saved !== null ? reply([ref(saved)]) : reply(parsed.card.readback.map(ref), [view(parsed.card, c.turn)]);
+      }
       case 'reply': return rulesReply([parsed.reply], null, c.turn);
       case 'rules': return rulesReply(parsed.results, parsed.ask, c.turn, parsed.notes ?? []);
       // At allergies an answer that names nothing is never sent anywhere: the plain ask (fix round 1, M7).

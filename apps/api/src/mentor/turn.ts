@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
+  alreadySavedLine,
   askForDroppedTerms,
   emergencyRuleAsks,
   emergencyStatesRule,
@@ -23,16 +24,13 @@ import {
   statesSevere,
   slotForTime,
   stripPageEvents,
-  SEVERITY_WORDS,
   SUITABILITY_PATTERN,
   weekdayNumbers,
   type CardAction,
   type IngredientGraph,
   type OpenCardRef,
   type ProfilePatchInput,
-  type RuleCard,
   type Rule,
-  type Severity,
   type ProposalCard,
   type ReplyPart,
   type ServerCard,
@@ -178,39 +176,6 @@ interface Reply {
   onFile?: string[];
 }
 
-const SEVERITY_RANK: Readonly<Record<Severity, number>> = { preference: 0, intolerance: 1, allergy: 2, anaphylactic: 3 };
-
-const sameIds = (a: readonly string[], b: readonly string[]) => {
-  const x = [...a].sort();
-  const y = [...b].sort();
-  return x.length === y.length && x.every((id, i) => id === y[i]);
-};
-
-/**
- * A saved rule's name as the Rules screen shows it (apps/game/src/rules/rules-screen.ts `ruleName`): a rule
- * term's name with its targets, or the ledger names of its targets (fix round 2, N4).
- */
-function savedRuleName(rule: Rule, catalog: Catalog): string {
-  const term = catalog.ruleTerms.find((t) => sameIds(t.ids, rule.target.ids));
-  const names = rule.target.ids.map((id) => (catalog.graph.has(id) ? catalog.graph.get(id).name : id));
-  return term ? `${term.name} (${names.join(', ')})` : names.join(', ');
-}
-
-/**
- * Step 12 controller ruling (S13): the player's saved avoid rule that covers every target of `card` (the same
- * ids, or a saved category they are kinds of) at a STRICTER severity than the card's, or null. Such a card is
- * never offered: it would read back a milder level than the one on file.
- */
-function stricterSaved(card: RuleCard, saved: readonly Rule[], graph: IngredientGraph): Rule | null {
-  const covers = (r: Rule, id: string) => r.target.ids.includes(id) || r.target.ids.some((s) => graph.has(s) && graph.descendants(s).includes(id));
-  return (
-    saved
-      .filter((r) => r.type === 'avoid' && r.phase === undefined && card.rule.target.ids.every((id) => covers(r, id)))
-      .filter((r) => SEVERITY_RANK[r.severity] > SEVERITY_RANK[card.rule.severity])
-      .sort((a, b) => SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity])[0] ?? null
-  );
-}
-
 /** Stage 7: each validated, post-checked call becomes a card or a refusal line. The model's text is never used (R9). */
 function cardsFromCalls(
   deps: TurnDeps,
@@ -242,17 +207,11 @@ function cardsFromCalls(
           break;
         }
         const r = buildRuleCard(call.args, deps.catalog.graph, deps.catalog.ruleTerms);
-        const stricter = r.ok ? stricterSaved(r.card, saved, deps.catalog.graph) : null;
-        if (r.ok && stricter !== null) {
-          // Already on file at a stricter level: say so, offer nothing (never a milder read-back).
+        // S13 (core, shared with the client's engine and intake): already on file at a stricter level → say so, offer nothing.
+        const onFileLine = r.ok ? alreadySavedLine(r.card, saved, deps.catalog.graph, deps.catalog.ruleTerms) : null;
+        if (r.ok && onFileLine !== null) {
           onFile.push(...r.card.rule.target.ids);
-          parts.push(
-            line('rule.already_saved', {
-              ingredient: r.card.display.ingredient,
-              rule: savedRuleName(stricter, deps.catalog),
-              severity: SEVERITY_WORDS[stricter.severity],
-            }),
-          );
+          parts.push({ kind: 'line', line: onFileLine });
         } else if (r.ok) add(r.card);
         else if (r.reason === 'unknown_term') parts.push({ kind: 'line', line: r.line });
         else parts.push({ kind: 'line', line: r.line }, { kind: 'choices', options: r.options, severity: call.args.severity });

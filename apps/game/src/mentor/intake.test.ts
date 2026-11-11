@@ -266,6 +266,17 @@ describe('createIntake', () => {
     expect(m.intake.expecting).toBe('answer');
   });
 
+  test('M-5 (S13): at allergies, a milder card than a saved rule is never offered; the Pan says it is on file', async () => {
+    const saved = { id: 'r1', target: { kind: 'ingredient' as const, ids: ['peanut'] }, type: 'avoid' as const, severity: 'anaphylactic' as const };
+    const m = setup({ patch: { intake: { step: 'allergies' }, localRules: [saved] } });
+    m.panel.open();
+    m.intake.start();
+    await flush();
+    await m.send("I'm intolerant to peanuts");
+    expect(m.root.querySelector('.pan-card')).toBeNull();
+    expect(m.panTexts().some((t) => /already covers|already covered/.test(t) && /severe|anaphyla/i.test(t))).toBe(true);
+  });
+
   test('a step left on an earlier visit resumes there, with no second intake.open', async () => {
     const m = setup({ patch: { intake: { step: 'region' } } });
     m.panel.open();

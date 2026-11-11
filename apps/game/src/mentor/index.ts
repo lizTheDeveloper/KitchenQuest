@@ -13,6 +13,7 @@ import { createIntake, type Intake } from './intake';
 import { mountMentorPanel, type MentorPanel } from './panel';
 import type { PanReply } from './reply';
 import { createScriptedEngine, type ScriptedEngine } from './scripted';
+import { savedRules } from './saved-rules';
 import { createCardWriter, type CardWriter } from './writer';
 
 export { createDialogue } from './dialogue';
@@ -137,7 +138,7 @@ export function mountMentor(doc: Document, store: PlayerStore, bank: LineBank, c
     let conversation: ConversationRef | null = null;
     const dialogue: Dialogue = createDialogue(bank, historyOptions(store));
     const recipes = Object.entries(content.recipes).map(([slug, r]) => ({ slug, title: r.meta.title }));
-    const engine: ScriptedEngine = createScriptedEngine({ dialogue, graph, ruleTerms: content.ruleTerms, recipes, now });
+    const engine: ScriptedEngine = createScriptedEngine({ dialogue, graph, ruleTerms: content.ruleTerms, recipes, now, savedRules: () => savedRules(store.get()) });
     const writer = createCardWriter({ client, store, dialogue, graph, ruleTerms: content.ruleTerms, now, conversationId: () => conversation?.id });
     const backend = switchingBackend(store, (kind) => {
       if (kind !== 'ai') return createScriptedBackend(engine, dialogue);
