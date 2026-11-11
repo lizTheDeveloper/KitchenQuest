@@ -1,6 +1,6 @@
 {
   "fingerprint": "31f84ab1ba63ebc6e819992956b1a49d9ef7045b999b2feccbb23df52b406acc",
-  "evalHash": "b8b617e895852b2d16e53bb8b7443ab220a6b186078facac2f0eb36d8a16b886",
+  "evalHash": "e755e2b69534feff097ca666c51add83561149eb11acbd29aa7e3eaf5bce14eb",
   "model": "qwen/qwen3.8-27b",
   "providers": [
     "tenstorrent"
