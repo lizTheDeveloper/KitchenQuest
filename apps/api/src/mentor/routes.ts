@@ -40,6 +40,7 @@ const ConfirmBody = z
   .object({
     channel: z.literal('tap'),
     edits: z.object({ severity: z.enum(['anaphylactic', 'allergy', 'intolerance', 'preference']).optional() }).strict().optional(),
+    conversationId: z.string().max(64).nullable().optional(),
   })
   .strict();
 /** Reject and undo take no body; an empty object at most. */
@@ -107,7 +108,7 @@ export async function mentorRoutes(app: FastifyInstance, catalog: Catalog, state
   app.post<{ Params: { id: string } }>('/mentor/proposals/:id/confirm', { preHandler: requireUser }, async (req) => {
     const body = ConfirmBody.parse(req.body);
     const at = now();
-    return db.transaction((tx: Tx) => confirmProposalIn(tx, deps, req.user.id, req.params.id, body.channel, body.edits, at, req.id));
+    return db.transaction((tx: Tx) => confirmProposalIn(tx, deps, req.user.id, req.params.id, body.channel, body.edits, at, req.id, body.conversationId));
   });
 
   app.post<{ Params: { id: string } }>('/mentor/proposals/:id/reject', { preHandler: requireUser }, async (req) => {

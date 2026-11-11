@@ -2,6 +2,7 @@ import {
   buildRuleCard, normalizeName, SEVERITY_WORDS,
   type IngredientGraph, type RuleCard, type RuleTerm, type Severity,
 } from '@kitchenquest/core/engine';
+import { copy } from '../content/copy';
 import { h } from '../ui/dom';
 
 /**
@@ -17,7 +18,6 @@ const SEVERITIES: readonly { value: Severity; label: string }[] = [
   { value: 'intolerance', label: 'Intolerance' },
   { value: 'preference', label: 'Preference' },
 ];
-const NOTHING_FOUND = "The Bureau's ledger has nothing by that name. Try another word, or tell the Pan.";
 
 type Pick = { kind: 'ingredient'; id: string; name: string } | { kind: 'term'; term: RuleTerm };
 
@@ -63,7 +63,7 @@ export function mountRuleForm(el: HTMLElement, opts: { graph: IngredientGraph; r
 
   let picked: Pick | null = null;
   const showHint = () => {
-    severityHint.textContent = `If you leave this, it is filed as ${severityLabel(picked ? defaultSeverity(picked) : 'anaphylactic')}.`;
+    severityHint.textContent = copy('ui.rules.severity_default', { severity: severityLabel(picked ? defaultSeverity(picked) : 'anaphylactic') });
   };
   showHint();
 
@@ -77,13 +77,13 @@ export function mountRuleForm(el: HTMLElement, opts: { graph: IngredientGraph; r
         picked = p;
         for (const x of list.querySelectorAll('button')) x.setAttribute('aria-pressed', 'false');
         b.setAttribute('aria-pressed', 'true');
-        chosen.textContent = `Chosen: ${p.kind === 'term' ? p.term.name : p.name}`;
+        chosen.textContent = copy('ui.rules.chosen', { name: p.kind === 'term' ? p.term.name : p.name });
         fill.disabled = false;
         showHint();
       });
       return h('li', null, b);
     }));
-    found.textContent = normalizeName(q) !== '' && opts2.length === 0 ? NOTHING_FOUND : '';
+    found.textContent = normalizeName(q) !== '' && opts2.length === 0 ? copy('ui.rules.nothing_found') : '';
   };
   search.addEventListener('input', render);
 
@@ -97,7 +97,7 @@ export function mountRuleForm(el: HTMLElement, opts: { graph: IngredientGraph; r
     h('div', { class: 'field' },
       h('label', { for: 'rule-search' }, 'Ingredient or diet rule'),
       search,
-      h('p', { class: 'field-hint', id: `rule-search-hint-${n}` }, 'Type part of a name, then choose one from the list.')),
+      h('p', { class: 'field-hint', id: `rule-search-hint-${n}` }, copy('ui.rules.search_hint'))),
     found,
     list,
     chosen,

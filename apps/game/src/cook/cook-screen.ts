@@ -1,10 +1,11 @@
+import { SCREEN_TITLES } from '../shell/titles';
 import { recordTechnique, timerSeconds, type ParsedRecipe, type RecipeIngredient, type StepItem } from '@kitchenquest/core/engine';
 import { content, graph, techniqueName } from '../content';
 import { getMentor } from '../mentor';
 import { buildRecipeCard, type RecipeCard } from '../recipes/card-model';
 import { renderSafetyStrip } from '../recipes/card-view';
 import { activeRules, cardInputsKey, localDate, watchLocalDate } from '../recipes/rules';
-import { registerScreen, RouteNotFound, type Screen } from '../shell/app';
+import { RouteNotFound, type Screen } from '../shell/app';
 import { isReducedMotion } from '../shell/motion';
 import { routeHref } from '../shell/router';
 import { announce } from '../ui/announce';
@@ -48,10 +49,10 @@ function refusal(card: RecipeCard): HTMLElement {
     h('p', null, h('a', { href: routeHref({ name: 'recipe', slug: card.slug }) }, 'Back to the recipe card')));
 }
 
-function cookScreen(): Screen {
+export function cookScreen(): Screen {
   let cleanup: (() => void) | null = null;
   return {
-    title: 'Cook',
+    title: SCREEN_TITLES.cook,
     mount(el, route, ctx) {
       if (route.name !== 'cook' || !Object.hasOwn(content.recipes, route.slug)) throw new RouteNotFound();
       const { slug } = route;
@@ -315,4 +316,3 @@ function cookScreen(): Screen {
   };
 }
 
-export function registerCookScreen(): void { registerScreen('cook', cookScreen); }

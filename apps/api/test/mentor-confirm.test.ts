@@ -142,6 +142,26 @@ describe('confirm by tap', () => {
     expect((await proposal(id)).write_ref).not.toBeNull();
   });
 
+  test('fix round 5 (H2): a tap that names the current conversation writes only a card from that conversation', async () => {
+    const p = await player();
+    const [c1, c2] = await Promise.all([1, 2].map(async () => (await sql<{ id: string }[]>`insert into conversations (user_id) values (${p.userId}) returning id`)[0].id));
+    const card = buildProfileCard({ marketDays: [6] });
+    const inC1 = (
+      await db.transaction((tx) => createProposal(tx, config.keyring, { userId: p.userId, conversationId: c1, turnSeq: 1, card }, new Date(clock)))
+    ).proposalId;
+    const loose = await seed(p.userId, card); // no conversation (forgotten, or never had one)
+    // From an earlier conversation, after a clear (null), or with no conversation at all: closed, nothing written.
+    for (const [id, conversationId] of [[inC1, c2], [inC1, null], [loose, c1], [loose, null]] as const) {
+      const res = await confirm(p.cookie, id, { channel: 'tap', conversationId });
+      expect(res.statusCode).toBe(409);
+      expect(res.json().error.code).toBe('proposal_closed');
+    }
+    expect(await proposal(inC1)).toMatchObject({ status: 'open', write_ref: null });
+    // The same card, tapped in its own conversation, is written; a tap that names none is unchanged (no check).
+    expect((await confirm(p.cookie, inC1, { channel: 'tap', conversationId: c1 })).statusCode).toBe(200);
+    expect((await confirm(p.cookie, loose)).statusCode).toBe(200);
+  });
+
   test('the guard itself: a typed yes on a severe card → 400 tap_required, the card stays open (§7.6)', async () => {
     const p = await player();
     for (const card of [PEANUT(), ruleCard('sesame', 'allergy')]) {

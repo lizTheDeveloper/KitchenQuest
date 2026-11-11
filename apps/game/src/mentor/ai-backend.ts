@@ -11,6 +11,7 @@ import type { MentorBackend } from './backend';
 import type { Dialogue } from './dialogue';
 import type { PanItem, PanReply, ServerCardView, TurnContext } from './reply';
 import type { ScriptedEngine } from './scripted';
+import { withNotice, type ConversationRef } from './outage';
 import { partsToItems } from './writer';
 
 /** A failed turn is tried again once by itself after this long, or on the next `online` event if that comes first (pre-flight C23). */
@@ -90,18 +91,41 @@ export function createAiBackend(deps: {
   now: () => Date; screen: () => TurnRequest['screen']; intakeStep: () => IntakeStep | null;
   /** Where `online` events come from (the window). */
   events: Pick<EventTarget, 'addEventListener' | 'removeEventListener'>;
+  /** The conversation's server id, shared with the panel's clear (index.ts); the backend keeps its own when none is given. */
+  conversation?: ConversationRef;
 }): MentorBackend & { readonly conversationId: string | null } {
   const { client, engine, dialogue, store } = deps;
-  let conversationId: string | null = null;
+  const conversation = deps.conversation ?? { id: null };
   const listeners = new Set<(r: PanReply) => void>();
   const say = (trigger: string): PanItem => ({ kind: 'said', said: dialogue.say(trigger) });
   const lines = (...triggers: string[]): PanReply => ({ items: triggers.map(say), cards: [], intents: [], actions: [], notice: null });
-  const prefixed = (items: PanItem[], r: PanReply): PanReply => ({ ...r, items: [...items, ...r.items] });
+  /** A notice goes first, except after an emergency, medical or child line, which always leads (outage.ts). */
+  const prefixed = (items: PanItem[], r: PanReply): PanReply => items.reduceRight((acc, i) => withNotice(i, acc), r);
   /** Retries and late replies end here once the backend is replaced (fix round 1, I2). */
   let disposed = false;
   /** Read through a call, so a check after an await sees a dispose that happened meanwhile. */
   const isDisposed = () => disposed;
   const cancels = new Set<() => void>();
+  /**
+   * Every text turn, retry and delivered safety turn runs here one at a time, in the order it arrived, so each one
+   * reads the conversation id the turn before it set and the server sees the turns in order (fix round 4, G3).
+   */
+  let chain: Promise<unknown> = Promise.resolve();
+  /**
+   * Settles on dispose. Every server call in a step waits on it too (`unlessGone`), so a hung step lets go and every
+   * step behind it runs at once, answered by the script (fix round 5, H1).
+   */
+  let release!: () => void;
+  const gone = new Promise<'gone'>((r) => { release = () => { r('gone'); }; });
+  function serial<T>(step: () => Promise<T>): Promise<T> {
+    const p = chain.then(step);
+    chain = p.then(() => undefined, () => undefined);
+    return p;
+  }
+  /** A call that stops waiting when the backend is disposed: 'gone' then, and the step answers without the server. */
+  const unlessGone = <T>(p: Promise<T>): Promise<T | 'gone'> => Promise.race([p, gone]);
+  /** The reply's conversation id, unless the conversation was cleared while it was on its way (G4). */
+  const keepId = (gen: number | undefined, id: string | null) => { if (conversation.gen === gen) conversation.id = id; };
 
   /**
    * The ai_health card, once ever, after the engine's answer. `aiHealthOffered` is set by the panel when the card
@@ -134,7 +158,8 @@ export function createAiBackend(deps: {
   }
 
   async function hasAiHealth(): Promise<boolean> {
-    const r = await client.consents();
+    const r = await unlessGone(client.consents());
+    if (r === 'gone') return false;
     // Not known is not granted: the turn stays on the device.
     return r.ok && granted(r.data, 'health_data') && granted(r.data, 'ai_health');
   }
@@ -155,6 +180,8 @@ export function createAiBackend(deps: {
   /** One retry, held in memory: after RETRY_AFTER_MS or on `online`, whichever comes first. */
   function scheduleRetry(req: TurnRequest, ctx: TurnContext, scripted: PanReply): void {
     let fired = false;
+    // A retry belongs to the conversation it was scheduled in: a clear meanwhile cancels it (fix round 5, H3).
+    const gen = conversation.gen;
     const cancel = () => {
       fired = true;
       clearTimeout(timer);
@@ -165,20 +192,21 @@ export function createAiBackend(deps: {
       if (fired) return;
       cancel();
       if (disposed) return;
-      retry(req, ctx, scripted).catch((err: unknown) => { console.error(err); });
+      serial(() => retry(req, ctx, scripted, gen)).catch((err: unknown) => { console.error(err); });
     };
     const timer = setTimeout(fire, RETRY_AFTER_MS);
     deps.events.addEventListener('online', fire);
     cancels.add(cancel);
   }
 
-  async function retry(req: TurnRequest, ctx: TurnContext, scripted: PanReply): Promise<void> {
-    if (disposed) return;
-    const r = await client.mentorTurn({ ...req, conversationId });
+  async function retry(req: TurnRequest, ctx: TurnContext, scripted: PanReply, gen: number | undefined): Promise<void> {
+    if (disposed || conversation.gen !== gen) return;
+    const r = await unlessGone(client.mentorTurn({ ...req, conversationId: conversation.id }));
     const emit = (reply: PanReply) => { if (!isDisposed()) for (const fn of listeners) fn(reply); };
-    if (isDisposed()) return;
+    // Disposed, or the conversation was cleared while it was on its way: nothing of it is kept or shown.
+    if (r === 'gone' || isDisposed() || conversation.gen !== gen) return;
     if (r.ok && isTurnResponse(r.data)) {
-      conversationId = r.data.conversationId;
+      keepId(gen, r.data.conversationId);
       if (r.data.route === 'scripted') return;
       const mapped = mapServer(r.data, ctx.turn);
       // Shown only when it adds what the script didn't: a server card or a server write. Never model text (R9).
@@ -186,22 +214,35 @@ export function createAiBackend(deps: {
       if (addsCards || mapped.actions.length > 0) emit({ ...mapped, cards: addsCards ? mapped.cards : [] });
       return;
     }
-    if (!r.ok && r.status === 401) { await refreshAccount(client, store); return; }
+    if (!r.ok && r.status === 401) { await unlessGone(refreshAccount(client, store)); return; }
     emit({ items: [say('ai.try_again'), { kind: 'retry', text: req.input.text }], cards: [], intents: [], actions: [], notice: null });
   }
 
-  async function send(text: string, ctx: TurnContext): Promise<PanReply> {
+  const request = (text: string): TurnRequest => {
     const now = deps.now();
-    const req: TurnRequest = {
-      conversationId, input: { kind: 'text', text }, localDate: localDate(now), localTime: hhmm(now), screen: deps.screen(), intakeStep: deps.intakeStep(),
+    return {
+      conversationId: conversation.id, input: { kind: 'text', text }, localDate: localDate(now), localTime: hhmm(now), screen: deps.screen(), intakeStep: deps.intakeStep(),
     };
-    const r = await client.mentorTurn(req);
+  };
+
+  /** The stage-4 health gate, mirrored (pre-flight C1): health text stays on the device without ai_health. */
+  const isHealthTurn = (stripped: string, ctx: TurnContext): boolean =>
+    ctx.intakeStep === 'allergies' || ctx.openCards.some((c) => c.card.kind === 'rule' || c.card.kind === 'meal') ||
+    isHealthText(stripped, deps.graph, deps.ruleTerms);
+
+  async function send(text: string, ctx: TurnContext): Promise<PanReply> {
+    // Turned off (or the account switched) while this turn waited its place: the script answers and nothing is sent (G5).
+    if (isDisposed()) return engine.reply(text, ctx);
+    const req = request(text);
+    const gen = conversation.gen;
+    const r = await unlessGone(client.mentorTurn(req));
+    if (r === 'gone') return engine.reply(text, ctx);
     if (r.ok && isTurnResponse(r.data)) {
-      conversationId = r.data.conversationId;
+      keepId(gen, r.data.conversationId);
       return fromResponse(r.data, text, ctx);
     }
     if (!r.ok && r.status === 401) {
-      await refreshAccount(client, store);
+      await unlessGone(refreshAccount(client, store));
       return engine.reply(text, ctx);
     }
     const scripted = prefixed([say('mentor.ai_unavailable')], engine.reply(text, ctx));
@@ -209,11 +250,34 @@ export function createAiBackend(deps: {
     return scripted;
   }
 
+  /** A text turn, in its place in the queue. */
+  async function answer(text: string, ctx: TurnContext): Promise<PanReply> {
+    // Released by a dispose: the script answers, nothing is asked of the server.
+    if (isDisposed()) return engine.reply(text, ctx);
+    const stripped = stripPageEvents(text).text.trim();
+    const intent = classifyTurn(stripped);
+    // A plain yes or no: a local card is the engine's; two open cards of either origin are never guessed between.
+    if (intent === 'yes' || intent === 'no') {
+      const recent = ctx.openCards.filter((c) => c.issuedTurn === ctx.turn - 1);
+      if (recent.length > 0 && ctx.openCards.length > 1) return lines('confirm.tap_card');
+      if (recent.length === 1 && recent[0].origin === 'local') return engine.reply(text, ctx);
+      if (recent.length === 1) return send(text, ctx);
+    }
+    // A plain undo goes by the newest live trail entry (pre-flight C36).
+    if (intent === 'undo') {
+      const newest = ctx.trail.at(-1);
+      return newest?.origin === 'server' ? send(text, ctx) : engine.reply(text, ctx);
+    }
+    if (isHealthTurn(stripped, ctx) && !(await hasAiHealth())) return offerAiHealth(engine.reply(text, ctx));
+    return send(text, ctx);
+  }
+
   return {
     kind: 'ai',
-    get conversationId() { return conversationId; },
+    get conversationId() { return conversation.id; },
     dispose() {
       disposed = true;
+      release();
       for (const c of [...cancels]) c();
       listeners.clear();
     },
@@ -221,28 +285,22 @@ export function createAiBackend(deps: {
       listeners.add(fn);
       return () => { listeners.delete(fn); };
     },
-    async reply(input, ctx) {
-      if (input.kind === 'voice') return lines('voice.not_yet');
+    reply(input, ctx) {
+      if (input.kind === 'voice') return Promise.resolve(lines('voice.not_yet'));
       const { text } = input;
-      const stripped = stripPageEvents(text).text.trim();
-      const intent = classifyTurn(stripped);
-      // A plain yes or no: a local card is the engine's; two open cards of either origin are never guessed between.
-      if (intent === 'yes' || intent === 'no') {
-        const recent = ctx.openCards.filter((c) => c.issuedTurn === ctx.turn - 1);
-        if (recent.length > 0 && ctx.openCards.length > 1) return lines('confirm.tap_card');
-        if (recent.length === 1 && recent[0].origin === 'local') return engine.reply(text, ctx);
-        if (recent.length === 1) return send(text, ctx);
-      }
-      // A plain undo goes by the newest live trail entry (pre-flight C36).
-      if (intent === 'undo') {
-        const newest = ctx.trail.at(-1);
-        return newest?.origin === 'server' ? send(text, ctx) : engine.reply(text, ctx);
-      }
-      // The stage-4 health gate, mirrored: health text stays on the device without ai_health.
-      const health = ctx.intakeStep === 'allergies' || ctx.openCards.some((c) => c.card.kind === 'rule' || c.card.kind === 'meal') ||
-        isHealthText(stripped, deps.graph, deps.ruleTerms);
-      if (health && !(await hasAiHealth())) return offerAiHealth(engine.reply(text, ctx));
-      return send(text, ctx);
+      return serial(() => answer(text, ctx));
+    },
+    deliver(input, ctx) {
+      // Queued now, in arrival order; the reply is never shown, only its conversation id is kept.
+      serial(async () => {
+        const { text } = input;
+        if (isHealthTurn(stripPageEvents(text).text.trim(), ctx) && !(await hasAiHealth())) return;
+        if (isDisposed()) return;
+        const req = request(text);
+        const gen = conversation.gen;
+        const r = await unlessGone(client.mentorTurn(req));
+        if (r !== 'gone' && !isDisposed() && r.ok && isTurnResponse(r.data)) keepId(gen, r.data.conversationId);
+      }).catch(() => { /* Nothing visible depends on it. */ });
     },
   };
 }

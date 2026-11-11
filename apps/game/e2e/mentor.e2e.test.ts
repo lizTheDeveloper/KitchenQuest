@@ -33,6 +33,24 @@ describe('mentor panel', () => {
     expect(app.consoleErrors).toEqual([]);
   });
 
+  it('a long text-only conversation stays axe-clean: the scrollable list is focusable and named', async () => {
+    app = await openApp('/#/settings', { reducedMotion: true, seed: PAN_READY });
+    const { page } = app;
+    await page.locator('#pan-button').click();
+    for (let n = 1; n <= 14; n++) {
+      await page.locator('#pan-text').fill('thank you');
+      await page.locator('#pan-text').press('Enter');
+      await page.waitForFunction((k) => document.querySelectorAll('#pan-panel .bubble.pan').length >= k, n);
+    }
+    const list = page.locator('#pan-panel .bubbles');
+    expect(await list.evaluate((el) => el.scrollHeight > el.clientHeight), 'the list scrolls').toBe(true);
+    expect(await list.getAttribute('tabindex')).toBe('0');
+    expect(await list.getAttribute('aria-label')).toBe('Conversation with the Pan');
+    await expectNoA11yViolations(page, 'long conversation');
+    await list.focus();
+    expect(await page.evaluate(() => document.activeElement?.classList.contains('bubbles'))).toBe(true);
+  });
+
   it('answers thanks, other text and a rule statement from the script, and makes no requests', async () => {
     app = await openApp('/#/settings', { reducedMotion: true, seed: PAN_READY });
     const { page } = app;
@@ -165,7 +183,7 @@ describe('mentor cards, trail and AI backend (M4 Step 10)', () => {
     expect(app.consoleErrors).toEqual([]);
   });
 
-  it('AI on: a server card is confirmed with exactly one POST { channel: "tap" } on a double click', async () => {
+  it('AI on: a server card is confirmed with exactly one POST { channel: "tap", conversationId } on a double click', async () => {
     const card = buildProfileCard({ marketDays: [6] });
     const confirms: Request[] = [];
     const turnBodies: unknown[] = [];
@@ -203,7 +221,7 @@ describe('mentor cards, trail and AI backend (M4 Step 10)', () => {
     await slip.getByRole('button', { name: 'Ink it ✔' }).dblclick();
     await page.locator('#pan-panel .trail-entry').waitFor();
     expect(confirms).toHaveLength(1);
-    expect(confirms[0].postDataJSON()).toEqual({ channel: 'tap' });
+    expect(confirms[0].postDataJSON()).toEqual({ channel: 'tap', conversationId: 'c1' }); // the conversation the card came from (fix round 5, H2)
     expect(await page.locator('#pan-panel .trail-text').textContent()).toBe(`🗓 Inked: ${card.summary}`);
     expect(app.consoleErrors).toEqual([]);
   });
@@ -264,8 +282,10 @@ describe('mentor cards, trail and AI backend (M4 Step 10)', () => {
     await tell(page, 'I avoid sesame');
     await page.locator('#pan-panel .pan-card').waitFor();
     await expectNoA11yViolations(page, 'rule card and trail entry');
-    // Tab goes Close → Undo → Edit → the card's buttons (and picker) → the text box: the reading order.
+    // Tab goes Close → the conversation list (focusable so it scrolls) → Undo → Edit → the card's buttons (and picker) → the text box: the reading order.
     await page.locator('#pan-panel .pan-close').focus();
+    await page.keyboard.press('Tab');
+    expect(await page.evaluate(() => document.activeElement?.classList.contains('bubbles'))).toBe(true);
     const order: string[] = [];
     for (let i = 0; i < 8; i++) {
       await page.keyboard.press('Tab');

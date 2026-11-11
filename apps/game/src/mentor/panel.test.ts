@@ -100,19 +100,95 @@ test('a sent message gets the turn context; items render in order, then the card
   expect(kinds).toEqual(['hello', 'one', 'two', 'card', 'again', 'one', 'two']);
 });
 
-test('while a turn is pending: aria-busy, a polite "thinking" status, and Send disabled', async () => {
+test('while a turn is pending: aria-busy and a polite "thinking" status; Send stays enabled, an ordinary message waits in the box', async () => {
   let done!: (r: PanReply) => void;
-  const backend: MentorBackend = { kind: 'scripted', reply: () => new Promise((r) => { done = r; }) };
+  const replies: string[] = [];
+  const backend: MentorBackend = { kind: 'scripted', reply: (i) => { replies.push(i.kind === 'text' ? i.text : ''); return new Promise((r) => { done = r; }); } };
   const { root, send } = mount({ backend });
   await send('hello');
   const bubbles = root.querySelector('.bubbles')!;
   expect(bubbles.getAttribute('aria-busy')).toBe('true');
   expect(root.querySelector('[role="status"].pan-status')!.textContent).toBe(THINKING_TEXT);
-  expect(button(root, 'Send')!.disabled).toBe(true);
+  expect(button(root, 'Send')!.disabled).toBe(false);
+  await send('and another thing');
+  expect(replies).toEqual(['hello']);
+  expect(root.querySelector<HTMLTextAreaElement>('#pan-text')!.value).toBe('and another thing');
   done(reply(['hi']));
   await flush();
   expect(bubbles.hasAttribute('aria-busy')).toBe(false);
-  expect(button(root, 'Send')!.disabled).toBe(false);
+});
+
+test('H1: an emergency, medical or child text is sent and answered even while another turn is still waiting', async () => {
+  const backend: MentorBackend = {
+    kind: 'ai',
+    reply: (i) => (i.kind === 'text' && i.text === 'hello' ? new Promise<PanReply>(() => {}) : Promise.resolve(reply([`answer to ${i.kind === 'text' ? i.text : ''}`]))),
+  };
+  const { root, send } = mount({ backend });
+  await send('hello');
+  await send("he's not breathing");
+  await send('should I take antibiotics for my rash');
+  await send('im 8');
+  expect(panTexts(root)).toEqual(["answer to he's not breathing", 'answer to should I take antibiotics for my rash', 'answer to im 8']);
+  // The first turn is still waiting.
+  expect(root.querySelector('.bubbles')!.getAttribute('aria-busy')).toBe('true');
+});
+
+test('H2: a reply, a card write or an undo that lands after clearConversation is not drawn', async () => {
+  let done!: (r: PanReply) => void;
+  const backend: MentorBackend = { kind: 'ai', reply: () => new Promise((r) => { done = r; }) };
+  const { root, pan, send } = mount({ backend });
+  await send('what should I cook tonight');
+  pan.clearConversation();
+  done(reply(['peanut, P-E-A-N-U-T'], { cards: [local(rule('peanut', 'allergy'))] }));
+  await flush();
+  expect(panTexts(root)).toEqual([]);
+  expect(root.querySelector('.pan-card')).toBeNull();
+  // The next turn draws as usual.
+  await send('hello');
+  done(reply(['hi']));
+  await flush();
+  expect(panTexts(root)).toEqual(['hi']);
+});
+
+test('H2: a card write or a turn-down that lands after clearConversation is not drawn', async () => {
+  let wrote!: (o: WriteOutcome) => void;
+  let rejected!: (i: PanItem[]) => void;
+  const writer = fakeWriter({
+    confirm: vi.fn(() => new Promise<WriteOutcome>((r) => { wrote = r; })),
+    reject: vi.fn(() => new Promise<PanItem[]>((r) => { rejected = r; })),
+  });
+  const { root, pan } = mount({ writer });
+  const card = buildProfileCard({ marketDays: [6] });
+  pan.show(reply([], { cards: [local(card, 'L1')] }));
+  button(root, 'Ink it ✔')!.click();
+  await flush();
+  pan.clearConversation();
+  wrote({ ok: true, trail: trailFor(card), items: [say('schedule.set', { summary: 's' })] });
+  await flush();
+  expect(panTexts(root)).toEqual([]);
+  pan.show(reply([], { cards: [local(card, 'L2')] }));
+  root.querySelector<HTMLButtonElement>('.pan-card-reject')!.click();
+  await flush();
+  pan.clearConversation();
+  rejected([say('card.rejected')]);
+  await flush();
+  expect(panTexts(root)).toEqual([]);
+  expect(root.querySelector('.trail-entry')).toBeNull();
+});
+
+test('H2: an undo that lands after clearConversation is not drawn', async () => {
+  let undone!: (o: UndoOutcome) => void;
+  const writer = fakeWriter({ undo: vi.fn(() => new Promise<UndoOutcome>((r) => { undone = r; })) });
+  const { root, pan } = mount({ writer });
+  pan.show(reply([], { cards: [local(buildProfileCard({ marketDays: [6] }))] }));
+  button(root, 'Ink it ✔')!.click();
+  await flush();
+  button(root, 'Undo')!.click();
+  await flush();
+  pan.clearConversation();
+  undone({ status: 'failed', items: [say('write.not_done')] });
+  await flush();
+  expect(panTexts(root)).toEqual([]);
 });
 
 describe('cards', () => {
@@ -478,6 +554,29 @@ describe('fix round 1', () => {
     expect(root.querySelector('.pan-card')).toBeNull();
     expect(lines('didnt_understand')).toContain(panTexts(root).at(-1));
     err.mockRestore();
+  });
+
+  test('after destroy a late scripted or AI reply draws nothing and a pending consent card is never counted as offered', async () => {
+    let late!: (r: PanReply) => void;
+    let release!: (r: PanReply) => void;
+    const backend: MentorBackend = {
+      kind: 'scripted',
+      reply: () => new Promise<PanReply>((res) => { release = res; }),
+      onLate: (fn) => { late = fn; return () => {}; },
+    };
+    const { root, pan, store, send } = mount({ backend, patch: { account: { email: 'a@b.c' } } });
+    const inflight = send('hello'); // a turn waiting on the backend
+    pan.show({ items: [{ kind: 'consent', purpose: 'ai_health' }], cards: [], intents: [], actions: [], notice: null }); // consents() still in flight
+    const bubbles = root.querySelector('.bubbles')!;
+    pan.destroy();
+    release(reply(['too late'], { cards: [local(buildProfileCard({ marketDays: [6] }))] }));
+    late(reply(['also too late']));
+    pan.show(reply(['and this']));
+    await inflight;
+    await flush();
+    expect(bubbles.textContent).not.toMatch(/too late|and this/);
+    expect(bubbles.querySelector('.pan-card')).toBeNull();
+    expect(store.get().aiHealthOffered).toBe(false);
   });
 
   test('destroy takes the panel out and drops its listeners', () => {

@@ -30,7 +30,7 @@ export interface ApiClient {
   /** M4. The player's text rides in the POST body only, never in the URL (P-5). */
   mentorTurn(req: TurnRequest): Promise<ApiResult<TurnResponse>>;                                              // POST /mentor/turn
   /** A tap on a server card: the body is `{ channel: 'tap', edits? }`; the type has no other channel (§7.6b.1). */
-  confirmProposal(id: string, edits?: { severity?: Severity }): Promise<ApiResult<ConfirmResponse>>;          // POST /mentor/proposals/:id/confirm
+  confirmProposal(id: string, edits?: { severity?: Severity }, conversationId?: string | null): Promise<ApiResult<ConfirmResponse>>;          // POST /mentor/proposals/:id/confirm
   rejectProposal(id: string): Promise<ApiResult<{ parts: ReplyPart[] }>>;                                      // POST /mentor/proposals/:id/reject
   undoWrite(id: string): Promise<ApiResult<{ parts: ReplyPart[]; undone: boolean }>>;                                        // POST /mentor/writes/:id/undo
   forgetConversations(): Promise<ApiResult<null>>;                                                            // DELETE /mentor/conversations (204)
@@ -54,13 +54,23 @@ function m2Error(body: unknown): ApiErrorBody | null {
   return { code, message: typeof message === 'string' ? message : '', ...(details === undefined ? {} : { details }) };
 }
 
-export function createApiClient(opts: { baseUrl?: string; fetch?: typeof fetch } = {}): ApiClient {
+/**
+ * How long a mentor turn or a consents read may take before it counts as unreachable (status 0). Above the server's
+ * own bound on its model call (AI_TIMEOUT_MS, 10 s by default, 30 s at most is cut short here and gets the outage path),
+ * so a stalled connection never holds the Pan's turn queue (fix round 5, H1).
+ */
+const MENTOR_TIMEOUT_MS = 20_000;
+
+export function createApiClient(opts: { baseUrl?: string; fetch?: typeof fetch; timeoutMs?: number } = {}): ApiClient {
+  const timeoutMs = opts.timeoutMs ?? MENTOR_TIMEOUT_MS;
   const base = (opts.baseUrl ?? '/api').replace(/\/+$/, '');
   // Bound, so a bare `window.fetch` reference is not called with the wrong `this`.
   const doFetch = opts.fetch ?? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init));
 
-  async function call<T>(method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, body?: unknown): Promise<ApiResult<T>> {
+  async function call<T>(method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, body?: unknown, timeout?: number): Promise<ApiResult<T>> {
     const init: RequestInit = { method, credentials: 'same-origin' };
+    // A timed call that runs out (headers or body) reads as unreachable: status 0, never a pending promise.
+    if (timeout !== undefined) init.signal = AbortSignal.timeout(timeout);
     if (method !== 'GET') {
       // JSON only: M2 refuses text/plain. Fastify also refuses an empty application/json body, so send {}.
       init.headers = { 'content-type': 'application/json' };
@@ -70,12 +80,15 @@ export function createApiClient(opts: { baseUrl?: string; fetch?: typeof fetch }
     try {
       res = await doFetch(`${base}${path}`, init);
     } catch (err) {
-      return { ok: false, status: 0, error: { code: 'network', message: err instanceof Error ? err.message : String(err) } };
+      return { ok: false, status: 0, error: { code: init.signal?.aborted ? 'timeout' : 'network', message: err instanceof Error ? err.message : String(err) } };
     }
     if (res.status === 204) return res.ok ? { ok: true, status: 204, data: null as T } : httpError(res);
     let parsed: unknown;
     let isJson = true;
-    try { parsed = await res.json(); } catch { isJson = false; }
+    try { parsed = await res.json(); } catch {
+      if (init.signal?.aborted) return { ok: false, status: 0, error: { code: 'timeout', message: 'The response did not arrive in time' } };
+      isJson = false;
+    }
     if (res.ok) {
       return isJson
         ? { ok: true, status: res.status, data: parsed as T }
@@ -105,13 +118,15 @@ export function createApiClient(opts: { baseUrl?: string; fetch?: typeof fetch }
     deleteRule: (id) => call('DELETE', `/rules/${enc(id)}`),
     listRecipes: () => call('GET', '/recipes'),
     getRecipe: (slug) => call('GET', `/recipes/${slug.split('/').map(enc).join('/')}`),
-    consents: () => call('GET', '/me/consents'),
+    consents: () => call('GET', '/me/consents', undefined, timeoutMs),
     grantConsent: (purpose, noticeVersion) => call('POST', '/me/consents', { purpose, noticeVersion, method: 'tap' }),
     exportAccount: () => call('GET', '/me/export'),
     deleteAccount: (confirm) => call('DELETE', '/me', { confirm }),
-    mentorTurn: (req) => call('POST', '/mentor/turn', req),
-    confirmProposal: (id, edits) => {
-      const body: ConfirmRequest = edits === undefined ? { channel: 'tap' } : { channel: 'tap', edits };
+    mentorTurn: (req) => call('POST', '/mentor/turn', req, timeoutMs),
+    confirmProposal: (id, edits, conversationId) => {
+      const body: ConfirmRequest = {
+        channel: 'tap', ...(edits === undefined ? {} : { edits }), ...(conversationId === undefined ? {} : { conversationId }),
+      };
       return call('POST', `/mentor/proposals/${enc(id)}/confirm`, body);
     },
     rejectProposal: (id) => call('POST', `/mentor/proposals/${enc(id)}/reject`),

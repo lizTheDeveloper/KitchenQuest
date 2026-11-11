@@ -1,5 +1,6 @@
+import { SCREEN_TITLES } from '../shell/titles';
 import type { ApiClient } from '../api/client';
-import { registerScreen, type AppContext, type Screen } from '../shell/app';
+import { type AppContext, type Screen } from '../shell/app';
 import { deleteOfflineCopy, skipServiceWorkerOnce } from '../pwa/register';
 import { deleteDeviceData, safeLocalStorage, STORE_KEY, type PlayerSettings } from '../state/store';
 import { h } from '../ui/dom';
@@ -14,10 +15,10 @@ const DELETE_STEP_MS = 3000;
 const within = <T>(p: Promise<T>, ms: number): Promise<T | null> =>
   Promise.race([p, new Promise<null>((resolve) => { setTimeout(() => resolve(null), ms); })]);
 
-function settingsScreen(api: ApiClient): Screen {
+export function settingsScreen(api: ApiClient): Screen {
   let stops: (() => void)[] = [];
   return {
-    title: 'Settings',
+    title: SCREEN_TITLES.settings,
     mount(el, _route, ctx: AppContext) {
       const set = (patch: Partial<PlayerSettings>) =>
         ctx.store.update((s) => ({ ...s, settings: { ...s.settings, ...patch } }));
@@ -110,4 +111,3 @@ function settingsScreen(api: ApiClient): Screen {
   };
 }
 
-export function registerSettingsScreen(api: ApiClient): void { registerScreen('settings', () => settingsScreen(api)); }

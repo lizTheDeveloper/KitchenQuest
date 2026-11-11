@@ -37,6 +37,14 @@ describe('M4 mentor, meal and pantry requests', () => {
     expect(body(1)).toEqual({ channel: 'tap', edits: { severity: 'allergy' } });
   });
 
+  test('H2: confirmProposal names the current conversation when given one (null after a clear)', async () => {
+    script.push(json(200, { trail: {}, parts: [] }), json(200, { trail: {}, parts: [] }));
+    await client.confirmProposal('p1', undefined, 'c1');
+    await client.confirmProposal('p2', { severity: 'allergy' }, null);
+    expect(body(0)).toEqual({ channel: 'tap', conversationId: 'c1' });
+    expect(body(1)).toEqual({ channel: 'tap', edits: { severity: 'allergy' }, conversationId: null });
+  });
+
   test('mentorTurn posts the TurnRequest as JSON', async () => {
     const req: TurnRequest = {
       conversationId: null, input: { kind: 'text', text: "I'm allergic to sesame" }, localDate: '2026-11-10', localTime: '12:30', screen: { route: 'kitchen' }, intakeStep: null,
@@ -197,6 +205,27 @@ describe('errors', () => {
   test('rejected fetch → status 0, network', async () => {
     const r = await client.me(); // nothing scripted: the fake fetch rejects
     expect(r).toEqual({ ok: false, status: 0, error: { code: 'network', message: 'no scripted response' } });
+  });
+
+  test('H1: a mentor turn or a consents read that never answers settles as status 0 after the timeout; other calls are not timed', async () => {
+    const seen: (AbortSignal | null | undefined)[] = [];
+    const hang = ((_url: string, init: RequestInit) => {
+      seen.push(init.signal);
+      return new Promise<Response>((_r, reject) => { init.signal?.addEventListener('abort', () => { reject(new Error('aborted')); }); });
+    }) as unknown as typeof fetch;
+    const timed = createApiClient({ fetch: hang, timeoutMs: 20 });
+    const turn = await timed.mentorTurn({ conversationId: null, input: { kind: 'text', text: 'hi' }, localDate: '2026-11-10', localTime: '12:00', screen: null, intakeStep: null });
+    expect(turn).toMatchObject({ ok: false, status: 0, error: { code: 'timeout' } });
+    expect(await timed.consents()).toMatchObject({ ok: false, status: 0, error: { code: 'timeout' } });
+    void timed.me();
+    expect(seen[2]).toBeUndefined();
+  });
+
+  test('H1: a body that stops arriving after the headers also settles as status 0', async () => {
+    const stall = ((_url: string, init: RequestInit) => Promise.resolve(new Response(new ReadableStream({
+      start(c) { init.signal?.addEventListener('abort', () => { c.error(init.signal!.reason); }); },
+    }), { status: 200, headers: { 'content-type': 'application/json' } }))) as unknown as typeof fetch;
+    expect(await createApiClient({ fetch: stall, timeoutMs: 20 }).consents()).toMatchObject({ ok: false, status: 0, error: { code: 'timeout' } });
   });
 
   test('no method retries', async () => {

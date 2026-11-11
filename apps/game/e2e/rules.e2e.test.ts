@@ -78,6 +78,9 @@ describe('Your rules (M4 Step 11)', () => {
     await expect.poll(async () => (await stored(page)).localRules?.map((r) => r.target.ids[0])).toEqual(['milk', 'sesame']);
     expect(await page.locator('#rules-status [data-content]').textContent()).not.toBe('');
     await page.locator('#rules-status').getByRole('button', { name: 'Undo' }).waitFor();
+    // The removal line points at the Undo button (a tap), never 'say undo' (the rules screen has no text box).
+    expect(await page.locator('#rules-status').textContent()).toMatch(/tap 'Undo'/i);
+    expect(await page.locator('#rules-status').textContent()).not.toMatch(/say 'undo'/i);
     // A non-severe rule has no extra warning, but still needs the form's Remove.
     await item(page, 'milk').getByRole('button', { name: 'Remove' }).click();
     await dialog.waitFor();
@@ -182,6 +185,15 @@ describe('Your rules (M4 Step 11)', () => {
     expect(puts[0].postDataJSON()).toMatchObject({ rule: { severity: 'anaphylactic', target: { ids: ['coconut'] } }, confirmed: true });
     await expect.poll(() => page.locator('.rules-raise').count()).toBe(0);
     expect(await item(page, 'coconut').textContent()).toContain('a severe allergy, on your account');
+    // The raise has a trail entry with Undo, like other mentor writes; Undo puts the account's rule back.
+    const entry = page.locator('#rules-status .trail-entry');
+    await entry.waitFor();
+    expect(await entry.textContent()).toContain('coconut');
+    await entry.getByRole('button', { name: 'Undo' }).click();
+    await expect.poll(() => puts.length).toBe(2);
+    expect(puts[1].postDataJSON()).toMatchObject({ rule: { severity: 'intolerance', target: { ids: ['coconut'] } }, confirmed: true });
+    await expect.poll(() => page.locator('li[data-rule="s1"]').textContent()).toContain('an intolerance, on your account');
+    await page.locator('.rules-raise').waitFor();
     expect(app.consoleErrors).toEqual([]);
   });
 

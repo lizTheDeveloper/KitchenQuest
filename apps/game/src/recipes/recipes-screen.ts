@@ -1,5 +1,6 @@
+import { SCREEN_TITLES } from '../shell/titles';
 import { content, graph } from '../content';
-import { registerScreen, type AppContext, type Screen } from '../shell/app';
+import { type AppContext, type Screen } from '../shell/app';
 import { routeHref } from '../shell/router';
 import { statusChip } from '../ui/chips';
 import { contentText, h } from '../ui/dom';
@@ -35,11 +36,11 @@ function draw(el: HTMLElement, ctx: AppContext): void {
   el.replaceChildren(h('h1', null, 'Recipe shelf'), ...(note ? [note] : []), h('ul', { class: 'shelf' }, ...items));
 }
 
-function recipesScreen(): Screen {
+export function recipesScreen(): Screen {
   let unsubscribe: (() => void) | null = null;
   let stopDate: (() => void) | null = null;
   return {
-    title: 'Recipe shelf',
+    title: SCREEN_TITLES.recipes,
     mount(el, _route, ctx) {
       let key = cardInputsKey(ctx.store.get());
       draw(el, ctx);
@@ -53,4 +54,3 @@ function recipesScreen(): Screen {
   };
 }
 
-export function registerRecipesScreen(): void { registerScreen('recipes', recipesScreen); }
