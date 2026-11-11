@@ -10,6 +10,12 @@ export interface MentorBackend {
   onLate?(fn: (reply: PanReply) => void): () => void;
   /** The backend is being replaced: cancel anything queued (a retry) and send nothing more. */
   dispose?(): void;
+  /**
+   * A text turn already answered on the device (emergency, medical or child), sent to the server in order with the
+   * other turns so its child flag and turn counter advance. The server's reply is never shown. Same consent gate as a
+   * normal turn: health text without `ai_health` is not sent (fix round 4).
+   */
+  deliver?(input: Extract<MentorInput, { kind: 'text' }>, ctx: TurnContext): void;
 }
 
 /** The path that always works: written lines and code-built cards, no network (M4 Step 9). */

@@ -11,7 +11,7 @@ import type { MentorBackend } from './backend';
 import type { Dialogue } from './dialogue';
 import type { PanItem, PanReply, ServerCardView, TurnContext } from './reply';
 import type { ScriptedEngine } from './scripted';
-import { withNotice } from './outage';
+import { withNotice, type ConversationRef } from './outage';
 import { partsToItems } from './writer';
 
 /** A failed turn is tried again once by itself after this long, or on the next `online` event if that comes first (pre-flight C23). */
@@ -91,8 +91,8 @@ export function createAiBackend(deps: {
   now: () => Date; screen: () => TurnRequest['screen']; intakeStep: () => IntakeStep | null;
   /** Where `online` events come from (the window). */
   events: Pick<EventTarget, 'addEventListener' | 'removeEventListener'>;
-  /** The conversation's server id, shared with the local safety answers; the backend keeps its own when none is given. */
-  conversation?: { id: string | null };
+  /** The conversation's server id, shared with the panel's clear (index.ts); the backend keeps its own when none is given. */
+  conversation?: ConversationRef;
 }): MentorBackend & { readonly conversationId: string | null } {
   const { client, engine, dialogue, store } = deps;
   const conversation = deps.conversation ?? { id: null };
@@ -106,6 +106,18 @@ export function createAiBackend(deps: {
   /** Read through a call, so a check after an await sees a dispose that happened meanwhile. */
   const isDisposed = () => disposed;
   const cancels = new Set<() => void>();
+  /**
+   * Every text turn, retry and delivered safety turn runs here one at a time, in the order it arrived, so each one
+   * reads the conversation id the turn before it set and the server sees the turns in order (fix round 4, G3).
+   */
+  let chain: Promise<unknown> = Promise.resolve();
+  function serial<T>(step: () => Promise<T>): Promise<T> {
+    const p = chain.then(step);
+    chain = p.then(() => undefined, () => undefined);
+    return p;
+  }
+  /** The reply's conversation id, unless the conversation was cleared while it was on its way (G4). */
+  const keepId = (gen: number | undefined, id: string | null) => { if (conversation.gen === gen) conversation.id = id; };
 
   /**
    * The ai_health card, once ever, after the engine's answer. `aiHealthOffered` is set by the panel when the card
@@ -169,7 +181,7 @@ export function createAiBackend(deps: {
       if (fired) return;
       cancel();
       if (disposed) return;
-      retry(req, ctx, scripted).catch((err: unknown) => { console.error(err); });
+      serial(() => retry(req, ctx, scripted)).catch((err: unknown) => { console.error(err); });
     };
     const timer = setTimeout(fire, RETRY_AFTER_MS);
     deps.events.addEventListener('online', fire);
@@ -178,11 +190,12 @@ export function createAiBackend(deps: {
 
   async function retry(req: TurnRequest, ctx: TurnContext, scripted: PanReply): Promise<void> {
     if (disposed) return;
+    const gen = conversation.gen;
     const r = await client.mentorTurn({ ...req, conversationId: conversation.id });
     const emit = (reply: PanReply) => { if (!isDisposed()) for (const fn of listeners) fn(reply); };
     if (isDisposed()) return;
     if (r.ok && isTurnResponse(r.data)) {
-      conversation.id = r.data.conversationId;
+      keepId(gen, r.data.conversationId);
       if (r.data.route === 'scripted') return;
       const mapped = mapServer(r.data, ctx.turn);
       // Shown only when it adds what the script didn't: a server card or a server write. Never model text (R9).
@@ -194,14 +207,26 @@ export function createAiBackend(deps: {
     emit({ items: [say('ai.try_again'), { kind: 'retry', text: req.input.text }], cards: [], intents: [], actions: [], notice: null });
   }
 
-  async function send(text: string, ctx: TurnContext): Promise<PanReply> {
+  const request = (text: string): TurnRequest => {
     const now = deps.now();
-    const req: TurnRequest = {
+    return {
       conversationId: conversation.id, input: { kind: 'text', text }, localDate: localDate(now), localTime: hhmm(now), screen: deps.screen(), intakeStep: deps.intakeStep(),
     };
+  };
+
+  /** The stage-4 health gate, mirrored (pre-flight C1): health text stays on the device without ai_health. */
+  const isHealthTurn = (stripped: string, ctx: TurnContext): boolean =>
+    ctx.intakeStep === 'allergies' || ctx.openCards.some((c) => c.card.kind === 'rule' || c.card.kind === 'meal') ||
+    isHealthText(stripped, deps.graph, deps.ruleTerms);
+
+  async function send(text: string, ctx: TurnContext): Promise<PanReply> {
+    // Turned off (or the account switched) while this turn waited its place: the script answers and nothing is sent (G5).
+    if (isDisposed()) return engine.reply(text, ctx);
+    const req = request(text);
+    const gen = conversation.gen;
     const r = await client.mentorTurn(req);
     if (r.ok && isTurnResponse(r.data)) {
-      conversation.id = r.data.conversationId;
+      keepId(gen, r.data.conversationId);
       return fromResponse(r.data, text, ctx);
     }
     if (!r.ok && r.status === 401) {
@@ -211,6 +236,26 @@ export function createAiBackend(deps: {
     const scripted = prefixed([say('mentor.ai_unavailable')], engine.reply(text, ctx));
     if (r.ok || isOutage(r)) scheduleRetry(req, ctx, scripted);
     return scripted;
+  }
+
+  /** A text turn, in its place in the queue. */
+  async function answer(text: string, ctx: TurnContext): Promise<PanReply> {
+    const stripped = stripPageEvents(text).text.trim();
+    const intent = classifyTurn(stripped);
+    // A plain yes or no: a local card is the engine's; two open cards of either origin are never guessed between.
+    if (intent === 'yes' || intent === 'no') {
+      const recent = ctx.openCards.filter((c) => c.issuedTurn === ctx.turn - 1);
+      if (recent.length > 0 && ctx.openCards.length > 1) return lines('confirm.tap_card');
+      if (recent.length === 1 && recent[0].origin === 'local') return engine.reply(text, ctx);
+      if (recent.length === 1) return send(text, ctx);
+    }
+    // A plain undo goes by the newest live trail entry (pre-flight C36).
+    if (intent === 'undo') {
+      const newest = ctx.trail.at(-1);
+      return newest?.origin === 'server' ? send(text, ctx) : engine.reply(text, ctx);
+    }
+    if (isHealthTurn(stripped, ctx) && !(await hasAiHealth())) return offerAiHealth(engine.reply(text, ctx));
+    return send(text, ctx);
   }
 
   return {
@@ -225,28 +270,22 @@ export function createAiBackend(deps: {
       listeners.add(fn);
       return () => { listeners.delete(fn); };
     },
-    async reply(input, ctx) {
-      if (input.kind === 'voice') return lines('voice.not_yet');
+    reply(input, ctx) {
+      if (input.kind === 'voice') return Promise.resolve(lines('voice.not_yet'));
       const { text } = input;
-      const stripped = stripPageEvents(text).text.trim();
-      const intent = classifyTurn(stripped);
-      // A plain yes or no: a local card is the engine's; two open cards of either origin are never guessed between.
-      if (intent === 'yes' || intent === 'no') {
-        const recent = ctx.openCards.filter((c) => c.issuedTurn === ctx.turn - 1);
-        if (recent.length > 0 && ctx.openCards.length > 1) return lines('confirm.tap_card');
-        if (recent.length === 1 && recent[0].origin === 'local') return engine.reply(text, ctx);
-        if (recent.length === 1) return send(text, ctx);
-      }
-      // A plain undo goes by the newest live trail entry (pre-flight C36).
-      if (intent === 'undo') {
-        const newest = ctx.trail.at(-1);
-        return newest?.origin === 'server' ? send(text, ctx) : engine.reply(text, ctx);
-      }
-      // The stage-4 health gate, mirrored: health text stays on the device without ai_health.
-      const health = ctx.intakeStep === 'allergies' || ctx.openCards.some((c) => c.card.kind === 'rule' || c.card.kind === 'meal') ||
-        isHealthText(stripped, deps.graph, deps.ruleTerms);
-      if (health && !(await hasAiHealth())) return offerAiHealth(engine.reply(text, ctx));
-      return send(text, ctx);
+      return serial(() => answer(text, ctx));
+    },
+    deliver(input, ctx) {
+      // Queued now, in arrival order; the reply is never shown, only its conversation id is kept.
+      serial(async () => {
+        const { text } = input;
+        if (isHealthTurn(stripPageEvents(text).text.trim(), ctx) && !(await hasAiHealth())) return;
+        if (isDisposed()) return;
+        const req = request(text);
+        const gen = conversation.gen;
+        const r = await client.mentorTurn(req);
+        if (!isDisposed() && r.ok && isTurnResponse(r.data)) keepId(gen, r.data.conversationId);
+      }).catch(() => { /* Nothing visible depends on it. */ });
     },
   };
 }

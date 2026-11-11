@@ -4,7 +4,6 @@ import { content, graph } from '../content';
 import { createScriptedBackend, type MentorBackend } from './backend';
 import { createDialogue } from './dialogue';
 import { lazyBackend } from './lazy-backend';
-import type { ApiClient } from '../api/client';
 import { createLocalSafety, scriptedWhenUnavailable, withNotice } from './outage';
 import type { PanItem, PanReply, TurnContext } from './reply';
 import { createScriptedEngine } from './scripted';
@@ -14,8 +13,7 @@ const engine = createScriptedEngine({ dialogue, graph, ruleTerms: content.ruleTe
 const ctx: TurnContext = { turn: 1, openCards: [], intakeStep: null, signedIn: true, trail: [] };
 // The shipped pieces, not copies.
 const fallback = scriptedWhenUnavailable(engine, dialogue);
-const quietClient = new Proxy({}, { get: () => () => Promise.resolve({ ok: false, status: 0, error: { code: 'network', message: '' } }) }) as ApiClient;
-const local = createLocalSafety({ client: quietClient, dialogue, graph, now: () => new Date('2026-11-10T12:00:00Z'), conversation: { id: null }, screen: () => null, intakeStep: () => null }).reply;
+const local = createLocalSafety({ dialogue, graph }).reply;
 const reply = (t: string): PanReply => ({ items: [{ kind: 'said', said: { trigger: t, text: t, ai: 'allowed' } }], cards: [], intents: [], actions: [], notice: null });
 const triggers = (r: PanReply) => r.items.flatMap((i) => (i.kind === 'said' ? [i.said.trigger] : []));
 const EMERGENCY = "my son's lips are swelling, he ate peanuts";

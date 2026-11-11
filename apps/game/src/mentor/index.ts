@@ -7,7 +7,7 @@ import { reducedMotion } from '../shell/motion';
 import { parseRoute } from '../shell/router';
 import { createScriptedBackend, type MentorBackend } from './backend';
 import { lazyBackend } from './lazy-backend';
-import { createLocalSafety, scriptedWhenUnavailable, type LocalSafety } from './outage';
+import { createLocalSafety, newConversation, scriptedWhenUnavailable, type ConversationRef, type LocalSafety } from './outage';
 import { createDialogue, type Dialogue } from './dialogue';
 import { createIntake, type Intake } from './intake';
 import { mountMentorPanel, type MentorPanel } from './panel';
@@ -134,6 +134,7 @@ export function mountMentor(doc: Document, store: PlayerStore, bank: LineBank, c
   const build = () => {
     const familyTable = store.get().settings.familyTable;
     let safety: LocalSafety | null = null;
+    let conversation: ConversationRef | null = null;
     const dialogue: Dialogue = createDialogue(bank, historyOptions(store));
     const recipes = Object.entries(content.recipes).map(([slug, r]) => ({ slug, title: r.meta.title }));
     const engine: ScriptedEngine = createScriptedEngine({ dialogue, graph, ruleTerms: content.ruleTerms, recipes, now });
@@ -141,13 +142,14 @@ export function mountMentor(doc: Document, store: PlayerStore, bank: LineBank, c
     const backend = switchingBackend(store, (kind) => {
       if (kind !== 'ai') return createScriptedBackend(engine, dialogue);
       // A new AI backend is a new conversation: its own server id and a fresh child flag.
-      const conversation = { id: null as string | null };
+      const ref: ConversationRef = { id: null };
       const intakeStep = () => { const step = store.get().intake.step; return step === 'done' ? null : step; };
       const screen = () => screenOf(win.location.hash);
-      const mine = createLocalSafety({ client, dialogue, graph, now, conversation, screen, intakeStep });
+      const mine = createLocalSafety({ dialogue, graph });
       safety = mine;
+      conversation = ref;
       return lazyBackend('ai', { fallback: scriptedWhenUnavailable(engine, dialogue), local: (i, c) => mine.reply(i, c) }, async () => (await import('./ai-backend')).createAiBackend({
-        client, engine, dialogue, store, graph, ruleTerms: content.ruleTerms, now, events: win, screen, intakeStep, conversation,
+        client, engine, dialogue, store, graph, ruleTerms: content.ruleTerms, now, events: win, screen, intakeStep, conversation: ref,
       }));
     });
     const panel = mountMentorPanel(root, {
@@ -165,7 +167,8 @@ export function mountMentor(doc: Document, store: PlayerStore, bank: LineBank, c
       : null;
     if (intake) panel.onOpen(() => { intake.start(); });
     services = { client, dialogue, engine, writer, intake };
-    current = { panel, backend, familyTable, resetChild: () => { safety?.reset(); } };
+    // Clearing is a new conversation on both sides: no server id, no child flag (fix round 4, G4).
+    current = { panel, backend, familyTable, resetChild: () => { safety?.reset(); if (conversation) newConversation(conversation); } };
   };
   build();
   store.subscribe((s) => {

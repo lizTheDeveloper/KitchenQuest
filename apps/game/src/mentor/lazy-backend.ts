@@ -1,4 +1,5 @@
 import type { MentorBackend, MentorInput } from './backend';
+import type { LocalAnswer } from './outage';
 import type { PanReply, TurnContext } from './reply';
 
 export type LazyFallback = (input: MentorInput, ctx: TurnContext) => Promise<PanReply>;
@@ -12,7 +13,7 @@ export const LOAD_TIMEOUT_MS = 8000;
  */
 export function lazyBackend(
   kind: MentorBackend['kind'],
-  { fallback, local, timeoutMs = LOAD_TIMEOUT_MS }: { fallback: LazyFallback; local?: (input: MentorInput, ctx: TurnContext) => PanReply | null; timeoutMs?: number },
+  { fallback, local, timeoutMs = LOAD_TIMEOUT_MS }: { fallback: LazyFallback; local?: (input: MentorInput, ctx: TurnContext) => LocalAnswer | null; timeoutMs?: number },
   load: () => Promise<MentorBackend>,
 ): MentorBackend {
   let real: MentorBackend | null = null;
@@ -32,8 +33,12 @@ export function lazyBackend(
     kind,
     async reply(input, ctx) {
       // Fixed safety answers (emergency, medical, child) never wait on the code.
+      // Its own safety turn goes to the server through the loaded AI backend's queue; nothing if the code isn't loaded yet.
       const now = local?.(input, ctx) ?? null;
-      if (now !== null) return now;
+      if (now !== null) {
+        if (now.deliver && real && !disposed && input.kind === 'text') real.deliver?.(input, ctx);
+        return now.reply;
+      }
       let backend: MentorBackend;
       try {
         backend = await withTimeout(get(), timeoutMs);

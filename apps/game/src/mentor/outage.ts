@@ -1,6 +1,4 @@
-import { classifyTurn, emergencyRuleAsk, emergencyStatesRule, stripPageEvents, type IngredientGraph, type IntakeStep, type TurnRequest } from '@kitchenquest/core/engine';
-import type { ApiClient } from '../api/client';
-import { localDate } from '../recipes/rules';
+import { classifyTurn, emergencyRuleAsk, emergencyStatesRule, stripPageEvents, type IngredientGraph } from '@kitchenquest/core/engine';
 import { createScriptedBackend, type MentorInput } from './backend';
 import type { Dialogue } from './dialogue';
 import type { PanItem, PanReply, TurnContext } from './reply';
@@ -28,14 +26,24 @@ export function scriptedWhenUnavailable(engine: ScriptedEngine, dialogue: Dialog
   };
 }
 
-/** One place for the AI conversation's server id, shared by the AI backend and the local safety answers so both speak in the same conversation. */
-export interface ConversationRef { id: string | null }
+/**
+ * One place for the AI conversation's server id. `gen` changes when the conversation is cleared, so a reply still on
+ * its way from the old conversation never writes its id back (fix round 4, G4).
+ */
+export interface ConversationRef { id: string | null; gen?: number }
 
-const hhmm = (d: Date): string => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+/** Start a new conversation on both sides: the next turn goes with no id, and any reply already in flight is ignored. */
+export function newConversation(ref: ConversationRef): void {
+  ref.id = null;
+  ref.gen = (ref.gen ?? 0) + 1;
+}
+
+/** A turn answered on the device. `deliver` says whether its own intent is emergency, medical or child (fix round 4, G2). */
+export interface LocalAnswer { reply: PanReply; deliver: boolean }
 
 export interface LocalSafety {
-  /** The answer for an emergency, medical or child turn (or any turn once a child spoke), or null for any other turn. Sends nothing a player can see. */
-  reply(input: MentorInput, ctx: TurnContext): PanReply | null;
+  /** The answer for an emergency, medical or child turn (or any turn once a child spoke), or null for any other turn. Sends nothing. */
+  reply(input: MentorInput, ctx: TurnContext): LocalAnswer | null;
   /** A new conversation: the child flag is forgotten (as the server's is, with its conversation). */
   reset(): void;
 }
@@ -47,31 +55,14 @@ export interface LocalSafety {
  *   in a conversation where a child spoke; it does not set the child flag;
  * - a child turn, and every later turn of the conversation, gets `child.grownup` (§19, P-9: a child never reaches the AI);
  * - a medical question gets the deflect line.
- * Each answered turn is also posted to the server in the background (reply ignored, failures swallowed, one at a time),
- * so the server's child flag and turn counter advance as if it had answered.
+ * Nothing is sent from here. A turn whose own intent is one of the three is marked `deliver`: the lazy backend hands it
+ * to the loaded AI backend's queue (ai-backend.ts `deliver`, same consent gate, reply ignored). A turn answered only
+ * because a child spoke earlier is never sent anywhere.
  */
-export function createLocalSafety(deps: {
-  client: ApiClient; dialogue: Dialogue; graph: IngredientGraph; now: () => Date; conversation: ConversationRef;
-  screen: () => TurnRequest['screen']; intakeStep: () => IntakeStep | null;
-}): LocalSafety {
-  const { client, dialogue, graph } = deps;
+export function createLocalSafety(deps: { dialogue: Dialogue; graph: IngredientGraph }): LocalSafety {
+  const { dialogue, graph } = deps;
   let child = false;
-  let queue: Promise<unknown> = Promise.resolve();
   const say = (trigger: string, vars: Record<string, string> = {}): PanItem => ({ kind: 'said', said: dialogue.say(trigger, vars) });
-  const post = (text: string): void => {
-    const now = deps.now();
-    queue = queue.then(async () => {
-      try {
-        const r = await client.mentorTurn({
-          conversationId: deps.conversation.id, input: { kind: 'text', text }, localDate: localDate(now), localTime: hhmm(now),
-          screen: deps.screen(), intakeStep: deps.intakeStep(),
-        });
-        if (r.ok && (typeof r.data.conversationId === 'string')) deps.conversation.id = r.data.conversationId;
-      } catch {
-        // Nothing visible depends on it.
-      }
-    });
-  };
   return {
     reset() { child = false; },
     reply(input) {
@@ -93,8 +84,8 @@ export function createLocalSafety(deps: {
       } else {
         return null;
       }
-      post(raw);
-      return { items, cards: [], intents: [], actions: [], notice: null };
+      const deliver = intent === 'emergency' || intent === 'child' || intent === 'medical';
+      return { reply: { items, cards: [], intents: [], actions: [], notice: null }, deliver };
     },
   };
 }
