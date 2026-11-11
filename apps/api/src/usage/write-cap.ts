@@ -14,7 +14,8 @@ export const WRITES_PER_DAY = 200;
 const DAY_MS = 24 * 3_600_000;
 
 /**
- * Throws 429 `rate_limited` (with `details.retryAfterSeconds`) once the player has made
+ * Throws 429 `rate_limited` (with `details.retryAfterSeconds` and, M5 final m2, `details.scope: 'day'`, the one
+ * marker clients key "paused until tomorrow" on; the per-minute limiters never set it) once the player has made
  * WRITES_PER_DAY writes of `actions` in the last day. Call it inside the write's
  * transaction after `lockLiveUser`, so two racing writes are counted one after the other.
  */
@@ -27,5 +28,5 @@ export async function assertUnderWriteCap(tx: Tx, userId: string, actions: reado
   if (row.n < WRITES_PER_DAY) return;
   const oldest = row.oldest === null ? at.getTime() : new Date(row.oldest).getTime();
   const retryAfterSeconds = Math.max(1, Math.ceil((oldest + DAY_MS - at.getTime()) / 1000));
-  throw new ApiError(429, 'rate_limited', `That's ${WRITES_PER_DAY} changes today; try again tomorrow`, { retryAfterSeconds });
+  throw new ApiError(429, 'rate_limited', `That's ${WRITES_PER_DAY} changes today; try again tomorrow`, { retryAfterSeconds, scope: 'day' });
 }

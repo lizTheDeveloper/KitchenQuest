@@ -275,6 +275,8 @@ describe('margin notes', () => {
     expect(res.statusCode).toBe(429);
     expect(res.json().error.code).toBe('rate_limited');
     expect(res.headers['retry-after']).toBeDefined();
+    // M5 final m2: a per-minute 429 is never the daily cap's: no day scope.
+    expect(res.json().error.details?.scope).toBeUndefined();
   });
 
   it('C-9: a note POST leaves no note text in captured logs', async () => {

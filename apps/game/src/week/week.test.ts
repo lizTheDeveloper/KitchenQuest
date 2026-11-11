@@ -14,7 +14,7 @@ import { answerNudge, compost, noteNudge, rescueOffer } from './rescue';
 import { mountRescue } from './rescue-slot';
 import { createWeekSource } from './source';
 import { afterMove, mergedWeek, moveCandidates, moveOffer, moveWeek } from './move';
-import { grantedOnly } from './screen-kit';
+import { grantedOnly, showFailure } from './screen-kit';
 import { forgetWeek, plannedOn, rememberedWeek } from './memory';
 
 const PARIPPU = 'india/kerala/parippu';
@@ -604,5 +604,18 @@ describe('M5 final I3: the device save prunes on today, not on the saved week', 
     const src = createWeekSource({ store: s, client: noClient, today: () => TODAY });
     expect(await src.save(plan([dish(0, PARIPPU)], { weekStart: '2026-09-14' }), TODAY)).toMatchObject({ ok: true });
     expect(s.get().localWeek.plans.map((p) => p.weekStart)).toEqual(['2026-09-14']);
+  });
+});
+
+describe('M5 final m2: a 429 on a week write says which limit it is', () => {
+  const s429 = (details: object) => ({ ok: false as const, status: 429, error: { code: 'rate_limited', message: '', details, retryAfter: 60 } });
+  test('the daily write cap is `limited` (write.daily_limit); a per-minute 429 is `network` (try again in a moment)', async () => {
+    const s = store({ account: { email: 'cook@example.com' }, accountRules: [] });
+    const client = (details: object) => new Proxy({}, { get: (_t, name: string) => () => Promise.resolve(name === 'getPlan' ? s429(details) : s429(details)) }) as ApiClient;
+    expect(await createWeekSource({ store: s, client: client({ retryAfterSeconds: 3600, scope: 'day' }) }).current(TODAY)).toMatchObject({ ok: false, kind: 'limited' });
+    expect(await createWeekSource({ store: s, client: client({ retryAfterSeconds: 12 }) }).current(TODAY)).toMatchObject({ ok: false, kind: 'network' });
+    const shown: string[] = [];
+    showFailure({ kind: 'limited' }, { show: (t) => shown.push(t) }, writtenLine);
+    expect(content.pan.triggers['write.daily_limit'].lines).toContain(shown[0]);
   });
 });

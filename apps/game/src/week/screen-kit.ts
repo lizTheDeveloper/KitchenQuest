@@ -36,6 +36,7 @@ export function showFailure(f: WeekFailure, status: { show(text: string): void }
     case 'consent': status.show(line('consent.health_first', {})); askHealthConsent(); return;
     case 'rules': status.show(RULES_TEXT); return;
     case 'family_table': return; // nothing is written in Family Table mode, and no control asks to (C31)
+    case 'limited': status.show(line('write.daily_limit', {})); return; // M5 final m2: paused until tomorrow
     case 'closed':
     case 'invalid':
     case 'network': status.show(NOT_DONE); return;

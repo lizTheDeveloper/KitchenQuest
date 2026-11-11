@@ -176,8 +176,8 @@ export function createCardWriter(deps: {
       return { ok: false, reason: 'closed', items: items.length > 0 ? items : [line('write.not_done')] };
     }
     if (status === 401) return { ok: false, reason: 'needs_account', items: [] };
-    // The daily write cap (only it sets details.retryAfterSeconds; the per-minute limiters set the header only):
-    // trying again would fail for hours, so say so instead of "try again" (M4 final, 429 on the tap).
+    // The daily write cap (only it sets details.scope 'day', M5 final m2; the per-minute limiters also send
+    // retryAfterSeconds): trying again would fail for hours, so say so instead of "try again" (M4 final, 429 on the tap).
     if (isWriteCap(r)) return { ok: false, reason: 'limited', items: [line('write.daily_limit')] };
     // Offline, rate-limited or a server error: nothing is known to be written, and the card stays open to try again.
     if (status === 0 || status === 429 || status >= 500) return { ok: false, reason: 'network', items: [] };
@@ -194,7 +194,7 @@ export function createCardWriter(deps: {
     return { ok: false, reason: 'invalid', items: [line('write.not_done')] };
   }
   const isWriteCap = (r: Extract<ApiResult<unknown>, { ok: false }>) =>
-    r.status === 429 && (r.error.details as { retryAfterSeconds?: unknown } | undefined)?.retryAfterSeconds !== undefined;
+    r.status === 429 && (r.error.details as { scope?: unknown } | undefined)?.scope === 'day';
   const tapNeeded = (card: ProposalCard): PanItem => line('rule.tap_needed', { ingredient: card.kind === 'rule' ? card.display.ingredient : '' });
 
   /** A local card written to the account (signed in) or the device (signed out). */
@@ -291,6 +291,7 @@ export function createCardWriter(deps: {
         switch (w.failure.kind) {
           case 'consent': return { ok: false, reason: 'consent_required', items: [line('consent.health_first'), { kind: 'consent', purpose: 'health_data' }] };
           case 'network': return { ok: false, reason: 'network', items: [] };
+          case 'limited': return { ok: false, reason: 'limited', items: [line('write.daily_limit')] };
           case 'closed':
           case 'family_table':
           case 'invalid':

@@ -48,8 +48,10 @@ function setup(script: Partial<Record<keyof ApiClient, Handler>>, patch: Partial
   const writer = createCardWriter({ client, store, dialogue: createDialogue(content.pan), graph, ruleTerms: content.ruleTerms, now: () => now });
   return { store, calls, writer, later: (ms: number) => { now = new Date(T0.getTime() + ms); } };
 }
-/** The daily write cap's 429: only it carries details.retryAfterSeconds. */
-const writeCap = (): ApiResult<never> => ({ ok: false, status: 429, error: { code: 'rate_limited', message: '', details: { retryAfterSeconds: 3600 }, retryAfter: 3600 } });
+/** The daily write cap's 429: M5 final m2, it says so with `details.scope: 'day'`. */
+const writeCap = (): ApiResult<never> => ({ ok: false, status: 429, error: { code: 'rate_limited', message: '', details: { retryAfterSeconds: 3600, scope: 'day' }, retryAfter: 3600 } });
+/** A per-minute limiter's 429 (book, week, progress routes): `retryAfterSeconds` too, but no day scope. */
+const perMinute = (): ApiResult<never> => ({ ok: false, status: 429, error: { code: 'rate_limited', message: '', details: { retryAfterSeconds: 12 }, retryAfter: 12 } });
 const signedIn: Partial<PlayerState> = { account: { email: 'cook@example.com' }, accountRules: [] };
 const milk = () => ruleCard('milk', 'intolerance');
 
@@ -178,6 +180,11 @@ describe('card writer', () => {
     expect(await capped.writer.confirm(server(milk()), 'tap')).toMatchObject({ ok: false, reason: 'limited' });
     const busy = setup({ createMeal: () => fail(429, 'rate_limited') }, signedIn);
     expect(await busy.writer.confirm(local(meal), 'tap')).toMatchObject({ ok: false, reason: 'network' });
+    // M5 final m2: a per-minute 429 that carries retryAfterSeconds is still "try again", never "until tomorrow".
+    const minute = setup({ createMeal: () => perMinute() }, signedIn);
+    const m = await minute.writer.confirm(local(meal), 'tap');
+    expect(m).toMatchObject({ ok: false, reason: 'network' });
+    expect(said(m.items)).not.toContain('write.daily_limit');
   });
 
   test('HTTP mapping: 409 proposal_closed → closed, status 0 → network', async () => {

@@ -30,7 +30,8 @@ import { ZodError } from 'zod';
  * - 409 `run_closed`: a tick on a market run that is already done (M5 Step 6).
  * - 409 `undo_window_closed`: the confirmed write is older than UNDO_WINDOW_MS.
  * - 429 `rate_limited`: with a `retry-after` header. The daily write cap on meal logs and
- *   loosening rule edits (usage/write-cap.ts) also puts it in `details.retryAfterSeconds`.
+ *   loosening rule edits (usage/write-cap.ts) also puts it in `details.retryAfterSeconds`, with `details.scope: 'day'`
+ *   (M5 final m2); the per-minute limiters (book, week, progress) put `retryAfterSeconds` but never a scope.
  * - 500 `internal`: anything unexpected (logged scrubbed, never sent).
  *
  * Extend this list with every new code.

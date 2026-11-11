@@ -17,6 +17,8 @@ export type WeekFailure =
   | { kind: 'rules' }
   | { kind: 'invalid'; problems: string[] }
   | { kind: 'closed' }
+  /** M5 final m2: the daily write cap (429 with `details.scope: 'day'`): paused until tomorrow, never "a moment". */
+  | { kind: 'limited' }
   | { kind: 'network' };
 type WeekResult<T> = { ok: true; value: T } | ({ ok: false } & WeekFailure);
 
@@ -41,6 +43,7 @@ function refusal<T>(r: Extract<ApiResult<unknown>, { ok: false }>): WeekResult<T
   if (r.status === 403 && r.error.code === 'consent_required') return fail({ kind: 'consent' });
   if (r.status === 409 && r.error.code === 'run_closed') return fail({ kind: 'closed' });
   if (r.status === 409 && r.error.code === 'rules_need_review') return fail({ kind: 'rules' });
+  if (r.status === 429 && (r.error.details as { scope?: unknown } | undefined)?.scope === 'day') return fail({ kind: 'limited' });
   if (r.status === 400 || r.status === 404) {
     const problems = (r.error.details as { problems?: unknown } | undefined)?.problems;
     return fail({ kind: 'invalid', problems: Array.isArray(problems) ? problems.filter((p): p is string => typeof p === 'string') : [r.error.code] });

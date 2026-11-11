@@ -241,6 +241,7 @@ describe('plans', () => {
     expect(res.statusCode).toBe(429);
     expect(res.json().error.code).toBe('rate_limited');
     expect(Number(res.headers['retry-after'])).toBeGreaterThan(0);
+    expect(res.json().error.details?.scope).toBeUndefined(); // M5 final m2: per-minute, not the daily cap
     // Another player is not limited.
     expect((await call((await player()).cookie, { method: 'GET', url: '/plans/current' })).statusCode).toBe(200);
   });
