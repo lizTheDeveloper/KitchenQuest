@@ -3,6 +3,7 @@
 import type { FastifyInstance, InjectOptions } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
+import { defaultCatalog } from '../src/catalog.js';
 import { NOTICES } from '../src/consent/notices.js';
 import { auditEvents } from '../src/db/schema.js';
 import { CaptureMailer } from '../src/mail/mailer.js';
@@ -115,5 +116,18 @@ describe('the daily write cap', () => {
     expect(atLeastAsStrict(r(['peanut'], 'allergy'), r(['peanut'], 'preference'))).toBe(false);
     expect(atLeastAsStrict(r(['peanut', 'sesame'], 'allergy'), r(['peanut'], 'allergy'))).toBe(false);
     expect(atLeastAsStrict(r(['peanut'], 'allergy'), r(['peanut'], 'allergy', { phase: { start: '2026-11-01' } }))).toBe(false);
+  });
+
+  it('fix round 1 M6: widening to a category that includes the old targets, and limit → avoid, are stricter', () => {
+    const graph = defaultCatalog().graph;
+    const r = (kind: 'ingredient' | 'category', ids: string[], type: StoredRule['type'], severity: StoredRule['severity']): StoredRule => ({
+      target: { kind, ids },
+      type,
+      severity,
+    });
+    expect(atLeastAsStrict(r('ingredient', ['walnut'], 'avoid', 'allergy'), r('category', ['tree_nut'], 'avoid', 'allergy'), graph)).toBe(true);
+    expect(atLeastAsStrict(r('ingredient', ['walnut'], 'limit', 'intolerance'), r('ingredient', ['walnut'], 'avoid', 'intolerance'), graph)).toBe(true);
+    expect(atLeastAsStrict(r('category', ['tree_nut'], 'avoid', 'allergy'), r('ingredient', ['walnut'], 'avoid', 'allergy'), graph)).toBe(false);
+    expect(atLeastAsStrict(r('ingredient', ['walnut'], 'avoid', 'allergy'), r('ingredient', ['walnut'], 'limit', 'allergy'), graph)).toBe(false);
   });
 });

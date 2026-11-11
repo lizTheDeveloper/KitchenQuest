@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { validateRules, type Rule, type Severity } from '@kitchenquest/core';
+import { validateRules, type IngredientGraph, type Rule, type Severity } from '@kitchenquest/core';
 import { and, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { audit } from '../audit/audit.js';
@@ -144,19 +144,27 @@ export async function createRuleIn(
 }
 
 const SEVERITY_RANK: Readonly<Record<Severity, number>> = { preference: 0, intolerance: 1, allergy: 2, anaphylactic: 3 };
+/** How much a rule blocks: avoid blocks more than limit, limit more than prefer. */
+const TYPE_RANK: Readonly<Record<StoredRule['type'], number>> = { prefer: 0, limit: 1, avoid: 2 };
 const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
 /**
- * `next` blocks at least what `prev` did: both avoid rules on the same kind of target, the new
- * targets include the old, the severity is no milder, and the phase is unchanged. Such an edit is
- * never write-capped (never rule 1).
+ * `next` blocks at least what `prev` did: every old target is still a target (itself, or under a new
+ * category's kinds, with `graph`), the type blocks no less (avoid > limit > prefer; two limits must
+ * match), the severity is no milder, and the phase is unchanged. Such an edit is never write-capped
+ * (never rule 1). Fix round 1 (M6): category widening and limit → avoid count as stricter.
  */
-export function atLeastAsStrict(prev: StoredRule, next: StoredRule): boolean {
+export function atLeastAsStrict(prev: StoredRule, next: StoredRule, graph?: IngredientGraph): boolean {
+  const covers = (id: string) =>
+    next.target.ids.includes(id) ||
+    (graph !== undefined && next.target.kind === 'category' && prev.target.kind !== 'component' &&
+      next.target.ids.some((n) => graph.has(n) && graph.descendants(n).includes(id)));
+  const kindOk = prev.target.kind === next.target.kind || (prev.target.kind === 'ingredient' && next.target.kind === 'category');
   return (
-    prev.type === 'avoid' &&
-    next.type === 'avoid' &&
-    prev.target.kind === next.target.kind &&
-    prev.target.ids.every((id) => next.target.ids.includes(id)) &&
+    kindOk &&
+    prev.target.ids.every(covers) &&
+    TYPE_RANK[next.type] >= TYPE_RANK[prev.type] &&
+    (next.type !== 'limit' || same(prev.limit, next.limit)) &&
     SEVERITY_RANK[next.severity] >= SEVERITY_RANK[prev.severity] &&
     same(prev.phase, next.phase)
   );
@@ -189,7 +197,7 @@ export async function updateRuleIn(
   const all = await loadRules(tx, deps.keyring, userId);
   const before = all.find((r) => r.id === rowId);
   // A loosening (or sideways) edit counts against the daily write cap; a stricter one never does.
-  if (before === undefined || !atLeastAsStrict(before, value)) await assertUnderWriteCap(tx, userId, ['rules.update'], at);
+  if (before === undefined || !atLeastAsStrict(before, value, deps.catalog.graph)) await assertUnderWriteCap(tx, userId, ['rules.update'], at);
   const others = all.filter((r) => r.id !== rowId);
   assertValid({ ...value, id: rowId }, others, deps.catalog);
   const sealed = await sealFor(tx, deps.keyring, ruleSealContext(userId, rowId), value, at);
