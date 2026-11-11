@@ -64,7 +64,7 @@ function kitchenScreen(): Screen {
       // The Shared Table tally (Step 11, C21): counts only, signed in only, read once per visit after first paint.
       let shared: number | null = null;
       const email = ctx.store.get().account?.email ?? null;
-      void Promise.all([progressService(), import('./apprentice-card')]).then(([svc, { renderApprenticeCard, renderGuestOffer }]) => {
+      void Promise.all([progressService(), import('./apprentice-card')]).then(([svc, { renderApprenticeCard, renderGuestOffer, sharedCount }]) => {
         if (!alive) return;
         const draw = () => {
           const offer = !guestOfferDismissed && svc.sync.guestOffer()
@@ -78,7 +78,7 @@ function kitchenScreen(): Screen {
         if (email !== null && !ctx.store.get().settings.familyTable) {
           void getMentorServices().client.sharedTally().then((r) => {
             if (!alive || !r.ok || (ctx.store.get().account?.email ?? null) !== email) return;
-            shared = Number.isInteger(r.data.shared) && r.data.shared > 0 ? r.data.shared : null;
+            shared = sharedCount(r.data);
             draw();
           });
         }

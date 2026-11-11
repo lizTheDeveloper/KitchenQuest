@@ -23,7 +23,7 @@ const isLine = (trigger: string, text: string | null | undefined) => pan[trigger
   return text !== null && text !== undefined && re.test(text.trim());
 });
 
-function setup(opts: { signedIn?: boolean; consent?: 'granted' | 'missing'; familyTable?: boolean; rules?: Rule[]; script?: Partial<Record<keyof ApiClient, Handler>>; grant?: boolean } = {}) {
+function setup(opts: { signedIn?: boolean; consent?: 'granted' | 'missing'; familyTable?: boolean; rules?: Rule[]; script?: Partial<Record<keyof ApiClient, Handler>>; grant?: boolean; notes?: () => Promise<MarginNote[]> } = {}) {
   const patch: Partial<PlayerState> = opts.signedIn === false ? {} : { account: { email: 'cook@example.com' }, accountRules: opts.rules ?? [] };
   const store = createStore(null);
   store.update((s) => ({ ...s, ...patch, settings: { ...s.settings, familyTable: opts.familyTable ?? false } }));
@@ -58,7 +58,7 @@ function setup(opts: { signedIn?: boolean; consent?: 'granted' | 'missing'; fami
     familyTable: () => store.get().settings.familyTable,
     healthConsent: () => consent,
     rules: () => activeRules(store.get(), graph),
-    notes: async () => [],
+    notes: opts.notes ?? (() => Promise.resolve([])),
     askConsent: async () => { consentAsks.push(1); if (opts.grant) consent = 'granted'; return opts.grant ?? false; },
   };
   const slot = document.createElement('div');
@@ -188,6 +188,35 @@ describe('after cook (M5 Step 11)', () => {
     await t.flush();
     const post = t.calls.find((c) => c.name === 'createNote')!;
     expect(post.args).toEqual([{ recipe: SLUG, ops: [{ op: 'add', name: 'peanut butter' }], text: null, at: TODAY }, TODAY]);
+  });
+
+  test('fix M4: an earlier note that clashes keeps the read-back ⛔ with margin.blocked, though the new one is clean', async () => {
+    const earlier: MarginNote = { recipe: SLUG, ops: [{ op: 'add', name: 'peanut butter' }], text: null, at: '2026-11-09' };
+    const t = setup({ rules: [peanut], notes: () => Promise.resolve([earlier]) });
+    void t.run();
+    await t.flush();
+    t.button('Skip', t.slip('cooked_for')!).click();
+    await t.flush();
+    t.slot.querySelector<HTMLTextAreaElement>('.note-text')!.value = 'added more chilli';
+    t.button('Read it back').click();
+    await t.flush();
+    const card = t.slip('margin_note')!;
+    expect(card.dataset.status).toBe('blocked');
+    expect(isLine('margin.blocked', card.querySelectorAll('.slip-readback p')[1]?.textContent)).toBe(true);
+  });
+
+  test('fix M4: earlier notes that can\'t be read show ❓ and say so, never ✅', async () => {
+    const t = setup({ notes: () => Promise.reject(new Error('offline')) });
+    void t.run();
+    await t.flush();
+    t.button('Skip', t.slip('cooked_for')!).click();
+    await t.flush();
+    t.slot.querySelector<HTMLTextAreaElement>('.note-text')!.value = 'added lime';
+    t.button('Read it back').click();
+    await t.flush();
+    const card = t.slip('margin_note')!;
+    expect(card.dataset.status).toBe('unverified');
+    expect(card.querySelector('.note-unread')?.textContent).toMatch(/earlier notes/);
   });
 
   test('margin note without health_data → the 3-C card first; a decline skips it and keeps nothing', async () => {

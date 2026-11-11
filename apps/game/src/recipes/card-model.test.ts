@@ -184,3 +184,16 @@ describe('cook with my notes (M5 Step 11)', () => {
     expect(c.status).toBe('unverified');
   });
 });
+
+describe('fix I3 (M2): a sacred dish takes no notes', () => {
+  test('notes on a sacred dish are ignored: no withNotes, the status is the canon one', () => {
+    const peanutSevere: Rule = { id: 'p1', target: { kind: 'ingredient', ids: ['peanut'] }, type: 'avoid', severity: 'anaphylactic' };
+    const sacred: ClientContent = { ...content, recipes: { ...content.recipes, [SLUG]: { ...content.recipes[SLUG], meta: { ...content.recipes[SLUG].meta, sacred: true } } } };
+    const notes = [{ recipe: SLUG, ops: [{ op: 'add' as const, name: 'peanut butter' }], text: null, at: today }];
+    const canon = buildRecipeCard({ slug: SLUG, content: sacred, graph, rules: ready([peanutSevere]), today, showCalories: false });
+    const c = buildRecipeCard({ slug: SLUG, content: sacred, graph, rules: ready([peanutSevere]), today, showCalories: false, notes });
+    expect(c.withNotes).toBe(false);
+    expect(c.status).toBe(canon.status);
+    expect(c.findings).toEqual(canon.findings);
+  });
+});

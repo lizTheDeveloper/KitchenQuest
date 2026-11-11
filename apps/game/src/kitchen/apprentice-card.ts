@@ -15,7 +15,7 @@ export function renderApprenticeCard(view: Pick<ProgressView, 'level' | 'stamps'
     h('h2', { id: 'apprentice-card-title', tabindex: -1 }, 'Your apprentice papers'),
     h('p', { class: 'apprentice-level' }, `Apprentice level ${view.level}`),
     h('p', { class: 'apprentice-stamps' }, view.stamps === 1 ? 'One Bureau Stamp' : `Bureau Stamps: ${view.stamps}`),
-    shared === null ? null : h('p', { class: 'apprentice-shared' }, shared === 1 ? 'Shared Table: one meal cooked for company' : `Shared Table: ${shared} meals cooked for company`),
+    shared === null || !(shared > 0) ? null : h('p', { class: 'apprentice-shared' }, shared === 1 ? 'Shared Table: one meal cooked for company' : `Shared Table: ${shared} meals cooked for company`),
     h('p', { class: 'bureau-footnote' }, OUTFITTER_NOTE),
   );
 }
@@ -42,4 +42,13 @@ export function renderGuestOffer(opts: { add(): Promise<boolean>; dismiss(): voi
     h('h2', { id: 'guest-offer-title' }, "Add this device's progress to your account?"),
     h('p', null, 'What you cooked and learned here while signed out stays on this device unless you add it.'),
     h('div', { class: 'button-row' }, add, later), status);
+}
+
+/**
+ * The Shared Table count the card shows, from GET /shared-table/tally (read defensively): a whole number above zero,
+ * else null (nothing shown). Zero is never shown: eating alone gets equal warmth and is never counted (audit M-9).
+ */
+export function sharedCount(tally: unknown): number | null {
+  const n = typeof tally === 'object' && tally !== null ? (tally as { shared?: unknown }).shared : undefined;
+  return typeof n === 'number' && Number.isInteger(n) && n > 0 ? n : null;
 }

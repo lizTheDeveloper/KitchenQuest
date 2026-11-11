@@ -48,7 +48,12 @@ export async function afterCookThenKitchen(el: HTMLElement, ctx: AppContext, inp
     healthConsent: () => consent,
     rules: () => activeRules(store.get(), graph),
     // One GET /notes, filtered here (C32): no recipe slug is ever in a notes URL.
-    notes: async () => { const r = await client.listNotes(); return r.ok ? r.data.notes.filter((n) => n.recipe === input.slug) : []; },
+    notes: async () => {
+      const r = await client.listNotes();
+      // Fix M4: a failed read is never "no earlier notes".
+      if (!r.ok) throw new Error('notes unreadable');
+      return r.data.notes.filter((n) => n.recipe === input.slug);
+    },
     askConsent: (box) => new Promise<boolean>((resolve) => {
       void client.consents().then((r) => {
         const notice = r.ok ? r.data.notices.health_data : undefined;

@@ -30,6 +30,7 @@ export interface NoteFormDeps {
 }
 
 const NOTE_EMPTY = 'There is nothing in the note yet. Add a change or a few words, or skip it.';
+const NOTES_UNREAD = "I couldn't read your earlier notes on this dish just now, so I can't say how cooking with all of them checks. The server checks them all when you write this in.";
 const NOTE_FULL = "This dish's margin is full. Delete an older note in the Recipe Book to make room.";
 export const NOT_DONE = "That didn't go through, so nothing was kept. Try again in a moment.";
 
@@ -110,10 +111,11 @@ export function noteForm(el: HTMLElement, input: { slug: string; recipe: ParsedR
     status.textContent = '';
     const draft: MarginNote = { recipe: slug, ops: all, text: parsed.rest, at };
     readBack.disabled = true;
-    void deps.notes().catch(() => [] as MarginNote[]).then((before) => {
+    // Fix M4: earlier notes that can't be read are never taken as "none": the card shows ❓ and says why.
+    void deps.notes().then((b) => b as readonly MarginNote[] | null, () => null).then((before) => {
       readBack.disabled = false;
       box.hidden = true;
-      noteCard(el, draft, before.filter((x) => x.recipe === slug), recipe, deps, {
+      noteCard(el, draft, before === null ? null : before.filter((x) => x.recipe === slug), recipe, deps, {
         back: () => { box.hidden = false; ask.focus(); },
         kept: (r) => { box.remove(); on.kept(r); },
       });
@@ -122,15 +124,18 @@ export function noteForm(el: HTMLElement, input: { slug: string; recipe: ParsedR
 }
 
 /** Form 2-M: the read-back, the changes and their check, and `margin.blocked` before the stamp on a clash. */
-function noteCard(el: HTMLElement, draft: MarginNote, before: readonly MarginNote[], recipe: ParsedRecipe, deps: NoteFormDeps, on: {
+function noteCard(el: HTMLElement, draft: MarginNote, before: readonly MarginNote[] | null, recipe: ParsedRecipe, deps: NoteFormDeps, on: {
   back(): void; kept(r: { id: string; undoUntil: string; note: MarginNote }): void;
 }): void {
   const form = content.bureau.forms.margin_note;
-  const card = buildRecipeCard({ slug: draft.recipe, content, graph, rules: deps.rules(), today: draft.at.slice(0, 10), showCalories: false, notes: [...before, draft] });
+  const card = buildRecipeCard({ slug: draft.recipe, content, graph, rules: deps.rules(), today: draft.at.slice(0, 10), showCalories: false, notes: [...(before ?? []), draft] });
+  // Without the earlier notes, "cook with my notes" can't be known: ❓ at best, never ✅ (⛔ stays ⛔).
+  const shown = before === null && card.status !== 'blocked' ? 'unverified' : card.status;
   const summary = noteSummary(draft);
   const blocked = card.findings.filter((f) => f.status === 'blocked');
   const readback = [deps.say('margin.readback', { summary }), ...(blocked.length > 0 ? [deps.say('margin.blocked', { finding: blocked.map(findingWords).join(', ') })] : [])];
-  const checks = h('div', { class: 'note-check' }, statusChip(card.status), ` ${statusLabel(card.status)}`,
+  const checks = h('div', { class: 'note-check' }, statusChip(shown), ` ${statusLabel(shown)}`,
+    before === null ? h('p', { class: 'note-unread' }, NOTES_UNREAD) : null,
     card.findings.length === 0 ? null : h('ul', { class: 'findings' }, ...card.findings.map(findingItem)));
   const slip = bookSlip(form, 'margin_note', readback, [
     [form.fields[0].label, recipe.meta.title],
@@ -138,7 +143,7 @@ function noteCard(el: HTMLElement, draft: MarginNote, before: readonly MarginNot
     [form.fields[2].label, opsText(draft.ops)],
     [form.fields[3].label, checks],
   ]);
-  slip.el.dataset.status = card.status;
+  slip.el.dataset.status = shown;
   const status = h('p', { class: 'after-cook-status', role: 'status' });
   slip.el.append(status);
   el.append(slip.el);

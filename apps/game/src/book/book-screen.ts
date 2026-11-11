@@ -14,6 +14,7 @@ import { cookWithNotes } from '../cook/with-notes';
 import { BOOK_FILE_NAME, bookFile, redactNotes } from './book-export';
 import { bookPages, NO_TALLY, notesBySlug, type BookNote, type BookPage } from './book-model';
 import { fmtDate, notesPanel } from './notes-panel';
+import { sessionDrawer } from './session';
 
 /**
  * The Recipe Book (M5 Step 11): `#/book` lists one page per dish a cook taught the player, in the order they first
@@ -67,34 +68,27 @@ export function bookScreen(client: ApiClient): Screen {
       el.replaceChildren(h('h1', { tabindex: -1 }, SCREEN_TITLES.book), h('p', { role: 'status' }, 'Opening the book…'));
       const svc = await progressService();
       if (!alive) return;
-      let shownFor: string | undefined;
-      let data: BookData | null = null;
       let viewKey = '';
       /** What the book shows from progress: a redraw happens only when one of these changes. */
       const keyOf = () => { const v = svc.view(); return JSON.stringify([v.cookedOn, v.framesCookedOn, v.questsDone, v.toolkit]); };
       /** Whose book it is: the account and the mode. A change of either drops what was shown at once (M1). */
       const sessionOf = () => { const st = ctx.store.get(); return JSON.stringify([st.account?.email ?? null, st.settings.familyTable]); };
-      const draw = async () => {
-        const session = sessionOf();
-        const st = ctx.store.get();
-        const email = st.account?.email ?? null;
-        if (session !== shownFor) {
-          shownFor = session;
-          data = null;
-          // The old session's page (its notes, its Download) goes now, not when the new data lands.
-          el.replaceChildren(h('h1', { tabindex: -1 }, SCREEN_TITLES.book), h('p', { role: 'status' }, 'Opening the book…'));
-          const loaded = await loadBook(client, { signedIn: email !== null, familyTable: st.settings.familyTable });
-          // The book is the signed-in session's: a sign-out or another account meanwhile shows nothing of it.
-          if (!alive || sessionOf() !== session) return;
-          data = loaded;
-        }
-        if (data === null) return;
-        viewKey = keyOf();
-        render(el, slug, ctx, svc.view(), data, { email, familyTable: st.settings.familyTable }, client);
-      };
+      let session = sessionOf();
+      const draw = sessionDrawer<BookData>({
+        session: sessionOf,
+        alive: () => alive,
+        clear: () => { el.replaceChildren(h('h1', { tabindex: -1 }, SCREEN_TITLES.book), h('p', { role: 'status' }, 'Opening the book…')); },
+        load: () => { const st = ctx.store.get(); return loadBook(client, { signedIn: st.account !== null, familyTable: st.settings.familyTable }); },
+        show: (data) => {
+          const st = ctx.store.get();
+          viewKey = keyOf();
+          session = sessionOf();
+          render(el, slug, ctx, svc.view(), data, { email: st.account?.email ?? null, familyTable: st.settings.familyTable }, client);
+        },
+      });
       await draw();
       stops.push(svc.subscribe(() => {
-        if (alive && (sessionOf() !== shownFor || keyOf() !== viewKey)) void draw();
+        if (alive && (sessionOf() !== session || keyOf() !== viewKey)) void draw();
       }));
     },
     unmount() { alive = false; for (const stop of stops.splice(0)) stop(); },

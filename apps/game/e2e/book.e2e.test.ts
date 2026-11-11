@@ -11,7 +11,7 @@ const VIEW = {
   cookedOn: { [PARIPPU]: ['2026-11-05'] }, framesCookedOn: {},
 };
 const NOTES = [
-  { id: 'aaaaaaaa-0000-4000-8000-000000000001', recipe: PARIPPU, ops: [{ op: 'add', name: 'lime' }], text: 'more garlic next time', at: '2026-11-05' },
+  { id: 'aaaaaaaa-0000-4000-8000-000000000001', recipe: PARIPPU, ops: [{ op: 'add', name: 'lime' }, { op: 'add', name: 'paste from x@y.example' }], text: 'more garlic next time, ask cook@example.com', at: '2026-11-05' },
   { id: 'aaaaaaaa-0000-4000-8000-000000000002', recipe: FRIJOLES, ops: [], text: 'never shown: no page', at: '2026-11-06' },
 ];
 
@@ -44,7 +44,7 @@ describe('the Recipe Book (M5 Step 11)', () => {
     await page.locator(`.book-index-item[data-slug="${PARIPPU}"] a`).click();
     await page.locator('.book-notes-panel').waitFor();
     await expectNoA11yViolations(page, 'book page');
-    expect(await page.locator('.book-note-text').allTextContents()).toEqual(['added lime; more garlic next time']);
+    expect(await page.locator('.book-note-text').allTextContents()).toEqual(['added lime; added paste from x@y.example; more garlic next time, ask cook@example.com']);
     expect(await page.locator('.book-shared').textContent()).toBe('Shared at your table 2 times.');
     expect(await page.locator('#view').textContent()).not.toContain('never shown');
     for (const r of sent.filter((x) => new URL(x.url()).pathname.startsWith('/api/notes'))) expect(r.url()).not.toContain('?');
@@ -57,6 +57,7 @@ describe('the Recipe Book (M5 Step 11)', () => {
     expect(html).not.toMatch(/<script/i);
     expect(html).not.toMatch(/https?:\/\//i);
     expect(html).not.toContain('cook@example.com');
+    expect(html).not.toMatch(/[\w.+-]+@[\w-]+\.\w/); // fix M3: no email-like string anywhere, ops included
     expect(html).toContain('more garlic next time');
     expect(html).toContain('skills: [legumes, heat-control, tempering]'); // the canon Cooklang source is in the file
     expect(html).toMatch(/@\w/); // its ingredient markers too
