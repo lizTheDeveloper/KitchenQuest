@@ -84,6 +84,8 @@ describe('dialogue engine', () => {
       // M5 Step 4: the weekly loop's lines; code always supplies these.
       item: 'spinach', known: 'Heat control', frame: 'Green sauce', slot: 'rice', finding: 'peanut butter contains peanut',
       examples: 'curry leaf or epazote',
+      // M5 Step 9: reward lines (progress/announce.ts supplies each from the grant).
+      level: '3', stamp: 'A Quest, Completed With Thanks', friend: 'Doña Marisol',
     };
     for (const id of REQUIRED_PAN_TRIGGERS) expect(createDialogue(content.pan).say(id, sample).text, id).not.toMatch(/[{}]/);
   });

@@ -48,6 +48,12 @@ export const REQUIRED_PAN_TRIGGERS: readonly string[] = [
   'cook.done',
   'travel.map_remark',
   'travel.depart',
+  // M5 Step 9: reward lines come from grants (progress/announce.ts), and the map's quest-offered letter.
+  'levelup',
+  'trust_up',
+  'stamp_earned',
+  'introduction_received',
+  'quest.offered',
   // M5 Step 2: core advance() names it for a rule-adapted errand (ERRAND_ADAPTED_TRIGGER).
   'quest.errand_adapted',
   'quest.cook_adapted',

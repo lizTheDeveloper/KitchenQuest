@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { recordTechnique } from '@kitchenquest/core/engine';
-import { createStore, deleteDeviceData, STORE_KEY } from './store';
+import { createStore, deleteDeviceData, importM3Toolkit, mergeProgress, STORE_KEY } from './store';
 
 function memStorage(init: Record<string, string> = {}): Storage {
   const m = new Map(Object.entries(init));
@@ -442,5 +442,73 @@ describe('M4 Step 9: new keys and confirmRules', () => {
     const s = createStore(st);
     expect(s.notice).toBe('corrupt');
     expect(s.get().rulesUnreadable).toBe(true);
+  });
+});
+
+describe('progress (M5 Step 9)', () => {
+  const m3 = {
+    v: 1,
+    toolkit: { techniques: { tempering: { tier: 'tried', firstAt: '2026-03-01', lastUsedAt: '2026-04-01', recipes: ['india/kerala/parippu'] } } },
+  };
+
+  it('store: M3 toolkit records become imported events once; a reload does not import twice', () => {
+    const st = memStorage({ [STORE_KEY]: JSON.stringify(m3) });
+    const s = createStore(st);
+    const events = s.get().progress.events;
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ kind: 'imported', technique: 'tempering', tier: 'tried', firstAt: '2026-03-01', lastUsedAt: '2026-04-01', at: '2026-04-01', recipes: ['india/kerala/parippu'] });
+    expect(events[0].id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(s.get().progress.pendingUpload).toEqual([events[0].id]);
+    // Saved at once: a reload (and a second tab) reads the import back instead of making another.
+    const again = createStore(st);
+    expect(again.get().progress.events.map((e) => e.id)).toEqual([events[0].id]);
+    again.update((x) => x);
+    expect(createStore(st).get().progress.events.filter((e) => e.kind === 'imported')).toHaveLength(1);
+  });
+
+  it('store: two tabs importing at once keep one imported event per technique', () => {
+    const a = importM3Toolkit({ ...createStore(null).get(), toolkit: m3.toolkit as never });
+    const b = importM3Toolkit({ ...createStore(null).get(), toolkit: m3.toolkit as never });
+    const merged = mergeProgress(a.progress, b.progress);
+    expect(merged.events.filter((e) => e.kind === 'imported')).toHaveLength(1);
+  });
+
+  it('store: a technique already folded into a compacted base is not imported again', () => {
+    const base = { view: { xp: 0, level: 1, stamps: 0, trust: {}, toolkit: m3.toolkit, questsDone: [], questSteps: {}, questStartedOn: {}, cookedOn: {}, framesCookedOn: {} }, facts: { v: 1, ids: ['x'] } };
+    const s = importM3Toolkit({ ...createStore(null).get(), toolkit: m3.toolkit as never, progress: { events: [], grants: [], base: base as never, pendingUpload: [] } });
+    expect(s.progress.events).toEqual([]);
+  });
+
+  it('store: a progress field of the wrong shape is unreadable, never silently dropped', () => {
+    const st = memStorage({ [STORE_KEY]: JSON.stringify({ v: 1, progress: { events: 'nope' } }) });
+    expect(createStore(st).notice).toBe('corrupt');
+  });
+
+  it('store: mergeProgress unions by id and never drops a held event; the higher base wins', () => {
+    const e = (id: string) => ({ id, kind: 'lesson' as const, at: '2026-11-09', recipe: 'india/kerala/parippu' });
+    const g = (id: string) => ({ id: `${id}#0`, eventId: id, isoDay: '2026-11-09', kind: 'xp' as const, amount: 10, reason: 'lesson' as const });
+    const a = { events: [e('a'), e('b')], grants: [g('a')], base: null, pendingUpload: ['a', 'b'] };
+    const b = { events: [e('b'), e('c')], grants: [g('c')], base: null, pendingUpload: ['c'] };
+    const m = mergeProgress(a, b);
+    expect(m.events.map((x) => x.id)).toEqual(['a', 'b', 'c']);
+    expect(m.grants.map((x) => x.id)).toEqual(['a#0', 'c#0']);
+    expect(m.pendingUpload).toEqual(['a', 'b', 'c']);
+    // A base covering 'a' (a compaction in one tab): 'a' is held by the base, every other event stays.
+    const base = { view: { xp: 10, level: 1, stamps: 0, trust: {}, toolkit: { techniques: {} }, questsDone: [], questSteps: {}, questStartedOn: {}, cookedOn: {}, framesCookedOn: {} }, facts: { v: 1, ids: ['a'] } };
+    const c = mergeProgress(a, { events: [e('b'), e('c')], grants: [], base, pendingUpload: [] });
+    expect(c.base).toBe(base);
+    expect(c.events.map((x) => x.id)).toEqual(['b', 'c']);
+    expect(c.grants.map((x) => x.id)).toEqual([]);
+    expect(mergeProgress({ ...a, base }, b).base).toBe(base); // never a lower (null) base
+    // An update marking uploads done keeps them done.
+    expect(mergeProgress(a, { ...a, pendingUpload: [] }, { pendingFrom: 'b' }).pendingUpload).toEqual([]);
+  });
+
+  it('store: an update can never drop a held progress event', () => {
+    const s = createStore(memStorage());
+    const e = { id: 'e1', kind: 'lesson' as const, at: '2026-11-09', recipe: 'india/kerala/parippu' };
+    s.update((x) => ({ ...x, progress: { ...x.progress, events: [e] } }));
+    s.update((x) => ({ ...x, progress: { ...x.progress, events: [] } }));
+    expect(s.get().progress.events.map((x) => x.id)).toEqual(['e1']);
   });
 });

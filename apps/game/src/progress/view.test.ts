@@ -1,0 +1,61 @@
+import { describe, expect, test } from 'vitest';
+import { grantsForBatch, type ProgressEvent, type ProgressView } from '@kitchenquest/core/engine';
+import { content } from '../content';
+import { createStore } from '../state/store';
+import { catalogueOf } from './catalogue';
+import { appendEvents, deviceView, historyOf, newEventId } from './log';
+import { currentProgress, maxView } from './view';
+
+const cat = catalogueOf();
+const EMPTY: ProgressView = { xp: 0, level: 1, stamps: 0, trust: {}, toolkit: { techniques: {} }, questsDone: [], questSteps: {}, questStartedOn: {}, cookedOn: {}, framesCookedOn: {} };
+
+function playedStore() {
+  const store = createStore(null);
+  const events: ProgressEvent[] = Array.from({ length: 12 }, (_, i) => ({
+    id: newEventId(), kind: 'cooked', at: `2026-10-${String(i + 1).padStart(2, '0')}`, recipe: 'india/kerala/parippu', planned: false,
+  }));
+  const r = grantsForBatch(events, historyOf(store.get().progress), cat, content.rewards, content.techniques.freshness);
+  appendEvents(store, r.map((x) => x.event), r.flatMap((x) => x.grants));
+  return store;
+}
+
+describe('progress view', () => {
+  test('signed out: the device view, whatever the account says', () => {
+    const store = playedStore();
+    expect(currentProgress(store.get(), { ...EMPTY, xp: 99_999, level: 9 }, cat)).toEqual(deviceView(store.get().progress, cat));
+  });
+
+  test('view: signed in, an account view lower than the device view (compacted events) shows the device values (C14, C15)', () => {
+    const store = playedStore();
+    store.update((s) => ({ ...s, account: { email: 'a@example.test' } }));
+    const device = deviceView(store.get().progress, cat);
+    expect(device.level).toBeGreaterThan(1);
+    const account: ProgressView = { ...EMPTY, xp: 10, stamps: 0, trust: { haruka: 2 }, questsDone: ['haruka-gluey-rice'], cookedOn: { 'japan/osaka/onigiri': ['2026-09-01'] } };
+    const shown = currentProgress(store.get(), account, cat);
+    expect(shown.xp).toBe(device.xp);
+    expect(shown.level).toBe(device.level);
+    expect(shown.toolkit.techniques.tempering.tier).toBe(device.toolkit.techniques.tempering.tier);
+    // …and what only the account has is kept too: nothing shown drops, before or after the upload.
+    expect(shown.trust.haruka).toBe(2);
+    expect(shown.questsDone).toContain('haruka-gluey-rice');
+    expect(shown.cookedOn['japan/osaka/onigiri']).toEqual(['2026-09-01']);
+    expect(shown.cookedOn['india/kerala/parippu']).toEqual(device.cookedOn['india/kerala/parippu']);
+  });
+
+  test('maxView: every field is the larger, the union or the earliest start', () => {
+    const a: ProgressView = {
+      ...EMPTY, xp: 5, level: 3, stamps: 1, trust: { leela: 1 }, questSteps: { q: 2 }, questStartedOn: { q: '2026-05-02' },
+      toolkit: { techniques: { tempering: { tier: 'yours', firstAt: '2026-02-01', lastUsedAt: '2026-03-01', recipes: ['a'] } } },
+    };
+    const b: ProgressView = {
+      ...EMPTY, xp: 9, level: 2, stamps: 4, trust: { leela: 3, marisol: 1 }, questSteps: { q: 1 }, questStartedOn: { q: '2026-05-01' },
+      toolkit: { techniques: { tempering: { tier: 'tried', firstAt: '2026-01-15', lastUsedAt: '2026-04-01', recipes: ['b'] } } },
+    };
+    const m = maxView(a, b);
+    expect([m.xp, m.level, m.stamps]).toEqual([9, 3, 4]);
+    expect(m.trust).toEqual({ leela: 3, marisol: 1 });
+    expect(m.questSteps).toEqual({ q: 2 });
+    expect(m.questStartedOn).toEqual({ q: '2026-05-01' });
+    expect(m.toolkit.techniques.tempering).toEqual({ tier: 'yours', firstAt: '2026-01-15', lastUsedAt: '2026-04-01', recipes: ['a', 'b'] });
+  });
+});
