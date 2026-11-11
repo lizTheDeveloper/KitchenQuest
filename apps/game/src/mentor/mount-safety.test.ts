@@ -154,7 +154,7 @@ function realClient(hangs: (text: string) => boolean, timeoutMs: number) {
     if (url.endsWith('/mentor/turn')) {
       const text = (JSON.parse(init.body as string) as TurnRequest).input.text;
       sent.push(text);
-      if (hangs(text)) return new Promise<Response>((_r, reject) => { init.signal?.addEventListener('abort', () => { reject(init.signal!.reason); }); });
+      if (hangs(text)) return new Promise<Response>((_r, reject) => { init.signal?.addEventListener('abort', () => { reject(new Error('aborted')); }); });
       return json({ conversationId: 'c1', parts: [], cards: [], actions: [], route: 'deterministic', notice: null });
     }
     if (url.endsWith('/me/consents')) {

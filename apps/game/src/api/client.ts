@@ -59,7 +59,7 @@ function m2Error(body: unknown): ApiErrorBody | null {
  * own bound on its model call (AI_TIMEOUT_MS, 10 s by default, 30 s at most is cut short here and gets the outage path),
  * so a stalled connection never holds the Pan's turn queue (fix round 5, H1).
  */
-export const MENTOR_TIMEOUT_MS = 20_000;
+const MENTOR_TIMEOUT_MS = 20_000;
 
 export function createApiClient(opts: { baseUrl?: string; fetch?: typeof fetch; timeoutMs?: number } = {}): ApiClient {
   const timeoutMs = opts.timeoutMs ?? MENTOR_TIMEOUT_MS;

@@ -211,7 +211,7 @@ describe('errors', () => {
     const seen: (AbortSignal | null | undefined)[] = [];
     const hang = ((_url: string, init: RequestInit) => {
       seen.push(init.signal);
-      return new Promise<Response>((_r, reject) => { init.signal?.addEventListener('abort', () => { reject(init.signal!.reason); }); });
+      return new Promise<Response>((_r, reject) => { init.signal?.addEventListener('abort', () => { reject(new Error('aborted')); }); });
     }) as unknown as typeof fetch;
     const timed = createApiClient({ fetch: hang, timeoutMs: 20 });
     const turn = await timed.mentorTurn({ conversationId: null, input: { kind: 'text', text: 'hi' }, localDate: '2026-11-10', localTime: '12:00', screen: null, intakeStep: null });

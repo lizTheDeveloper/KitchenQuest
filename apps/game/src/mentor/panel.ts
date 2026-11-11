@@ -30,7 +30,7 @@ const DISCLOSURE_OK = 'Got it';
  * while another turn is still waiting, so an emergency can never be held up by a slow or stuck turn (fix round 5, H1).
  */
 const SAFETY_INTENTS: ReadonlySet<string> = new Set(['emergency', 'medical', 'child']);
-export const isSafetyText = (text: string): boolean => SAFETY_INTENTS.has(classifyTurn(stripPageEvents(text).text.trim()));
+const isSafetyText = (text: string): boolean => SAFETY_INTENTS.has(classifyTurn(stripPageEvents(text).text.trim()));
 /** How long the stamp lands before a card turns into its trail entry (motion on). */
 const STAMP_MS = 650;
 
