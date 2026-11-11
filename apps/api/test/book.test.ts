@@ -239,7 +239,7 @@ describe('margin notes', () => {
     expect((await sql`select 1 from reward_grants where user_id = ${p.id}`).length).toBeGreaterThan(0);
   });
 
-  it('lock order: a note write waits on notes: (after the user row), and so a racing 21st note is refused', async () => {
+  it('lock order: a note write waits on book: (after the user row), and so a racing 21st note is refused', async () => {
     const p = await player();
     for (let i = 0; i < 19; i++) expect((await postNote(p.cookie, noteOf())).statusCode).toBe(201);
     const holder = await sql.reserve();
