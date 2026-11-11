@@ -84,6 +84,8 @@ Tick each item when it lands. Full requirement text is in `2026-11-09-health-dat
 - [ ] **C-43** Backup-restore replays `account.delete` audit events so deleted users' wrapped keys aren't resurrected — *M2 Step 7 (write event) / M12 (restore runbook)*
 - [ ] **C-44** GlitchTip SDK added with `before_send` scrubbing (C-9 completion) — *M12*
 
+- [ ] **[lawyer]** Export recipients vs usage retention: the export lists the AI processors from the player's `usage_events` (a "sent" row before each model call, M4 Step 12), which the retention job deletes after 13 months. Decide whether Art. 15(1)(c) needs a longer look-back (e.g. a content-free "ever sent" marker kept for the account's life) — *M12 (C-31)*
+
 ## Founder / operator actions (not code)
 
 - [ ] C-36 Turn on MFA or passkeys for GitHub, Hetzner, DNS registrar, mail, OpenRouter, payments and GlitchTip.

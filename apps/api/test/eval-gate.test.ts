@@ -9,7 +9,7 @@ import { loadPanPrompt, promptFingerprint } from '../src/mentor/prompt.js';
 import { MENTOR_TOOLS } from '../src/mentor/tools.js';
 import { CASES } from '../eval/cases.js';
 import { meetsBar, REPS, type EvalResult } from '../eval/checks.js';
-import { evalHash } from '../eval/hash.js';
+import { EVAL_FILES, evalHash } from '../eval/hash.js';
 import { testAiEnv } from './helpers/config.js';
 
 const MESSAGE =
@@ -63,7 +63,8 @@ describe('the mentor eval gate', () => {
     expect(bar.hardFails).toBe(0);
   });
 
-  it('the eval hash is stable and covers the cases and the judge', () => {
+  it('the eval hash is stable and covers the cases, the judge, the snapshot and the runner (seeds, write count)', () => {
+    expect([...EVAL_FILES].sort()).toEqual(['./cases.ts', './checks.ts', './run.ts', './snapshot.ts']);
     expect(evalHash()).toMatch(/^[0-9a-f]{64}$/);
     expect(evalHash()).toBe(evalHash());
   });

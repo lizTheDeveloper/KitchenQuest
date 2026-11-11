@@ -54,7 +54,7 @@ import { pantryMatcher } from '../pantry/service.js';
 import { loadPantry } from '../pantry/store.js';
 import { loadRules } from '../rules/store.js';
 import type { Db } from '../types.js';
-import { recordUsage } from '../usage/usage.js';
+import { completeUsage, recordSent } from '../usage/usage.js';
 import { aiTurnsLeft, recordAiCost, type BudgetGuard } from './allowance.js';
 import { appendMessages, bumpTurn, openConversation, recentMessages, type StoredMessage } from './conversations.js';
 import { isHealthText } from './health.js';
@@ -368,6 +368,8 @@ interface FinishInput {
   health: boolean;
   mode: Mode;
   offered: readonly AiTool[];
+  /** The usage row written before the call was sent (N3), completed here. */
+  usageId: number;
 }
 
 /**
@@ -394,7 +396,7 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
   ).filter((c) => !(c.name === 'propose_rule' && fine.has(graph.resolve(c.args.term) ?? '')));
   return deps.db.transaction(async (tx) => {
     await lockLiveUser(tx, userId);
-    await recordUsage(tx, userId, 'mentor_text', 1, f.result.usage.costMicroUsd, now);
+    await completeUsage(tx, f.usageId, 1, f.result.usage.costMicroUsd);
     const persist = await consentHeldIn(tx, userId, 'health_data', now);
     const recipes = await tx.select({ slug: canonRecipes.slug, title: canonRecipes.title }).from(canonRecipes);
     const dishNamed = f.dishOnScreen || matchDish(f.stripped, recipes) !== null;
@@ -599,11 +601,13 @@ export async function runTurn(deps: TurnDeps, userId: string, req: TurnRequest, 
   const { ctx, sent, aiHealth } = await promptInputs(deps, userId, req, opened, now);
   if (health && !aiHealth) return respond(id, 'scripted', [], 'needs_ai_health');
   const offered = toolsFor(avail.mode, aiHealth);
+  // Fix round 2 (N3): the "sent" row is written before the text leaves, so a failed call is on record too.
+  const usageId = await recordSent(deps.db, userId, 'mentor_text', now);
   const result = await deps.ai.complete({ messages: renderMessages(deps.prompt, ctx, sent, stripped, deps.bank), tools: offered });
   if (!result.ok) return respond(id, 'scripted', [], 'ai_unavailable');
   // N6: the money is counted at once, in its own statement, outside every turn lock.
   await recordAiCost(deps.db, result.usage.costMicroUsd, now);
 
   // 7–9. Cards and scripted lines (never the model's text, R9), metered and stored under the consent lock.
-  return finishTurn(deps, userId, { opened, req, raw, stripped, result, dishOnScreen: ctx.dish !== null, health, mode: avail.mode, offered }, now);
+  return finishTurn(deps, userId, { opened, req, raw, stripped, result, dishOnScreen: ctx.dish !== null, health, mode: avail.mode, offered, usageId }, now);
 }

@@ -32,3 +32,21 @@ export async function usageSince(db: Db, userId: string, feature: UsageFeature, 
     .where(and(eq(usageEvents.userId, userId), eq(usageEvents.feature, feature), gte(usageEvents.createdAt, since)));
   return row?.total ?? 0;
 }
+
+/**
+ * M4 Step 12 fix round 2 (N3): a zero-unit, zero-cost row written BEFORE a model call is sent, so the
+ * export can say the player's text reached the AI processors even when the call then fails (GDPR Art.
+ * 15(1)(c)). Zero units never count against an allowance. Returns the row id for `completeUsage`.
+ */
+export async function recordSent(db: Pick<Db, 'insert'>, userId: string, feature: UsageFeature, now: Date): Promise<number> {
+  if (!USAGE_FEATURES.includes(feature)) throw new Error(`unknown usage feature: ${feature}`);
+  const [row] = await db.insert(usageEvents).values({ userId, feature, units: 0, costMicroUsd: 0, createdAt: now }).returning({ id: usageEvents.id });
+  return row.id;
+}
+
+/** Completes a `recordSent` row once the call succeeded: its units and cost. Counts and cost only. */
+export async function completeUsage(db: Pick<Db, 'update'>, id: number, units: number, costMicroUsd: number): Promise<void> {
+  if (!Number.isInteger(units) || units < 0) throw new Error('units must be a non-negative integer');
+  if (!Number.isInteger(costMicroUsd) || costMicroUsd < 0) throw new Error('costMicroUsd must be a non-negative integer');
+  await db.update(usageEvents).set({ units, costMicroUsd }).where(eq(usageEvents.id, id));
+}

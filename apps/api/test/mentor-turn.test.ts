@@ -540,7 +540,7 @@ describe('R9: a model reply is never shown, it is a scripted line', () => {
 });
 
 describe('failure, caps, metering, storage', () => {
-  test('provider failure → scripted/ai_unavailable, nothing stored, no usage row', async () => {
+  test('provider failure → scripted/ai_unavailable, nothing stored; only a zero-unit "sent" row, no allowance used (N3)', async () => {
     const ai = fakeAi([]);
     await makeApp(ai);
     const p = await player(AI_HEALTH);
@@ -549,7 +549,17 @@ describe('failure, caps, metering, storage', () => {
     expect(ai.requests).toHaveLength(1);
     expect(await countOf('messages', p.userId)).toBe(0);
     expect(await countOf('mentor_proposals', p.userId)).toBe(0);
-    expect(await usageRows(p.userId)).toBe(0);
+    // The text still reached the provider, so the export must list it (fix round 2, N3); the cap counts units only.
+    expect(await sql`select units, cost_microusd from usage_events where user_id = ${p.userId}`).toEqual([{ units: 0, cost_microusd: 0 }]);
+    const exported = (await call(p.cookie, { method: 'GET', url: '/me/export' })).json<{ processors: { name: string; inUse: boolean }[] }>();
+    expect(exported.processors.find((x) => x.name === 'OpenRouter')).toMatchObject({ inUse: true });
+  });
+
+  test('a successful turn leaves one usage row: units 1 and the cost, the sent row completed', async () => {
+    await makeApp(fakeAi([reply('Rice.')]));
+    const p = await player(AI_HEALTH);
+    await turn(p.cookie, 'what should I cook tonight?');
+    expect(await sql`select units, cost_microusd from usage_events where user_id = ${p.userId}`).toEqual([{ units: 1, cost_microusd: 60 }]);
   });
 
   test('AI off → scripted/ai_off', async () => {
