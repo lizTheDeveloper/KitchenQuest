@@ -97,7 +97,7 @@ export const MEDICAL_PATTERN =
  * Over-catches on purpose ("my weight's fine").
  */
 export const WEIGHT_PATTERN =
-  /\b(?:(?:lose|loses|losing|lost|drop|dropping|shed|shedding|burn|burning)\s+(?:(?:some|the|a|my|more|that|this|extra)\s+)?(?:(?:bit|few|little|of)\s+)*(?:weight|pounds|lbs|kilos|kgs?|stone|belly fat|body fat|fat)\b|weight[- ]?loss|weight[- ]?watch\w*|watch(?:es|ing)?\s+(?:my|our|his|her|their|your)\s+weight|(?:my|our|his|her|their|your)\s+(?:weight|bmi|body fat)\b|bmi\b|calories?\s+(?:count\w*|deficit|target|limit|goal)|count(?:s|ing)?\s+(?:my\s+)?calories|calorie[- ]count\w*|slim(?:ming)?\s+down|slimming|get(?:ting)?\s+(?:thin|thinner|skinny|skinnier)|too\s+fat|overweight|underweight)/;
+  /\b(?:(?:lose|loses|losing|lost|drop|dropping|shed|shedding|burn|burning)\s+(?:(?:some|the|a|my|more|that|this|extra)\s+)?(?:(?:bit|few|little|of)\s+)*(?:weight|pounds|lbs|kilos|kgs?|stone|belly fat|body fat)\b|weight[- ]?loss|weight[- ]?watch\w*|watch(?:es|ing)?\s+(?:my|our|his|her|their|your)\s+weight|(?:my|our|his|her|their|your)\s+(?:weight|bmi|body fat)\b|bmi\b|calories?\s+(?:count\w*|deficit|target|limit|goal)|count(?:s|ing)?\s+(?:my\s+)?calories|calorie[- ]count\w*|slim(?:ming)?\s+down|slimming|get(?:ting)?\s+(?:thin|thinner|skinny|skinnier)|too\s+fat\b|overweight|underweight)/;
 
 /** A strict yes: every word is one of these, and at least one is in `YES_STRONG`. */
 export const YES_WORDS: ReadonlySet<string> = new Set([

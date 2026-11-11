@@ -147,3 +147,15 @@ describe('m6: "pick 2, actually 3" gets the which-count ask', () => {
     expect(correctionCue('i actually three times a week', DISHES)).toBe(false);
   });
 });
+
+describe('final re-review N1: cooking talk about fat is never a weight turn', () => {
+  test.each([
+    'this is too fatty', 'drop a little fat in the pan', 'lose the fat from the stock', 'burn the fat off the bacon',
+    'trim the fat', 'skim the fat off the soup',
+  ])('%s → not weight', (t) => {
+    expect(classifyTurn(t)).not.toBe('weight');
+  });
+  test.each(['i need to lose some belly fat', 'i am too fat', 'burning body fat'])('%s → weight', (t) => {
+    expect(classifyTurn(t)).toBe('weight');
+  });
+});
