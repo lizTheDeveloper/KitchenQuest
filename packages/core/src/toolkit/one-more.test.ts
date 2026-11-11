@@ -106,6 +106,21 @@ describe('weeklySlot', () => {
     expect(weeklySlot(input({ recipes: withRecipe(PARIPPU, noPappadam), rules: [avoid('ingredient', 'ghee', { start: '2026-11-13' })] }))).toMatchObject({ technique: 'tempering', status: 'swap' });
   });
 
+  it('N1: a dish that is a swap on some days of the week and ❓ on others is never offered (not even as a swap)', () => {
+    const p = recipes.get(PARIPPU)!;
+    const noPappadam: ParsedRecipe = { ...p, ingredients: p.ingredients.filter((i) => i.name !== 'pappadam') };
+    const ghee = avoid('ingredient', 'ghee'); // a swap all week (ghee → neutral oil)
+    expect(weeklySlot(input({ recipes: withRecipe(PARIPPU, noPappadam), rules: [ghee] }))).toMatchObject({ status: 'swap' });
+    // From Thursday a sulphites rule makes every other line a label check: ❓ from then on.
+    const sulphites = avoid('ingredient', 'sulphites', { start: '2026-11-12' });
+    expect(weeklySlot(input({ recipes: withRecipe(PARIPPU, noPappadam), rules: [ghee, sulphites] }))).toBeNull();
+  });
+
+  it('N1: the window is the plan week from weekStart, even when today is later in the week', () => {
+    // A rule that ended on Tuesday still blocks the week's offer on Thursday: the dish is checked on every day.
+    expect(weeklySlot(input({ today: '2026-11-12', rules: [avoid('category', 'allium', { start: '2026-11-01', end: '2026-11-10' })] }))).toBeNull();
+  });
+
   it('never offers a sacred dish', () => {
     const p = recipes.get(PARIPPU)!;
     expect(weeklySlot(input({ recipes: withRecipe(PARIPPU, { ...p, meta: { ...p.meta, sacred: true } }) }))).toBeNull();

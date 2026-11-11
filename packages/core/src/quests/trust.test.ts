@@ -9,7 +9,7 @@ import { isoWeek } from '../progress/week';
 import type { ProgressEvent, ProgressHistory } from '../progress/types';
 import type { ParsedRecipe } from '../recipe/types';
 import type { Rule } from '../rules/types';
-import { standInCooks, type RulesContext } from './alternatives';
+import { standInCooks, statusOn, type RulesContext } from './alternatives';
 import { catalogueOf, EMPTY_HISTORY, graph, newId, quests, recipes, record, subs } from './fixtures';
 
 const ALLIUM: Rule = { id: 'r-allium', target: { kind: 'category', ids: ['allium'] }, type: 'avoid', severity: 'allergy' };
@@ -47,6 +47,49 @@ describe('trust through a stand-in dish (I3)', () => {
     expect(trustOf(h, 'leela')).toBe(2); // 2 cook-weeks → Acquainted
     for (let w = 2; w < 7; w++) h = record(h, [dal(addDays(MON, 7 * w), ['leela'])], cat, c);
     expect(trustOf(h, 'leela')).toBe(4); // 7 cook-weeks → Family friend
+  });
+
+  it('N2: a cook with any cookable dish accepts no stand-ins (every dish must be ⛔)', () => {
+    // A second Leela dish with nothing allium in it: Leela is cookable under the allium rule.
+    const leelaPlain: ParsedRecipe = { ...p0, meta: { ...p0.meta, cook: 'leela', skills: ['tempering'] }, ingredients: [line('split moong dal'), line('salt')] };
+    const rsMixed = new Map([...rs, ['test/leela-plain', leelaPlain]]);
+    const catMixed = catalogueOf(all, rsMixed);
+    const c: RulesContext = { ...ctx([ALLIUM]), recipes: rsMixed };
+    expect(standInCooks({ kind: 'recipe', slug: 'test/plain-dal' }, MON, catMixed, c)).toEqual([]);
+    const r = grantsFor(dal(MON, ['leela']), EMPTY_HISTORY, catMixed, DATA, T, c);
+    expect(r).toMatchObject({ problems: [], warnings: ['stand_in_dropped'] });
+  });
+
+  it('N2: a player whose cook\'s dish is only ❓ (not ⛔) can\'t claim stand-ins', () => {
+    const MILK: Rule = { id: 'r-milk', target: { kind: 'ingredient', ids: ['milk'] }, type: 'avoid', severity: 'allergy' };
+    const c = ctx([MILK]);
+    expect(statusOn(PARIPPU, MON, c)).toBe('unverified');
+    expect(statusOn('test/plain-dal', MON, c)).toBe('ok');
+    expect(standInCooks({ kind: 'recipe', slug: 'test/plain-dal' }, MON, cat, c)).toEqual([]);
+    expect(grantsFor(dal(MON, ['leela']), EMPTY_HISTORY, cat, DATA, T, c)).toMatchObject({ problems: [], warnings: ['stand_in_dropped'] });
+  });
+
+  it('N2: one event claiming two all-⛔ cooks lifts each one level a week, no more', () => {
+    // A Haruka legumes dish stands in for both Leela (parippu ⛔) and Marisol (frijoles ⛔) under allium.
+    const harukaDal: ParsedRecipe = { ...p0, meta: { ...p0.meta, cook: 'haruka', skills: ['legumes'] }, ingredients: [line('split moong dal'), line('salt')] };
+    // Without the fixture's Marisol plain dal, which would make Marisol cookable (see the mixed-cook test).
+    const rs2 = new Map([...recipes, ['test/haruka-dal', harukaDal]]);
+    const cat2 = catalogueOf(all, rs2);
+    const c: RulesContext = { ...ctx([ALLIUM]), recipes: rs2 };
+    expect(standInCooks({ kind: 'recipe', slug: 'test/haruka-dal' }, MON, cat2, c)).toEqual(['leela', 'marisol']);
+    const both = (at: string): ProgressEvent => ({ id: newId(), kind: 'cooked', at, recipe: 'test/haruka-dal', planned: false, standsInFor: ['leela', 'marisol'] });
+    const marisolDone: ProgressEvent[] = [
+      ...Array.from({ length: quests['marisol-salt-question'].steps.length }, (_, i): ProgressEvent => ({ id: newId(), kind: 'quest_step', at: MON, quest: 'marisol-salt-question', step: i + 1 })),
+      { id: newId(), kind: 'quest_done', at: MON, quest: 'marisol-salt-question' },
+    ];
+    let h = record(EMPTY_HISTORY, [both(MON), ...leelaDone(MON), ...marisolDone], cat2, c);
+    const trust = () => deriveProgress(h, cat2).trust;
+    expect(trust()).toMatchObject({ leela: 1, marisol: 1 });
+    // Three cooks in week 2: one level each, once.
+    for (let d = 0; d < 3; d++) h = record(h, [both(addDays(MON, 7 + d))], cat2, c);
+    expect(trust()).toMatchObject({ leela: 2, marisol: 2 });
+    const w2 = h.grants.filter((g) => g.kind === 'trust' && g.level === 2);
+    expect(w2.map((g) => (g.kind === 'trust' ? g.cook : '')).sort()).toEqual(['leela', 'marisol']);
   });
 
   it('the pace is the same: at most one level a week, however many stand-in cooks', () => {
