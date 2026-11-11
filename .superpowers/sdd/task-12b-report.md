@@ -29,3 +29,12 @@ Branch claude/m4-step12-game. All gates green: typecheck, lint (0 errors, existi
 
 ## Not run
 apps/api tests need TEST_DATABASE_URL (no DB here); only content/dialogue/pan.yaml changed on that side (additions plus one reworded line).
+
+## Fix round 1
+- C1: `lazyBackend` moved to `mentor/lazy-backend.ts`; when the AI chunk fails to load the turn is answered by the scripted engine, led by `mentor.ai_unavailable` (emergency and rule paths intact); load retried next turn. Tests in `lazy-backend.test.ts`.
+- I1/I2: `raiseRule` reads the account rule from the server (`listRules`) before writing, takes `before` from that read, and refuses (closed, `rule.raise_not_stricter`, no PUT) unless the card is strictly stricter for the same type and target. Undo re-reads and only writes `before` back if the rule still equals what the raise wrote; otherwise nothing changes (`undo.rule_changed`); never lowers. Tests: stale screen, stale before, change after raise, removed rule, failed undo keeps entry.
+- M1: the "on file" exemption is now one exact id+line. M2: claim regex adds "'s/has been filed", bare "Noted."/"Saved.", "in the ledger", with self-tests.
+- M3: "If you leave this...", "Chosen:", "Stamped:" moved to `ui.rules.*` triggers.
+- M4: undo failure/404 paths tested; misleading test replaced.
+- M5: `shell/titles.ts` is the single source of lazy titles, with a test that each module agrees; `lazyScreen` tests (failed load rejects so the shell shows its error screen).
+- Gates: typecheck, lint (0 errors), core 1610, game 683, build (first paint 286.2 KB), e2e 188 all green.
