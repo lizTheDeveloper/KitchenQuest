@@ -141,16 +141,24 @@ describe('quests and the progress log (M5 Step 9)', () => {
     expect(await card.locator('progress, [role="progressbar"], meter').count()).toBe(0);
     await expectNoA11yViolations(page, 'apprentice card');
 
-    // Sign in (the account check runs again when the connection comes back): the device log goes up once, marked upload.
+    // Sign in (the account check runs again when the connection comes back). C1 ruling: nothing of the guest's goes up
+    // on its own, and the account shows only its own progress, until the player taps the offer.
     signedIn = true;
     await page.evaluate(() => window.dispatchEvent(new Event('online')));
+    const offer = page.getByRole('region', { name: "Add this device's progress to your account?" });
+    await offer.waitFor();
+    await page.waitForTimeout(300);
+    expect(posts).toEqual([]);
+    expect(await card.locator('.apprentice-stamps').textContent()).toBe('Bureau Stamps: 0');
+    await expectNoA11yViolations(page, 'guest progress offer');
+    await offer.getByRole('button', { name: 'Add it to my account' }).click();
     await page.waitForFunction((k) => (JSON.parse(localStorage.getItem(k)!) as { progress: { pendingUpload: string[] } }).progress.pendingUpload.length === 0, STORE_KEY);
     expect(posts.every((p) => p.upload === true)).toBe(true);
     expect(posts.flatMap((p) => p.events.map((e) => e.id))).toEqual(s.progress.events.map((e) => e.id));
-    // The account's view is lower; the card shows the field-wise max, so nothing shown drops.
-    await page.waitForTimeout(200);
-    expect(await card.locator('.apprentice-level').textContent()).toBe(before.level);
-    expect(await card.locator('.apprentice-stamps').textContent()).toBe(before.stamps);
+    await offer.waitFor({ state: 'detached' });
+    // The account's view is lower; the card shows the field-wise max with what was added, so nothing shown drops.
+    await page.locator('.apprentice-stamps', { hasText: before.stamps! }).waitFor();
+    expect(await page.locator('.apprentice-level').textContent()).toBe(before.level);
     // A reload signed in: still no drop, and no second upload.
     await page.reload();
     await page.locator('.apprentice-card').waitFor();
@@ -158,6 +166,62 @@ describe('quests and the progress log (M5 Step 9)', () => {
     expect(await page.locator('.apprentice-stamps').textContent()).toBe(before.stamps);
     expect(posts.flatMap((p) => p.events)).toHaveLength(s.progress.events.length);
     expect(app.consoleErrors).toEqual([]);
+  });
+
+  it('adapted panels: a blocked errand passes as adapted, a ⛔ dish with no stand-in is taught as a lesson (axe-clean)', async () => {
+    const shallot = { id: 'r1', target: { kind: 'ingredient' as const, ids: ['shallot'] }, type: 'avoid' as const, severity: 'anaphylactic' as const };
+    app = await openApp('/#/visit/leela', { reducedMotion: true, seed: { ...PAN_READY, localRules: [shallot] } });
+    const { page } = app;
+    const adapted = pan.triggers['quest.errand_adapted'].lines.map((l) => l.replaceAll('{cook}', leela.name));
+    let sawAdapted = false;
+    let lessonChecked = false;
+    await playUntil(page, (panel) => {
+      expect(panel).not.toContain('Fetch'); // a blocked item is never sent for
+      if (panel.includes(riddle.prompt)) return riddle.options.find((o) => o.correct)!.text;
+      if (panel.includes('Learn it as a lesson')) return 'Learn it as a lesson';
+      return "I've practised it";
+    }, async () => {
+      const said = await page.locator('#pan-panel .bubble.pan .bubble-text').allTextContents();
+      if (said.some((t) => adapted.includes(t))) sawAdapted = true;
+      if (!lessonChecked && (await page.locator('.quest-panel', { hasText: 'Learn it as a lesson' }).count())) {
+        expect(await page.locator('.quest-panel').textContent()).toContain("isn't cookable with your rules");
+        expect(await page.locator('.quest-panel').getByRole('button', { name: 'Cook it anyway' }).count()).toBe(0); // ⛔: never
+        await expectNoA11yViolations(page, 'adapted lesson panel');
+        lessonChecked = true;
+      }
+      return (await page.getByRole('button', { name: 'See the recipe: Parippu' }).count()) > 0 && (await page.locator('.quest-panel, .dialogue').count()) === 0;
+    });
+    expect(sawAdapted).toBe(true);
+    expect(lessonChecked).toBe(true);
+    const s = await stored(page);
+    expect(s.progress.events.map((e) => e.kind).slice(-3)).toEqual(['quest_step', 'lesson', 'quest_done']);
+    expect(app.consoleErrors).toEqual([]);
+  });
+
+  it('a ❓ quest dish offers the lesson and "Cook it anyway" (the card stays ❓); unreadable rules wait with a link to Your rules', async () => {
+    const peanut = { id: 'r1', target: { kind: 'ingredient' as const, ids: ['peanut'] }, type: 'avoid' as const, severity: 'anaphylactic' as const };
+    app = await openApp('/#/visit/leela', { reducedMotion: true, seed: { ...PAN_READY, localRules: [peanut] } });
+    const { page } = app;
+    await playUntil(page, (panel) => {
+      if (panel.includes(riddle.prompt)) return riddle.options.find((o) => o.correct)!.text;
+      if (panel.includes('Fetch')) return "I've got it";
+      if (panel.includes('Cook it anyway')) return 'Cook it anyway';
+      return "I've practised it";
+    }, async () => {
+      if (await page.locator('.quest-panel', { hasText: 'Cook it anyway' }).count()) {
+        expect(await page.locator('.quest-panel button').allTextContents()).toEqual(['Learn it as a lesson', 'Cook it anyway', 'Not yet']);
+        await expectNoA11yViolations(page, 'unverified dish panel');
+      }
+      return (await page.getByRole('dialog', { name: /Parippu/ }).count()) > 0;
+    });
+    expect(await page.getByRole('dialog', { name: /Parippu/ }).textContent()).toContain('❓');
+    await app.close();
+
+    app = await openApp('/#/visit/leela', { reducedMotion: true, seed: { ...PAN_READY, rulesUnreadable: true } });
+    const p2 = app.page;
+    await playUntil(p2, () => 'Later', async () => (await p2.locator('.quest-panel a.quest-rules-link').count()) > 0);
+    expect(await p2.locator('.quest-panel a.quest-rules-link').getAttribute('href')).toBe('#/rules');
+    await expectNoA11yViolations(p2, 'rules-wait panel');
   });
 
   it('a return visit (trust 1) opens with a trust line, then the card; the map never shows a lock', async () => {
@@ -179,6 +243,9 @@ describe('quests and the progress log (M5 Step 9)', () => {
     expect(trust1).toContain(line);
     expect(leela.intro).not.toContain(line);
     await page.locator('.dialogue .dialogue-next').click();
+    // Then the card (Step 9: "the trust_lines[level] line, then the card").
+    await page.getByRole('dialog', { name: /Parippu/ }).waitFor();
+    await page.keyboard.press('Escape');
     await page.getByRole('button', { name: 'See the recipe: Parippu' }).waitFor();
     expect(await page.getByRole('button', { name: 'Carry on with the quest' }).count()).toBe(0);
     expect(app.consoleErrors).toEqual([]);

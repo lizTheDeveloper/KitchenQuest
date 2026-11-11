@@ -19,7 +19,7 @@ const EMPTY_PROGRESS: DeviceProgress = { events: [], grants: [], base: null, pen
  * shown while `/progress` hasn't answered, so nothing drops after a reload). Read, shown and synced only while that
  * account is signed in; hidden (never deleted, never shown, never uploaded elsewhere) while it isn't.
  */
-export interface AccountPartition { progress: DeviceProgress; view: ProgressView | null }
+interface AccountPartition { progress: DeviceProgress; view: ProgressView | null }
 
 /** Which partition is live: the signed-in account's (by its email, the only account key this device holds), else the guest's (null). */
 export const partitionKey = (s: Pick<PlayerState, 'account'>): string | null => s.account?.email ?? null;

@@ -6,9 +6,9 @@ import type { ClientContent } from '../content/types';
 export interface GrantLine { trigger: string; vars: Record<string, string> }
 
 /** At most this many lines for one event (Step 9), in the order level → trust → certificate → stamp. */
-export const MAX_LINES_PER_EVENT = 2;
+const MAX_LINES_PER_EVENT = 2;
 /** The trust level whose letter introduces the cook's friend (Ruling 3). */
-export const INTRODUCTION_TRUST = 3;
+const INTRODUCTION_TRUST = 3;
 
 /**
  * The cook `cookId` introduces (Ruling 3): the cook whose quest's `unlock.requires` names `cookId`'s quest, or null.
@@ -41,7 +41,7 @@ const cookName = (id: string, c: ClientContent) => (Object.hasOwn(c.cooks, id) ?
  * from `bureau.stamp_names` (C13). At most two lines, in that order. Nourishment earns no line (audit R4): a meal-log
  * event says nothing at all, whatever it earned, and XP alone is never announced.
  */
-export function linesForEvent(event: ProgressEvent | undefined, grants: readonly RewardGrant[], c: ClientContent = content): GrantLine[] {
+function linesForEvent(event: ProgressEvent | undefined, grants: readonly RewardGrant[], c: ClientContent = content): GrantLine[] {
   if (event?.kind === 'meal_logged' || grants.some((g) => g.kind === 'xp' && g.reason === 'nourishment')) return [];
   const out: GrantLine[] = [];
   const level = grants.filter((g) => g.kind === 'level').sort((a, b) => b.level - a.level).at(0);
