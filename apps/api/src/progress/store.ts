@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { ProgressEvent, ProgressEventKind, ProgressHistory, RewardGrant } from '@kitchenquest/core';
-import { and, asc, eq } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 import { progressEvents, rewardGrants, type GRANT_KINDS, type PROGRESS_KINDS } from '../db/schema.js';
 import type { Db } from '../types.js';
 
@@ -16,10 +16,18 @@ type Reader = Pick<Db, 'select'>;
 export type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 
 /** An event as stored: the client id, kind and date are columns; `body` holds the rest of the core event. */
-function eventOf(row: { clientId: string; kind: string; at: string; body: unknown }): ProgressEvent {
+function eventOf(row: { clientId: string; kind: string; at: string; body: unknown; mealLogId: string | null }): ProgressEvent {
   const body = typeof row.body === 'object' && row.body !== null && !Array.isArray(row.body) ? row.body : {};
-  return { ...body, id: row.clientId, kind: row.kind, at: row.at } as ProgressEvent;
+  return { ...body, id: row.clientId, kind: row.kind, at: row.at, ...(row.mealLogId === null ? {} : { mealLogId: row.mealLogId }) } as ProgressEvent;
 }
+
+const eventColumns = {
+  clientId: progressEvents.clientId,
+  kind: progressEvents.kind,
+  at: progressEvents.at,
+  body: progressEvents.body,
+  mealLogId: progressEvents.mealLogId,
+};
 
 /** A grant as stored: the kind is a column; `body` holds the rest of the self-contained core grant. */
 function grantOf(row: { kind: string; body: unknown }): RewardGrant {
@@ -40,7 +48,7 @@ function byGrantId(a: RewardGrant, b: RewardGrant): number {
  */
 export async function loadHistory(db: Reader, userId: string): Promise<ProgressHistory> {
   const events = await db
-    .select({ clientId: progressEvents.clientId, kind: progressEvents.kind, at: progressEvents.at, body: progressEvents.body })
+    .select(eventColumns)
     .from(progressEvents)
     .where(eq(progressEvents.userId, userId))
     .orderBy(asc(progressEvents.seq));
@@ -56,50 +64,33 @@ export async function loadHistory(db: Reader, userId: string): Promise<ProgressH
 export async function insertEvents(tx: Tx, userId: string, accepted: readonly { event: ProgressEvent; grants: readonly RewardGrant[] }[], at: Date): Promise<void> {
   if (accepted.length === 0) return;
   const rows = accepted.map(({ event }) => {
-    const { id: clientId, kind, at: day, ...body } = event;
-    return { id: randomUUID(), userId, clientId, kind, at: day, body, createdAt: at };
+    // A meal log's id is a column (the cascade from meal_logs), never in the body.
+    const { id: clientId, kind, at: day, mealLogId, ...body } = event as ProgressEvent & { mealLogId?: string };
+    return { id: randomUUID(), userId, clientId, kind, at: day, body, mealLogId: mealLogId ?? null, createdAt: at };
   });
   // One statement, so `seq` follows the batch's order.
   await tx.insert(progressEvents).values(rows);
   const grants = accepted.flatMap(({ grants: gs }, i) =>
     gs.map((g) => {
       const { kind, ...body } = g;
-      return { userId, eventId: rows[i].id, kind, body, createdAt: at };
+      // No time of day (I2 ruling): the grant's own `isoDay` is its only date.
+      return { userId, eventId: rows[i].id, kind, body };
     }),
   );
   if (grants.length > 0) await tx.insert(rewardGrants).values(grants);
 }
 
-/**
- * Erases one `meal_logged` event by its client id (a meal-log undo), keeping its grants: XP, level and the day's
- * nourishment count never drop (spec §6, I2 ruling), and no row or content of the event is kept. Any other kind is
- * never erased here. Returns whether a row went. The caller holds `lockLiveUser` and `progress:`.
- */
-export async function eraseMealEventIn(tx: Tx, userId: string, clientId: string): Promise<boolean> {
-  const gone = await tx
-    .delete(progressEvents)
-    .where(and(eq(progressEvents.userId, userId), eq(progressEvents.clientId, clientId), eq(progressEvents.kind, 'meal_logged')))
-    .returning({ id: progressEvents.id });
-  return gone.length > 0;
-}
-
-/** The export's events and grants (C-7): every stored field but the internal row ids, oldest first. */
+/** The export's events and grants (C-7): every stored field but the internal row ids, events oldest first, grants by day. */
 export async function loadProgressForExport(db: Reader, userId: string) {
   const events = await db
-    .select({ clientId: progressEvents.clientId, kind: progressEvents.kind, at: progressEvents.at, body: progressEvents.body, createdAt: progressEvents.createdAt })
+    .select({ ...eventColumns, createdAt: progressEvents.createdAt })
     .from(progressEvents)
     .where(eq(progressEvents.userId, userId))
     .orderBy(asc(progressEvents.seq));
-  const grants = await db
-    .select({ kind: rewardGrants.kind, body: rewardGrants.body, createdAt: rewardGrants.createdAt })
-    .from(rewardGrants)
-    .where(eq(rewardGrants.userId, userId))
-    .orderBy(asc(rewardGrants.createdAt));
+  const grants = await db.select({ kind: rewardGrants.kind, body: rewardGrants.body }).from(rewardGrants).where(eq(rewardGrants.userId, userId));
   return {
     events: events.map((r) => ({ ...eventOf(r), createdAt: r.createdAt.toISOString() })),
-    grants: grants
-      .map((r) => ({ grant: grantOf(r), createdAt: r.createdAt.toISOString() }))
-      .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : byGrantId(a.grant, b.grant)))
-      .map(({ grant, createdAt }) => ({ ...grant, createdAt })),
+    // Grants hold no time (I2 ruling): their `isoDay` is the date shown.
+    grants: grants.map(grantOf).sort((a, b) => (a.isoDay < b.isoDay ? -1 : a.isoDay > b.isoDay ? 1 : byGrantId(a, b))),
   };
 }

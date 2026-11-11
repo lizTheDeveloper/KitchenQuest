@@ -13,16 +13,19 @@ import type { Db } from '../types.js';
  * leaves no row, so nothing is written (no audit row under the raw id after
  * pseudonymization, no foreign-key 500).
  *
- * One global lock order (pre-flight C13), for every transaction in M4:
- * user row (`lockLiveUser`) → per-user advisory locks (`rules:<id>`, then
- * `pantry:<id>`; namespaces in `db/advisory-locks.ts`) → consent row
- * (`lockConsentIn`) → conversation row (`bumpTurn`, `appendMessages`,
- * `forgetConversations`) → proposal row (`lockProposal`). Account delete takes
- * its sign-in-email lock, then the user row, before anything else, so it
- * still serializes ahead. Consent withdraw-with-delete takes the user row,
- * then the consent row, then deletes rules, meals, messages and proposals,
- * which fits the order. Each service accepts locks its caller already holds (advisory
- * and row locks are re-entrant within one transaction).
+ * One global lock order (pre-flight C13, extended in M5), for every transaction:
+ * user row (`lockLiveUser`) → per-user advisory locks (`rules:<id>`, `pantry:<id>`, `plan:<id>`, `progress:<id>`,
+ * in that order; namespaces in `db/advisory-locks.ts`) → consent row (`lockConsentIn`, `consentHeldIn`) →
+ * conversation row (`bumpTurn`, `appendMessages`, `forgetConversations`) → proposal row (`lockProposal`) → data rows
+ * in table order: `rules` → `meal_logs` → `margin_notes` → `messages` → `mentor_proposals` (the `HEALTH_TABLES`
+ * order), then `meal_plans` → `market_runs` → `shared_table` → `progress_events` → `reward_grants`.
+ * Account delete takes its sign-in-email lock, then the user row, before anything else, so it still serializes
+ * ahead. Consent withdraw-with-delete takes the user row, then `progress:` (its `meal_logs` delete cascades to
+ * `meal_logged` progress events), then the consent row, then deletes rules, meals (and their progress events),
+ * messages and proposals, which fits the order. A meal-log delete takes the user row, then `progress:`, then the
+ * meal log (cascading to its progress event). A progress post takes the user row, then `progress:`, then (for a
+ * meal-log event) the `health_data` grant, then reads `meal_logs` and writes `progress_events` → `reward_grants`.
+ * Each service accepts locks its caller already holds (advisory and row locks are re-entrant within one transaction).
  *
  * Outside the order on purpose: the global hourly AI cost row (`ai_cost_hours`,
  * `recordAiCost`) is updated in its own one-statement transaction right after a

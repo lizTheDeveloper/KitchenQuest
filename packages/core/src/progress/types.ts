@@ -29,7 +29,18 @@ export type ProgressEvent =
    * logs an hour apart can read as the same minute (the second earns nothing) or 70 real minutes as 130: harmless,
    * never a penalty (M5).
    */
-  | { id: string; kind: 'meal_logged'; at: string; minute: number }
+  | {
+      id: string;
+      kind: 'meal_logged';
+      at: string;
+      minute: number;
+      /**
+       * The account's meal-log row this event is for (content-free: a random id). Meal logs are account-only, so the
+       * API requires it and checks it is the player's own log eaten on `at`; undoing that log erases the event
+       * (I1 ruling). Never copied into a grant.
+       */
+      mealLogId?: string;
+    }
   /** An M3 device toolkit record (Ruling 8). Grants nothing. */
   | { id: string; kind: 'imported'; at: string; technique: string; tier: Tier; firstAt: string; lastUsedAt: string; recipes: string[] };
 

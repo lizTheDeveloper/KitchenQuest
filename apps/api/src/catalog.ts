@@ -122,6 +122,8 @@ export interface LoopContent {
   stallOf: StallMap;
   foodGroups: FoodGroups;
   keeps: KeepsMap;
+  /** The ingredient graph the content was checked against (`catalog.graph`); the quests are checked again with it against each recipe index (M5). */
+  graph: IngredientGraph;
 }
 
 /** The repository's `content/` and `recipes/` directories. */
@@ -270,6 +272,7 @@ export function loadLoopContent(catalog: Catalog, dataDir: string = DATA_DIR, co
     stallOf: stallOf as StallMap,
     foodGroups: foodGroups as FoodGroups,
     keeps: keeps as KeepsMap,
+    graph,
   };
 }
 

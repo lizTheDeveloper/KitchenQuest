@@ -8,6 +8,7 @@ import { authRoutes } from './auth/routes.js';
 import { requireUser } from './auth/session.js';
 import { frameOptions } from '@kitchenquest/core';
 import { defaultCatalog, defaultLoopContent, type Catalog, type LoopContent } from './catalog.js';
+import { consentHeldIn } from './consent/ledger.js';
 import { consentRoutes } from './consent/routes.js';
 import { mealRoutes } from './meals/routes.js';
 import { BudgetGuard } from './mentor/allowance.js';
@@ -22,6 +23,7 @@ import { recipeRoutes } from './recipes/routes.js';
 import { rulesRoutes } from './rules/routes.js';
 import { loadRules } from './rules/store.js';
 import { loadPantry } from './pantry/store.js';
+import { assertUnderWriteCap } from './usage/write-cap.js';
 import type { Config } from './config.js';
 import { ApiError, loggableError } from './errors.js';
 import type { Db, Mailer } from './types.js';
@@ -124,6 +126,10 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
       const frames = frameOptions(loop.frames, pantry, { rules, graph: catalog.graph, subs, today, keeps: loop.keeps });
       return { rules, graph: catalog.graph, subs, recipes: index, frames };
     },
+    // I1: a meal-log event needs health_data, as POST /meals does (share-locked, after the advisory locks).
+    healthConsentFor: (tx, userId, at) => consentHeldIn(tx, userId, 'health_data', at),
+    // I4: the M4 daily write cap, the same for every player and plan; it counts recorded progress posts.
+    writeCapFor: (tx, userId, at) => assertUnderWriteCap(tx, userId, ['progress.record'], at),
   };
   await progressRoutes(app, progress);
   await accountRoutes(app, progress);

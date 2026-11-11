@@ -71,10 +71,8 @@ const PROFILE = {
   mealWindows: [{ name: 'dinner', start: '18:00', end: '20:00' }],
 };
 
-const PROGRESS_EVENTS = [
-  { id: 'ev-market-1', kind: 'market_run', at: '2026-11-09', weekStart: '2026-11-09' },
-  { id: 'ev-meal-1', kind: 'meal_logged', at: '2026-11-09', minute: 750 },
-];
+const MARKET_EVENT = { id: '6f1c2b7e-0d3a-4c55-9b8e-1a2b3c4d5e6f', kind: 'market_run', at: '2026-11-09', weekStart: '2026-11-09' };
+const MEAL_EVENT_ID = '7a2d3c8f-1e4b-4d66-8c9f-2b3c4d5e6f70';
 
 const SAID: StoredMessage = { role: 'player', text: 'I had peanut noodles for lunch' };
 const PAN_SAID: Extract<StoredMessage, { role: 'pan' }> = { role: 'pan', parts: [{ kind: 'line', line: { trigger: 'log.confirm', vars: {} } }], proposalIds: [] };
@@ -120,7 +118,10 @@ async function fullPlayer(): Promise<Player> {
   });
   expect(pantry.statusCode).toBe(200);
   // Progress (U-5): a market run and a meal-log event, each earning grants (no catalogue needed for either).
-  const progress = await call(cookie, { method: 'POST', url: '/progress/events', payload: { events: PROGRESS_EVENTS } });
+  // The meal-log event names the meal log just made (I1).
+  const mealLogId = meal.json<{ meal: { id: string } }>().meal.id;
+  const events = [MARKET_EVENT, { id: MEAL_EVENT_ID, kind: 'meal_logged', at: '2026-11-09', minute: 750, mealLogId }];
+  const progress = await call(cookie, { method: 'POST', url: '/progress/events', payload: { events } });
   expect(progress.statusCode).toBe(200);
   expect(progress.json<{ accepted: unknown[] }>().accepted).toHaveLength(2);
   expect((await call(cookie, { method: 'GET', url: '/rules' })).statusCode).toBe(200);
@@ -273,12 +274,17 @@ describe('GET /me/export', () => {
     expect(x.meals).toEqual([{ ...MEAL, id: expect.any(String), createdAt: NOW.toISOString() }]);
     expect(x.pantry).toEqual([{ ...PANTRY_ITEM, id: expect.any(String), createdAt: NOW.toISOString() }]);
     // Progress (U-5): both ledgers as stored, and the view derived from them.
-    expect(x.progress.events).toEqual(PROGRESS_EVENTS.map((e) => ({ ...e, createdAt: NOW.toISOString() })));
+    expect(x.progress.events).toEqual([
+      { ...MARKET_EVENT, createdAt: NOW.toISOString() },
+      { id: MEAL_EVENT_ID, kind: 'meal_logged', at: '2026-11-09', minute: 750, mealLogId: x.meals[0].id, createdAt: NOW.toISOString() },
+    ]);
+    // Grants carry their day only, no time (I2).
+    const M = MARKET_EVENT.id;
     expect(x.progress.grants).toEqual(
       expect.arrayContaining([
-        { id: 'ev-market-1#0', eventId: 'ev-market-1', isoDay: '2026-11-09', kind: 'xp', amount: 20, reason: 'market_run', createdAt: NOW.toISOString() },
-        { id: 'ev-market-1#1', eventId: 'ev-market-1', isoDay: '2026-11-09', kind: 'stamp', stamp: 'market_run', createdAt: NOW.toISOString() },
-        { id: 'ev-meal-1#0', eventId: 'ev-meal-1', isoDay: '2026-11-09', kind: 'xp', amount: 5, reason: 'nourishment', createdAt: NOW.toISOString() },
+        { id: `${M}#0`, eventId: M, isoDay: '2026-11-09', kind: 'xp', amount: 20, reason: 'market_run' },
+        { id: `${M}#1`, eventId: M, isoDay: '2026-11-09', kind: 'stamp', stamp: 'market_run' },
+        { id: `${MEAL_EVENT_ID}#0`, eventId: MEAL_EVENT_ID, isoDay: '2026-11-09', kind: 'xp', amount: 5, reason: 'nourishment' },
       ]),
     );
     expect(x.progress.grants).toHaveLength(3);

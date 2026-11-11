@@ -16,7 +16,8 @@ const HEALTH_TABLES = [rules, mealLogs, messages, mentorProposals] as const;
 /**
  * Deletes all of the user's health data inside the caller's transaction
  * (which has taken `lockLiveUser`, then `lockUserProgress`, first) and returns how many rows went.
- * After `HEALTH_TABLES` it erases the player's `meal_logged` progress events (when they ate, M5): only that kind,
+ * Deleting `meal_logs` cascades to their `meal_logged` progress events (I1 ruling); after `HEALTH_TABLES` any left
+ * (none should be) are erased too. Only that kind (when they ate, M5),
  * never another, and never a reward grant, so XP, level and stamps stay (spec §6, I2 ruling; [lawyer] grants keep
  * kind, amount and day). `progress_events` comes after the health tables in the README's table order.
  * Writes a `health_data.delete` audit event when `withdrew` or any row was

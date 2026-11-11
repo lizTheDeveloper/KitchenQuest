@@ -455,19 +455,29 @@ export const progressEvents = pgTable(
     kind: text("kind").notNull(),
     at: date("at", { mode: "string" }).notNull(),
     body: jsonb("body").notNull(),
+    /**
+     * A `meal_logged` event's meal log (I1 ruling): set for that kind only, one event per log. Deleting the log (an
+     * undo, a `health_data` delete) cascades here, so the record of when they ate goes with it, server-side.
+     */
+    mealLogId: uuid("meal_log_id").references(() => mealLogs.id, { onDelete: "cascade" }),
     /** Set from the app's injected clock; defaultNow() is only a fallback. */
     createdAt: ts("created_at").notNull().defaultNow(),
   },
   (t) => [
     uniqueIndex("progress_events_user_client_idx").on(t.userId, t.clientId),
     index("progress_events_user_at_idx").on(t.userId, t.at),
+    uniqueIndex("progress_events_meal_log_idx")
+      .on(t.userId, t.mealLogId)
+      .where(sql`${t.mealLogId} is not null`),
     check("progress_events_kind_check", sql`${t.kind} in (${inList(PROGRESS_KINDS)})`),
+    check("progress_events_meal_log_check", sql`(${t.kind} = 'meal_logged') = (${t.mealLogId} is not null)`),
   ],
 );
 
 /**
  * U-5 (Ruling 7, spec §6): what an event earned, fixed when granted and never reversed. `body` is the rest of core's
- * self-contained `RewardGrant` (its own id, the event's client id, the day and the amount; no event content).
+ * self-contained `RewardGrant` (its own id, the event's client id (a UUID), the day and the amount; no event content
+ * and no time of day).
  * `event_id` is the `progress_events` row it was granted for, a plain column on purpose, not a foreign key: erasing
  * a `meal_logged` event (undo, `health_data` delete) keeps its grants, so XP never drops. Append-only: there is no
  * update or delete path; only account delete (the `user_id` cascade) removes a grant.
@@ -481,9 +491,8 @@ export const rewardGrants = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     eventId: uuid("event_id").notNull(),
     kind: text("kind").notNull(),
+    /** No time column on purpose (I2 ruling): a grant's only date is its `isoDay`, so a kept grant carries no time finer than the day. */
     body: jsonb("body").notNull(),
-    /** Set from the app's injected clock; defaultNow() is only a fallback. */
-    createdAt: ts("created_at").notNull().defaultNow(),
   },
   (t) => [
     index("reward_grants_user_id_idx").on(t.userId),

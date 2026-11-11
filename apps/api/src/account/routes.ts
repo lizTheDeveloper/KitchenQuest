@@ -195,7 +195,8 @@ async function buildExport(tx: Tx, config: Config, userId: string, now: Date, re
   }));
 
   // Progress (U-5): every event and grant as stored (erased meal-log events are gone; their grants stay), and the view.
-  const catalogue = catalogueFor(await progressDeps.recipes.current(tx), progressDeps.loop);
+  // Unchecked: the export never fails on content (a player's data can always be downloaded).
+  const catalogue = catalogueFor(await progressDeps.recipes.current(tx), progressDeps.loop, { check: false });
   const progress = { ...(await loadProgressForExport(tx, userId)), view: await progressViewOf(tx, userId, catalogue) };
 
   const ents = await tx

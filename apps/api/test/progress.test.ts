@@ -1,5 +1,6 @@
 // M5 Step 5: progress events and append-only reward grants, computed by core, entitlement-blind (Ruling 7, spec §6).
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,11 +11,14 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { buildApp } from '../src/app.js';
 import { defaultCatalog, defaultLoopContent, loadLoopContent } from '../src/catalog.js';
 import { NOTICES } from '../src/consent/notices.js';
+import { ADVISORY_LOCK } from '../src/db/advisory-locks.js';
 import { progressEvents, rewardGrants } from '../src/db/schema.js';
 import { grant as grantEntitlement } from '../src/entitlements/entitlements.js';
 import { CaptureMailer } from '../src/mail/mailer.js';
 import { catalogueFor } from '../src/progress/catalogue.js';
+import { PROGRESS_REQUESTS_PER_MINUTE } from '../src/progress/routes.js';
 import { MAX_EVENTS_PER_REQUEST } from '../src/progress/service.js';
+import { WRITES_PER_DAY } from '../src/usage/write-cap.js';
 import { createRecipeIndexSource } from '../src/recipes/recipe-index.js';
 import { RECIPES_DIR, syncCanon } from '../src/recipes/sync.js';
 import type { Db } from '../src/types.js';
@@ -84,10 +88,22 @@ const rows = async (userId: string) => ({
   grants: await db.select().from(rewardGrants).where(eq(rewardGrants.userId, userId)),
 });
 
-let n = 0;
-const eid = () => `ev-${++n}`;
+const eid = (): string => randomUUID();
 const cooked = (recipe: string, at = TODAY, id = eid()): ProgressEvent => ({ id, kind: 'cooked', at, recipe, planned: false });
-const meal = (minute: number, at = TODAY, id = eid()): ProgressEvent => ({ id, kind: 'meal_logged', at, minute });
+/** A meal-log event; `mealLogId` must be the player's own log of `at` for it to be accepted (I1). */
+const meal = (minute: number, mealLogId: string = eid(), at = TODAY, id = eid()): ProgressEvent => ({ id, kind: 'meal_logged', at, minute, mealLogId });
+const lesson = (recipe: string, at = TODAY, id = eid()): ProgressEvent => ({ id, kind: 'lesson', at, recipe });
+
+async function consent(cookie: string) {
+  const res = await call(cookie, { method: 'POST', url: '/me/consents', payload: { purpose: 'health_data', noticeVersion: NOTICES.health_data!.version } });
+  expect(res.statusCode).toBe(201);
+}
+/** Logs a meal through POST /meals (needs health_data) and returns its id. */
+async function logMeal(cookie: string, eatenOn = TODAY): Promise<string> {
+  const res = await call(cookie, { method: 'POST', url: '/meals', payload: { meal: { eatenOn, slot: 'lunch', item: { kind: 'free', description: 'soup' } }, confirmed: true } });
+  expect(res.statusCode, res.body).toBe(201);
+  return res.json<{ meal: { id: string } }>().meal.id;
+}
 /** Leela's quest, steps 1–6 and done (her quest has no `requires`). */
 const leelaQuest = (at = TODAY): ProgressEvent[] => [
   ...Array.from({ length: 6 }, (_, i): ProgressEvent => ({ id: eid(), kind: 'quest_step', at, quest: 'leela-tempering', step: i + 1 })),
@@ -221,8 +237,8 @@ describe('POST /progress/events and GET /progress', () => {
   it('201 events for one day → the 201st rejected with too_many_events; the other 200 and other dates stored (per event, C14)', async () => {
     const p = await player();
     const day = addDays(TODAY, -1);
-    const many = Array.from({ length: 201 }, (_, i) => meal(i, day));
-    const other = meal(0, TODAY);
+    const many = Array.from({ length: 201 }, (_, i) => lesson([PARIPPU, ONIGIRI, FRIJOLES][i % 3], day));
+    const other = lesson(PARIPPU, TODAY);
     await post(p.cookie, many.slice(0, 100));
     await post(p.cookie, many.slice(100, 200));
     const r = await post(p.cookie, [many[200], other]);
@@ -242,7 +258,7 @@ describe('POST /progress/events and GET /progress', () => {
     expect(await post(p.cookie, [old], true)).toMatchObject({ accepted: [], duplicate: [old.id] });
     // An upload still refuses a date past tomorrow, and still checks the catalogue.
     const future = cooked(PARIPPU, addDays(TODAY, 2));
-    const unknown = cooked('nowhere/dish', addDays(TODAY, -400));
+    const unknown = cooked('nowhere/dish', addDays(TODAY, -200));
     expect((await post(p.cookie, [future, unknown], true)).rejected).toEqual([
       { clientId: future.id, problems: ['bad_date'] },
       { clientId: unknown.id, problems: ['unknown_recipe'] },
@@ -262,7 +278,7 @@ describe('POST /progress/events and GET /progress', () => {
       if (k === 0) log.push({ id: eid(), kind: 'lesson', at, recipe: recipes[i % 3] });
       else if (k <= 2) log.push(cooked(recipes[(i + k) % 3], at));
       else if (k === 3) log.push({ id: eid(), kind: 'market_run', at, weekStart: at });
-      else log.push(meal(k * 140, at));
+      else log.push(lesson(recipes[k % 3], at));
     }
     // The device's own view: core over the same log, as the game folds it (Step 9).
     const cat = catalogueFor(await createRecipeIndexSource().current(db), loop);
@@ -303,7 +319,7 @@ describe('POST /progress/events and GET /progress', () => {
     const guild = await player();
     await grantEntitlement(db, guild.id, 'guild', 'manual', new Date('2026-01-01T00:00:00Z'));
     await grantEntitlement(db, guild.id, 'founding', 'manual', new Date('2026-01-01T00:00:00Z'));
-    const events = [...leelaQuest(addDays(TODAY, -8)), cooked(PARIPPU, addDays(TODAY, -8)), cooked(PARIPPU, TODAY), meal(600), { id: eid(), kind: 'market_run', at: TODAY, weekStart: TODAY }];
+    const events = [...leelaQuest(addDays(TODAY, -8)), cooked(PARIPPU, addDays(TODAY, -8)), cooked(PARIPPU, TODAY), { id: eid(), kind: 'market_run', at: TODAY, weekStart: TODAY }];
     const a = await post(free.cookie, events);
     const b = await post(guild.cookie, events);
     expect(b).toEqual(a);
@@ -354,14 +370,13 @@ describe('POST /progress/events and GET /progress', () => {
 describe('nothing earned is taken back (spec §6)', () => {
   it('deleting a meal log, withdrawing health_data with delete, and rule edits leave reward_grants untouched', async () => {
     const p = await player();
-    const consent = await call(p.cookie, { method: 'POST', url: '/me/consents', payload: { purpose: 'health_data', noticeVersion: NOTICES.health_data!.version } });
-    expect(consent.statusCode).toBe(201);
-    const logged = await call(p.cookie, { method: 'POST', url: '/meals', payload: { meal: { eatenOn: TODAY, slot: 'lunch', item: { kind: 'free', description: 'soup' } }, confirmed: true } });
-    expect(logged.statusCode).toBe(201);
-    const lunch = meal(720);
-    const dinner = meal(1140);
+    await consent(p.cookie);
+    const lunchLog = await logMeal(p.cookie);
+    const dinnerLog = await logMeal(p.cookie);
+    const lunch = meal(720, lunchLog);
+    const dinner = meal(1140, dinnerLog);
     const cook = cooked(PARIPPU);
-    await post(p.cookie, [lunch, dinner, cook, ...leelaQuest()]);
+    expect((await post(p.cookie, [lunch, dinner, cook, ...leelaQuest()])).rejected).toEqual([]);
     const before = await rows(p.id);
     const viewBefore = await view(p.cookie);
     expect(viewBefore.xp).toBeGreaterThan(0);
@@ -374,22 +389,19 @@ describe('nothing earned is taken back (spec §6)', () => {
     expect((await call(p.cookie, { method: 'DELETE', url: `/rules/${ruleId}` })).statusCode).toBe(204);
     expect((await rows(p.id)).grants).toEqual(before.grants);
 
-    // A meal-log undo: the log goes, and its meal_logged event; the grants stay.
-    const mealId = logged.json<{ meal: { id: string } }>().meal.id;
-    expect((await call(p.cookie, { method: 'DELETE', url: `/meals/${mealId}` })).statusCode).toBe(204);
-    expect((await call(p.cookie, { method: 'DELETE', url: `/progress/events/${lunch.id}` })).statusCode).toBe(204);
-    // Only meal_logged events are ever erased, and only the player's own.
-    expect((await call(p.cookie, { method: 'DELETE', url: `/progress/events/${cook.id}` })).statusCode).toBe(404);
-    expect((await call(p.cookie, { method: 'DELETE', url: `/progress/events/${lunch.id}` })).statusCode).toBe(404);
-    const other = await player();
-    expect((await call(other.cookie, { method: 'DELETE', url: `/progress/events/${dinner.id}` })).statusCode).toBe(404);
+    // A meal-log undo is DELETE /meals/:id alone (I1): the log's meal_logged event goes with it, server-side; the grants stay.
+    expect((await call(p.cookie, { method: 'DELETE', url: `/meals/${lunchLog}` })).statusCode).toBe(204);
     let now = await rows(p.id);
     expect(now.events.map((e) => e.clientId)).not.toContain(lunch.id);
     expect(now.events.map((e) => e.clientId)).toContain(dinner.id);
     expect(now.grants).toEqual(before.grants);
-    expect(JSON.stringify(now.events)).not.toContain('720');
+    expect(JSON.stringify(now)).not.toContain('720');
+    // There is no route that erases a progress event by id.
+    expect((await call(p.cookie, { method: 'DELETE', url: `/progress/events/${dinner.id}` })).statusCode).toBe(404);
     // An erased event's id stays seen through its grant: a replay is a duplicate, and earns nothing again.
     expect(await post(p.cookie, [lunch])).toMatchObject({ accepted: [], duplicate: [lunch.id] });
+    // A new event for the deleted log is refused: the log is gone.
+    expect((await post(p.cookie, [meal(800, lunchLog)])).rejected).toEqual([expect.objectContaining({ problems: ['unknown_meal_log'] })]);
 
     // A health_data withdraw-with-delete erases the meal_logged events (when they ate), never another kind or a grant.
     const withdraw = await call(p.cookie, { method: 'DELETE', url: '/me/consents/health_data', payload: { healthData: 'delete' } });
@@ -400,10 +412,196 @@ describe('nothing earned is taken back (spec §6)', () => {
     expect(now.grants).toEqual(before.grants);
     const viewAfter = await view(p.cookie);
     expect(viewAfter).toMatchObject({ xp: viewBefore.xp, level: viewBefore.level, stamps: viewBefore.stamps, trust: viewBefore.trust });
-    // The day's nourishment cap still counts the erased logs' grants.
-    const later = await post(p.cookie, [meal(0), meal(400)]);
+
+    // After the withdrawal, a queued meal-log event (the old dinner log, or any) stores nothing (I1 c).
+    expect((await post(p.cookie, [meal(1200, dinnerLog)])).rejected).toEqual([expect.objectContaining({ problems: ['consent_required'] })]);
+    expect((await rows(p.id)).events.filter((e) => e.kind === 'meal_logged')).toEqual([]);
+
+    // With consent again, the day's nourishment cap still counts the erased logs' grants.
+    await consent(p.cookie);
+    const later = await post(p.cookie, [meal(0, await logMeal(p.cookie)), meal(400, await logMeal(p.cookie))]);
     const nourished = later.accepted.flatMap((a) => a.grants).filter((g) => g.kind === 'xp' && g.reason === 'nourishment');
     expect(nourished).toHaveLength(loop.rewards.xp.nourishment.max_per_day - 2);
+  });
+});
+
+describe('meal-log events (I1)', () => {
+  it('are accepted only with health_data, for the player\'s own log of that day, once per log; grants never copy the log id', async () => {
+    const p = await player();
+    // No consent: rejected per event, the rest of the batch recorded.
+    const noConsent = meal(600);
+    const other = cooked(PARIPPU);
+    expect(await post(p.cookie, [noConsent, other])).toMatchObject({ rejected: [{ clientId: noConsent.id, problems: ['consent_required'] }], accepted: [{ clientId: other.id }] });
+
+    await consent(p.cookie);
+    const own = await logMeal(p.cookie);
+    const yesterday = await logMeal(p.cookie, addDays(TODAY, -1));
+    const someone = await player();
+    await consent(someone.cookie);
+    const theirs = await logMeal(someone.cookie);
+    const forged = meal(600, randomUUID());
+    const notMine = meal(600, theirs);
+    const wrongDay = meal(600, yesterday);
+    const ok = meal(600, own);
+    const second = meal(900, own);
+    const r = await post(p.cookie, [forged, notMine, wrongDay, ok, second]);
+    expect(r.rejected).toEqual([
+      { clientId: forged.id, problems: ['unknown_meal_log'] },
+      { clientId: notMine.id, problems: ['unknown_meal_log'] },
+      { clientId: wrongDay.id, problems: ['unknown_meal_log'] },
+    ]);
+    expect(r.accepted.map((a) => a.clientId)).toEqual([ok.id]);
+    // One event per log: a second event for the same log is covered by the first.
+    expect(r.duplicate).toEqual([second.id]);
+    expect(await post(p.cookie, [meal(1000, own)])).toMatchObject({ accepted: [], duplicate: [expect.any(String)] });
+
+    const stored = await rows(p.id);
+    const event = stored.events.find((e) => e.clientId === ok.id)!;
+    expect(event.mealLogId).toBe(own);
+    expect(event.body).toEqual({ minute: 600 });
+    expect(JSON.stringify(stored.grants)).not.toContain(own);
+    // A missing mealLogId is outside the shape.
+    const bare = { id: eid(), kind: 'meal_logged', at: TODAY, minute: 10 };
+    expect((await post(p.cookie, [bare])).rejected).toEqual([{ clientId: bare.id, problems: ['bad_event'] }]);
+  });
+});
+
+describe('grants hold no time finer than the day (I2)', () => {
+  it('after a meal-log undo, no stored or exported field of its grant is finer than the day', async () => {
+    const p = await player();
+    await consent(p.cookie);
+    const log = await logMeal(p.cookie);
+    const e = meal(745, log);
+    const [granted] = (await post(p.cookie, [e])).accepted[0].grants;
+    expect(granted).toEqual({ id: `${e.id}#0`, eventId: e.id, isoDay: TODAY, kind: 'xp', amount: loop.rewards.xp.nourishment.per_log, reason: 'nourishment' });
+    expect((await call(p.cookie, { method: 'DELETE', url: `/meals/${log}` })).statusCode).toBe(204);
+    const cols = await sql<{ column_name: string; data_type: string }[]>`
+      select column_name, data_type from information_schema.columns where table_name = 'reward_grants'`;
+    expect(cols.filter((c) => /time|date/.test(c.data_type))).toEqual([]);
+    const [row] = await sql<{ body: Record<string, unknown> }[]>`select body from reward_grants where user_id = ${p.id}`;
+    expect(Object.keys(row.body).sort()).toEqual(['amount', 'eventId', 'id', 'isoDay', 'reason']);
+    const x = (await call(p.cookie, { method: 'GET', url: '/me/export' })).json<{ progress: { events: unknown[]; grants: Record<string, unknown>[] } }>();
+    expect(x.progress.events).toEqual([]);
+    expect(x.progress.grants).toEqual([granted]);
+  });
+});
+
+describe('client ids are UUIDs (I3)', () => {
+  it('an id that is not a UUID rejects the event and is not echoed', async () => {
+    const p = await player();
+    const named = { ...cooked(PARIPPU), id: 'meal-2026-11-10-1230-parippu' };
+    const upper = cooked(ONIGIRI, TODAY, randomUUID().toUpperCase());
+    const r = await post(p.cookie, [named, upper]);
+    expect(r.rejected).toEqual([{ clientId: '', problems: ['bad_event'] }]);
+    // One UUID is one event however it is spelled.
+    expect(r.accepted.map((a) => a.clientId)).toEqual([upper.id.toLowerCase()]);
+    expect(await post(p.cookie, [{ ...upper, id: upper.id.toLowerCase() }])).toMatchObject({ accepted: [], duplicate: [upper.id.toLowerCase()] });
+    expect(JSON.stringify(await rows(p.id))).not.toContain('meal-2026');
+  });
+});
+
+describe('abuse limits (I4)', () => {
+  it('no event date before 2026-01-01, upload or not', async () => {
+    const p = await player();
+    const early = cooked(PARIPPU, '2025-12-31');
+    const ancient = { id: eid(), kind: 'market_run', at: '0001-01-01', weekStart: '0001-01-01' };
+    const first = cooked(ONIGIRI, '2026-01-01');
+    const oldImport = { id: eid(), kind: 'imported', at: TODAY, technique: 'grains', tier: 'seen', firstAt: '2025-06-01', lastUsedAt: TODAY, recipes: [] };
+    const r = await post(p.cookie, [early, ancient, first, oldImport], true);
+    expect(r.rejected).toEqual([
+      { clientId: early.id, problems: ['bad_date'] },
+      { clientId: ancient.id, problems: ['bad_date'] },
+      { clientId: oldImport.id, problems: ['bad_date'] },
+    ]);
+    expect(r.accepted.map((a) => a.clientId)).toEqual([first.id]);
+  });
+
+  it('limits progress requests per player per minute (429 rate_limited with retry-after)', async () => {
+    const p = await player();
+    for (let i = 0; i < PROGRESS_REQUESTS_PER_MINUTE; i++) expect((await call(p.cookie, { method: 'GET', url: '/progress' })).statusCode).toBe(200);
+    const refused = await call(p.cookie, { method: 'POST', url: '/progress/events', payload: { events: [cooked(PARIPPU)] } });
+    expect(refused.statusCode).toBe(429);
+    expect(refused.json()).toMatchObject({ error: { code: 'rate_limited', details: { retryAfterSeconds: expect.any(Number) } } });
+    expect(refused.headers['retry-after']).toBeDefined();
+    expect((await rows(p.id)).events).toEqual([]);
+    // Another player is not limited.
+    expect((await call((await player()).cookie, { method: 'GET', url: '/progress' })).statusCode).toBe(200);
+  });
+
+  it('a daily write cap (the same for everyone, Guild or not) refuses the post with a 429, and drops nothing already earned', async () => {
+    const p = await player();
+    await grantEntitlement(db, p.id, 'guild', 'manual', new Date('2026-01-01T00:00:00Z'));
+    const earned = await post(p.cookie, [cooked(PARIPPU)]);
+    // Stand in for a day of posts: WRITES_PER_DAY recorded posts in the last day.
+    await sql`insert into audit_events (at, actor_kind, actor_id, subject_user_id, action)
+      select ${NOW.toISOString()}::timestamptz, 'user', ${p.id}, ${p.id}, 'progress.record' from generate_series(1, ${WRITES_PER_DAY - 1})`;
+    const refused = await call(p.cookie, { method: 'POST', url: '/progress/events', payload: { events: [cooked(ONIGIRI)] } });
+    expect(refused.statusCode).toBe(429);
+    expect(refused.json()).toMatchObject({ error: { code: 'rate_limited', details: { retryAfterSeconds: expect.any(Number) } } });
+    expect(Number(refused.headers['retry-after'])).toBeGreaterThan(0);
+    expect(await view(p.cookie)).toEqual(earned.view);
+    expect((await rows(p.id)).events).toHaveLength(1);
+  });
+});
+
+describe('lock order (M2)', () => {
+  /** Holds `progress:` for `userId` on another connection, runs `request`, and checks it waited on that lock. */
+  async function waitsOnProgressLock(userId: string, request: () => Promise<{ statusCode: number }>): Promise<number> {
+    const blocker = await sql.reserve();
+    try {
+      await blocker`begin`;
+      await blocker`select pg_advisory_xact_lock(${ADVISORY_LOCK.progress}, hashtext(${userId}))`;
+      const pending = request();
+      for (let i = 0; ; i++) {
+        const [w] = await sql<{ n: number }[]>`
+          select count(*)::int as n from pg_stat_activity
+          where datname = current_database() and wait_event_type = 'Lock' and wait_event = 'advisory'`;
+        if (w.n >= 1) break;
+        if (i > 300) throw new Error('the request never waited on the progress: lock');
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      await blocker`commit`;
+      return (await pending).statusCode;
+    } finally {
+      await blocker`rollback`.catch(() => {});
+      blocker.release();
+    }
+  }
+
+  it('a health_data withdraw-with-delete takes progress: before the consent row', async () => {
+    const p = await player();
+    await consent(p.cookie);
+    await post(p.cookie, [meal(600, await logMeal(p.cookie))]);
+    const status = await waitsOnProgressLock(p.id, () => call(p.cookie, { method: 'DELETE', url: '/me/consents/health_data', payload: { healthData: 'delete' } }));
+    expect(status).toBe(204);
+    expect((await rows(p.id)).events).toEqual([]);
+  });
+
+  it('a meal-log delete takes progress: before the meal log', async () => {
+    const p = await player();
+    await consent(p.cookie);
+    const log = await logMeal(p.cookie);
+    await post(p.cookie, [meal(600, log)]);
+    expect(await waitsOnProgressLock(p.id, () => call(p.cookie, { method: 'DELETE', url: `/meals/${log}` }))).toBe(204);
+    expect((await rows(p.id)).events).toEqual([]);
+  });
+});
+
+describe('batch duplicates (M3)', () => {
+  it('only an id or claim that was stored or accepted makes a duplicate', async () => {
+    const p = await player();
+    const id = eid();
+    const bad = cooked('nowhere/dish', TODAY, id);
+    const good = cooked(PARIPPU, TODAY, id);
+    // The first is rejected by core, so the second with the same id is tried, and accepted.
+    expect(await post(p.cookie, [bad, good])).toMatchObject({ rejected: [{ clientId: id, problems: ['unknown_recipe'] }], accepted: [{ clientId: id }], duplicate: [] });
+    const forgedImport = { id: eid(), kind: 'imported', at: TODAY, technique: 'legumes', tier: 'yours', firstAt: TODAY, lastUsedAt: TODAY, recipes: [] };
+    const realImport = { id: eid(), kind: 'imported', at: TODAY, technique: 'legumes', tier: 'tried', firstAt: TODAY, lastUsedAt: TODAY, recipes: [PARIPPU] };
+    const thirdImport = { ...realImport, id: eid() };
+    const r = await post(p.cookie, [forgedImport, realImport, thirdImport], true);
+    expect(r.rejected).toEqual([{ clientId: forgedImport.id, problems: ['bad_field'] }]);
+    expect(r.accepted.map((a) => a.clientId)).toEqual([realImport.id]);
+    expect(r.duplicate).toEqual([thirdImport.id]);
   });
 });
 
@@ -414,7 +612,7 @@ describe('export and account delete', () => {
     const r = await post(p.cookie, [e]);
     const x = (await call(p.cookie, { method: 'GET', url: '/me/export' })).json<{ progress: { events: unknown[]; grants: unknown[]; view: ProgressView } }>();
     expect(x.progress.events).toEqual([{ ...e, createdAt: NOW.toISOString() }]);
-    expect(x.progress.grants).toEqual(r.accepted[0].grants.map((g) => ({ ...g, createdAt: NOW.toISOString() })));
+    expect(x.progress.grants).toEqual(r.accepted[0].grants);
     expect(x.progress.view).toEqual(r.view);
     expect((await call(p.cookie, { method: 'DELETE', url: '/me', payload: { confirm: 'delete my account' } })).statusCode).toBe(204);
     expect(await sql`select 1 from progress_events where user_id = ${p.id}`).toHaveLength(0);
@@ -512,5 +710,25 @@ describe('recipe index (C7)', () => {
       await syncCanon(db, RECIPES_DIR, catalog.graph, new Date(NOW.getTime() + 120_000));
     }
     expect((await post(p.cookie, [cooked(extra)])).rejected).toEqual([expect.objectContaining({ problems: ['unknown_recipe'] })]);
+  });
+
+  it('a sync that drops a dish a quest names makes progress requests fail loudly, naming the quest (M5)', async () => {
+    const p = await player();
+    const recipesDir = mkdtempSync(join(tmpdir(), 'kq-recipes-'));
+    try {
+      cpSync(RECIPES_DIR, recipesDir, { recursive: true });
+      rmSync(join(recipesDir, `${ONIGIRI}.cook`));
+      await syncCanon(db, recipesDir, catalog.graph, new Date(NOW.getTime() + 180_000));
+      const res = await call(p.cookie, { method: 'POST', url: '/progress/events', payload: { events: [cooked(PARIPPU)] } });
+      expect(res.statusCode).toBe(500);
+      expect((await call(p.cookie, { method: 'GET', url: '/progress' })).statusCode).toBe(500);
+      expect((await rows(p.id)).events).toEqual([]);
+      // The export never fails on content.
+      expect((await call(p.cookie, { method: 'GET', url: '/me/export' })).statusCode).toBe(200);
+    } finally {
+      rmSync(recipesDir, { recursive: true, force: true });
+      await syncCanon(db, RECIPES_DIR, catalog.graph, new Date(NOW.getTime() + 240_000));
+    }
+    expect((await call(p.cookie, { method: 'POST', url: '/progress/events', payload: { events: [cooked(PARIPPU)] } })).statusCode).toBe(200);
   });
 });
