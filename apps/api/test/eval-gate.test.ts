@@ -64,7 +64,8 @@ describe('the mentor eval gate', () => {
     const { model, providers } = shippedAi();
     const prompt = loadPanPrompt(loadPanBank());
     const base = promptFingerprint(prompt, MENTOR_TOOLS, model, providers);
-    expect(promptFingerprint(prompt, MENTOR_TOOLS, model, [...providers].reverse())).not.toBe(base);
+    expect(promptFingerprint(prompt, MENTOR_TOOLS, model, [...providers, 'other'])).not.toBe(base);
+    expect(promptFingerprint(prompt, MENTOR_TOOLS, model, ['other', ...providers])).not.toBe(base);
     expect(promptFingerprint(prompt, MENTOR_TOOLS, 'qwen/other', providers)).not.toBe(base);
     expect(promptFingerprint(prompt, MENTOR_TOOLS.slice(1), model, providers)).not.toBe(base);
     expect(promptFingerprint({ ...prompt, system: `${prompt.system} ` }, MENTOR_TOOLS, model, providers)).not.toBe(base);
