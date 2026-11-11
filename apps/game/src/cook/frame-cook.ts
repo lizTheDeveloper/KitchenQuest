@@ -17,6 +17,7 @@ import { rulesOf } from '../week/context';
 import { takePick } from '../week/memory';
 import { writtenLine } from '../week/plan-view';
 import { runCookMode } from './cook-mode';
+import { afterCookThenKitchen } from './finish';
 
 /**
  * A Pantry Frame in cook mode (`#/frame/<id>`, M5 Step 10, Ruling 13). First the slot picker: for each slot, the
@@ -186,7 +187,8 @@ export function frameCook(el: HTMLElement, frame: Frame, deps: { ctx: AppContext
           }
         },
         leave: () => ctx.navigate({ name: 'kitchen' }),
-        after: () => ctx.navigate({ name: 'kitchen' }),
+        // Step 11: the after-cook questions (who ate, the one-tap log; frames take no margin note), then the kitchen.
+        after: () => { void afterCookThenKitchen(el, ctx, { slug: null, frame: frame.id, recipe: current.recipe, at: localDate(ctx.now()) }); },
         inputsKey: cardInputsKey,
         recheck: () => {
           const r = rulesOf(ctx.store.get());

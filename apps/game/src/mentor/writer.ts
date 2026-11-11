@@ -1,7 +1,7 @@
 import {
   confirmedLines, isSevereCard, pantryMatcher, rejectedLine, SEVERE, trailSummary, undoneLine, UNDO_WINDOW_MS, validateRules, withSeverity,
-  type IngredientGraph, type LineRef, type PantryItem, type Plan, type PlanCard, type ProposalCard, type ReplyPart, type Rule, type RuleTerm,
-  type ServerCard, type Severity, type TrailEntry,
+  type CheckResult, type IngredientGraph, type LineRef, type MarginNote, type PantryItem, type Plan, type PlanCard, type ProposalCard, type ReplyPart,
+  type Rule, type RuleTerm, type ServerCard, type Severity, type SharedEntry, type TrailEntry,
 } from '@kitchenquest/core/engine';
 import { localDate } from '../recipes/rules';
 import type { WeekTurn } from './week-turn';
@@ -39,6 +39,25 @@ export type WriteOutcome =
  */
 export interface UndoOutcome { status: 'undone' | 'nothing' | 'full' | 'failed' | 'busy'; items: PanItem[] }
 
+/**
+ * M5 Step 11: the after-cook cards, built by the game's code (after-cook.ts) and kept only by the player's tap.
+ * A margin note (Form 2-M/MARGIN) is health data (Ruling 9); a Shared Table entry (Form 5-S) holds fixed values only
+ * (Ruling 10). Both are account-only. `summary` is the code-built read-back.
+ */
+export interface MarginNoteCard { kind: 'margin_note'; note: MarginNote; summary: string }
+export interface CookedForCard { kind: 'cooked_for'; entry: SharedEntry; summary: string }
+export type BookCard = MarginNoteCard | CookedForCard;
+
+/**
+ * What keeping a book card did. `id` is the stored row's (its undo deletes exactly that row). `check` is the server's
+ * "cook with my notes" check over all the player's notes on the dish (margin notes only). Refusals: `consent_required`
+ * (the consent card is in `items`), `needs_account`, `too_many` (400 `too_many_notes`), `limited` (the daily write
+ * cap), `network`, `invalid`, `busy`, and `family_table` (§19: nothing is kept).
+ */
+export type KeepOutcome =
+  | { ok: true; id: string; items: PanItem[]; check: CheckResult | null; undoUntil: string }
+  | { ok: false; reason: 'consent_required' | 'needs_account' | 'too_many' | 'limited' | 'network' | 'invalid' | 'busy' | 'family_table'; items: PanItem[] };
+
 export interface CardWriter {
   /** severe + typed_yes → tap_required, with no call. */
   confirm(card: CardView, via: 'tap' | 'typed_yes', edits?: { severity?: Severity }): Promise<WriteOutcome>;
@@ -49,6 +68,13 @@ export interface CardWriter {
   raiseRule(card: CardView, accountRule: Rule): Promise<WriteOutcome>;
   reject(card: CardView): Promise<PanItem[]>;
   undo(entry: TrailEntry): Promise<UndoOutcome>;
+  /**
+   * M5 Step 11: keep a margin note (POST /notes) or a Shared Table entry (POST /shared-table) the player tapped, with
+   * their local date as `today`. Each card object is kept at most once (a second tap while the first is in flight is `busy`).
+   */
+  keep(card: BookCard): Promise<KeepOutcome>;
+  /** Undo a kept book card: deletes exactly that row (a row already gone counts as undone). Never touches anything earned. */
+  unkeep(kind: BookCard['kind'], id: string): Promise<'undone' | 'failed'>;
 }
 
 /** Strictest first: a raise may only move a rule up this ranking. */
@@ -109,6 +135,8 @@ export function createCardWriter(deps: {
   const undoing = new Set<string>();
   const closed = new Set<string>();
   const undos = new Map<string, Undo>();
+  const keeping = new WeakSet<BookCard>();
+  const kept = new WeakSet<BookCard>();
 
   const say = (l: LineRef): PanItem => ({ kind: 'said', said: dialogue.say(l.trigger, l.vars) });
   const line = (trigger: string, vars: Record<string, string> = {}): PanItem => say({ trigger, vars });
@@ -153,6 +181,16 @@ export function createCardWriter(deps: {
     if (isWriteCap(r)) return { ok: false, reason: 'limited', items: [line('write.daily_limit')] };
     // Offline, rate-limited or a server error: nothing is known to be written, and the card stays open to try again.
     if (status === 0 || status === 429 || status >= 500) return { ok: false, reason: 'network', items: [] };
+    return { ok: false, reason: 'invalid', items: [line('write.not_done')] };
+  }
+  /** A refused book write (Step 11): consent asks with the card; the cap, offline and the rest say nothing new. */
+  function keepRefused(r: Extract<ApiResult<unknown>, { ok: false }>): Extract<KeepOutcome, { ok: false }> {
+    if (r.status === 403 && r.error.code === 'consent_required') {
+      return { ok: false, reason: 'consent_required', items: [line('consent.health_first'), { kind: 'consent', purpose: 'health_data' }] };
+    }
+    if (r.status === 401) return { ok: false, reason: 'needs_account', items: [] };
+    if (isWriteCap(r)) return { ok: false, reason: 'limited', items: [line('write.daily_limit')] };
+    if (r.status === 0 || r.status === 429 || r.status >= 500) return { ok: false, reason: 'network', items: [] };
     return { ok: false, reason: 'invalid', items: [line('write.not_done')] };
   }
   const isWriteCap = (r: Extract<ApiResult<unknown>, { ok: false }>) =>
@@ -474,6 +512,35 @@ export function createCardWriter(deps: {
       } finally {
         undoing.delete(key);
       }
+    },
+
+    async keep(card) {
+      if (familyTable()) return { ok: false, reason: 'family_table', items: [] };
+      if (!signedIn()) return { ok: false, reason: 'needs_account', items: card.kind === 'margin_note' ? [line('margin.needs_account')] : [] };
+      if (kept.has(card) || keeping.has(card)) return { ok: false, reason: 'busy', items: [] };
+      keeping.add(card);
+      try {
+        const undoUntil = () => new Date(deps.now().getTime() + UNDO_WINDOW_MS).toISOString();
+        if (card.kind === 'margin_note') {
+          const r = await client.createNote(card.note, today());
+          if (r.ok) { kept.add(card); return { ok: true, id: r.data.note.id, items: [], check: r.data.note.check, undoUntil: undoUntil() }; }
+          if (r.status === 400 && r.error.code === 'too_many_notes') return { ok: false, reason: 'too_many', items: [] };
+          return keepRefused(r);
+        }
+        const r = await client.recordShared(card.entry, today());
+        if (!r.ok) return keepRefused(r);
+        kept.add(card);
+        // Equal warmth either way (audit M-9): nothing is counted against eating alone.
+        const warm = card.entry.cookedFor.count === 'just_me' ? 'cooked_for.alone' : 'cooked_for.shared';
+        return { ok: true, id: r.data.id, items: [line(warm)], check: null, undoUntil: undoUntil() };
+      } finally {
+        keeping.delete(card);
+      }
+    },
+
+    async unkeep(kind, id) {
+      const r = kind === 'margin_note' ? await client.deleteNote(id) : await client.deleteShared(id);
+      return r.ok || r.status === 404 ? 'undone' : 'failed';
     },
   };
 }

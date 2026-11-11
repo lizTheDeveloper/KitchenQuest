@@ -1,7 +1,7 @@
-import { MENTOR_CLIENT_TIMEOUT_MS, type Plan, type ProgressEvent, type Rule, type Severity } from '@kitchenquest/core/engine';
+import { MENTOR_CLIENT_TIMEOUT_MS, type MarginNote, type Plan, type ProgressEvent, type Rule, type Severity, type SharedEntry, type SharedTally } from '@kitchenquest/core/engine';
 import type {
   ApiErrorBody, ApiResult, ConfirmRequest, ConfirmResponse, ConsentPurpose, Consents, ConsentRecord, CurrentPlanResponse, MarketRunResponse, MealEntry, Me,
-  PantryItem, PlanSaveResponse, Profile, ProgressPostResponse, ProgressResponse, RecipeDetail, RecipeSummary, ReplyPart, TurnRequest, TurnResponse,
+  NoteSaveResponse, NotesResponse, PantryItem, PlanSaveResponse, Profile, ProgressPostResponse, ProgressResponse, RecipeDetail, RecipeSummary, ReplyPart, TurnRequest, TurnResponse,
 } from './types';
 
 /**
@@ -66,6 +66,19 @@ export interface ApiClient {
   tick(runId: string, key: string, ticked: boolean, today: string): Promise<ApiResult<MarketRunResponse>>;      // POST /market-runs/:id/ticks
   /** "That's the shop done": a tap, so `confirmed: true`. */
   finishRun(runId: string, today: string): Promise<ApiResult<MarketRunResponse>>;                                // POST /market-runs/:id/finish
+  /**
+   * M5 Step 7, the Recipe Book. Margin notes are health data: a write is 403 `consent_required` without `health_data`,
+   * 400 `too_many_notes` past MAX_NOTES_PER_RECIPE. `listNotes` takes no argument and its URL no query (P-5, C32): the
+   * client filters by recipe. Writes send `today`, the player's local date, and `confirmed: true` only after a tap.
+   */
+  listNotes(): Promise<ApiResult<NotesResponse>>;                                                              // GET /notes
+  createNote(note: MarginNote, today: string): Promise<ApiResult<NoteSaveResponse>>;                           // POST /notes (201)
+  deleteNote(id: string): Promise<ApiResult<null>>;                                                            // DELETE /notes/:id (204)
+  /** Cooked for Someone (Ruling 10): fixed values only, never a name. */
+  recordShared(entry: SharedEntry, today: string): Promise<ApiResult<{ id: string }>>;                         // POST /shared-table (201)
+  /** Counts only (C21): `byRecipe` gives each book page its count. */
+  sharedTally(): Promise<ApiResult<SharedTally>>;                                                              // GET /shared-table/tally
+  deleteShared(id: string): Promise<ApiResult<null>>;                                                          // DELETE /shared-table/:id (204)
 }
 
 const isObj = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x);
@@ -173,6 +186,12 @@ export function createApiClient(opts: { baseUrl?: string; fetch?: typeof fetch; 
     openRun: (weekStart, today) => call('POST', '/market-runs', { weekStart, today }),
     tick: (runId, key, ticked, today) => call('POST', `/market-runs/${enc(runId)}/ticks`, { key, ticked, today }),
     finishRun: (runId, today) => call('POST', `/market-runs/${enc(runId)}/finish`, { confirmed: true, today }),
+    listNotes: () => call('GET', '/notes'),
+    createNote: (note, today) => call('POST', '/notes', { note, confirmed: true, today }),
+    deleteNote: (id) => call('DELETE', `/notes/${enc(id)}`),
+    recordShared: (entry, today) => call('POST', '/shared-table', { entry, confirmed: true, today }),
+    sharedTally: () => call('GET', '/shared-table/tally'),
+    deleteShared: (id) => call('DELETE', `/shared-table/${enc(id)}`),
   };
 }
 

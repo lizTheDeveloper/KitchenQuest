@@ -4,7 +4,7 @@
  * `validateRules` (through `activeRules`) before any check uses them.
  */
 import type {
-  CheckResult, CheckStatus, MarketRunView, NutritionResult, Plan, PlanItemCheck, ProgressView, RecipeIngredient, RecipeMeta, RewardGrant,
+  CheckResult, CheckStatus, MarginNote, MarketRunView, NutritionResult, Plan, PlanItemCheck, ProgressView, RecipeIngredient, RecipeMeta, RewardGrant,
 } from '@kitchenquest/core/engine';
 
 /**
@@ -79,3 +79,13 @@ export interface CurrentPlanResponse { plan: (Plan & { id: string }) | null; wee
 export interface PlanSaveResponse { plan: Plan & { id: string }; checks: PlanItemCheck[] }
 /** POST /market-runs, its ticks and its finish (Step 6): the run, its unticked rows recomputed now (C40). */
 export type MarketRunResponse = MarketRunView;
+
+/** A margin note as the API stores it (Step 7): core's `MarginNote` and the row id. */
+export type StoredNote = MarginNote & { id: string };
+/** GET /notes (Step 7, C32): every note the player has; the client filters by recipe. No query, ever. */
+export interface NotesResponse { notes: StoredNote[] }
+/**
+ * POST /notes (201): the note as stored, and `check`, core `checkWithNotes` over all the player's notes on that recipe
+ * with their rules now: what "cook with my notes" will show.
+ */
+export interface NoteSaveResponse { note: StoredNote & { check: CheckResult } }

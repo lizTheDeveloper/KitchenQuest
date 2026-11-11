@@ -17,13 +17,15 @@ describe('parseRoute', () => {
     expect(parseRoute('#/plan')).toEqual({ name: 'plan' });
     expect(parseRoute('#/market')).toEqual({ name: 'market' });
     expect(parseRoute('#/frame/green-sauce')).toEqual({ name: 'frame', id: 'green-sauce' });
+    expect(parseRoute('#/book')).toEqual({ name: 'book', slug: null });
+    expect(parseRoute('#/book/india/kerala/parippu')).toEqual({ name: 'book', slug: 'india/kerala/parippu' });
     expect(parseRoute('#/plan/x')).toEqual({ name: 'notFound', hash: '#/plan/x' });
     expect(parseRoute('#/market/x')).toEqual({ name: 'notFound', hash: '#/market/x' });
   });
   it('ignores query strings', () => {
     expect(parseRoute('#/map?x=1')).toEqual({ name: 'map' });
   });
-  it.each(['#/visit/../x', '#/recipe/India/x', '#/cook/', '#/nowhere', '#/recipe/', '#/map/x', '#/visit/a/b', '#/frame/', '#/frame/a/b', '#/frame/Green', '#/recipe/a//b', 'map'])(
+  it.each(['#/visit/../x', '#/recipe/India/x', '#/cook/', '#/nowhere', '#/recipe/', '#/map/x', '#/visit/a/b', '#/frame/', '#/frame/a/b', '#/frame/Green', '#/recipe/a//b', '#/book/', '#/book/India', 'map'])(
     '%j is notFound', (h) => {
       expect(parseRoute(h)).toEqual({ name: 'notFound', hash: h });
     });
@@ -34,6 +36,7 @@ describe('routeHref', () => {
     { name: 'kitchen' }, { name: 'map' }, { name: 'visit', cookId: 'leela' }, { name: 'recipes' },
     { name: 'recipe', slug: 'india/kerala/parippu' }, { name: 'cook', slug: 'india/kerala/parippu' }, { name: 'settings' }, { name: 'rules' },
     { name: 'plan' }, { name: 'market' }, { name: 'frame', id: 'green-sauce' },
+    { name: 'book', slug: null }, { name: 'book', slug: 'india/kerala/parippu' },
   ];
   it.each(routes)('round-trips %j', (r) => {
     expect(parseRoute(routeHref(r))).toEqual(r);

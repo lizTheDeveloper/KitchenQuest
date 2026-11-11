@@ -151,3 +151,36 @@ describe('an empty frame slot (M5 Step 3 fix round 1, M4)', () => {
     expect(findingText(f)).not.toMatch(/identify|label/);
   });
 });
+
+describe('cook with my notes (M5 Step 11)', () => {
+  const peanutSevere: Rule = { id: 'p1', target: { kind: 'ingredient', ids: ['peanut'] }, type: 'avoid', severity: 'anaphylactic' };
+  const note = (text: string | null, ops: import('@kitchenquest/core/engine').NoteOp[] = []) => ({ recipe: SLUG, ops, text, at: today });
+  const withNotes = (rules: RulesState, notes: ReturnType<typeof note>[], slug = SLUG) =>
+    buildRecipeCard({ slug, content, graph, rules, today, showCalories: false, notes });
+
+  test('a stamped "used peanut butter" note is ⛔ for a peanut rule, though the canon is not', () => {
+    expect(card(ready([peanutSevere])).status).not.toBe('blocked');
+    const c = withNotes(ready([peanutSevere]), [note(null, [{ op: 'add', name: 'peanut butter' }])]);
+    expect(c).toMatchObject({ status: 'blocked', cookable: false, withNotes: true });
+  });
+  test('unread note text never changes the recipe but always counts for safety', () => {
+    const c = withNotes(ready([peanutSevere]), [note('a spoon of peanut butter, just because')]);
+    expect(c.status).toBe('blocked');
+  });
+  test('never safer than canon: a note that removes the blocking ingredient still checks it', () => {
+    const canon = card(ready([coconutSevere]));
+    const c = withNotes(ready([coconutSevere]), [note(null, [{ op: 'remove', name: 'coconut' }])]);
+    expect(canon.status).toBe('blocked');
+    expect(c.status).toBe('blocked');
+  });
+  test('notes on another dish are ignored; no notes is the canon card', () => {
+    const other = { ...note(null, [{ op: 'add', name: 'peanut butter' }]), recipe: 'japan/osaka/onigiri' };
+    const c = withNotes(ready([peanutSevere]), [other]);
+    expect(c.withNotes).toBe(false);
+    expect(c.status).toBe(card(ready([peanutSevere])).status);
+  });
+  test('rules that can\'t be read: ❓, never ok, whatever the notes say', () => {
+    const c = withNotes({ status: 'error', reason: 'unreadable', message: 'x', problems: [] }, [note('no changes really')]);
+    expect(c.status).toBe('unverified');
+  });
+});

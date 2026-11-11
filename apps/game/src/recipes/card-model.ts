@@ -1,6 +1,6 @@
 import {
-  check, DISCLAIMER, nutritionPerServing,
-  type CheckStatus, type Finding, type IngredientGraph, type Nutrient,
+  check, checkWithNotes, DISCLAIMER, nutritionPerServing,
+  type CheckStatus, type Finding, type IngredientGraph, type MarginNote, type Nutrient,
 } from '@kitchenquest/core/engine';
 import type { ClientContent } from '../content/types';
 import type { RulesState } from './rules';
@@ -28,6 +28,8 @@ export interface RecipeCard {
   /** Show a link to Your rules (#/rules) with the error: the player can fix it there. */
   rulesLink: boolean;
   cookable: boolean; notCookableReason: 'blocked' | 'sacred' | null;
+  /** M5 Step 11: true when this is "cook with my notes": checked by core `checkWithNotes`, never safer than the canon. */
+  withNotes: boolean;
   nutrition: { rows: NutritionRow[]; estimated: boolean; missing: string[] };
 }
 
@@ -45,9 +47,14 @@ const NUTRIENT_ROWS: { nutrient: Nutrient; label: string; unit: string }[] = [
  * Everything a recipe card shows. Status comes only from core `check` and nutrition only from core
  * `nutritionPerServing` (§2.1). When the rules can't be read, `check` is not called and the card is
  * unverified: never ok, never blocked (§2.2).
+ *
+ * With `notes` (M5 Step 11, "cook with my notes"), the status comes from core `checkWithNotes` instead: the worst of
+ * the recipe with every note applied and every ingredient any note names, read or not. That is never safer than the
+ * canon check, and the canon recipe itself is never changed. A sacred dish takes no notes (audit M-5): they are ignored.
  */
 export function buildRecipeCard(input: {
   slug: string; content: ClientContent; graph: IngredientGraph; rules: RulesState; today: string; showCalories: boolean;
+  notes?: readonly MarginNote[];
 }): RecipeCard {
   const { slug, content, graph, rules, today, showCalories } = input;
   const recipe = content.recipes[slug];
@@ -56,6 +63,8 @@ export function buildRecipeCard(input: {
   const cook = content.cooks[meta.cook];
   if (!cook) throw new Error(`Recipe "${slug}" names unknown cook "${meta.cook}"`);
   const skillName = (id: string) => content.techniques.techniques.find((t) => t.id === id)?.name ?? id;
+  const myNotes = meta.sacred ? [] : (input.notes ?? []).filter((n) => n.recipe === slug);
+  const withNotes = myNotes.length > 0;
 
   let status: CheckStatus;
   let findings: CardFinding[];
@@ -74,7 +83,9 @@ export function buildRecipeCard(input: {
     rulesError = rules.message; // player copy; core's problem strings never reach a card
     rulesLink = rules.reason !== 'account_not_loaded';
   } else {
-    const result = check(recipe, rules.rules, graph, content.substitutions, today);
+    const result = withNotes
+      ? checkWithNotes(recipe, myNotes, rules.rules, graph, content.substitutions, today)
+      : check(recipe, rules.rules, graph, content.substitutions, today);
     const notes = new Map(rules.rules.map((r) => [r.id, r.note ?? null]));
     status = result.status;
     severe = result.severe;
@@ -105,7 +116,7 @@ export function buildRecipeCard(input: {
     skills: meta.skills.map((id) => ({ id, name: skillName(id) })),
     draft: meta.status === 'draft', sacred,
     status, findings, severe, disclaimer, rulesChecked, rulesError, rulesLink,
-    cookable, notCookableReason: sacred ? 'sacred' : status === 'blocked' ? 'blocked' : null,
+    cookable, notCookableReason: sacred ? 'sacred' : status === 'blocked' ? 'blocked' : null, withNotes,
     nutrition: { rows, estimated: n.estimated, missing: n.missing },
   };
 }

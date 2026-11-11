@@ -95,7 +95,7 @@ describe('Form 1-A intake by conversation (M4 Step 11)', () => {
         consentPosts.push(r.request());
         return r.fulfill(json(201, { consent: {} }));
       }
-      return r.fulfill(json(200, { consents: [], needsReconsent: [], notices: { health_data: { version: 'v2', text: 'HEALTH NOTICE TEXT' }, ai_health: { version: 'v1', text: 'AI NOTICE TEXT' } } }));
+      return r.fulfill(json(200, { consents: [], needsReconsent: [], notices: { health_data: { version: 'v3', text: 'HEALTH NOTICE TEXT' }, ai_health: { version: 'v1', text: 'AI NOTICE TEXT' } } }));
     }),
   ]);
 
@@ -140,7 +140,7 @@ describe('Form 1-A intake by conversation (M4 Step 11)', () => {
     expect(consentPosts).toHaveLength(0);
     await consent.getByRole('button', { name: 'I agree' }).click();
     await expect.poll(() => consentPosts.length).toBe(1);
-    expect(consentPosts[0].postDataJSON()).toEqual({ purpose: 'health_data', noticeVersion: 'v2', method: 'tap' });
+    expect(consentPosts[0].postDataJSON()).toEqual({ purpose: 'health_data', noticeVersion: 'v3', method: 'tap' });
     await expect.poll(() => lastPan(page)).toSatisfy((t: string | undefined) => lines('intake.allergies.ask').includes(t ?? ''));
   });
 
@@ -186,7 +186,7 @@ describe('Form 1-A intake by conversation (M4 Step 11)', () => {
           const consents = granted
             ? [{ purpose: 'ai_health', noticeVersion: 'v1', noticeSha256: 'x', method: 'tap', grantedAt: '2026-11-01T00:00:00Z', withdrawnAt: null, endedReason: null, current: true }]
             : [];
-          return r.fulfill(json(200, { consents, needsReconsent: [], notices: { health_data: { version: 'v2', text: 'HEALTH NOTICE TEXT' }, ai_health: { version: 'v1', text: 'AI NOTICE TEXT' } } }));
+          return r.fulfill(json(200, { consents, needsReconsent: [], notices: { health_data: { version: 'v3', text: 'HEALTH NOTICE TEXT' }, ai_health: { version: 'v1', text: 'AI NOTICE TEXT' } } }));
         });
       },
     });
@@ -224,7 +224,7 @@ describe('Form 1-A intake by conversation (M4 Step 11)', () => {
     const calls: { method: string; path: string; body: unknown }[] = [];
     // A grant under an old notice: it no longer counts.
     let health: 'stale' | 'granted' | 'none' = 'stale';
-    const rec = (current: boolean) => ({ purpose: 'health_data', noticeVersion: current ? 'v2' : 'v1', noticeSha256: 'x', method: 'tap', grantedAt: '2026-11-01T00:00:00Z', withdrawnAt: null, endedReason: null, current });
+    const rec = (current: boolean) => ({ purpose: 'health_data', noticeVersion: current ? 'v3' : 'v2', noticeSha256: 'x', method: 'tap', grantedAt: '2026-11-01T00:00:00Z', withdrawnAt: null, endedReason: null, current });
     app = await openApp('/#/settings', {
       reducedMotion: true, seed: { aiDisclosureSeen: true, intake: { step: 'done' } },
       beforeGoto: async (page) => {
@@ -238,7 +238,7 @@ describe('Form 1-A intake by conversation (M4 Step 11)', () => {
           if (req.method() === 'DELETE') { health = 'none'; return r.fulfill({ status: 204 }); }
           return r.fulfill(json(200, {
             consents: health === 'none' ? [] : [rec(health === 'granted')], needsReconsent: health === 'stale' ? ['health_data'] : [],
-            notices: { health_data: { version: 'v2', text: 'HEALTH NOTICE V2' }, ai_health: { version: 'v1', text: 'AI NOTICE TEXT' } },
+            notices: { health_data: { version: 'v3', text: 'HEALTH NOTICE V3' }, ai_health: { version: 'v1', text: 'AI NOTICE TEXT' } },
           }));
         });
       },
@@ -252,10 +252,10 @@ describe('Form 1-A intake by conversation (M4 Step 11)', () => {
     await box.click();
     const notice = page.locator('.health-data-notice .consent-card');
     await notice.waitFor();
-    expect(await notice.textContent()).toContain('HEALTH NOTICE V2');
+    expect(await notice.textContent()).toContain('HEALTH NOTICE V3');
     await notice.getByRole('button', { name: 'I agree' }).click();
     await expect.poll(() => box.isChecked()).toBe(true);
-    expect(calls).toEqual([{ method: 'POST', path: '/api/me/consents', body: { purpose: 'health_data', noticeVersion: 'v2', method: 'tap' } }]);
+    expect(calls).toEqual([{ method: 'POST', path: '/api/me/consents', body: { purpose: 'health_data', noticeVersion: 'v3', method: 'tap' } }]);
     // Withdraw: one tap opens the choice; nothing is sent until one is picked.
     await box.click();
     const choice = page.getByRole('group', { name: 'Stop keeping health details?' });
@@ -289,7 +289,7 @@ describe('Form 1-A intake by conversation (M4 Step 11)', () => {
             return r.fulfill({ status: 204 });
           }
           // Withdrawn earlier with "keep": no active grant.
-          return r.fulfill(json(200, { consents: [], needsReconsent: [], notices: { health_data: { version: 'v2', text: 'HEALTH NOTICE V2' }, ai_health: { version: 'v1', text: 'AI NOTICE TEXT' } } }));
+          return r.fulfill(json(200, { consents: [], needsReconsent: [], notices: { health_data: { version: 'v3', text: 'HEALTH NOTICE V3' }, ai_health: { version: 'v1', text: 'AI NOTICE TEXT' } } }));
         });
       },
     });

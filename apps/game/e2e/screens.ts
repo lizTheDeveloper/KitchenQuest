@@ -88,7 +88,7 @@ const button = (page: Page, name: string | RegExp) => page.getByRole('button', {
 const json = (status: number, body: unknown) => ({ status, contentType: 'application/json', body: JSON.stringify(body) });
 /** Done with Form 1-A and the AI disclosure (M4 Step 11), so a screen opens without the intake. */
 const PAN_READY: Partial<PlayerState> = { intake: { step: 'done' }, aiDisclosureSeen: true };
-const NOTICES = { health_data: { version: 'v2', text: 'We keep your allergies and diet rules so dishes can be checked.' }, ai_health: { version: 'v1', text: 'The AI may see your rules and meals.' } };
+const NOTICES = { health_data: { version: 'v3', text: 'We keep your allergies and diet rules so dishes can be checked.' }, ai_health: { version: 'v1', text: 'The AI may see your rules and meals.' } };
 /** Signed in as cook@example.com with no rules and no consents. */
 async function signedInApi(page: Page): Promise<void> {
   await page.route((u) => u.pathname === '/api/me', (r) => r.fulfill(json(200, { id: 'u1', email: 'cook@example.com', entitlements: [] })));
@@ -96,7 +96,7 @@ async function signedInApi(page: Page): Promise<void> {
   await page.route((u) => u.pathname === '/api/me/consents', (r) => r.fulfill(json(200, { consents: [], needsReconsent: [], notices: NOTICES })));
 }
 const BOTH_CONSENTS = {
-  consents: ['health_data', 'ai_health'].map((purpose) => ({ purpose, noticeVersion: purpose === 'health_data' ? 'v2' : 'v1', noticeSha256: 'x', method: 'tap', grantedAt: '2026-11-01T00:00:00Z', withdrawnAt: null, endedReason: null, current: true })),
+  consents: ['health_data', 'ai_health'].map((purpose) => ({ purpose, noticeVersion: purpose === 'health_data' ? 'v3' : 'v1', noticeSha256: 'x', method: 'tap', grantedAt: '2026-11-01T00:00:00Z', withdrawnAt: null, endedReason: null, current: true })),
   needsReconsent: [], notices: NOTICES,
 };
 const line = (trigger: string, vars: Record<string, string> = {}) => ({ kind: 'line', line: { trigger, vars } });
@@ -268,7 +268,7 @@ export const SCREENS: ScreenCase[] = [
     beforeGoto: async (page) => {
       await signedInApi(page);
       await page.route((u) => u.pathname === '/api/me/consents', (r) => r.fulfill(json(200, {
-        consents: [{ purpose: 'health_data', noticeVersion: 'v2', noticeSha256: 'x', method: 'tap', grantedAt: '2026-11-01T00:00:00Z', withdrawnAt: null, endedReason: null, current: true }],
+        consents: [{ purpose: 'health_data', noticeVersion: 'v3', noticeSha256: 'x', method: 'tap', grantedAt: '2026-11-01T00:00:00Z', withdrawnAt: null, endedReason: null, current: true }],
         needsReconsent: [], notices: NOTICES,
       })));
     },

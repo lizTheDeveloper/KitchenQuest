@@ -14,7 +14,7 @@ import { newEventId } from '../progress/log';
 import { cookStepEvents } from '../quests/quest-runner';
 import { plannedOn } from '../week/memory';
 import { runCookMode } from './cook-mode';
-import { cookedEvent } from './finish';
+import { afterCookThenKitchen, cookedEvent } from './finish';
 
 const NOT_COOKABLE_TEXT = "This dish isn't cookable with your rules.";
 const SACRED_TEXT = 'Shared as a story only.';
@@ -101,7 +101,8 @@ export function cookScreen(): Screen {
         },
         record: recordCook,
         leave: () => ctx.navigate({ name: 'recipe', slug }),
-        after: () => ctx.navigate({ name: 'kitchen' }),
+        // Step 11: the three after-cook questions, each skippable, then the kitchen (Family Table: straight there).
+        after: () => { void afterCookThenKitchen(el, ctx, { slug, frame: null, recipe, at: localDate(ctx.now()) }); },
         inputsKey: cardInputsKey,
         recheck: () => {
           const before = card;

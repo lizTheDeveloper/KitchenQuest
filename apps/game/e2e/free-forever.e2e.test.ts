@@ -14,7 +14,7 @@ afterEach(async () => { await app?.close(); app = null; });
 
 const json = (status: number, body: unknown) => ({ status, contentType: 'application/json', body: JSON.stringify(body) });
 const BOTH_CONSENTS = {
-  consents: ['health_data', 'ai_health'].map((purpose) => ({ purpose, noticeVersion: 'v1', noticeSha256: 'x', method: 'tap', grantedAt: '2026-11-01T00:00:00Z', withdrawnAt: null, endedReason: null, current: true })),
+  consents: ['health_data', 'ai_health'].map((purpose) => ({ purpose, noticeVersion: purpose === 'health_data' ? 'v3' : 'v1', noticeSha256: 'x', method: 'tap', grantedAt: '2026-11-01T00:00:00Z', withdrawnAt: null, endedReason: null, current: true })),
   needsReconsent: [], notices: {},
 };
 const panBubbles = (page: Page) => page.locator('#pan-panel .bubble.pan');

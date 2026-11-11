@@ -145,7 +145,7 @@ const tell = async (page: Page, text: string) => {
 };
 const filled = (id: string, vars: Record<string, string>) => lines(id).map((l) => l.replace(/\{(\w+)\}/g, (_m, k: string) => vars[k] ?? ''));
 const BOTH_CONSENTS = {
-  consents: ['health_data', 'ai_health'].map((purpose) => ({ purpose, noticeVersion: 'v1', noticeSha256: 'x', method: 'tap', grantedAt: '2026-11-01T00:00:00Z', withdrawnAt: null, endedReason: null, current: true })),
+  consents: ['health_data', 'ai_health'].map((purpose) => ({ purpose, noticeVersion: purpose === 'health_data' ? 'v3' : 'v1', noticeSha256: 'x', method: 'tap', grantedAt: '2026-11-01T00:00:00Z', withdrawnAt: null, endedReason: null, current: true })),
   needsReconsent: [], notices: {},
 };
 /** Signed in with the AI mentor on: /me, /rules and /me/consents answered; `extra` routes the mentor. */
