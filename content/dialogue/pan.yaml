@@ -591,7 +591,7 @@ triggers:
     lines:
       - "I can't find {term} in the Bureau's ingredient ledger yet, so I can't check dishes for it. Nothing's been saved. Please check every recipe and label yourself, and tell me if you'd like to file something close to it."
       - "The Bureau's ingredient ledger doesn't have {term} yet, so I can't check dishes for it, and I haven't saved anything. Until it does, please check every recipe and label yourself. If there's a related ingredient you'd like me to file, tell me and I'll read it back."
-      - "I can't check dishes for {term} yet; it isn't in the Bureau's ingredient ledger. Nothing's been saved. Please read every recipe and label yourself, and name anything close to it you'd like on file."
+      - "I can't check dishes for {term} yet; it isn't in the Bureau's ingredient ledger. Nothing's been saved. Please read every recipe and label yourself, and name anything close to it that you'd like me to check for instead."
 
   rule.which_one:
     ai: never
