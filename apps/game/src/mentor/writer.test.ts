@@ -843,3 +843,53 @@ describe('card writer: the plan card (M5 Step 10)', () => {
     expect(items).toMatchObject([{ kind: 'go', target: { to: 'plan' }, said: { trigger: 'nav.offer' } }]);
   });
 });
+
+describe('M5 Step 11: book cards (margin notes, Cooked for Someone)', () => {
+  const note = { recipe: 'india/kerala/parippu', ops: [{ op: 'add' as const, name: 'lime' }], text: null, at: '2026-11-10' };
+  const noteCard = () => ({ kind: 'margin_note' as const, note, summary: 'added lime' });
+  const sharedCard = (count: 'just_me' | 'one' = 'one') => ({ kind: 'cooked_for' as const, entry: { cookedOn: '2026-11-10', recipe: 'india/kerala/parippu', frame: null, cookedFor: { count, who: null } }, summary: 'x' });
+  const check = { status: 'ok', findings: [], severe: false, disclaimer: null };
+
+  test('signed out: nothing is called; a note says margin.needs_account, Cooked for Someone says nothing', async () => {
+    const { calls, writer } = setup({});
+    const a = await writer.keep(noteCard());
+    const b = await writer.keep(sharedCard());
+    expect(a).toMatchObject({ ok: false, reason: 'needs_account' });
+    expect(said(a.items)).toEqual(['margin.needs_account']);
+    expect(b).toMatchObject({ ok: false, reason: 'needs_account', items: [] });
+    expect(calls).toEqual([]);
+  });
+  test('Family Table: nothing is kept, nothing is called (C31)', async () => {
+    const { calls, writer } = setup({}, { ...signedIn, settings: { ...createStore(null).get().settings, familyTable: true } });
+    expect(await writer.keep(noteCard())).toMatchObject({ ok: false, reason: 'family_table' });
+    expect(calls).toEqual([]);
+  });
+  test('a note: POST /notes with the local date; the server check comes back; each card is kept once', async () => {
+    const { calls, writer } = setup({ createNote: () => ok({ note: { ...note, id: 'n1', check } }, 201) }, signedIn);
+    const card = noteCard();
+    const [a, b] = await Promise.all([writer.keep(card), writer.keep(card)]);
+    expect(a).toMatchObject({ ok: true, id: 'n1', check });
+    expect(b).toMatchObject({ ok: false, reason: 'busy' });
+    expect(await writer.keep(card)).toMatchObject({ ok: false, reason: 'busy' });
+    expect(calls).toEqual([{ name: 'createNote', args: [note, '2026-11-10'] }]);
+  });
+  test('403 consent_required → consent.health_first and the 3-C card; 400 too_many_notes → too_many; the cap → limited', async () => {
+    const c = setup({ createNote: () => fail(403, 'consent_required') }, signedIn);
+    const out = await c.writer.keep(noteCard());
+    expect(out).toMatchObject({ ok: false, reason: 'consent_required' });
+    expect(out.items.map((i) => i.kind)).toEqual(['said', 'consent']);
+    expect(await setup({ createNote: () => fail(400, 'too_many_notes') }, signedIn).writer.keep(noteCard())).toMatchObject({ ok: false, reason: 'too_many' });
+    expect(await setup({ recordShared: () => writeCap() }, signedIn).writer.keep(sharedCard())).toMatchObject({ ok: false, reason: 'limited' });
+  });
+  test('Cooked for Someone: equal warmth, alone or shared; unkeep deletes exactly that row (404 counts as done)', async () => {
+    const { calls, writer } = setup({ recordShared: () => ok({ id: 's1' }, 201), deleteShared: () => fail(404, 'not_found') }, signedIn);
+    expect(said((await writer.keep(sharedCard('just_me'))).items)).toEqual(['cooked_for.alone']);
+    expect(said((await writer.keep(sharedCard('one'))).items)).toEqual(['cooked_for.shared']);
+    expect(await writer.unkeep('cooked_for', 's1')).toBe('undone');
+    expect(calls.at(-1)).toEqual({ name: 'deleteShared', args: ['s1'] });
+  });
+  test('unkeep a note offline → failed (the undo stays)', async () => {
+    const { writer } = setup({ deleteNote: () => fail(0, 'network') }, signedIn);
+    expect(await writer.unkeep('margin_note', 'n1')).toBe('failed');
+  });
+});
