@@ -406,6 +406,32 @@ describe('Ruling 2: "Move this week to your account?"', () => {
     expect(calls.map((c) => c.name)).toEqual(['getPlan', 'putPlan', 'openRun']);
   });
 
+  test('N3: a row the account already ticked (run still open) is not ticked again', async () => {
+    const s = signedInWithDeviceWeek();
+    const { client, calls } = fake({ openRun: () => ({ ok: true, status: 200, data: { id: 'run1', weekStart: MON, items: [{ key: 'green_chili', ticked: true, forDishes: [PARIPPU] }], doneAt: null } }) });
+    expect((await moveWeek(s, client, TODAY)).kind).toBe('moved');
+    expect(calls.map((c) => c.name)).not.toContain('tick');
+  });
+
+  test('N3: "Move it" without health_data hands the consent card a retry that moves the week', async () => {
+    const s = signedInWithDeviceWeek();
+    let consented = false;
+    const { client, calls } = fake({
+      putPlan: (p) => (consented ? { ok: true, status: 200, data: { plan: p, checks: [] } } : { ok: false, status: 403, error: { code: 'consent_required', message: '', details: { purpose: 'health_data' } } }),
+    });
+    let retry: (() => void) | null = null;
+    const el = moveOffer({ store: s, client, weekStart: MON, today: TODAY, onMoved: () => undefined, onConsent: (r) => { retry = r; } })!;
+    el.querySelector<HTMLButtonElement>('.week-move')!.click();
+    await flush();
+    expect(retry).not.toBeNull();
+    expect(s.get().localWeek.plans).toHaveLength(1);
+    consented = true;
+    retry!();
+    await flush();
+    expect(calls.filter((c) => c.name === 'putPlan')).toHaveLength(2);
+    expect(s.get().localWeek.plans).toEqual([]);
+  });
+
   test('N3: the offer itself calls nothing; a consent grant runs the move again, a decline doesn\'t', async () => {
     const s = signedInWithDeviceWeek();
     const { client, calls } = fake();
