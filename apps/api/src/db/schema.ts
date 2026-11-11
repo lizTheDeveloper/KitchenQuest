@@ -249,7 +249,7 @@ export const auditEvents = pgTable(
   ],
 );
 
-export const SELF_READ_RESOURCES = ["rules", "meals", "pantry"] as const;
+export const SELF_READ_RESOURCES = ["rules", "meals", "pantry", "progress"] as const;
 
 /**
  * C-5: the player's routine reads of their own health data, counted per user,
@@ -416,5 +416,77 @@ export const mentorProposals = pgTable(
     check("mentor_proposals_kind_check", sql`${t.kind} in (${inList(PROPOSAL_KINDS)})`),
     check("mentor_proposals_status_check", sql`${t.status} in (${inList(PROPOSAL_STATUSES)})`),
     check("mentor_proposals_channel_check", sql`${t.channel} in (${inList(PROPOSAL_CHANNELS)})`),
+  ],
+);
+
+/** Core's `ProgressEventKind`, as stored (`progress/store.ts` checks the two agree). */
+export const PROGRESS_KINDS = [
+  "lesson",
+  "drill",
+  "cooked",
+  "frame_cooked",
+  "quest_step",
+  "quest_done",
+  "recognized",
+  "market_run",
+  "meal_logged",
+  "imported",
+] as const;
+/** Core's `RewardGrant['kind']`, as stored (`progress/store.ts` checks the two agree). */
+export const GRANT_KINDS = ["xp", "stamp", "trust", "level", "certificate"] as const;
+
+/**
+ * U-5 (Ruling 7): what happened in play, as content-free facts. `client_id` is the game's own event id (idempotent
+ * replay and the sign-in upload, Ruling 8); `at` the player's local date. `body` is the rest of core's
+ * `ProgressEvent` as accepted by `grantsFor` (ids and numbers only, each checked against the catalogue, so no free
+ * text lands in it). Plain, on the contract basis: not health data, though dish slugs reveal what was cooked
+ * ([lawyer], inventory U-5). A `meal_logged` row is erased by a meal-log undo or a `health_data` delete; its grants stay.
+ */
+export const progressEvents = pgTable(
+  "progress_events",
+  {
+    id: id(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** Insertion order: the fold replays events in the order `grantsFor` saw them (grants are fixed in that order). */
+    seq: bigserial("seq", { mode: "number" }).notNull(),
+    clientId: text("client_id").notNull(),
+    kind: text("kind").notNull(),
+    at: date("at", { mode: "string" }).notNull(),
+    body: jsonb("body").notNull(),
+    /** Set from the app's injected clock; defaultNow() is only a fallback. */
+    createdAt: ts("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("progress_events_user_client_idx").on(t.userId, t.clientId),
+    index("progress_events_user_at_idx").on(t.userId, t.at),
+    check("progress_events_kind_check", sql`${t.kind} in (${inList(PROGRESS_KINDS)})`),
+  ],
+);
+
+/**
+ * U-5 (Ruling 7, spec §6): what an event earned, fixed when granted and never reversed. `body` is the rest of core's
+ * self-contained `RewardGrant` (its own id, the event's client id, the day and the amount; no event content).
+ * `event_id` is the `progress_events` row it was granted for, a plain column on purpose, not a foreign key: erasing
+ * a `meal_logged` event (undo, `health_data` delete) keeps its grants, so XP never drops. Append-only: there is no
+ * update or delete path; only account delete (the `user_id` cascade) removes a grant.
+ */
+export const rewardGrants = pgTable(
+  "reward_grants",
+  {
+    id: id(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    eventId: uuid("event_id").notNull(),
+    kind: text("kind").notNull(),
+    body: jsonb("body").notNull(),
+    /** Set from the app's injected clock; defaultNow() is only a fallback. */
+    createdAt: ts("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("reward_grants_user_id_idx").on(t.userId),
+    check("reward_grants_kind_check", sql`${t.kind} in (${inList(GRANT_KINDS)})`),
   ],
 );
