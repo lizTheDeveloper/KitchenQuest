@@ -1258,6 +1258,12 @@ triggers:
   # Screen copy (Your rules, Settings > The Pan): one line each, shown exactly as written.
   # ------------------------------------------------------------------
 
+  ui.pan.held:
+    ai: never
+    when: "The Pan panel: the player pressed Send while the Pan is still answering; the message stays in the box (an emergency still goes at once)."
+    lines:
+      - "I'm still answering. Your message is kept in the box; send it again in a moment."
+
   ui.rules.bad_rule:
     ai: never
     when: "Your rules: a saved rule that no longer validates."
@@ -1491,6 +1497,13 @@ triggers:
     when: "Your rules: an Undo on a raised rule that could not be sent (offline)."
     lines:
       - "That didn't go through, so nothing was changed. Try Undo again in a moment."
+
+  card.earlier_conversation:
+    ai: never
+    when: The player taps a card from an earlier conversation (the conversation was cleared or started again since). Nothing is written.
+    notes: "Plain. Never implies anything is on file."
+    lines:
+      - "That card was from an earlier conversation, so nothing's been written down. Tell me again and I'll show you a fresh card to stamp."
 
   undo.rule_changed:
     ai: never

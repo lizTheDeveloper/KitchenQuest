@@ -247,6 +247,29 @@ describe('cards', () => {
     expect(button(root, 'Ink it ✔')!.disabled).toBe(false);
   });
 
+  test('J3: text held while a turn waits stays in the box, Send reads aria-disabled, and the status says it is kept', async () => {
+    let answer!: (r: PanReply) => void;
+    const backend: MentorBackend = { kind: 'ai', reply: () => new Promise<PanReply>((r) => { answer = r; }) };
+    const { root, send } = mount({ backend });
+    const sendBtn = root.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+    const box = root.querySelector<HTMLTextAreaElement>('#pan-text')!;
+    await send('hello');
+    expect(sendBtn.getAttribute('aria-disabled')).toBe('true');
+    await send('what should I cook tonight');
+    expect(box.value).toBe('what should I cook tonight');
+    expect(lines('ui.pan.held')).toContain(root.querySelector('.pan-status')!.textContent);
+    // A safety text can always go: Send is not shown as unavailable for it.
+    box.value = 'my throat is closing';
+    box.dispatchEvent(new Event('input'));
+    expect(sendBtn.hasAttribute('aria-disabled')).toBe(false);
+    answer(reply(['x']));
+    await flush();
+    box.value = 'hi';
+    box.dispatchEvent(new Event('input'));
+    expect(sendBtn.hasAttribute('aria-disabled')).toBe(false);
+    expect(root.querySelector('.pan-status')!.textContent).toBe('');
+  });
+
   test('429 on the tap: the daily write limit shows its line, no "try again" note, and the card stays open', async () => {
     const writer = fakeWriter({ confirm: vi.fn(() => Promise.resolve({ ok: false as const, reason: 'limited' as const, items: [say('write.daily_limit')] })) });
     const { root, pan } = mount({ writer });

@@ -153,7 +153,9 @@ export function createAiBackend(deps: {
     const items = itemsOf(res.parts);
     // A malformed card is dropped with didnt_understand; a reply of only model text (dropped, R9) gets it too (M4).
     if (good.length < res.cards.length || (items.length === 0 && good.length === 0 && actions.length === 0)) items.push(say('didnt_understand'));
-    const cards: ServerCardView[] = good.map((c) => ({ origin: 'server', proposalId: c.proposalId, expiresAt: c.expiresAt, card: c.card, issuedTurn: turn }));
+    const cards: ServerCardView[] = good.map((c) => ({
+      origin: 'server', proposalId: c.proposalId, expiresAt: c.expiresAt, card: c.card, issuedTurn: turn, conversationId: res.conversationId,
+    }));
     return { items, cards, intents: [], actions, notice: res.notice };
   }
 

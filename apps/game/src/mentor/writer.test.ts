@@ -120,6 +120,21 @@ describe('card writer', () => {
     expect(JSON.stringify(out.items)).not.toContain('safe!');
   });
 
+  test('M-6: a card from an earlier conversation, tapped after a new one began, closes with card.earlier_conversation', async () => {
+    const store = createStore(null);
+    store.update((s) => ({ ...s, ...signedIn }));
+    const { client } = fakeClient({ confirmProposal: () => fail(409, 'proposal_closed') });
+    let current: string | null = 'c2';
+    const writer = createCardWriter({ client, store, dialogue: createDialogue(content.pan), graph, ruleTerms: content.ruleTerms, now: () => T0, conversationId: () => current });
+    const out = await writer.confirm({ ...server(milk(), 'P1'), conversationId: 'c1' }, 'tap');
+    expect(out).toMatchObject({ ok: false, reason: 'closed' });
+    expect(said(out.items)).toEqual(['card.earlier_conversation']);
+    // A card of the conversation the player is in that closed (expired, decided) gets no such line.
+    current = 'c1';
+    const same = await writer.confirm({ ...server(milk(), 'P2'), conversationId: 'c1' }, 'tap');
+    expect(same.items).toEqual([]);
+  });
+
   test('H2: a server card tap names the conversation the player is in now', async () => {
     const trail = { id: 'P1', origin: 'server' as const, kind: 'rule' as const, summary: 'milk', undoUntil: '2026-11-10T12:05:00Z' };
     const store = createStore(null);

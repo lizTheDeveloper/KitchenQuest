@@ -484,12 +484,20 @@ export function mountMentorPanel(root: HTMLElement, opts: {
     for (const i of intents) void runIntent(i);
   }
 
+  /** J3: Send reads as unavailable while a turn waits, unless the box holds a safety text (which always goes). */
+  let sendBtn: HTMLButtonElement | null = null;
+  const syncSend = () => {
+    if (!sendBtn || !textBox) return;
+    if (pending && !isSafetyText(textBox.value.trim() || '.')) sendBtn.setAttribute('aria-disabled', 'true');
+    else sendBtn.removeAttribute('aria-disabled');
+  };
   const setPending = (on: boolean) => {
     pendingTurns += on ? 1 : -1;
     pending = pendingTurns > 0;
     // Send stays enabled: a safety text can always go (the submit holds back anything else while a turn waits).
     if (pending) bubbles.setAttribute('aria-busy', 'true'); else bubbles.removeAttribute('aria-busy');
     status.textContent = pending ? THINKING_TEXT : '';
+    syncSend();
   };
 
   /** One Pan turn: bump the turn, show that the Pan is thinking, render the reply (never silent on a throw). */
@@ -538,19 +546,22 @@ export function mountMentorPanel(root: HTMLElement, opts: {
 
   if (standard) {
     textBox = h('textarea', { id: 'pan-text', rows: 2, maxlength: 500, class: 'pan-text' });
-    const sendBtn = h('button', { type: 'submit', class: 'btn btn-primary' }, 'Send');
+    sendBtn = h('button', { type: 'submit', class: 'btn btn-primary' }, 'Send');
     const form = h('form', { class: 'pan-form' },
       h('label', { for: 'pan-text' }, 'Say something to the Pan'),
       textBox,
       sendBtn,
     );
+    textBox.addEventListener('input', syncSend);
     form.addEventListener('submit', (ev) => {
       ev.preventDefault();
       const text = textBox!.value.trim();
       if (!text) return;
-      // While a turn is waiting, only a safety text goes ahead (answered at once, on the device); anything else stays in the box.
-      if (pending && !isSafetyText(text)) return;
+      // While a turn is waiting, only a safety text goes ahead (answered at once, on the device); anything else stays in
+      // the box, and the polite status says so (J3), never silently.
+      if (pending && !isSafetyText(text)) { status.textContent = dialogue.say('ui.pan.held').text; return; }
       textBox!.value = '';
+      syncSend();
       addBubble('you', text);
       void reply({ kind: 'text', text });
     });

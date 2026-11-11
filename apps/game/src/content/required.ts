@@ -62,6 +62,14 @@ export const REQUIRED_PAN_TRIGGERS: readonly string[] = [
   'undo.rule_changed',
   'rule.raise_not_stricter',
   'rule.raise_gone',
+  // M4 final M-1: lines the server emits that the client draws by id (apps/api/test/pan-lines.test.ts checks the list).
+  'rule.already_saved',
+  'write.daily_limit',
+  'log.estimate_note',
+  'rule.severe_label_reminder',
+  // M4 final: an old server card tapped after a new conversation (M-6); text held while a turn waits (J3).
+  'card.earlier_conversation',
+  'ui.pan.held',
   'didnt_understand',
   'rate_limited',
   // Form 1-A intake, every step by id (no globs).

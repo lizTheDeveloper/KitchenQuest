@@ -129,7 +129,7 @@ describe('AI backend', () => {
     const req = turns(calls)[0].args[0] as TurnRequest;
     expect(req).toEqual({ conversationId: null, input: { kind: 'text', text: 'My market day is Saturday.' }, localDate: '2026-11-10', localTime: expect.stringMatching(/^\d\d:\d\d$/) as string, screen: { route: 'kitchen' }, intakeStep: null, turnKey: expect.stringMatching(/^[0-9a-f-]{36}$/) as string });
     expect(said(r)).toEqual(['profile.readback']);
-    expect(r.cards).toEqual([{ origin: 'server', proposalId: 'P1', expiresAt: '2026-11-10T12:30:00Z', card, issuedTurn: 3 }]);
+    expect(r.cards).toEqual([{ origin: 'server', proposalId: 'P1', expiresAt: '2026-11-10T12:30:00Z', card, issuedTurn: 3, conversationId: 'c1' }]);
     expect(backend.conversationId).toBe('c1');
     await backend.reply(text('hello'), ctx({ turn: 4 }));
     expect((turns(calls)[1].args[0] as TurnRequest).conversationId).toBe('c1');

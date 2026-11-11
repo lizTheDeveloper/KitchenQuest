@@ -311,8 +311,13 @@ export function createCardWriter(deps: {
       try {
         let out: WriteOutcome;
         if (view.origin === 'server') {
-          const r = await client.confirmProposal(view.proposalId, edits, deps.conversationId?.());
+          const now = deps.conversationId?.();
+          const r = await client.confirmProposal(view.proposalId, edits, now);
           out = r.ok ? { ok: true, trail: r.data.trail, items: partsToItems(r.data.parts, dialogue) } : refused(r, card);
+          // M-6: a card from an earlier conversation (cleared, or started again since) closes with the reason, not silently.
+          if (!out.ok && out.reason === 'closed' && view.conversationId !== undefined && view.conversationId !== (now ?? null)) {
+            out = { ...out, items: [line('card.earlier_conversation')] };
+          }
         } else {
           if (severity !== undefined && card.kind === 'rule') card = withSeverity(card, severity, graph, ruleTerms);
           out = await writeLocal(card);

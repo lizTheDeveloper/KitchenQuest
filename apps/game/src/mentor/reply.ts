@@ -9,7 +9,11 @@ import type { Said } from './dialogue';
 /** A card the client's scripted engine built. Nothing is written until the writer runs it. */
 export interface LocalCardView { origin: 'local'; localId: string; card: ProposalCard; issuedTurn: number }
 /** A card the server issued (a sealed proposal row). */
-export interface ServerCardView { origin: 'server'; proposalId: string; expiresAt: string; card: ProposalCard; issuedTurn: number }
+export interface ServerCardView {
+  origin: 'server'; proposalId: string; expiresAt: string; card: ProposalCard; issuedTurn: number;
+  /** The server conversation the card was issued in (M-6: a tap after a new conversation says why it closed). */
+  conversationId?: string | null;
+}
 export type CardView = LocalCardView | ServerCardView;
 
 /** How a consent card ended. `unavailable` (the notice couldn't load) is not a no: the question stays open. */
