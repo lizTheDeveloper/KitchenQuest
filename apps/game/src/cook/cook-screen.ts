@@ -235,7 +235,8 @@ export function cookScreen(): Screen {
         finished = true;
         clearInterval(interval);
         ctx.store.update((s) => ({ ...s, cookProgress: null }));
-        await recordCook();
+        // In the background (M7): the certificate shows at once, and the grants' lines follow when they're known.
+        void recordCook();
         await wake.disable();
         say('cook.done', { dish: cook.dish || card.title, cook: cook.name });
         const form = content.bureau.forms.certificate;

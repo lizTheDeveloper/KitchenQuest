@@ -23,11 +23,11 @@ describe('progress log', () => {
     const store = createStore(null);
     const events = cooks(3);
     const results = grantsForBatch(events, historyOf(store.get().progress), cat, content.rewards, content.techniques.freshness);
-    appendEvents(store, results.map((r) => r.event), results.flatMap((r) => r.grants));
+    appendEvents(store, null, results.map((r) => r.event), results.flatMap((r) => r.grants));
     expect(store.get().progress.pendingUpload).toEqual(events.map((e) => e.id));
-    markUploaded(store, [events[0].id]);
+    markUploaded(store, null, [events[0].id]);
     expect(store.get().progress.pendingUpload).toEqual(events.slice(1).map((e) => e.id));
-    appendEvents(store, results.map((r) => r.event), []); // the same ids again: nothing doubles
+    appendEvents(store, null, results.map((r) => r.event), []); // the same ids again: nothing doubles
     expect(store.get().progress.events).toHaveLength(3);
   });
 
@@ -36,14 +36,14 @@ describe('progress log', () => {
     const events = cooks(MAX_DEVICE_EVENTS);
     const results = grantsForBatch(events, historyOf(store.get().progress), cat, content.rewards, content.techniques.freshness);
     expect(results.every((r) => r.problems.length === 0)).toBe(true);
-    appendEvents(store, results.map((r) => r.event), results.flatMap((r) => r.grants));
+    appendEvents(store, null, results.map((r) => r.event), results.flatMap((r) => r.grants));
     expect(store.get().progress.base).toBeNull();
     const before = deviceView(store.get().progress);
     const uncompacted = historyOf(store.get().progress);
 
     const [next] = cooks(1, MAX_DEVICE_EVENTS + 40);
     const r = grantsFor(next, historyOf(store.get().progress), cat, content.rewards, content.techniques.freshness);
-    appendEvents(store, [r.event], r.grants);
+    appendEvents(store, null, [r.event], r.grants);
     const p = store.get().progress;
     expect(p.events).toHaveLength(MAX_DEVICE_EVENTS);
     expect(p.base).not.toBeNull();

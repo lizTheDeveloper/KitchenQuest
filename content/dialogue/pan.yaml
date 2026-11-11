@@ -1028,6 +1028,15 @@ triggers:
       - "We'll skip that at the market. {cook} will show you the adapted way; nothing about the lesson is less for it."
       - "Not that one for you. {cook} knows another way, and the kitchen is just as glad to have you."
 
+  quest.not_saved:
+    ai: never
+    when: A quest step's events didn't reach the progress log (offline, or the ledger refused them). The step stays where it was; the player can try again or come back later. Never a penalty, never a guess that it was saved.
+    lines:
+      - "That step didn't get written down. Nothing is lost; the step is still here. Try again, or come back later."
+      - "The ledger didn't take that one just now. I'm a pan; I can hold the page. Try again when you're ready."
+      - "I couldn't write that step down. The kitchen will wait, and so will I."
+      - "That didn't reach the ledger. The step stays where it is; try again in a moment, or later."
+
   quest.cook_adapted:
     ai: never
     when: A quest's dish clashes with the player's rules and no other dish or frame for its techniques passes them, so the cook step completes as a lesson instead. Same quest rewards; nothing is cooked, so no technique moves past Seen.

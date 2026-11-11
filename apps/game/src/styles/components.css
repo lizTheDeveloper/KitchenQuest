@@ -440,3 +440,9 @@ input[type="search"] {
   margin: 0; padding: .5rem .75rem; background: var(--parchment); color: var(--parchment-ink);
   box-shadow: 0 0 0 3px var(--parchment-ink), 0 0 0 6px var(--iron);
 }
+.guest-offer {
+  max-width: 32rem; margin: 1.5rem 6px; padding: .75rem 1rem; background: var(--parchment); color: var(--parchment-ink);
+  box-shadow: 0 0 0 3px var(--parchment-ink), 0 0 0 6px var(--iron);
+}
+.guest-offer h2 { margin: 0 0 .25rem; color: var(--parchment-ink); }
+.quest-rules-link { color: var(--parchment-ink); }

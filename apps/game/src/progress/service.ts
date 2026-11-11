@@ -20,12 +20,11 @@ export interface ProgressService {
   /** The player's rules context today, or undefined while their rules can't be read (then no claim is made). */
   rulesContext(today?: string): RulesContext | undefined;
   signedIn(): void;
-  signedOut(): void;
   readonly sync: ProgressSync;
 }
 
 /** The player's rules and content for core, or undefined while the rules can't be read ("can't verify" is never safe). */
-export function rulesContextFor(state: PlayerState, today: string): RulesContext | undefined {
+function rulesContextFor(state: PlayerState, today: string): RulesContext | undefined {
   const r = activeRules(state, graph);
   if (r.status !== 'ready') return undefined;
   return rulesContextOf(r.rules, state.account === null ? state.localPantry : [], today);
@@ -35,7 +34,6 @@ export function createProgressService(deps: { client: ApiClient; store: PlayerSt
   const { client, store, win } = deps;
   const doc = win.document;
   const cat = catalogueOf();
-  let account: { email: string; view: ProgressView } | null = null;
   const listeners = new Set<() => void>();
   const notify = () => { for (const fn of [...listeners]) fn(); };
   const today = () => localDate(new Date());
@@ -44,12 +42,6 @@ export function createProgressService(deps: { client: ApiClient; store: PlayerSt
     store, client,
     online: () => win.navigator.onLine !== false,
     context: () => rulesContextFor(store.get(), today()),
-    onAccountView: (view) => {
-      const email = store.get().account?.email;
-      if (email === undefined) return;
-      account = { email, view };
-      notify();
-    },
     onWarnings: (w) => {
       // Surfaced, never fatal: a dropped stand-in claim keeps the cook's own grants (concern-3 ruling).
       console.warn('progress: set aside', w.map((x) => x.warnings.join(',')).join('; '));
@@ -67,14 +59,9 @@ export function createProgressService(deps: { client: ApiClient; store: PlayerSt
       });
       return grants;
     },
-    view() {
-      const s = store.get();
-      const acc = account !== null && s.account?.email === account.email ? account.view : null;
-      return currentProgress(s, acc, cat);
-    },
+    view: () => currentProgress(store.get(), cat),
     subscribe(fn) { listeners.add(fn); return () => { listeners.delete(fn); }; },
     rulesContext: (day) => rulesContextFor(store.get(), day ?? today()),
     signedIn() { void sync.uploadDeviceLog().then(() => sync.refreshAccountView()); },
-    signedOut() { account = null; notify(); },
   };
 }

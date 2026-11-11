@@ -1,3 +1,4 @@
+import { setBeforeSignOut } from '../api/account';
 import type { ApiClient } from '../api/client';
 import type { PlayerStore } from '../state/store';
 import type { ProgressService } from './service';
@@ -20,8 +21,9 @@ export function initProgress(client: ApiClient, store: PlayerStore, win: Window)
     if (now === email) return;
     email = now;
     if (now !== null) signedIn();
-    else if (loading) void loading.then((svc) => svc.signedOut());
   });
+  // C1 ruling: a sign-out first posts what the account still holds (when online), then its partition is hidden.
+  setBeforeSignOut(async () => { if (loading) await (await loading).sync.flush(); });
   win.addEventListener('online', () => { if (store.get().account !== null) signedIn(); });
 }
 

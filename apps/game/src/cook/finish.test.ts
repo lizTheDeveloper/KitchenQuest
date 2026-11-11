@@ -3,6 +3,7 @@ import { deriveProgress, standInCooks, type Rule } from '@kitchenquest/core/engi
 import { content, graph } from '../content';
 import { catalogueOf, rulesContextOf } from '../progress/catalogue';
 import { cookedEvent } from './finish';
+import { standInFixture } from '../progress/stand-in.fixture';
 
 const slug = 'india/kerala/parippu';
 const cat = catalogueOf();
@@ -23,5 +24,9 @@ describe('cookedEvent', () => {
     const frijoles = 'mexico/oaxaca/frijoles-de-olla';
     expect(cookedEvent(frijoles, '2026-11-09', false, 'e2', cat, ctx).standsInFor ?? []).toEqual(standInCooks({ kind: 'recipe', slug: frijoles }, '2026-11-09', cat, ctx));
     expect(cookedEvent(frijoles, '2026-11-09', false, 'e2', cat, undefined)).not.toHaveProperty('standsInFor');
+  });
+  test('standsInFor is filled when a stand-in exists: the shallot dal stands in for Leela when coconut blocks parippu', () => {
+    const fx = standInFixture();
+    expect(cookedEvent(fx.standIn, fx.today, false, 'e3', fx.cat, fx.ctx).standsInFor).toEqual(['leela']);
   });
 });

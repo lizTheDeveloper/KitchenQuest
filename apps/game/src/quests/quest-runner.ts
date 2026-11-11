@@ -1,6 +1,6 @@
 import {
   advance, alternativesFor, currentStep, dishStatus, errandAllowed, questStatus,
-  type AdvanceResult, type IngredientGraph, type PantryItem, type ProgressEvent, type ProgressView, type Quest, type QuestStep, type RewardGrant,
+  type AdvanceResult, type ProgressView as View, type IngredientGraph, type PantryItem, type ProgressEvent, type ProgressView, type Quest, type QuestStep, type RewardGrant,
   type Rule, type StepContext, type StepInput, type Substitution,
 } from '@kitchenquest/core/engine';
 import { content } from '../content';
@@ -32,6 +32,8 @@ export interface QuestRunnerDeps {
 }
 
 const own = <T>(r: Record<string, T>, k: string): T | undefined => (Object.hasOwn(r, k) ? r[k] : undefined);
+/** How many times a step's record is tried before the runner pauses (I1). */
+const MAX_RECORD_TRIES = 3;
 
 /** Whether the pantry already holds the errand's item (the item itself, or something the graph files under it). */
 function inPantry(item: string, pantry: readonly PantryItem[], graph: IngredientGraph): boolean {
@@ -44,12 +46,13 @@ function inPantry(item: string, pantry: readonly PantryItem[], graph: Ingredient
  * the substitutions, the canon recipes and the Pantry Frames on `today` (C5). Every passed step's events go to
  * `record` in order; the grants they earn are the progress service's to announce.
  *
- * Resolves 'done' when the quest is done, 'paused' when it waits for the player: a cook step whose dish they can
- * cook (the visit then shows the recipe card), "Not yet" on an errand or drill, unreadable rules, a waiting quest
- * (C4: never started), or leaving the screen (`signal`). A wrong riddle answer shows its reaction and keeps the step,
- * with no penalty.
+ * Resolves 'done' when the quest is done; 'cook' when the player is to cook the quest's dish (✅ or a swap, or "Cook
+ * it anyway" on a ❓ one: the visit then shows the recipe card); 'paused' when it waits for the player: "Not yet",
+ * unreadable rules, a waiting quest (C4: never started), a step whose events didn't land (I1: a written line and a
+ * bounded retry, never a loop), or leaving the screen (`signal`). A wrong riddle answer shows its reaction and keeps
+ * the step, with no penalty.
  */
-export async function runQuest(slot: HTMLElement, q: Quest, deps: QuestRunnerDeps): Promise<'done' | 'paused'> {
+export async function runQuest(slot: HTMLElement, q: Quest, deps: QuestRunnerDeps): Promise<'done' | 'paused' | 'cook'> {
   const c = deps.content ?? content;
   const newId = deps.newId ?? newEventId;
   const cook = deps.cook ?? { name: own(c.cooks, q.cook)?.name ?? q.cook, portrait: null };
@@ -92,14 +95,34 @@ export async function runQuest(slot: HTMLElement, q: Quest, deps: QuestRunnerDep
     const rules = deps.rules();
     return rules === null ? null : stepContextOf(rules, deps.pantry(), deps.today(), deps.graph, c);
   };
-  const go = async (input: StepInput, ctx: StepContext): Promise<AdvanceResult> => {
-    const r = advance(q, deps.progress(), input, deps.today(), newId, ctx);
-    if (r.ok) await deps.record(r.events);
-    return r;
+  const panText = (trigger: string, vars: Record<string, string> = {}) =>
+    deps.pan ? deps.pan.line(trigger, vars) : (own(c.pan.triggers, trigger)?.lines[0] ?? '');
+  /** Whether the quest moved on between two views: one more step, or its finish. */
+  const moved = (before: View, after: View) =>
+    (own(after.questSteps, q.id) ?? 0) > (own(before.questSteps, q.id) ?? 0) || (after.questsDone.includes(q.id) && !before.questsDone.includes(q.id));
+  /**
+   * Pass the step and record its events. When the record doesn't land (the view didn't move: offline and refused on
+   * the device, the daily cap, an account ahead of this device), the step stops with a written line and a retry of
+   * the same events (ids make a retry a no-op), at most MAX_RECORD_TRIES times, never a loop (I1).
+   */
+  const go = async (input: StepInput, ctx: StepContext): Promise<AdvanceResult | 'not_saved'> => {
+    const before = deps.progress();
+    const r = advance(q, before, input, deps.today(), newId, ctx);
+    if (!r.ok) return r;
+    for (let attempt = 1; ; attempt++) {
+      await deps.record(r.events);
+      if (moved(before, deps.progress())) return r;
+      if (aborted()) return 'not_saved';
+      const last = attempt >= MAX_RECORD_TRIES;
+      const i = await choose([contentText('p', panText('quest.not_saved'), { class: 'quest-prompt quest-not-saved' })], last ? ['Later'] : ['Try again', 'Later']);
+      if (last || i !== 0) return 'not_saved';
+    }
   };
+  const landed = (r: AdvanceResult | 'not_saved'): r is AdvanceResult & { ok: true } => r !== 'not_saved' && r.ok;
 
   const rulesWait = async () => {
-    await choose([h('p', null, "Your rules couldn't be read just now, so this step waits. Open Your rules to look them over.")], ['Later']);
+    const link = h('a', { href: routeHref({ name: 'rules' }), class: 'quest-rules-link' }, 'Open Your rules');
+    await choose([h('p', null, "Your rules couldn't be read just now, so this step waits. ", link, ' to look them over.')], ['Later']);
     return 'paused' as const;
   };
 
@@ -113,8 +136,7 @@ export async function runQuest(slot: HTMLElement, q: Quest, deps: QuestRunnerDep
     const neutral = stepContextOf([], [], deps.today(), deps.graph, c);
     if (cur === null) {
       // Every step passed but the finish never recorded (a lost write): finish it.
-      const r = await go({ type: 'talk' }, neutral);
-      if (!r.ok) return 'paused';
+      if (!landed(await go({ type: 'talk' }, neutral))) return 'paused';
       continue;
     }
     const step: QuestStep = cur.step;
@@ -122,12 +144,13 @@ export async function runQuest(slot: HTMLElement, q: Quest, deps: QuestRunnerDep
       case 'talk': {
         await say(step.lines);
         if (aborted()) return 'paused';
-        await go({ type: 'talk' }, neutral);
+        if (!landed(await go({ type: 'talk' }, neutral))) return 'paused';
         break;
       }
       case 'travel': {
         // Satisfied on arrival: the visit screen is the place.
         const r = await go({ type: 'travel' }, neutral);
+        if (!landed(r)) return 'paused';
         await say(r.say);
         break;
       }
@@ -135,7 +158,7 @@ export async function runQuest(slot: HTMLElement, q: Quest, deps: QuestRunnerDep
         await say(step.lines);
         const i = await choose([contentText('p', step.prompt, { class: 'quest-prompt' })], ["I've practised it", 'Not yet']);
         if (i !== 0) return 'paused';
-        await go({ type: 'drill' }, neutral);
+        if (!landed(await go({ type: 'drill' }, neutral))) return 'paused';
         break;
       }
       case 'riddle': {
@@ -148,6 +171,7 @@ export async function runQuest(slot: HTMLElement, q: Quest, deps: QuestRunnerDep
           );
           if (i < 0) return 'paused';
           const r = await go({ type: 'riddle', option: i }, neutral);
+          if (r === 'not_saved') return 'paused';
           if (r.ok) { await say(r.say); break; }
           // Educationally wrong, never a penalty: the option's reaction, and the same step again.
           reaction = contentText('p', r.say.join(' '), { class: 'quest-reaction', role: 'status' });
@@ -160,7 +184,7 @@ export async function runQuest(slot: HTMLElement, q: Quest, deps: QuestRunnerDep
         if (!errandAllowed(step.item, ctx)) {
           // A player's rules never lock them out of progress: the step passes as adapted, with the same rewards.
           const r = await go({ type: 'errand', have: 'tapped' }, ctx);
-          if (!r.ok) return 'paused';
+          if (!landed(r)) return 'paused';
           if (r.say.length > 0) await say(r.say);
           else if (r.adapted?.trigger) await panSay(r.adapted.trigger, { cook: cook.name });
           const swap = r.adapted?.swap ?? null;
@@ -179,6 +203,7 @@ export async function runQuest(slot: HTMLElement, q: Quest, deps: QuestRunnerDep
         if (aborted()) return 'paused';
         if (inPantry(step.item, deps.pantry(), deps.graph)) {
           const r = await go({ type: 'errand', have: 'pantry' }, ctx);
+          if (!landed(r)) return 'paused';
           await say(r.say);
           break;
         }
@@ -186,12 +211,13 @@ export async function runQuest(slot: HTMLElement, q: Quest, deps: QuestRunnerDep
         const i = await choose([h('p', { class: 'quest-prompt' }, 'Fetch: ', contentText('span', name))], ["I've got it", 'Not yet']);
         if (i !== 0) return 'paused';
         const r = await go({ type: 'errand', have: 'tapped' }, ctx);
+        if (!landed(r)) return 'paused';
         await say(r.say);
         break;
       }
       case 'recognize': {
         const r = await go({ type: 'recognize' }, neutral);
-        if (!r.ok) return 'paused';
+        if (!landed(r)) return 'paused';
         if (r.events.some((e) => e.kind === 'recognized')) {
           await panSay('quest.recognize', { technique: techniqueTitle(step.technique, c), cook: cook.name });
         }
@@ -199,33 +225,42 @@ export async function runQuest(slot: HTMLElement, q: Quest, deps: QuestRunnerDep
         break;
       }
       case 'cook': {
-        const ctx = context();
-        if (ctx === null) return rulesWait();
+        const full = context();
+        if (full === null) return rulesWait();
+        // Frames can't be cooked from here until Step 10's frame cook mode, so they are not offered as stand-ins yet.
+        const ctx: StepContext = { ...full, frames: [] };
         // A cook already done since the quest started (the cook screen advances this step when it finishes).
-        const r = advance(q, deps.progress(), { type: 'cook', cookedEventId: '' }, deps.today(), newId, ctx);
-        if (r.ok) { await deps.record(r.events); break; }
-        if (dishStatus(step.recipe, ctx) !== 'blocked') return 'paused'; // cookable (✅, a swap, or ❓ with its labels checked): the card
-        const alternatives = alternativesFor(step, ctx);
+        const already = advance(q, deps.progress(), { type: 'cook', cookedEventId: '' }, deps.today(), newId, ctx);
+        if (already.ok) {
+          if (!landed(await go({ type: 'cook', cookedEventId: '' }, ctx))) return 'paused';
+          break;
+        }
+        const status = dishStatus(step.recipe, ctx);
+        if (status === 'ok' || status === 'swap') return 'cook'; // the card, to cook it
+        // ⛔, or ❓: a player's rules never lock them out (Task 2 rulings). The stand-ins, else the lesson; on ❓ also
+        // "Cook it anyway" (the card stays ❓, and a real cook still completes the step, I2).
+        const anyway = status === 'unverified' ? ['Cook it anyway'] : [];
         const dish = own(c.recipes, step.recipe)?.meta.title ?? step.recipe;
+        const why = status === 'blocked'
+          ? h('p', { class: 'quest-prompt' }, contentText('span', dish), " isn't cookable with your rules.")
+          : h('p', { class: 'quest-prompt' }, contentText('span', dish), " can't be checked against your rules (❓). If you cook it, check every label.");
+        const alternatives = alternativesFor(step, ctx);
         if (alternatives.length > 0) {
           // Same Hands, Different Kitchen: any of these, cooked, completes the step. ✅ or a labelled swap only.
-          const list = h('ul', { class: 'quest-alternatives' }, ...alternatives.map((a) => {
-            if (a.kind === 'recipe') {
-              const title = own(c.recipes, a.slug)?.meta.title ?? a.slug;
-              return h('li', null, statusChip(a.status), ' ', h('a', { href: routeHref({ name: 'recipe', slug: a.slug }) }, contentText('span', title)));
-            }
-            const frame = c.frames.find((f) => f.id === a.id);
-            return h('li', null, statusChip(a.status), ' ', contentText('span', frame?.title ?? a.id));
+          const list = h('ul', { class: 'quest-alternatives' }, ...alternatives.flatMap((a) => {
+            if (a.kind !== 'recipe') return [];
+            const title = own(c.recipes, a.slug)?.meta.title ?? a.slug;
+            return [h('li', null, statusChip(a.status), ' ', h('a', { href: routeHref({ name: 'recipe', slug: a.slug }) }, contentText('span', title)))];
           }));
-          await choose([h('p', { class: 'quest-prompt' }, contentText('span', dish), " isn't cookable with your rules. Cooking one of these practises the same technique, and counts for this step:")], ['Continue'], [list]);
-          return 'paused';
+          const i = await choose([why, h('p', null, 'Cooking one of these practises the same technique, and counts for this step:')], [...anyway, 'Not yet'], [list]);
+          return anyway.length > 0 && i === 0 ? 'cook' : 'paused';
         }
         // Nothing else passes the rules: the adapted lesson (Seen, never Tried), with the same quest rewards.
-        if (deps.pan) await panSay('quest.cook_adapted', { cook: cook.name });
-        const i = await choose([h('p', { class: 'quest-prompt' }, contentText('span', dish), " isn't cookable with your rules.")], ['Learn it as a lesson', 'Not yet']);
+        const i = await choose([why], ['Learn it as a lesson', ...anyway, 'Not yet']);
+        if (anyway.length > 0 && i === 1) return 'cook';
         if (i !== 0) return 'paused';
-        const lesson = await go({ type: 'cook', lesson: true }, ctx);
-        if (!lesson.ok) return 'paused';
+        if (status === 'blocked') await panSay('quest.cook_adapted', { cook: cook.name });
+        if (!landed(await go({ type: 'cook', lesson: true }, ctx))) return 'paused';
         break;
       }
     }

@@ -11,22 +11,24 @@ const TODAY = '2026-11-09';
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
 /** A runner over an in-memory event list, folded by core with `cat`. `choose` picks a quest panel's button by its label. */
-function harness(_q: Quest, opts: { rules?: Rule[] | null; cat?: Catalogue; events?: ProgressEvent[] } = {}) {
+function harness(_q: Quest, opts: { rules?: Rule[] | null; cat?: Catalogue; events?: ProgressEvent[]; keep?: boolean } = {}) {
   const cat = opts.cat ?? catalogueOf();
   const events: ProgressEvent[] = [...(opts.events ?? [])];
   const slot = document.createElement('div');
   document.body.replaceChildren(slot);
   const controller = new AbortController();
   const panLines: string[] = [];
+  let calls = 0;
   const deps: QuestRunnerDeps = {
     progress: () => deriveProgress({ events, grants: [], base: null }, cat),
-    record: (e) => { events.push(...e); return Promise.resolve([]); },
+    // `keep: false` is a record that never lands (offline and refused on the device, or the daily cap).
+    record: (e) => { calls += 1; if (opts.keep !== false) events.push(...e); return Promise.resolve([]); },
     pantry: () => [], rules: () => (opts.rules === undefined ? [] : opts.rules), graph, subs: [...content.substitutions],
     today: () => TODAY, signal: controller.signal,
     pan: { portrait: null, line: (trigger, vars) => { panLines.push(trigger); return `${trigger} ${JSON.stringify(vars)}`; } },
     reducedMotion: true,
   };
-  return { slot, events, deps, controller, panLines };
+  return { slot, events, deps, controller, panLines, calls: () => calls };
 }
 
 /** Click through dialogue boxes; at each quest panel, `pick` names the button to press (by its text). */
@@ -69,8 +71,8 @@ describe('quest runner', () => {
       if (text.includes('Fetch')) return "I've got it";
       return "I've practised it";
     }, seen);
-    // Paused at the cook step: parippu is cookable, so the visit shows the card.
-    expect(result).toBe('paused');
+    // At the cook step: parippu is cookable, so the runner hands over to the card ('cook').
+    expect(result).toBe('cook');
     const steps = h.events.map((e) => (e.kind === 'quest_step' ? `step${e.step}` : e.kind));
     expect(steps).toEqual(['step1', 'step2', 'step3', 'drill', 'step4', 'step5']);
     expect(h.events.every((e) => e.at === TODAY)).toBe(true);
@@ -127,11 +129,56 @@ describe('quest runner', () => {
     expect(w.slot.childElementCount).toBe(0);
   });
 
-  test('quest runner: unreadable rules hold an errand (never "safe" by default)', async () => {
+  test('quest runner: unreadable rules hold an errand (never "safe" by default), with a link to Your rules', async () => {
     const h = harness(leela, { rules: null, events: [{ id: 's1', kind: 'quest_step', at: TODAY, quest: leela.id, step: 1 }] });
-    const r = await drive(h.slot, runQuest(h.slot, leela, h.deps), () => 'Later');
+    let href: string | null = null;
+    const r = await drive(h.slot, runQuest(h.slot, leela, h.deps), (panel) => { href = panel.querySelector('a.quest-rules-link')?.getAttribute('href') ?? null; return 'Later'; });
     expect(r).toBe('paused');
+    expect(href).toBe('#/rules');
     expect(h.events).toHaveLength(1);
+  });
+
+  test('I1: a record that never lands stops the step with the written line and a bounded retry; never a loop', async () => {
+    // The reviewer's repro: at a cook step whose dish was already cooked, a record that keeps nothing.
+    const done: ProgressEvent[] = [1, 2, 3, 4, 5].map((step) => ({ id: `s${step}`, kind: 'quest_step', at: TODAY, quest: leela.id, step }));
+    const cooked: ProgressEvent = { id: 'c1', kind: 'cooked', at: TODAY, recipe: 'india/kerala/parippu', planned: false };
+    const h = harness(leela, { events: [...done, cooked], keep: false });
+    const seen: string[] = [];
+    const r = await drive(h.slot, runQuest(h.slot, leela, h.deps), (panel) => (panel.textContent?.includes('Try again') ? 'Try again' : 'Later'), seen);
+    expect(r).toBe('paused');
+    expect(h.calls()).toBeLessThanOrEqual(3);
+    expect(h.panLines.filter((t) => t === 'quest.not_saved').length).toBeGreaterThan(0);
+
+    // A talk step whose record never lands says its lines once, then stops: no auto-replay.
+    const t = harness(leela, { keep: false });
+    const said: string[] = [];
+    const tr = await drive(t.slot, runQuest(t.slot, leela, t.deps), () => 'Later', said);
+    expect(tr).toBe('paused');
+    expect(t.calls()).toBe(1);
+    const first = leela.steps[0].type === 'talk' ? leela.steps[0].lines[0] : '';
+    expect(said.filter((x) => x === first)).toHaveLength(1);
+  });
+
+  test('I2: a ❓ quest dish offers the adapted lesson (no stand-in passes) as well as "Cook it anyway"', async () => {
+    // Any rule leaves parippu ❓ (label-dependent ingredients); a peanut rule doesn't block it.
+    const peanut: Rule = { id: 'r3', target: { kind: 'ingredient', ids: ['peanut'] }, type: 'avoid', severity: 'anaphylactic' };
+    const done: ProgressEvent[] = [1, 2, 3, 4, 5].map((step) => ({ id: `s${step}`, kind: 'quest_step', at: TODAY, quest: leela.id, step }));
+    let buttons: string[] = [];
+    const a = harness(leela, { rules: [peanut], events: done });
+    const ar = await drive(a.slot, runQuest(a.slot, leela, a.deps), (panel) => {
+      buttons = [...panel.querySelectorAll('button')].map((b) => b.textContent ?? '');
+      return 'Cook it anyway';
+    });
+    expect(buttons).toEqual(['Learn it as a lesson', 'Cook it anyway', 'Not yet']);
+    expect(ar).toBe('cook');
+    expect(a.events).toHaveLength(5);
+    const b = harness(leela, { rules: [peanut], events: done });
+    expect(await drive(b.slot, runQuest(b.slot, leela, b.deps), () => 'Learn it as a lesson')).toBe('done');
+    expect(b.events.slice(5).map((e) => e.kind)).toEqual(['quest_step', 'lesson', 'quest_done']);
+    expect(b.panLines).not.toContain('quest.cook_adapted'); // that line says the dish isn't for them: only for ⛔
+    // A real cook of the ❓ dish still completes the step (Task 2 I2).
+    const c = harness(leela, { rules: [peanut], events: [...done, { id: 'c1', kind: 'cooked', at: TODAY, recipe: 'india/kerala/parippu', planned: false }] });
+    expect(await drive(c.slot, runQuest(c.slot, leela, c.deps), () => 'Later')).toBe('done');
   });
 
   test('quest runner: a rule-blocked quest dish with no stand-in is taught as the adapted lesson (quest.cook_adapted)', async () => {

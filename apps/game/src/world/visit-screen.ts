@@ -12,10 +12,9 @@ import { showDialogue } from '../ui/dialogue-box';
 import { contentText, h } from '../ui/dom';
 import { openModal } from '../ui/modal';
 import { mountBackdrop } from './backdrop';
-import { currentStep, dishStatus, questStatus, type PantryItem } from '@kitchenquest/core/engine';
+import { questStatus, type PantryItem } from '@kitchenquest/core/engine';
 import { getMentor, getMentorServices } from '../mentor';
 import { progressService } from '../progress';
-import { stepContextOf } from '../progress/catalogue';
 import type { ProgressService } from '../progress/service';
 import { runQuest } from '../quests/quest-runner';
 import { trustLine } from './trust-lines';
@@ -160,11 +159,8 @@ export function visitScreen(): Screen {
         dialogueSlot = null;
         if (!alive) return;
         showBar();
-        const view = service.view();
-        const at = currentStep(cook.quest, view);
-        const rules = rulesNow();
-        if (result === 'paused' && at?.step.type === 'cook' && rules !== null &&
-          dishStatus(at.step.recipe, stepContextOf(rules, pantry(), localDate(ctx.now()))) !== 'blocked') {
+        // The player is to cook the quest's dish (✅, a swap, or "Cook it anyway" on ❓): the card, with its own check.
+        if (result === 'cook') {
           openCard(bar.querySelector<HTMLElement>('[data-action="recipe"]'));
           return;
         }
@@ -172,7 +168,7 @@ export function visitScreen(): Screen {
       }
 
       // The cook's intro, in order (or, on a return visit, one trust line). The action bar follows the first time it ends.
-      function playIntro(lines: string[] = cook.intro, thenQuest = false) {
+      function playIntro(lines: string[] = cook.intro, then: 'quest' | 'card' | null = null) {
         if (dialogueSlot || closeCard) return;
         const slot = h('div', { class: 'visit-dialogue' });
         dialogueSlot = slot;
@@ -194,15 +190,17 @@ export function visitScreen(): Screen {
             return;
           }
           showBar();
-          if (thenQuest && questRuns()) { void playQuest(); return; }
+          if (then === 'quest' && questRuns()) { void playQuest(); return; }
+          // A return visit: the trust line, then the card (Step 9).
+          if (then === 'card') { openCard(bar.querySelector<HTMLElement>('[data-action="recipe"]')); return; }
           bar.querySelector<HTMLElement>('[data-action="recipe"]')?.focus();
         });
       }
       // A later visit (trust 1 or more) opens with a trust line, then the card; level 0 never shows one.
       const returning = svc ? trustLine(cook.trust_lines, svc.view().trust[id] ?? 0) : null;
-      if (returning !== null) playIntro([returning]);
+      if (returning !== null) playIntro([returning], 'card');
       else if (svc && questStatus(cook.quest, svc.view()) === 'in_progress' && questRuns()) { showBar(); void playQuest(); }
-      else playIntro(cook.intro, true);
+      else playIntro(cook.intro, 'quest');
     },
     unmount() { gone = true; cleanup?.(); cleanup = null; },
   };

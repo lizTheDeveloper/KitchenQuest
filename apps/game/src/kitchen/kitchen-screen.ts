@@ -15,6 +15,8 @@ import { openModal } from '../ui/modal';
 import { greetingTrigger } from '../world/greeting';
 import { renderToolkit } from './toolkit-view';
 
+/** "Not now" on the guest-progress offer (C1 ruling) lasts for this page load. */
+let guestOfferDismissed = false;
 /** The Pan greets once per page load, on the first kitchen visit. */
 let greeted = false;
 /** Rusty invitations draw from their own in-memory history: the knife roll never writes to the store. */
@@ -54,9 +56,15 @@ function kitchenScreen(): Screen {
       el.replaceChildren(h('h1', null, 'Your kitchen'), greetingSlot, backdropSlot, bar, cardSlot);
       // The apprentice card and the knife roll read progress, which loads after first paint (Step 9.3).
       let stopCard: (() => void) | null = null;
-      void Promise.all([progressService(), import('./apprentice-card')]).then(([svc, { renderApprenticeCard }]) => {
+      void Promise.all([progressService(), import('./apprentice-card')]).then(([svc, { renderApprenticeCard, renderGuestOffer }]) => {
         if (!alive) return;
-        const draw = () => { cardSlot.replaceChildren(renderApprenticeCard(svc.view())); };
+        const draw = () => {
+          const offer = !guestOfferDismissed && svc.sync.guestOffer()
+            ? renderGuestOffer({ add: () => svc.sync.addGuestProgress(), dismiss: () => { guestOfferDismissed = true; draw(); } })
+            : null;
+          if (offer === null && cardSlot.querySelector('.guest-offer')?.contains(doc.activeElement)) cardSlot.querySelector<HTMLElement>('.apprentice-card h2')?.focus();
+          cardSlot.replaceChildren(renderApprenticeCard(svc.view()), ...(offer ? [offer] : []));
+        };
         draw();
         stopCard = svc.subscribe(draw);
       }, (err: unknown) => { console.error(err); });

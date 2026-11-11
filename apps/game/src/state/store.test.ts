@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { recordTechnique } from '@kitchenquest/core/engine';
-import { createStore, deleteDeviceData, importM3Toolkit, mergeProgress, STORE_KEY } from './store';
+import { accountViewOf, createStore, deleteDeviceData, importM3Toolkit, mergePartitions, mergeProgress, partitionKey, partitionOf, STORE_KEY, withPartition } from './store';
 
 function memStorage(init: Record<string, string> = {}): Storage {
   const m = new Map(Object.entries(init));
@@ -510,5 +510,42 @@ describe('progress (M5 Step 9)', () => {
     s.update((x) => ({ ...x, progress: { ...x.progress, events: [e] } }));
     s.update((x) => ({ ...x, progress: { ...x.progress, events: [] } }));
     expect(s.get().progress.events.map((x) => x.id)).toEqual(['e1']);
+  });
+});
+
+describe('progress partitions (C1 ruling)', () => {
+  const e = (id: string) => ({ id, kind: 'lesson' as const, at: '2026-11-09', recipe: 'india/kerala/parippu' });
+  const log = (...ids: string[]) => ({ events: ids.map(e), grants: [], base: null, pendingUpload: ids });
+
+  it('a store reload keeps the partitions, each with its own log and cached view', () => {
+    const st = memStorage();
+    const s = createStore(st);
+    const view = { xp: 7, level: 1, stamps: 0, trust: {}, toolkit: { techniques: {} }, questsDone: [], questSteps: {}, questStartedOn: {}, cookedOn: {}, framesCookedOn: {} };
+    s.update((x) => withPartition(withPartition(withPartition(x, null, log('g')), 'a@x.test', log('a'), view), 'b@x.test', log('b')));
+    const again = createStore(st).get();
+    expect(partitionOf(again, null).events.map((x) => x.id)).toEqual(['g']);
+    expect(partitionOf(again, 'a@x.test').events.map((x) => x.id)).toEqual(['a']);
+    expect(partitionOf(again, 'b@x.test').events.map((x) => x.id)).toEqual(['b']);
+    expect(accountViewOf(again, 'a@x.test')).toEqual(view);
+    expect(accountViewOf(again, 'b@x.test')).toBeNull();
+  });
+
+  it('mergePartitions never mixes partitions (another tab\'s A events stay A\'s, the guest\'s stay the guest\'s)', () => {
+    const tab1 = { progress: log('g1'), accountProgress: { 'a@x.test': { progress: log('a1'), view: null } } };
+    const tab2 = { progress: log('g2'), accountProgress: { 'a@x.test': { progress: log('a2'), view: null }, 'b@x.test': { progress: log('b1'), view: null } } };
+    const m = mergePartitions(tab1, tab2);
+    expect(m.progress.events.map((x) => x.id)).toEqual(['g1', 'g2']);
+    expect(m.accountProgress['a@x.test'].progress.events.map((x) => x.id)).toEqual(['a1', 'a2']);
+    expect(m.accountProgress['b@x.test'].progress.events.map((x) => x.id)).toEqual(['b1']);
+  });
+
+  it('the live partition follows the account: guest signed out, the account\'s own signed in', () => {
+    const s = createStore(null);
+    s.update((x) => withPartition(withPartition(x, null, log('g')), 'a@x.test', log('a')));
+    expect(partitionOf(s.get(), partitionKey(s.get())).events.map((x) => x.id)).toEqual(['g']);
+    s.update((x) => ({ ...x, account: { email: 'a@x.test' } }));
+    expect(partitionOf(s.get(), partitionKey(s.get())).events.map((x) => x.id)).toEqual(['a']);
+    s.update((x) => ({ ...x, account: { email: 'b@x.test' } }));
+    expect(partitionOf(s.get(), partitionKey(s.get())).events).toEqual([]);
   });
 });

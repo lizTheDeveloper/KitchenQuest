@@ -85,12 +85,21 @@ export async function refreshAccount(client: ApiClient, store: PlayerStore): Pro
 /** What a dropped refresh reports: whatever the device is now. */
 const outcome = (store: PlayerStore): 'signed-in' | 'signed-out' => (store.get().account === null ? 'signed-out' : 'signed-in');
 
+/** Runs before a sign-out clears the account (the progress flush, C1 ruling), waited for at most a few seconds. */
+let beforeSignOut: (() => Promise<void>) | null = null;
+export function setBeforeSignOut(fn: (() => Promise<void>) | null): void { beforeSignOut = fn; }
+const BEFORE_SIGN_OUT_MS = 4_000;
+
 /**
  * Sign out on this device. The account and its rules are removed first, so nothing waits on the network;
  * when the logout call can't reach the server, the sign-out is finished by the next `refreshAccount`.
  * Device rules are untouched, and account rules are never copied into them.
  */
 export async function signOut(client: ApiClient, store: PlayerStore): Promise<void> {
+  if (beforeSignOut && store.get().account !== null) {
+    const hook = beforeSignOut;
+    await Promise.race([hook().catch(() => undefined), new Promise((r) => setTimeout(r, BEFORE_SIGN_OUT_MS))]);
+  }
   epochs.set(store, epoch(store) + 1);
   store.update((s) => ({ ...s, account: null, accountRules: null, signOutPending: true }));
   const out = await client.logout();

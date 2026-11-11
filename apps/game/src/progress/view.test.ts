@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { grantsForBatch, type ProgressEvent, type ProgressView } from '@kitchenquest/core/engine';
 import { content } from '../content';
-import { createStore } from '../state/store';
+import { createStore, withPartition } from '../state/store';
 import { catalogueOf } from './catalogue';
 import { appendEvents, deviceView, historyOf, newEventId } from './log';
 import { currentProgress, maxView } from './view';
@@ -15,23 +15,26 @@ function playedStore() {
     id: newEventId(), kind: 'cooked', at: `2026-10-${String(i + 1).padStart(2, '0')}`, recipe: 'india/kerala/parippu', planned: false,
   }));
   const r = grantsForBatch(events, historyOf(store.get().progress), cat, content.rewards, content.techniques.freshness);
-  appendEvents(store, r.map((x) => x.event), r.flatMap((x) => x.grants));
+  appendEvents(store, null, r.map((x) => x.event), r.flatMap((x) => x.grants));
   return store;
 }
 
 describe('progress view', () => {
   test('signed out: the device view, whatever the account says', () => {
     const store = playedStore();
-    expect(currentProgress(store.get(), { ...EMPTY, xp: 99_999, level: 9 }, cat)).toEqual(deviceView(store.get().progress, cat));
+    store.update((s) => withPartition(s, 'a@example.test', s.accountProgress['a@example.test']?.progress ?? { events: [], grants: [], base: null, pendingUpload: [] }, { ...EMPTY, xp: 99_999, level: 9 }));
+    expect(currentProgress(store.get(), cat)).toEqual(deviceView(store.get().progress, cat));
   });
 
   test('view: signed in, an account view lower than the device view (compacted events) shows the device values (C14, C15)', () => {
-    const store = playedStore();
-    store.update((s) => ({ ...s, account: { email: 'a@example.test' } }));
-    const device = deviceView(store.get().progress, cat);
-    expect(device.level).toBeGreaterThan(1);
+    // The account's own partition holds the played log (as if played signed in), and its cached view is lower.
+    const played = playedStore().get().progress;
+    const store = createStore(null);
     const account: ProgressView = { ...EMPTY, xp: 10, stamps: 0, trust: { haruka: 2 }, questsDone: ['haruka-gluey-rice'], cookedOn: { 'japan/osaka/onigiri': ['2026-09-01'] } };
-    const shown = currentProgress(store.get(), account, cat);
+    store.update((s) => withPartition({ ...s, account: { email: 'a@example.test' } }, 'a@example.test', played, account));
+    const device = deviceView(played, cat);
+    expect(device.level).toBeGreaterThan(1);
+    const shown = currentProgress(store.get(), cat);
     expect(shown.xp).toBe(device.xp);
     expect(shown.level).toBe(device.level);
     expect(shown.toolkit.techniques.tempering.tier).toBe(device.toolkit.techniques.tempering.tier);

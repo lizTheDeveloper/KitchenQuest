@@ -1,5 +1,5 @@
 import type { Catalogue, ProgressView, TechniqueRecord, Tier, ToolkitState } from '@kitchenquest/core/engine';
-import type { PlayerState } from '../state/store';
+import { accountViewOf, partitionKey, partitionOf, type PlayerState } from '../state/store';
 import { catalogueOf } from './catalogue';
 import { deviceView } from './log';
 
@@ -57,12 +57,15 @@ export function maxView(a: ProgressView, b: ProgressView): ProgressView {
 }
 
 /**
- * The progress the game shows. Signed out: core `deriveProgress` of the device history. Signed in: the field-wise
- * max of the account view (null until `/progress` answers) and the device view, so nothing shown ever drops, also
- * while the sign-in upload is still on its way, and when compacted device events never reached the account.
+ * The progress the game shows, from the live partition only (C1 ruling). Signed out: core `deriveProgress` of the
+ * guest partition. Signed in: the field-wise max of that account's view (the last one the server sent, cached with
+ * its partition, M6) and its own device partition, so nothing shown ever drops, also while an upload is on its way,
+ * after a reload, and when compacted device events never reached the account. Another account's partition, and the
+ * guest's, are never part of it.
  */
-export function currentProgress(state: PlayerState, account: ProgressView | null, cat: Catalogue = catalogueOf()): ProgressView {
-  const device = deviceView(state.progress, cat);
-  if (state.account === null || account === null) return device;
-  return maxView(account, device);
+export function currentProgress(state: PlayerState, cat: Catalogue = catalogueOf()): ProgressView {
+  const key = partitionKey(state);
+  const device = deviceView(partitionOf(state, key), cat);
+  const account = key === null ? null : accountViewOf(state, key);
+  return account === null ? device : maxView(account, device);
 }

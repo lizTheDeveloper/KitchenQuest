@@ -1,6 +1,6 @@
 import {
   EMPTY_TOOLKIT, isValidDate, MEAL_SLOTS, type IntakeStep, type MealSlot, type PantryItem, type ProgressEvent, type ProgressSnapshot,
-  type RewardGrant, type Rule, type Tier, type ToolkitState,
+  type ProgressView, type RewardGrant, type Rule, type Tier, type ToolkitState,
 } from '@kitchenquest/core/engine';
 
 /** The device log's cap (C15): over it, the oldest events fold into `progress.base` (progress/log.ts). */
@@ -12,7 +12,35 @@ export const MAX_DEVICE_EVENTS = 2000;
  * (`pendingUpload`, in log order). Content-free: ids, dates and numbers only.
  */
 export interface DeviceProgress { events: ProgressEvent[]; grants: RewardGrant[]; base: ProgressSnapshot | null; pendingUpload: string[] }
-export const EMPTY_PROGRESS: DeviceProgress = { events: [], grants: [], base: null, pendingUpload: [] };
+const EMPTY_PROGRESS: DeviceProgress = { events: [], grants: [], base: null, pendingUpload: [] };
+
+/**
+ * One account's progress on this device (C1 ruling): its own log, and the last account view the server sent (M6:
+ * shown while `/progress` hasn't answered, so nothing drops after a reload). Read, shown and synced only while that
+ * account is signed in; hidden (never deleted, never shown, never uploaded elsewhere) while it isn't.
+ */
+export interface AccountPartition { progress: DeviceProgress; view: ProgressView | null }
+
+/** Which partition is live: the signed-in account's (by its email, the only account key this device holds), else the guest's (null). */
+export const partitionKey = (s: Pick<PlayerState, 'account'>): string | null => s.account?.email ?? null;
+
+/** A partition's log: the guest's is `progress`; an account's lives in `accountProgress` (empty until it has one). */
+export function partitionOf(s: PlayerState, key: string | null): DeviceProgress {
+  if (key === null) return s.progress;
+  return Object.hasOwn(s.accountProgress, key) ? s.accountProgress[key].progress : EMPTY_PROGRESS;
+}
+
+/** The cached account view of `key`'s partition, or null. */
+export function accountViewOf(s: PlayerState, key: string): ProgressView | null {
+  return Object.hasOwn(s.accountProgress, key) ? s.accountProgress[key].view : null;
+}
+
+/** `s` with one partition changed: `p` is its new log; `view` (when given) its cached account view. */
+export function withPartition(s: PlayerState, key: string | null, p: DeviceProgress, view?: ProgressView | null): PlayerState {
+  if (key === null) return { ...s, progress: p };
+  const old = Object.hasOwn(s.accountProgress, key) ? s.accountProgress[key] : { progress: EMPTY_PROGRESS, view: null };
+  return { ...s, accountProgress: { ...s.accountProgress, [key]: { progress: p, view: view === undefined ? old.view : view } } };
+}
 
 export interface PlayerSettings { showCalories: boolean; reducedMotion: 'system' | 'on' | 'off'; familyTable: boolean; iosNoteDismissed: boolean }
 /** A signed-out player's profile, kept on this device (the same fields as M2's `/profile`). */
@@ -22,8 +50,10 @@ export interface PlayerState {
   localRules: Rule[]; accountRules: Rule[] | null; account: { email: string } | null;
   /** M3's device toolkit. Read once into `progress` as `imported` events (Ruling 8); M5 never writes it. */
   toolkit: ToolkitState; cookProgress: { slug: string; step: number } | null;
-  /** M5: the device progress log (Ruling 8, C15). */
+  /** M5: the guest partition, progress played signed out on this device (Ruling 8, C15). */
   progress: DeviceProgress;
+  /** M5 (C1 ruling): each account's own partition, by account key; only the signed-in account's is ever read. */
+  accountProgress: Record<string, AccountPartition>;
   dialogueHistory: Record<string, number[]>; settings: PlayerSettings & { aiMentor: boolean };
   /** Signed out, the Pan's profile and pantry cards are written here (M4). */
   localProfile: LocalProfile | null; localPantry: (PantryItem & { id: string })[];
@@ -62,7 +92,7 @@ function freshState(): PlayerState {
   return {
     v: 1, firstOpenedAt: null, lastOpenedAt: null,
     localRules: [], accountRules: null, account: null,
-    toolkit: EMPTY_TOOLKIT, cookProgress: null, dialogueHistory: {}, progress: EMPTY_PROGRESS,
+    toolkit: EMPTY_TOOLKIT, cookProgress: null, dialogueHistory: {}, progress: EMPTY_PROGRESS, accountProgress: {},
     settings: { showCalories: false, reducedMotion: 'system', familyTable: false, iosNoteDismissed: false, aiMentor: true },
     rulesUnreadable: false, signOutPending: false,
     localProfile: null, localPantry: [], intake: { step: null }, aiDisclosureSeen: false, aiHealthOffered: false,
@@ -84,6 +114,8 @@ const isProgress = (x: unknown): boolean =>
   Array.isArray(x.grants) && x.grants.every((g) => isObj(g) && typeof g.id === 'string' && typeof g.eventId === 'string' && typeof g.kind === 'string') &&
   (x.base === null || (isObj(x.base) && isObj(x.base.view))) &&
   isStrArray(x.pendingUpload);
+const isPartitions = (x: unknown): boolean =>
+  isObj(x) && Object.values(x).every((a) => isObj(a) && isProgress(a.progress) && (a.view === null || isObj(a.view)));
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 /** Every core `IntakeStep`: a step core adds fails to compile here until it is listed. */
 const INTAKE_STEP_SET: Readonly<Record<IntakeStep, true>> = { market_day: true, meals_per_week: true, region: true, allergies: true, pantry: true };
@@ -116,6 +148,7 @@ function merge(p: Record<string, unknown>): PlayerState | null {
   if (has('cookProgress') && p.cookProgress !== null && !(isObj(p.cookProgress) && typeof p.cookProgress.slug === 'string' && typeof p.cookProgress.step === 'number')) return null;
   if (has('dialogueHistory') && !isObj(p.dialogueHistory)) return null;
   if (has('progress') && !isProgress(p.progress)) return null;
+  if (has('accountProgress') && !isPartitions(p.accountProgress)) return null;
   if (has('rulesUnreadable') && typeof p.rulesUnreadable !== 'boolean') return null;
   if (has('signOutPending') && typeof p.signOutPending !== 'boolean') return null;
   if (has('localProfile') && p.localProfile !== null && !isLocalProfile(p.localProfile)) return null;
@@ -141,6 +174,8 @@ function merge(p: Record<string, unknown>): PlayerState | null {
     cookProgress: has('cookProgress') ? (p.cookProgress as { slug: string; step: number } | null) : d.cookProgress,
     dialogueHistory: has('dialogueHistory') ? (p.dialogueHistory as Record<string, number[]>) : d.dialogueHistory,
     progress: has('progress') ? (p.progress as DeviceProgress) : d.progress,
+    // A Map, then fromEntries: keys stay own data keys.
+    accountProgress: has('accountProgress') ? Object.fromEntries(Object.entries(p.accountProgress as Record<string, AccountPartition>)) : d.accountProgress,
     settings: {
       showCalories: (s.showCalories as boolean | undefined) ?? ds.showCalories,
       reducedMotion: (s.reducedMotion) ?? ds.reducedMotion,
@@ -227,6 +262,21 @@ export function mergeProgress(a: DeviceProgress, b: DeviceProgress, opts: { pend
   return { events, grants, base, pendingUpload };
 }
 
+/**
+ * Partition by partition (C1 ruling): the guest's with the guest's, each account's with that same account's, never
+ * across. An account's cached view is `b`'s when it has one (the newer write), else `a`'s.
+ */
+export function mergePartitions(
+  a: Pick<PlayerState, 'progress' | 'accountProgress'>, b: Pick<PlayerState, 'progress' | 'accountProgress'>, opts: { pendingFrom?: 'both' | 'b' } = {},
+): Pick<PlayerState, 'progress' | 'accountProgress'> {
+  const accounts = new Map<string, AccountPartition>(Object.entries(a.accountProgress));
+  for (const [key, pb] of Object.entries(b.accountProgress)) {
+    const pa = accounts.get(key);
+    accounts.set(key, pa ? { progress: mergeProgress(pa.progress, pb.progress, opts), view: pb.view ?? pa.view } : pb);
+  }
+  return { progress: mergeProgress(a.progress, b.progress, opts), accountProgress: Object.fromEntries(accounts) };
+}
+
 /** The first allowed event date (the API's floor, I4 ruling): an older M3 date is read as this. */
 const PROGRESS_EPOCH = '2026-01-01';
 const notBefore = (d: string): string => (d < PROGRESS_EPOCH ? PROGRESS_EPOCH : d);
@@ -281,7 +331,7 @@ function rebase(stored: PlayerState, mine: PlayerState, rulesAuthoritative = fal
       ...stored,
       localRules: rules,
       toolkit: mergeToolkit(stored.toolkit, mine.toolkit),
-      progress: mergeProgress(stored.progress, mine.progress),
+      ...mergePartitions(stored, mine),
       rulesUnreadable: stored.rulesUnreadable || conflict,
     },
     conflict,
@@ -398,7 +448,7 @@ export function createStore(
       }
       next ??= fn(base);
       // Earned data never goes down: the toolkit, and every progress event still held (a compaction in `fn` is kept).
-      state = { ...next, toolkit: mergeToolkit(base.toolkit, next.toolkit), progress: mergeProgress(base.progress, next.progress, { pendingFrom: 'b' }) };
+      state = { ...next, toolkit: mergeToolkit(base.toolkit, next.toolkit), ...mergePartitions(base, next, { pendingFrom: 'b' }) };
       // A conflict found by this very rebase was never seen by the caller, so this update cannot clear the flag.
       if (conflict) state = { ...state, rulesUnreadable: true };
       if (!memoryOnly && storage) {
