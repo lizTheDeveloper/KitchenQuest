@@ -33,6 +33,8 @@ import { progressViewOf } from '../progress/service.js';
 import { loadProgressForExport } from '../progress/store.js';
 import { loadRules } from '../rules/store.js';
 import { loadPlansForExport, loadRunsForExport } from '../week/store.js';
+import { loadNotesForExport } from '../book/notes-service.js';
+import { loadSharedForExport } from '../book/shared-table-service.js';
 import { AI_PROCESSOR_IDS } from '../ai/processors.js';
 
 /** The exact words the player types to delete their account. */
@@ -183,6 +185,10 @@ async function buildExport(tx: Tx, config: Config, userId: string, now: Date, re
   const plans = await loadPlansForExport(tx, config.keyring, userId);
   const marketRunList = await loadRunsForExport(tx, config.keyring, userId);
 
+  // Margin notes (H-12) and the Shared Table (H-13), M5 Step 7, decrypted, with their row ids.
+  const marginNoteList = await loadNotesForExport(tx, config.keyring, userId);
+  const sharedTableList = await loadSharedForExport(tx, config.keyring, userId);
+
   // Pan conversations with their stored messages, and proposal cards, decrypted (I-1, I-4, C-12).
   const convs = (await loadConversationsForExport(tx, config.keyring, userId)).map((c) => ({
     id: c.id,
@@ -277,10 +283,13 @@ async function buildExport(tx: Tx, config: Config, userId: string, now: Date, re
     pantry,
     plans,
     marketRuns: marketRunList,
+    marginNotes: marginNoteList,
+    sharedTable: sharedTableList,
     conversations: convs,
     proposals,
     progress,
-    consents: await consentHistory(tx, userId),
+    // With the C-45 subject columns (M5 Step 7: always 'user' and null until M13).
+    consents: await consentHistory(tx, userId, { subjects: true }),
     entitlements: ents.map((e) => ({
       ...e,
       startsAt: iso(e.startsAt),
@@ -375,6 +384,7 @@ export async function accountRoutes(app: FastifyInstance, progressDeps: Pick<Pro
     const { id: userId, email } = req.user;
     // One transaction, in this order: the delete event first (so it is pseudonymized
     // with the rest), then the user (cascading to sessions, profile, rules, meal logs, pantry, meal plans, market runs,
+    // margin notes, Shared Table rows,
     // conversations, messages, mentor proposals, progress events, reward grants, consents, user_keys, entitlements, usage,
     // self-read counts), then sign-in links by email,
     // then the audit trail, which the database pseudonymizes only once the user is gone.

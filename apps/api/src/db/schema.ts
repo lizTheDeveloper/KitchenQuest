@@ -205,6 +205,13 @@ export const consents = pgTable(
     withdrawnAt: ts("withdrawn_at"),
     endedReason: text("ended_reason"),
     method: text("method").notNull(),
+    /**
+     * C-45 reserve (M5 Step 7, Ruling 19): whose consent this is. Every row is `'user'` (the account holder), and the
+     * check refuses anything else until M13 adds child profiles (P-9: no child data before counsel signs off).
+     */
+    subjectKind: text("subject_kind").notNull().default("user"),
+    /** C-45 reserve: the subject's id when it is not the account holder (M13). Always null until then. */
+    subjectId: uuid("subject_id"),
   },
   (t) => [
     index("consents_user_purpose_idx").on(t.userId, t.purpose),
@@ -216,6 +223,7 @@ export const consents = pgTable(
     check("consents_sha256_check", sql`octet_length(${t.noticeSha256}) = 32`),
     check("consents_ended_reason_check", sql`${t.endedReason} in (${inList(CONSENT_ENDED_REASONS)})`),
     check("consents_ended_check", sql`(${t.withdrawnAt} is null) = (${t.endedReason} is null)`),
+    check("consents_subject_kind_check", sql`${t.subjectKind} = 'user'`),
   ],
 );
 
@@ -249,7 +257,7 @@ export const auditEvents = pgTable(
   ],
 );
 
-export const SELF_READ_RESOURCES = ["rules", "meals", "pantry", "progress", "plans"] as const;
+export const SELF_READ_RESOURCES = ["rules", "meals", "pantry", "progress", "plans", "notes"] as const;
 
 /**
  * C-5: the player's routine reads of their own health data, counted per user,
@@ -547,4 +555,49 @@ export const marketRuns = pgTable(
     createdAt: ts("created_at").notNull().defaultNow(),
   },
   (t) => [uniqueIndex("market_runs_plan_idx").on(t.planId), index("market_runs_user_id_idx").on(t.userId)],
+);
+
+/**
+ * H-12 (M5 Step 7, Ruling 9): the player's margin notes, their own changes to a canon recipe. `sealed` is core's
+ * `MarginNote` minus `recipe` (`{ ops, text, at }`: add, swap and remove ops over ingredient names, the player's own
+ * words up to NOTE_TEXT_MAX, and when it was written), sealed S-U with AAD `{ table: 'margin_notes', userId, rowId }`.
+ * `recipe` (a canon slug) stays plain for the per-recipe cap and lookup: it shows only "has a note on this dish", as
+ * the plain `progress_events` do. Health data (the notes can show what the player can't or won't eat): written only
+ * with `health_data`, in `HEALTH_TABLES`. At most MAX_NOTES_PER_RECIPE per recipe.
+ */
+export const marginNotes = pgTable(
+  "margin_notes",
+  {
+    id: id(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    recipe: text("recipe").notNull(),
+    sealed: bytea("sealed").notNull(),
+    /** Set from the app's injected clock; defaultNow() is only a fallback. */
+    createdAt: ts("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("margin_notes_user_recipe_idx").on(t.userId, t.recipe)],
+);
+
+/**
+ * H-13 (M5 Step 7, Ruling 10): Cooked for Someone, the Shared Table. `sealed` is `{ recipe, frame, cookedFor }`: the
+ * canon slug or Pantry Frame id cooked, and core's `CookedFor` (a fixed count and, optionally, one fixed word), sealed
+ * S-U with AAD `{ table: 'shared_table', userId, rowId }`. No names and no free text can be stored: every field is an
+ * enum or a slug checked against the content. `cooked_on` (a date only) stays plain. Contract basis, not health.
+ * Never a requirement for trust or progress (audit M-9).
+ */
+export const sharedTable = pgTable(
+  "shared_table",
+  {
+    id: id(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    cookedOn: date("cooked_on", { mode: "string" }).notNull(),
+    sealed: bytea("sealed").notNull(),
+    /** Set from the app's injected clock; defaultNow() is only a fallback. */
+    createdAt: ts("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("shared_table_user_id_idx").on(t.userId)],
 );

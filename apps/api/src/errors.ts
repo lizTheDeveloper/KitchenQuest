@@ -11,6 +11,7 @@ import { ZodError } from 'zod';
  *   (`confirmed: true`; `confirm: "delete my account"` for `DELETE /me`).
  * - 400 `too_many_rules`: at the 200-rule cap (`details.max`).
  * - 400 `too_many_items`: the pantry change would pass the 300-item cap (`details.max`).
+ * - 400 `too_many_notes`: a margin note past MAX_NOTES_PER_RECIPE (20) on one recipe (`details.max`) (M5 Step 7).
  * - 400 `plan_invalid`: a weekly plan the server won't store (`details.problems`): its shape, more than
  *   MAX_PLAN_ITEMS items, a sacred or unknown slug, a `weekStart` that is not the player's plan-week start, or an
  *   item the player's rules block on its date (`blocked: <slug>`) (M5 Step 6).

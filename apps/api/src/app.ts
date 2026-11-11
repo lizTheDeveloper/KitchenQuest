@@ -5,6 +5,7 @@ import { accountRoutes } from './account/routes.js';
 import type { AiProvider } from './ai/provider.js';
 import { sweepPeriodically } from './auth/rate-limit.js';
 import { authRoutes } from './auth/routes.js';
+import { bookRoutes } from './book/routes.js';
 import { requireUser } from './auth/session.js';
 import { frameOptions } from '@kitchenquest/core';
 import { defaultCatalog, defaultLoopContent, type Catalog, type LoopContent } from './catalog.js';
@@ -135,6 +136,8 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
   await progressRoutes(app, progress);
   // Step 6: plans and market runs, on the same recipe index and loop content.
   await weekRoutes(app, { catalog, loop, recipes });
+  // Step 7: margin notes and Cooked for Someone, on the same recipe index and loop content.
+  await bookRoutes(app, { catalog, loop, recipes });
   await accountRoutes(app, progress);
 
   return app;

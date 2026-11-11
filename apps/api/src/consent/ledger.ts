@@ -185,10 +185,22 @@ export interface ConsentRecord {
   current: boolean;
 }
 
-/** The user's full consent history, oldest first (for GET /me/consents and export). */
-export async function consentHistory(db: Pick<Db, 'select'>, userId: string): Promise<ConsentRecord[]> {
+/** The C-45 reserve (M5 Step 7): whose consent a row is. Every row is `'user'` with no subject id until M13. */
+export interface ConsentSubject {
+  subjectKind: string;
+  subjectId: string | null;
+}
+
+/**
+ * The user's full consent history, oldest first (for GET /me/consents and export). With `subjects` (the export only)
+ * each record also carries the C-45 subject columns.
+ */
+export async function consentHistory(db: Pick<Db, 'select'>, userId: string): Promise<ConsentRecord[]>;
+export async function consentHistory(db: Pick<Db, 'select'>, userId: string, opts: { subjects: true }): Promise<(ConsentRecord & ConsentSubject)[]>;
+export async function consentHistory(db: Pick<Db, 'select'>, userId: string, opts?: { subjects: true }): Promise<ConsentRecord[]> {
   const rows = await db.select().from(consents).where(eq(consents.userId, userId)).orderBy(asc(consents.grantedAt), asc(consents.id));
   return rows.map((r) => ({
+    ...(opts?.subjects ? { subjectKind: r.subjectKind, subjectId: r.subjectId } : {}),
     purpose: r.purpose as ConsentPurpose,
     noticeVersion: r.noticeVersion,
     noticeSha256: r.noticeSha256.toString('hex'),
