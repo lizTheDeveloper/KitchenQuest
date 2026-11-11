@@ -18,7 +18,9 @@ const NAME_MAX = 100;
 const LIST_MAX = 50;
 
 const slotSchema = { type: 'string', enum: [...MEAL_SLOTS] };
-const nullable = (schema: Record<string, unknown>) => ({ anyOf: [schema, { type: 'null' }] });
+// M5 final m4 (as 5b did for propose_profile): no tool field is a nullable union. Each is optional with one plain
+// type and is left out when the player didn't mention it; zod's `opt()` reads a missing field as null. A provider's
+// markup leaking into a nullable value (eval 4/5) can no longer cut a plan or meal call short.
 
 export const MENTOR_TOOLS: AiTool[] = [
   {
@@ -29,9 +31,9 @@ export const MENTOR_TOOLS: AiTool[] = [
       type: 'object',
       properties: {
         term: { type: 'string', description: 'The ingredient or diet as the player said it, e.g. "sesame" or "vegetarian".' },
-        severity: nullable({ type: 'string', enum: [...SEVERITIES] }),
+        severity: { type: 'string', enum: [...SEVERITIES], description: 'Leave out when the player did not say.' },
       },
-      required: ['term', 'severity'],
+      required: ['term'],
       additionalProperties: false,
     },
   },
@@ -42,16 +44,16 @@ export const MENTOR_TOOLS: AiTool[] = [
     parameters: {
       type: 'object',
       properties: {
-        slot: nullable(slotSchema),
+        slot: slotSchema,
         when: { type: 'string', enum: ['today', 'yesterday'] },
-        dish: nullable({ type: 'string', description: 'A game dish name, if it is one.' }),
-        servings: nullable({ type: 'number' }),
-        description: nullable({
+        dish: { type: 'string', description: 'A game dish name, if it is one.' },
+        servings: { type: 'number' },
+        description: {
           type: 'string',
           description: 'What they ate, a short phrase copied exactly from their message (e.g. "half a sandwich"), when it is not a game dish.',
-        }),
+        },
       },
-      required: ['slot', 'when', 'dish', 'servings', 'description'],
+      required: ['when'],
       additionalProperties: false,
     },
   },
@@ -99,11 +101,11 @@ export const MENTOR_TOOLS: AiTool[] = [
   {
     name: 'propose_plan',
     description:
-      "Propose this week's plan when the player asks to plan their week, to put a dish on a day, or to pick dishes for them. The game matches the dish names and checks every dish against their rules; the player confirms on a card. Copy each dish name exactly as the player typed it (\"the dal\", \"onigiri\"), even if you don't know it; never add, choose or rename a dish yourself. For \"pick 3\" set pick and leave days null: the game picks. Leave fields the player did not mention null.",
+      "Propose this week's plan when the player asks to plan their week, to put a dish on a day, or to pick dishes for them. The game matches the dish names and checks every dish against their rules; the player confirms on a card. Copy each dish name exactly as the player typed it (\"the dal\", \"onigiri\"), even if you don't know it; never add, choose or rename a dish yourself. For \"pick 3\" set pick and leave days out: the game picks. Leave out every field the player did not mention.",
     parameters: {
       type: 'object',
       properties: {
-        days: nullable({
+        days: {
           type: 'array',
           items: {
             type: 'object',
@@ -114,12 +116,12 @@ export const MENTOR_TOOLS: AiTool[] = [
             required: ['weekday', 'dish'],
             additionalProperties: false,
           },
-        }),
-        pick: nullable({ type: 'integer', description: 'How many dishes the player asked the game to pick, 1 to 7.' }),
-        hard_week: nullable({ type: 'boolean', description: 'True only when the player said this week is hard, busy or rough.' }),
-        after: nullable({ type: 'string', description: 'A weekday the picks must come after ("after Saturday", "after market day" with their market day).' }),
+        },
+        pick: { type: 'integer', description: 'How many dishes the player asked the game to pick, 1 to 7.' },
+        hard_week: { type: 'boolean', description: 'True only when the player said this week is hard, busy or rough.' },
+        after: { type: 'string', description: 'A weekday the picks must come after ("after Saturday", "after market day" with their market day).' },
       },
-      required: ['days', 'pick', 'hard_week', 'after'],
+      required: [],
       additionalProperties: false,
     },
   },
@@ -131,9 +133,9 @@ export const MENTOR_TOOLS: AiTool[] = [
       type: 'object',
       properties: {
         to: { type: 'string', enum: [...NAV_TO] },
-        id: nullable({ type: 'string', description: "A cook id for visit, a recipe slug for recipe; null otherwise." }),
+        id: { type: 'string', description: 'A cook id for visit, a recipe slug for recipe; left out otherwise.' },
       },
-      required: ['to', 'id'],
+      required: ['to'],
       additionalProperties: false,
     },
   },
