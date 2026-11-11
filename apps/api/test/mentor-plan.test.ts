@@ -189,6 +189,15 @@ describe('the model only proposes', () => {
     expect(JSON.stringify(r)).not.toContain(FRIJOLES);
   });
 
+  test('a plan clause code reads ("put the frijoles on Saturday\'s plan") is proposed when the model made no plan call (T13)', async () => {
+    const ai = fakeAi([toolCall('propose_meal_log', { slot: 'dinner', when: 'today', dish: 'dal', servings: null, description: 'dal' })]);
+    await makeApp(ai);
+    const p = await player(['health_data', 'ai_health']);
+    const r = await p.turn("Had dal for dinner. Also put the frijoles on Saturday's plan, and remind me about dinner at 6:30 pm.");
+    expect(r.cards.map((c) => c.card.kind)).toEqual(['meal']);
+    expect(r.parts).toContainEqual({ kind: 'line', line: { trigger: 'plan.dish_unknown', vars: { dish: 'frijoles' } } });
+  });
+
   test('AI: propose_plan hard_week true without the player saying so → hard false', async () => {
     const ai = fakeAi([
       planArgs({ days: [{ weekday: 'Monday', dish: 'onigiri' }], hard_week: true }),

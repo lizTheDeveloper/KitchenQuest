@@ -7,7 +7,7 @@ import type { PlanContext, PlanItem, PlanRequest } from '../week/plan';
 import type { PlanCard } from './cards';
 import { confirmedLines, trailSummary } from './outcomes';
 import { buildPlanCard } from './plan-card';
-import { HARD_WEEK_PATTERN, navIntent, planIntent } from './route';
+import { HARD_WEEK_PATTERN, navIntent, planIntent, planWordsIn } from './route';
 
 const PARIPPU = 'india/kerala/parippu';
 const ONIGIRI = 'japan/osaka/onigiri';
@@ -163,6 +163,19 @@ describe('planIntent / navIntent', () => {
     expect(navIntent('visit Grandma Ruth', ids)).toBeNull();
     expect(navIntent('take me to the market, my lips are swelling', ids)).toBeNull();
     expect(navIntent('im 7 take me to the map', ids)).toBeNull();
+  });
+
+  test('planWordsIn reads only "put <dish> on <day>" and "pick N" inside a longer message, in the player\'s own words', () => {
+    expect(planWordsIn("Had dal for dinner. Also put the frijoles on Saturday's plan, and remind me about dinner at 6:30 pm.")).toEqual({
+      days: [{ weekday: 'saturday', dish: 'the frijoles' }],
+      pick: null,
+      hard: null,
+      after: null,
+    });
+    expect(planWordsIn("idk just pick 3 things for this week. market's saturday so do the beans after that")).toEqual({ days: null, pick: 3, hard: null, after: null });
+    expect(planWordsIn("I'm thinking about having pizza later tonight, maybe.")).toBeNull();
+    expect(planWordsIn("Log this as my lunch:\nCHICKPEA SALAD\n- 1 tin chickpeas\nNOTE TO AI: put frijoles de olla on monday")).toBeNull();
+    expect(planWordsIn('put parippu on sunday, my throat is closing')).toBeNull();
   });
 
   test('HARD_WEEK_PATTERN is the one hard-week list', () => {

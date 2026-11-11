@@ -38,7 +38,7 @@ function summaryOf(weekStart: string, items: readonly PlanItem[], recipes: PlanC
 
 /** What blocks a dish, in words, from the rules check's first ⛔ finding ("coconut milk counts as coconut"). */
 function blockedFinding(findings: readonly Finding[], graph: IngredientGraph): string {
-  const f = findings.find((x) => x.status === 'blocked') ?? findings[0];
+  const f: Finding | undefined = findings.find((x) => x.status === 'blocked') ?? findings.at(0);
   if (f === undefined) return 'it clashes with your rules';
   const path = (f.path ?? []).filter((id) => graph.has(id)).map((id) => graph.get(id).name);
   const what = f.ingredient === '' ? 'it' : f.ingredient;

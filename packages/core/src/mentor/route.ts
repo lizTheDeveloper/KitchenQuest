@@ -591,7 +591,8 @@ export function planIntent(text: string): { days: { weekday: string; dish: strin
     if (HARD_CLAUSE.test(clause)) hard = true;
     else if ((m = PICK.exec(clause)) !== null) {
       pick = /^\d$/.test(m[1]) ? Number(m[1]) : NUMBER_WORDS[m[1]];
-      if (m[2] !== undefined) after = dayWord(m[2]);
+      const afterWord = m.at(2);
+      if (afterWord !== undefined) after = dayWord(afterWord);
     } else if ((m = AFTER.exec(clause)) !== null) after = dayWord(m[1]);
     else if ((m = (lead ? DISH_ON_DAY : PUT_ON_DAY).exec(clause)) !== null && dishWords(m[1]) !== null) {
       days.push({ weekday: dayWord(m[2]), dish: dishWords(m[1])! });
@@ -604,6 +605,34 @@ export function planIntent(text: string): { days: { weekday: string; dish: strin
   if (days.length === 0 && pick === null && hard === null) return null;
   if (pick !== null && (pick < 1 || pick > 7)) return null;
   return { days: days.length > 0 ? days : null, pick, hard, after };
+}
+
+const PICK_ANYWHERE = new RegExp(`\\b(?:pick|choose)(?:\\s+(?:me|us|out))?\\s+(\\d|${Object.keys(NUMBER_WORDS).join('|')})\\b`);
+const SENTENCE = /[.!?;\n]+/;
+const LEADING_FILLER = /^(?:(?:also|and|then|so|now|please|pls|idk|just|oh|ok|okay)\s+)+/;
+
+/**
+ * The plan clauses inside a longer message, read by code (M4's "code wins where code can read the player's
+ * words", as for pantry removals): "… Also put the frijoles on Saturday's plan, and …" or "idk just pick 3 things".
+ * Only "put <dish> on <day>" clauses and "pick N"; nothing else is guessed. The server adds them as the plan call
+ * when the model made none. Null when there are none, for a safety turn, and outside the player's own words.
+ */
+export function planWordsIn(text: string): { days: { weekday: string; dish: string }[] | null; pick: number | null; hard: boolean | null; after: null } | null {
+  if (SAFETY_INTENTS.has(classifyTurn(stripPageEvents(text).text))) return null;
+  const own = normalizeTurn(ownWords(text));
+  const days: { weekday: string; dish: string }[] = [];
+  let pick: number | null = null;
+  for (const sentence of own.split(SENTENCE)) {
+    for (const raw of sentence.split(CLAUSE)) {
+      const clause = raw.trim().replace(LEADING_FILLER, '');
+      const put = PUT_ON_DAY.exec(clause);
+      if (put !== null && dishWords(put[1]) !== null) days.push({ weekday: dayWord(put[2]), dish: dishWords(put[1])! });
+      const n = PICK_ANYWHERE.exec(clause);
+      if (n !== null && pick === null) pick = /^\d$/.test(n[1]) ? Number(n[1]) : NUMBER_WORDS[n[1]];
+    }
+  }
+  if (days.length === 0 && (pick === null || pick < 1 || pick > 7)) return null;
+  return { days: days.length > 0 ? days : null, pick: pick !== null && pick >= 1 && pick <= 7 ? pick : null, hard: HARD_WEEK_PATTERN.test(own) ? true : null, after: null };
 }
 
 const NAV_PLACES: Readonly<Record<string, 'kitchen' | 'map' | 'plan' | 'market' | 'book'>> = {

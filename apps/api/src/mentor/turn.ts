@@ -20,6 +20,7 @@ import {
   normalizeTurn,
   parseRuleStatement,
   planIntent,
+  planWordsIn,
   playerOwnWords,
   preRoute,
   ruleTermsInPlayerWords,
@@ -443,6 +444,11 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
     deps.catalog.ruleTerms,
     { cooks: deps.week.loop.cooks, slugs: new Set(index.keys()) },
   ).filter((c) => !(c.name === 'propose_rule' && fine.has(graph.resolve(c.args.term) ?? '')));
+  // M5 Step 8: a plan clause code reads in the player's own words ("put the frijoles on Saturday's plan", "pick 3")
+  // is proposed when the model made no plan call, as a removal the player said is (M4 post-checks): code wins where
+  // it can read the player's words. Only when the plan tool is offered this turn.
+  const words = offered.has('propose_plan') && !calls.some((c) => c.name === 'propose_plan') ? planWordsIn(f.raw) : null;
+  if (words !== null) calls.push({ name: 'propose_plan', args: { days: words.days, pick: words.pick, hard_week: words.hard, after: words.after } });
   return deps.db.transaction(async (tx) => {
     await lockLiveUser(tx, userId);
     const persist = await consentHeldIn(tx, userId, 'health_data', now);

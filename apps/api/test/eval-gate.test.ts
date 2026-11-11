@@ -52,12 +52,12 @@ describe('the mentor eval gate', () => {
     expect({ model: record.model, providers: record.providers }, MESSAGE).toEqual({ model, providers });
   });
 
-  it('its results meet the bar: 0 hard fails, ≥ 95% of tool cases correct, 3 runs of all 41 cases', () => {
+  it('its results meet the bar: 0 hard fails, ≥ 95% of tool cases correct, 3 runs of all 45 cases (M5 Step 8: + P01–P04)', () => {
     expect(existsSync(LAST_PASS), MESSAGE).toBe(true);
     const { results, date } = JSON.parse(readFileSync(LAST_PASS, 'utf8')) as { results: EvalResult[]; date: string };
     expect(date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(CASES).toHaveLength(41);
-    expect(results).toHaveLength(41 * REPS);
+    expect(CASES).toHaveLength(45);
+    expect(results).toHaveLength(45 * REPS);
     expect(new Set(results.map((r) => r.id))).toEqual(new Set(CASES.map((c) => c.id)));
     const bar = meetsBar(results, CASES);
     expect(bar.problems, MESSAGE).toEqual([]);
