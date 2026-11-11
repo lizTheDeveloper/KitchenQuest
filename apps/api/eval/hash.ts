@@ -1,37 +1,112 @@
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 
 /**
- * sha256 of the eval's cases, judge, snapshot and runner, and the turn's decision code, as written (fix round 1, M4). The record stores it and the gate
- * checks it, so a case or check changed after the run can't keep passing on stale results.
- */
-/**
- * The files that decide a verdict: cases, judge, write snapshot, and the runner (its seeds and write count, fix round 2
- * N2). M5 Step 8 ruling on eval integrity: also the code that decides a turn's outcome, so a recorded pass always
- * measures the decision code we ship: the API's turn routing, post-checks, plan turn, health gate and output filter,
- * and the core mentor modules they decide with (intents, parse, nonsevere, route, plan-card, and week/plan's
- * resolvePlanRequest). Paths are relative to this file.
+ * sha256 of everything a recorded eval pass measured (fix round 1, M4), as written. The record stores it and the
+ * gate checks it, so a case, a check or the code that decides a turn, changed after the run, can't keep passing on
+ * stale results.
+ *
+ * - The eval itself: cases, judge, write snapshot and the runner (its seeds and write count, fix round 2 N2).
+ * - M5 Step 8 fix round 4 (N8 ruling): the runtime import closure of the API turn entry (`src/mentor/turn.ts`),
+ *   the core modules it reaches and the prompt render code (`prompt.ts`) among them; the API's `db/` and `crypto/`
+ *   and type-only imports are left out. The gate test recomputes the closure from the source and fails when this
+ *   list and it differ, so a new decision module can't be missed.
+ * - The data the turn decides with: `data/ingredients.json` (the graph: `mentionsHealthTerm`, `resolve`),
+ *   `data/rule-terms.json` (rule terms and cards) and every file of the canon recipes directory (the exact dish
+ *   names `planIntent` accepts).
+ *
+ * Paths are relative to this file; a path ending in "/" is a directory, hashed file by file in sorted order.
  */
 export const EVAL_FILES: readonly string[] = [
   './cases.ts',
   './checks.ts',
   './snapshot.ts',
   './run.ts',
-  '../src/mentor/turn.ts',
-  '../src/mentor/postchecks.ts',
-  '../src/mentor/plan-turn.ts',
-  '../src/mentor/health.ts',
+  '../src/ai/openrouter.ts',
+  '../src/audit/audit.ts',
+  '../src/auth/live-user.ts',
+  '../src/auth/session.ts',
+  '../src/auth/tokens.ts',
+  '../src/consent/ledger.ts',
+  '../src/consent/notices.ts',
+  '../src/entitlements/entitlements.ts',
+  '../src/errors.ts',
+  '../src/meals/service.ts',
+  '../src/meals/store.ts',
+  '../src/mentor/allowance.ts',
+  '../src/mentor/constants.ts',
+  '../src/mentor/conversations.ts',
   '../src/mentor/filter.ts',
+  '../src/mentor/health.ts',
+  '../src/mentor/lines.ts',
+  '../src/mentor/plan-turn.ts',
+  '../src/mentor/postchecks.ts',
+  '../src/mentor/prompt.ts',
+  '../src/mentor/proposals.ts',
+  '../src/mentor/requests.ts',
+  '../src/mentor/tools.ts',
+  '../src/mentor/turn.ts',
+  '../src/mentor/writes.ts',
+  '../src/pantry/service.ts',
+  '../src/pantry/store.ts',
+  '../src/profile/routes.ts',
+  '../src/profile/store.ts',
+  '../src/progress/catalogue.ts',
+  '../src/progress/service.ts',
+  '../src/progress/store.ts',
+  '../src/rules/service.ts',
+  '../src/rules/store.ts',
+  '../src/usage/usage.ts',
+  '../src/usage/write-cap.ts',
+  '../src/week/plan-service.ts',
+  '../src/week/store.ts',
+  '../../../packages/core/src/index.ts',
+  '../../../packages/core/src/ingredients/graph.ts',
+  '../../../packages/core/src/mentor/cards.ts',
+  '../../../packages/core/src/mentor/index.ts',
   '../../../packages/core/src/mentor/intents.ts',
-  '../../../packages/core/src/mentor/parse.ts',
+  '../../../packages/core/src/mentor/lines.ts',
   '../../../packages/core/src/mentor/nonsevere.ts',
-  '../../../packages/core/src/mentor/route.ts',
+  '../../../packages/core/src/mentor/outcomes.ts',
+  '../../../packages/core/src/mentor/parse.ts',
   '../../../packages/core/src/mentor/plan-card.ts',
+  '../../../packages/core/src/mentor/protocol.ts',
+  '../../../packages/core/src/mentor/route.ts',
+  '../../../packages/core/src/mentor/saved.ts',
+  '../../../packages/core/src/mentor/spell.ts',
+  '../../../packages/core/src/progress/derive.ts',
+  '../../../packages/core/src/progress/fold.ts',
+  '../../../packages/core/src/progress/index.ts',
+  '../../../packages/core/src/progress/rewards.ts',
+  '../../../packages/core/src/progress/week.ts',
+  '../../../packages/core/src/quests/alternatives.ts',
+  '../../../packages/core/src/quests/index.ts',
+  '../../../packages/core/src/quests/validate.ts',
+  '../../../packages/core/src/recipe/parse.ts',
+  '../../../packages/core/src/recipe/types.ts',
+  '../../../packages/core/src/rules/active.ts',
+  '../../../packages/core/src/rules/check.ts',
+  '../../../packages/core/src/rules/types.ts',
+  '../../../packages/core/src/toolkit/one-more.ts',
+  '../../../packages/core/src/toolkit/toolkit.ts',
+  '../../../packages/core/src/week/index.ts',
   '../../../packages/core/src/week/plan.ts',
+  '../../../data/ingredients.json',
+  '../../../data/rule-terms.json',
+  '../../../recipes/',
 ];
+
+/** The files under a directory, recursively, as paths relative to this file, sorted. */
+function filesUnder(dir: string): string[] {
+  return readdirSync(new URL(dir, import.meta.url), { withFileTypes: true })
+    .flatMap((e) => (e.isDirectory() ? filesUnder(`${dir}${e.name}/`) : e.isFile() ? [`${dir}${e.name}`] : []))
+    .sort();
+}
 
 export function evalHash(): string {
   const h = createHash('sha256');
-  for (const f of EVAL_FILES) h.update(f).update('\0').update(readFileSync(new URL(f, import.meta.url))).update('\0');
+  for (const entry of EVAL_FILES) {
+    for (const f of entry.endsWith('/') ? filesUnder(entry) : [entry]) h.update(f).update('\0').update(readFileSync(new URL(f, import.meta.url))).update('\0');
+  }
   return h.digest('hex');
 }
