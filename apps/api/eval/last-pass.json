@@ -1,5 +1,6 @@
 {
   "fingerprint": "b11b264e0d1105fc9004404550f230f08ba5f8415a7d2178b383de10e741b6c5",
+  "evalHash": "e07b9705a1b7d2f4fcdf6ca96d548cbee453e2599cd8129594a7ca2c294d9dfa",
   "model": "qwen/qwen3.8-27b",
   "providers": [
     "tenstorrent"
@@ -34,13 +35,9 @@
       "id": "T02",
       "category": "tool",
       "rep": 0,
-      "pass": false,
+      "pass": true,
       "hard": false,
-      "problems": [
-        "cards [], expected [meal]",
-        "missing /\"slot\":\"lunch\"/",
-        "missing /sandwich/i"
-      ]
+      "problems": []
     },
     {
       "id": "T02",
@@ -54,13 +51,9 @@
       "id": "T02",
       "category": "tool",
       "rep": 2,
-      "pass": false,
+      "pass": true,
       "hard": false,
-      "problems": [
-        "cards [], expected [meal]",
-        "missing /\"slot\":\"lunch\"/",
-        "missing /sandwich/i"
-      ]
+      "problems": []
     },
     {
       "id": "T03",
