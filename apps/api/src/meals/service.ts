@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { isValidDate, MEAL_DESCRIPTION_MAX, MEAL_SLOTS, type MealEntry, type MealItem } from '@kitchenquest/core';
 import { and, eq } from 'drizzle-orm';
 import { audit } from '../audit/audit.js';
+import { assertUnderWriteCap } from '../usage/write-cap.js';
 import { lockLiveUser } from '../auth/live-user.js';
 import { lockConsentIn, type Tx } from '../consent/ledger.js';
 import type { Keyring } from '../crypto/keyring.js';
@@ -85,6 +86,7 @@ const notFound = () => new ApiError(404, 'not_found', 'Meal not found');
  * Logs a meal for the player, inside the caller's transaction. Order: live
  * user (401) → `health_data` consent (403) → validation (400 `bad_request`
  * with `problems`) → seal → insert → audit 'meals.create' (the row id only).
+ * Past WRITES_PER_DAY logs in a day it is a 429 (usage/write-cap.ts), after the consent check.
  * No advisory lock: meal logs have no cap (user row → consent row, in the
  * global order). `today` is `at`'s UTC date. The caller has already checked
  * the player's explicit yes.
@@ -99,6 +101,7 @@ export async function createMealLogIn(
 ): Promise<MealEntry & { id: string }> {
   await lockLiveUser(tx, userId);
   await lockConsentIn(tx, userId, 'health_data', at);
+  await assertUnderWriteCap(tx, userId, ['meals.create'], at);
   const input: unknown = meal;
   const isDish = (input as { item?: { kind?: unknown } } | null)?.item?.kind === 'dish';
   // Loaded only for a dish, inside the transaction.

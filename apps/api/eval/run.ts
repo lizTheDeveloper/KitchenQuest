@@ -32,7 +32,10 @@ import { CASES, type EvalCase } from './cases.js';
 import { judge, meetsBar, REPS, type EvalResult } from './checks.js';
 
 export const LAST_PASS = new URL('./last-pass.json', import.meta.url);
-const CONCURRENCY = 3;
+const CONCURRENCY = 2;
+/** OpenRouter rate limits (429) and outages are not the model's answers: such a turn is run again, a few times, after a pause. */
+const ATTEMPTS = 8;
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const out = (s: string) => process.stdout.write(`${s}\n`);
 
@@ -223,15 +226,11 @@ async function runOnce(app: FastifyInstance, sql: Sql, c: EvalCase, n: number): 
   return { r: res.json<TurnResponse>(), writes: changed(before, await snapshot(sql, userId)) };
 }
 
-/** OpenRouter rate limits (429) and outages are not the model's answers: such a turn is run again, a few times, after a pause. */
-const ATTEMPTS = 5;
-const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
 async function runCase(app: FastifyInstance, sql: Sql, c: EvalCase, rep: number, n: number): Promise<EvalResult> {
   try {
     let turn = await runOnce(app, sql, c, n * ATTEMPTS);
     for (let attempt = 1; attempt < ATTEMPTS && turn.r.notice === 'ai_unavailable'; attempt++) {
-      await pause(5_000 * attempt);
+      await pause(10_000 * attempt);
       turn = await runOnce(app, sql, c, n * ATTEMPTS + attempt);
     }
     const { r, writes } = turn;

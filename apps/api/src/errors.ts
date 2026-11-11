@@ -20,7 +20,8 @@ import { ZodError } from 'zod';
  * - 409 `proposal_closed`: the mentor card is no longer open (confirmed,
  *   rejected, undone or expired), or an undo of a write that is not confirmed.
  * - 409 `undo_window_closed`: the confirmed write is older than UNDO_WINDOW_MS.
- * - 429 `rate_limited`: with a `retry-after` header.
+ * - 429 `rate_limited`: with a `retry-after` header. The daily write cap on meal logs and
+ *   loosening rule edits (usage/write-cap.ts) also puts it in `details.retryAfterSeconds`.
  * - 500 `internal`: anything unexpected (logged scrubbed, never sent).
  *
  * Extend this list with every new code.

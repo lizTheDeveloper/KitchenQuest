@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { validateRules, type Rule } from '@kitchenquest/core';
+import { validateRules, type Rule, type Severity } from '@kitchenquest/core';
 import { and, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { audit } from '../audit/audit.js';
+import { assertUnderWriteCap } from '../usage/write-cap.js';
 import { lockLiveUser } from '../auth/live-user.js';
 import type { Catalog } from '../catalog.js';
 import { lockConsentIn, type Tx } from '../consent/ledger.js';
@@ -142,9 +143,29 @@ export async function createRuleIn(
   return { ...value, id: rowId };
 }
 
+const SEVERITY_RANK: Readonly<Record<Severity, number>> = { preference: 0, intolerance: 1, allergy: 2, anaphylactic: 3 };
+const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+
+/**
+ * `next` blocks at least what `prev` did: both avoid rules on the same kind of target, the new
+ * targets include the old, the severity is no milder, and the phase is unchanged. Such an edit is
+ * never write-capped (never rule 1).
+ */
+export function atLeastAsStrict(prev: StoredRule, next: StoredRule): boolean {
+  return (
+    prev.type === 'avoid' &&
+    next.type === 'avoid' &&
+    prev.target.kind === next.target.kind &&
+    prev.target.ids.every((id) => next.target.ids.includes(id)) &&
+    SEVERITY_RANK[next.severity] >= SEVERITY_RANK[prev.severity] &&
+    same(prev.phase, next.phase)
+  );
+}
+
 /**
  * Replaces one of the user's rules, inside the caller's transaction, in the
  * same lock order as `createRuleIn`; 404 when `rowId` is not the user's.
+ * A loosening edit past WRITES_PER_DAY in a day is a 429 (usage/write-cap.ts).
  * Audits 'rules.update'.
  */
 export async function updateRuleIn(
@@ -165,7 +186,11 @@ export async function updateRuleIn(
     .where(and(eq(rules.id, rowId), eq(rules.userId, userId)))
     .for('update');
   if (!row) throw notFound();
-  const others = (await loadRules(tx, deps.keyring, userId)).filter((r) => r.id !== rowId);
+  const all = await loadRules(tx, deps.keyring, userId);
+  const before = all.find((r) => r.id === rowId);
+  // A loosening (or sideways) edit counts against the daily write cap; a stricter one never does.
+  if (before === undefined || !atLeastAsStrict(before, value)) await assertUnderWriteCap(tx, userId, ['rules.update'], at);
+  const others = all.filter((r) => r.id !== rowId);
   assertValid({ ...value, id: rowId }, others, deps.catalog);
   const sealed = await sealFor(tx, deps.keyring, ruleSealContext(userId, rowId), value, at);
   await tx.update(rules).set({ sealed, updatedAt: at }).where(and(eq(rules.id, rowId), eq(rules.userId, userId)));
