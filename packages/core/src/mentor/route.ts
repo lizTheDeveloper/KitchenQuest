@@ -574,9 +574,13 @@ export const HARD_WEEK_PATTERN = new RegExp(`\\b${HARD_WORDS}\\b`);
  */
 const DIET_CUE =
   /\b(keto|paleo|vegan|vegetarian|pescatarian|plant[- ]based|halal|haram|kosher|jain|sattvic|satvik|fasting|fast day|ramadan|ramzan|iftar|suhoor|suhur|sehri|lent|lenten|passover|navratri|ekadashi|yom kippur|teetotal\w*|sober|alcohol\w*|spic(?:e|es|y|ier|iest|iness)|(?:low|lower|reduced|less|zero|high)[- ](?:carb|carbs|fat|fats|sugar|sugars|salt|sodium|cal\w*|fodmap|gi|spice|protein|cholesterol|iron|purine|potassium|phosphorus|lactose|gluten|residue|fibre|fiber|histamine|oxalate)|less (?:salt|salty|sugar|sugary|spicy|spice|fat|fatty|oil|oily|meat|dairy|sweet|carbs?)|minus|without|hold the|go easy on|easy on the|light on|reduced|free of|no added|cut(?:ting)? (?:out|down on|back on)|giv(?:e|ing) up|gave up|given up|\w+-free)\b/;
-/** Restriction forms on any word (N7): "no X", "X free", "sin X", "zero X", "not too X"; never a polite "no thanks". */
+/**
+ * Restriction forms on any word (N7): "no X", "X free", "sin X", "zero X", "not too X". The only exceptions are words
+ * that are never food: "no thanks", "no problem", "no idea", "no money" (M4's "I have no money, what can I cook"),
+ * "no time"; and "free" after a person, a verb or an adverb ("i'm free", "feel free", "for free").
+ */
 const RESTRICTION_CUES: readonly RegExp[] = [
-  /\bno\s+(?!thanks?\b|thank you\b|thx\b|problem|probs\b|worries\b|worry\b|idea\b|rush\b)\p{L}/u,
+  /\bno\s+(?!(?:thanks?|thank you|thx|problems?|probs|worries|worry|idea|clue|rush|money|cash|time)\b)\p{L}/u,
   /(?<![\p{L}\p{N}'-])(?!(?:feel|for|i'?m|im|am|is|are|was|were|be|been|being|get|got|set|you|me|we|they|he|she|it'?s|it|totally|completely|so|very|pretty|really|break|toll|tax|duty|scot|hands|fancy|stay|keep|run|roam|home|walk)\s+free\b)\p{L}[\p{L}'-]*\s+free\b/u,
   /\b(?:sin|sans|ohne|senza|zonder|zero)\s+\p{L}/u,
   /\bnot too \p{L}/u,

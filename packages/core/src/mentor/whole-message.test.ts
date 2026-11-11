@@ -194,3 +194,20 @@ describe('N11: the code-card exclusion keeps all of HEALTH_PATTERN except the ba
     }
   });
 });
+
+describe('N10: each layer of the code-card exclusion, by behaviour', () => {
+  test('codeCardHealth reads the diet cue on the text as written: a "no <meal>" restriction the meal-word mask would hide', () => {
+    expect(codeCardHealth('my market day is saturday, no dinner', graph, terms)).toBe(true);
+    expect(codeCardHealth('remind me about lunch at 1pm, no breakfast', graph, terms)).toBe(true);
+  });
+
+  test('the readers keep their own symptom and diet gate: a closed message whose dish title holds a health word makes no reminder or market card', () => {
+    const dishes = [...DISHES, { slug: 'test/tummy-soup', title: 'Tummy Soup' }, { slug: 'test/keto-bowl', title: 'Keto Bowl' }];
+    expect(reminderSlots('put the tummy soup on monday and remind me about dinner at 6pm', dishes)).toEqual([]);
+    expect(marketDayStated("put the tummy soup on saturday and my market's saturday", dishes)).toBeNull();
+    expect(reminderSlots('put the keto bowl on monday and remind me about dinner at 6pm', dishes)).toEqual([]);
+    // The same messages with a plain title make their cards.
+    expect(reminderSlots('put onigiri on monday and remind me about dinner at 6pm', dishes)).toEqual([{ name: 'dinner', start: '18:00' }]);
+    expect(marketDayStated("put onigiri on saturday and my market's saturday", dishes)).toBe(6);
+  });
+});
