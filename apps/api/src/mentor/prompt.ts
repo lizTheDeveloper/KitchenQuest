@@ -32,7 +32,7 @@ import type { PanBank } from './lines.js';
 import { openProposalsOfConversation } from './proposals.js';
 
 /** Bump on any change to the system text, examples or context shape (Step 12's eval gate reads the fingerprint). */
-export const MENTOR_PROMPT_VERSION = 'pan-4';
+export const MENTOR_PROMPT_VERSION = 'pan-3';
 
 const VOICE_MD = new URL('../../../../docs/style/voice.md', import.meta.url);
 const PANTRY_IN_CONTEXT = 50;
@@ -114,9 +114,6 @@ export function loadPanPrompt(bank: PanBank, voiceGuide: URL = VOICE_MD): PanPro
       country: null,
       meal_windows: [{ name: 'lunch', start: '12:30' }],
     }),
-    // Step 12 fix round 1 (eval T02, S19): a meal's description is one phrase copied as typed, never parts joined.
-    { role: 'user', content: 'breakfast was toast, like two slices? and a coffee' },
-    exampleCall('example_3', 'propose_meal_log', { slot: 'breakfast', when: 'today', dish: null, servings: null, description: 'toast' }),
   ];
   return { system, examples };
 }
