@@ -17,7 +17,7 @@ import { testConfig } from './helpers/config.js';
 import { testDb, type Sql } from './helpers/db.js';
 
 const config = testConfig();
-/** The current health_data notice version (v2 since M4 Step 6); grants under it count. */
+/** The current health_data notice version (v3 since M5 Step 7); grants under it count. */
 const HD = NOTICES.health_data!.version;
 const sha = (s: string) => createHash('sha256').update(s, 'utf8').digest();
 
@@ -164,6 +164,18 @@ describe('consent ledger (C-1)', () => {
     ).rejects.toThrow();
   });
 
+  it('consents.subject_kind defaults to user; inserting child_profile fails the check (C-45 reserve, Ruling 19)', async () => {
+    const userId = await newUser();
+    await grantConsent(db, userId, 'voice', 'v1', sha('a'), 'tap', clock);
+    const rows = await sql<{ subject_kind: string; subject_id: string | null }[]>`select subject_kind, subject_id from consents where user_id = ${userId}`;
+    expect(rows).toEqual([{ subject_kind: 'user', subject_id: null }]);
+    await expect(
+      sql`insert into consents (id, user_id, purpose, notice_version, notice_sha256, granted_at, method, subject_kind, subject_id)
+          values (${randomUUID()}, ${userId}, 'pantry_location', 'v1', ${sha('a')}, now(), 'api', 'child_profile', ${randomUUID()})`,
+    ).rejects.toThrow(/consents_subject_kind_check/);
+    await expect(sql`update consents set subject_kind = 'household' where user_id = ${userId}`).rejects.toThrow(/consents_subject_kind_check/);
+  });
+
   it('records consent changes in the audit log', async () => {
     const userId = await newUser();
     await grantConsent(db, userId, 'ai_health', 'v1', sha('a'), 'api', clock);
@@ -195,7 +207,7 @@ const NOTICE_TEXT = /<!-- notice-text:start -->\n\n([\s\S]*?)\n\n<!-- notice-tex
 describe('notice files', () => {
   it('every file in docs/compliance/notices declares the SHA-256 of its text, and is marked a draft (C-30)', () => {
     const files = readdirSync(NOTICE_DIR).filter((f) => f.endsWith('.md'));
-    expect(files).toEqual(expect.arrayContaining(['health_data-v1.md', 'health_data-v2.md', 'ai_health-v1.md']));
+    expect(files).toEqual(expect.arrayContaining(['health_data-v1.md', 'health_data-v2.md', 'health_data-v3.md', 'ai_health-v1.md']));
     for (const f of files) {
       const doc = readFileSync(new URL(f, NOTICE_DIR), 'utf8');
       const text = NOTICE_TEXT.exec(doc)?.[1];
@@ -207,7 +219,7 @@ describe('notice files', () => {
   });
 
   it.each([
-    ['health_data', 'v2'],
+    ['health_data', 'v3'],
     ['ai_health', 'v1'],
   ] as const)('%s is served from its %s file, with the hash declared there', (purpose, version) => {
     const doc = readFileSync(new URL(`${purpose}-${version}.md`, NOTICE_DIR), 'utf8');
@@ -219,7 +231,7 @@ describe('notice files', () => {
   });
 });
 
-describe('health_data notice v2 (N-7, C-12)', () => {
+describe('health_data notice v3 (N-7, C-12, M5 Step 7)', () => {
   const notice = NOTICES.health_data!;
 
   it('names religious and cultural dietary rules as covered (GDPR Art. 9)', () => {
@@ -228,8 +240,14 @@ describe('health_data notice v2 (N-7, C-12)', () => {
     expect(notice.text).toMatch(/allerg/i);
   });
 
-  it('names the meals it keeps and the 30-day Pan conversations', () => {
-    expect(notice.text).toContain('It also keeps the meals you log, and your conversations with the Pan for 30 days unless you clear them sooner.');
+  it('names the meals it keeps, plans and market lists, margin notes and the 30-day Pan conversations', () => {
+    expect(notice.text).toContain(
+      "It also keeps the meals you log, your weekly meal plans and market lists, your own notes on recipes (margin notes), which can show what you can't or won't eat, and your conversations with the Pan for 30 days unless you clear them sooner.",
+    );
+  });
+
+  it('never claims HIPAA or medical-grade', () => {
+    expect(notice.text).not.toMatch(/HIPAA|medical-grade/i);
   });
 
   it('a grant stores the notice version and sha256 in the ledger', async () => {
@@ -245,7 +263,7 @@ describe('health_data notice v2 (N-7, C-12)', () => {
     const rows = await sql<{ notice_version: string; notice_sha256: Buffer }[]>`
       select notice_version, notice_sha256 from consents where user_id = ${userId} and purpose = 'health_data'`;
     expect(rows).toHaveLength(1);
-    expect(rows[0].notice_version).toBe('v2');
+    expect(rows[0].notice_version).toBe('v3');
     expect(Buffer.from(rows[0].notice_sha256).equals(sha(notice.text))).toBe(true);
   });
 });
@@ -266,7 +284,8 @@ describe('a grant under an older notice', () => {
   it.each([
     ['the inline 2026-11-09 notice', '2026-11-09'],
     ['notice v1', 'v1'],
-  ])('health_data under %s no longer counts: writes are 403 and GET /me/consents asks again; a v2 grant restores them', async (_label, version) => {
+    ['notice v2', 'v2'],
+  ])('health_data under %s no longer counts: writes are 403 and GET /me/consents asks again; a v3 grant restores them', async (_label, version) => {
     const cookie = await signIn(app, mailer, `stale${++seq}@example.com`);
     const cookies = { kq_session: cookie };
     const userId = (await app.inject({ method: 'GET', url: '/me', cookies })).json().id as string;
@@ -284,7 +303,7 @@ describe('a grant under an older notice', () => {
     clock = new Date(clock.getTime() + 60_000);
     const regrant = await app.inject({ method: 'POST', url: '/me/consents', cookies, payload: { purpose: 'health_data', noticeVersion: HD } });
     expect(regrant.statusCode).toBe(201);
-    expect(regrant.json().consent).toMatchObject({ noticeVersion: 'v2', current: true });
+    expect(regrant.json().consent).toMatchObject({ noticeVersion: 'v3', current: true });
     const ok = await app.inject({ method: 'POST', url: '/rules', cookies, payload: { rule: PEANUT, confirmed: true } });
     expect(ok.statusCode).toBe(201);
     const fresh = (await app.inject({ method: 'GET', url: '/me/consents', cookies })).json();
@@ -292,7 +311,7 @@ describe('a grant under an older notice', () => {
     // The history keeps the old grant, ended as superseded.
     expect(fresh.consents.map((c: { noticeVersion: string; endedReason: string | null }) => [c.noticeVersion, c.endedReason])).toEqual([
       [version, 'superseded'],
-      ['v2', null],
+      ['v3', null],
     ]);
   });
 

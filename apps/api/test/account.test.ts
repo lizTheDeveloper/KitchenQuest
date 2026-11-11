@@ -76,6 +76,8 @@ const PROFILE = {
 
 // A plan for the profile's plan week (market Tuesday and Saturday → weeks start on Tuesday, 2026-11-03), M5 Step 6.
 const PLAN = { weekStart: '2026-11-03', items: [{ day: 6, kind: 'dish', slug: 'japan/osaka/onigiri', servings: 2 }], hard: false, slot: 'unanswered' };
+const NOTE = { recipe: 'japan/osaka/onigiri', ops: [{ op: 'swap', from: 'umeboshi', to: 'oat milk' }], text: 'secret note words', at: '2026-11-09' };
+const SHARED = { cookedOn: '2026-11-09', recipe: 'japan/osaka/onigiri', frame: null, cookedFor: { count: 'one', who: 'partner' } };
 const MARKET_EVENT = { id: '6f1c2b7e-0d3a-4c55-9b8e-1a2b3c4d5e6f', kind: 'market_run', at: '2026-11-09', weekStart: '2026-11-09' };
 const MEAL_EVENT_ID = '7a2d3c8f-1e4b-4d66-8c9f-2b3c4d5e6f70';
 
@@ -127,6 +129,9 @@ async function fullPlayer(): Promise<Player> {
   const run = (await call(cookie, { method: 'POST', url: '/market-runs', payload: { weekStart: PLAN.weekStart } })).json<MarketRunView>();
   const umeboshi = run.items.find((i) => i.name === 'umeboshi')!;
   expect((await call(cookie, { method: 'POST', url: `/market-runs/${run.id}/ticks`, payload: { key: umeboshi.key, ticked: true } })).statusCode).toBe(200);
+  // A margin note (H-12) and a Shared Table row (H-13), M5 Step 7.
+  expect((await call(cookie, { method: 'POST', url: '/notes', payload: { note: NOTE, confirmed: true } })).statusCode).toBe(201);
+  expect((await call(cookie, { method: 'POST', url: '/shared-table', payload: { entry: SHARED, confirmed: true } })).statusCode).toBe(201);
   // Progress (U-5): a market run and a meal-log event, each earning grants (no catalogue needed for either).
   // The meal-log event names the meal log just made (I1).
   const mealLogId = meal.json<{ meal: { id: string } }>().meal.id;
@@ -252,6 +257,8 @@ describe('GET /me/export', () => {
       'plan.save',
       'market_run.create',
       'pantry.change',
+      'notes.create',
+      'shared_table.create',
       'progress.record',
       'account.export',
     ]);
@@ -295,6 +302,12 @@ describe('GET /me/export', () => {
     const bought = (x.pantry as { id: string; name: string }[]).find((i) => i.name === 'umeboshi')!;
     // Plans and market runs (H-11, M5 Step 6), decrypted, with the pantry row each tick added.
     expect(x.plans).toEqual([{ ...PLAN, id: expect.any(String), createdAt: NOW.toISOString(), updatedAt: NOW.toISOString() }]);
+    // Margin notes and the Shared Table (H-12, H-13), decrypted.
+    expect(x.marginNotes).toEqual([{ ...NOTE, id: expect.any(String), createdAt: NOW.toISOString() }]);
+    expect(x.sharedTable).toEqual([{ ...SHARED, id: expect.any(String), createdAt: NOW.toISOString() }]);
+    // The C-45 subject columns are listed with each consent (always 'user' and null until M13).
+    expect(x.consents.length).toBeGreaterThan(0);
+    for (const c of x.consents) expect(c).toMatchObject({ subjectKind: 'user', subjectId: null });
     expect(x.marketRuns).toHaveLength(1);
     expect(x.marketRuns[0]).toMatchObject({ weekStart: PLAN.weekStart, planId: x.plans[0].id, doneAt: null, createdAt: NOW.toISOString() });
     expect(x.marketRuns[0].pantryIds).toEqual({ [x.marketRuns[0].items.find((i: { name: string }) => i.name === 'umeboshi').key]: bought.id });
@@ -479,6 +492,8 @@ describe('GET /me/export', () => {
       pantry_items: 'pantry',
       meal_plans: 'plans',
       market_runs: 'marketRuns',
+      margin_notes: 'marginNotes',
+      shared_table: 'sharedTable',
       conversations: 'conversations',
       messages: 'conversations',
       mentor_proposals: 'proposals',
@@ -572,7 +587,7 @@ describe('DELETE /me', () => {
     expect(await sql`select 1 from pantry_items where user_id = ${p.id}`).toHaveLength(0);
     // And every mentor row (P-14).
     // Both progress ledgers go with the account (U-5): events and grants alike.
-    for (const t of ['progress_events', 'reward_grants', 'meal_plans', 'market_runs']) {
+    for (const t of ['progress_events', 'reward_grants', 'meal_plans', 'market_runs', 'margin_notes', 'shared_table']) {
       expect(await sql`select 1 from ${sql(t)} where user_id = ${p.id}`, t).toHaveLength(0);
     }
     for (const t of ['conversations', 'messages', 'mentor_proposals']) {

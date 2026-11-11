@@ -8,10 +8,10 @@ import { describe, expect, it } from 'vitest';
 const SRC = fileURLToPath(new URL('../src', import.meta.url));
 
 /** Modules that read or write health data, relative to src/ (a directory covers everything in it). */
-const HEALTH_MODULES = ['rules', 'consent', 'crypto/userkeys', 'journeys', 'symptoms', 'meals', 'mentor', 'voice', 'week'];
+const HEALTH_MODULES = ['rules', 'consent', 'crypto/userkeys', 'journeys', 'symptoms', 'meals', 'mentor', 'voice', 'week', 'book'];
 /** Health tables: schema exports and SQL names. Extend both when a milestone adds one. */
-const HEALTH_SCHEMA_EXPORTS = ['rules', 'userKeys', 'consents', 'mealLogs', 'messages', 'mentorProposals', 'mealPlans', 'marketRuns'];
-const HEALTH_SQL_TABLES = ['rules', 'user_keys', 'consents', 'meal_logs', 'messages', 'mentor_proposals', 'meal_plans', 'market_runs'];
+const HEALTH_SCHEMA_EXPORTS = ['rules', 'userKeys', 'consents', 'mealLogs', 'marginNotes', 'messages', 'mentorProposals', 'mealPlans', 'marketRuns'];
+const HEALTH_SQL_TABLES = ['rules', 'user_keys', 'consents', 'meal_logs', 'margin_notes', 'messages', 'mentor_proposals', 'meal_plans', 'market_runs'];
 
 interface Violation {
   file: string;
@@ -141,8 +141,19 @@ describe('progress is entitlement-blind (M5 Step 5, never rule 3)', () => {
     expect(bad).toEqual([]);
   });
 
-  it('nothing in meals/, rules/, consent/, profile/ or mentor/ records progress events', () => {
-    const files = ['meals', 'rules', 'consent', 'profile', 'mentor'].flatMap((d) => filesUnder(join(SRC, d))).filter(isSource);
+  it('book/ imports nothing from progress/, and progress/ nothing from book/ (M5 Step 7: notes and the Shared Table never feed a reward, M-9)', () => {
+    const book = filesUnder(join(SRC, 'book')).filter(isSource);
+    const progress = filesUnder(join(SRC, 'progress')).filter(isSource);
+    expect(book.length).toBeGreaterThan(0);
+    const bad = [
+      ...book.flatMap((f) => importsOf(SRC, f).filter((t) => t === 'progress' || t.startsWith('progress/')).map((t) => `${relative(SRC, f)} → ${t}`)),
+      ...progress.flatMap((f) => importsOf(SRC, f).filter((t) => t === 'book' || t.startsWith('book/')).map((t) => `${relative(SRC, f)} → ${t}`)),
+    ];
+    expect(bad).toEqual([]);
+  });
+
+  it('nothing in meals/, rules/, consent/, profile/, mentor/ or book/ records progress events', () => {
+    const files = ['meals', 'rules', 'consent', 'profile', 'mentor', 'book'].flatMap((d) => filesUnder(join(SRC, d))).filter(isSource);
     const bad = files.filter((f) => /recordEventsIn|grantsFor|reward_grants|rewardGrants/.test(readFileSync(f, 'utf8'))).map((f) => relative(SRC, f));
     expect(bad).toEqual([]);
   });
