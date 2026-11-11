@@ -81,6 +81,8 @@ describe('dialogue engine', () => {
       // M4: read-backs and intake follow-ups have no defaults on purpose; code always supplies them.
       ingredient: 'peanut', spelled: 'P-E-A-N-U-T', severity: 'a severe allergy', covers: 'peanuts and peanut oil',
       summary: 'toast, breakfast', items: 'rice', day: 'Saturday', count: '5', region: 'Kerala, India', term: 'kiwi', rule: 'tree nut', meal: 'lunch',
+      // M5 Step 4: the weekly loop's lines; code always supplies these.
+      item: 'spinach', known: 'Heat control', frame: 'Green sauce', slot: 'rice', finding: 'peanut butter contains peanut',
     };
     for (const id of REQUIRED_PAN_TRIGGERS) expect(createDialogue(content.pan).say(id, sample).text, id).not.toMatch(/[{}]/);
   });

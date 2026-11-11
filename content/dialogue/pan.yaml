@@ -152,7 +152,7 @@ triggers:
     lines:
       - "Second: roughly how many meals a week do you want to cook yourself? Honest number. Three is a perfectly good number."
       - "How many times a week can you realistically cook? Not aspirationally. Realistically. I've met aspiration. It doesn't wash up."
-      - "Roughly how many home-cooked meals a week? Leftovers count. Leftovers are cooking twice for the price of once."
+      - "Roughly how many home-cooked meals a week? Leftovers count. Leftovers are cooking twice for the effort of once."
       - "How much cooking are we talking? A couple of nights? Most nights? I'll plan to fit, not to impress."
       - "Question two: how many meals a week will you cook? I'll plan exactly that many and not one more, because the Bureau doesn't reward heroics."
 
@@ -731,7 +731,7 @@ triggers:
       - "{dish} won't work with your rules: {finding}. The cook will teach you an adapted version if there is one. Shall I check?"
       - "Not that one, I'm afraid. {finding}. Let me look for an adapted version or another dish."
       - "{dish} clashes with your rules: {finding}. I'll ask the cook about an adapted version, or we can pick something else."
-      - "That one's blocked for you: {finding}. Let's find another dish, or an adapted version if the cook has one."
+      - "That one's blocked for you: {finding}. Let's pick another dish, or an adapted version if the cook has one."
 
   plan.dish_sacred:
     ai: never
