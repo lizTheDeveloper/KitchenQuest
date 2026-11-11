@@ -1,11 +1,9 @@
-// Test support for quests/ and toolkit/one-more tests only (not exported from the package): the shipped cook files,
-// canon recipes and ingredient data, and a catalogue built from them, so the engine is tested against real content.
-import { readFileSync, readdirSync } from 'node:fs';
-import { join, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { parse } from 'yaml';
+// Test support for quests/ and toolkit/one-more tests only (not exported from the package): the shipped quests,
+// canon recipes, techniques and ingredient data (copies pinned in shipped.fixture.ts), and a catalogue built from
+// them, so the engine is tested against real content.
+import ingredients from '../../../../data/ingredients.json';
+import substitutions from '../../../../data/substitutions.json';
 import { IngredientGraph } from '../ingredients/graph';
-import type { IngredientData } from '../ingredients/types';
 import { grantsFor } from '../progress/rewards';
 import { deriveProgress } from '../progress/derive';
 import { DATA, T } from '../progress/fixtures';
@@ -14,29 +12,21 @@ import { parseRecipe } from '../recipe/parse';
 import type { ParsedRecipe } from '../recipe/types';
 import type { Substitution } from '../rules/check';
 import type { TechniqueNode } from '../toolkit/techniques';
+import { SHIPPED_QUESTS, SHIPPED_RECIPE_SOURCES, SHIPPED_TECHNIQUES } from './shipped.fixture';
 import type { Quest } from './types';
 
-const ROOT = fileURLToPath(new URL('../../../../', import.meta.url));
-const read = (path: string): string => readFileSync(join(ROOT, path), 'utf8');
+export const graph = IngredientGraph.fromData(ingredients);
+export const subs = substitutions as Substitution[];
+export const techniqueNodes: readonly TechniqueNode[] = SHIPPED_TECHNIQUES;
 
-export const graph = IngredientGraph.fromData(JSON.parse(read('data/ingredients.json')) as IngredientData);
-export const subs = JSON.parse(read('data/substitutions.json')) as Substitution[];
-export const techniqueNodes = (parse(read('data/techniques.yaml')) as { techniques: TechniqueNode[] }).techniques;
-
+/** The canon recipes, slug → parsed. */
 export const recipes: ReadonlyMap<string, ParsedRecipe> = new Map(
-  (readdirSync(join(ROOT, 'recipes'), { recursive: true }) as string[])
-    .filter((f) => f.endsWith('.cook'))
-    .map((f) => f.split(sep).join('/'))
+  Object.keys(SHIPPED_RECIPE_SOURCES)
     .sort()
-    .map((f) => [f.replace(/\.cook$/, ''), parseRecipe(read(`recipes/${f}`))]),
+    .map((slug) => [slug, parseRecipe(SHIPPED_RECIPE_SOURCES[slug])]),
 );
 
-export const quests: Record<string, Quest> = Object.fromEntries(
-  ['leela', 'marisol', 'haruka'].map((c) => {
-    const q = (parse(read(`content/cooks/${c}.yaml`)) as { quest: Quest }).quest;
-    return [q.id, q];
-  }),
-);
+export const quests: Record<string, Quest> = Object.fromEntries(SHIPPED_QUESTS.map((q) => [q.id, q]));
 
 export const COOKS: ReadonlySet<string> = new Set(['leela', 'marisol', 'haruka']);
 export const STALLS: ReadonlySet<string> = new Set(['wen', 'bram', 'okafor-sato', 'spice']);

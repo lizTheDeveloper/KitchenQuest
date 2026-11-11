@@ -148,6 +148,14 @@ describe('quest engine', () => {
     const p = view(h, cat);
     const unknown: Quest = { ...leela, steps: leela.steps.map((s) => (s.type === 'errand' ? { ...s, item: 'not-an-ingredient' } : s)) };
     expect(advance(unknown, p, { type: 'errand', have: 'tapped' }, DAY, newId, ctx())).toMatchObject({ ok: false, reason: 'blocked' });
+    // ❓ a label-dependent item under any rule, and an item the rules engine would only swap, are blocked too.
+    const item = (id: string): Quest => ({ ...leela, steps: leela.steps.map((s) => (s.type === 'errand' ? { ...s, item: id } : s)) });
+    const COCONUT: Rule = { id: 'r-coconut', target: { kind: 'ingredient', ids: ['coconut'] }, type: 'avoid', severity: 'allergy' };
+    const GHEE: Rule = { id: 'r-ghee', target: { kind: 'ingredient', ids: ['ghee'] }, type: 'avoid', severity: 'preference' };
+    expect(graph.get('pappadam').labelDependent).toBe(true);
+    expect(advance(item('pappadam'), p, { type: 'errand', have: 'tapped' }, DAY, newId, ctx([COCONUT]))).toMatchObject({ ok: false, reason: 'blocked' });
+    expect(advance(item('pappadam'), p, { type: 'errand', have: 'tapped' }, DAY, newId, ctx()).ok).toBe(true);
+    expect(advance(item('ghee'), p, { type: 'errand', have: 'tapped' }, DAY, newId, ctx([GHEE]))).toMatchObject({ ok: false, reason: 'blocked' });
     // A rule that only starts after today does not block it.
     const later: Rule = { ...ALLIUM, phase: { start: '2027-01-01' } };
     expect(advance(leela, p, { type: 'errand', have: 'tapped' }, DAY, newId, ctx([later])).ok).toBe(true);

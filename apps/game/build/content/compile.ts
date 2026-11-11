@@ -343,6 +343,9 @@ export function compileContent(files: Record<string, string>): GameContent {
           break;
         case 'talk':
           break;
+        case 'travel':
+        case 'recognize':
+          break; // core step types (C33) the schema does not accept yet; Step 4 adds them and runs validateQuests
       }
     });
     for (const level of Object.keys(cook.trust_lines)) {
