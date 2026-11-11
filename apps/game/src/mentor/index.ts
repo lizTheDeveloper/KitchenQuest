@@ -6,6 +6,7 @@ import type { LineBank } from '../content/types';
 import { reducedMotion } from '../shell/motion';
 import { parseRoute } from '../shell/router';
 import { createScriptedBackend, type MentorBackend } from './backend';
+import { lazyBackend, type LazyFallback } from './lazy-backend';
 import { createDialogue, type Dialogue } from './dialogue';
 import { createIntake, type Intake } from './intake';
 import { mountMentorPanel, type MentorPanel } from './panel';
@@ -16,36 +17,12 @@ import { createCardWriter, type CardWriter } from './writer';
 export { createDialogue } from './dialogue';
 export type { MentorPanel } from './panel';
 
-/**
- * A backend whose code loads on its first reply (the AI backend is not needed for first paint). A late reply and
- * `dispose` reach the real backend once it exists; a failed load is retried on the next reply.
- */
-function lazyBackend(kind: MentorBackend['kind'], load: () => Promise<MentorBackend>): MentorBackend {
-  let real: MentorBackend | null = null;
-  let loading: Promise<MentorBackend> | null = null;
-  let disposed = false;
-  const listeners = new Set<(r: PanReply) => void>();
-  const get = (): Promise<MentorBackend> => {
-    loading ??= load().then((b) => {
-      real = b;
-      if (disposed) b.dispose?.();
-      else b.onLate?.((r) => { for (const fn of listeners) fn(r); });
-      return b;
-    }, (err: unknown) => { loading = null; throw err; });
-    return loading;
-  };
-  return {
-    kind,
-    reply: async (input, ctx) => (await get()).reply(input, ctx),
-    onLate(fn) {
-      listeners.add(fn);
-      return () => { listeners.delete(fn); };
-    },
-    dispose() {
-      disposed = true;
-      real?.dispose?.();
-      listeners.clear();
-    },
+/** What answers a turn when the AI backend's code can't load: the script, led by the same "answering from the script" line as an unreachable server. */
+function scriptedWhenUnavailable(engine: ScriptedEngine, dialogue: Dialogue): LazyFallback {
+  const scripted = createScriptedBackend(engine, dialogue);
+  return async (input, ctx) => {
+    const r = await scripted.reply(input, ctx);
+    return input.kind === 'text' ? { ...r, items: [{ kind: 'said', said: dialogue.say('mentor.ai_unavailable') }, ...r.items] } : r;
   };
 }
 
@@ -169,7 +146,7 @@ export function mountMentor(doc: Document, store: PlayerStore, bank: LineBank, c
     const engine: ScriptedEngine = createScriptedEngine({ dialogue, graph, ruleTerms: content.ruleTerms, recipes, now });
     const writer = createCardWriter({ client, store, dialogue, graph, ruleTerms: content.ruleTerms, now });
     const backend = switchingBackend(store, (kind) => (kind === 'ai'
-      ? lazyBackend('ai', async () => (await import('./ai-backend')).createAiBackend({
+      ? lazyBackend('ai', scriptedWhenUnavailable(engine, dialogue), async () => (await import('./ai-backend')).createAiBackend({
         client, engine, dialogue, store, graph, ruleTerms: content.ruleTerms, now, events: win,
         screen: () => screenOf(win.location.hash),
         intakeStep: () => { const step = store.get().intake.step; return step === 'done' ? null : step; },
