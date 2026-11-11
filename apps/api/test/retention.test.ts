@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { audit } from '../src/audit/audit.js';
-import { loginTokens, selfReadCounts, sessions, usageEvents, users } from '../src/db/schema.js';
-import { registerRetention, retentionPolicies, runRetention, scheduleRetention } from '../src/jobs/retention.js';
+import { loginTokens, marketRuns, mealPlans, selfReadCounts, sessions, usageEvents, users } from '../src/db/schema.js';
+import { expiredPlanWeek, registerRetention, retentionPolicies, runRetention, scheduleRetention } from '../src/jobs/retention.js';
+import { PLAN_RETENTION_WEEKS } from '../src/week/store.js';
 import { PROPOSAL_TTL_MS, TRANSCRIPT_RETENTION_DAYS } from '../src/mentor/constants.js';
 import { appendMessages, openConversation } from '../src/mentor/conversations.js';
 import { MemoryHistory } from '../src/mentor/memory.js';
@@ -150,6 +151,32 @@ describe('retention (C-6)', () => {
       [3, 'open'],
     ]);
     expect(await runRetention(db, now)).toMatchObject({ messages: 0, conversations: 0, mentor_proposals: 0 });
+  });
+
+  it("retention: plans and runs older than 8 weeks after week end are deleted; this week's stay", async () => {
+    expect(PLAN_RETENTION_WEEKS).toBe(8);
+    expect(retentionPolicies()).toEqual(expect.arrayContaining(['meal_plans', 'market_runs']));
+    const now = new Date('2026-11-10T12:00:00Z');
+    // A plan week ends 7 days after week_start; 8 weeks (56 days) after that, it goes: week_start ≤ 2026-09-08
+    // (that week ended 2026-09-15, 56 days before 2026-11-10).
+    expect(expiredPlanWeek(now)).toBe('2026-09-08');
+    const [u] = await db.insert(users).values({ email: 'plans-ret@example.com', ageConfirmedAt: now }).returning();
+    // Retention never opens a seal; a placeholder blob is enough.
+    const blob = Buffer.from([1, 2, 3]);
+    const weeks = ['2026-09-01', '2026-09-08', '2026-09-09', '2026-10-05', '2026-11-09'];
+    const plans = await db
+      .insert(mealPlans)
+      .values(weeks.map((weekStart) => ({ userId: u.id, weekStart, sealed: blob, createdAt: now, updatedAt: now })))
+      .returning({ id: mealPlans.id, weekStart: mealPlans.weekStart });
+    await db.insert(marketRuns).values(plans.map((p) => ({ userId: u.id, planId: p.id, sealed: blob, createdAt: now })));
+    expect(await runRetention(db, now)).toMatchObject({ market_runs: 2, meal_plans: 2 });
+    expect((await sql`select week_start::text as w from meal_plans where user_id = ${u.id} order by week_start`).map((r) => r.w)).toEqual([
+      '2026-09-09',
+      '2026-10-05',
+      '2026-11-09',
+    ]);
+    expect(await sql`select 1 from market_runs where user_id = ${u.id}`).toHaveLength(3);
+    expect(await runRetention(db, now)).toMatchObject({ market_runs: 0, meal_plans: 0 });
   });
 
   it('logs each failed table with a scrubbed error when a run fails', async () => {

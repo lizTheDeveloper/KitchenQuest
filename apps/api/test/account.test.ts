@@ -1,7 +1,7 @@
 // Step 7: one-click export (GDPR access/portability, C-7) and account delete
 // (erasure, C-8), with crypto-shredding (C-4) and audit pseudonymization (C-5).
 import { readFileSync } from 'node:fs';
-import type { MealCard } from '@kitchenquest/core';
+import type { MarketRunView, MealCard } from '@kitchenquest/core';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance, InjectOptions } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -18,6 +18,8 @@ import { recordUsage } from '../src/usage/usage.js';
 import { appendMessages, openConversation, type StoredMessage } from '../src/mentor/conversations.js';
 import { MemoryHistory } from '../src/mentor/memory.js';
 import { createProposal, markDecided } from '../src/mentor/proposals.js';
+import { defaultCatalog } from '../src/catalog.js';
+import { RECIPES_DIR, syncCanon } from '../src/recipes/sync.js';
 import type { Db } from '../src/types.js';
 import { signIn } from './helpers/auth.js';
 import { testAiEnv, testConfig } from './helpers/config.js';
@@ -39,6 +41,7 @@ let seq = 0;
 
 beforeAll(async () => {
   ({ db, sql, close: closeDb } = await testDb());
+  await syncCanon(db, RECIPES_DIR, defaultCatalog().graph, NOW);
 });
 afterAll(async () => {
   await closeDb?.();
@@ -71,6 +74,8 @@ const PROFILE = {
   mealWindows: [{ name: 'dinner', start: '18:00', end: '20:00' }],
 };
 
+// A plan for the profile's plan week (market Tuesday and Saturday → weeks start on Tuesday, 2026-11-03), M5 Step 6.
+const PLAN = { weekStart: '2026-11-03', items: [{ day: 6, kind: 'dish', slug: 'japan/osaka/onigiri', servings: 2 }], hard: false, slot: 'unanswered' };
 const MARKET_EVENT = { id: '6f1c2b7e-0d3a-4c55-9b8e-1a2b3c4d5e6f', kind: 'market_run', at: '2026-11-09', weekStart: '2026-11-09' };
 const MEAL_EVENT_ID = '7a2d3c8f-1e4b-4d66-8c9f-2b3c4d5e6f70';
 
@@ -117,6 +122,11 @@ async function fullPlayer(): Promise<Player> {
     payload: { add: [PANTRY_ITEM], removeNames: [], removeIds: [], confirmed: true },
   });
   expect(pantry.statusCode).toBe(200);
+  // A weekly plan and its market run, one row ticked (H-11, M5 Step 6).
+  expect((await call(cookie, { method: 'PUT', url: `/plans/${PLAN.weekStart}`, payload: { plan: PLAN, confirmed: true } })).statusCode).toBe(200);
+  const run = (await call(cookie, { method: 'POST', url: '/market-runs', payload: { weekStart: PLAN.weekStart } })).json<MarketRunView>();
+  const umeboshi = run.items.find((i) => i.name === 'umeboshi')!;
+  expect((await call(cookie, { method: 'POST', url: `/market-runs/${run.id}/ticks`, payload: { key: umeboshi.key, ticked: true } })).statusCode).toBe(200);
   // Progress (U-5): a market run and a meal-log event, each earning grants (no catalogue needed for either).
   // The meal-log event names the meal log just made (I1).
   const mealLogId = meal.json<{ meal: { id: string } }>().meal.id;
@@ -239,6 +249,9 @@ describe('GET /me/export', () => {
       'rules.create',
       'meals.create',
       'pantry.change',
+      'plan.save',
+      'market_run.create',
+      'pantry.change',
       'progress.record',
       'account.export',
     ]);
@@ -272,7 +285,20 @@ describe('GET /me/export', () => {
     expect(res.body).not.toContain('undo-payload');
     // Meals and pantry, decrypted.
     expect(x.meals).toEqual([{ ...MEAL, id: expect.any(String), createdAt: NOW.toISOString() }]);
-    expect(x.pantry).toEqual([{ ...PANTRY_ITEM, id: expect.any(String), createdAt: NOW.toISOString() }]);
+    expect(x.pantry).toHaveLength(2);
+    expect(x.pantry).toEqual(
+      expect.arrayContaining([
+        { ...PANTRY_ITEM, id: expect.any(String), createdAt: NOW.toISOString() },
+        { name: 'umeboshi', ingredientId: expect.anything(), addedOn: '2026-11-09', source: 'market', id: expect.any(String), createdAt: NOW.toISOString() },
+      ]),
+    );
+    const bought = (x.pantry as { id: string; name: string }[]).find((i) => i.name === 'umeboshi')!;
+    // Plans and market runs (H-11, M5 Step 6), decrypted, with the pantry row each tick added.
+    expect(x.plans).toEqual([{ ...PLAN, id: expect.any(String), createdAt: NOW.toISOString(), updatedAt: NOW.toISOString() }]);
+    expect(x.marketRuns).toHaveLength(1);
+    expect(x.marketRuns[0]).toMatchObject({ weekStart: PLAN.weekStart, planId: x.plans[0].id, doneAt: null, createdAt: NOW.toISOString() });
+    expect(x.marketRuns[0].pantryIds).toEqual({ [x.marketRuns[0].items.find((i: { name: string }) => i.name === 'umeboshi').key]: bought.id });
+    expect((x.marketRuns[0].items as { name: string; ticked: boolean }[]).filter((i) => i.ticked).map((i) => i.name)).toEqual(['umeboshi']);
     // Progress (U-5): both ledgers as stored, and the view derived from them.
     expect(x.progress.events).toEqual([
       { ...MARKET_EVENT, createdAt: NOW.toISOString() },
@@ -451,6 +477,8 @@ describe('GET /me/export', () => {
       user_keys: 'dataKey',
       meal_logs: 'meals',
       pantry_items: 'pantry',
+      meal_plans: 'plans',
+      market_runs: 'marketRuns',
       conversations: 'conversations',
       messages: 'conversations',
       mentor_proposals: 'proposals',
@@ -544,7 +572,7 @@ describe('DELETE /me', () => {
     expect(await sql`select 1 from pantry_items where user_id = ${p.id}`).toHaveLength(0);
     // And every mentor row (P-14).
     // Both progress ledgers go with the account (U-5): events and grants alike.
-    for (const t of ['progress_events', 'reward_grants']) {
+    for (const t of ['progress_events', 'reward_grants', 'meal_plans', 'market_runs']) {
       expect(await sql`select 1 from ${sql(t)} where user_id = ${p.id}`, t).toHaveLength(0);
     }
     for (const t of ['conversations', 'messages', 'mentor_proposals']) {
