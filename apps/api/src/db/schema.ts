@@ -224,6 +224,9 @@ export const consents = pgTable(
     check("consents_ended_reason_check", sql`${t.endedReason} in (${inList(CONSENT_ENDED_REASONS)})`),
     check("consents_ended_check", sql`(${t.withdrawnAt} is null) = (${t.endedReason} is null)`),
     check("consents_subject_kind_check", sql`${t.subjectKind} = 'user'`),
+    // C-45 reserve (fix round 1, M3): no other subject until M13, which replaces this with
+    // `(subject_kind = 'user') = (subject_id is null)`.
+    check("consents_subject_id_check", sql`${t.subjectId} is null`),
   ],
 );
 
@@ -558,11 +561,11 @@ export const marketRuns = pgTable(
 );
 
 /**
- * H-12 (M5 Step 7, Ruling 9): the player's margin notes, their own changes to a canon recipe. `sealed` is core's
- * `MarginNote` minus `recipe` (`{ ops, text, at }`: add, swap and remove ops over ingredient names, the player's own
- * words up to NOTE_TEXT_MAX, and when it was written), sealed S-U with AAD `{ table: 'margin_notes', userId, rowId }`.
- * `recipe` (a canon slug) stays plain for the per-recipe cap and lookup: it shows only "has a note on this dish", as
- * the plain `progress_events` do. Health data (the notes can show what the player can't or won't eat): written only
+ * H-12 (M5 Step 7, Ruling 9): the player's margin notes, their own changes to a canon recipe. `sealed` is core's whole
+ * `MarginNote` (`{ recipe, ops, text, at }`: the canon slug, add, swap and remove ops over ingredient names, the
+ * player's own words up to NOTE_TEXT_MAX, and when it was written), sealed S-U with AAD
+ * `{ table: 'margin_notes', userId, rowId }`. The recipe is sealed too (fix round 1, I1): no plain column says which
+ * dish a player changed or how often; the per-recipe cap is counted over the player's opened notes. Health data (the notes can show what the player can't or won't eat): written only
  * with `health_data`, in `HEALTH_TABLES`. At most MAX_NOTES_PER_RECIPE per recipe.
  */
 export const marginNotes = pgTable(
@@ -572,12 +575,11 @@ export const marginNotes = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    recipe: text("recipe").notNull(),
     sealed: bytea("sealed").notNull(),
     /** Set from the app's injected clock; defaultNow() is only a fallback. */
     createdAt: ts("created_at").notNull().defaultNow(),
   },
-  (t) => [index("margin_notes_user_recipe_idx").on(t.userId, t.recipe)],
+  (t) => [index("margin_notes_user_id_idx").on(t.userId)],
 );
 
 /**

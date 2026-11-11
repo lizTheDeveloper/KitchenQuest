@@ -20,8 +20,8 @@ export const ADVISORY_LOCK = {
   plan: 4,
   /** `lockUserProgress`: one user's progress ledger (taken after `rules`, `pantry` and `plan`, before the consent row). */
   progress: 5,
-  /** `lockUserNotes`: one user's margin-note writes (taken after `progress`, before the consent row; M5 Step 7). */
-  notes: 6,
+  /** `lockUserBook`: one user's Recipe Book writes, margin notes and Shared Table (after `progress`, before the consent row; M5 Step 7). */
+  book: 6,
 } as const;
 
 /**
@@ -45,11 +45,13 @@ export async function lockUserPlan(tx: Pick<Db, 'execute'>, userId: string): Pro
 }
 
 /**
- * Serializes the player's margin-note writes: pg_advisory_xact_lock(ADVISORY_LOCK.notes, hashtext(userId)), held until
- * commit, so two notes racing on one recipe both see each other in the MAX_NOTES_PER_RECIPE count. In the global lock
- * order it is the last advisory lock (`rules:`, `pantry:`, `plan:`, `progress:`, `notes:`), after `lockLiveUser` and
+ * Serializes the player's Recipe Book writes (margin notes and the Shared Table): pg_advisory_xact_lock(ADVISORY_LOCK.book,
+ * hashtext(userId)), held until commit, so two notes racing on one recipe both see each other in the
+ * MAX_NOTES_PER_RECIPE count, and racing book writes are counted one after the other by the shared daily write cap
+ * (fix round 1, M1: the user row's KEY SHARE lock does not serialize them). In the global lock
+ * order it is the last advisory lock (`rules:`, `pantry:`, `plan:`, `progress:`, `book:`), after `lockLiveUser` and
  * before the consent row. Re-entrant within one transaction.
  */
-export async function lockUserNotes(tx: Pick<Db, 'execute'>, userId: string): Promise<void> {
-  await tx.execute(sql`select pg_advisory_xact_lock(${ADVISORY_LOCK.notes}, hashtext(${userId}))`);
+export async function lockUserBook(tx: Pick<Db, 'execute'>, userId: string): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(${ADVISORY_LOCK.book}, hashtext(${userId}))`);
 }

@@ -26,6 +26,17 @@ const today = z.string().max(10).optional();
 const NoteWrite = z.object({ note: z.unknown(), confirmed: z.unknown(), today }).strict();
 const SharedWrite = z.object({ entry: z.unknown(), confirmed: z.unknown(), today }).strict();
 
+/**
+ * The body in its strict shape, or 400 naming only the fields (M2, fix round 1): zod's own message for an unknown key
+ * quotes the key, which may be a name, so it is never sent back (R-19).
+ */
+function bodyOf<T>(schema: z.ZodType<T>, body: unknown): T {
+  const parsed = schema.safeParse(body);
+  if (parsed.success) return parsed.data;
+  const problems = parsed.error.issues.map((i) => `body: ${i.path.map(String).join('.') || '(root)'} is not allowed`);
+  throw new ApiError(400, 'bad_request', 'Invalid request', { problems: [...new Set(problems)] });
+}
+
 const needsYes = (body: unknown, what: string) => {
   if (typeof body !== 'object' || body === null || (body as { confirmed?: unknown }).confirmed !== true) {
     throw new ApiError(400, 'confirmation_required', `${what} needs your confirmation (confirmed: true)`);
@@ -77,7 +88,7 @@ export async function bookRoutes(app: FastifyInstance, deps: BookRouteDeps): Pro
   app.post('/notes', pre, async (req, reply) => {
     const at = now();
     needsYes(req.body, 'Keeping a margin note');
-    const { note, today: t } = NoteWrite.parse(req.body);
+    const { note, today: t } = bodyOf(NoteWrite, req.body);
     const local = localToday(t, at);
     const saved = await db.transaction(async (tx: Tx) =>
       createNoteIn(tx, { keyring: config.keyring, catalog: deps.catalog, recipes: await deps.recipes.current(tx) }, req.user.id, note as MarginNote, at, req.id, local),
@@ -94,7 +105,7 @@ export async function bookRoutes(app: FastifyInstance, deps: BookRouteDeps): Pro
   app.post('/shared-table', pre, async (req, reply) => {
     const at = now();
     needsYes(req.body, 'Recording who you cooked for');
-    const { entry, today: t } = SharedWrite.parse(req.body);
+    const { entry, today: t } = bodyOf(SharedWrite, req.body);
     const local = localToday(t, at);
     const saved = await db.transaction(async (tx: Tx) =>
       recordSharedIn(tx, { keyring: config.keyring, loop: deps.loop, recipes: await deps.recipes.current(tx) }, req.user.id, entry as SharedEntry, at, req.id, local),

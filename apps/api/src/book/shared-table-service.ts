@@ -8,6 +8,7 @@ import type { LoopContent } from '../catalog.js';
 import type { Tx } from '../consent/ledger.js';
 import type { Keyring } from '../crypto/keyring.js';
 import { openFor, sealFor } from '../crypto/userkeys.js';
+import { lockUserBook } from '../db/advisory-locks.js';
 import { sharedTable } from '../db/schema.js';
 import { ApiError } from '../errors.js';
 import type { RecipeIndex } from '../recipes/recipe-index.js';
@@ -58,7 +59,7 @@ const invalid = (problems: string[]) => new ApiError(400, 'bad_request', 'The en
 
 /**
  * Records a meal the player shared (Cooked for Someone, audit M-9, Ruling 10), inside the caller's transaction. Order:
- * live user (401) → the daily write cap (429) → shape (400: only the fixed values; any other key or string is refused
+ * live user (401) → advisory `book:` → the daily write cap (429) → shape (400: only the fixed values; any other key or string is refused
  * and nothing is stored) → exactly one of a canon `recipe` that is not sacred (§10: no cooked-for on a sacred dish) or
  * a Pantry Frame id → `cookedOn` a real date within [today − 7, today], `today` the player's local date → seal →
  * insert → audit 'shared_table.create' (the row id only). Contract basis: no consent needed, not health data.
@@ -66,6 +67,8 @@ const invalid = (problems: string[]) => new ApiError(400, 'bad_request', 'The en
  */
 export async function recordSharedIn(tx: Tx, deps: SharedDeps, userId: string, entry: SharedEntry, at: Date, requestId?: string, today: string = at.toISOString().slice(0, 10)): Promise<{ id: string }> {
   await lockLiveUser(tx, userId);
+  // M1 (fix round 1): `book:` serializes this with every other book write, so the shared daily cap counts them in turn.
+  await lockUserBook(tx, userId);
   await assertUnderWriteCap(tx, userId, BOOK_WRITE_ACTIONS, at);
   const parsed = Entry.safeParse(entry);
   if (!parsed.success) throw invalid([...new Set(parsed.error.issues.map((i) => `entry: ${i.path.map(String).join('.') || '(root)'} is not allowed`))]);

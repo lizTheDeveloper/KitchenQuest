@@ -171,7 +171,7 @@ describe('consent ledger (C-1)', () => {
     expect(rows).toEqual([{ subject_kind: 'user', subject_id: null }]);
     await expect(
       sql`insert into consents (id, user_id, purpose, notice_version, notice_sha256, granted_at, method, subject_kind, subject_id)
-          values (${randomUUID()}, ${userId}, 'pantry_location', 'v1', ${sha('a')}, now(), 'api', 'child_profile', ${randomUUID()})`,
+          values (${randomUUID()}, ${userId}, 'pantry_location', 'v1', ${sha('a')}, now(), 'api', 'child_profile', null)`,
     ).rejects.toThrow(/consents_subject_kind_check/);
     await expect(sql`update consents set subject_kind = 'household' where user_id = ${userId}`).rejects.toThrow(/consents_subject_kind_check/);
     // M3 (fix round 1): a 'user' row names no other subject; subject_id stays null until M13.

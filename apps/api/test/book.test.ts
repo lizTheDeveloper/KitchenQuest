@@ -245,11 +245,11 @@ describe('margin notes', () => {
     const holder = await sql.reserve();
     try {
       await holder`begin`;
-      await holder`select pg_advisory_xact_lock(${ADVISORY_LOCK.notes}, hashtext(${p.id}))`;
+      await holder`select pg_advisory_xact_lock(${ADVISORY_LOCK.book}, hashtext(${p.id}))`;
       const racing = [postNote(p.cookie, noteOf()), postNote(p.cookie, noteOf())];
       // Both wait on notes: while it is held.
       await new Promise((r) => setTimeout(r, 300));
-      const waiting = await sql<{ n: number }[]>`select count(*)::int as n from pg_locks where locktype = 'advisory' and classid = ${ADVISORY_LOCK.notes} and not granted`;
+      const waiting = await sql<{ n: number }[]>`select count(*)::int as n from pg_locks where locktype = 'advisory' and classid = ${ADVISORY_LOCK.book} and not granted`;
       expect(waiting[0].n).toBe(2);
       await holder`commit`;
       const codes = (await Promise.all(racing)).map((r) => r.statusCode).sort();

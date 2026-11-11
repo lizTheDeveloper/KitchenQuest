@@ -1,5 +1,5 @@
 {
-  "id": "d3859368-466c-4175-ade7-e194454c20de",
+  "id": "1854d80c-0da4-4262-b993-a69b4ecca3be",
   "prevId": "da1cd2ea-aab3-46ba-88a7-fb99e408b84b",
   "version": "7",
   "dialect": "postgresql",
@@ -384,6 +384,10 @@
         "consents_subject_kind_check": {
           "name": "consents_subject_kind_check",
           "value": "\"consents\".\"subject_kind\" = 'user'"
+        },
+        "consents_subject_id_check": {
+          "name": "consents_subject_id_check",
+          "value": "\"consents\".\"subject_id\" is null"
         }
       },
       "isRLSEnabled": false
@@ -665,12 +669,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "recipe": {
-          "name": "recipe",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
         "sealed": {
           "name": "sealed",
           "type": "bytea",
@@ -686,17 +684,11 @@
         }
       },
       "indexes": {
-        "margin_notes_user_recipe_idx": {
-          "name": "margin_notes_user_recipe_idx",
+        "margin_notes_user_id_idx": {
+          "name": "margin_notes_user_id_idx",
           "columns": [
             {
               "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "recipe",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

@@ -1,13 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { checkWithNotes, MAX_NOTES_PER_RECIPE, validateNote, type CheckResult, type MarginNote, type NoteOp } from '@kitchenquest/core';
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import { audit } from '../audit/audit.js';
 import { lockLiveUser } from '../auth/live-user.js';
 import type { Catalog } from '../catalog.js';
 import { lockConsentIn, type Tx } from '../consent/ledger.js';
 import type { Keyring } from '../crypto/keyring.js';
 import { openFor, sealFor } from '../crypto/userkeys.js';
-import { lockUserNotes } from '../db/advisory-locks.js';
+import { lockUserBook } from '../db/advisory-locks.js';
 import { marginNotes } from '../db/schema.js';
 import { ApiError } from '../errors.js';
 import type { RecipeIndex } from '../recipes/recipe-index.js';
@@ -26,8 +26,8 @@ export interface NotesDeps {
 /** The audited actions the book's daily write cap counts (the M4 cap, the same for every player and plan, abuse only). */
 export const BOOK_WRITE_ACTIONS = ['notes.create', 'shared_table.create'] as const;
 
-/** What `margin_notes.sealed` holds: core's `MarginNote` without `recipe` (that is the plain `recipe` column). */
-type SealedNote = Omit<MarginNote, 'recipe'>;
+/** What `margin_notes.sealed` holds: core's whole `MarginNote`, the recipe included (fix round 1, I1: no plain slug). */
+type SealedNote = MarginNote;
 
 /** The seal context of a margin-note row (C-3): bound to the table, owner and row. */
 const noteSealContext = (userId: string, rowId: string) => ({ table: 'margin_notes', userId, rowId });
@@ -45,20 +45,20 @@ function canonical(n: MarginNote): MarginNote {
 }
 
 /**
- * The player's margin notes, decrypted, oldest first, with their row ids; only those on `recipe` when it is given.
- * `recipe` is for the service's own use (the per-recipe cap, `createNoteIn`'s check): `GET /notes` never passes one,
- * so no slug is ever in a notes URL (C32, Ruling 26).
+ * The player's margin notes, decrypted, oldest first, with their row ids; only those on `recipe` when it is given,
+ * filtered after opening (the slug is sealed, I1). `recipe` is for the service's own use (the per-recipe cap,
+ * `createNoteIn`'s check): `GET /notes` never passes one, so no slug is ever in a notes URL (C32, Ruling 26).
  */
 export async function loadNotes(db: Reader, keyring: Keyring, userId: string, recipe?: string): Promise<(MarginNote & { id: string })[]> {
   const rows = await db
-    .select({ id: marginNotes.id, recipe: marginNotes.recipe, sealed: marginNotes.sealed })
+    .select({ id: marginNotes.id, sealed: marginNotes.sealed })
     .from(marginNotes)
-    .where(recipe === undefined ? eq(marginNotes.userId, userId) : and(eq(marginNotes.userId, userId), eq(marginNotes.recipe, recipe)))
+    .where(eq(marginNotes.userId, userId))
     .orderBy(asc(marginNotes.createdAt), asc(marginNotes.id));
   const out: (MarginNote & { id: string })[] = [];
   for (const r of rows) {
     const s = await openFor<SealedNote>(db, keyring, noteSealContext(userId, r.id), r.sealed);
-    out.push({ recipe: r.recipe, ops: s.ops, text: s.text, at: s.at, id: r.id });
+    if (recipe === undefined || s.recipe === recipe) out.push({ recipe: s.recipe, ops: s.ops, text: s.text, at: s.at, id: r.id });
   }
   return out;
 }
@@ -73,10 +73,11 @@ export async function loadNotesForExport(db: Reader, keyring: Keyring, userId: s
 
 /**
  * Writes a margin note for the player, inside the caller's transaction (M5 Step 7, Ruling 9). Order: live user (401) →
- * advisory `notes:` → the daily write cap (429) → `health_data` (403 `consent_required`: notes are health data) →
+ * advisory `book:` → the daily write cap (429) → `health_data` (403 `consent_required`: notes are health data) →
  * `validateNote` against the canon (400 `bad_request` with its problems: shape, an unknown recipe, a sacred recipe,
  * text over NOTE_TEXT_MAX) → `at` within a day of `today`, the player's local date (the UTC date of `at` when absent)
- * → MAX_NOTES_PER_RECIPE per recipe (400 `too_many_notes`) → seal (`{ ops, text, at }`) → insert → audit
+ * → MAX_NOTES_PER_RECIPE per recipe, counted over the player's own notes opened under `book:` (400
+ * `too_many_notes`) → seal (the whole note, `{ recipe, ops, text, at }`, I1) → insert → audit
  * 'notes.create' (the row id only, C-5).
  *
  * Returns the note as stored, with its row id and `check`: core `checkWithNotes` over ALL the player's notes on that
@@ -94,7 +95,7 @@ export async function createNoteIn(
   today: string = utcToday(at),
 ): Promise<MarginNote & { id: string; check: CheckResult }> {
   await lockLiveUser(tx, userId);
-  await lockUserNotes(tx, userId);
+  await lockUserBook(tx, userId);
   await assertUnderWriteCap(tx, userId, BOOK_WRITE_ACTIONS, at);
   await lockConsentIn(tx, userId, 'health_data', at);
   const problems = validateNote(note, deps.recipes);
@@ -104,19 +105,18 @@ export async function createNoteIn(
     throw new ApiError(400, 'bad_request', 'The note is not valid', { problems: ['note: at is not today'] });
   }
   const value = canonical(note);
-  const [{ n }] = await tx
-    .select({ n: sql<number>`count(*)::int` })
-    .from(marginNotes)
-    .where(and(eq(marginNotes.userId, userId), eq(marginNotes.recipe, value.recipe)));
-  if (n >= MAX_NOTES_PER_RECIPE) {
+  // Counted over the opened notes (the slug is sealed, I1); `book:` serializes this with any racing create.
+  const before = await loadNotes(tx, deps.keyring, userId, value.recipe);
+  if (before.length >= MAX_NOTES_PER_RECIPE) {
     throw new ApiError(400, 'too_many_notes', `A recipe holds at most ${MAX_NOTES_PER_RECIPE} notes`, { max: MAX_NOTES_PER_RECIPE });
   }
   // Generated before insert: the seal is bound to it (C-3).
   const id = randomUUID();
-  const sealed: SealedNote = { ops: value.ops, text: value.text, at: value.at };
-  await tx.insert(marginNotes).values({ id, userId, recipe: value.recipe, sealed: await sealFor(tx, deps.keyring, noteSealContext(userId, id), sealed, at), createdAt: at });
+  const sealed: SealedNote = { recipe: value.recipe, ops: value.ops, text: value.text, at: value.at };
+  await tx.insert(marginNotes).values({ id, userId, sealed: await sealFor(tx, deps.keyring, noteSealContext(userId, id), sealed, at), createdAt: at });
   await audit(tx, { actorKind: 'user', actorId: userId, subjectUserId: userId, action: 'notes.create', target: id, requestId }, at);
-  const all = await loadNotes(tx, deps.keyring, userId, value.recipe);
+  // ALL the player's notes on the recipe, this one last (I2): an earlier blocking note keeps "cook with my notes" blocked.
+  const all = [...before, { ...value, id }];
   const rules = await loadRules(tx, deps.keyring, userId);
   const check = checkWithNotes(deps.recipes.get(value.recipe)!, all, rules, deps.catalog.graph, [...deps.catalog.substitutions], today);
   return { ...value, id, check };

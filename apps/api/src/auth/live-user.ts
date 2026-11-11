@@ -15,7 +15,7 @@ import type { Db } from '../types.js';
  *
  * One global lock order (pre-flight C13, extended in M5), for every transaction:
  * user row (`lockLiveUser`) → per-user advisory locks (`rules:<id>`, `pantry:<id>`, `plan:<id>`, `progress:<id>`,
- * `notes:<id>`, in that order; namespaces in `db/advisory-locks.ts`) → consent row (`lockConsentIn`, `consentHeldIn`) →
+ * `book:<id>`, in that order; namespaces in `db/advisory-locks.ts`) → consent row (`lockConsentIn`, `consentHeldIn`) →
  * conversation row (`bumpTurn`, `appendMessages`, `forgetConversations`) → proposal row (`lockProposal`) → data rows
  * in table order: `rules` → `meal_logs` → `margin_notes` → `messages` → `mentor_proposals` (the `HEALTH_TABLES`
  * order), then `meal_plans` → `market_runs` → `shared_table` → `progress_events` → `reward_grants`.
@@ -26,8 +26,8 @@ import type { Db } from '../types.js';
  * confirm and undo in `mentor/writes.ts`) takes the user row, then `progress:`, then (a confirm only) the consent row,
  * then the meal log (a delete cascading to its progress event), then the proposal row. A progress post takes the user row, then `progress:`, then (for a
  * meal-log event) the `health_data` grant, then reads `meal_logs` and writes `progress_events` → `reward_grants`.
- * A margin-note write (M5 Step 7) takes the user row, then `notes:`, then the `health_data` grant, then counts and
- * writes `margin_notes`; a Shared Table write takes the user row only, then writes `shared_table`. A note or Shared
+ * A margin-note write (M5 Step 7) takes the user row, then `book:`, then the `health_data` grant, then counts and
+ * writes `margin_notes`; a Shared Table write takes the user row, then `book:` (the shared daily write cap), then writes `shared_table`. A note or Shared
  * Table delete takes the user row, then deletes its own row.
  * Each service accepts locks its caller already holds (advisory and row locks are re-entrant within one transaction).
  *
