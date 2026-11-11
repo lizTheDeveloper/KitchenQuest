@@ -360,7 +360,7 @@ describe('progress sync', () => {
 
 describe('M5 Step 11 fix I2: a signed-in meal_logged waits in its own account until the server answers', () => {
   const meal = (mealLogId: string, extra: Record<string, unknown> = {}): ProgressEvent =>
-    ({ id: newEventId(), kind: 'meal_logged', at: '2026-11-10', minute: 600, mealLogId, ...extra }) as ProgressEvent;
+    ({ id: newEventId(), kind: 'meal_logged', at: '2026-11-10', minute: 600, mealLogId, ...extra });
   const meals = (store: PlayerStore, email: string | null) => part(store, email).events.filter((e) => e.kind === 'meal_logged');
   const posted = (posts: Post[]) => posts.flatMap((p) => p.events).filter((e) => e.kind === 'meal_logged');
 
