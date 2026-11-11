@@ -45,7 +45,9 @@ The Pan is the mentor in the panel on every screen. It always works without AI: 
 
 - `AI_ENABLED` is `false` by default; with it off no other AI variable is read and the mentor runs scripted. To turn it on, set `OPENROUTER_API_KEY`, `AI_PROVIDERS` and `AI_DAILY_BUDGET_USD` (see `.env.example`). Outside production, use synthetic data only.
 - In production the API **refuses to boot** with `AI_ENABLED=true` until `docs/compliance/processors.json` lists the OpenRouter DPAs as signed (P-11; checklist in `docs/compliance/vendors/openrouter.md`).
-- Allergy and diet rule help, meal logging, export and delete are never capped (§16); free-form chat has a daily allowance.
+- Allergy and diet rule help, meal logging, export and delete are free forever (§16); free-form chat has a daily allowance.
+- **One abuse limit, the same for every plan:** at most 200 meal logs and 200 rule edits that loosen a rule per player per rolling day (`apps/api/src/usage/write-cap.ts`, controller ruling M-4). It is far above human use, it reads no plan or entitlement (a Guild player meets it exactly where a free player does), it is never sold or raised for pay, and it never blocks adding, removing or tightening a rule. The Pan says so plainly (`write.daily_limit`). `apps/api/test/free-forever.test.ts` pins all of this.
+- In production with `AI_ENABLED=true`, the API compares the **live** AI config (model, `AI_PROVIDERS`, prompt, tools and request parameters) with `apps/api/eval/last-pass.json` at boot. If they differ, it logs an `eval_gate` error and starts with the AI off, so the scripted mentor answers every turn (I-3). Run the eval with the exact production config before changing any of these.
 
 ### The mentor eval
 

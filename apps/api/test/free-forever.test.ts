@@ -1,6 +1,7 @@
 // M4 Step 12: the free-forever promise (§16, never rule 1, pre-flight C6, C30). A player with no
 // entitlements, at the daily AI cap, without ai_health, with the global AI budget spent or the AI
 // off, keeps every safety and logging feature, and the mentor never answers with 402 or 403.
+import { readFileSync } from 'node:fs';
 import type { TurnResponse } from '@kitchenquest/core';
 import type { FastifyInstance, InjectOptions } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -9,7 +10,9 @@ import { buildApp } from '../src/app.js';
 import { defaultCatalog } from '../src/catalog.js';
 import { loadConfig } from '../src/config.js';
 import { NOTICES } from '../src/consent/notices.js';
-import { aiCostHours, usageEvents } from '../src/db/schema.js';
+import { aiCostHours, auditEvents, usageEvents } from '../src/db/schema.js';
+import { grant as grantEntitlement } from '../src/entitlements/entitlements.js';
+import { WRITES_PER_DAY } from '../src/usage/write-cap.js';
 import { CaptureMailer } from '../src/mail/mailer.js';
 import { FREE_AI_TURNS_PER_DAY } from '../src/mentor/constants.js';
 import { RECIPES_DIR, syncCanon } from '../src/recipes/sync.js';
@@ -182,5 +185,31 @@ describe('free forever (§16)', () => {
   it('no mentor response in this file sells (never rule 7)', () => {
     expect(turnBodies.length).toBe(6);
     for (const b of turnBodies) expect(b).not.toMatch(SELLS);
+  });
+});
+
+describe('the daily write limit is an abuse limit, the same for every plan (M4 final, ruling M-4)', () => {
+  it('a Guild player meets the 200-a-day meal-log limit exactly where a free player does: it is never a paid feature', async () => {
+    await makeApp(null);
+    const limitFor = async (guild: boolean) => {
+      const cookie = await signIn(app, mailer, `cap${++seq}@example.com`);
+      const userId = (await call(cookie, { method: 'GET', url: '/me' })).json<{ id: string }>().id;
+      if (guild) await grantEntitlement(db, userId, 'guild', 'manual', new Date(NOW.getTime() - HOUR));
+      expect((await grant(cookie, 'health_data')).statusCode).toBe(201);
+      const at = new Date(NOW.getTime() - HOUR);
+      const rows = (n: number) => Array.from({ length: n }, () => ({ at, actorKind: 'user', actorId: userId, subjectUserId: userId, action: 'meals.create', target: 'x' }));
+      const log = () => call(cookie, { method: 'POST', url: '/meals', payload: { meal: { eatenOn: TODAY, slot: 'breakfast', item: { kind: 'free', description: 'toast' } }, confirmed: true } });
+      await db.insert(auditEvents).values(rows(WRITES_PER_DAY - 1));
+      const last = await log();
+      const over = await log();
+      return [last.statusCode, over.statusCode];
+    };
+    expect(await limitFor(false)).toEqual([201, 429]);
+    expect(await limitFor(true)).toEqual([201, 429]);
+  });
+
+  it('the limit reads no plan: the write-cap module never looks at entitlements', () => {
+    const src = readFileSync(new URL('../src/usage/write-cap.ts', import.meta.url), 'utf8');
+    expect(src).not.toMatch(/entitlement|guild|GUILD|tier|plan/i);
   });
 });
