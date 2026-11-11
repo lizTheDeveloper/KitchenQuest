@@ -47,7 +47,7 @@ describe('account partitions on the device (sign-out ruling)', () => {
     // Signed in and online: the cook goes up, and the server's view is cached with the partition.
     store.update((s) => ({ ...s, account: { email: EMAIL } }));
     const svc = await progressService();
-    await settle(() => store.get().accountProgress[key]?.view != null);
+    await settle(() => store.get().accountProgress[key]?.view !== undefined && store.get().accountProgress[key]?.view !== null);
     const synced = cooked('2026-11-09');
     await svc.record([synced]);
     expect(posts.flatMap((p) => p.events.map((e) => e.id))).toEqual([synced.id]);
@@ -73,7 +73,7 @@ describe('account partitions on the device (sign-out ruling)', () => {
     online = true;
     posts.length = 0;
     store.update((s) => ({ ...s, account: { email: EMAIL } }));
-    await settle(() => store.get().accountProgress[key]?.view != null && posts.length > 0);
+    await settle(() => store.get().accountProgress[key]?.view !== undefined && store.get().accountProgress[key]?.view !== null && posts.length > 0);
     expect(posts).toEqual([{ events: [waiting], upload: true }]);
     expect(store.get().accountProgress[key].view).toEqual(SERVER_VIEW);
     expect(svc.view().level).toBe(4);
