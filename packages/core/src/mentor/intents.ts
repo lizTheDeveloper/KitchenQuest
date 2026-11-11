@@ -56,10 +56,28 @@ export function isEmergency(normalized: string): boolean {
   return REACTION_STEM.test(normalized) || (/\bhelp\b/.test(normalized) && HELP_ALLERGEN.test(normalized));
 }
 
+/** Ages one to seventeen in words (M5 Step 8 fix round 4, N9). */
+const AGE_WORDS = 'one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen';
+/** After "i'm <number word>": a clock time or a length of time, not an age ("i'm seven thirty", "i'm ten minutes away"). */
+const NOT_AN_AGE =
+  "(?!\\s*[-:.]?\\s*(?:thirty|fifteen|forty|twenty|ten\\b|five\\b|o'?clock|am\\b|pm\\b|a\\.m|p\\.m|ish\\b|minutes?|mins?|hours?|hrs?|seconds?|secs?|days?|weeks?|months?|of\\b|more\\b|steps?|away|out\\b|behind|ahead|kg|kilos?|lbs?|pounds?|stone|percent|%|miles?|km))";
+/** A school year in words or digits: "year 4", "grade three". */
+const SCHOOL_YEAR = '(?:[1-9]|1[0-2]|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)';
+
+/**
+ * A child (M4 §19; fix round 4, N9): an age three to fifteen in digits, an age one to seventeen in words ("im seven",
+ * "i'm twelve", "seven years old"), a school year ("year 4", "grade 3", "3rd grade") or primary or elementary school.
+ * False positives are accepted: the grown-up line is the safe side. The emergency check still runs first.
+ */
 export const CHILD_PATTERNS: readonly RegExp[] = [
   /\b(i'?m|i am|im)\s+([3-9]|1[0-5])\b(?!\s*(:|am\b|pm\b|%|kg|lb))/,
   /\b([3-9]|1[0-5])\s*(years?|yrs?)\s*old\b/,
   /\bi'?m in (year|grade) ([1-9]|10)\b/,
+  new RegExp(`\\b(?:i'?m|i am|im)\\s+(?:${AGE_WORDS})\\b${NOT_AN_AGE}`),
+  new RegExp(`\\b(?:${AGE_WORDS})[\\s-]*(?:years?|yrs?)[\\s-]*old\\b`),
+  new RegExp(`\\b(?:year|grade) ${SCHOOL_YEAR}\\b`),
+  /\b(?:[1-9]|1[0-2])(?:st|nd|rd|th) grade\b|\b(?:first|second|third|fourth|fifth|sixth|seventh|eighth) grade\b/,
+  /\b(?:in|at|go to|attend) (?:primary|elementary|middle school|junior high|kindergarten|reception class)\b|\b(?:primary|elementary) school\b/,
 ];
 
 // Medicines and milligram doses too (I4): "how many mg of ibuprofen with dinner".

@@ -66,6 +66,45 @@ describe('applyPostChecks', () => {
     expect(out).toEqual([profile({ meal_windows: [{ name: 'lunch', start: '12:30' }, { name: 'dinner', start: '19:00' }] })]);
   });
 
+  test('M5 Step 8 ruling (b): a profile call without meal windows gets them from the player\'s own clock words (T13); none named, none added', () => {
+    const t13 = "Had dal for dinner. Also put the frijoles on Saturday's plan, and remind me about dinner at 6:30 pm.";
+    expect(post([profile({})], t13)).toEqual([profile({ meal_windows: [{ name: 'dinner', start: '18:30' }] })]);
+    expect(post([profile({ meal_windows: [] })], t13)).toEqual([profile({ meal_windows: [{ name: 'dinner', start: '18:30' }] })]);
+    expect(post([profile({ market_days: ['Saturday'] })], 'My market day is Saturday.')).toEqual([profile({ market_days: ['saturday'] })]);
+  });
+
+  test('ruling: a plan pick with after null takes the one weekday an "after that/market/it" message names; else the ask; never a guess', () => {
+    const plan = (after: string | null, pick: number | null = 3): ToolArgs => ({ name: 'propose_plan', args: { days: null, pick, hard_week: null, after } });
+    expect(post([plan(null)], "pick 3. market's saturday so do them after that")).toEqual([plan('saturday')]);
+    expect(post([plan(null)], 'pick 3 after market, market is on friday')).toEqual([plan('friday')]);
+    expect(post([plan(null)], 'pick 3, busy friday and saturday so after that')).toEqual([plan('that')]);
+    expect(post([plan(null)], 'pick 3 after that')).toEqual([plan('that')]);
+    // No "after …" words: nothing is added; the model's own after stays.
+    expect(post([plan(null)], 'pick 3, market is saturday')).toEqual([plan(null)]);
+    // The model's own after stays only when it is the player's words (fix round 1, C1); else the words decide.
+    expect(post([plan('sunday')], 'pick 3 after sunday, market is saturday')).toEqual([plan('sunday')]);
+    expect(post([plan('sunday')], 'pick 3 after that, market is saturday')).toEqual([plan('saturday')]);
+  });
+
+  test('fix round 1 C1/M3: every model string in a plan call must be the player\'s own words and pass the screens, else it is dropped', () => {
+    const plan = (args: Partial<Extract<ToolArgs, { name: 'propose_plan' }>['args']>): ToolArgs => ({ name: 'propose_plan', args: { days: null, pick: null, hard_week: null, after: null, ...args } });
+    // The reviewer's probe: a model after that is not the player's words never reaches a line.
+    expect(post([plan({ pick: 3, after: 'all safe now' })], 'help me with my week please')).toEqual([plan({ pick: 3 })]);
+    expect(post([plan({ pick: 3, after: 'Saturday' })], 'pick 3 after saturday')).toEqual([plan({ pick: 3, after: 'Saturday' })]);
+    // M3: a weekday the player didn't say drops the day; the dish rule stands.
+    expect(post([plan({ days: [{ weekday: 'Tuesday', dish: 'onigiri' }] })], 'onigiri on monday please')).toEqual([]);
+    expect(post([plan({ days: [{ weekday: 'Monday', dish: 'onigiri' }] })], 'onigiri on monday please')).toEqual([plan({ days: [{ weekday: 'Monday', dish: 'onigiri' }] })]);
+    // I1: a dish string that is a health statement is never a plan dish.
+    expect(post([plan({ days: [{ weekday: 'Sunday', dish: 'no peanuts' }] })], 'plan my week: no peanuts on sunday')).toEqual([]);
+  });
+
+  test('fix round 2 N3: a model after that names no day never beats the weekday the player\'s words give', () => {
+    const plan = (after: string | null): ToolArgs => ({ name: 'propose_plan', args: { days: null, pick: 3, hard_week: null, after } });
+    expect(post([plan('that')], "idk just pick 3 things for this week. market's saturday so do the beans after that")).toEqual([plan('saturday')]);
+    expect(post([plan('knackered')], "pick 3 for me, I'm knackered")).toEqual([plan(null)]);
+    expect(post([plan('Saturday')], 'pick 3 after saturday')).toEqual([plan('Saturday')]);
+  });
+
   test('T03: the weekdays the player named set the market days', () => {
     expect(post([profile({ market_days: ['Sunday'] })], 'My market day is Saturday.')).toEqual([profile({ market_days: ['saturday'] })]);
     expect(post([profile({ meals_per_week: 5 })], 'Saturday, five meals')).toEqual([profile({ meals_per_week: 5 })]);

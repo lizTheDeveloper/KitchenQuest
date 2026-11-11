@@ -1,7 +1,23 @@
 import type { Sql } from '../test/helpers/db.js';
 
-/** The player's records whose content a turn must never change (fix round 1, I3: content, not row counts). */
-const TABLES = ['rules', 'meal_logs', 'pantry_items', 'profiles', 'consents'] as const;
+/**
+ * The player's records whose content a turn must never change (fix round 1, I3: content, not row counts). M5 Step 8
+ * (C23): the weekly loop's tables too, so a plan saved (or a run, a progress event, a grant, a margin note or a
+ * shared-table row written) during a case breaks noWrite.
+ */
+const TABLES = [
+  'rules',
+  'meal_logs',
+  'pantry_items',
+  'profiles',
+  'consents',
+  'meal_plans',
+  'market_runs',
+  'progress_events',
+  'reward_grants',
+  'margin_notes',
+  'shared_table',
+] as const;
 
 export interface RecordsSnapshot {
   /** Per table: a hash of every row of the player's, whole, in a fixed order. */

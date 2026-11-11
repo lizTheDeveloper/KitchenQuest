@@ -25,16 +25,26 @@ export interface Dialogue { say(id: string, vars?: Vars): Said }
 
 export function createDialogue(
   bank: LineBank,
-  opts: { random?: () => number; history?: Record<string, number[]>; onHistory?: (h: Record<string, number[]>) => void } = {},
+  opts: {
+    random?: () => number; history?: Record<string, number[]>; onHistory?: (h: Record<string, number[]>) => void;
+    /**
+     * Whose session the history belongs to (the signed-in account, Step 9 N4). When it changes, the in-memory history
+     * starts empty, so an earlier session's lines are never written back.
+     */
+    session?: () => string;
+  } = {},
 ): Dialogue {
   const random = opts.random ?? Math.random;
-  const history: Record<string, number[]> = {};
+  let history: Record<string, number[]> = {};
   for (const [k, v] of Object.entries(opts.history ?? {})) {
     if (Array.isArray(v)) history[k] = v.filter((i) => Number.isInteger(i));
   }
+  let session = opts.session?.();
 
   return {
     say(id, vars = {}) {
+      const now = opts.session?.();
+      if (now !== session) { session = now; history = {}; }
       const resolved = resolveTrigger(bank, id);
       if (resolved === null) throw new DialogueError(`Unknown dialogue trigger "${id}"`);
       const trigger = bank.triggers[resolved];

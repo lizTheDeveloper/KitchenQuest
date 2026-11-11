@@ -3,7 +3,7 @@ import type { Rule } from '@kitchenquest/core/engine';
 import { graph } from '../content';
 import { activeRules } from '../recipes/rules';
 import { createStore, type PlayerState } from '../state/store';
-import { refreshAccount, signOut, watchAccount } from './account';
+import { refreshAccount, setBeforeSignOut, signOut, watchAccount } from './account';
 import type { ApiClient } from './client';
 import type { ApiResult } from './types';
 
@@ -187,6 +187,19 @@ describe('refreshAccount', () => {
 });
 
 describe('signOut', () => {
+  test('C1: the progress flush runs while the account is still signed in, before the sign-out clears it', async () => {
+    const store = storeWith({ account: { email: 'cook@example.com' }, accountRules: [] });
+    const seen: (string | null)[] = [];
+    setBeforeSignOut(() => { seen.push(store.get().account?.email ?? null); return Promise.resolve(); });
+    try {
+      await signOut(fakeClient({ logout: () => Promise.resolve(ok(null, 204)) }).client, store);
+    } finally {
+      setBeforeSignOut(null);
+    }
+    expect(seen).toEqual(['cook@example.com']);
+    expect(store.get().account).toBeNull();
+  });
+
   test('signOut clears even when logout fails offline', async () => {
     const device: Rule = { ...coconut, id: 'd1' };
     const store = storeWith({ account: { email: 'cook@example.com' }, accountRules: [coconut], localRules: [device] });

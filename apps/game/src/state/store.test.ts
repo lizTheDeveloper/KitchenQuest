@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { recordTechnique } from '@kitchenquest/core/engine';
-import { createStore, deleteDeviceData, STORE_KEY } from './store';
+import { accountKey, accountViewOf, createStore, prunePartition, deleteDeviceData, importM3Toolkit, mergePartitions, mergeProgress, partitionKey, partitionOf, STORE_KEY, withPartition } from './store';
 
 function memStorage(init: Record<string, string> = {}): Storage {
   const m = new Map(Object.entries(init));
@@ -444,3 +444,129 @@ describe('M4 Step 9: new keys and confirmRules', () => {
     expect(s.get().rulesUnreadable).toBe(true);
   });
 });
+
+describe('progress (M5 Step 9)', () => {
+  const m3 = {
+    v: 1,
+    toolkit: { techniques: { tempering: { tier: 'tried', firstAt: '2026-03-01', lastUsedAt: '2026-04-01', recipes: ['india/kerala/parippu'] } } },
+  };
+
+  it('store: M3 toolkit records become imported events once; a reload does not import twice', () => {
+    const st = memStorage({ [STORE_KEY]: JSON.stringify(m3) });
+    const s = createStore(st);
+    const events = s.get().progress.events;
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ kind: 'imported', technique: 'tempering', tier: 'tried', firstAt: '2026-03-01', lastUsedAt: '2026-04-01', at: '2026-04-01', recipes: ['india/kerala/parippu'] });
+    expect(events[0].id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(s.get().progress.pendingUpload).toEqual([events[0].id]);
+    // Saved at once: a reload (and a second tab) reads the import back instead of making another.
+    const again = createStore(st);
+    expect(again.get().progress.events.map((e) => e.id)).toEqual([events[0].id]);
+    again.update((x) => x);
+    expect(createStore(st).get().progress.events.filter((e) => e.kind === 'imported')).toHaveLength(1);
+  });
+
+  it('store: two tabs importing at once keep one imported event per technique', () => {
+    const a = importM3Toolkit({ ...createStore(null).get(), toolkit: m3.toolkit as never });
+    const b = importM3Toolkit({ ...createStore(null).get(), toolkit: m3.toolkit as never });
+    const merged = mergeProgress(a.progress, b.progress);
+    expect(merged.events.filter((e) => e.kind === 'imported')).toHaveLength(1);
+  });
+
+  it('store: a technique already folded into a compacted base is not imported again', () => {
+    const base = { view: { xp: 0, level: 1, stamps: 0, trust: {}, toolkit: m3.toolkit, questsDone: [], questSteps: {}, questStartedOn: {}, cookedOn: {}, framesCookedOn: {} }, facts: { v: 1, ids: ['x'] } };
+    const s = importM3Toolkit({ ...createStore(null).get(), toolkit: m3.toolkit as never, progress: { events: [], grants: [], base: base as never, pendingUpload: [] } });
+    expect(s.progress.events).toEqual([]);
+  });
+
+  it('store: a progress field of the wrong shape is unreadable, never silently dropped', () => {
+    const st = memStorage({ [STORE_KEY]: JSON.stringify({ v: 1, progress: { events: 'nope' } }) });
+    expect(createStore(st).notice).toBe('corrupt');
+  });
+
+  it('store: mergeProgress unions by id and never drops a held event; the higher base wins', () => {
+    const e = (id: string) => ({ id, kind: 'lesson' as const, at: '2026-11-09', recipe: 'india/kerala/parippu' });
+    const g = (id: string) => ({ id: `${id}#0`, eventId: id, isoDay: '2026-11-09', kind: 'xp' as const, amount: 10, reason: 'lesson' as const });
+    const a = { events: [e('a'), e('b')], grants: [g('a')], base: null, pendingUpload: ['a', 'b'] };
+    const b = { events: [e('b'), e('c')], grants: [g('c')], base: null, pendingUpload: ['c'] };
+    const m = mergeProgress(a, b);
+    expect(m.events.map((x) => x.id)).toEqual(['a', 'b', 'c']);
+    expect(m.grants.map((x) => x.id)).toEqual(['a#0', 'c#0']);
+    expect(m.pendingUpload).toEqual(['a', 'b', 'c']);
+    // A base covering 'a' (a compaction in one tab): 'a' is held by the base, every other event stays.
+    const base = { view: { xp: 10, level: 1, stamps: 0, trust: {}, toolkit: { techniques: {} }, questsDone: [], questSteps: {}, questStartedOn: {}, cookedOn: {}, framesCookedOn: {} }, facts: { v: 1, ids: ['a'] } };
+    const c = mergeProgress(a, { events: [e('b'), e('c')], grants: [], base, pendingUpload: [] });
+    expect(c.base).toBe(base);
+    expect(c.events.map((x) => x.id)).toEqual(['b', 'c']);
+    expect(c.grants.map((x) => x.id)).toEqual([]);
+    expect(mergeProgress({ ...a, base }, b).base).toBe(base); // never a lower (null) base
+    // An update marking uploads done keeps them done.
+    expect(mergeProgress(a, { ...a, pendingUpload: [] }, { pendingFrom: 'b' }).pendingUpload).toEqual([]);
+  });
+
+  it('store: an update can never drop a held progress event', () => {
+    const s = createStore(memStorage());
+    const e = { id: 'e1', kind: 'lesson' as const, at: '2026-11-09', recipe: 'india/kerala/parippu' };
+    s.update((x) => ({ ...x, progress: { ...x.progress, events: [e] } }));
+    s.update((x) => ({ ...x, progress: { ...x.progress, events: [] } }));
+    expect(s.get().progress.events.map((x) => x.id)).toEqual(['e1']);
+  });
+});
+
+describe('progress partitions (C1 ruling)', () => {
+  const e = (id: string) => ({ id, kind: 'lesson' as const, at: '2026-11-09', recipe: 'india/kerala/parippu' });
+  const log = (...ids: string[]) => ({ events: ids.map(e), grants: [], base: null, pendingUpload: ids });
+
+  it('a store reload keeps the partitions, each with its own log and cached view', () => {
+    const st = memStorage();
+    const s = createStore(st);
+    const view = { xp: 7, level: 1, stamps: 0, trust: {}, toolkit: { techniques: {} }, questsDone: [], questSteps: {}, questStartedOn: {}, cookedOn: {}, framesCookedOn: {} };
+    s.update((x) => withPartition(withPartition(withPartition(x, null, log('g')), 'a@x.test', log('a'), view), 'b@x.test', log('b')));
+    const again = createStore(st).get();
+    expect(partitionOf(again, null).events.map((x) => x.id)).toEqual(['g']);
+    expect(partitionOf(again, 'a@x.test').events.map((x) => x.id)).toEqual(['a']);
+    expect(partitionOf(again, 'b@x.test').events.map((x) => x.id)).toEqual(['b']);
+    expect(accountViewOf(again, 'a@x.test')).toEqual(view);
+    expect(accountViewOf(again, 'b@x.test')).toBeNull();
+  });
+
+  it('mergePartitions never mixes partitions (another tab\'s A events stay A\'s, the guest\'s stay the guest\'s)', () => {
+    const tab1 = { progress: log('g1'), accountProgress: { 'a@x.test': { progress: log('a1'), view: null } } };
+    const tab2 = { progress: log('g2'), accountProgress: { 'a@x.test': { progress: log('a2'), view: null }, 'b@x.test': { progress: log('b1'), view: null } } };
+    const m = mergePartitions(tab1, tab2);
+    expect(m.progress.events.map((x) => x.id)).toEqual(['g1', 'g2']);
+    expect(m.accountProgress['a@x.test'].progress.events.map((x) => x.id)).toEqual(['a1', 'a2']);
+    expect(m.accountProgress['b@x.test'].progress.events.map((x) => x.id)).toEqual(['b1']);
+  });
+
+  it('the live partition follows the account: guest signed out, the account\'s own signed in', () => {
+    const s = createStore(null);
+    s.update((x) => withPartition(withPartition(x, null, log('g')), accountKey('a@x.test'), log('a')));
+    expect(partitionOf(s.get(), partitionKey(s.get())).events.map((x) => x.id)).toEqual(['g']);
+    s.update((x) => ({ ...x, account: { email: 'a@x.test' } }));
+    expect(partitionOf(s.get(), partitionKey(s.get())).events.map((x) => x.id)).toEqual(['a']);
+    s.update((x) => ({ ...x, account: { email: 'b@x.test' } }));
+    expect(partitionOf(s.get(), partitionKey(s.get())).events).toEqual([]);
+  });
+
+  it('prunePartition keeps only the unsynced events (and their grants), drops the view, and a stale copy can\'t bring the rest back', () => {
+    const key = accountKey('a@x.test');
+    const view = { xp: 7, level: 1, stamps: 0, trust: {}, toolkit: { techniques: {} }, questsDone: [], questSteps: {}, questStartedOn: {}, cookedOn: {}, framesCookedOn: {} };
+    const before = withPartition(createStore(null).get(), key, { ...log('a', 'b', 'c'), pendingUpload: ['c'], grants: [{ id: 'c#0', eventId: 'c', isoDay: '2026-11-09', kind: 'xp', amount: 10, reason: 'lesson' }, { id: 'a#0', eventId: 'a', isoDay: '2026-11-09', kind: 'xp', amount: 10, reason: 'lesson' }] }, view);
+    const after = prunePartition(before, key);
+    expect(partitionOf(after, key).events.map((x) => x.id)).toEqual(['c']);
+    expect(partitionOf(after, key).grants.map((x) => x.id)).toEqual(['c#0']);
+    expect(accountViewOf(after, key)).toBeNull();
+    // Another tab still holding the old copy: the pruned one (a higher epoch) wins, both ways round.
+    expect(mergePartitions(after, before).accountProgress[key].progress.events.map((x) => x.id)).toEqual(['c']);
+    expect(mergePartitions(before, after).accountProgress[key].progress.events.map((x) => x.id)).toEqual(['c']);
+    // And through the store: an update over a stale stored copy keeps the prune.
+    const st = memStorage();
+    const s1 = createStore(st);
+    s1.update(() => before);
+    s1.update((x) => prunePartition(x, key));
+    expect(partitionOf(createStore(st).get(), key).events.map((x) => x.id)).toEqual(['c']);
+    expect(st.getItem(STORE_KEY)).not.toContain('a@x.test');
+  });
+});
+

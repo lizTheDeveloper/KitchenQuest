@@ -18,3 +18,20 @@ describe('MAP_PINS', () => {
     }
   });
 });
+
+describe('pin states (Ruling 3)', () => {
+  test('map: unintroduced cook → "Awaiting an introduction" (travel anyway); introduced → "expecting you"; no locked pin', async () => {
+    const { introduced } = await import('../progress/announce');
+    const { pinState, PIN_STATE_TEXT } = await import('./pins');
+    const fresh = introduced({});
+    expect(pinState('leela', fresh)).toBe('expecting');
+    expect(pinState('marisol', fresh)).toBe('awaiting');
+    expect(PIN_STATE_TEXT.awaiting).toBe('Awaiting an introduction');
+    expect(PIN_STATE_TEXT.expecting).toBe('Expecting you');
+    // Leela's trust reaches 3: her letter introduces Marisol.
+    expect(pinState('marisol', introduced({ leela: 3 }))).toBe('expecting');
+    // Only two states, neither a lock.
+    expect(Object.keys(PIN_STATE_TEXT).sort()).toEqual(['awaiting', 'expecting']);
+    expect(Object.values(PIN_STATE_TEXT).join(' ')).not.toMatch(/lock|unlock/i);
+  });
+});

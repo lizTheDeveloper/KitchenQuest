@@ -39,15 +39,15 @@ function noticeFile(purpose: ConsentPurpose, version: string): Notice {
 /**
  * The current consent notice per purpose (C-1). A grant must name the current
  * version, so the ledger records exactly which text the player agreed to.
- * Changing a text means a new version. `health_data` is v2 (it names the
- * meals kept and the 30-day Pan conversations, C-12; v1 named religious and
- * cultural diets, N-7) and `ai_health` is v1 (it names the Pan, meals and the
+ * Changing a text means a new version. `health_data` is v3 (M5 Step 7: it adds
+ * margin notes and the weekly plan and market list; v2 named the meals kept and the 30-day Pan conversations, C-12;
+ * v1 named religious and cultural diets, N-7) and `ai_health` is v1 (it names the Pan, meals and the
  * scripted fallback), each read from its file; the others are still inline.
  * `research` is reserved and has no notice, so it cannot be granted.
  * DRAFT wording, pending lawyer review (C-30).
  */
 export const NOTICES: Partial<Record<ConsentPurpose, Notice>> = {
-  health_data: noticeFile('health_data', 'v2'),
+  health_data: noticeFile('health_data', 'v3'),
   ai_health: noticeFile('ai_health', 'v1'),
   voice: {
     version: '2026-11-09',
@@ -64,14 +64,14 @@ export const NOTICES: Partial<Record<ConsentPurpose, Notice>> = {
 /**
  * The notice versions whose grants still count, per purpose. A purpose listed
  * here counts only grants under one of these versions: when its notice changes
- * in substance (health_data v2 names the meals and Pan conversations kept;
+ * in substance (health_data v3 names margin notes and plans, v2 the meals and Pan conversations kept;
  * ai_health v1 names the Pan and meals), older grants stop counting and the
  * player is asked again
  * (`needsReconsent` in GET /me/consents). A purpose not listed counts a grant
  * under any version. Keep the current version in the list.
  */
 const ACCEPTED_VERSIONS: Partial<Record<ConsentPurpose, readonly string[]>> = {
-  health_data: ['v2'],
+  health_data: ['v3'],
   ai_health: ['v1'],
 };
 

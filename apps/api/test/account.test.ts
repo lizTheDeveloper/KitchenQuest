@@ -1,8 +1,8 @@
 // Step 7: one-click export (GDPR access/portability, C-7) and account delete
 // (erasure, C-8), with crypto-shredding (C-4) and audit pseudonymization (C-5).
 import { readFileSync } from 'node:fs';
-import type { MealCard } from '@kitchenquest/core';
-import { eq } from 'drizzle-orm';
+import type { MarketRunView, MealCard } from '@kitchenquest/core';
+import { asc, eq } from 'drizzle-orm';
 import type { FastifyInstance, InjectOptions } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
@@ -18,6 +18,8 @@ import { recordUsage } from '../src/usage/usage.js';
 import { appendMessages, openConversation, type StoredMessage } from '../src/mentor/conversations.js';
 import { MemoryHistory } from '../src/mentor/memory.js';
 import { createProposal, markDecided } from '../src/mentor/proposals.js';
+import { defaultCatalog } from '../src/catalog.js';
+import { RECIPES_DIR, syncCanon } from '../src/recipes/sync.js';
 import type { Db } from '../src/types.js';
 import { signIn } from './helpers/auth.js';
 import { testAiEnv, testConfig } from './helpers/config.js';
@@ -39,6 +41,7 @@ let seq = 0;
 
 beforeAll(async () => {
   ({ db, sql, close: closeDb } = await testDb());
+  await syncCanon(db, RECIPES_DIR, defaultCatalog().graph, NOW);
 });
 afterAll(async () => {
   await closeDb?.();
@@ -70,6 +73,13 @@ const PROFILE = {
   region: 'Yorkshire',
   mealWindows: [{ name: 'dinner', start: '18:00', end: '20:00' }],
 };
+
+// A plan for the profile's plan week (market Tuesday and Saturday → weeks start on Tuesday, 2026-11-03), M5 Step 6.
+const PLAN = { weekStart: '2026-11-03', items: [{ day: 6, kind: 'dish', slug: 'japan/osaka/onigiri', servings: 2 }], hard: false, slot: 'unanswered' };
+const NOTE = { recipe: 'japan/osaka/onigiri', ops: [{ op: 'swap', from: 'umeboshi', to: 'oat milk' }], text: 'secret note words', at: '2026-11-09' };
+const SHARED = { cookedOn: '2026-11-09', recipe: 'japan/osaka/onigiri', frame: null, cookedFor: { count: 'one', who: 'partner' } };
+const MARKET_EVENT = { id: '6f1c2b7e-0d3a-4c55-9b8e-1a2b3c4d5e6f', kind: 'market_run', at: '2026-11-09', weekStart: '2026-11-09' };
+const MEAL_EVENT_ID = '7a2d3c8f-1e4b-4d66-8c9f-2b3c4d5e6f70';
 
 const SAID: StoredMessage = { role: 'player', text: 'I had peanut noodles for lunch' };
 const PAN_SAID: Extract<StoredMessage, { role: 'pan' }> = { role: 'pan', parts: [{ kind: 'line', line: { trigger: 'log.confirm', vars: {} } }], proposalIds: [] };
@@ -114,6 +124,21 @@ async function fullPlayer(): Promise<Player> {
     payload: { add: [PANTRY_ITEM], removeNames: [], removeIds: [], confirmed: true },
   });
   expect(pantry.statusCode).toBe(200);
+  // A weekly plan and its market run, one row ticked (H-11, M5 Step 6).
+  expect((await call(cookie, { method: 'PUT', url: `/plans/${PLAN.weekStart}`, payload: { plan: PLAN, confirmed: true } })).statusCode).toBe(200);
+  const run = (await call(cookie, { method: 'POST', url: '/market-runs', payload: { weekStart: PLAN.weekStart } })).json<MarketRunView>();
+  const umeboshi = run.items.find((i) => i.name === 'umeboshi')!;
+  expect((await call(cookie, { method: 'POST', url: `/market-runs/${run.id}/ticks`, payload: { key: umeboshi.key, ticked: true } })).statusCode).toBe(200);
+  // A margin note (H-12) and a Shared Table row (H-13), M5 Step 7.
+  expect((await call(cookie, { method: 'POST', url: '/notes', payload: { note: NOTE, confirmed: true } })).statusCode).toBe(201);
+  expect((await call(cookie, { method: 'POST', url: '/shared-table', payload: { entry: SHARED, confirmed: true } })).statusCode).toBe(201);
+  // Progress (U-5): a market run and a meal-log event, each earning grants (no catalogue needed for either).
+  // The meal-log event names the meal log just made (I1).
+  const mealLogId = meal.json<{ meal: { id: string } }>().meal.id;
+  const events = [MARKET_EVENT, { id: MEAL_EVENT_ID, kind: 'meal_logged', at: '2026-11-09', minute: 750, mealLogId }];
+  const progress = await call(cookie, { method: 'POST', url: '/progress/events', payload: { events } });
+  expect(progress.statusCode).toBe(200);
+  expect(progress.json<{ accepted: unknown[] }>().accepted).toHaveLength(2);
   expect((await call(cookie, { method: 'GET', url: '/rules' })).statusCode).toBe(200);
   await grant(db, id, 'founding', 'manual', new Date('2026-01-01T00:00:00Z'));
   await recordUsage(db, id, 'mentor_text', 3, 120);
@@ -229,6 +254,12 @@ describe('GET /me/export', () => {
       'rules.create',
       'meals.create',
       'pantry.change',
+      'plan.save',
+      'market_run.create',
+      'pantry.change',
+      'notes.create',
+      'shared_table.create',
+      'progress.record',
       'account.export',
     ]);
     // Pan conversations with their messages, and proposals, decrypted (C-12).
@@ -261,7 +292,42 @@ describe('GET /me/export', () => {
     expect(res.body).not.toContain('undo-payload');
     // Meals and pantry, decrypted.
     expect(x.meals).toEqual([{ ...MEAL, id: expect.any(String), createdAt: NOW.toISOString() }]);
-    expect(x.pantry).toEqual([{ ...PANTRY_ITEM, id: expect.any(String), createdAt: NOW.toISOString() }]);
+    expect(x.pantry).toHaveLength(2);
+    expect(x.pantry).toEqual(
+      expect.arrayContaining([
+        { ...PANTRY_ITEM, id: expect.any(String), createdAt: NOW.toISOString() },
+        { name: 'umeboshi', ingredientId: expect.anything(), addedOn: '2026-11-09', source: 'market', id: expect.any(String), createdAt: NOW.toISOString() },
+      ]),
+    );
+    const bought = (x.pantry as { id: string; name: string }[]).find((i) => i.name === 'umeboshi')!;
+    // Plans and market runs (H-11, M5 Step 6), decrypted, with the pantry row each tick added.
+    expect(x.plans).toEqual([{ ...PLAN, id: expect.any(String), createdAt: NOW.toISOString(), updatedAt: NOW.toISOString() }]);
+    // Margin notes and the Shared Table (H-12, H-13), decrypted.
+    expect(x.marginNotes).toEqual([{ ...NOTE, id: expect.any(String), createdAt: NOW.toISOString() }]);
+    expect(x.sharedTable).toEqual([{ ...SHARED, id: expect.any(String), createdAt: NOW.toISOString() }]);
+    // The C-45 subject columns are listed with each consent (always 'user' and null until M13).
+    expect(x.consents.length).toBeGreaterThan(0);
+    for (const c of x.consents) expect(c).toMatchObject({ subjectKind: 'user', subjectId: null });
+    expect(x.marketRuns).toHaveLength(1);
+    expect(x.marketRuns[0]).toMatchObject({ weekStart: PLAN.weekStart, planId: x.plans[0].id, doneAt: null, createdAt: NOW.toISOString() });
+    expect(x.marketRuns[0].pantryIds).toEqual({ [x.marketRuns[0].items.find((i: { name: string }) => i.name === 'umeboshi').key]: bought.id });
+    expect((x.marketRuns[0].items as { name: string; ticked: boolean }[]).filter((i) => i.ticked).map((i) => i.name)).toEqual(['umeboshi']);
+    // Progress (U-5): both ledgers as stored, and the view derived from them.
+    expect(x.progress.events).toEqual([
+      { ...MARKET_EVENT, createdAt: NOW.toISOString() },
+      { id: MEAL_EVENT_ID, kind: 'meal_logged', at: '2026-11-09', minute: 750, mealLogId: x.meals[0].id, createdAt: NOW.toISOString() },
+    ]);
+    // Grants carry their day only, no time (I2).
+    const M = MARKET_EVENT.id;
+    expect(x.progress.grants).toEqual(
+      expect.arrayContaining([
+        { id: `${M}#0`, eventId: M, isoDay: '2026-11-09', kind: 'xp', amount: 20, reason: 'market_run' },
+        { id: `${M}#1`, eventId: M, isoDay: '2026-11-09', kind: 'stamp', stamp: 'market_run' },
+        { id: `${MEAL_EVENT_ID}#0`, eventId: MEAL_EVENT_ID, isoDay: '2026-11-09', kind: 'xp', amount: 5, reason: 'nourishment' },
+      ]),
+    );
+    expect(x.progress.grants).toHaveLength(3);
+    expect(x.progress.view).toMatchObject({ xp: 25, level: 1, stamps: 1 });
     expect(x.auditEvents[0]).toEqual({
       at: NOW.toISOString(),
       actorKind: 'user',
@@ -424,9 +490,15 @@ describe('GET /me/export', () => {
       user_keys: 'dataKey',
       meal_logs: 'meals',
       pantry_items: 'pantry',
+      meal_plans: 'plans',
+      market_runs: 'marketRuns',
+      margin_notes: 'marginNotes',
+      shared_table: 'sharedTable',
       conversations: 'conversations',
       messages: 'conversations',
       mentor_proposals: 'proposals',
+      progress_events: 'progress',
+      reward_grants: 'progress',
       audit_events: 'auditEvents',
     };
     // Linked: a foreign key to users, or a column that holds a user id or an email.
@@ -514,6 +586,10 @@ describe('DELETE /me', () => {
     expect(await sql`select 1 from meal_logs where user_id = ${p.id}`).toHaveLength(0);
     expect(await sql`select 1 from pantry_items where user_id = ${p.id}`).toHaveLength(0);
     // And every mentor row (P-14).
+    // Both progress ledgers go with the account (U-5): events and grants alike.
+    for (const t of ['progress_events', 'reward_grants', 'meal_plans', 'market_runs', 'margin_notes', 'shared_table']) {
+      expect(await sql`select 1 from ${sql(t)} where user_id = ${p.id}`, t).toHaveLength(0);
+    }
     for (const t of ['conversations', 'messages', 'mentor_proposals']) {
       expect(await sql`select 1 from ${sql(t)} where user_id = ${p.id}`, t).toHaveLength(0);
     }
@@ -535,7 +611,7 @@ describe('DELETE /me', () => {
     expect((await deleteAccount(p.cookie, { confirm: PHRASE })).statusCode).toBe(204);
 
     const pseudonym = pseudonymFor(config.pseudonymKey, p.id);
-    const trail = await db.select().from(auditEvents).where(eq(auditEvents.subjectUserId, pseudonym));
+    const trail = await db.select().from(auditEvents).where(eq(auditEvents.subjectUserId, pseudonym)).orderBy(asc(auditEvents.id));
     expect(trail).toHaveLength(count + 1);
     expect(trail.every((e) => e.actorId === pseudonym)).toBe(true);
     expect(trail.at(-1)).toMatchObject({ action: 'account.delete', actorKind: 'user', at: NOW });
@@ -644,7 +720,7 @@ describe('export and delete under concurrency', () => {
     const byId = await mentions(p.id);
     expect(byId).toEqual(nowhere(byId));
     const pseudonym = pseudonymFor(config.pseudonymKey, p.id);
-    const actions = (await db.select().from(auditEvents).where(eq(auditEvents.subjectUserId, pseudonym))).map(
+    const actions = (await db.select().from(auditEvents).where(eq(auditEvents.subjectUserId, pseudonym)).orderBy(asc(auditEvents.id))).map(
       (e) => e.action,
     );
     expect(actions).toContain('account.export');

@@ -1,4 +1,4 @@
-import { toolkitRows } from '@kitchenquest/core/engine';
+import { toolkitRows, type ToolkitState } from '@kitchenquest/core/engine';
 import assets from 'virtual:kq-assets';
 import { content, techniqueName } from '../content';
 import { createDialogue, getMentor } from '../mentor';
@@ -6,6 +6,7 @@ import { localDate } from '../recipes/rules';
 import { hideStage, showScene } from '../scenes/phaser-host';
 import { registerScreen, type AppContext, type Screen } from '../shell/app';
 import { isReducedMotion } from '../shell/motion';
+import { progressService } from '../progress';
 import { iosNote } from '../settings/install-section';
 import { renderActionBar } from '../ui/action-bar';
 import { showDialogue } from '../ui/dialogue-box';
@@ -14,18 +15,20 @@ import { openModal } from '../ui/modal';
 import { greetingTrigger } from '../world/greeting';
 import { renderToolkit } from './toolkit-view';
 
+/** "Not now" on the guest-progress offer (C1 ruling) lasts for this page load. */
+let guestOfferDismissed = false;
 /** The Pan greets once per page load, on the first kitchen visit. */
 let greeted = false;
 /** Rusty invitations draw from their own in-memory history: the knife roll never writes to the store. */
 let invites: ReturnType<typeof createDialogue> | null = null;
 
-/** The knife roll: a modal dialog over everything else. Returns a function that closes it. */
-function openKnifeRoll(doc: Document, ctx: AppContext, onClose: () => void): () => void {
+/** The knife roll: a modal dialog over everything else. Returns a function that closes it. Its rows come from progress (Ruling 7). */
+function openKnifeRoll(doc: Document, ctx: AppContext, toolkit: ToolkitState, onClose: () => void): () => void {
   // Opened from a canvas hotspot, focus is on the body: return it to the knife roll's own button instead.
   const active = doc.activeElement instanceof HTMLElement && doc.activeElement !== doc.body ? doc.activeElement : null;
   const opener = active ?? doc.querySelector<HTMLElement>('[data-action="toolkit"]');
   invites ??= createDialogue(content.pan);
-  const rows = toolkitRows(ctx.store.get().toolkit, localDate(ctx.now()), content.techniques.freshness);
+  const rows = toolkitRows(toolkit, localDate(ctx.now()), content.techniques.freshness);
   const body = renderToolkit(rows, {
     name: techniqueName,
     rustyLine: (technique) => invites!.say('toolkit.rusty_invite', { technique }).text,
@@ -49,7 +52,32 @@ function kitchenScreen(): Screen {
       const backdropSlot = h('div', { class: 'kitchen-backdrop' });
       const bar = h('div', { class: 'kitchen-actions' });
       const greetingSlot = h('div', { class: 'kitchen-greeting' });
-      el.replaceChildren(h('h1', null, 'Your kitchen'), greetingSlot, backdropSlot, bar);
+      const cardSlot = h('div', { class: 'apprentice-slot' });
+      el.replaceChildren(h('h1', null, 'Your kitchen'), greetingSlot, backdropSlot, bar, cardSlot);
+      // The apprentice card and the knife roll read progress, which loads after first paint (Step 9.3).
+      let stopCard: (() => void) | null = null;
+      void Promise.all([progressService(), import('./apprentice-card')]).then(([svc, { renderApprenticeCard, renderGuestOffer }]) => {
+        if (!alive) return;
+        const draw = () => {
+          const offer = !guestOfferDismissed && svc.sync.guestOffer()
+            ? renderGuestOffer({ add: () => { const p = svc.sync.addGuestProgress(); draw(); return p; }, dismiss: () => { guestOfferDismissed = true; draw(); } })
+            : null;
+          if (offer === null && cardSlot.querySelector('.guest-offer')?.contains(doc.activeElement)) cardSlot.querySelector<HTMLElement>('.apprentice-card h2')?.focus();
+          cardSlot.replaceChildren(renderApprenticeCard(svc.view()), ...(offer ? [offer] : []));
+        };
+        draw();
+        stopCard = svc.subscribe(draw);
+      }, (err: unknown) => { console.error(err); });
+      let rollOpening = false;
+      const openRoll = () => {
+        if (closeRoll || rollOpening) return;
+        rollOpening = true;
+        void progressService().then((svc) => {
+          rollOpening = false;
+          if (!alive || closeRoll) return;
+          closeRoll = openKnifeRoll(doc, ctx, svc.view().toolkit, () => { closeRoll = null; });
+        }, (err: unknown) => { rollOpening = false; console.error(err); });
+      };
       const note = iosNote(win, ctx.store, 'h2');
       if (note) bar.after(note);
 
@@ -65,7 +93,7 @@ function kitchenScreen(): Screen {
 
       const stopBar = renderActionBar(bar, [
         { id: 'talk', label: 'Talk to the Pan', run: () => getMentor().open() },
-        { id: 'toolkit', label: 'Knife roll', run: () => { if (!closeRoll) closeRoll = openKnifeRoll(doc, ctx, () => { closeRoll = null; }); } },
+        { id: 'toolkit', label: 'Knife roll', run: openRoll },
         { id: 'recipes', label: 'Recipe shelf', run: () => ctx.navigate({ name: 'recipes' }) },
         { id: 'map', label: 'Go out to the world map', run: () => ctx.navigate({ name: 'map' }) },
       ]);
@@ -86,6 +114,7 @@ function kitchenScreen(): Screen {
         alive = false;
         leaving.abort();
         stopBar();
+        stopCard?.();
         closeRoll?.();
         if (stage) hideStage(stage);
       };

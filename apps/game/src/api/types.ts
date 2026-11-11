@@ -3,7 +3,7 @@
  * account). The game never trusts these at runtime for safety: rules are re-validated by core's
  * `validateRules` (through `activeRules`) before any check uses them.
  */
-import type { CheckResult, CheckStatus, NutritionResult, RecipeIngredient, RecipeMeta } from '@kitchenquest/core/engine';
+import type { CheckResult, CheckStatus, NutritionResult, ProgressView, RecipeIngredient, RecipeMeta, RewardGrant } from '@kitchenquest/core/engine';
 
 /**
  * M2 errors are `{ error: { code, message, details? } }` (apps/api/src/app.ts). `retryAfter` (seconds) is
@@ -51,3 +51,19 @@ export interface Consents {
 
 /** The mentor wire protocol and card shapes, from core, so the game and the API never drift (M4). */
 export type { ConfirmRequest, ConfirmResponse, MealEntry, PantryItem, ReplyPart, TurnRequest, TurnResponse } from '@kitchenquest/core/engine';
+
+/** GET /progress (Step 5): the account's view, derived by the server from its two ledgers. */
+export interface ProgressResponse { view: ProgressView }
+/**
+ * POST /progress/events (Step 5). `accepted` grants are computed by the server with core (no `createdAt`: a grant
+ * carries only its kind, amount and day). `duplicate`: ids already recorded (a replay). `rejected`: core's problems,
+ * plus the API's own (`bad_event`, `bad_date`, `upload_only`, `consent_required`, `unknown_meal_log`). `warnings`:
+ * accepted events with something set aside (`stand_in_dropped`).
+ */
+export interface ProgressPostResponse {
+  accepted: { clientId: string; grants: RewardGrant[] }[];
+  duplicate: string[];
+  rejected: { clientId: string; problems: string[] }[];
+  warnings: { clientId: string; warnings: string[] }[];
+  view: ProgressView;
+}

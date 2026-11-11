@@ -2,6 +2,7 @@
 // together with a recorded passing eval. No network: this reads eval/last-pass.json, which only
 // `npm run eval:mentor` writes. The one skip is MENTOR_EVAL_GATE=skip-no-network, never set in the default CI job.
 import { existsSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { REQUEST_PARAMS } from '../src/ai/openrouter.js';
 import { loadConfig } from '../src/config.js';
@@ -12,6 +13,7 @@ import { CASES } from '../eval/cases.js';
 import { meetsBar, REPS, type EvalResult } from '../eval/checks.js';
 import { EVAL_FILES, evalHash } from '../eval/hash.js';
 import { testAiEnv } from './helpers/config.js';
+import { importClosure } from './helpers/import-closure.js';
 
 const MESSAGE =
   'The Pan\'s prompt, tools, model or provider order changed: run `npm run eval:mentor` against OpenRouter and commit the new eval/last-pass.json (spec §7.6b.9)';
@@ -52,22 +54,53 @@ describe('the mentor eval gate', () => {
     expect({ model: record.model, providers: record.providers }, MESSAGE).toEqual({ model, providers });
   });
 
-  it('its results meet the bar: 0 hard fails, ≥ 95% of tool cases correct, 3 runs of all 41 cases', () => {
+  it('its results meet the bar: 0 hard fails, ≥ 95% of tool cases correct, 3 runs of all 45 cases (M5 Step 8: + P01–P04)', () => {
     expect(existsSync(LAST_PASS), MESSAGE).toBe(true);
     const { results, date } = JSON.parse(readFileSync(LAST_PASS, 'utf8')) as { results: EvalResult[]; date: string };
     expect(date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(CASES).toHaveLength(41);
-    expect(results).toHaveLength(41 * REPS);
+    expect(CASES).toHaveLength(45);
+    expect(results).toHaveLength(45 * REPS);
     expect(new Set(results.map((r) => r.id))).toEqual(new Set(CASES.map((c) => c.id)));
     const bar = meetsBar(results, CASES);
     expect(bar.problems, MESSAGE).toEqual([]);
     expect(bar.hardFails).toBe(0);
   });
 
-  it('the eval hash is stable and covers the cases, the judge, the snapshot and the runner (seeds, write count)', () => {
-    expect([...EVAL_FILES].sort()).toEqual(['./cases.ts', './checks.ts', './run.ts', './snapshot.ts']);
+  it('the eval hash is stable and covers the cases, the judge, the snapshot, the runner and the code that decides turn outcomes', () => {
+    // M5 Step 8 fix round 4 (N8 ruling): the hashed list is the eval's own files, the computed runtime import closure
+    // of the API turn entry (core included, db/ and crypto/ left out), the graph and rule-term data and the canon
+    // recipes directory. Recomputed here from the source, so a new decision module can't be missed.
+    const eval_ = ['./cases.ts', './checks.ts', './run.ts', './snapshot.ts'];
+    const data = ['../../../data/ingredients.json', '../../../data/rule-terms.json', '../../../recipes/'];
+    const closure = importClosure(fileURLToPath(new URL('../src/mentor/turn.ts', import.meta.url))).map((f) =>
+      f.startsWith('apps/api/') ? `../${f.slice('apps/api/'.length)}` : `../../../${f}`,
+    );
+    expect([...EVAL_FILES].sort()).toEqual([...eval_, ...data, ...closure].sort());
+    expect(new Set(EVAL_FILES).size).toBe(EVAL_FILES.length);
+    // The review's named decision modules are in it (N8).
+    for (const f of [
+      '../src/mentor/turn.ts', '../src/mentor/postchecks.ts', '../src/mentor/plan-turn.ts', '../src/mentor/health.ts', '../src/mentor/filter.ts',
+      '../src/mentor/prompt.ts', '../src/mentor/requests.ts', '../src/mentor/writes.ts',
+      '../../../packages/core/src/mentor/intents.ts', '../../../packages/core/src/mentor/route.ts', '../../../packages/core/src/mentor/cards.ts',
+      '../../../packages/core/src/mentor/plan-card.ts', '../../../packages/core/src/mentor/saved.ts', '../../../packages/core/src/week/plan.ts',
+      '../../../packages/core/src/rules/check.ts', '../../../packages/core/src/rules/types.ts', '../../../packages/core/src/rules/active.ts',
+      '../../../packages/core/src/ingredients/graph.ts', '../../../packages/core/src/progress/week.ts', '../../../packages/core/src/toolkit/one-more.ts',
+    ]) {
+      expect(EVAL_FILES, f).toContain(f);
+    }
+    // Storage is not a decision.
+    expect(EVAL_FILES.some((f) => f.includes('/db/') || f.includes('/crypto/'))).toBe(false);
     expect(evalHash()).toMatch(/^[0-9a-f]{64}$/);
     expect(evalHash()).toBe(evalHash());
+  });
+
+  it('the import closure follows barrels by name and skips type-only imports', () => {
+    const health = importClosure(fileURLToPath(new URL('../src/mentor/health.ts', import.meta.url)));
+    // health.ts imports a value from core (through two barrels) and only a type from catalog.ts.
+    expect(health).toContain('packages/core/src/mentor/route.ts');
+    expect(health).toContain('packages/core/src/index.ts');
+    expect(health).not.toContain('apps/api/src/catalog.ts');
+    expect(health).not.toContain('packages/core/src/nutrition/compute.ts');
   });
 
   it('the fingerprint moves with each input it covers', () => {

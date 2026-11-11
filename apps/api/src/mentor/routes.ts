@@ -15,7 +15,9 @@ import { loadPanBank } from './lines.js';
 import type { MemoryFlags, MemoryHistory } from './memory.js';
 import { loadPanPrompt } from './prompt.js';
 import { runTurn, type TurnDeps } from './turn.js';
-import { confirmProposalIn, rejectProposalIn, undoWriteIn } from './writes.js';
+import { localToday } from '../week/local-date.js';
+import { confirmProposal, rejectProposalIn, undoWriteIn } from './writes.js';
+import type { WeekSource } from './plan-turn.js';
 
 const DAY_MS = 86_400_000;
 const INTAKE_STEPS = ['market_day', 'meals_per_week', 'region', 'allergies', 'pantry'] as const;
@@ -45,6 +47,8 @@ const ConfirmBody = z
     channel: z.literal('tap'),
     edits: z.object({ severity: z.enum(['anaphylactic', 'allergy', 'intolerance', 'preference']).optional() }).strict().optional(),
     conversationId: z.string().max(64).nullable().optional(),
+    /** M5 Step 8: the player's local date, for a plan card's week window (Step 6 I2). */
+    today: z.string().max(10).optional(),
   })
   .strict();
 /** Reject and undo take no body; an empty object at most. */
@@ -61,7 +65,7 @@ export interface MentorState {
  * The Pan's turn endpoint and "forget this conversation" (C-12). The line bank
  * and prompt are read at boot, so a missing or broken file stops the server.
  */
-export async function mentorRoutes(app: FastifyInstance, catalog: Catalog, state: MentorState): Promise<void> {
+export async function mentorRoutes(app: FastifyInstance, catalog: Catalog, state: MentorState, week: WeekSource): Promise<void> {
   const { db, config, now, ai } = app.deps;
   const bank = loadPanBank();
   const deps: TurnDeps = {
@@ -74,6 +78,7 @@ export async function mentorRoutes(app: FastifyInstance, catalog: Catalog, state
     childFlags: state.childFlags,
     bank,
     prompt: loadPanPrompt(bank),
+    week,
     now,
   };
   // Per app instance, in memory only (N-2).
@@ -114,7 +119,9 @@ export async function mentorRoutes(app: FastifyInstance, catalog: Catalog, state
   app.post<{ Params: { id: string } }>('/mentor/proposals/:id/confirm', { preHandler: requireUser }, async (req) => {
     const body = ConfirmBody.parse(req.body);
     const at = now();
-    return db.transaction((tx: Tx) => confirmProposalIn(tx, deps, req.user.id, req.params.id, body.channel, body.edits, at, req.id, body.conversationId));
+    const today = localToday(body.today, at);
+    // A plan card the rules now refuse is closed and answered 400 plan_invalid with its lines (M5 Step 8).
+    return confirmProposal(db, deps, req.user.id, req.params.id, body.channel, body.edits, at, req.id, body.conversationId, today);
   });
 
   app.post<{ Params: { id: string } }>('/mentor/proposals/:id/reject', { preHandler: requireUser }, async (req) => {

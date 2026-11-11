@@ -1,5 +1,5 @@
 // M4 Step 5: the sealed pantry (H-11). Account-only: no health_data consent, but an explicit flag.
-import { eq } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 import type { FastifyInstance, InjectOptions } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
@@ -84,7 +84,7 @@ describe('pantry', () => {
     for (const r of raw) expect(r.sealed.toString('latin1')).not.toMatch(/peanut|oat/i);
     const reads = await db.select().from(selfReadCounts).where(eq(selfReadCounts.userId, uid));
     expect(reads).toEqual([{ userId: uid, resource: 'pantry', day: '2026-11-09', count: 1 }]);
-    const events = await db.select().from(auditEvents).where(eq(auditEvents.subjectUserId, uid));
+    const events = await db.select().from(auditEvents).where(eq(auditEvents.subjectUserId, uid)).orderBy(asc(auditEvents.id));
     expect(events.filter((e) => e.action.startsWith('pantry.')).map((e) => e.action)).toEqual(['pantry.change']);
   });
 
@@ -213,7 +213,7 @@ describe('pantry', () => {
       ),
     );
     expect((await loadPantry(db, config.keyring, uid)).map((i) => i.name).sort()).toEqual(['Eggs', 'Milk']);
-    const events = await db.select().from(auditEvents).where(eq(auditEvents.subjectUserId, uid));
+    const events = await db.select().from(auditEvents).where(eq(auditEvents.subjectUserId, uid)).orderBy(asc(auditEvents.id));
     expect(events.at(-1)?.action).toBe('pantry.restore');
   });
 
@@ -246,5 +246,49 @@ describe('pantry rows', () => {
     const rows = await db.select().from(pantryItems).where(eq(pantryItems.userId, uid));
     expect(rows).toHaveLength(1);
     expect(rows[0].createdAt).toBeInstanceOf(Date);
+  });
+});
+
+describe('dated pantry (M5 Step 6, Ruling 12)', () => {
+  const dated = (addedOn: string, source: 'told' | 'market' = 'market') => ({ name: 'Spinach', ingredientId: 'spinach', addedOn, source });
+  const post = (cookie: string, add: object[]) =>
+    call(cookie, { method: 'POST', url: '/pantry/changes', payload: { add, removeNames: [], removeIds: [], confirmed: true } });
+
+  it('pantry addedOn outside [today−60, today+1] → 400; M4 rows without addedOn still load', async () => {
+    const c = await player();
+    const uid = await userIdOf(c);
+    // NOW is 2026-11-09: the window is 2026-09-10 to 2026-11-10.
+    for (const bad of ['2026-09-09', '2026-11-11', '2026-02-30', 'yesterday']) {
+      const res = await post(c, [dated(bad)]);
+      expect(res.statusCode, bad).toBe(400);
+      expect(res.json().error.code).toBe('bad_request');
+    }
+    expect((await post(c, [{ ...dated('2026-11-09'), source: 'shop' }])).statusCode).toBe(400);
+    expect(await loadPantry(db, config.keyring, uid)).toEqual([]);
+
+    // An M4 row: sealed with name and ingredient id only, exactly as M4 wrote it.
+    expect((await change(c, { add: [item('Rice')] })).statusCode).toBe(200);
+    for (const ok of ['2026-09-10', '2026-11-10']) expect((await post(c, [dated(ok)])).statusCode, ok).toBe(200);
+    const loaded = await loadPantry(db, config.keyring, uid);
+    expect(loaded.map(({ id: _id, ...rest }) => rest)).toEqual([
+      { name: 'Rice', ingredientId: null },
+      { name: 'Spinach', ingredientId: 'spinach', addedOn: '2026-09-10', source: 'market' },
+      { name: 'Spinach', ingredientId: 'spinach', addedOn: '2026-11-10', source: 'market' },
+    ]);
+    expect(Object.keys(loaded[0]).sort()).toEqual(['id', 'ingredientId', 'name']);
+    expect((await items(c)).map((i) => (i as Item & { addedOn?: string }).addedOn)).toEqual([undefined, '2026-09-10', '2026-11-10']);
+  });
+
+  it('an undo puts a dated row back with its date and source', async () => {
+    const c = await player();
+    const uid = await userIdOf(c);
+    await post(c, [dated('2026-11-01')]);
+    const [spinach] = await loadPantry(db, config.keyring, uid);
+    const removed = await change(c, { removeIds: [spinach.id] });
+    expect(removed.statusCode).toBe(200);
+    await db.transaction((tx: Tx) => restorePantryIn(tx, { keyring: config.keyring, catalog: defaultCatalog() }, uid, [spinach], [], NOW));
+    expect((await loadPantry(db, config.keyring, uid)).map(({ id: _id, ...rest }) => rest)).toEqual([
+      { name: 'Spinach', ingredientId: 'spinach', addedOn: '2026-11-01', source: 'market' },
+    ]);
   });
 });

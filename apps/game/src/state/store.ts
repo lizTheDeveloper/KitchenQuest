@@ -1,6 +1,100 @@
 import {
-  EMPTY_TOOLKIT, isValidDate, MEAL_SLOTS, type IntakeStep, type MealSlot, type PantryItem, type Rule, type Tier, type ToolkitState,
+  EMPTY_TOOLKIT, isValidDate, MEAL_SLOTS, type IntakeStep, type MealSlot, type PantryItem, type ProgressEvent, type ProgressSnapshot,
+  type ProgressView, type RewardGrant, type Rule, type Tier, type ToolkitState,
 } from '@kitchenquest/core/engine';
+import { sha256Hex } from './sha256';
+
+/** The device log's cap (C15): over it, the oldest events fold into `progress.base` (progress/log.ts). */
+export const MAX_DEVICE_EVENTS = 2000;
+
+/**
+ * The device's own progress history (Ruling 8): every event this device recorded and what it earned on the device,
+ * a compacted `base` (C15, a totals snapshot that lowers nothing), and the ids not yet uploaded to an account
+ * (`pendingUpload`, in log order). Content-free: ids, dates and numbers only.
+ */
+export interface DeviceProgress {
+  events: ProgressEvent[]; grants: RewardGrant[]; base: ProgressSnapshot | null; pendingUpload: string[];
+  /**
+   * Bumped whenever events are deliberately removed (a sign-out prune, synced events of a signed-out account, guest
+   * progress moved to an account). A higher epoch replaces a lower one outright on merge, so a removal is never undone
+   * by another tab's older copy.
+   */
+  epoch?: number;
+}
+const EMPTY_PROGRESS: DeviceProgress = { events: [], grants: [], base: null, pendingUpload: [] };
+
+/**
+ * One account's progress on this device (C1 ruling): its own log, and the last account view the server sent (M6:
+ * shown while `/progress` hasn't answered, so nothing drops after a reload). Read, shown and synced only while that
+ * account is signed in; hidden (never deleted, never shown, never uploaded elsewhere) while it isn't.
+ */
+interface AccountPartition {
+  progress: DeviceProgress;
+  view: ProgressView | null;
+}
+
+const keyCache = new Map<string, string>();
+/** An account's partition key: the SHA-256 (hex) of its email, so no storage key ever holds an email. */
+export function accountKey(email: string): string {
+  let k = keyCache.get(email);
+  if (k === undefined) { k = sha256Hex(email); keyCache.set(email, k); }
+  return k;
+}
+
+/** Which partition is live: the signed-in account's (its hashed key), else the guest's (null). */
+export const partitionKey = (s: Pick<PlayerState, 'account'>): string | null => (s.account ? accountKey(s.account.email) : null);
+
+/**
+ * After a sign-out (and its flush): the server holds the record, so everything already synced leaves the account's
+ * partition, and its cached view with it. Only events still waiting for upload stay (with their grants), for that
+ * same account's next sign-in, when the view is rebuilt from the server. The epoch makes the prune stick on merge.
+ */
+export function prunePartition(s: PlayerState, key: string): PlayerState {
+  if (!Object.hasOwn(s.accountProgress, key)) return s;
+  const old = s.accountProgress[key];
+  const pending = new Set(old.progress.pendingUpload);
+  const events = old.progress.events.filter((e) => pending.has(e.id));
+  // Already minimal (a start-up sweep over a pruned partition): nothing to write.
+  if (old.view === null && old.progress.base === null && events.length === old.progress.events.length) return s;
+  const ids = new Set(events.map((e) => e.id));
+  const progress: DeviceProgress = {
+    events, grants: old.progress.grants.filter((g) => ids.has(g.eventId)), base: null, pendingUpload: events.map((e) => e.id),
+    epoch: (old.progress.epoch ?? 0) + 1,
+  };
+  return { ...s, accountProgress: { ...s.accountProgress, [key]: { progress, view: null } } };
+}
+
+/** Remove events (and their grants) from partition `key` for good: they are the server's now (N1, N5). */
+export function dropEvents(s: PlayerState, key: string | null, ids: Iterable<string>): PlayerState {
+  const gone = new Set(ids);
+  const p = partitionOf(s, key);
+  if (!p.events.some((e) => gone.has(e.id))) return s;
+  return withPartition(s, key, {
+    events: p.events.filter((e) => !gone.has(e.id)),
+    grants: p.grants.filter((g) => !gone.has(g.eventId)),
+    base: p.base,
+    pendingUpload: p.pendingUpload.filter((id) => !gone.has(id)),
+    epoch: (p.epoch ?? 0) + 1,
+  });
+}
+
+/** A partition's log: the guest's is `progress`; an account's lives in `accountProgress` (empty until it has one). */
+export function partitionOf(s: PlayerState, key: string | null): DeviceProgress {
+  if (key === null) return s.progress;
+  return Object.hasOwn(s.accountProgress, key) ? s.accountProgress[key].progress : EMPTY_PROGRESS;
+}
+
+/** The cached account view of `key`'s partition, or null. */
+export function accountViewOf(s: PlayerState, key: string): ProgressView | null {
+  return Object.hasOwn(s.accountProgress, key) ? s.accountProgress[key].view : null;
+}
+
+/** `s` with one partition changed: `p` is its new log; `view` (when given) its cached account view. */
+export function withPartition(s: PlayerState, key: string | null, p: DeviceProgress, view?: ProgressView | null): PlayerState {
+  if (key === null) return { ...s, progress: p };
+  const old: AccountPartition = Object.hasOwn(s.accountProgress, key) ? s.accountProgress[key] : { progress: EMPTY_PROGRESS, view: null };
+  return { ...s, accountProgress: { ...s.accountProgress, [key]: { ...old, progress: p, view: view === undefined ? old.view : view } } };
+}
 
 export interface PlayerSettings { showCalories: boolean; reducedMotion: 'system' | 'on' | 'off'; familyTable: boolean; iosNoteDismissed: boolean }
 /** A signed-out player's profile, kept on this device (the same fields as M2's `/profile`). */
@@ -8,7 +102,12 @@ export interface LocalProfile { marketDays: number[]; mealsPerWeek: number | nul
 export interface PlayerState {
   v: 1; firstOpenedAt: string | null; lastOpenedAt: string | null; // ISO datetimes
   localRules: Rule[]; accountRules: Rule[] | null; account: { email: string } | null;
+  /** M3's device toolkit. Read once into `progress` as `imported` events (Ruling 8); M5 never writes it. */
   toolkit: ToolkitState; cookProgress: { slug: string; step: number } | null;
+  /** M5: the guest partition, progress played signed out on this device (Ruling 8, C15). */
+  progress: DeviceProgress;
+  /** M5 (C1 ruling): each account's own partition, by account key; only the signed-in account's is ever read. */
+  accountProgress: Record<string, AccountPartition>;
   dialogueHistory: Record<string, number[]>; settings: PlayerSettings & { aiMentor: boolean };
   /** Signed out, the Pan's profile and pantry cards are written here (M4). */
   localProfile: LocalProfile | null; localPantry: (PantryItem & { id: string })[];
@@ -47,7 +146,7 @@ function freshState(): PlayerState {
   return {
     v: 1, firstOpenedAt: null, lastOpenedAt: null,
     localRules: [], accountRules: null, account: null,
-    toolkit: EMPTY_TOOLKIT, cookProgress: null, dialogueHistory: {},
+    toolkit: EMPTY_TOOLKIT, cookProgress: null, dialogueHistory: {}, progress: EMPTY_PROGRESS, accountProgress: {},
     settings: { showCalories: false, reducedMotion: 'system', familyTable: false, iosNoteDismissed: false, aiMentor: true },
     rulesUnreadable: false, signOutPending: false,
     localProfile: null, localPantry: [], intake: { step: null }, aiDisclosureSeen: false, aiHealthOffered: false,
@@ -61,6 +160,17 @@ const isTechniqueRecord = (r: unknown): boolean =>
   typeof r.firstAt === 'string' && isValidDate(r.firstAt) && typeof r.lastUsedAt === 'string' && isValidDate(r.lastUsedAt) &&
   Array.isArray(r.recipes) && r.recipes.every((x) => typeof x === 'string');
 const isObjArray = (x: unknown) => Array.isArray(x) && x.every(isObj);
+const isStrArray = (x: unknown) => Array.isArray(x) && x.every((v) => typeof v === 'string');
+/** The shape only: core folds stored data defensively, so a field it can't read changes nothing (never a throw). */
+const isProgress = (x: unknown): boolean =>
+  isObj(x) &&
+  Array.isArray(x.events) && x.events.every((e) => isObj(e) && typeof e.id === 'string' && typeof e.kind === 'string' && typeof e.at === 'string') &&
+  Array.isArray(x.grants) && x.grants.every((g) => isObj(g) && typeof g.id === 'string' && typeof g.eventId === 'string' && typeof g.kind === 'string') &&
+  (x.base === null || (isObj(x.base) && isObj(x.base.view))) &&
+  isStrArray(x.pendingUpload) &&
+  (x.epoch === undefined || (typeof x.epoch === 'number' && Number.isInteger(x.epoch) && x.epoch >= 0));
+const isPartitions = (x: unknown): boolean =>
+  isObj(x) && Object.values(x).every((a) => isObj(a) && isProgress(a.progress) && (a.view === null || isObj(a.view)));
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 /** Every core `IntakeStep`: a step core adds fails to compile here until it is listed. */
 const INTAKE_STEP_SET: Readonly<Record<IntakeStep, true>> = { market_day: true, meals_per_week: true, region: true, allergies: true, pantry: true };
@@ -92,6 +202,8 @@ function merge(p: Record<string, unknown>): PlayerState | null {
   if (has('toolkit') && !(isObj(p.toolkit) && isObj(p.toolkit.techniques) && Object.values(p.toolkit.techniques).every(isTechniqueRecord))) return null;
   if (has('cookProgress') && p.cookProgress !== null && !(isObj(p.cookProgress) && typeof p.cookProgress.slug === 'string' && typeof p.cookProgress.step === 'number')) return null;
   if (has('dialogueHistory') && !isObj(p.dialogueHistory)) return null;
+  if (has('progress') && !isProgress(p.progress)) return null;
+  if (has('accountProgress') && !isPartitions(p.accountProgress)) return null;
   if (has('rulesUnreadable') && typeof p.rulesUnreadable !== 'boolean') return null;
   if (has('signOutPending') && typeof p.signOutPending !== 'boolean') return null;
   if (has('localProfile') && p.localProfile !== null && !isLocalProfile(p.localProfile)) return null;
@@ -116,6 +228,9 @@ function merge(p: Record<string, unknown>): PlayerState | null {
     toolkit: has('toolkit') ? (p.toolkit as ToolkitState) : d.toolkit,
     cookProgress: has('cookProgress') ? (p.cookProgress as { slug: string; step: number } | null) : d.cookProgress,
     dialogueHistory: has('dialogueHistory') ? (p.dialogueHistory as Record<string, number[]>) : d.dialogueHistory,
+    progress: has('progress') ? (p.progress as DeviceProgress) : d.progress,
+    // A Map, then fromEntries: keys stay own data keys.
+    accountProgress: has('accountProgress') ? Object.fromEntries(Object.entries(p.accountProgress as Record<string, AccountPartition>)) : d.accountProgress,
     settings: {
       showCalories: (s.showCalories as boolean | undefined) ?? ds.showCalories,
       reducedMotion: (s.reducedMotion) ?? ds.reducedMotion,
@@ -151,6 +266,106 @@ function mergeToolkit(a: ToolkitState, b: ToolkitState): ToolkitState {
   return { techniques: Object.fromEntries(out) };
 }
 
+/** The event ids a compacted base already holds (core's snapshot facts, read defensively and never changed). */
+function baseIds(base: ProgressSnapshot | null): Set<string> {
+  const facts = base?.facts;
+  const ids = isObj(facts) && Array.isArray(facts.ids) ? facts.ids : [];
+  return new Set(ids.filter((id): id is string => typeof id === 'string'));
+}
+
+/** The base that holds more: the one covering more event ids (a base only grows), else the higher XP; ties → `b`. */
+function higherBase(a: ProgressSnapshot | null, b: ProgressSnapshot | null): ProgressSnapshot | null {
+  if (a === null) return b;
+  if (b === null) return a;
+  const na = baseIds(a).size, nb = baseIds(b).size;
+  if (na !== nb) return na > nb ? a : b;
+  return (Number(a.view.xp) || 0) > (Number(b.view.xp) || 0) ? a : b;
+}
+
+/**
+ * Two copies of the device progress log as one (another tab's write, or an update over what is stored). Events are
+ * a union by id over the events still held, in `a`'s order then `b`'s new ones: no held event is ever dropped. The
+ * higher `base` is kept (never a lower one), and an event or grant it already covers is not held twice. A second
+ * `imported` event for a technique already imported (two tabs reading the M3 toolkit at once) is the same record:
+ * one is kept. Grants are a union by id; `pendingUpload` a union (or `b`'s alone with `pendingFrom: 'b'`, when `b` is
+ * an update of `a`, so an upload marked done stays done), kept only for events still held.
+ */
+export function mergeProgress(a: DeviceProgress, b: DeviceProgress, opts: { pendingFrom?: 'both' | 'b' } = {}): DeviceProgress {
+  if (a === b) return a;
+  // A deliberate removal (a higher epoch) wins outright: what it removed never comes back from an older copy.
+  const ea = a.epoch ?? 0, eb = b.epoch ?? 0;
+  if (ea !== eb) return ea > eb ? a : b;
+  const base = higherBase(a.base, b.base);
+  const covered = baseIds(base);
+  const seen = new Set<string>();
+  const importedTechniques = new Set<string>();
+  const events: ProgressEvent[] = [];
+  for (const e of [...a.events, ...b.events]) {
+    if (seen.has(e.id) || covered.has(e.id)) continue;
+    if (e.kind === 'imported') {
+      if (importedTechniques.has(e.technique)) continue;
+      importedTechniques.add(e.technique);
+    }
+    seen.add(e.id);
+    events.push(e);
+  }
+  const grantIds = new Set<string>();
+  const grants: RewardGrant[] = [];
+  for (const g of [...a.grants, ...b.grants]) {
+    if (grantIds.has(g.id) || !seen.has(g.eventId)) continue;
+    grantIds.add(g.id);
+    grants.push(g);
+  }
+  const pendingUpload = [...new Set(opts.pendingFrom === 'b' ? b.pendingUpload : [...a.pendingUpload, ...b.pendingUpload])].filter((id) => seen.has(id));
+  return { events, grants, base, pendingUpload, ...(ea > 0 ? { epoch: ea } : {}) };
+}
+
+/**
+ * Partition by partition (C1 ruling): the guest's with the guest's, each account's with that same account's, never
+ * across. An account's cached view is `b`'s when it has one (the newer write), else `a`'s.
+ */
+export function mergePartitions(
+  a: Pick<PlayerState, 'progress' | 'accountProgress'>, b: Pick<PlayerState, 'progress' | 'accountProgress'>, opts: { pendingFrom?: 'both' | 'b' } = {},
+): Pick<PlayerState, 'progress' | 'accountProgress'> {
+  const accounts = new Map<string, AccountPartition>(Object.entries(a.accountProgress));
+  for (const [key, pb] of Object.entries(b.accountProgress)) {
+    const pa = accounts.get(key);
+    const ea = pa?.progress.epoch ?? 0, eb = pb.progress.epoch ?? 0;
+    // A pruned partition (a higher epoch) replaces the older copy outright, view included: nothing removed comes back.
+    if (!pa || eb > ea) accounts.set(key, pb);
+    else if (ea > eb) accounts.set(key, pa);
+    else accounts.set(key, { progress: mergeProgress(pa.progress, pb.progress, opts), view: pb.view ?? pa.view });
+  }
+  return { progress: mergeProgress(a.progress, b.progress, opts), accountProgress: Object.fromEntries(accounts) };
+}
+
+/** The first allowed event date (the API's floor, I4 ruling): an older M3 date is read as this. */
+const PROGRESS_EPOCH = '2026-01-01';
+const notBefore = (d: string): string => (d < PROGRESS_EPOCH ? PROGRESS_EPOCH : d);
+
+/**
+ * Ruling 8: each M3 toolkit record with no matching `imported` event (in the log, or already folded into its base)
+ * becomes one, so nothing earned before M5 is lost. Ids are `crypto.randomUUID()`; the caller saves at once, so a
+ * reload finds the event and never imports twice. The server checks each import against the catalogue again.
+ */
+export function importM3Toolkit(s: PlayerState, newId: () => string = () => crypto.randomUUID()): PlayerState {
+  const records = Object.entries(s.toolkit.techniques);
+  if (records.length === 0) return s;
+  const done = new Set<string>(s.progress.events.flatMap((e) => (e.kind === 'imported' ? [e.technique] : [])));
+  const folded = s.progress.base?.view.toolkit.techniques ?? {};
+  const added: ProgressEvent[] = [];
+  for (const [technique, r] of records) {
+    if (done.has(technique) || Object.hasOwn(folded, technique)) continue;
+    const firstAt = notBefore(r.firstAt), lastUsedAt = notBefore(r.lastUsedAt);
+    added.push({ id: newId(), kind: 'imported', at: lastUsedAt, technique, tier: r.tier, firstAt, lastUsedAt: lastUsedAt < firstAt ? firstAt : lastUsedAt, recipes: [...r.recipes] });
+  }
+  if (added.length === 0) return s;
+  return {
+    ...s,
+    progress: { ...s.progress, events: [...added, ...s.progress.events], pendingUpload: [...added.map((e) => e.id), ...s.progress.pendingUpload] },
+  };
+}
+
 /**
  * Union two rule lists by id. Identical rules collapse. The same id with different contents keeps BOTH
  * versions and reports a conflict: the caller then marks rules unreadable, so no one is told "safe".
@@ -178,6 +393,7 @@ function rebase(stored: PlayerState, mine: PlayerState, rulesAuthoritative = fal
       ...stored,
       localRules: rules,
       toolkit: mergeToolkit(stored.toolkit, mine.toolkit),
+      ...mergePartitions(stored, mine),
       rulesUnreadable: stored.rulesUnreadable || conflict,
     },
     conflict,
@@ -237,7 +453,14 @@ export function createStore(
 
   if (storage) {
     const r = readStored(storage);
-    if (r.kind === 'ok') { state = r.state; persisted = true; }
+    if (r.kind === 'ok') {
+      state = importM3Toolkit(r.state);
+      persisted = true;
+      // Saved at once, so the next read (this tab's or another's) finds the imports and never makes them again.
+      if (state !== r.state) {
+        try { storage.setItem(STORE_KEY, JSON.stringify(state)); } catch { memoryOnly = true; notice = 'unsaved'; }
+      }
+    }
     else if (r.kind === 'bad') {
       keepCorrupt(r.raw);
       state = { ...freshState(), rulesUnreadable: true };
@@ -286,7 +509,8 @@ export function createStore(
         else if (r.kind === 'error') memoryOnly = true;
       }
       next ??= fn(base);
-      state = { ...next, toolkit: mergeToolkit(base.toolkit, next.toolkit) }; // earned toolkit data never goes down
+      // Earned data never goes down: the toolkit, and every progress event still held (a compaction in `fn` is kept).
+      state = { ...next, toolkit: mergeToolkit(base.toolkit, next.toolkit), ...mergePartitions(base, next, { pendingFrom: 'b' }) };
       // A conflict found by this very rebase was never seen by the caller, so this update cannot clear the flag.
       if (conflict) state = { ...state, rulesUnreadable: true };
       if (!memoryOnly && storage) {

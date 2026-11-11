@@ -34,6 +34,7 @@ function formIdFor(card: ProposalCard): string {
     case 'meal': return 'meal_log';
     case 'profile': return 'profile';
     case 'pantry': return 'pantry';
+    case 'plan': return 'plan'; // Form 7-W (M5 Step 8; Step 10 completes the view)
   }
 }
 
@@ -66,6 +67,15 @@ function valuesFor(card: ProposalCard): Partial<Record<string, string>> {
       if (card.add.length > 0) out.added = join(card.add.map((a) => a.name));
       if (card.remove.length > 0) out.removed = join(card.remove);
       return out;
+    }
+    case 'plan': {
+      // M5 Step 8 (C22): the code-built summary and each item's check; the read-back lines come with the reply.
+      const mark = { ok: '✅', swap: '🔁', unverified: '❓' } as const;
+      return {
+        days: card.summary,
+        checks: join(card.checks.map((c) => `${c.slug.slice(c.slug.lastIndexOf('/') + 1).replace(/-/g, ' ')} ${mark[c.status]}`)) || 'None',
+        hard_week: card.hard ? 'Yes' : 'No',
+      };
     }
   }
 }
@@ -156,7 +166,7 @@ export function renderCard(view: CardView, opts: {
   return el;
 }
 
-const TRAIL_LABEL: Readonly<Record<TrailEntry['kind'], string>> = { rule: '🛡 Stamped', meal: '📒 Logged', profile: '🗓 Inked', pantry: '🫙 Pantry' };
+const TRAIL_LABEL: Readonly<Record<TrailEntry['kind'], string>> = { rule: '🛡 Stamped', meal: '📒 Logged', profile: '🗓 Inked', pantry: '🫙 Pantry', plan: '🗓 Planned' };
 
 /**
  * A write in the trail (§7.0 "tap it to edit or undo", pre-flight C24). Undo lives until `undoUntil`. Edit stays

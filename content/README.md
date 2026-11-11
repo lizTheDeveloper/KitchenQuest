@@ -277,6 +277,8 @@ Code fires these by id, so they are all in `REQUIRED_PAN_TRIGGERS` (`apps/game/s
 | `plan.unverified_dish` | never | A planned dish is ❓; check the labels. | `dish` |
 | `plan.fewer_than_asked` | never | "Pick N" found fewer dishes that pass the rules. | `count` |
 | `plan.dish_sacred` | never | A sacred dish named in a plan; kept for its occasion (M5 Step 3). | `dish` |
+| `plan.which_day` | never | A planned dish's day names no single day ("weekend", "tonight"): which day? (M5 Step 8). | `dish` |
+| `plan.after_which_day` | never | "Pick N after …" names no single day: which day? Nothing was picked (M5 Step 8). | `day` |
 | `plan.hard_week` | allowed | The player said it's a hard week: easy dishes, no extras. | |
 | `one_more.offer` | allowed | The weekly technique slot (new). | `technique`, `known`, `dish`, `day` |
 | `one_more.refresh` | allowed | The weekly slot as a refresher; an invitation, never a warning. | `technique`, `dish` |
@@ -307,7 +309,7 @@ Code fires these by id, so they are all in `REQUIRED_PAN_TRIGGERS` (`apps/game/s
 
 Also emitted by core since Step 4 fix round 1: `rule.which_kind` (ai: never, vars `term`, `examples`), the ask for a category too broad to be one rule ("allergic to herbs").
 
-**Content review (M5):** every line above, with these first: `quest.errand_adapted`, `quest.cook_adapted` and `plan.dish_sacred` (kept as written in Steps 2–3), and `one_more.refresh`, `rescue.compost` and `introduction_received` (reworded in fix round 1 so a refresher never names the absence, compost brings no word of shame, and an introduction opens no door).
+**Content review (M5):** every line above, with these first: `quest.errand_adapted`, `quest.cook_adapted` and `plan.dish_sacred` (kept as written in Steps 2–3), `plan.which_day` and `plan.after_which_day` (new in Step 8), and `one_more.refresh`, `rescue.compost` and `introduction_received` (reworded in fix round 1 so a refresher never names the absence, compost brings no word of shame, and an introduction opens no door).
 
 Rewritten in M5 (C30): `stamp_earned` spends nothing (stamps are spent nowhere until M10, Ruling 17); `introduction_received` opens no new country (every launch cook is already on the map, Ruling 3); `skill_up` is about technique tiers, never levels (Ruling 4), and its variable is `{technique}`.
 

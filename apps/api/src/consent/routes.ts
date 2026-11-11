@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { lockLiveUser } from '../auth/live-user.js';
+import { lockUserPlan, lockUserProgress } from '../db/advisory-locks.js';
 import { requireUser } from '../auth/session.js';
 import { CONSENT_PURPOSES } from '../db/schema.js';
 import { ApiError } from '../errors.js';
@@ -67,6 +68,12 @@ export async function consentRoutes(app: FastifyInstance): Promise<void> {
     // The user row first (lock order as account delete): a delete that won leaves a 401 and no audit row.
     await db.transaction(async (tx) => {
       await lockLiveUser(tx, req.user.id);
+      // The delete erases plans and market runs (plan:) and meal_logged progress events (progress:) too: the
+      // advisory locks, in their order, come before the consent row.
+      if (purpose === 'health_data' && healthData === 'delete') {
+        await lockUserPlan(tx, req.user.id);
+        await lockUserProgress(tx, req.user.id);
+      }
       const withdrew = await withdrawConsentIn(tx, req.user.id, purpose, at, req.id);
       if (purpose === 'health_data' && healthData === 'delete') await deleteHealthDataIn(tx, req.user.id, at, withdrew, req.id);
     });

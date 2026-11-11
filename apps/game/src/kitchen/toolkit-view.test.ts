@@ -62,8 +62,35 @@ describe('renderToolkit', () => {
     expect(el.querySelectorAll('[data-technique]')).toHaveLength(0);
   });
 
-  test('no totals, percentages or counts with rows', () => {
+  test('no totals, percentages or counts with rows (the only digits are the certificate\'s form number, 51-T)', () => {
     const el = renderToolkit([{ technique: 'tempering', tier: 'yours', freshness: 'rusty' }], opts);
-    expect(el.textContent).not.toMatch(/\d|%/);
+    const copy = el.cloneNode(true) as HTMLElement;
+    copy.querySelectorAll('.toolkit-cert').forEach((c) => c.remove());
+    expect(copy.textContent).not.toMatch(/\d|%/);
+    expect(el.querySelector('.toolkit-cert')!.textContent).toBe('Form 51-T: Certificate of Technique');
+  });
+
+  test('Yours rows show the Certificate of Technique (51-T); Seen and Tried rows do not', () => {
+    const el = renderToolkit([
+      { technique: 'grains', tier: 'seen', freshness: null },
+      { technique: 'legumes', tier: 'tried', freshness: 'sharp' },
+      { technique: 'tempering', tier: 'yours', freshness: 'sharp' },
+    ], opts);
+    expect(el.querySelector('[data-technique="tempering"] .toolkit-cert')!.textContent).toContain('51-T');
+    expect(el.querySelector('[data-technique="legumes"] .toolkit-cert')).toBeNull();
+    expect(el.querySelector('[data-technique="grains"] .toolkit-cert')).toBeNull();
+  });
+
+  test('a Rusty Yours row keeps M3\'s invitation beside the certificate: no new warning, no warning class, no red', () => {
+    const el = renderToolkit([{ technique: 'tempering', tier: 'yours', freshness: 'rusty' }], opts);
+    const row = el.querySelector('[data-technique="tempering"]')!;
+    expect(row.querySelector('.toolkit-cert')).not.toBeNull();
+    expect(row.querySelectorAll('.rusty-invite')).toHaveLength(1);
+    expect(row.querySelector('.rusty-invite')!.textContent).toBe("Your Tempering's gone a bit rusty. Fancy a refresher?");
+    for (const e of [row, ...row.querySelectorAll('*')]) {
+      expect(e.className).not.toMatch(/warn|danger|error|alert|blocked/);
+      expect(e.getAttribute('role')).not.toBe('alert');
+    }
+    expect(usesChili(row)).toBe(false);
   });
 });

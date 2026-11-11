@@ -44,6 +44,8 @@ export function confirmedLines(card: ProposalCard, removedNames: readonly string
       return [line('log.logged', { meal: MEAL_WORD[card.meal.slot] }), ...(card.estimate ? [line('log.estimate_note')] : [])];
     case 'profile':
       return [line('schedule.set', { summary: card.summary })];
+    case 'plan':
+      return [line('plan.saved')];
     case 'pantry': {
       const out: LineRef[] = [];
       if (card.add.length > 0) out.push(line('pantry.added', { items: listWords(card.add.map((a) => a.name)) }));

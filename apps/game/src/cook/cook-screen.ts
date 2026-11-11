@@ -1,5 +1,5 @@
 import { SCREEN_TITLES } from '../shell/titles';
-import { recordTechnique, timerSeconds, type ParsedRecipe, type RecipeIngredient, type StepItem } from '@kitchenquest/core/engine';
+import { timerSeconds, type ParsedRecipe, type RecipeIngredient, type StepItem } from '@kitchenquest/core/engine';
 import { content, graph, techniqueName } from '../content';
 import { getMentor } from '../mentor';
 import { buildRecipeCard, type RecipeCard } from '../recipes/card-model';
@@ -12,7 +12,11 @@ import { announce } from '../ui/announce';
 import { statusLabel } from '../ui/chips';
 import { showBureauForm } from '../ui/bureau-form';
 import { contentText, h } from '../ui/dom';
-import { cookedEvents } from './finish';
+import { progressService } from '../progress';
+import { catalogueOf, questsOf } from '../progress/catalogue';
+import { newEventId } from '../progress/log';
+import { cookStepEvents } from '../quests/quest-runner';
+import { cookedEvent } from './finish';
 import { formatClock, formatDuration, remainingMs, startTimer, tick, type RunningTimer } from './timers';
 import { createWakeLock, type WakeState } from './wake-lock';
 
@@ -230,8 +234,9 @@ export function cookScreen(): Screen {
         if (finished) return;
         finished = true;
         clearInterval(interval);
-        const events = cookedEvents(slug, recipe, localDate(ctx.now()));
-        ctx.store.update((s) => ({ ...s, toolkit: events.reduce(recordTechnique, s.toolkit), cookProgress: null }));
+        ctx.store.update((s) => ({ ...s, cookProgress: null }));
+        // In the background (M7): the certificate shows at once, and the grants' lines follow when they're known.
+        void recordCook();
         await wake.disable();
         say('cook.done', { dish: cook.dish || card.title, cook: cook.name });
         const form = content.bureau.forms.certificate;
@@ -245,6 +250,25 @@ export function cookScreen(): Screen {
         });
         if (leaving.signal.aborted) return; // left during the certificate: the new screen stays
         ctx.navigate({ name: 'kitchen' });
+      };
+
+      /**
+       * The progress log (Ruling 7): a `cooked` event, then any quest cook step it completes. Their grants become the
+       * Pan's lines (progress/announce.ts). `planned` is false until the plan is on the device (Step 10). A sacred dish
+       * never gets here: cook mode refuses it (M3), and core grants nothing for one anyway (spec §10).
+       */
+      const recordCook = async () => {
+        try {
+          const svc = await progressService();
+          const today = localDate(ctx.now());
+          const rulesCtx = svc.rulesContext(today);
+          await svc.record([cookedEvent(slug, today, false, newEventId(), catalogueOf(), rulesCtx)]);
+          if (rulesCtx === undefined) return;
+          const steps = cookStepEvents(questsOf(), svc.view(), today, { ...rulesCtx, today, cat: catalogueOf() });
+          if (steps.length > 0) await svc.record(steps);
+        } catch (err) {
+          console.error(err); // progress is a nicety here: the cook itself is done, and the certificate still shows
+        }
       };
 
       next.addEventListener('click', () => { if (step === total - 1) void finish(); else go(step + 1); });

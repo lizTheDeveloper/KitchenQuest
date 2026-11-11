@@ -11,6 +11,14 @@ function emptyFootnote(): string {
   return pool.length === 0 ? '' : pool[Math.floor(Math.random() * pool.length)].text;
 }
 
+/** Audit M-1: a Yours technique carries the Bureau's Form 51-T, the Certificate of Technique. Kept for good. */
+function certificate(): HTMLElement | null {
+  const forms = content.bureau.forms;
+  if (!Object.hasOwn(forms, 'technique_certificate')) return null;
+  const f = forms.technique_certificate;
+  return contentText('span', `Form ${f.number}: ${f.title}`, { class: 'toolkit-cert' });
+}
+
 /**
  * The knife roll's contents: one row per technique the player has. Octalysis M-1 guardrail: no totals,
  * percentages, counts of techniques not yet learned, or locked rows. A Rusty row is an invitation in the
@@ -33,6 +41,7 @@ export function renderToolkit(
       contentText('span', name, { class: 'toolkit-name' }),
       h('span', { class: 'toolkit-tier' }, pips, ' ', h('span', { class: 'tier-word' }, TIER_WORD[row.tier])),
       row.freshness ? h('span', { class: `toolkit-fresh fresh-${row.freshness}` }, FRESH_WORD[row.freshness]) : null,
+      row.tier === 'yours' ? certificate() : null,
       row.freshness === 'rusty' ? contentText('p', opts.rustyLine(name), { class: 'rusty-invite' }) : null,
     ));
   }

@@ -5,6 +5,7 @@ import { audit } from '../audit/audit.js';
 import { assertUnderWriteCap } from '../usage/write-cap.js';
 import { lockLiveUser } from '../auth/live-user.js';
 import { lockConsentIn, type Tx } from '../consent/ledger.js';
+import { lockUserProgress } from '../db/advisory-locks.js';
 import type { Keyring } from '../crypto/keyring.js';
 import { sealFor } from '../crypto/userkeys.js';
 import { canonRecipes, mealLogs } from '../db/schema.js';
@@ -121,10 +122,14 @@ export async function createMealLogIn(
  * Deletes one of the player's meal logs, inside the caller's transaction:
  * live user (401), then 404 when `id` is not theirs (a malformed id looks the
  * same and never reaches the database). No consent needed, as rules: kept
- * data must stay deletable after a "keep" withdrawal. Audits 'meals.delete'.
+ * data must stay deletable after a "keep" withdrawal. The log's `meal_logged` progress event goes with it (the
+ * foreign key cascades; spec §6 "removes the record, never XP"). Audits 'meals.delete'.
  */
 export async function deleteMealLogIn(tx: Tx, userId: string, id: string, at: Date, requestId?: string): Promise<void> {
   await lockLiveUser(tx, userId);
+  // The delete cascades to the log's `meal_logged` progress event (I1 ruling): its grants stay. `progress:` is taken
+  // first, so a progress post that has just checked this log is never left inserting an event for a deleted one.
+  await lockUserProgress(tx, userId);
   if (!UUID.test(id)) throw notFound();
   const rowId = id.toLowerCase();
   const deleted = await tx

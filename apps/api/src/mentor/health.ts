@@ -7,7 +7,9 @@ import type { Catalog } from '../catalog.js';
  * health, emergency or medical intent, any graph name, alias, rule-term
  * phrase or health word, any severity, or any rule statement. Over-catches on
  * purpose. The turn adds the intake step and open cards; `minimiseHistory`
- * uses it as is (I2).
+ * uses it as is (I2). M5 Step 8 fix round 2: a diet or restriction cue ("keto", "low sugar", "minus the …") is
+ * health too, so such a message takes M4's health path first; fix round 4 (N7) moved that cue into core's
+ * `isHealthText`, so the client's gate holds it too.
  */
 export function isHealthText(text: string, catalog: Catalog): boolean {
   return isHealthTextIn(text, catalog.graph, catalog.ruleTerms);

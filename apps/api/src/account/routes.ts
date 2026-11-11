@@ -27,7 +27,14 @@ import { loadConversationsForExport } from '../mentor/conversations.js';
 import { loadProposalsForExport } from '../mentor/proposals.js';
 import { loadPantryForExport } from '../pantry/store.js';
 import { knownMealWindows } from '../profile/store.js';
+import { catalogueFor } from '../progress/catalogue.js';
+import type { ProgressRouteDeps } from '../progress/routes.js';
+import { progressViewOf } from '../progress/service.js';
+import { loadProgressForExport } from '../progress/store.js';
 import { loadRules } from '../rules/store.js';
+import { loadPlansForExport, loadRunsForExport } from '../week/store.js';
+import { loadNotesForExport } from '../book/notes-service.js';
+import { loadSharedForExport } from '../book/shared-table-service.js';
 import { AI_PROCESSOR_IDS } from '../ai/processors.js';
 
 /** The exact words the player types to delete their account. */
@@ -123,7 +130,7 @@ const iso = (d: Date | null) => (d ? d.toISOString() : null);
  * ids, and the audit actor id (the player themselves,
  * or a staff identifier).
  */
-async function buildExport(tx: Tx, config: Config, userId: string, now: Date, registered: RegisteredProcessor[]) {
+async function buildExport(tx: Tx, config: Config, userId: string, now: Date, registered: RegisteredProcessor[], progressDeps: Pick<ProgressRouteDeps, 'loop' | 'recipes'>) {
   const user = (
     await tx
       .select({ id: users.id, email: users.email, createdAt: users.createdAt, ageConfirmedAt: users.ageConfirmedAt })
@@ -168,12 +175,19 @@ async function buildExport(tx: Tx, config: Config, userId: string, now: Date, re
     item,
     createdAt: iso(createdAt),
   }));
-  const pantry = (await loadPantryForExport(tx, config.keyring, userId)).map(({ id, name, ingredientId, createdAt }) => ({
-    id,
-    name,
-    ingredientId,
+  // With each item's purchase date and source when it has them (M5 Step 6).
+  const pantry = (await loadPantryForExport(tx, config.keyring, userId)).map(({ createdAt, ...item }) => ({
+    ...item,
     createdAt: iso(createdAt),
   }));
+
+  // Weekly plans and their market runs (H-11, M5 Step 6), decrypted, with the pantry rows each tick added.
+  const plans = await loadPlansForExport(tx, config.keyring, userId);
+  const marketRunList = await loadRunsForExport(tx, config.keyring, userId);
+
+  // Margin notes (H-12) and the Shared Table (H-13), M5 Step 7, decrypted, with their row ids.
+  const marginNoteList = await loadNotesForExport(tx, config.keyring, userId);
+  const sharedTableList = await loadSharedForExport(tx, config.keyring, userId);
 
   // Pan conversations with their stored messages, and proposal cards, decrypted (I-1, I-4, C-12).
   const convs = (await loadConversationsForExport(tx, config.keyring, userId)).map((c) => ({
@@ -189,6 +203,11 @@ async function buildExport(tx: Tx, config: Config, userId: string, now: Date, re
     expiresAt: iso(p.expiresAt),
     decidedAt: iso(p.decidedAt),
   }));
+
+  // Progress (U-5): every event and grant as stored (erased meal-log events are gone; their grants stay), and the view.
+  // Unchecked: the export never fails on content (a player's data can always be downloaded).
+  const catalogue = catalogueFor(await progressDeps.recipes.current(tx), progressDeps.loop, { check: false });
+  const progress = { ...(await loadProgressForExport(tx, userId)), view: await progressViewOf(tx, userId, catalogue) };
 
   const ents = await tx
     .select({
@@ -262,9 +281,15 @@ async function buildExport(tx: Tx, config: Config, userId: string, now: Date, re
     rules: decrypted,
     meals,
     pantry,
+    plans,
+    marketRuns: marketRunList,
+    marginNotes: marginNoteList,
+    sharedTable: sharedTableList,
     conversations: convs,
     proposals,
-    consents: await consentHistory(tx, userId),
+    progress,
+    // With the C-45 subject columns (M5 Step 7: always 'user' and null until M13).
+    consents: await consentHistory(tx, userId, { subjects: true }),
     entitlements: ents.map((e) => ({
       ...e,
       startsAt: iso(e.startsAt),
@@ -294,7 +319,7 @@ async function buildExport(tx: Tx, config: Config, userId: string, now: Date, re
  * The player's data rights: `GET /me/export` (access and portability, C-7)
  * and `DELETE /me` (erasure, C-8). Both are audited (C-5) and free forever.
  */
-export async function accountRoutes(app: FastifyInstance): Promise<void> {
+export async function accountRoutes(app: FastifyInstance, progressDeps: Pick<ProgressRouteDeps, 'loop' | 'recipes'>): Promise<void> {
   const { db, config, now, ai } = app.deps;
   // Read once at boot, so a missing or malformed register stops the server.
   // The AI is "on" only when a provider was built (m-2): the same flag the turn route uses
@@ -332,7 +357,7 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
             { actorKind: 'user', actorId: userId, subjectUserId: userId, action: 'account.export', requestId: req.id },
             at,
           );
-          return buildExport(tx, config, userId, at, processors);
+          return buildExport(tx, config, userId, at, processors, progressDeps);
         },
         { isolationLevel: 'repeatable read' },
       );
@@ -358,8 +383,10 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
     const at = now();
     const { id: userId, email } = req.user;
     // One transaction, in this order: the delete event first (so it is pseudonymized
-    // with the rest), then the user (cascading to sessions, profile, rules, meal logs, pantry,
-    // conversations, messages, mentor proposals, consents, user_keys, entitlements, usage, self-read counts), then sign-in links by email,
+    // with the rest), then the user (cascading to sessions, profile, rules, meal logs, pantry, meal plans, market runs,
+    // margin notes, Shared Table rows,
+    // conversations, messages, mentor proposals, progress events, reward grants, consents, user_keys, entitlements, usage,
+    // self-read counts), then sign-in links by email,
     // then the audit trail, which the database pseudonymizes only once the user is gone.
     // A running export holds the user row, so the delete waits for it (see above).
     await db.transaction(async (tx) => {

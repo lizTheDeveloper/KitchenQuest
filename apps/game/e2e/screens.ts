@@ -171,7 +171,23 @@ async function finishIntro(page: Page): Promise<void> {
     await page.locator('.dialogue .dialogue-text .typed-full').filter({ hasText: line }).waitFor();
     await page.locator('.dialogue .dialogue-next').click();
   }
+  // M5 Step 9: Leela's quest runs after the intro; its lines, then "Not yet" at the errand pauses it on the action bar.
+  for (let i = 0; i < 60; i++) {
+    if (await page.locator('.quest-panel').count()) { await page.locator('.quest-panel').getByRole('button', { name: 'Not yet' }).click(); continue; }
+    if (await page.locator('.dialogue .dialogue-next').count()) { await page.locator('.dialogue .dialogue-next').click(); continue; }
+    if (await button(page, 'Carry on with the quest').count()) break;
+    await page.waitForTimeout(50);
+  }
   await button(page, 'See the recipe: Parippu').waitFor();
+}
+
+/** The intro, then the quest's talk lines: the errand's panel is up. */
+async function toQuestPanel(page: Page): Promise<void> {
+  for (let i = 0; i < 60 && (await page.locator('.quest-panel').count()) === 0; i++) {
+    if (await page.locator('.dialogue .dialogue-next').count()) await page.locator('.dialogue .dialogue-next').click();
+    else await page.waitForTimeout(50);
+  }
+  await page.locator('.quest-panel').waitFor();
 }
 const cookReady = (page: Page) => page.locator('.cook-progress').waitFor();
 
@@ -193,6 +209,10 @@ export const SCREENS: ScreenCase[] = [
   {
     label: 'visit (dialogue showing)', path: '/#/visit/leela',
     open: (p) => p.locator('.dialogue .dialogue-text .typed-full').waitFor(), primary: (p) => p.locator('.dialogue .dialogue-next'),
+  },
+  {
+    label: 'visit (a quest step: the errand)', path: '/#/visit/leela',
+    open: toQuestPanel, primary: (p) => p.locator('.quest-panel').getByRole('button', { name: "I've got it" }),
   },
   {
     label: 'visit with the recipe card open', path: '/#/visit/leela',

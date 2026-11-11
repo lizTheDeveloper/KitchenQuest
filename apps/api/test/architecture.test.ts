@@ -8,10 +8,10 @@ import { describe, expect, it } from 'vitest';
 const SRC = fileURLToPath(new URL('../src', import.meta.url));
 
 /** Modules that read or write health data, relative to src/ (a directory covers everything in it). */
-const HEALTH_MODULES = ['rules', 'consent', 'crypto/userkeys', 'journeys', 'symptoms', 'meals', 'mentor', 'voice'];
+const HEALTH_MODULES = ['rules', 'consent', 'crypto/userkeys', 'journeys', 'symptoms', 'meals', 'mentor', 'voice', 'week', 'book'];
 /** Health tables: schema exports and SQL names. Extend both when a milestone adds one. */
-const HEALTH_SCHEMA_EXPORTS = ['rules', 'userKeys', 'consents', 'mealLogs', 'messages', 'mentorProposals'];
-const HEALTH_SQL_TABLES = ['rules', 'user_keys', 'consents', 'meal_logs', 'messages', 'mentor_proposals'];
+const HEALTH_SCHEMA_EXPORTS = ['rules', 'userKeys', 'consents', 'mealLogs', 'marginNotes', 'messages', 'mentorProposals', 'mealPlans', 'marketRuns'];
+const HEALTH_SQL_TABLES = ['rules', 'user_keys', 'consents', 'meal_logs', 'margin_notes', 'messages', 'mentor_proposals', 'meal_plans', 'market_runs'];
 
 interface Violation {
   file: string;
@@ -93,5 +93,68 @@ describe('org/health separation (C-10)', () => {
     const files = filesUnder(join(SRC, 'org'));
     const violations = files.flatMap((f) => healthViolations(relative(SRC, f), readFileSync(f, 'utf8')));
     expect(violations).toEqual([]);
+  });
+});
+
+// M5 Step 5 (never rule 3, spec §6): progression is blind to entitlements, usage, rules and consent by construction,
+// and no rule, consent, profile, meal or mentor code can reach the reward code.
+const CORE_SRC = fileURLToPath(new URL('../../../packages/core/src', import.meta.url));
+
+/** Relative import specifiers of a file, resolved to paths relative to `root` (without extension). */
+function importsOf(root: string, file: string): string[] {
+  const text = readFileSync(file, 'utf8');
+  return [...text.matchAll(/(?:from|import)\s*\(?\s*['"]([^'"]+)['"]/g)]
+    .map((m) => m[1])
+    .map((spec) => (spec.startsWith('.') ? relative(root, resolve(join(file, '..'), spec)).replace(/\.(js|ts)$/, '') : spec));
+}
+
+const isSource = (f: string) => !/\.test\.ts$/.test(f);
+
+describe('progress is entitlement-blind (M5 Step 5, never rule 3)', () => {
+  it('apps/api/src/progress/** imports nothing from entitlements, usage, rules or consent', () => {
+    const files = filesUnder(join(SRC, 'progress')).filter(isSource);
+    expect(files.length).toBeGreaterThan(0);
+    const bad = files.flatMap((f) =>
+      importsOf(SRC, f)
+        .filter((t) => ['entitlements', 'usage', 'rules', 'consent'].some((m) => t === m || t.startsWith(`${m}/`)))
+        .map((t) => `${relative(SRC, f)} → ${t}`),
+    );
+    expect(bad).toEqual([]);
+  });
+
+  it('core progress/ imports nothing from entitlements, usage or consent, nothing outside core, and of rules/ only the pure date check', () => {
+    const files = filesUnder(join(CORE_SRC, 'progress')).filter(isSource);
+    expect(files.length).toBeGreaterThan(0);
+    const bad = files.flatMap((f) =>
+      importsOf(CORE_SRC, f)
+        .filter((t) => /entitlement|usage|consent/i.test(t) || t.startsWith('..') || t.startsWith('@kitchenquest/') || (t.startsWith('rules/') && t !== 'rules/active'))
+        .map((t) => `${relative(CORE_SRC, f)} → ${t}`),
+    );
+    expect(bad).toEqual([]);
+    // Core has no player-rule store: its rules/ is the rules engine (I3 judges a stand-in claim with it).
+    for (const f of files) expect(readFileSync(f, 'utf8'), relative(CORE_SRC, f)).not.toMatch(/entitlement|guild|subscri/i);
+  });
+
+  it('no file under rules/ or consent/ imports progress', () => {
+    const files = [...filesUnder(join(SRC, 'rules')), ...filesUnder(join(SRC, 'consent'))].filter(isSource);
+    const bad = files.flatMap((f) => importsOf(SRC, f).filter((t) => t === 'progress' || t.startsWith('progress/')).map((t) => `${relative(SRC, f)} → ${t}`));
+    expect(bad).toEqual([]);
+  });
+
+  it('book/ imports nothing from progress/, and progress/ nothing from book/ (M5 Step 7: notes and the Shared Table never feed a reward, M-9)', () => {
+    const book = filesUnder(join(SRC, 'book')).filter(isSource);
+    const progress = filesUnder(join(SRC, 'progress')).filter(isSource);
+    expect(book.length).toBeGreaterThan(0);
+    const bad = [
+      ...book.flatMap((f) => importsOf(SRC, f).filter((t) => t === 'progress' || t.startsWith('progress/')).map((t) => `${relative(SRC, f)} → ${t}`)),
+      ...progress.flatMap((f) => importsOf(SRC, f).filter((t) => t === 'book' || t.startsWith('book/')).map((t) => `${relative(SRC, f)} → ${t}`)),
+    ];
+    expect(bad).toEqual([]);
+  });
+
+  it('nothing in meals/, rules/, consent/, profile/, mentor/ or book/ records progress events', () => {
+    const files = ['meals', 'rules', 'consent', 'profile', 'mentor', 'book'].flatMap((d) => filesUnder(join(SRC, d))).filter(isSource);
+    const bad = files.filter((f) => /recordEventsIn|grantsFor|reward_grants|rewardGrants/.test(readFileSync(f, 'utf8'))).map((f) => relative(SRC, f));
+    expect(bad).toEqual([]);
   });
 });

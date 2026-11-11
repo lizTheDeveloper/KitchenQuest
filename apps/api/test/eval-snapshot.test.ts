@@ -51,4 +51,15 @@ describe('recordsSnapshot (eval noWrite)', () => {
     await p('00000000-0000-4000-8000-0000000000a3', 'confirmed');
     expect(changedRecords(later, await recordsSnapshot(sql, u))).toEqual(['mentor_proposals']);
   });
+
+  it('snapshot: a plan saved during a case breaks noWrite (meal_plans in TABLES, M5 Step 8, C23)', async () => {
+    const u = await user();
+    const before = await recordsSnapshot(sql, u);
+    await sql`insert into meal_plans (user_id, week_start, sealed) values (${u}, '2026-11-09', ${Buffer.from('p')})`;
+    const saved = await recordsSnapshot(sql, u);
+    expect(changedRecords(before, saved)).toEqual(['meal_plans']);
+    // A plan rewritten in place for the same week is a write too.
+    await sql`update meal_plans set sealed = ${Buffer.from('q')} where user_id = ${u}`;
+    expect(changedRecords(saved, await recordsSnapshot(sql, u))).toEqual(['meal_plans']);
+  });
 });

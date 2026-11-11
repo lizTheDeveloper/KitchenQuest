@@ -48,11 +48,27 @@ export const REQUIRED_PAN_TRIGGERS: readonly string[] = [
   'cook.done',
   'travel.map_remark',
   'travel.depart',
+  // M5 Step 9: reward lines come from grants (progress/announce.ts), and the map's quest-offered letter.
+  'levelup',
+  'trust_up',
+  'stamp_earned',
+  'introduction_received',
+  'quest.offered',
   // M5 Step 2: core advance() names it for a rule-adapted errand (ERRAND_ADAPTED_TRIGGER).
   'quest.errand_adapted',
   'quest.cook_adapted',
+  // M5 Step 9 fix round 1 (I1): a quest step whose events didn't land; the runner stops with a retry.
+  'quest.not_saved',
   // M5 Step 3 fix round 1: core resolvePlanRequest's `sacred` list is read back with it (PLAN_DISH_SACRED_TRIGGER).
   'plan.dish_sacred',
+  // M5 Step 8: core buildPlanCard asks which day for a plan dish or an `after` that names no single day.
+  'plan.which_day',
+  'plan.after_which_day',
+  // M5 Step 8 fix round 5 (5c): the server asks which time after a corrected meal time (core CORRECTION_TIME_TRIGGER).
+  'profile.which_time',
+  // M5 Step 8: core confirmedLines says plan.saved for a plan card; buildPlanCard reads a ⛔ dish back with plan.blocked_dish.
+  'plan.saved',
+  'plan.blocked_dish',
   // M5 Step 4: the weekly loop's lines (plan, One More Technique, market run, rescue, frames, cook → log, margin
   // notes, quests, the Recipe Book, navigation chips). Written lines only (Ruling 21).
   ...M5_LOOP_TRIGGERS,

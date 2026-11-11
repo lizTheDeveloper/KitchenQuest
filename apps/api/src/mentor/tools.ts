@@ -9,6 +9,10 @@ import type { AiTool, AiToolCall } from '../ai/provider.js';
  */
 
 const SEVERITIES = ['anaphylactic', 'allergy', 'intolerance', 'preference'] as const;
+/** Ruling 15's closed set of chip targets (core `NavTarget`). */
+const NAV_TO = ['kitchen', 'map', 'plan', 'market', 'book', 'visit', 'recipe'] as const;
+/** At most a plan's worth of named days (core MAX_PLAN_ITEMS). */
+const PLAN_DAYS_MAX = 21;
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 const NAME_MAX = 100;
 const LIST_MAX = 50;
@@ -53,16 +57,19 @@ export const MENTOR_TOOLS: AiTool[] = [
   },
   {
     name: 'propose_profile',
+    // M5 Step 8 fix round 5 (5b): every field is optional with one plain type, never a required nullable union. The
+    // model had to write all five, each `anyOf [T, null]`, and the provider's parser leaked its own markup into the
+    // nullable integer (`"meals_per_week": "null\n</parameter>\n<"`) and cut off the rest of the call.
     description:
-      "Propose a change to the market days, meals a week, region or meal times. A meal reminder is a meal time ('remind me about dinner at 6:30 pm' is dinner at 18:30). Leave fields the player did not mention null.",
+      "Propose a change to the market days, meals a week, region or meal times. A meal reminder is a meal time ('remind me about dinner at 6:30 pm' is dinner at 18:30). Include only the fields the player mentioned; leave the others out.",
     parameters: {
       type: 'object',
       properties: {
-        market_days: nullable({ type: 'array', items: { type: 'string' }, description: 'Weekday names.' }),
-        meals_per_week: nullable({ type: 'integer' }),
-        region: nullable({ type: 'string' }),
-        country: nullable({ type: 'string' }),
-        meal_windows: nullable({
+        market_days: { type: 'array', items: { type: 'string' }, description: 'Weekday names.' },
+        meals_per_week: { type: 'integer' },
+        region: { type: 'string' },
+        country: { type: 'string' },
+        meal_windows: {
           type: 'array',
           items: {
             type: 'object',
@@ -70,9 +77,9 @@ export const MENTOR_TOOLS: AiTool[] = [
             required: ['name', 'start'],
             additionalProperties: false,
           },
-        }),
+        },
       },
-      required: ['market_days', 'meals_per_week', 'region', 'country', 'meal_windows'],
+      required: [],
       additionalProperties: false,
     },
   },
@@ -86,6 +93,47 @@ export const MENTOR_TOOLS: AiTool[] = [
         remove: { type: 'array', items: { type: 'string', description: 'An item name copied exactly from the message (e.g. "milk").' } },
       },
       required: ['add', 'remove'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'propose_plan',
+    description:
+      "Propose this week's plan when the player asks to plan their week, to put a dish on a day, or to pick dishes for them. The game matches the dish names and checks every dish against their rules; the player confirms on a card. Copy each dish name exactly as the player typed it (\"the dal\", \"onigiri\"), even if you don't know it; never add, choose or rename a dish yourself. For \"pick 3\" set pick and leave days null: the game picks. Leave fields the player did not mention null.",
+    parameters: {
+      type: 'object',
+      properties: {
+        days: nullable({
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              weekday: { type: 'string', description: 'The weekday the player named, e.g. "Sunday".' },
+              dish: { type: 'string', description: 'The dish exactly as the player typed it.' },
+            },
+            required: ['weekday', 'dish'],
+            additionalProperties: false,
+          },
+        }),
+        pick: nullable({ type: 'integer', description: 'How many dishes the player asked the game to pick, 1 to 7.' }),
+        hard_week: nullable({ type: 'boolean', description: 'True only when the player said this week is hard, busy or rough.' }),
+        after: nullable({ type: 'string', description: 'A weekday the picks must come after ("after Saturday", "after market day" with their market day).' }),
+      },
+      required: ['days', 'pick', 'hard_week', 'after'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'propose_navigation',
+    description:
+      "Offer a button to a place in the game when the player asks to go there: the kitchen, the map, the week's plan, the market list, the recipe book, a cook's kitchen (to visit, id = the cook's id) or a recipe (to recipe, id = its slug). The player taps it; nothing moves by itself.",
+    parameters: {
+      type: 'object',
+      properties: {
+        to: { type: 'string', enum: [...NAV_TO] },
+        id: nullable({ type: 'string', description: "A cook id for visit, a recipe slug for recipe; null otherwise." }),
+      },
+      required: ['to', 'id'],
       additionalProperties: false,
     },
   },
@@ -107,7 +155,12 @@ export type ToolArgs =
         meal_windows: { name: MealSlot; start: string }[] | null;
       };
     }
-  | { name: 'propose_pantry_change'; args: { add: string[]; remove: string[] } };
+  | { name: 'propose_pantry_change'; args: { add: string[]; remove: string[] } }
+  | {
+      name: 'propose_plan';
+      args: { days: { weekday: string; dish: string }[] | null; pick: number | null; hard_week: boolean | null; after: string | null };
+    }
+  | { name: 'propose_navigation'; args: { to: (typeof NAV_TO)[number]; id: string | null } };
 
 const text = (max: number) => z.string().trim().min(1).max(max);
 /** A nullable field the model may also leave out. */
@@ -140,6 +193,16 @@ const ARGS = {
   propose_pantry_change: z
     .object({ add: z.array(text(NAME_MAX)).max(LIST_MAX).default([]), remove: z.array(text(NAME_MAX)).max(LIST_MAX).default([]) })
     .strict(),
+  propose_plan: z
+    .object({
+      days: opt(z.array(z.object({ weekday: text(20), dish: text(NAME_MAX) }).strict()).max(PLAN_DAYS_MAX)),
+      // Clamped to 1–7 by the post-check, never trusted as sent.
+      pick: opt(z.number().int().min(-1000).max(1000)),
+      hard_week: opt(z.boolean()),
+      after: opt(text(20)),
+    })
+    .strict(),
+  propose_navigation: z.object({ to: z.enum(NAV_TO), id: opt(text(200)) }).strict(),
 } as const;
 
 /** The call's validated arguments, or null for an unknown tool, bad JSON or arguments that don't fit (zod-strict). */

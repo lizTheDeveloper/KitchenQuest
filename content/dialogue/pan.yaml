@@ -1028,6 +1028,15 @@ triggers:
       - "We'll skip that at the market. {cook} will show you the adapted way; nothing about the lesson is less for it."
       - "Not that one for you. {cook} knows another way, and the kitchen is just as glad to have you."
 
+  quest.not_saved:
+    ai: never
+    when: A quest step's events didn't reach the progress log (offline, or the ledger refused them). The step stays where it was; the player can try again or come back later. Never a penalty, never a guess that it was saved.
+    lines:
+      - "That step didn't get written down. Nothing is lost; the step is still here. Try again, or come back later."
+      - "The ledger didn't take that one just now. I'm a pan; I can hold the page. Try again when you're ready."
+      - "I couldn't write that step down. The kitchen will wait, and so will I."
+      - "That didn't reach the ledger. The step stays where it is; try again in a moment, or later."
+
   quest.cook_adapted:
     ai: never
     when: A quest's dish clashes with the player's rules and no other dish or frame for its techniques passes them, so the cook step completes as a lesson instead. Same quest rewards; nothing is cooked, so no technique moves past Seen.
@@ -1093,6 +1102,42 @@ triggers:
       - "I've picked what passes your rules this week, and that comes to {count} in all. Each one is checked."
       - "Of the dishes the cooks have taught, the number that pass your rules this week is {count}. The rest of the week is yours to fill as you like."
       - "That's as many as pass your rules this week ({count}). More would mean dishes your rules block or I can't verify, and I won't do that."
+
+  plan.which_day:
+    ai: never
+    when: A dish the player put in the plan has a day that names no single day ("the weekend", "tonight"); it is not placed and the Pan asks which day (M5 Step 8).
+    vars:
+      dish: "the player's words for the dish"
+    notes: "Plain. Nothing is planned until the player says the day."
+    lines:
+      - "Which day should {dish} go on? Tell me one day and I'll put it there."
+      - "{dish} needs a day of its own. Which one would you like?"
+      - "I haven't placed {dish} yet. Which day of the week is it for?"
+      - "Pick a single day for {dish} and I'll add it to the plan."
+
+  profile.which_time:
+    ai: never
+    when: "A message times a meal and then corrects itself (\"dinner at 6pm, no wait, 7pm\"); no meal-time card is made, and the Pan asks which time (M5 Step 8 fix round 5)."
+    vars:
+      meal: "the meal the player timed, e.g. 'dinner'"
+    notes: "Plain. Nothing is pencilled in until the player says one time."
+    lines:
+      - "I heard two times for {meal}. Which one should I pencil in? Tell me once and I'll put it on a card."
+      - "Which time for {meal}? Say it once more and I'll make the card."
+      - "For {meal}, tell me the one time you'd like, and I'll put it on a card for you to check."
+      - "I'd rather not guess the time for {meal}. Which one did you mean?"
+
+  plan.after_which_day:
+    ai: never
+    when: "'Pick N after …' names no single day (\"after the weekend\"); nothing was picked, and the Pan asks which day (M5 Step 8)."
+    vars:
+      day: "the player's words for the day"
+    notes: "Plain. Nothing is picked until the player names one day."
+    lines:
+      - "After {day}: which day is that? Tell me one day and I'll pick from there."
+      - "I haven't picked anything yet. Which day do you mean by {day}?"
+      - "Name one day for {day} and I'll choose the dishes after it."
+      - "Which day should the picks start after? I read {day}, and I'd rather not guess."
 
   plan.hard_week:
     ai: allowed

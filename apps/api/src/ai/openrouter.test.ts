@@ -1,6 +1,6 @@
 // C-14 (pinned data policy) and C-15 (no content in logs). fetch is a fake; nothing touches the network.
 import { describe, expect, test } from 'vitest';
-import { buildRequestBody, createOpenRouterProvider, OPENROUTER_URL, type AiConfig } from './openrouter.js';
+import { buildRequestBody, createOpenRouterProvider, normaliseToolArguments, OPENROUTER_URL, type AiConfig } from './openrouter.js';
 import type { AiRequest } from './provider.js';
 
 const CFG: AiConfig = {
@@ -271,3 +271,104 @@ describe('createOpenRouterProvider', () => {
     expect(await p.complete(HELLO)).toEqual({ ok: false, failure: 'network' });
   });
 });
+
+// M5 Step 8 adjudication A: the provider's tool-call parser leaks its own markup into the last argument
+// (eval4: `"meals_per_week": "null\n</parameter>\n<"`; eval5: `"meal_windows": "[…]\n</parameter"`). Only a
+// trailing markup suffix is stripped from string values, and a JSON-encoded string is decoded only where the
+// tool's schema says array or object; the caller's strict validation runs on the result unchanged.
+describe('normaliseToolArguments (model tool arguments only)', () => {
+  const PROFILE = {
+    type: 'object',
+    properties: {
+      market_days: { type: 'array', items: { type: 'string' } },
+      meals_per_week: { type: 'integer' },
+      region: { type: 'string' },
+      meal_windows: { type: 'array', items: { type: 'object' } },
+      days: { anyOf: [{ type: 'array' }, { type: 'null' }] },
+    },
+  };
+  const norm = (args: object | string) => JSON.parse(normaliseToolArguments(typeof args === 'string' ? args : JSON.stringify(args), PROFILE)) as Record<string, unknown>;
+
+  test('the eval5 payload: the suffix is stripped and the array decoded', () => {
+    expect(norm({ meal_windows: '[{"name": "dinner", "start": "18:30"}]\n</parameter' })).toEqual({ meal_windows: [{ name: 'dinner', start: '18:30' }] });
+  });
+
+  test('the eval4 payload: the suffix is stripped; an integer field is never decoded, so "null" stays a string for the validator', () => {
+    expect(norm({ market_days: null, meals_per_week: 'null\n</parameter>\n<' })).toEqual({ market_days: null, meals_per_week: 'null' });
+  });
+
+  test('markup in the middle of a string, nested or unbalanced markup followed by text: left as is', () => {
+    for (const v of ['dinner</parameter> at 7', 'x\n</parameter>\n<parameter=region>Kerala', '[1]</parameter>]', 'a <parameter b']) {
+      expect(norm({ region: v }), v).toEqual({ region: v });
+    }
+  });
+
+  test('only markup tokens after the cut: </parameter>, <parameter=name>, a lone < or >, whitespace', () => {
+    expect(norm({ region: 'Kerala\n</parameter>\n</parameter>' })).toEqual({ region: 'Kerala' });
+    expect(norm({ region: 'Kerala </parameter>\n<parameter=meal_windows>\n<' })).toEqual({ region: 'Kerala' });
+    expect(norm({ days: '[]\n</parameter>' })).toEqual({ days: [] });
+  });
+
+  test('a string that is not valid JSON in an array field stays a string (the validator rejects it)', () => {
+    expect(norm({ meal_windows: '[{"name": "dinner"\n</parameter' })).toEqual({ meal_windows: '[{"name": "dinner"' });
+  });
+
+  test('a string field holding JSON is never decoded; unchanged arguments are returned byte for byte; non-JSON is untouched', () => {
+    expect(norm({ region: '["a"]' })).toEqual({ region: '["a"]' });
+    expect(normaliseToolArguments('{"region":  "Kerala"}', PROFILE)).toBe('{"region":  "Kerala"}');
+    expect(normaliseToolArguments('not json </parameter>', PROFILE)).toBe('not json </parameter>');
+  });
+
+  test('through the provider: tool arguments are normalised with the request\'s tool schema; text and the player\'s words are not', async () => {
+    const body = {
+      ...OK,
+      choices: [
+        {
+          finish_reason: 'tool_calls',
+          message: {
+            role: 'assistant',
+            content: 'see </parameter>',
+            tool_calls: [{ id: 'c1', type: 'function', function: { name: 'propose_profile', arguments: JSON.stringify({ meal_windows: '[{"name":"dinner","start":"18:30"}]\n</parameter' }) } }],
+          },
+        },
+      ],
+    };
+    const { provider, calls } = setup(json(200, body));
+    const req: AiRequest = {
+      messages: [{ role: 'user', content: 'remind me about dinner at 6:30 pm </parameter>' }],
+      tools: [{ name: 'propose_profile', description: 'p', parameters: PROFILE }],
+    };
+    const r = await provider.complete(req);
+    expect(r.ok && r.toolCalls[0].arguments).toBe(JSON.stringify({ meal_windows: [{ name: 'dinner', start: '18:30' }] }));
+    expect(r.ok && r.text).toBe('see </parameter>');
+    expect(String(calls[0].init.body)).toContain('remind me about dinner at 6:30 pm </parameter>');
+  });
+
+  test('a tool the request did not offer is left untouched', async () => {
+    const raw = JSON.stringify({ meal_windows: '[]\n</parameter' });
+    const body = { ...OK, choices: [{ finish_reason: 'tool_calls', message: { role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'propose_other', arguments: raw } }] } }] };
+    const r = await setup(json(200, body)).provider.complete({ messages: [{ role: 'user', content: 'x' }], tools: [] });
+    expect(r.ok && r.toolCalls[0].arguments).toBe(raw);
+  });
+
+  test('runs in linear time on hostile markup (no backtracking: the model controls the string)', () => {
+    const hostile = [
+      `x</parameter${' '.repeat(40)}a`,
+      `x</parameter${'\t '.repeat(5000)}z`,
+      `${' '.repeat(20000)}</parameter${' '.repeat(20000)}q`,
+      `${'<parameter'.repeat(5000)}!`,
+    ];
+    for (const h of hostile) {
+      const t0 = performance.now();
+      normaliseToolArguments(JSON.stringify({ region: h }), PROFILE);
+      expect(performance.now() - t0).toBeLessThan(200);
+    }
+  });
+
+  test('still cuts a markup-only suffix and keeps one that has other text after it', () => {
+    expect(norm({ region: 'Kerala\n</parameter>\n<' }).region).toBe('Kerala');
+    expect(norm({ region: 'Kerala  <parameter=x>' }).region).toBe('Kerala');
+    expect(norm({ region: 'Kerala </parameter> drop table' }).region).toBe('Kerala </parameter> drop table');
+  });
+});
+

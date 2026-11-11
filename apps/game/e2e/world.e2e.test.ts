@@ -45,7 +45,22 @@ async function openPermit(page: Page): Promise<void> {
   await page.getByRole('dialog', { name: 'Travel Permit' }).waitFor();
 }
 
-/** Map → permit → stamp → Leela's kitchen, intro played to the end. */
+/**
+ * M5 Step 9: after the intro, Leela's quest runs (talk, then the shallot errand). Click through its lines and answer
+ * the errand "Not yet", so the visit pauses on the action bar.
+ */
+async function pauseQuest(page: Page): Promise<void> {
+  for (let i = 0; i < 60; i += 1) {
+    if (await page.locator('.quest-panel').count()) { await page.locator('.quest-panel').getByRole('button', { name: 'Not yet' }).click(); continue; }
+    if (await page.locator('.dialogue .dialogue-next').count()) { await page.locator('.dialogue .dialogue-next').click(); continue; }
+    if (await page.getByRole('button', { name: 'Carry on with the quest' }).count()) break;
+    await page.waitForTimeout(50);
+  }
+  await page.getByRole('button', { name: 'Carry on with the quest' }).waitFor();
+  expect(await page.getByRole('button', { name: 'See the recipe: Parippu' }).isDisabled()).toBe(false);
+}
+
+/** Map → permit → stamp → Leela's kitchen, intro played to the end, the quest paused at the errand. */
 async function visitLeela(page: Page): Promise<void> {
   await openPermit(page);
   await page.getByRole('button', { name: 'Stamp it ✔' }).click();
@@ -54,7 +69,7 @@ async function visitLeela(page: Page): Promise<void> {
     await dialogueText(page).filter({ hasText: leela.intro[i] }).waitFor();
     await page.locator('.dialogue .dialogue-next').click();
   }
-  await page.getByRole('button', { name: 'See the recipe: Parippu' }).waitFor();
+  await pauseQuest(page);
 }
 
 describe('world map', () => {
@@ -112,6 +127,7 @@ describe('world map', () => {
       expect(await dialogueText(page).textContent()).toBe(leela.intro[i]);
       await page.locator('.dialogue .dialogue-next').click();
     }
+    await pauseQuest(page);
     expect(await page.locator('.dialogue').count()).toBe(0);
 
     await page.getByRole('button', { name: 'See the recipe: Parippu' }).click();
@@ -141,6 +157,7 @@ describe('world map', () => {
   it('a severe coconut rule disables the visit card\'s Cook button; the pin stays on the map', async () => {
     app = await openApp('/#/map', { reducedMotion: true, seed: { v: 1, localRules: [coconutSevere] } });
     const { page } = app;
+    await page.getByRole('button', { name: LEELA_PIN }).waitFor(); // the map reads progress first (M5 Step 9)
     expect(await page.getByRole('button', { name: LEELA_PIN }).isVisible()).toBe(true);
     await visitLeela(page);
     await page.getByRole('button', { name: 'See the recipe: Parippu' }).click();
@@ -319,6 +336,8 @@ describe('world map', () => {
     app = await openApp('/#/map', { reducedMotion: true, width });
     const { page } = app;
     await page.locator('.map-pin').first().waitFor();
+    // Measure once the art has loaded and laid out (the map mounts after progress loads, M5 Step 9).
+    await page.waitForFunction(() => [...document.images].every((i) => i.complete));
     await expectNoHorizontalScroll(page);
     const frame = (await page.locator('.map-backdrop-frame').boundingBox())!;
     expect(frame.width).toBeGreaterThan(0);

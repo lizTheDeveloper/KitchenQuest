@@ -205,6 +205,13 @@ export const consents = pgTable(
     withdrawnAt: ts("withdrawn_at"),
     endedReason: text("ended_reason"),
     method: text("method").notNull(),
+    /**
+     * C-45 reserve (M5 Step 7, Ruling 19): whose consent this is. Every row is `'user'` (the account holder), and the
+     * check refuses anything else until M13 adds child profiles (P-9: no child data before counsel signs off).
+     */
+    subjectKind: text("subject_kind").notNull().default("user"),
+    /** C-45 reserve: the subject's id when it is not the account holder (M13). Always null until then. */
+    subjectId: uuid("subject_id"),
   },
   (t) => [
     index("consents_user_purpose_idx").on(t.userId, t.purpose),
@@ -216,6 +223,10 @@ export const consents = pgTable(
     check("consents_sha256_check", sql`octet_length(${t.noticeSha256}) = 32`),
     check("consents_ended_reason_check", sql`${t.endedReason} in (${inList(CONSENT_ENDED_REASONS)})`),
     check("consents_ended_check", sql`(${t.withdrawnAt} is null) = (${t.endedReason} is null)`),
+    check("consents_subject_kind_check", sql`${t.subjectKind} = 'user'`),
+    // C-45 reserve (fix round 1, M3): no other subject until M13, which replaces this with
+    // `(subject_kind = 'user') = (subject_id is null)`.
+    check("consents_subject_id_check", sql`${t.subjectId} is null`),
   ],
 );
 
@@ -249,7 +260,7 @@ export const auditEvents = pgTable(
   ],
 );
 
-export const SELF_READ_RESOURCES = ["rules", "meals", "pantry"] as const;
+export const SELF_READ_RESOURCES = ["rules", "meals", "pantry", "progress", "plans", "notes"] as const;
 
 /**
  * C-5: the player's routine reads of their own health data, counted per user,
@@ -377,7 +388,7 @@ export const messages = pgTable(
 );
 
 /** Core's `ProposalKind`, as stored (`mentor/proposals.ts` checks the two agree). */
-export const PROPOSAL_KINDS = ["rule", "meal", "profile", "pantry"] as const;
+export const PROPOSAL_KINDS = ["rule", "meal", "profile", "pantry", "plan"] as const;
 export const PROPOSAL_STATUSES = ["open", "confirmed", "rejected", "expired", "undone"] as const;
 export const PROPOSAL_CHANNELS = ["tap", "typed_yes"] as const;
 
@@ -417,4 +428,178 @@ export const mentorProposals = pgTable(
     check("mentor_proposals_status_check", sql`${t.status} in (${inList(PROPOSAL_STATUSES)})`),
     check("mentor_proposals_channel_check", sql`${t.channel} in (${inList(PROPOSAL_CHANNELS)})`),
   ],
+);
+
+/** Core's `ProgressEventKind`, as stored (`progress/store.ts` checks the two agree). */
+export const PROGRESS_KINDS = [
+  "lesson",
+  "drill",
+  "cooked",
+  "frame_cooked",
+  "quest_step",
+  "quest_done",
+  "recognized",
+  "market_run",
+  "meal_logged",
+  "imported",
+] as const;
+/** Core's `RewardGrant['kind']`, as stored (`progress/store.ts` checks the two agree). */
+export const GRANT_KINDS = ["xp", "stamp", "trust", "level", "certificate"] as const;
+
+/**
+ * U-5 (Ruling 7): what happened in play, as content-free facts. `client_id` is the game's own event id (idempotent
+ * replay and the sign-in upload, Ruling 8); `at` the player's local date. `body` is the rest of core's
+ * `ProgressEvent` as accepted by `grantsFor` (ids and numbers only, each checked against the catalogue, so no free
+ * text lands in it). Plain, on the contract basis: not health data, though dish slugs reveal what was cooked
+ * ([lawyer], inventory U-5). A `meal_logged` row is erased by a meal-log undo or a `health_data` delete; its grants stay.
+ */
+export const progressEvents = pgTable(
+  "progress_events",
+  {
+    id: id(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** Insertion order: the fold replays events in the order `grantsFor` saw them (grants are fixed in that order). */
+    seq: bigserial("seq", { mode: "number" }).notNull(),
+    clientId: text("client_id").notNull(),
+    kind: text("kind").notNull(),
+    at: date("at", { mode: "string" }).notNull(),
+    body: jsonb("body").notNull(),
+    /**
+     * A `meal_logged` event's meal log (I1 ruling): set for that kind only, one event per log. Deleting the log (an
+     * undo, a `health_data` delete) cascades here, so the record of when they ate goes with it, server-side.
+     */
+    mealLogId: uuid("meal_log_id").references(() => mealLogs.id, { onDelete: "cascade" }),
+    /** Set from the app's injected clock; defaultNow() is only a fallback. */
+    createdAt: ts("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("progress_events_user_client_idx").on(t.userId, t.clientId),
+    index("progress_events_user_at_idx").on(t.userId, t.at),
+    uniqueIndex("progress_events_meal_log_idx")
+      .on(t.userId, t.mealLogId)
+      .where(sql`${t.mealLogId} is not null`),
+    check("progress_events_kind_check", sql`${t.kind} in (${inList(PROGRESS_KINDS)})`),
+    check("progress_events_meal_log_check", sql`(${t.kind} = 'meal_logged') = (${t.mealLogId} is not null)`),
+  ],
+);
+
+/**
+ * U-5 (Ruling 7, spec §6): what an event earned, fixed when granted and never reversed. `body` is the rest of core's
+ * self-contained `RewardGrant` (its own id, the event's client id (a UUID), the day and the amount; no event content
+ * and no time of day).
+ * `event_id` is the `progress_events` row it was granted for, a plain column on purpose, not a foreign key: erasing
+ * a `meal_logged` event (undo, `health_data` delete) keeps its grants, so XP never drops. Append-only: there is no
+ * update or delete path; only account delete (the `user_id` cascade) removes a grant.
+ */
+export const rewardGrants = pgTable(
+  "reward_grants",
+  {
+    id: id(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    eventId: uuid("event_id").notNull(),
+    kind: text("kind").notNull(),
+    /** No time column on purpose (I2 ruling): a grant's only date is its `isoDay`, so a kept grant carries no time finer than the day. */
+    body: jsonb("body").notNull(),
+  },
+  (t) => [
+    index("reward_grants_user_id_idx").on(t.userId),
+    check("reward_grants_kind_check", sql`${t.kind} in (${inList(GRANT_KINDS)})`),
+  ],
+);
+
+/**
+ * H-11 (M5 Step 6, Ruling 18): one weekly plan per plan week. `sealed` is core's `Plan` minus `weekStart` (dish and
+ * lesson slugs per day, servings, the hard-week flag and the One More Technique slot), sealed S-U with AAD
+ * `{ table: 'meal_plans', userId, rowId }`. `week_start` stays plain: a date only, needed for the lookup and the
+ * retention job. Health data (Step 6 ruling, conservative: the dishes chosen can reveal a diet, a religion or a
+ * condition, GDPR Art. 9, WA MHMDA): written only with `health_data`, in `HEALTH_TABLES`. Deleted 8 weeks after its
+ * week ends (`PLAN_RETENTION_WEEKS`).
+ */
+export const mealPlans = pgTable(
+  "meal_plans",
+  {
+    id: id(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    weekStart: date("week_start", { mode: "string" }).notNull(),
+    sealed: bytea("sealed").notNull(),
+    /** Set from the app's injected clock; defaultNow() is only a fallback. */
+    createdAt: ts("created_at").notNull().defaultNow(),
+    updatedAt: ts("updated_at").notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("meal_plans_user_week_idx").on(t.userId, t.weekStart)],
+);
+
+/**
+ * H-11 (M5 Step 6, Ruling 16, C20): the market run built from a plan, one per plan. `sealed` is
+ * `{ items: ListItem[], pantryIds: Record<key, pantryItemId> }` (the list rows with their ticks, and the pantry row
+ * each tick added, so an untick removes exactly that row), sealed S-U with AAD `{ table: 'market_runs', userId, rowId }`.
+ * Health data as `meal_plans` (a listed swap shows what a rule hit). Goes with its plan (cascade) and with retention.
+ */
+export const marketRuns = pgTable(
+  "market_runs",
+  {
+    id: id(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    planId: uuid("plan_id")
+      .notNull()
+      .references(() => mealPlans.id, { onDelete: "cascade" }),
+    sealed: bytea("sealed").notNull(),
+    /** Set once by "That's the shop done"; after it the run takes no ticks (409 `run_closed`). */
+    doneAt: ts("done_at"),
+    /** Set from the app's injected clock; defaultNow() is only a fallback. */
+    createdAt: ts("created_at").notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("market_runs_plan_idx").on(t.planId), index("market_runs_user_id_idx").on(t.userId)],
+);
+
+/**
+ * H-12 (M5 Step 7, Ruling 9): the player's margin notes, their own changes to a canon recipe. `sealed` is core's whole
+ * `MarginNote` (`{ recipe, ops, text, at }`: the canon slug, add, swap and remove ops over ingredient names, the
+ * player's own words up to NOTE_TEXT_MAX, and when it was written), sealed S-U with AAD
+ * `{ table: 'margin_notes', userId, rowId }`. The recipe is sealed too (fix round 1, I1): no plain column says which
+ * dish a player changed or how often; the per-recipe cap is counted over the player's opened notes. Health data (the notes can show what the player can't or won't eat): written only
+ * with `health_data`, in `HEALTH_TABLES`. At most MAX_NOTES_PER_RECIPE per recipe.
+ */
+export const marginNotes = pgTable(
+  "margin_notes",
+  {
+    id: id(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    sealed: bytea("sealed").notNull(),
+    /** Set from the app's injected clock; defaultNow() is only a fallback. */
+    createdAt: ts("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("margin_notes_user_id_idx").on(t.userId)],
+);
+
+/**
+ * H-13 (M5 Step 7, Ruling 10): Cooked for Someone, the Shared Table. `sealed` is `{ recipe, frame, cookedFor }`: the
+ * canon slug or Pantry Frame id cooked, and core's `CookedFor` (a fixed count and, optionally, one fixed word), sealed
+ * S-U with AAD `{ table: 'shared_table', userId, rowId }`. No names and no free text can be stored: every field is an
+ * enum or a slug checked against the content. `cooked_on` (a date only) stays plain. Contract basis, not health.
+ * Never a requirement for trust or progress (audit M-9).
+ */
+export const sharedTable = pgTable(
+  "shared_table",
+  {
+    id: id(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    cookedOn: date("cooked_on", { mode: "string" }).notNull(),
+    sealed: bytea("sealed").notNull(),
+    /** Set from the app's injected clock; defaultNow() is only a fallback. */
+    createdAt: ts("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("shared_table_user_id_idx").on(t.userId)],
 );

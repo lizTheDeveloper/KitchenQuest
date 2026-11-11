@@ -11,6 +11,10 @@ import { ZodError } from 'zod';
  *   (`confirmed: true`; `confirm: "delete my account"` for `DELETE /me`).
  * - 400 `too_many_rules`: at the 200-rule cap (`details.max`).
  * - 400 `too_many_items`: the pantry change would pass the 300-item cap (`details.max`).
+ * - 400 `too_many_notes`: a margin note past MAX_NOTES_PER_RECIPE (20) on one recipe (`details.max`) (M5 Step 7).
+ * - 400 `plan_invalid`: a weekly plan the server won't store (`details.problems`): its shape, more than
+ *   MAX_PLAN_ITEMS items, a sacred or unknown slug, a `weekStart` that is not the player's plan-week start, or an
+ *   item the player's rules block on its date (`blocked: <slug>`) (M5 Step 6).
  * - 400 `tap_required`: a severe card (anaphylactic or allergy) is confirmed
  *   only by a tap on it, never by a typed yes (spec §7.6).
  * - 401 `unauthorized`: no live session, or the account is gone.
@@ -21,6 +25,9 @@ import { ZodError } from 'zod';
  *   rejected, undone or expired), or an undo of a write that is not confirmed.
  * - 409 `rule_changed`: `PUT /rules/:id` with `If-Match` found another version of
  *   the rule (`details.version`, the current one); nothing was written.
+ * - 409 `plan_changed`: a plan card's week changed since it was shown; the card is closed and, in `details`, offered
+ *   again on the week as it is now (`card`, a new proposal, and its `parts`) (M5 Step 8 fix round 1, M2).
+ * - 409 `run_closed`: a tick on a market run that is already done (M5 Step 6).
  * - 409 `undo_window_closed`: the confirmed write is older than UNDO_WINDOW_MS.
  * - 429 `rate_limited`: with a `retry-after` header. The daily write cap on meal logs and
  *   loosening rule edits (usage/write-cap.ts) also puts it in `details.retryAfterSeconds`.

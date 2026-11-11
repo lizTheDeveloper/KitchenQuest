@@ -169,6 +169,7 @@ function stepOf(card: ProposalCard): IntakeStep | null {
     case 'rule': return 'allergies';
     case 'pantry': return card.add.length > 0 ? 'pantry' : null;
     case 'meal': return null;
+    case 'plan': return null;
     case 'profile': {
       const p = card.patch;
       if (p.marketDays !== undefined) return 'market_day';

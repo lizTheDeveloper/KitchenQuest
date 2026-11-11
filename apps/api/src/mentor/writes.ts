@@ -1,5 +1,8 @@
 import {
+  blockedDishLine,
   confirmedLines,
+  planBasis,
+  rebasePlanCard,
   isSevereCard,
   rejectedLine,
   trailSummary,
@@ -8,8 +11,11 @@ import {
   withSeverity,
   type ConfirmResponse,
   type PantryItem,
+  type Plan,
+  type PlanCard,
   type ProposalKind,
   type ReplyPart,
+  type ServerCard,
   type Severity,
   type TrailEntry,
 } from '@kitchenquest/core';
@@ -22,11 +28,16 @@ import type { Keyring } from '../crypto/keyring.js';
 import { mealLogs, mentorProposals, rules } from '../db/schema.js';
 import { ApiError } from '../errors.js';
 import { createMealLogIn, deleteMealLogIn } from '../meals/service.js';
+import { lockUserPlan, lockUserProgress } from '../db/advisory-locks.js';
 import { changePantryIn, lockUserPantry, restorePantryIn } from '../pantry/service.js';
 import { applyProfilePatchIn } from '../profile/routes.js';
 import { createRuleIn, deleteRuleIn, lockUserRules } from '../rules/service.js';
+import type { Db } from '../types.js';
+import { checksFor, restorePlanIn, savePlanIn, type WeekDeps } from '../week/plan-service.js';
+import { loadPlan } from '../week/store.js';
 import { line } from './lines.js';
-import { lockProposal, markDecided, peekProposal } from './proposals.js';
+import { planCardContext, type WeekSource } from './plan-turn.js';
+import { createProposal, lockProposal, markDecided, peekProposal } from './proposals.js';
 
 /**
  * The write guard (spec §7.6b.1). A proposal card becomes a write only here,
@@ -36,17 +47,25 @@ import { lockProposal, markDecided, peekProposal } from './proposals.js';
  * Every write runs through the service its REST route uses. Undo is §7.0's
  * "second short window" (UNDO_WINDOW_MS).
  *
- * Lock order (README, pre-flight C13): live user → the kind's advisory lock
- * (`rules:` or `pantry:`) → `health_data` consent (rule and meal cards; never
- * for an undo) → for an undo of a rule or meal, the written row (`rules` /
- * `meal_logs`, fix round 1 C1) → the proposal row (`lockProposal`). No conversation row is
+ * Lock order (README, pre-flight C13, M5): live user → the kind's advisory lock
+ * (`rules:` for a rule card, `pantry:` for a pantry card, `plan:` for a plan card, `progress:` for a meal card,
+ * confirm and undo: a meal log's delete cascades to its `meal_logged` progress event) → `health_data` consent (rule,
+ * meal and plan cards; for an undo only a plan card's, which the plan service needs) → for an undo of a rule or meal, the written row (`rules` /
+ * `meal_logs`, fix round 1 C1; a meal log's progress event goes with it) → the proposal row (`lockProposal`). No conversation row is
  * ever taken (Step 6 carry), and the services re-take only locks already held.
  */
 
-/** What the guard needs of the turn's deps (`TurnDeps` has both): sealing, and the graph and rule terms. */
+/** What the guard needs of the turn's deps (`TurnDeps` has all): sealing, and the graph and rule terms. */
 export interface ConfirmDeps {
   keyring: Keyring;
   catalog: Catalog;
+  /** The week's content and recipe index, for a plan card (M5 Step 8). A plan card can't be written without it. */
+  week?: WeekSource;
+}
+
+async function weekDepsOf(tx: Tx, deps: ConfirmDeps): Promise<WeekDeps> {
+  if (deps.week === undefined) throw new Error('mentor writes: a plan card needs the week deps');
+  return { keyring: deps.keyring, catalog: deps.catalog, loop: deps.week.loop, recipes: await deps.week.recipes.current(tx) };
 }
 
 const notFound = () => new ApiError(404, 'not_found', 'Proposal not found');
@@ -56,7 +75,47 @@ const closed = () => new ApiError(409, 'proposal_closed', 'This card is no longe
 async function lockForKind(tx: Tx, userId: string, kind: ProposalKind, withConsent: boolean, at: Date): Promise<void> {
   if (kind === 'rule') await lockUserRules(tx, userId);
   if (kind === 'pantry') await lockUserPantry(tx, userId);
+  // M5 Step 8: a plan card writes through savePlanIn (and its undo through restorePlanIn), which take `plan:` and,
+  // plans being health data (Step 6 ruling), the health_data grant, for the undo too. Both are taken here, before
+  // the proposal row, in the global order.
+  if (kind === 'plan') {
+    await lockUserPlan(tx, userId);
+    await lockConsentIn(tx, userId, 'health_data', at);
+  }
+  // A meal confirm or undo writes or deletes a meal log, whose delete cascades to its progress event (M5 I1):
+  // `progress:` is the last advisory lock, before the consent row.
+  if (kind === 'meal') await lockUserProgress(tx, userId);
   if (withConsent && (kind === 'rule' || kind === 'meal')) await lockConsentIn(tx, userId, 'health_data', at);
+}
+
+/** The plan undo payload: the week, and the plan that stood before the confirm (null: there was none, so undo deletes). */
+interface PlanUndo {
+  weekStart: string;
+  previous: Plan | null;
+}
+
+/**
+ * The plan a plan card saves: its week and items, its `hard`, and the week's One More Technique slot as stored now
+ * (an offer the card shows marks an unanswered week 'offered'). Before anything is written its items are checked
+ * with the player's rules as they are now: a dish that became ⛔ since the card was built (a rule added in between)
+ * is 400 `plan_invalid` with `details.parts`, the `plan.blocked_dish` lines, and nothing is saved.
+ */
+async function planOfCard(tx: Tx, week: WeekDeps, userId: string, card: PlanCard): Promise<Plan> {
+  const stored = await loadPlan(tx, week.keyring, userId, card.weekStart);
+  // Fix round 1 M2: the week changed since the card was shown (an edit on Form 7-W): never saved over it.
+  if (planBasis(stored) !== card.basis) throw new ApiError(409, 'plan_changed', 'This week changed since the card was shown');
+  const slot = stored?.slot ?? 'unanswered';
+  const plan: Plan = { weekStart: card.weekStart, items: card.items, hard: card.hard, slot: card.offer !== null && slot === 'unanswered' ? 'offered' : slot };
+  const blocked = (await checksFor(tx, week, userId, plan)).filter((c) => c.status === 'blocked');
+  if (blocked.length > 0) {
+    const slugs = [...new Set(blocked.map((c) => c.item.slug))];
+    const parts: ReplyPart[] = slugs.map((slug) => ({
+      kind: 'line',
+      line: blockedDishLine(slug, blocked.find((c) => c.item.slug === slug)!.findings, week.recipes, week.catalog.graph),
+    }));
+    throw new ApiError(400, 'plan_invalid', 'A dish in this plan is now blocked by your rules', { problems: slugs.map((x) => `blocked: ${x}`), parts });
+  }
+  return plan;
 }
 
 /** The pantry undo payload: the rows the confirm removed (put back on undo) and the ids it added (removed on undo). */
@@ -87,6 +146,8 @@ export async function confirmProposalIn(
   at: Date,
   requestId?: string,
   inConversation?: string | null,
+  /** The player's local date (Step 6 I2), for a plan card's week window; the UTC date of `at` when absent. */
+  today?: string,
 ): Promise<ConfirmResponse> {
   await lockLiveUser(tx, userId);
   const peeked = await peekProposal(tx, deps.keyring, userId, proposalId);
@@ -126,6 +187,15 @@ export async function confirmProposalIn(
       undo = Object.fromEntries(Object.keys(card.patch).map((k) => [k, before[k as keyof typeof before]]));
       break;
     }
+    case 'plan': {
+      // M5 Step 8: the whole week the card shows, through the plan service (shape, week window, rules re-checked).
+      const week = await weekDepsOf(tx, deps);
+      const plan = await planOfCard(tx, week, userId, card);
+      const { plan: saved, previous } = await savePlanIn(tx, week, userId, plan, at, requestId, today);
+      writeRef = saved.id;
+      undo = { weekStart: plan.weekStart, previous } satisfies PlanUndo;
+      break;
+    }
     case 'pantry': {
       // Exactly the rows resolved when the card was proposed; names are never matched again (Step 5 carry).
       const { removed, addedIds } = await changePantryIn(
@@ -157,6 +227,82 @@ export async function confirmProposalIn(
     undoUntil: new Date(at.getTime() + UNDO_WINDOW_MS).toISOString(),
   };
   return { trail, parts };
+}
+
+/**
+ * A confirm in its own transaction (the tap route and the typed yes). A plan card the rules now refuse (400
+ * `plan_invalid`) is closed in a second transaction, so it can never be confirmed later, and the error is rethrown
+ * with its `plan.blocked_dish` lines: nothing is half-saved, and the card is done (M5 Step 8).
+ */
+export async function confirmProposal(
+  db: Db,
+  deps: ConfirmDeps,
+  userId: string,
+  proposalId: string,
+  channel: 'tap' | 'typed_yes',
+  edits: { severity?: Severity } | undefined,
+  at: Date,
+  requestId?: string,
+  inConversation?: string | null,
+  today?: string,
+  /** Where a re-offered card goes (a typed yes: the current turn); the stale card's own turn when absent. */
+  reoffer?: { conversationId: string; turnSeq: number },
+): Promise<ConfirmResponse> {
+  try {
+    return await db.transaction((tx) => confirmProposalIn(tx, deps, userId, proposalId, channel, edits, at, requestId, inConversation, today));
+  } catch (e) {
+    if (e instanceof ApiError && e.code === 'plan_changed') {
+      const offered = await reofferPlanCard(db, deps, userId, proposalId, at, today ?? at.toISOString().slice(0, 10), requestId, reoffer);
+      throw new ApiError(409, 'plan_changed', e.message, offered);
+    }
+    if (e instanceof ApiError && e.code === 'plan_invalid') {
+      await db.transaction(async (tx) => {
+        await lockLiveUser(tx, userId);
+        const p = await lockProposal(tx, deps.keyring, userId, proposalId, at);
+        if (p === null || p.status !== 'open' || p.kind !== 'plan') return;
+        await markDecided(tx, p.id, 'rejected', null, null, null, deps.keyring, userId, at);
+        await audit(tx, { actorKind: 'user', actorId: userId, subjectUserId: userId, action: 'mentor.reject', target: p.id, requestId }, at);
+      });
+    }
+    throw e;
+  }
+}
+
+/**
+ * Fix round 1 M2: a plan card whose week changed since it was shown is closed (rejected), and the same new items are
+ * offered again on the week as it is now, re-checked: a fresh card (stored like any card) with its read-back, or
+ * only the lines when nothing would change. Live user → `plan:` → health_data → the proposal rows, the global order.
+ */
+async function reofferPlanCard(
+  db: Db,
+  deps: ConfirmDeps,
+  userId: string,
+  proposalId: string,
+  at: Date,
+  today: string,
+  requestId: string | undefined,
+  reoffer: { conversationId: string; turnSeq: number } | undefined,
+): Promise<{ card?: ServerCard; parts: ReplyPart[] }> {
+  if (deps.week === undefined) throw new Error('mentor writes: a plan card needs the week deps');
+  const week = deps.week;
+  return db.transaction(async (tx) => {
+    await lockLiveUser(tx, userId);
+    await lockUserPlan(tx, userId);
+    await lockConsentIn(tx, userId, 'health_data', at);
+    const p = await lockProposal(tx, deps.keyring, userId, proposalId, at);
+    if (p === null || p.status !== 'open' || p.card.kind !== 'plan') return { parts: [line('card.rejected')] };
+    await markDecided(tx, p.id, 'rejected', null, null, null, deps.keyring, userId, at);
+    await audit(tx, { actorKind: 'user', actorId: userId, subjectUserId: userId, action: 'mentor.reject', target: p.id, requestId }, at);
+    const fresh = rebasePlanCard(p.card, await planCardContext(tx, { keyring: deps.keyring, catalog: deps.catalog, week }, userId, today));
+    if ('none' in fresh) return { parts: fresh.none.map((l): ReplyPart => ({ kind: 'line', line: l })) };
+    const card = await createProposal(
+      tx,
+      deps.keyring,
+      { userId, conversationId: reoffer?.conversationId ?? p.conversationId, turnSeq: reoffer?.turnSeq ?? p.turnSeq, card: fresh },
+      at,
+    );
+    return { card, parts: fresh.readback.map((l): ReplyPart => ({ kind: 'line', line: l })) };
+  });
 }
 
 /**
@@ -244,6 +390,12 @@ export async function undoWriteIn(
     case 'profile':
       await applyProfilePatchIn(tx, userId, p.undo ?? {}, at);
       break;
+    case 'plan': {
+      // The week's plan as it was before the confirm, or none (Step 6's restorePlanIn).
+      const u = p.undo as PlanUndo | null;
+      if (u !== null) await restorePlanIn(tx, await weekDepsOf(tx, deps), userId, u.weekStart, u.previous, at, requestId);
+      break;
+    }
     case 'pantry': {
       const u = (p.undo ?? { removed: [], addedIds: [] }) as PantryUndo;
       try {

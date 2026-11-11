@@ -64,3 +64,25 @@ describe('backend choice (M4 Step 10)', () => {
     expect(screenOf('#/nowhere')).toBeNull();
   });
 });
+
+test('N4: after a sign-out, the next Pan line leaves no earlier line history in localStorage', () => {
+  const m = new Map<string, string>();
+  const storage = {
+    get length() { return m.size; }, clear: () => m.clear(), key: (i: number) => [...m.keys()][i] ?? null,
+    getItem: (k: string) => m.get(k) ?? null, removeItem: (k: string) => { m.delete(k); }, setItem: (k: string, v: string) => { m.set(k, v); },
+  } as Storage;
+  const store = createStore(storage);
+  store.update((s) => ({ ...s, account: { email: 'cook@example.test' } }));
+  const dialogue = createDialogue(bank, historyOptions(store)); // mounted once, for the page's life
+  dialogue.say('g');
+  dialogue.say('g');
+  // Sign-out: the account leaves, and its session's history is cleared from the store (progress/index.ts).
+  store.update((s) => ({ ...s, account: null, dialogueHistory: {} }));
+  dialogue.say('g');
+  const saved = (JSON.parse(storage.getItem('kq.player.v1')!) as { dialogueHistory: Record<string, number[]> }).dialogueHistory;
+  expect(saved).toEqual({ g: [expect.any(Number)] });
+  // And a new account starts fresh too.
+  store.update((s) => ({ ...s, account: { email: 'other@example.test' } }));
+  dialogue.say('g');
+  expect((JSON.parse(storage.getItem('kq.player.v1')!) as { dialogueHistory: Record<string, number[]> }).dialogueHistory.g).toHaveLength(1);
+});

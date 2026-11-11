@@ -9,9 +9,8 @@ import { isValidDate } from '../rules/active';
 import { check, type CheckResult, type Substitution } from '../rules/check';
 import type { Rule } from '../rules/types';
 
-export type PlanItem =
-  | { day: number /* 0–6, offset from weekStart */; kind: 'dish'; slug: string; servings: number }
-  | { day: number; kind: 'lesson'; slug: string }; // One More Technique's drill day (Step 2)
+import type { PlanItem } from './plan-item';
+export type { PlanItem } from './plan-item';
 
 export interface Plan {
   weekStart: string;
