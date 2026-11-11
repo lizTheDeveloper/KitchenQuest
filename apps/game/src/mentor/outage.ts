@@ -1,4 +1,6 @@
-import { classifyTurn, stripPageEvents } from '@kitchenquest/core/engine';
+import { classifyTurn, emergencyRuleAsk, emergencyStatesRule, stripPageEvents, type IngredientGraph, type IntakeStep, type TurnRequest } from '@kitchenquest/core/engine';
+import type { ApiClient } from '../api/client';
+import { localDate } from '../recipes/rules';
 import { createScriptedBackend, type MentorInput } from './backend';
 import type { Dialogue } from './dialogue';
 import type { PanItem, PanReply, TurnContext } from './reply';
@@ -26,14 +28,73 @@ export function scriptedWhenUnavailable(engine: ScriptedEngine, dialogue: Dialog
   };
 }
 
+/** One place for the AI conversation's server id, shared by the AI backend and the local safety answers so both speak in the same conversation. */
+export interface ConversationRef { id: string | null }
+
+const hhmm = (d: Date): string => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+
+export interface LocalSafety {
+  /** The answer for an emergency, medical or child turn (or any turn once a child spoke), or null for any other turn. Sends nothing a player can see. */
+  reply(input: MentorInput, ctx: TurnContext): PanReply | null;
+  /** A new conversation: the child flag is forgotten (as the server's is, with its conversation). */
+  reset(): void;
+}
+
 /**
- * The deterministic emergency, medical and child answers, from the script, before anything is awaited: these lines never
- * wait on a chunk or a network call. Null for any other turn.
+ * The emergency, medical and child answers, from the script, before anything is awaited (these lines never wait on a
+ * chunk or a network call). Mirrors the server's turn.ts stages 2a/2b exactly:
+ * - an emergency gets the emergency line, then the plain ask when the message states a rule (never a card), and no ask
+ *   in a conversation where a child spoke; it does not set the child flag;
+ * - a child turn, and every later turn of the conversation, gets `child.grownup` (§19, P-9: a child never reaches the AI);
+ * - a medical question gets the deflect line.
+ * Each answered turn is also posted to the server in the background (reply ignored, failures swallowed, one at a time),
+ * so the server's child flag and turn counter advance as if it had answered.
  */
-export function localSafetyReply(engine: ScriptedEngine): (input: MentorInput, ctx: TurnContext) => PanReply | null {
-  return (input, ctx) => {
-    if (input.kind !== 'text') return null;
-    const intent = classifyTurn(stripPageEvents(input.text).text.trim());
-    return intent === 'emergency' || intent === 'medical' || intent === 'child' ? engine.reply(input.text, ctx) : null;
+export function createLocalSafety(deps: {
+  client: ApiClient; dialogue: Dialogue; graph: IngredientGraph; now: () => Date; conversation: ConversationRef;
+  screen: () => TurnRequest['screen']; intakeStep: () => IntakeStep | null;
+}): LocalSafety {
+  const { client, dialogue, graph } = deps;
+  let child = false;
+  let queue: Promise<unknown> = Promise.resolve();
+  const say = (trigger: string, vars: Record<string, string> = {}): PanItem => ({ kind: 'said', said: dialogue.say(trigger, vars) });
+  const post = (text: string): void => {
+    const now = deps.now();
+    queue = queue.then(async () => {
+      try {
+        const r = await client.mentorTurn({
+          conversationId: deps.conversation.id, input: { kind: 'text', text }, localDate: localDate(now), localTime: hhmm(now),
+          screen: deps.screen(), intakeStep: deps.intakeStep(),
+        });
+        if (r.ok && (typeof r.data.conversationId === 'string')) deps.conversation.id = r.data.conversationId;
+      } catch {
+        // Nothing visible depends on it.
+      }
+    });
+  };
+  return {
+    reset() { child = false; },
+    reply(input) {
+      if (input.kind !== 'text') return null;
+      const raw = input.text;
+      const intent = classifyTurn(stripPageEvents(raw).text.trim());
+      let items: PanItem[];
+      if (intent === 'emergency') {
+        items = [say('rule.emergency')];
+        if (!child && emergencyStatesRule(raw, graph)) {
+          const ask = emergencyRuleAsk(raw, [], graph) ?? { trigger: 'rule.ask_keep_off', vars: {} };
+          items.push(say(ask.trigger, ask.vars));
+        }
+      } else if (intent === 'child' || child) {
+        child = true;
+        items = [say('child.grownup')];
+      } else if (intent === 'medical') {
+        items = [say('rule.medical_deflect')];
+      } else {
+        return null;
+      }
+      post(raw);
+      return { items, cards: [], intents: [], actions: [], notice: null };
+    },
   };
 }

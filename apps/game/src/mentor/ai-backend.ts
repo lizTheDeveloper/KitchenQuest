@@ -91,9 +91,11 @@ export function createAiBackend(deps: {
   now: () => Date; screen: () => TurnRequest['screen']; intakeStep: () => IntakeStep | null;
   /** Where `online` events come from (the window). */
   events: Pick<EventTarget, 'addEventListener' | 'removeEventListener'>;
+  /** The conversation's server id, shared with the local safety answers; the backend keeps its own when none is given. */
+  conversation?: { id: string | null };
 }): MentorBackend & { readonly conversationId: string | null } {
   const { client, engine, dialogue, store } = deps;
-  let conversationId: string | null = null;
+  const conversation = deps.conversation ?? { id: null };
   const listeners = new Set<(r: PanReply) => void>();
   const say = (trigger: string): PanItem => ({ kind: 'said', said: dialogue.say(trigger) });
   const lines = (...triggers: string[]): PanReply => ({ items: triggers.map(say), cards: [], intents: [], actions: [], notice: null });
@@ -176,11 +178,11 @@ export function createAiBackend(deps: {
 
   async function retry(req: TurnRequest, ctx: TurnContext, scripted: PanReply): Promise<void> {
     if (disposed) return;
-    const r = await client.mentorTurn({ ...req, conversationId });
+    const r = await client.mentorTurn({ ...req, conversationId: conversation.id });
     const emit = (reply: PanReply) => { if (!isDisposed()) for (const fn of listeners) fn(reply); };
     if (isDisposed()) return;
     if (r.ok && isTurnResponse(r.data)) {
-      conversationId = r.data.conversationId;
+      conversation.id = r.data.conversationId;
       if (r.data.route === 'scripted') return;
       const mapped = mapServer(r.data, ctx.turn);
       // Shown only when it adds what the script didn't: a server card or a server write. Never model text (R9).
@@ -195,11 +197,11 @@ export function createAiBackend(deps: {
   async function send(text: string, ctx: TurnContext): Promise<PanReply> {
     const now = deps.now();
     const req: TurnRequest = {
-      conversationId, input: { kind: 'text', text }, localDate: localDate(now), localTime: hhmm(now), screen: deps.screen(), intakeStep: deps.intakeStep(),
+      conversationId: conversation.id, input: { kind: 'text', text }, localDate: localDate(now), localTime: hhmm(now), screen: deps.screen(), intakeStep: deps.intakeStep(),
     };
     const r = await client.mentorTurn(req);
     if (r.ok && isTurnResponse(r.data)) {
-      conversationId = r.data.conversationId;
+      conversation.id = r.data.conversationId;
       return fromResponse(r.data, text, ctx);
     }
     if (!r.ok && r.status === 401) {
@@ -213,7 +215,7 @@ export function createAiBackend(deps: {
 
   return {
     kind: 'ai',
-    get conversationId() { return conversationId; },
+    get conversationId() { return conversation.id; },
     dispose() {
       disposed = true;
       for (const c of [...cancels]) c();

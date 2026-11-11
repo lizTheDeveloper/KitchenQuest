@@ -7,7 +7,7 @@ import { reducedMotion } from '../shell/motion';
 import { parseRoute } from '../shell/router';
 import { createScriptedBackend, type MentorBackend } from './backend';
 import { lazyBackend } from './lazy-backend';
-import { localSafetyReply, scriptedWhenUnavailable } from './outage';
+import { createLocalSafety, scriptedWhenUnavailable, type LocalSafety } from './outage';
 import { createDialogue, type Dialogue } from './dialogue';
 import { createIntake, type Intake } from './intake';
 import { mountMentorPanel, type MentorPanel } from './panel';
@@ -102,7 +102,7 @@ export function switchingBackend(store: PlayerStore, build: (kind: 'scripted' | 
  * or off (here or in another tab), the panel and everything under it is rebuilt in that mode (fix round 1, M6),
  * so a Family Table panel never has a text box and a standard one never keeps Family Table's history rules.
  */
-function stablePanel(cur: () => MentorPanel): MentorPanel {
+function stablePanel(cur: () => MentorPanel, onClear: () => void): MentorPanel {
   return {
     get mode() { return cur().mode; },
     get turn() { return cur().turn; },
@@ -116,7 +116,7 @@ function stablePanel(cur: () => MentorPanel): MentorPanel {
     setAside: (el) => { cur().setAside(el); },
     interceptText: (fn) => { cur().interceptText(fn); },
     destroy: () => { cur().destroy(); },
-    clearConversation: () => { cur().clearConversation(); },
+    clearConversation: () => { onClear(); cur().clearConversation(); },
   };
 }
 
@@ -130,20 +130,25 @@ export function mountMentor(doc: Document, store: PlayerStore, bank: LineBank, c
   root.id = 'pan-root';
   doc.body.append(root);
 
-  let current: { panel: MentorPanel; backend: MentorBackend; familyTable: boolean } | null = null;
+  let current: { panel: MentorPanel; backend: MentorBackend; familyTable: boolean; resetChild: () => void } | null = null;
   const build = () => {
     const familyTable = store.get().settings.familyTable;
+    let safety: LocalSafety | null = null;
     const dialogue: Dialogue = createDialogue(bank, historyOptions(store));
     const recipes = Object.entries(content.recipes).map(([slug, r]) => ({ slug, title: r.meta.title }));
     const engine: ScriptedEngine = createScriptedEngine({ dialogue, graph, ruleTerms: content.ruleTerms, recipes, now });
     const writer = createCardWriter({ client, store, dialogue, graph, ruleTerms: content.ruleTerms, now });
-    const backend = switchingBackend(store, (kind) => (kind === 'ai'
-      ? lazyBackend('ai', { fallback: scriptedWhenUnavailable(engine, dialogue), local: localSafetyReply(engine) }, async () => (await import('./ai-backend')).createAiBackend({
-        client, engine, dialogue, store, graph, ruleTerms: content.ruleTerms, now, events: win,
-        screen: () => screenOf(win.location.hash),
-        intakeStep: () => { const step = store.get().intake.step; return step === 'done' ? null : step; },
-      }))
-      : createScriptedBackend(engine, dialogue)));
+    const backend = switchingBackend(store, (kind) => {
+      if (kind !== 'ai') return createScriptedBackend(engine, dialogue);
+      // A new AI backend is a new conversation: its own server id and a fresh child flag.
+      const conversation = { id: null as string | null };
+      const intakeStep = () => { const step = store.get().intake.step; return step === 'done' ? null : step; };
+      const screen = () => screenOf(win.location.hash);
+      safety = createLocalSafety({ client, dialogue, graph, now, conversation, screen, intakeStep });
+      return lazyBackend('ai', { fallback: scriptedWhenUnavailable(engine, dialogue), local: safety.reply }, async () => (await import('./ai-backend')).createAiBackend({
+        client, engine, dialogue, store, graph, ruleTerms: content.ruleTerms, now, events: win, screen, intakeStep, conversation,
+      }));
+    });
     const panel = mountMentorPanel(root, {
       mode: familyTable ? 'familyTable' : 'standard',
       backend, dialogue, writer, engine, client, forms: content.bureau.forms, store, now,
@@ -159,7 +164,7 @@ export function mountMentor(doc: Document, store: PlayerStore, bank: LineBank, c
       : null;
     if (intake) panel.onOpen(() => { intake.start(); });
     services = { client, dialogue, engine, writer, intake };
-    current = { panel, backend, familyTable };
+    current = { panel, backend, familyTable, resetChild: () => { safety?.reset(); } };
   };
   build();
   store.subscribe((s) => {
@@ -170,6 +175,6 @@ export function mountMentor(doc: Document, store: PlayerStore, bank: LineBank, c
     build();
     if (wasOpen) current.panel.open();
   });
-  mentor = stablePanel(() => current!.panel);
+  mentor = stablePanel(() => current!.panel, () => { current?.resetChild(); });
   return mentor;
 }
