@@ -30,6 +30,7 @@ import { RECIPES_DIR, syncCanon } from '../src/recipes/sync.js';
 import { testDb, type Sql } from '../test/helpers/db.js';
 import { CASES, type EvalCase } from './cases.js';
 import { judge, meetsBar, REPS, type EvalResult } from './checks.js';
+import { evalHash } from './hash.js';
 import { changedRecords, recordsSnapshot } from './snapshot.js';
 
 export const LAST_PASS = new URL('./last-pass.json', import.meta.url);
@@ -127,7 +128,7 @@ try {
   out('');
   out(`hard fails ${bar.hardFails}; tool cases ${(bar.toolRate * 100).toFixed(1)}% correct; model call failures ${aiFailures}`);
   if (bar.ok) {
-    const record = { fingerprint, model: aiConfig.model, providers: aiConfig.providers, date: new Date().toISOString().slice(0, 10), results };
+    const record = { fingerprint, evalHash: evalHash(), model: aiConfig.model, providers: aiConfig.providers, date: new Date().toISOString().slice(0, 10), results };
     writeFileSync(LAST_PASS, `${JSON.stringify(record, null, 2)}\n`);
     out(`PASS: wrote ${LAST_PASS.pathname}`);
   } else {

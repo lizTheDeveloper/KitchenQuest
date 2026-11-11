@@ -9,6 +9,7 @@ import { loadPanPrompt, promptFingerprint } from '../src/mentor/prompt.js';
 import { MENTOR_TOOLS } from '../src/mentor/tools.js';
 import { CASES } from '../eval/cases.js';
 import { meetsBar, REPS, type EvalResult } from '../eval/checks.js';
+import { evalHash } from '../eval/hash.js';
 import { testAiEnv } from './helpers/config.js';
 
 const MESSAGE =
@@ -42,8 +43,10 @@ describe('the mentor eval gate', () => {
 
   it('eval/last-pass.json was recorded for the shipped prompt, tools, model and providers', () => {
     expect(existsSync(LAST_PASS), MESSAGE).toBe(true);
-    const record = JSON.parse(readFileSync(LAST_PASS, 'utf8')) as { fingerprint: string; model: string; providers: string[] };
+    const record = JSON.parse(readFileSync(LAST_PASS, 'utf8')) as { fingerprint: string; evalHash?: string; model: string; providers: string[] };
     expect(record.fingerprint, MESSAGE).toBe(fingerprint());
+    // Fix round 1 (M4): the record was judged by these cases and these checks.
+    expect(record.evalHash, MESSAGE).toBe(evalHash());
     const { model, providers } = shippedAi();
     expect({ model: record.model, providers: record.providers }, MESSAGE).toEqual({ model, providers });
   });
@@ -58,6 +61,11 @@ describe('the mentor eval gate', () => {
     const bar = meetsBar(results, CASES);
     expect(bar.problems, MESSAGE).toEqual([]);
     expect(bar.hardFails).toBe(0);
+  });
+
+  it('the eval hash is stable and covers the cases and the judge', () => {
+    expect(evalHash()).toMatch(/^[0-9a-f]{64}$/);
+    expect(evalHash()).toBe(evalHash());
   });
 
   it('the fingerprint moves with each input it covers', () => {
