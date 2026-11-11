@@ -111,11 +111,16 @@ export function createAiBackend(deps: {
    * reads the conversation id the turn before it set and the server sees the turns in order (fix round 4, G3).
    */
   let chain: Promise<unknown> = Promise.resolve();
+  /** Settles on dispose: the queue lets go of a hung step, and every step behind it runs at once (fix round 5, H1). */
+  let release!: () => void;
+  const gone = new Promise<'gone'>((r) => { release = () => { r('gone'); }; });
   function serial<T>(step: () => Promise<T>): Promise<T> {
-    const p = chain.then(step);
+    const p = Promise.race([chain, gone]).then(step);
     chain = p.then(() => undefined, () => undefined);
     return p;
   }
+  /** A call that stops waiting when the backend is disposed: 'gone' then, and the step answers without the server. */
+  const unlessGone = <T>(p: Promise<T>): Promise<T | 'gone'> => Promise.race([p, gone]);
   /** The reply's conversation id, unless the conversation was cleared while it was on its way (G4). */
   const keepId = (gen: number | undefined, id: string | null) => { if (conversation.gen === gen) conversation.id = id; };
 
@@ -150,7 +155,8 @@ export function createAiBackend(deps: {
   }
 
   async function hasAiHealth(): Promise<boolean> {
-    const r = await client.consents();
+    const r = await unlessGone(client.consents());
+    if (r === 'gone') return false;
     // Not known is not granted: the turn stays on the device.
     return r.ok && granted(r.data, 'health_data') && granted(r.data, 'ai_health');
   }
@@ -171,6 +177,8 @@ export function createAiBackend(deps: {
   /** One retry, held in memory: after RETRY_AFTER_MS or on `online`, whichever comes first. */
   function scheduleRetry(req: TurnRequest, ctx: TurnContext, scripted: PanReply): void {
     let fired = false;
+    // A retry belongs to the conversation it was scheduled in: a clear meanwhile cancels it (fix round 5, H3).
+    const gen = conversation.gen;
     const cancel = () => {
       fired = true;
       clearTimeout(timer);
@@ -180,20 +188,20 @@ export function createAiBackend(deps: {
     const fire = () => {
       if (fired) return;
       cancel();
-      if (disposed) return;
-      serial(() => retry(req, ctx, scripted)).catch((err: unknown) => { console.error(err); });
+      if (disposed || conversation.gen !== gen) return;
+      serial(() => retry(req, ctx, scripted, gen)).catch((err: unknown) => { console.error(err); });
     };
     const timer = setTimeout(fire, RETRY_AFTER_MS);
     deps.events.addEventListener('online', fire);
     cancels.add(cancel);
   }
 
-  async function retry(req: TurnRequest, ctx: TurnContext, scripted: PanReply): Promise<void> {
-    if (disposed) return;
-    const gen = conversation.gen;
-    const r = await client.mentorTurn({ ...req, conversationId: conversation.id });
+  async function retry(req: TurnRequest, ctx: TurnContext, scripted: PanReply, gen: number | undefined): Promise<void> {
+    if (disposed || conversation.gen !== gen) return;
+    const r = await unlessGone(client.mentorTurn({ ...req, conversationId: conversation.id }));
     const emit = (reply: PanReply) => { if (!isDisposed()) for (const fn of listeners) fn(reply); };
-    if (isDisposed()) return;
+    // Disposed, or the conversation was cleared while it was on its way: nothing of it is kept or shown.
+    if (r === 'gone' || isDisposed() || conversation.gen !== gen) return;
     if (r.ok && isTurnResponse(r.data)) {
       keepId(gen, r.data.conversationId);
       if (r.data.route === 'scripted') return;
@@ -203,7 +211,7 @@ export function createAiBackend(deps: {
       if (addsCards || mapped.actions.length > 0) emit({ ...mapped, cards: addsCards ? mapped.cards : [] });
       return;
     }
-    if (!r.ok && r.status === 401) { await refreshAccount(client, store); return; }
+    if (!r.ok && r.status === 401) { await unlessGone(refreshAccount(client, store)); return; }
     emit({ items: [say('ai.try_again'), { kind: 'retry', text: req.input.text }], cards: [], intents: [], actions: [], notice: null });
   }
 
@@ -224,13 +232,14 @@ export function createAiBackend(deps: {
     if (isDisposed()) return engine.reply(text, ctx);
     const req = request(text);
     const gen = conversation.gen;
-    const r = await client.mentorTurn(req);
+    const r = await unlessGone(client.mentorTurn(req));
+    if (r === 'gone') return engine.reply(text, ctx);
     if (r.ok && isTurnResponse(r.data)) {
       keepId(gen, r.data.conversationId);
       return fromResponse(r.data, text, ctx);
     }
     if (!r.ok && r.status === 401) {
-      await refreshAccount(client, store);
+      await unlessGone(refreshAccount(client, store));
       return engine.reply(text, ctx);
     }
     const scripted = prefixed([say('mentor.ai_unavailable')], engine.reply(text, ctx));
@@ -240,6 +249,8 @@ export function createAiBackend(deps: {
 
   /** A text turn, in its place in the queue. */
   async function answer(text: string, ctx: TurnContext): Promise<PanReply> {
+    // Released by a dispose: the script answers, nothing is asked of the server.
+    if (isDisposed()) return engine.reply(text, ctx);
     const stripped = stripPageEvents(text).text.trim();
     const intent = classifyTurn(stripped);
     // A plain yes or no: a local card is the engine's; two open cards of either origin are never guessed between.
@@ -263,6 +274,7 @@ export function createAiBackend(deps: {
     get conversationId() { return conversation.id; },
     dispose() {
       disposed = true;
+      release();
       for (const c of [...cancels]) c();
       listeners.clear();
     },
@@ -283,8 +295,8 @@ export function createAiBackend(deps: {
         if (isDisposed()) return;
         const req = request(text);
         const gen = conversation.gen;
-        const r = await client.mentorTurn(req);
-        if (!isDisposed() && r.ok && isTurnResponse(r.data)) keepId(gen, r.data.conversationId);
+        const r = await unlessGone(client.mentorTurn(req));
+        if (r !== 'gone' && !isDisposed() && r.ok && isTurnResponse(r.data)) keepId(gen, r.data.conversationId);
       }).catch(() => { /* Nothing visible depends on it. */ });
     },
   };

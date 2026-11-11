@@ -1,4 +1,4 @@
-import type { CardAction, ProposalCard, Severity, TrailEntry } from '@kitchenquest/core/engine';
+import { classifyTurn, stripPageEvents, type CardAction, type ProposalCard, type Severity, type TrailEntry } from '@kitchenquest/core/engine';
 import type { ApiClient } from '../api/client';
 import type { BureauForm } from '../content/types';
 import { routeHref } from '../shell/router';
@@ -25,6 +25,12 @@ const CONSENT_DONE_TEXT = 'Permission filed. Thank you.';
 /** The footnote on a rule card a signed-out player would stamp: it is written to this device only (Step 11). */
 export const DEVICE_ONLY_FOOTNOTE = '*Kept on this device only.';
 const DISCLOSURE_OK = 'Got it';
+/**
+ * Text the Pan answers on the device at once, whatever else is going on (outage.ts createLocalSafety): it is sent even
+ * while another turn is still waiting, so an emergency can never be held up by a slow or stuck turn (fix round 5, H1).
+ */
+const SAFETY_INTENTS: ReadonlySet<string> = new Set(['emergency', 'medical', 'child']);
+export const isSafetyText = (text: string): boolean => SAFETY_INTENTS.has(classifyTurn(stripPageEvents(text).text.trim()));
 /** How long the stamp lands before a card turns into its trail entry (motion on). */
 const STAMP_MS = 650;
 
@@ -100,10 +106,16 @@ export function mountMentorPanel(root: HTMLElement, opts: {
 
   let talkBtn: HTMLButtonElement | null = null;
   let textBox: HTMLTextAreaElement | null = null;
-  let sendBtn: HTMLButtonElement | null = null;
   let open = false;
   let turn = 0;
+  /** Turns still waiting for their reply (more than one only when a safety text was sent meanwhile). */
+  let pendingTurns = 0;
   let pending = false;
+  /**
+   * Moves on with every clearConversation: a reply, a card write or an undo that started before the clear is dropped
+   * when it lands, so nothing of the cleared conversation comes back on screen (fix round 5, H2).
+   */
+  let epoch = 0;
   /** Set by `destroy()`: a reply (scripted or AI) that lands later is dropped, never drawn into a detached panel. */
   let destroyed = false;
   const cards = new Map<string, OpenCard>();
@@ -235,6 +247,7 @@ export function mountMentorPanel(root: HTMLElement, opts: {
     } finally {
       busyCards.delete(key);
     }
+    if (cards.get(key) !== c) return; // cleared meanwhile
     // Another confirm of this card is answering (fix round 1, I1): nothing to show here.
     if (!out.ok && out.reason === 'busy') return;
     if (out.ok) {
@@ -282,6 +295,7 @@ export function mountMentorPanel(root: HTMLElement, opts: {
     } finally {
       busyCards.delete(key);
     }
+    if (cards.get(key) !== c) return; // cleared meanwhile
     if (items.length === 0) { setCardNote(c.el, REJECT_FAILED_TEXT); return; }
     cards.delete(key);
     removeLi(c.li);
@@ -291,13 +305,14 @@ export function mountMentorPanel(root: HTMLElement, opts: {
 
   async function undo(t: Trail): Promise<UndoOutcome> {
     let out: UndoOutcome;
+    const startedIn = epoch;
     try {
       out = await writer.undo(t.entry);
     } catch (err) {
       console.error(err);
       out = { status: 'failed', items: [] };
     }
-    if (out.status === 'busy') return out;
+    if (out.status === 'busy' || startedIn !== epoch) return out;
     // Carry from Step 8 fix round 1: drop the entry only when it was undone, or there is nothing left to undo.
     if (out.status === 'undone' || out.status === 'nothing') dropTrail(t);
     const note = t.li.querySelector<HTMLElement>('.trail-entry');
@@ -469,16 +484,18 @@ export function mountMentorPanel(root: HTMLElement, opts: {
   }
 
   const setPending = (on: boolean) => {
-    pending = on;
-    if (on) bubbles.setAttribute('aria-busy', 'true'); else bubbles.removeAttribute('aria-busy');
-    status.textContent = on ? THINKING_TEXT : '';
-    if (sendBtn) sendBtn.disabled = on;
+    pendingTurns += on ? 1 : -1;
+    pending = pendingTurns > 0;
+    // Send stays enabled: a safety text can always go (the submit holds back anything else while a turn waits).
+    if (pending) bubbles.setAttribute('aria-busy', 'true'); else bubbles.removeAttribute('aria-busy');
+    status.textContent = pending ? THINKING_TEXT : '';
   };
 
   /** One Pan turn: bump the turn, show that the Pan is thinking, render the reply (never silent on a throw). */
   const turnWith = async (get: (ctx: TurnContext) => Promise<PanReply>): Promise<void> => {
     turn++;
     setPending(true);
+    const startedIn = epoch;
     let r: PanReply;
     try {
       r = await get(context());
@@ -488,6 +505,7 @@ export function mountMentorPanel(root: HTMLElement, opts: {
     } finally {
       setPending(false);
     }
+    if (startedIn !== epoch) return; // the conversation was cleared while this turn was on its way
     render(r);
   };
   const reply = (input: MentorInput): Promise<void> => turnWith((ctx) => {
@@ -516,7 +534,7 @@ export function mountMentorPanel(root: HTMLElement, opts: {
 
   if (standard) {
     textBox = h('textarea', { id: 'pan-text', rows: 2, maxlength: 500, class: 'pan-text' });
-    sendBtn = h('button', { type: 'submit', class: 'btn btn-primary' }, 'Send');
+    const sendBtn = h('button', { type: 'submit', class: 'btn btn-primary' }, 'Send');
     const form = h('form', { class: 'pan-form' },
       h('label', { for: 'pan-text' }, 'Say something to the Pan'),
       textBox,
@@ -524,9 +542,10 @@ export function mountMentorPanel(root: HTMLElement, opts: {
     );
     form.addEventListener('submit', (ev) => {
       ev.preventDefault();
-      if (pending) return;
       const text = textBox!.value.trim();
       if (!text) return;
+      // While a turn is waiting, only a safety text goes ahead (answered at once, on the device); anything else stays in the box.
+      if (pending && !isSafetyText(text)) return;
       textBox!.value = '';
       addBubble('you', text);
       void reply({ kind: 'text', text });
@@ -600,6 +619,7 @@ export function mountMentorPanel(root: HTMLElement, opts: {
     },
     interceptText(fn) { intercept = standard ? fn : null; },
     clearConversation() {
+      epoch++;
       const hadFocus = bubbles.contains(doc.activeElement);
       for (const li of [...bubbles.children]) if (!li.classList.contains('pan-disclosure-item')) li.remove();
       cards.clear();

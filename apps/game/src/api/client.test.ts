@@ -199,6 +199,27 @@ describe('errors', () => {
     expect(r).toEqual({ ok: false, status: 0, error: { code: 'network', message: 'no scripted response' } });
   });
 
+  test('H1: a mentor turn or a consents read that never answers settles as status 0 after the timeout; other calls are not timed', async () => {
+    const seen: (AbortSignal | null | undefined)[] = [];
+    const hang = ((_url: string, init: RequestInit) => {
+      seen.push(init.signal);
+      return new Promise<Response>((_r, reject) => { init.signal?.addEventListener('abort', () => { reject(init.signal!.reason); }); });
+    }) as unknown as typeof fetch;
+    const timed = createApiClient({ fetch: hang, timeoutMs: 20 });
+    const turn = await timed.mentorTurn({ conversationId: null, input: { kind: 'text', text: 'hi' }, localDate: '2026-11-10', localTime: '12:00', screen: null, intakeStep: null });
+    expect(turn).toMatchObject({ ok: false, status: 0, error: { code: 'timeout' } });
+    expect(await timed.consents()).toMatchObject({ ok: false, status: 0, error: { code: 'timeout' } });
+    void timed.me();
+    expect(seen[2]).toBeUndefined();
+  });
+
+  test('H1: a body that stops arriving after the headers also settles as status 0', async () => {
+    const stall = ((_url: string, init: RequestInit) => Promise.resolve(new Response(new ReadableStream({
+      start(c) { init.signal?.addEventListener('abort', () => { c.error(init.signal!.reason); }); },
+    }), { status: 200, headers: { 'content-type': 'application/json' } }))) as unknown as typeof fetch;
+    expect(await createApiClient({ fetch: stall, timeoutMs: 20 }).consents()).toMatchObject({ ok: false, status: 0, error: { code: 'timeout' } });
+  });
+
   test('no method retries', async () => {
     script.push(json(503, { error: { code: 'internal', message: 'x' } }));
     await client.listRules();
