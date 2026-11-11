@@ -1,8 +1,12 @@
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { parse } from 'yaml';
 import type { Page, Request } from 'playwright';
 import { afterEach, describe, expect, it } from 'vitest';
 import { expectNoA11yViolations, openApp, PAN_READY, type OpenedApp } from './helpers';
 
+const pan = parse(readFileSync(fileURLToPath(new URL('../../../content/dialogue/pan.yaml', import.meta.url)), 'utf8')) as { triggers: Record<string, { lines: string[] }> };
+const EXPORTED = pan.triggers['book.exported'].lines;
 const PARIPPU = 'india/kerala/parippu';
 const FRIJOLES = 'mexico/oaxaca/frijoles-de-olla';
 const json = (status: number, body: unknown) => ({ status, contentType: 'application/json', body: JSON.stringify(body) });
@@ -61,7 +65,8 @@ describe('the Recipe Book (M5 Step 11)', () => {
     expect(html).toContain('more garlic next time');
     expect(html).toContain('skills: [legumes, heat-control, tempering]'); // the canon Cooklang source is in the file
     expect(html).toMatch(/@\w/); // its ingredient markers too
-    expect(await page.locator('.book-status').textContent()).toMatch(/free/);
+    // Fix M8: any of the book.exported lines (the Pan picks one), each saying the export never costs anything.
+    expect(EXPORTED).toContain(await page.locator('.book-status').textContent());
 
     await page.locator('.book-note-delete').click();
     await expect.poll(() => sent.some((r) => r.method() === 'DELETE' && new URL(r.url()).pathname === `/api/notes/${NOTES[0].id}`)).toBe(true);
