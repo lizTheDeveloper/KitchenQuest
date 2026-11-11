@@ -128,8 +128,8 @@ export function applyNotes(recipe: ParsedRecipe, notes: readonly MarginNote[]): 
       if (it.type !== 'ingredient') return { ...it };
       const at = newIndex.get(it.index);
       if (at !== undefined) return { type: 'ingredient', index: at };
-      const old = recipe.ingredients[it.index];
-      return { type: 'text', value: old?.displayName ?? old?.name ?? '' };
+      const old = recipe.ingredients.at(it.index);
+      return { type: 'text', value: old === undefined ? '' : (old.displayName ?? old.name) };
     }),
   }));
   return {

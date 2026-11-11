@@ -29,10 +29,10 @@ function sameFood(a: string, b: string, graph: IngredientGraph): boolean {
 /**
  * The one bought item worth rescuing today, or null. Only items with `source: 'market'`, a valid `addedOn` not after
  * today, a resolved ingredient and a `keeps` entry count; told food never does (C9). `daysLeft` is the keep time
- * minus the days since purchase, and it must be 0–2: past its keep time the item is no longer suggested for cooking
+ * minus the days since it was bought, and it must be 0–2: past its keep time the item is no longer suggested for cooking
  * (food safety; the player's own judgement and the compost acknowledgement stay theirs). An item a planned dish
  * still to come this week (on or after today) will use is left alone. The closest to its keep time wins, then the
- * oldest purchase, then id. `nudgedToday` → null (RESCUE_NUDGES_PER_DAY).
+ * one bought first, then id. `nudgedToday` → null (RESCUE_NUDGES_PER_DAY).
  *
  * `uses` tells which ingredients a planned dish needs: the canon recipes and the graph.
  */

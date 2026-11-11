@@ -134,10 +134,12 @@ const isCount = (v: unknown): v is CookedForCount => typeof v === 'string' && (C
 export function shareTally(entries: readonly SharedEntry[]): SharedTally {
   let shared = 0;
   const byRecipe = new Map<string, number>();
-  for (const e of entries) {
-    if (!isCount(e?.cookedFor?.count) || e.cookedFor.count === 'just_me') continue;
+  // Rows come from storage: read defensively.
+  for (const e of entries as readonly (Partial<Record<keyof SharedEntry, unknown>> | null)[]) {
+    const count = (e?.cookedFor as Partial<CookedFor> | null | undefined)?.count;
+    if (!isCount(count) || count === 'just_me') continue;
     shared++;
-    if (typeof e.recipe === 'string' && e.recipe !== '' && (e.frame === null || e.frame === undefined)) byRecipe.set(e.recipe, (byRecipe.get(e.recipe) ?? 0) + 1);
+    if (typeof e?.recipe === 'string' && e.recipe !== '' && (e.frame === null || e.frame === undefined)) byRecipe.set(e.recipe, (byRecipe.get(e.recipe) ?? 0) + 1);
   }
   return { shared, byRecipe: Object.fromEntries([...byRecipe].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) };
 }

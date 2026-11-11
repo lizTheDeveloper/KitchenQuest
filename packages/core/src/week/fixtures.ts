@@ -50,7 +50,7 @@ export const PEANUT: Rule = { id: 'r-peanut', target: { kind: 'ingredient', ids:
 export const PORK: Rule = { id: 'r-pork', target: { kind: 'ingredient', ids: ['pork'] }, type: 'avoid', severity: 'preference' };
 export const avoid = (id: string, extra: Partial<Rule> = {}): Rule => ({ id: `r-${id}`, target: { kind: 'ingredient', ids: [id] }, type: 'avoid', severity: 'allergy', ...extra });
 
-export const FOOD_GROUPS: FoodGroups = {
+const FOOD_GROUPS: FoodGroups = {
   allium: 'veg_fruit',
   spinach: 'veg_fruit',
   tomato: 'veg_fruit',

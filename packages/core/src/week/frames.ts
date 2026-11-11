@@ -93,9 +93,9 @@ function buildSteps(frame: Frame, index: ReadonlyMap<string, number>): RecipeSte
         complete = false;
         break;
       }
-      if (m.index! > last) items.push({ type: 'text', value: text.slice(last, m.index) });
+      if (m.index > last) items.push({ type: 'text', value: text.slice(last, m.index) });
       items.push({ type: 'ingredient', index: at });
-      last = m.index! + m[0].length;
+      last = m.index + m[0].length;
     }
     if (!complete) continue;
     if (last < text.length) items.push({ type: 'text', value: text.slice(last) });
@@ -143,7 +143,8 @@ export function fillFrame(frame: Frame, pantry: readonly PantryItem[], ctx: Fram
     chosen ??= pantry
       .filter((p) => !used.has(p) && fits(p, slot, ctx.graph))
       .filter((p) => alone(p) === 'ok' || alone(p) === 'swap')
-      .sort(byUseFirst)[0];
+      .sort(byUseFirst)
+      .at(0);
     if (chosen === undefined) {
       fills[slot.key] = null;
       if (!slot.optional) emptyRequired.push(slot.key);

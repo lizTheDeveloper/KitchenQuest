@@ -49,8 +49,6 @@ export const MAX_PLAN_ITEMS = 21;
 export const PLAN_DAYS = 7;
 export const MIN_SERVINGS = 0.5;
 export const MAX_SERVINGS = 10;
-/** The most dishes one "pick N" places: one a day. */
-export const MAX_PICK = PLAN_DAYS;
 
 const byId = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 const dayOfWeek = (date: string): number => new Date(`${date}T00:00:00Z`).getUTCDay();
@@ -100,7 +98,8 @@ export function resolvePlanRequest(
   const unknown: string[] = [];
   const dropped: { slug: string; status: 'blocked' }[] = [];
   const noDay: string[] = [];
-  for (const entry of req.days ?? []) {
+  // The request comes from the model's tool call or a scripted intent: read it defensively.
+  for (const entry of (req.days ?? []) as readonly (Partial<Record<'weekday' | 'dish', unknown>> | null)[]) {
     if (typeof entry?.dish !== 'string' || typeof entry.weekday !== 'string') continue;
     const match = matchDish(entry.dish, candidates);
     if (match === null) {
@@ -135,7 +134,7 @@ export function resolvePlanRequest(
  * comes first, then the cook with the fewest dishes so far, then by slug. A dish already planned is not repeated.
  */
 export function suggestPlan(n: number, ctx: PlanContext, avoidDays: readonly number[] = []): PlanItem[] {
-  const want = Number.isFinite(n) ? Math.min(MAX_PICK, Math.max(0, Math.floor(n))) : 0;
+  const want = Number.isFinite(n) ? Math.min(PLAN_DAYS, Math.max(0, Math.floor(n))) : 0;
   const dishItems = ctx.existing.filter((i) => i.kind === 'dish');
   const used = new Set(dishItems.map((i) => i.slug));
   const busy = new Set([...dishItems.map((i) => i.day), ...avoidDays]);
