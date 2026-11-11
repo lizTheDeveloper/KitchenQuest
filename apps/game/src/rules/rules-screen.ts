@@ -1,12 +1,13 @@
 import {
-  buildRuleCard, confirmedLines, SEVERE, SEVERITY_WORDS, trailSummary, validateRules,
+  buildRuleCard, SEVERE, SEVERITY_WORDS, validateRules,
   type IngredientGraph, type Rule, type RuleCard, type RuleTerm, type TrailEntry,
 } from '@kitchenquest/core/engine';
 import { refreshAccount } from '../api/account';
 import { content, graph } from '../content';
+import { copy } from '../content/copy';
 import type { BureauForm } from '../content/types';
 import { getMentorServices } from '../mentor';
-import { CLOSED_TEXT, closeCard, renderCard, setCardNote } from '../mentor/cards-view';
+import { CLOSED_TEXT, closeCard, renderCard, renderTrail, setCardNote } from '../mentor/cards-view';
 import { renderConsentCard } from '../mentor/consent-card';
 import { DEVICE_ONLY_FOOTNOTE, NOT_SAVED_TEXT } from '../mentor/panel';
 import type { LocalCardView, PanItem } from '../mentor/reply';
@@ -25,19 +26,8 @@ import { mountRuleForm } from './rule-form';
  * written to this device. A rule is added only through the same Form 27-B card the Pan shows, stamped by a tap
  * (`writer.confirm(…, 'tap')`); one is removed only through Form 27-B/VOID's own Remove tap.
  */
-const BAD_RULE_TEXT = "This rule names an ingredient the ledger doesn't know any more.";
-const UNREADABLE_CONFIRM = 'These are all my rules';
-/** Fix round 1 (M3): under the couldn't-be-read banner, an empty list is never "no rules". */
-const UNREADABLE_EMPTY = "None of the rules on this device could be read back. Add each of your rules again below. If you have none, tap 'These are all my rules'.";
-const NOT_REMOVED_TEXT = "That didn't go through, so nothing was removed. Try again in a moment.";
-const RESTORED_TEXT = 'Put back. Dishes are checked for it again.';
-const COPY_WARNING = "These rules are saved on this device but not on your account. While you're signed in, dishes are checked against your account's rules only.";
-const RAISE_WARNING = "These rules are stricter on this device than on your account. While you're signed in, dishes are checked against your account's version.";
 /** Strictest first: a device rule ranked higher than the account's version is offered for raising. */
 const RANK: Readonly<Record<Rule['severity'], number>> = { anaphylactic: 3, allergy: 2, intolerance: 1, preference: 0 };
-const CANT_COPY_TEXT = 'This one can be copied by telling the Pan about it.';
-const CONSENT_DONE_TEXT = 'Permission filed. Tap the stamp button again to save the rule.';
-const CONSENT_UNAVAILABLE_TEXT = "The permission form couldn't load just now. Nothing has changed.";
 
 const sameIds = (a: readonly string[], b: readonly string[]) => {
   const x = [...a].sort();
@@ -96,7 +86,7 @@ export function rulesScreen(): Screen {
 
       // --- A card, stamped by its own tap ----------------------------------------------------------------------
       /** Shows a Form 27-B card for `card` in `slot`; a tap writes it through the panel's writer. */
-      function showCard(slot: HTMLElement, card: RuleCard, onDone: () => void, write?: (card: RuleCard) => Promise<WriteOutcome>): void {
+      function showCard(slot: HTMLElement, card: RuleCard, onDone: () => void, write?: (view: LocalCardView) => Promise<WriteOutcome>): void {
         // issuedTurn 0: a typed yes in the panel can never reach this card.
         const view: LocalCardView = { origin: 'local', localId: crypto.randomUUID(), card, issuedTurn: 0 };
         const signedOut = store.get().account === null;
@@ -105,13 +95,14 @@ export function rulesScreen(): Screen {
         const cardEl = renderCard(view, {
           forms, now: ctx.now, ...(signedOut ? { footnote: DEVICE_ONLY_FOOTNOTE } : {}),
           onConfirm: async (edits) => {
-            const out = await (write ? write(card) : writer.confirm(view, 'tap', edits)).catch((err: unknown) => {
+            const out = await (write ? write(view) : writer.confirm(view, 'tap', edits)).catch((err: unknown) => {
               console.error(err);
               return { ok: false as const, reason: 'network' as const, items: [] };
             });
             if (out.ok) {
               box.replaceChildren(h('p', { class: 'rules-stamped' }, `✔ Stamped: ${out.trail.summary}`));
-              tell(...saidNodes(out.items));
+              // A raise has an undo like any mentor write. The list below redraws (the card's own box goes), so the entry lives in the status area.
+              tell(...saidNodes(out.items), ...(write ? [trailEntry(out.trail)] : []));
               onDone();
               return;
             }
@@ -137,7 +128,7 @@ export function rulesScreen(): Screen {
           onReject: () => {
             void writer.reject(view);
             box.remove();
-            tell(h('p', null, 'Nothing was saved.'));
+            tell(h('p', null, copy('ui.rules.nothing_saved')));
             onDone();
           },
         });
@@ -147,18 +138,36 @@ export function rulesScreen(): Screen {
         cardEl.querySelector<HTMLElement>('h3')?.focus();
       }
 
+      /** The write's trail entry, as in the panel: Undo (until the window closes) puts the account's rule back; Edit is this screen. */
+      function trailEntry(entry: TrailEntry): HTMLElement {
+        return renderTrail(entry, {
+          now: ctx.now,
+          onUndo: async () => {
+            const out = await writer.undo(entry).catch((err: unknown) => {
+              console.error(err);
+              return { status: 'failed' as const, items: [] };
+            });
+            if (out.status === 'busy') return;
+            if (out.status === 'failed') { setCardNote(el.querySelector<HTMLElement>('.trail-entry')!, copy('ui.rules.undo_failed')); return; }
+            tell(...saidNodes(out.items));
+            doc.getElementById('rules-heading')?.focus();
+          },
+          onEdit: () => { doc.getElementById('rules-heading')?.focus(); },
+        });
+      }
+
       /** The health_data card (Form 3-C), by tap only (C-17, P-4). */
       function showConsent(slot: HTMLElement): void {
         void client.consents().then((r) => {
           const notice = r.ok ? r.data.notices.health_data : undefined;
           const form = forms.consent_health as BureauForm | undefined;
-          if (notice === undefined || form === undefined) { slot.append(h('p', { role: 'status' }, CONSENT_UNAVAILABLE_TEXT)); return; }
+          if (notice === undefined || form === undefined) { slot.append(h('p', { role: 'status' }, copy('ui.rules.consent_unavailable'))); return; }
           const card = renderConsentCard('health_data', {
             form, notice,
             onAgree: async () => {
               const g = await client.grantConsent('health_data', notice.version);
-              if (g.ok) card.replaceWith(h('p', { role: 'status' }, CONSENT_DONE_TEXT));
-              else setCardNote(card, "That didn't go through. Nothing has changed.");
+              if (g.ok) card.replaceWith(h('p', { role: 'status' }, copy('ui.rules.consent_done')));
+              else setCardNote(card, copy('ui.rules.consent_failed'));
             },
             onDecline: () => { card.remove(); },
           });
@@ -166,30 +175,13 @@ export function rulesScreen(): Screen {
         });
       }
 
-      /** Raise an account rule to a stricter device rule's severity, by the card's tap (fix round 1, I3). */
-      async function raise(accountRule: Rule, card: RuleCard): Promise<WriteOutcome> {
-        const email = store.get().account?.email;
-        const r = await client.updateRule(accountRule.id, card.rule, true);
-        if (!r.ok) {
-          if (r.status === 403 && r.error.code === 'consent_required') return { ok: false, reason: 'consent_required', items: [say('consent.health_first')] };
-          if (r.status === 0 || r.status === 429 || r.status >= 500) return { ok: false, reason: 'network', items: [] };
-          return { ok: false, reason: 'invalid', items: [say('write.not_done')] };
-        }
-        const saved = r.data.rule;
-        store.update((st) => (st.account?.email !== email || st.accountRules === null ? st : { ...st, accountRules: st.accountRules.map((x) => (x.id === saved.id ? saved : x)) }));
-        void refreshAccount(client, store);
-        const trail: TrailEntry = { id: saved.id, origin: 'local', kind: 'rule', summary: trailSummary(card), undoUntil: new Date(ctx.now().getTime()).toISOString() };
-        return { ok: true, trail, items: confirmedLines(card).map((l) => say(l.trigger, l.vars)) };
-      }
-      const say = (trigger: string, vars: Record<string, string> = {}): PanItem => ({ kind: 'said', said: dialogue.say(trigger, vars) });
-
       // --- Removing ----------------------------------------------------------------------------------------------
       async function removeRule(rule: Rule): Promise<void> {
         const name = ruleName(rule, ruleTerms, graph);
         const severe = SEVERE.has(rule.severity);
         const answer = await showBureauForm(doc.getElementById('overlay-root') ?? doc.body, {
           form: forms.rule_void,
-          values: { ingredient: name, severity: SEVERITY_WORDS[rule.severity], effect: 'Dishes will no longer be checked for this.' },
+          values: { ingredient: name, severity: SEVERITY_WORDS[rule.severity], effect: copy('ui.rules.void_effect') },
           ...(severe ? { lead: dialogue.say('rule.void_confirm', { ingredient: name }).text } : {}),
           reducedMotion: reducedMotion(store.get().settings.reducedMotion, mql),
           stamps: content.bureau.stamps,
@@ -199,7 +191,7 @@ export function rulesScreen(): Screen {
         const email = store.get().account?.email;
         if (email !== undefined) {
           const r = await client.deleteRule(rule.id);
-          if (!r.ok && r.status !== 404) { tell(h('p', null, NOT_REMOVED_TEXT)); return; }
+          if (!r.ok && r.status !== 404) { tell(h('p', null, copy('ui.rules.not_removed'))); return; }
           store.update((s) => (s.account?.email !== email || s.accountRules === null ? s : { ...s, accountRules: s.accountRules.filter((x) => x.id !== rule.id) }));
           void refreshAccount(client, store);
         } else {
@@ -207,7 +199,7 @@ export function rulesScreen(): Screen {
         }
         const undo = h('button', { type: 'button', class: 'btn btn-secondary rules-undo' }, 'Undo');
         undo.addEventListener('click', () => { void restore(rule, email); });
-        tell(contentText('p', dialogue.say('rule.voided', { ingredient: name }).text), undo);
+        tell(contentText('p', dialogue.say('rule.voided.tap', { ingredient: name }).text), undo);
         doc.getElementById('rules-heading')?.focus();
       }
 
@@ -215,7 +207,7 @@ export function rulesScreen(): Screen {
       async function restore(rule: Rule, email: string | undefined): Promise<void> {
         if (email === undefined) {
           store.update((s) => (s.localRules.some((x) => x.id === rule.id) ? s : { ...s, localRules: [...s.localRules, rule] }));
-          tell(h('p', null, RESTORED_TEXT));
+          tell(h('p', null, copy('ui.rules.restored')));
           return;
         }
         const { id: _id, ...body } = rule;
@@ -224,23 +216,23 @@ export function rulesScreen(): Screen {
         const saved = r.data.rule;
         store.update((s) => (s.account?.email !== email || s.accountRules === null ? s : { ...s, accountRules: [...s.accountRules.filter((x) => x.id !== saved.id), saved] }));
         void refreshAccount(client, store);
-        tell(h('p', null, RESTORED_TEXT));
+        tell(h('p', null, copy('ui.rules.restored')));
       }
 
       // --- Drawing -----------------------------------------------------------------------------------------------
       function drawBanner(s: PlayerState): void {
         if (!s.rulesUnreadable) { banner.replaceChildren(); return; }
-        const confirm = h('button', { type: 'button', class: 'btn btn-primary', id: 'rules-confirm-all' }, UNREADABLE_CONFIRM);
+        const confirm = h('button', { type: 'button', class: 'btn btn-primary', id: 'rules-confirm-all' }, copy('ui.rules.unreadable_confirm'));
         confirm.addEventListener('click', () => {
           store.confirmRules(store.get().localRules);
-          tell(h('p', null, 'Thank you. Dishes are checked against these rules again.'));
+          tell(h('p', null, copy('ui.rules.confirmed_all')));
           doc.getElementById('rules-heading')?.focus();
         });
         // Fix round 1 (M2): signed in, the list below is the account's, so the banner shows the device rules it confirms.
         const deviceList = s.account === null ? null : h('div', null,
-          h('p', null, 'The button confirms the rules saved on this device:'),
+          h('p', null, copy('ui.rules.device_list_intro')),
           s.localRules.length === 0
-            ? h('p', null, 'None could be read back.')
+            ? h('p', null, copy('ui.rules.device_list_empty'))
             : h('ul', { class: 'rules-banner-list' }, ...s.localRules.map((r) => h('li', null, `${ruleName(r, ruleTerms, graph)}: ${SEVERITY_WORDS[r.severity]}`))));
         banner.replaceChildren(h('div', { class: 'notice rules-unreadable', role: 'note' }, h('p', null, RULES_UNREADABLE_MESSAGE), deviceList, confirm));
       }
@@ -262,13 +254,13 @@ export function rulesScreen(): Screen {
           return h('li', { class: `rules-item${bad ? ' is-bad' : ''}`, 'data-rule': rule.id },
             h('p', { class: 'rules-name' }, h('strong', null, label)),
             h('p', { class: 'rules-meta' }, `${SEVERE.has(rule.severity) ? '⚠ ' : ''}${SEVERITY_WORDS[rule.severity]}, ${where}`),
-            bad ? h('p', { class: 'rules-bad' }, BAD_RULE_TEXT) : null,
+            bad ? h('p', { class: 'rules-bad' }, copy('ui.rules.bad_rule')) : null,
             h('div', { class: 'button-row' }, remove));
         });
         listBox.replaceChildren(
           state.status === 'error' && state.reason === 'invalid' ? h('p', { class: 'notice' }, RULES_INVALID_MESSAGE) : '',
           rules.length === 0
-            ? h('p', null, signedIn ? 'Your account has no rules yet.' : s.rulesUnreadable ? UNREADABLE_EMPTY : 'No rules are saved on this device yet.')
+            ? h('p', null, signedIn ? copy('ui.rules.account_empty') : s.rulesUnreadable ? copy('ui.rules.unreadable_empty') : copy('ui.rules.device_empty'))
             : h('ul', { class: 'rules-list', 'aria-label': 'Your rules' }, ...items),
         );
       }
@@ -294,21 +286,21 @@ export function rulesScreen(): Screen {
           return h('li', { class: 'rules-item' },
             h('p', { class: 'rules-name' }, h('strong', null, name)),
             h('p', { class: 'rules-meta' }, meta),
-            card ? h('div', { class: 'button-row' }, btn) : h('p', null, CANT_COPY_TEXT),
+            card ? h('div', { class: 'button-row' }, btn) : h('p', null, copy('ui.rules.cant_copy')),
             slot);
         };
         copyBox.replaceChildren(
           missing.length === 0 ? '' : h('section', { class: 'panel rules-copy', 'aria-labelledby': 'rules-copy-title' },
             h('h2', { id: 'rules-copy-title' }, 'On this device only'),
-            h('p', { class: 'notice' }, COPY_WARNING),
+            h('p', { class: 'notice' }, copy('ui.rules.copy_warning')),
             h('ul', { class: 'rules-list' }, ...missing.map((rule) =>
               row(rule, `${SEVERITY_WORDS[rule.severity]}, on this device`, 'Copy to my account', (slot, card) => { showCard(slot, card, () => undefined); })))),
           weaker.length === 0 ? '' : h('section', { class: 'panel rules-raise', 'aria-labelledby': 'rules-raise-title' },
             h('h2', { id: 'rules-raise-title' }, 'Stricter on this device'),
-            h('p', { class: 'notice' }, RAISE_WARNING),
+            h('p', { class: 'notice' }, copy('ui.rules.raise_warning')),
             h('ul', { class: 'rules-list' }, ...weaker.map(({ device, account: a }) =>
               row(device, `${SEVERITY_WORDS[device.severity]} on this device; ${SEVERITY_WORDS[a.severity]} on your account`, 'Raise it on my account',
-                (slot, card) => { showCard(slot, card, () => undefined, (c) => raise(a, c)); })))),
+                (slot, card) => { showCard(slot, card, () => undefined, (view) => writer.raiseRule(view, a)); })))),
         );
       }
 
@@ -343,14 +335,14 @@ export function rulesScreen(): Screen {
 
       el.append(
         h('h1', { id: 'rules-heading', tabindex: -1 }, 'Your rules'),
-        h('p', null, 'The allergies, intolerances and diet rules dishes are checked against. Every rule is read back and stamped before it counts.'),
+        h('p', null, copy('ui.rules.intro')),
         banner,
         status,
         listBox,
         copyBox,
         h('section', { class: 'panel', 'aria-labelledby': 'rules-add-title' },
           h('h2', { id: 'rules-add-title' }, 'Add a rule'),
-          h('p', null, 'Choose an ingredient or a diet rule, say how serious it is, and stamp the form.'),
+          h('p', null, copy('ui.rules.add_intro')),
           addBox,
           addBtn),
       );
