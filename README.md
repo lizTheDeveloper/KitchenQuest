@@ -61,6 +61,22 @@ OPENROUTER_API_KEY=… AI_PROVIDERS=tenstorrent npm run eval:mentor -w @kitchenq
 
 `apps/api/test/eval-gate.test.ts` (in `npm test`, no network) fails when the prompt, tools, model, request parameters (temperature, `max_tokens`, reasoning, `tool_choice`) or `AI_PROVIDERS` in `.env.example` change without a new passing `last-pass.json`. `MENTOR_EVAL_GATE=skip-no-network` skips it, for a CI job with no recorded eval; the default CI job never sets it. Never write `last-pass.json` by hand.
 
+## The weekly loop (M5)
+
+Plan the week, shop it, cook it, keep it. Every part works with the AI off and signed out, and none of it is ever sold (§16, never rules 3–9): `apps/api/test/free-forever.test.ts` and `apps/game/e2e/free-forever.e2e.test.ts` pin it for a capped player with no entitlements.
+
+- **Plan** (`#/plan`, Form 7-W): dishes per weekday, each checked by the rules engine (⛔ is never cookable, ❓ stays ❓), the hard-week box and at most one *One More Technique* a week ("Not this week" is a full answer). The Pan can propose a plan card ("plan my week: parippu on Sunday, pick two"); code matches the dish names and picks, never the model (Ruling 14). At the AI cap the chat turn stays scripted and the form still plans (Ruling 27).
+- **Market** (`#/market`, Form 12-M): the plan's ingredients minus the pantry, by stall. Ticking puts the item in the pantry, dated; "That's the shop done" closes the run.
+- **Use-It-Up** (the kitchen): at most one rescue nudge a day for food the player bought (`data/keeps.json`), offering a Pantry Frame (`#/frame/<id>`, `content/frames/`) or the compost. Off in Settings, and never in Family Table mode.
+- **Quests** (`#/visit/<cook>`): each cook's quest (talk, errand, drill, riddle, recognize, cook), with adapted paths so a player's rules never lock them out of progress.
+- **Cook → log**: after cook mode, three skippable questions: who ate (Cooked for Someone: fixed choices, no names), a margin note, and a one-tap meal log. Notes, Cooked for Someone and meal logs are account-only.
+- **The Recipe Book** (`#/book`, `#/book/<slug>`): one page per taught dish, with the dates cooked and the player's notes; "Download my book" saves a self-contained HTML file.
+- **Progress is event-sourced** (Ruling 7): the game sends events (`POST /progress/events`), never amounts; core computes the grants from `data/rewards.yaml` (XP, the level curve, stamps, trust thresholds; tunable data). `reward_grants` is append-only, and a database trigger refuses any UPDATE (`apps/api/migrations/0017_reward_grants_append_only.sql`): nothing earned is taken back (§6). Signed out, progress, the plan and the list live on the device; signing in offers to add them to the account (`upload: true`), and the game shows the higher of the account's and the device's values.
+- **Family Table mode** keeps nothing from the loop: lines and chips only, no text box, no writes (Ruling 25).
+- **API routes** (all need a session): `GET /progress`, `POST /progress/events`; `GET /plans/current`, `PUT`/`DELETE /plans/:weekStart`; `POST /market-runs`, `POST /market-runs/:id/ticks`, `POST /market-runs/:id/finish`; `GET`/`POST /notes`, `DELETE /notes/:id`; `POST /shared-table`, `GET /shared-table/tally`, `DELETE /shared-table/:id`. Plans, market runs, notes and meal-log events are health data and need the `health_data` consent (notice v3); see `docs/compliance/data-inventory.md` (H-11–H-13, U-5, L-5).
+- **Data files:** `data/rewards.yaml`, `data/techniques.yaml` (`adjacent`, `prereqs`), `data/stalls.json`, `data/food-groups.json`, `data/keeps.json`; content in `content/frames/` and each cook's `quest`. The API loads and checks them at boot and refuses to start on a bad file, naming it.
+- M5 adds no environment variable and no script.
+
 ## Deploying the API
 
 A checklist for every production deploy:
@@ -94,6 +110,10 @@ apps/game/                # Phaser game + HTML overlays, a PWA (@kitchenquest/ga
   src/cook/               # cook mode: steps, timers, wake lock, certificate
   src/kitchen/            # the home kitchen and the knife roll
   src/world/              # world map, travel permit, cook visits
+  src/quests/             # the quest runner (M5)
+  src/progress/           # the progress log, sync and the account/device views (M5)
+  src/week/               # the plan, the market list, Use-It-Up (M5)
+  src/book/               # the Recipe Book, margin notes, the after-cook slips (M5)
   src/pwa/                # service worker and install prompts
   src/api/                # M2 API client
   src/auth/               # the /auth/verify page
