@@ -146,6 +146,18 @@ export function applyNotes(recipe: ParsedRecipe, notes: readonly MarginNote[]): 
 const words = (text: string): string => ` ${normalizeTurn(text).replace(/[^\p{L}\p{N}]+/gu, ' ').trim()} `;
 
 /**
+ * A label and its plural forms as they could appear in a note: +s, +es, -y → -ies ("berries"), -f → -ves ("leaves",
+ * "loaves") and -fe → -ves ("knives"). Over-matching only makes the check stricter.
+ */
+export function pluralForms(key: string): string[] {
+  const forms = [key, `${key}s`, `${key}es`];
+  if (key.endsWith('y')) forms.push(`${key.slice(0, -1)}ies`);
+  if (key.endsWith('fe')) forms.push(`${key.slice(0, -2)}ves`);
+  else if (key.endsWith('f')) forms.push(`${key.slice(0, -1)}ves`);
+  return forms;
+}
+
+/**
  * Every ingredient id the graph can resolve that a note names anywhere: in its text (read or not) and in its ops,
  * removals included. A word-bounded match of any graph name or alias, plural "s"/"es" allowed. Sorted, each once.
  */
@@ -160,7 +172,7 @@ export function noteMentions(notes: readonly MarginNote[], graph: IngredientGrap
   for (const label of graph.labels()) {
     const key = words(label).trim();
     if (key === '') continue;
-    if (hay.includes(` ${key} `) || hay.includes(` ${key}s `) || hay.includes(` ${key}es `)) found.add(graph.resolve(label)!);
+    if (pluralForms(key).some((form) => hay.includes(` ${form} `))) found.add(graph.resolve(label)!);
   }
   return [...found].sort();
 }
