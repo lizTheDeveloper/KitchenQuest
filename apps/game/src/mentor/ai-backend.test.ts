@@ -363,3 +363,63 @@ describe('fix round 4: one queue for every turn', () => {
     expect(sent[2].conversationId).toBe('c7');
   });
 });
+
+describe('fix round 5', () => {
+  test('H1: dispose lets go of a hung turn; every turn behind it is answered by the script at once and nothing more is sent', async () => {
+    const hung = new Promise<ApiResult<unknown>>(() => {});
+    const { backend, calls } = setup({ consents: BOTH, mentorTurn: () => hung });
+    const first = backend.reply(text('hello'), ctx());
+    const second = backend.reply(text("I'm allergic to sesame"), ctx());
+    backend.deliver!(text('my throat is closing'), ctx());
+    await vi.advanceTimersByTimeAsync(0);
+    backend.dispose!();
+    const [a, b] = await Promise.all([first, second]);
+    expect(a.items.length).toBeGreaterThan(0);
+    expect(b.cards).toMatchObject([{ origin: 'local', card: { kind: 'rule' } }]);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(turns(calls)).toHaveLength(1);
+  });
+
+  test('H1: a consents read that hangs is let go by dispose too', async () => {
+    const { backend, calls } = setup({ consents: () => new Promise<ApiResult<unknown>>(() => {}), mentorTurn: () => ok(response({})) });
+    const r = backend.reply(text("I'm allergic to sesame"), ctx());
+    await vi.advanceTimersByTimeAsync(0);
+    backend.dispose!();
+    expect((await r).cards).toMatchObject([{ origin: 'local' }]);
+    expect(turns(calls)).toHaveLength(0);
+  });
+
+  test('H3: a retry scheduled before a clear is dropped: never sent, never shown', async () => {
+    const conversation: ConversationRef = { id: null };
+    let n = 0;
+    const { backend, calls, events, late } = setup({ consents: BOTH, mentorTurn: () => (++n === 1 ? fail(0, 'network') : ok(response({ conversationId: 'c3' }))) }, {}, undefined, conversation);
+    await backend.reply(text('My market day is Saturday.'), ctx());
+    newConversation(conversation);
+    events.dispatchEvent(new Event('online'));
+    await vi.advanceTimersByTimeAsync(RETRY_AFTER_MS * 2);
+    expect(turns(calls)).toHaveLength(1);
+    expect(conversation.id).toBeNull();
+    expect(late).toEqual([]);
+  });
+
+  test('H3: a retry already on its way when the conversation is cleared shows nothing when it lands', async () => {
+    const conversation: ConversationRef = { id: null };
+    const g = gate();
+    let n = 0;
+    const { backend, late } = setup({ consents: BOTH, mentorTurn: () => (++n === 1 ? fail(503) : g.p) }, {}, undefined, conversation);
+    await backend.reply(text('My market day is Saturday.'), ctx());
+    await vi.advanceTimersByTimeAsync(RETRY_AFTER_MS);
+    newConversation(conversation);
+    g.open(fail(503)); // would show "Try again" in the old conversation
+    await vi.advanceTimersByTimeAsync(0);
+    expect(late).toEqual([]);
+  });
+});
+
+test('H1: a 401 whose account refresh hangs is let go by dispose; the script answers', async () => {
+  const { backend } = setup({ consents: BOTH, mentorTurn: () => fail(401), me: () => new Promise<ApiResult<unknown>>(() => {}) });
+  const r = backend.reply(text('hello'), ctx());
+  await vi.advanceTimersByTimeAsync(0);
+  backend.dispose!();
+  expect((await r).items.length).toBeGreaterThan(0);
+});

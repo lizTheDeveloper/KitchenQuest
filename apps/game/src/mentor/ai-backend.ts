@@ -111,11 +111,14 @@ export function createAiBackend(deps: {
    * reads the conversation id the turn before it set and the server sees the turns in order (fix round 4, G3).
    */
   let chain: Promise<unknown> = Promise.resolve();
-  /** Settles on dispose: the queue lets go of a hung step, and every step behind it runs at once (fix round 5, H1). */
+  /**
+   * Settles on dispose. Every server call in a step waits on it too (`unlessGone`), so a hung step lets go and every
+   * step behind it runs at once, answered by the script (fix round 5, H1).
+   */
   let release!: () => void;
   const gone = new Promise<'gone'>((r) => { release = () => { r('gone'); }; });
   function serial<T>(step: () => Promise<T>): Promise<T> {
-    const p = Promise.race([chain, gone]).then(step);
+    const p = chain.then(step);
     chain = p.then(() => undefined, () => undefined);
     return p;
   }
@@ -188,7 +191,7 @@ export function createAiBackend(deps: {
     const fire = () => {
       if (fired) return;
       cancel();
-      if (disposed || conversation.gen !== gen) return;
+      if (disposed) return;
       serial(() => retry(req, ctx, scripted, gen)).catch((err: unknown) => { console.error(err); });
     };
     const timer = setTimeout(fire, RETRY_AFTER_MS);

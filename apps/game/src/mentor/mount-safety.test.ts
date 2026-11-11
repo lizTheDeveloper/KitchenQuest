@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { beforeEach, expect, test, vi } from 'vitest';
-import type { TurnRequest } from '@kitchenquest/core/engine';
-import type { ApiClient } from '../api/client';
+import { buildProfileCard, type TurnRequest } from '@kitchenquest/core/engine';
+import { createApiClient, type ApiClient } from '../api/client';
 import type { ConsentPurpose } from '../api/types';
 import { content } from '../content';
 import { createStore, type PlayerStore } from '../state/store';
@@ -144,4 +144,77 @@ test('G4/G6: clearConversation starts a new server conversation (the AI backend 
   expect(h.texts()).toEqual(['hello', 'hello', 'im 8', 'what should I cook tonight']);
   expect(h.ids()).toEqual([null, 'c1', 'c1', null]);
   expect(lines('child.grownup')).not.toContain(said().at(-1));
+});
+
+/** The real API client over a fake fetch: turns whose text `hangs` names never answer (until the client's own timeout). */
+function realClient(hangs: (text: string) => boolean, timeoutMs: number) {
+  const sent: string[] = [];
+  const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } }));
+  const fetchFn = ((url: string, init: RequestInit) => {
+    if (url.endsWith('/mentor/turn')) {
+      const text = (JSON.parse(init.body as string) as TurnRequest).input.text;
+      sent.push(text);
+      if (hangs(text)) return new Promise<Response>((_r, reject) => { init.signal?.addEventListener('abort', () => { reject(init.signal!.reason); }); });
+      return json({ conversationId: 'c1', parts: [], cards: [], actions: [], route: 'deterministic', notice: null });
+    }
+    if (url.endsWith('/me/consents')) {
+      return json({ consents: ['health_data', 'ai_health'].map((purpose) => ({ purpose, withdrawnAt: null, current: true })), needsReconsent: [], notices: {} });
+    }
+    return Promise.reject(new Error('offline'));
+  }) as unknown as typeof fetch;
+  return { client: createApiClient({ fetch: fetchFn, timeoutMs }), sent };
+}
+const busy = () => document.querySelector('.bubbles')!.getAttribute('aria-busy') === 'true';
+
+test('H1: a hung delivery never holds up a second emergency; the client timeout settles the queue and the waiting turn is answered', async () => {
+  const r = realClient((t) => t === EMERGENCY, 300);
+  await mount(r.client);
+  await loadAi();
+  await send(EMERGENCY, 20); // its delivery hangs
+  await send('what should I cook tonight', 20); // waits behind it
+  expect(busy()).toBe(true);
+  await send("he's not breathing", 5);
+  expect(lines('rule.emergency')).toContain(said().at(-1));
+  expect(r.sent).toEqual(['hello', EMERGENCY]);
+  // The delivery times out (status 0): the queue moves on, the waiting turn goes out and is answered.
+  await sleep(450);
+  expect(r.sent).toEqual(['hello', EMERGENCY, 'what should I cook tonight', "he's not breathing"]);
+  expect(busy()).toBe(false);
+});
+
+test('H1: turning the AI off while a delivery hangs answers the waiting turn from the script at once; the panel works again', async () => {
+  const r = realClient((t) => t === EMERGENCY, 60_000);
+  await mount(r.client);
+  await loadAi();
+  await send(EMERGENCY, 20);
+  await send('what should I cook tonight', 20);
+  expect(busy()).toBe(true);
+  store.update((s) => ({ ...s, settings: { ...s.settings, aiMentor: false } }));
+  await sleep(20);
+  expect(busy()).toBe(false);
+  await send('thank you', 20);
+  expect(busy()).toBe(false);
+  expect(r.sent).toEqual(['hello', EMERGENCY]);
+});
+
+test('H2: a server card tap names the conversation the panel is in (index.ts gives the writer the shared id)', async () => {
+  const confirms: unknown[][] = [];
+  const card = buildProfileCard({ marketDays: [6] });
+  const client = new Proxy({}, {
+    get: (_t, name: string) => (...args: unknown[]) => {
+      if (name === 'mentorTurn') {
+        return Promise.resolve({ ok: true, status: 200, data: {
+          conversationId: 'c1', parts: [], actions: [], route: 'ai', notice: null,
+          cards: [{ proposalId: 'P1', expiresAt: '2099-01-01T00:00:00Z', card }],
+        } });
+      }
+      if (name === 'confirmProposal') confirms.push(args);
+      return Promise.resolve({ ok: false, status: 0, error: { code: 'network', message: '' } });
+    },
+  }) as ApiClient;
+  await mount(client);
+  await send('My market day is Saturday.', 50);
+  [...document.querySelectorAll('button')].find((b) => b.textContent === 'Ink it ✔')!.click();
+  await sleep(10);
+  expect(confirms).toEqual([['P1', undefined, 'c1']]);
 });

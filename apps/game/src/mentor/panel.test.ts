@@ -165,6 +165,7 @@ test('H2: a card write or a turn-down that lands after clearConversation is not 
   pan.clearConversation();
   wrote({ ok: true, trail: trailFor(card), items: [say('schedule.set', { summary: 's' })] });
   await flush();
+  expect(panTexts(root)).toEqual([]);
   pan.show(reply([], { cards: [local(card, 'L2')] }));
   root.querySelector<HTMLButtonElement>('.pan-card-reject')!.click();
   await flush();
@@ -173,6 +174,21 @@ test('H2: a card write or a turn-down that lands after clearConversation is not 
   await flush();
   expect(panTexts(root)).toEqual([]);
   expect(root.querySelector('.trail-entry')).toBeNull();
+});
+
+test('H2: an undo that lands after clearConversation is not drawn', async () => {
+  let undone!: (o: UndoOutcome) => void;
+  const writer = fakeWriter({ undo: vi.fn(() => new Promise<UndoOutcome>((r) => { undone = r; })) });
+  const { root, pan } = mount({ writer });
+  pan.show(reply([], { cards: [local(buildProfileCard({ marketDays: [6] }))] }));
+  button(root, 'Ink it ✔')!.click();
+  await flush();
+  button(root, 'Undo')!.click();
+  await flush();
+  pan.clearConversation();
+  undone({ status: 'failed', items: [say('write.not_done')] });
+  await flush();
+  expect(panTexts(root)).toEqual([]);
 });
 
 describe('cards', () => {
