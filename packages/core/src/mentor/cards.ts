@@ -4,6 +4,8 @@ import { capText } from './intents';
 import { windowEnd, WEEKDAY_NAMES, type MealSlot } from './parse';
 import type { RuleTerm } from './rule-terms';
 import { spell } from './spell';
+import type { SlotOffer } from '../toolkit/one-more';
+import type { PlanItem } from '../week/plan-item';
 
 /**
  * Proposal cards and their read-backs, built by code from confirmed data (§2.1, §7.6b.2). The
@@ -15,7 +17,7 @@ export interface LineRef {
   trigger: string;
   vars: Record<string, string>;
 }
-export type ProposalKind = 'rule' | 'meal' | 'profile' | 'pantry';
+export type ProposalKind = 'rule' | 'meal' | 'profile' | 'pantry' | 'plan';
 type RuleForm = 'rule_allergen' | 'rule_intolerance' | 'rule_diet';
 
 export interface RuleCard {
@@ -81,7 +83,27 @@ export interface PantryCard {
   summary: string;
   readback: LineRef[];
 }
-export type ProposalCard = RuleCard | MealCard | ProfileCard | PantryCard;
+/**
+ * A week's plan as the Pan proposes it (Form 7-W, M5 Step 8), built by core `buildPlanCard` from code-resolved
+ * names (Ruling 14). `items` is the whole week the confirm saves (what the week already held, plus the new
+ * items). `checks` is each item's rules check on its own date when the card was built: never 'blocked', since a
+ * ⛔ item never reaches a card (it is in `dropped`). `unknown` holds the player's words `matchDish` found no dish
+ * for (C19), `dropped` the slugs the rules block. `offer` is the week's One More Technique slot, or null. Like
+ * every M4 card (C22), `summary` is code-built and `readback` is the lines the Pan says with it.
+ */
+export interface PlanCard {
+  kind: 'plan';
+  weekStart: string;
+  items: PlanItem[];
+  hard: boolean;
+  checks: { slug: string; status: 'ok' | 'swap' | 'unverified' }[];
+  unknown: string[];
+  dropped: string[];
+  offer: SlotOffer | null;
+  summary: string;
+  readback: LineRef[];
+}
+export type ProposalCard = RuleCard | MealCard | ProfileCard | PantryCard | PlanCard;
 export type RuleCardResult =
   | { ok: true; card: RuleCard }
   | { ok: false; reason: 'unknown_term'; line: LineRef }

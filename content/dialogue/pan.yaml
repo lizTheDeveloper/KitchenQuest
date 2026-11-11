@@ -1094,6 +1094,30 @@ triggers:
       - "Of the dishes the cooks have taught, the number that pass your rules this week is {count}. The rest of the week is yours to fill as you like."
       - "That's as many as pass your rules this week ({count}). More would mean dishes your rules block or I can't verify, and I won't do that."
 
+  plan.which_day:
+    ai: never
+    when: A dish the player put in the plan has a day that names no single day ("the weekend", "tonight"); it is not placed and the Pan asks which day (M5 Step 8).
+    vars:
+      dish: "the player's words for the dish"
+    notes: "Plain. Nothing is planned until the player says the day."
+    lines:
+      - "Which day should {dish} go on? Tell me one day and I'll put it there."
+      - "{dish} needs a day of its own. Which one would you like?"
+      - "I haven't placed {dish} yet. Which day of the week is it for?"
+      - "Pick a single day for {dish} and I'll add it to the plan."
+
+  plan.after_which_day:
+    ai: never
+    when: "'Pick N after …' names no single day (\"after the weekend\"); nothing was picked, and the Pan asks which day (M5 Step 8)."
+    vars:
+      day: "the player's words for the day"
+    notes: "Plain. Nothing is picked until the player names one day."
+    lines:
+      - "After {day}: which day is that? Tell me one day and I'll pick from there."
+      - "I haven't picked anything yet. Which day do you mean by {day}?"
+      - "Name one day for {day} and I'll choose the dishes after it."
+      - "Which day should the picks start after? I read {day}, and I'd rather not guess."
+
   plan.hard_week:
     ai: allowed
     when: The player said it's a hard week. The plan keeps to easy dishes, adds no extras, and offers no new technique (audit M-2).

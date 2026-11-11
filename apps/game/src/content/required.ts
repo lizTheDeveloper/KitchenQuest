@@ -53,6 +53,9 @@ export const REQUIRED_PAN_TRIGGERS: readonly string[] = [
   'quest.cook_adapted',
   // M5 Step 3 fix round 1: core resolvePlanRequest's `sacred` list is read back with it (PLAN_DISH_SACRED_TRIGGER).
   'plan.dish_sacred',
+  // M5 Step 8: core buildPlanCard asks which day for a plan dish or an `after` that names no single day.
+  'plan.which_day',
+  'plan.after_which_day',
   // M5 Step 4: the weekly loop's lines (plan, One More Technique, market run, rescue, frames, cook → log, margin
   // notes, quests, the Recipe Book, navigation chips). Written lines only (Ruling 21).
   ...M5_LOOP_TRIGGERS,

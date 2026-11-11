@@ -37,6 +37,15 @@ export interface TurnRequest {
   turnKey?: string;
 }
 
+/**
+ * Where a navigation chip goes (Ruling 15): a closed set, checked by code. `visit` names a cook id and `recipe` a
+ * canon slug; anything else is never a target.
+ */
+export type NavTarget =
+  | { to: 'kitchen' | 'map' | 'plan' | 'market' | 'book' }
+  | { to: 'visit'; cook: string }
+  | { to: 'recipe'; slug: string };
+
 export type ReplyPart =
   | { kind: 'line'; line: LineRef }
   /** Model text that passed the Step 7 filter. */
@@ -44,7 +53,9 @@ export type ReplyPart =
   /** An ambiguous term: the client builds a local rule card from the tapped option. */
   | { kind: 'choices'; options: { id: string; name: string }[]; severity: Severity | null }
   /** Show that consent card. */
-  | { kind: 'consent'; purpose: 'health_data' | 'ai_health' };
+  | { kind: 'consent'; purpose: 'health_data' | 'ai_health' }
+  /** A navigation chip (Ruling 15): shown with its `nav.offer` line; nothing moves until the player taps it. */
+  | { kind: 'go'; target: NavTarget; line: LineRef };
 
 export interface ServerCard {
   proposalId: string;

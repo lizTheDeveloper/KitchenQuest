@@ -1,8 +1,9 @@
 import { normalizeName, type IngredientGraph } from '../ingredients/graph';
 import { SEVERE, type Severity } from '../rules/types';
 import type { LineRef } from './cards';
-import { canonicalText, capText, classifyTurn, foldConfusables, stripPageEvents, type TurnIntent } from './intents';
+import { canonicalText, capText, classifyTurn, foldConfusables, normalizeTurn, stripPageEvents, type TurnIntent } from './intents';
 import { parseClock, parseRuleStatement, severityFromText, weekdaysOf, type MealSlot } from './parse';
+import type { NavTarget } from './protocol';
 import type { RuleTerm } from './rule-terms';
 
 /**
@@ -523,4 +524,155 @@ export function emergencyRuleAsks(playerText: string, keptRuleTerms: readonly st
     ...excluded.map((term) => line('rule.exclusion_not_kept', { term })),
   ];
   return left.length === 0 && keptRuleTerms.length === 0 ? [...asks, line('rule.ask_keep_off')] : asks;
+}
+
+// ---- M5 Step 8: the plan and navigation intents (code only, shared by the server turn and the scripted engine) ----
+
+/** Intents that win over any plan or navigation reading: the safety pre-routes (emergency, medical, child). */
+const SAFETY_INTENTS: ReadonlySet<TurnIntent> = new Set(['emergency', 'medical', 'child']);
+
+/**
+ * A hard-week phrase in the player's words ("it's a rough week", "hard week"). Core's one list: a model's
+ * `hard_week: true` is kept only when the player's own words match it (Step 8 post-check).
+ */
+const HARD_WORDS = '(?:hard|rough|tough|busy|stressful|exhausting|tiring|difficult|heavy|mad|crazy)\\s+week';
+export const HARD_WEEK_PATTERN = new RegExp(`\\b${HARD_WORDS}\\b`);
+
+/** One day word as a plan names it: a weekday (or its abbreviation or plural), "weekend", "tonight" or "tomorrow". */
+const DAY_NAME = "(sunday|monday|tuesday|wednesday|thursday|friday|saturday|sun|mon|tues|tue|weds|wed|thurs|thur|thu|fri|sat|weekend|tonight|tomorrow)(?:'s|s)?";
+const DAY = `(?:(?:on|for)\\s+)?(?:the\\s+)?${DAY_NAME}`;
+const NUMBER_WORDS: Readonly<Record<string, number>> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7 };
+const PLAN_LEAD =
+  /^(?:(?:please|pls|can you|could you|would you|help me)\s+)?(?:plan|sort out|sort)\s+(?:out\s+)?(?:my|the|this|our)\s+week(?:'s)?(?:\s+(?:plan|meals|dinners))?(?:\s+for me)?\s*(?:[:,.;!-]+\s*|$)/;
+const PICK = new RegExp(
+  `^(?:(?:just|please|pls|can you|could you)\\s+)*(?:pick|choose|suggest|plan)(?:\\s+(?:me|us|out))?\\s+(\\d|${Object.keys(NUMBER_WORDS).join('|')})(?:\\s+(?:dishes|dish|things|meals|dinners|recipes))?(?:\\s+for\\s+(?:this|the|my)\\s+week)?(?:\\s+(?:after|from)\\s+${DAY})?$`,
+);
+const AFTER = new RegExp(`^(?:(?:do|put|have|plan)\\s+(?:them|it|those|the rest)\\s+)?(?:after|from)\\s+${DAY}$`);
+const HARD_CLAUSE = new RegExp(
+  `^(?:(?:it'?s|it is|this is|it'?ll be|its gonna be|it's going to be)\\s+)?(?:a\\s+)?(?:(?:really|very|super|pretty)\\s+)?${HARD_WORDS}(?:\\s+for me)?$`,
+);
+const ON_DAY = `\\s+(?:on|for)\\s+(?:the\\s+)?${DAY_NAME}(?:\\s+(?:plan|night|dinner|lunch|supper|tea))?$`;
+const DISH_ON_DAY = new RegExp(`^(?:(?:put|have|do|make|cook|plan)\\s+)?(.+?)${ON_DAY}`);
+const PUT_ON_DAY = new RegExp(`^put\\s+(.+?)${ON_DAY}`);
+const DAY_FIRST = new RegExp(`^${DAY}\\s*[:-]?\\s+(.+)$`);
+const DISH_THEN_DAY = new RegExp(`^(.+?)\\s+${DAY}$`);
+/** A dish phrase is a short name: at most this many words. */
+const DISH_MAX_WORDS = 6;
+const CLAUSE = /\s*(?:[,;.!?]|\band then\b|\bthen\b|\band\b|\balso\b|\bplus\b)\s*/;
+
+const dayWord = (m: string): string => m.replace(/'s$/, '');
+const dishWords = (s: string): string | null => {
+  const d = s.trim();
+  return d === '' || d.split(/\s+/).length > DISH_MAX_WORDS || /\d/.test(d) ? null : d;
+};
+
+/**
+ * A plan request read by code alone (M5 Step 8; §7.5: planning works with the AI off): "plan my week: parippu on
+ * Sunday, onigiri Monday", "pick 3", "pick 3 after saturday", "put frijoles de olla on Saturday", "it's a hard week".
+ * Dish words are passed on as the player typed them; core `resolvePlanRequest` matches them (no aliases, Ruling
+ * 22). The reading is strict: every clause must be a plan clause, else null (the turn goes on, and a message that
+ * also states a rule, a meal or anything else is never cut short). Without the "plan my week" lead, a dish clause
+ * needs "put". Null for a safety turn (emergency, medical, child: they win) and for text cut by the injection
+ * marker or a pasted block (only the player's own words plan).
+ */
+export function planIntent(text: string): { days: { weekday: string; dish: string }[] | null; pick: number | null; hard: boolean | null; after: string | null } | null {
+  const whole = stripPageEvents(text).text;
+  if (SAFETY_INTENTS.has(classifyTurn(whole))) return null;
+  const own = normalizeTurn(ownWords(text));
+  if (own === '' || own !== normalizeTurn(whole)) return null;
+  const lead = PLAN_LEAD.exec(own);
+  const rest = (lead ? own.slice(lead[0].length) : own).replace(/[.!?]+$/, '').trim();
+  const days: { weekday: string; dish: string }[] = [];
+  let pick: number | null = null;
+  let hard: boolean | null = null;
+  let after: string | null = null;
+  for (const clause of rest === '' ? [] : rest.split(CLAUSE).filter((c) => c !== '')) {
+    let m: RegExpExecArray | null;
+    if (HARD_CLAUSE.test(clause)) hard = true;
+    else if ((m = PICK.exec(clause)) !== null) {
+      pick = /^\d$/.test(m[1]) ? Number(m[1]) : NUMBER_WORDS[m[1]];
+      if (m[2] !== undefined) after = dayWord(m[2]);
+    } else if ((m = AFTER.exec(clause)) !== null) after = dayWord(m[1]);
+    else if ((m = (lead ? DISH_ON_DAY : PUT_ON_DAY).exec(clause)) !== null && dishWords(m[1]) !== null) {
+      days.push({ weekday: dayWord(m[2]), dish: dishWords(m[1])! });
+    } else if (lead && (m = DAY_FIRST.exec(clause)) !== null && dishWords(m[2]) !== null) {
+      days.push({ weekday: dayWord(m[1]), dish: dishWords(m[2])! });
+    } else if (lead && (m = DISH_THEN_DAY.exec(clause)) !== null && dishWords(m[1]) !== null) {
+      days.push({ weekday: dayWord(m[2]), dish: dishWords(m[1])! });
+    } else return null;
+  }
+  if (days.length === 0 && pick === null && hard === null) return null;
+  if (pick !== null && (pick < 1 || pick > 7)) return null;
+  return { days: days.length > 0 ? days : null, pick, hard, after };
+}
+
+const NAV_PLACES: Readonly<Record<string, 'kitchen' | 'map' | 'plan' | 'market' | 'book'>> = {
+  kitchen: 'kitchen',
+  map: 'map',
+  'world map': 'map',
+  plan: 'plan',
+  'week plan': 'plan',
+  "week's plan": 'plan',
+  'weekly plan': 'plan',
+  'meal plan': 'plan',
+  'plan for the week': 'plan',
+  market: 'market',
+  'market list': 'market',
+  'shopping list': 'market',
+  'market run': 'market',
+  book: 'book',
+  'recipe book': 'book',
+};
+const NAV_VERB =
+  /^(?:(?:please|pls|can you|could you|can we|let'?s)\s+)?(?:take me|bring me|go|get me|head|show me|open|open up|visit|go see|see)(?:\s+back)?(?:\s+(?:to|into))?\s+(?:the\s+|my\s+)?(.+?)(?:\s+please)?$/;
+const kebab = (s: string): string => s.replace(/-/g, ' ');
+
+/**
+ * Where a "take me to the market" / "open my recipe book" / "visit Haruka" / "open the parippu recipe" turn asks
+ * to go (Ruling 15), read by code: a fixed place, a known cook id or a canon slug (the whole slug or its last
+ * segment, hyphens read as spaces). Anything else is null; a navigation is never guessed. The result is only ever
+ * a chip the player taps (`go` part): nothing moves by itself. Null for a safety turn (emergency, medical, child).
+ */
+export function navIntent(text: string, ids: { cooks: ReadonlySet<string>; slugs: ReadonlySet<string> }): NavTarget | null {
+  const whole = stripPageEvents(text).text;
+  if (SAFETY_INTENTS.has(classifyTurn(whole))) return null;
+  const own = normalizeTurn(ownWords(text));
+  if (own === '' || own !== normalizeTurn(whole)) return null;
+  const m = NAV_VERB.exec(own.replace(/[.!?]+$/, '').trim());
+  if (m === null) return null;
+  const place = m[1].trim();
+  if (Object.hasOwn(NAV_PLACES, place)) return { to: NAV_PLACES[place] };
+  const who = place.replace(/'s(?:\s+(?:kitchen|place|house|home))?$/, '').trim();
+  const words = who.split(/\s+/);
+  if (words.length <= 3) {
+    for (const cook of [...ids.cooks].sort()) {
+      if (who === kebab(cook) || words[words.length - 1] === kebab(cook)) return { to: 'visit', cook };
+    }
+  }
+  const dish = place.replace(/\s+(?:recipe|recipe card|card)$/, '').trim();
+  for (const slug of [...ids.slugs].sort()) {
+    const last = slug.slice(slug.lastIndexOf('/') + 1);
+    if (dish === slug || dish === last || dish === kebab(last)) return { to: 'recipe', slug };
+  }
+  return null;
+}
+
+/** The `{place}` of a chip's `nav.offer` line; `name` is the cook's or the dish's display name for those targets. */
+export function navPlace(target: NavTarget, name: string | null): string {
+  switch (target.to) {
+    case 'kitchen':
+      return 'the kitchen';
+    case 'map':
+      return 'the map';
+    case 'plan':
+      return "the week's plan";
+    case 'market':
+      return 'the market list';
+    case 'book':
+      return 'your Recipe Book';
+    case 'visit':
+      return `${name ?? target.cook}'s kitchen`;
+    case 'recipe':
+      return name ?? 'the recipe';
+  }
 }
