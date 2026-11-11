@@ -4,7 +4,7 @@
 import type { IngredientGraph } from '../ingredients/graph';
 import type { Catalogue, ProgressEvent, ProgressView } from '../progress/types';
 import type { ParsedRecipe } from '../recipe/types';
-import { check, type Substitution } from '../rules/check';
+import { check, type CheckStatus, type Substitution } from '../rules/check';
 import type { Rule } from '../rules/types';
 import { recognizedCook } from '../toolkit/toolkit';
 import type { Quest, QuestStep } from './types';
@@ -41,8 +41,10 @@ export type StepInput =
   /** Ruling 16: the item is in the pantry, ticked on this week's list, or the player tapped "I've got it". */
   | { type: 'errand'; have: 'pantry' | 'ticked' | 'tapped' }
   | { type: 'recognize' }
-  /** The id of the `cooked` event the runner just recorded (the view must already include it). */
-  | { type: 'cook'; cookedEventId: string };
+  /** The id of the `cooked` / `frame_cooked` event the runner just recorded (the view must already include it). */
+  | { type: 'cook'; cookedEventId: string }
+  /** The adapted lesson, allowed only when the rules block the dish and no alternative exists (concern-1 ruling). */
+  | { type: 'cook'; lesson: true };
 
 /**
  * What a step needs beyond the quest and the view (C5): the player's rules for an errand's item on `today`, and the
@@ -54,6 +56,37 @@ export interface StepContext {
   subs: Substitution[];
   today: string;
   cat: Pick<Catalogue, 'recipes'>;
+  /** Every canon recipe (all taught, Ruling 3), for checking a cook step's dish and its alternatives. */
+  recipes: ReadonlyMap<string, ParsedRecipe>;
+  /**
+   * Pantry Frames the player could cook, each with its technique and its rules status today as the frame engine
+   * (Step 3) works it out with `check`. Optional until frames exist; only 'ok' and 'swap' frames are ever offered.
+   */
+  frames?: readonly FrameOption[];
+}
+
+export interface FrameOption {
+  id: string;
+  technique: string;
+  status: CheckStatus;
+}
+
+/** A dish that can stand in for a rule-blocked quest dish: never ⛔ or ❓. */
+export type CookAlternative =
+  | { kind: 'recipe'; slug: string; status: 'ok' | 'swap' }
+  | { kind: 'frame'; id: string; status: 'ok' | 'swap' };
+
+/** The Pan trigger for a quest cook step completed as an adapted lesson (content/dialogue/pan.yaml). */
+export const COOK_ADAPTED_TRIGGER = 'quest.cook_adapted';
+
+/**
+ * How a quest cook step whose dish the rules block was completed (concern-1 ruling): through `via`, a cooked
+ * alternative, or, when the catalogue has none, as an adapted lesson (`via` null, `trigger` set). Same quest rewards.
+ */
+export interface CookAdapted {
+  recipe: string;
+  via: CookAlternative | null;
+  trigger: typeof COOK_ADAPTED_TRIGGER | null;
 }
 
 /** The Pan trigger a rule-adapted errand speaks when the cook file has no `adapted` lines (content/dialogue/pan.yaml). */
@@ -72,7 +105,7 @@ export interface ErrandAdapted {
 }
 
 export type AdvanceResult =
-  | { ok: true; events: ProgressEvent[]; say: string[]; adapted?: ErrandAdapted }
+  | { ok: true; events: ProgressEvent[]; say: string[]; adapted?: ErrandAdapted; cook?: CookAdapted }
   | { ok: false; reason: 'waiting' | 'not_current' | 'wrong_answer' | 'already_done'; say: string[] };
 
 /** A one-line recipe holding just `item`, so the rules engine judges a market errand like any dish. */
@@ -109,6 +142,34 @@ function errandSwap(item: string, ctx: StepContext): ErrandAdapted['swap'] {
   if (!first || swaps.some((sw) => sw?.toId !== first.toId)) return null;
   if (!errandAllowed(first.toId, ctx)) return null;
   return first.note === undefined ? { id: first.toId, name: first.toName } : { id: first.toId, name: first.toName, note: first.note };
+}
+
+/** The rules status of a quest dish today; a recipe missing from `ctx.recipes` can't be verified. */
+export function dishStatus(slug: string, ctx: StepContext): CheckStatus {
+  const r = ctx.recipes.get(slug);
+  return r ? check(r, ctx.rules, ctx.graph, ctx.subs, ctx.today).status : 'unverified';
+}
+
+const passes = (s: CheckStatus): s is 'ok' | 'swap' => s === 'ok' || s === 'swap';
+
+/**
+ * What can stand in for a cook step's dish: every other non-sacred recipe, and every frame, that practises one of
+ * the dish's techniques (its `skills`) and whose rules check today is ✅ or a labelled swap. Recipes by slug, then
+ * frames by id. ⛔ and ❓ are never listed. Meant for when `dishStatus` of the step's own dish is ⛔ or ❓.
+ */
+export function alternativesFor(step: Extract<QuestStep, { type: 'cook' }>, ctx: StepContext): CookAlternative[] {
+  const skills = new Set(ctx.recipes.get(step.recipe)?.meta.skills ?? []);
+  const out: CookAlternative[] = [];
+  for (const slug of [...ctx.recipes.keys()].sort()) {
+    const r = ctx.recipes.get(slug)!;
+    if (slug === step.recipe || r.meta.sacred || !r.meta.skills.some((t) => skills.has(t))) continue;
+    const status = check(r, ctx.rules, ctx.graph, ctx.subs, ctx.today).status;
+    if (passes(status)) out.push({ kind: 'recipe', slug, status });
+  }
+  for (const f of [...(ctx.frames ?? [])].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))) {
+    if (skills.has(f.technique) && passes(f.status)) out.push({ kind: 'frame', id: f.id, status: f.status });
+  }
+  return out;
 }
 
 /** The other cook from whom the player has `technique` at Tried (audit M-3), or null. */
@@ -149,6 +210,7 @@ export function advance(q: Quest, p: ProgressView, input: StepInput, at: string,
   const stepEvent = (): ProgressEvent => ({ id: newId(), kind: 'quest_step', at, quest: q.id, step: index + 1 });
   let say: string[] = [];
   let adapted: ErrandAdapted | undefined;
+  let cook: CookAdapted | undefined;
   switch (step.type) {
     case 'talk':
       events.push(stepEvent());
@@ -186,12 +248,30 @@ export function advance(q: Quest, p: ProgressView, input: StepInput, at: string,
     case 'cook': {
       // A cook counts only from the day the quest started (its first quest_step; today if this is that step).
       const since = own(p.questStartedOn, q.id) ?? at;
-      const dates = own(p.cookedOn, step.recipe) ?? [];
-      if (!dates.some((d) => d >= since && d <= at)) return refuse('not_current');
-      events.push(stepEvent());
+      const cookedSince = (dates: string[] | undefined) => (dates ?? []).some((d) => d >= since && d <= at);
+      const lesson = input.type === 'cook' && 'lesson' in input;
+      if (passes(dishStatus(step.recipe, ctx))) {
+        if (lesson || !cookedSince(own(p.cookedOn, step.recipe))) return refuse('not_current');
+        events.push(stepEvent());
+        break;
+      }
+      // The rules block the dish (⛔ or ❓): a player's rules never lock them out of progress (concern-1 ruling).
+      const alternatives = alternativesFor(step, ctx);
+      if (alternatives.length > 0) {
+        if (lesson) return refuse('not_current');
+        const via = alternatives.find((a) => cookedSince(a.kind === 'recipe' ? own(p.cookedOn, a.slug) : own(p.framesCookedOn, a.id)));
+        if (!via) return refuse('not_current');
+        events.push(stepEvent());
+        cook = { recipe: step.recipe, via, trigger: null };
+        break;
+      }
+      if (!lesson) return refuse('not_current');
+      // The adapted lesson: a read-through of the dish (Seen, never Tried: tiers come only from real cooking).
+      events.push(stepEvent(), { id: newId(), kind: 'lesson', at, recipe: step.recipe });
+      cook = { recipe: step.recipe, via: null, trigger: COOK_ADAPTED_TRIGGER };
       break;
     }
   }
   if (index + 1 === q.steps.length) events.push(done());
-  return adapted ? { ok: true, events, say, adapted } : { ok: true, events, say };
+  return { ok: true, events, say, ...(adapted ? { adapted } : {}), ...(cook ? { cook } : {}) };
 }

@@ -1,8 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import type { ProgressEvent, ProgressHistory } from '../progress/types';
+import type { Catalogue, ProgressEvent, ProgressHistory, RewardGrant } from '../progress/types';
+import type { ParsedRecipe } from '../recipe/types';
 import type { Rule } from '../rules/types';
-import { advance, currentStep, ERRAND_ADAPTED_TRIGGER, errandAllowed, questStatus, recognizedFrom, type ErrandAdapted, type StepContext, type StepInput } from './engine';
-import { catalogueOf, EMPTY_HISTORY, graph, newId, quests, record, subs, view } from './fixtures';
+import {
+  advance,
+  alternativesFor,
+  COOK_ADAPTED_TRIGGER,
+  currentStep,
+  dishStatus,
+  ERRAND_ADAPTED_TRIGGER,
+  errandAllowed,
+  questStatus,
+  recognizedFrom,
+  type CookAdapted,
+  type ErrandAdapted,
+  type StepContext,
+  type StepInput,
+} from './engine';
+import { catalogueOf, EMPTY_HISTORY, graph, newId, quests, recipes, record, subs, view } from './fixtures';
 import type { Quest } from './types';
 
 const DAY = '2026-11-10';
@@ -20,7 +35,7 @@ const marisolR = withRecognize(marisol, 'tempering');
 const cat = catalogueOf([leela, marisolR, quests['haruka-gluey-rice']]);
 
 const ALLIUM: Rule = { id: 'r-allium', target: { kind: 'category', ids: ['allium'] }, type: 'avoid', severity: 'allergy' };
-const ctx = (rules: Rule[] = []): StepContext => ({ rules, graph, subs, today: DAY, cat });
+const ctx = (rules: Rule[] = []): StepContext => ({ rules, graph, subs, today: DAY, cat, recipes });
 
 /** The input that passes each step of a quest, the right riddle answer included. */
 function rightInput(q: Quest, index: number, h: ProgressHistory): StepInput {
@@ -42,24 +57,44 @@ function rightInput(q: Quest, index: number, h: ProgressHistory): StepInput {
   }
 }
 
+interface Env {
+  rules?: Rule[];
+  recipes?: ReadonlyMap<string, ParsedRecipe>;
+  cat?: Catalogue;
+}
+
 /**
- * Play a quest from `h` to the end under `rules`; before the cook step, the player cooks the dish (under a rule that
- * blocks it, read as the cook's adapted version). Every event goes through grantsFor.
+ * Play a quest from `h` to the end, as Step 9's runner would. At the cook step the player cooks the dish when the
+ * rules pass it, else the first alternative, else takes the adapted lesson. Every event goes through grantsFor.
  */
-function playQuest(q: Quest, h: ProgressHistory, at = DAY, rules: Rule[] = []): { h: ProgressHistory; emitted: ProgressEvent[]; adapted: ErrandAdapted[] } {
+function playQuest(q: Quest, h: ProgressHistory, at = DAY, env: Env = {}) {
+  const c: StepContext = { ...ctx(env.rules), ...(env.recipes ? { recipes: env.recipes } : {}), ...(env.cat ? { cat: env.cat } : {}) };
+  const k = env.cat ?? cat;
   let out = h;
   const emitted: ProgressEvent[] = [];
   const adapted: ErrandAdapted[] = [];
+  const cooks: CookAdapted[] = [];
   for (let i = 0; i < q.steps.length; i++) {
     const s = q.steps[i];
-    if (s.type === 'cook') out = record(out, [{ id: newId(), kind: 'cooked', at, recipe: s.recipe, planned: false }], cat);
-    const r = advance(q, view(out, cat), rightInput(q, i, out), at, newId, ctx(rules));
+    let input = rightInput(q, i, out);
+    if (s.type === 'cook') {
+      const alts = alternativesFor(s, c);
+      const ok = dishStatus(s.recipe, c) === 'ok' || dishStatus(s.recipe, c) === 'swap';
+      const slug = ok ? s.recipe : alts.find((x) => x.kind === 'recipe')?.slug;
+      if (slug !== undefined) {
+        const e: ProgressEvent = { id: newId(), kind: 'cooked', at, recipe: slug, planned: false };
+        out = record(out, [e], k);
+        input = { type: 'cook', cookedEventId: e.id };
+      } else input = { type: 'cook', lesson: true };
+    }
+    const r = advance(q, view(out, k), input, at, newId, c);
     if (!r.ok) throw new Error(`step ${i + 1} refused: ${r.reason}`);
     emitted.push(...r.events);
     if (r.adapted) adapted.push(r.adapted);
-    out = record(out, r.events, cat);
+    if (r.cook) cooks.push(r.cook);
+    out = record(out, r.events, k);
   }
-  return { h: out, emitted, adapted };
+  return { h: out, emitted, adapted, cooks };
 }
 
 /** Play the first `count` steps of a quest. */
@@ -72,6 +107,12 @@ function playSteps(q: Quest, h: ProgressHistory, count: number): ProgressHistory
   }
   return out;
 }
+
+/** The grants of the quest_done event, without ids: the quest's own rewards (XP, stamp, trust). */
+const questRewards = (h: ProgressHistory) => {
+  const done = h.events.find((e) => e.kind === 'quest_done')!;
+  return h.grants.filter((g) => g.eventId === done.id).map(({ id: _id, eventId: _e, isoDay: _d, ...g }: RewardGrant) => g);
+};
 
 describe('quest engine', () => {
   it('leela-tempering runs talk → errand → drill → riddle → cook → done (the order in leela.yaml), emitting quest_step events in order', () => {
@@ -185,23 +226,114 @@ describe('quest engine', () => {
     if (r.ok && r.adapted?.swap) expect(errandAllowed(r.adapted.swap.id, ctx([avoid('ghee')]))).toBe(true);
   });
 
-  it("an allium rule completes Leela's errand as adapted, Marisol's quest becomes available, and XP is identical to the normal path", () => {
-    const normal = playQuest(leela, EMPTY_HISTORY, DAY, []);
-    const allium = playQuest(leela, EMPTY_HISTORY, DAY, [ALLIUM]);
+  it("an allium rule completes Leela's errand as adapted, Marisol's quest becomes available, and the quest rewards equal the normal path", () => {
+    const normal = playQuest(leela, EMPTY_HISTORY);
+    const allium = playQuest(leela, EMPTY_HISTORY, DAY, { rules: [ALLIUM] });
     expect(allium.adapted).toEqual([expect.objectContaining({ item: 'shallot', trigger: ERRAND_ADAPTED_TRIGGER })]);
     expect(normal.adapted).toEqual([]);
-    const pN = view(normal.h, cat);
+    expect(normal.cooks).toEqual([]);
     const pA = view(allium.h, cat);
     expect(questStatus(leela, pA)).toBe('done');
     expect(questStatus(marisol, pA)).toBe('open');
     expect(advance(marisol, pA, { type: 'talk' }, DAY, newId, ctx([ALLIUM])).ok).toBe(true);
-    // Same events by kind and step, and the same rewards.
-    const shape = (es: ProgressEvent[]) => es.map((e) => [e.kind, 'step' in e ? e.step : null]);
-    expect(shape(allium.emitted)).toEqual(shape(normal.emitted));
-    expect(pA.xp).toBe(pN.xp);
-    expect(pA.stamps).toBe(pN.stamps);
-    expect(pA.trust).toEqual(pN.trust);
-    expect(pA.level).toBe(pN.level);
+    expect(questRewards(allium.h)).toEqual(questRewards(normal.h));
+  });
+
+  describe('a quest cook step whose dish the rules block (concern-1 ruling)', () => {
+    const cookStep = leela.steps[4];
+    if (cookStep.type !== 'cook') throw new Error('fixture');
+    const p0 = recipes.get('india/kerala/parippu')!;
+    const line = (name: string) => ({ name, displayName: null, quantity: 100, unit: 'g', note: null });
+    /** A legumes dish with nothing allium in it: ✅ under an allium rule. */
+    const plainDal: ParsedRecipe = { ...p0, meta: { ...p0.meta, cook: 'leela', skills: ['legumes'] }, ingredients: [line('split moong dal'), line('salt')] };
+    /** A tempering dish with an ingredient the graph can't resolve: ❓ for everyone. */
+    const mystery: ParsedRecipe = { ...p0, meta: { ...p0.meta, skills: ['tempering'] }, ingredients: [line('jasmine-ish paste')] };
+    const withAlt = new Map([...recipes, ['test/plain-dal', plainDal], ['test/mystery', mystery]]);
+    const catAlt = catalogueOf([leela, marisolR, quests['haruka-gluey-rice']], withAlt);
+    const altCtx = (rules: Rule[], frames?: StepContext['frames']): StepContext => ({ ...ctx(rules), recipes: withAlt, cat: catAlt, ...(frames ? { frames } : {}) });
+
+    it('under an allium rule parippu is ⛔ and the canon has no alternative: frijoles is ⛔ (onion, garlic) and onigiri ❓', () => {
+      expect(dishStatus('india/kerala/parippu', ctx([ALLIUM]))).toBe('blocked');
+      expect(dishStatus('mexico/oaxaca/frijoles-de-olla', ctx([ALLIUM]))).toBe('blocked');
+      expect(dishStatus('japan/osaka/onigiri', ctx([ALLIUM]))).toBe('unverified');
+      expect(alternativesFor(cookStep, ctx([ALLIUM]))).toEqual([]);
+      expect(dishStatus('not/a-recipe', ctx())).toBe('unverified');
+    });
+
+    it("with an allium rule, Leela's quest completes through an alternative dish if one exists; Marisol's quest then opens; rewards equal the normal path", () => {
+      expect(alternativesFor(cookStep, altCtx([ALLIUM]))).toEqual([{ kind: 'recipe', slug: 'test/plain-dal', status: 'ok' }]);
+      const normal = playQuest(leela, EMPTY_HISTORY, DAY, { recipes: withAlt, cat: catAlt });
+      const alt = playQuest(leela, EMPTY_HISTORY, DAY, { rules: [ALLIUM], recipes: withAlt, cat: catAlt });
+      expect(alt.cooks).toEqual([{ recipe: 'india/kerala/parippu', via: { kind: 'recipe', slug: 'test/plain-dal', status: 'ok' }, trigger: null }]);
+      const pA = view(alt.h, catAlt);
+      const pN = view(normal.h, catAlt);
+      expect(questStatus(leela, pA)).toBe('done');
+      expect(questStatus(marisolR, pA)).toBe('open');
+      expect(questRewards(alt.h)).toEqual(questRewards(normal.h));
+      // A real cook either way: the same events by kind and step, the same XP, stamps, trust and level.
+      const shape = (es: ProgressEvent[]) => es.map((e) => [e.kind, 'step' in e ? e.step : null]);
+      expect(shape(alt.emitted)).toEqual(shape(normal.emitted));
+      expect([pA.xp, pA.stamps, pA.level, pA.trust]).toEqual([pN.xp, pN.stamps, pN.level, pN.trust]);
+      // Tiers come only from what was really cooked: legumes Tried from the dal; tempering only Seen (from the quest's
+      // rewards.skills, Ruling 4), never Tried, since no tempering dish was cooked.
+      expect(pA.toolkit.techniques.legumes.tier).toBe('tried');
+      expect(pA.toolkit.techniques.tempering.tier).toBe('seen');
+    });
+
+    it("…else through the adapted lesson: a seen event, quest.cook_adapted, identical quest rewards; Marisol's quest then opens", () => {
+      const normal = playQuest(leela, EMPTY_HISTORY);
+      const lesson = playQuest(leela, EMPTY_HISTORY, DAY, { rules: [ALLIUM] });
+      expect(lesson.cooks).toEqual([{ recipe: 'india/kerala/parippu', via: null, trigger: COOK_ADAPTED_TRIGGER }]);
+      expect(COOK_ADAPTED_TRIGGER).toBe('quest.cook_adapted');
+      const last = lesson.emitted.slice(-3);
+      expect(last.map((e) => e.kind)).toEqual(['quest_step', 'lesson', 'quest_done']);
+      expect(last[1]).toMatchObject({ recipe: 'india/kerala/parippu' });
+      const p = view(lesson.h, cat);
+      expect(questStatus(leela, p)).toBe('done');
+      expect(questStatus(marisol, p)).toBe('open');
+      expect(questRewards(lesson.h)).toEqual(questRewards(normal.h));
+      expect(p.stamps).toBe(view(normal.h, cat).stamps);
+      expect(p.trust).toEqual(view(normal.h, cat).trust);
+      // Seen, never Tried: tiers come only from real cooking.
+      for (const t of ['tempering', 'legumes', 'heat-control']) expect(p.toolkit.techniques[t].tier).toBe('seen');
+      expect(p.cookedOn).toEqual({});
+    });
+
+    it('a blocked or unverified dish is never offered as an alternative, and cooking one never completes the step', () => {
+      const offered = alternativesFor(cookStep, altCtx([ALLIUM]));
+      for (const a of offered) {
+        expect(['ok', 'swap']).toContain(a.status);
+        if (a.kind === 'recipe') expect(['ok', 'swap']).toContain(dishStatus(a.slug, altCtx([ALLIUM])));
+      }
+      expect(offered.map((a) => (a.kind === 'recipe' ? a.slug : a.id))).not.toEqual(expect.arrayContaining(['test/mystery']));
+      expect(offered.some((a) => a.kind === 'recipe' && a.slug === 'mexico/oaxaca/frijoles-de-olla')).toBe(false);
+      expect(offered.some((a) => a.kind === 'recipe' && a.slug === 'japan/osaka/onigiri')).toBe(false);
+      // Cooking the ⛔ frijoles (it shares legumes) is not an alternative; nor is the adapted lesson while one exists.
+      let h = playSteps(leela, EMPTY_HISTORY, 4);
+      const frijoles: ProgressEvent = { id: newId(), kind: 'cooked', at: DAY, recipe: 'mexico/oaxaca/frijoles-de-olla', planned: false };
+      h = record(h, [frijoles], catAlt);
+      expect(advance(leela, view(h, catAlt), { type: 'cook', cookedEventId: frijoles.id }, DAY, newId, altCtx([ALLIUM]))).toEqual({ ok: false, reason: 'not_current', say: [] });
+      expect(advance(leela, view(h, catAlt), { type: 'cook', lesson: true }, DAY, newId, altCtx([ALLIUM]))).toMatchObject({ ok: false, reason: 'not_current' });
+      // And the lesson is never a shortcut past a dish the rules allow.
+      expect(advance(leela, view(h, cat), { type: 'cook', lesson: true }, DAY, newId, ctx())).toMatchObject({ ok: false, reason: 'not_current' });
+    });
+
+    it('frames plug in: an ok or swap frame for one of the dish\'s techniques is offered, a ⛔ or ❓ frame never', () => {
+      const frames = [
+        { id: 'quick-tomato', technique: 'tempering', status: 'swap' as const },
+        { id: 'fried-rice', technique: 'legumes', status: 'blocked' as const },
+        { id: 'green-sauce', technique: 'tempering', status: 'unverified' as const },
+        { id: 'other', technique: 'shaping', status: 'ok' as const },
+      ];
+      expect(alternativesFor(cookStep, { ...ctx([ALLIUM]), frames })).toEqual([{ kind: 'frame', id: 'quick-tomato', status: 'swap' }]);
+      // A frame_cooked for it since the quest started completes the step.
+      const c = { ...ctx([ALLIUM]), frames };
+      const view4 = view(playSteps(leela, EMPTY_HISTORY, 4), cat);
+      const withFrame = { ...view4, framesCookedOn: { 'quick-tomato': [DAY] } };
+      const r = advance(leela, withFrame, { type: 'cook', cookedEventId: 'f1' }, DAY, newId, c);
+      expect(r).toMatchObject({ ok: true, cook: { via: { kind: 'frame', id: 'quick-tomato' }, trigger: null } });
+      expect(advance(leela, view4, { type: 'cook', cookedEventId: 'f1' }, DAY, newId, c)).toMatchObject({ ok: false, reason: 'not_current' });
+    });
   });
 
   it('cook step needs a cooked event for that recipe on/after the quest started', () => {

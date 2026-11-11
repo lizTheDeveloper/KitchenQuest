@@ -1,4 +1,4 @@
 export type { Quest, QuestStep, QuestStepType, RiddleOption } from './types';
-export { ERRAND_ADAPTED_TRIGGER, advance, currentStep, errandAllowed, questStatus, recognizedFrom } from './engine';
-export type { AdvanceResult, ErrandAdapted, QuestStatus, StepContext, StepInput } from './engine';
+export { COOK_ADAPTED_TRIGGER, ERRAND_ADAPTED_TRIGGER, advance, alternativesFor, currentStep, dishStatus, errandAllowed, questStatus, recognizedFrom } from './engine';
+export type { AdvanceResult, CookAdapted, CookAlternative, ErrandAdapted, FrameOption, QuestStatus, StepContext, StepInput } from './engine';
 export { validateQuests } from './validate';

@@ -32,9 +32,9 @@ export const COOKS: ReadonlySet<string> = new Set(['leela', 'marisol', 'haruka']
 export const STALLS: ReadonlySet<string> = new Set(['wen', 'bram', 'okafor-sato', 'spice']);
 
 /** A catalogue for the given quests over the canon recipes, as Step 4/5 build it. */
-export function catalogueOf(qs: readonly Quest[]): Catalogue {
+export function catalogueOf(qs: readonly Quest[], rs: ReadonlyMap<string, ParsedRecipe> = recipes): Catalogue {
   return {
-    recipes: new Map([...recipes].map(([slug, r]) => [slug, { cook: r.meta.cook, skills: r.meta.skills, sacred: r.meta.sacred }])),
+    recipes: new Map([...rs].map(([slug, r]) => [slug, { cook: r.meta.cook, skills: r.meta.skills, sacred: r.meta.sacred }])),
     quests: new Map(
       qs.map((q) => [q.id, { cook: q.cook, steps: q.steps.length, xp: q.rewards.xp, trust: q.rewards.trust, skills: Object.keys(q.rewards.skills), requires: q.unlock.requires }]),
     ),
