@@ -41,7 +41,8 @@ export function outboundHosts(text: string): string[] {
 export function dynamicUrls(text: string): string[] {
   return [...text.matchAll(/new URL\(([^)]*)\)/g)]
     .map((m) => m[1].trim())
-    .filter((args) => !/^(['"`])[^'"`]*\1\s*,\s*import\.meta\.url$/.test(args) && !/^(['"`])https?:\/\//i.test(args));
+    // Local only when the literal starts with ./ or ../ (fix round 1, M8: `${host}/x` could be absolute).
+    .filter((args) => !/^(['"`])\.\.?\/[^'"`]*\1\s*,\s*import\.meta\.url$/.test(args) && !/^(['"`])https?:\/\//i.test(args));
 }
 
 describe('processors.json', () => {
@@ -91,6 +92,10 @@ describe('outbound hosts (N-9)', () => {
     expect(dynamicUrls("new URL('../data/', import.meta.url); new URL(`../x-${v}.md`, import.meta.url)")).toEqual([]);
     expect(dynamicUrls("new URL('https://openrouter.ai/x')")).toEqual([]);
     expect(dynamicUrls('new URL(path, base); new URL(process.env.X)')).toEqual(['path, base', 'process.env.X']);
+    // Fix round 1 (M8): a template that starts with a variable can be absolute and ignore the base.
+    expect(dynamicUrls('new URL(`${host}/x`, import.meta.url)')).toEqual(['`${host}/x`, import.meta.url']);
+    expect(dynamicUrls("new URL('https://evil.example', import.meta.url)")).toEqual([]);
+    expect(dynamicUrls("new URL('data/x.json', import.meta.url)")).toEqual(['\'data/x.json\', import.meta.url']);
   });
 
   it('builds no URL in src from a variable (every outbound address is a scanned literal)', () => {
