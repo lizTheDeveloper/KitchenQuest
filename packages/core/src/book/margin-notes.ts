@@ -24,10 +24,10 @@ export const MAX_NOTES_PER_RECIPE = 20;
 export const MAX_NOTE_OPS = 12;
 export const NOTE_NAME_MAX = 80;
 
-const CLAUSES = /\s*[,;\n]\s*/;
+const CLAUSES = /\s*(?:[,;\n]|[.!?]+(?:\s+|$))\s*/;
 const AND = /\s+(?:and|&|\+)\s+/;
 const LEAD = /^(?:(?:i|we)\s+)?(?:also\s+|just\s+)?/;
-const AMOUNT = /^(?:(?:some|a|an|the|more|extra|a bit of|a little|a pinch of|a handful of|a squeeze of|a splash of|a dash of)\s+)+/;
+const AMOUNT = /^(?:(?:some|a|an|the|more|extra|bit|little|pinch|handful|squeeze|splash|dash|drizzle|couple|few|lots|lot)(?:\s+of)?\s+)+/;
 const SWAP_INSTEAD = /^(?:used|use|subbed in|subbed|substituted|went with|tried)\s+(.+?)\s+(?:instead of|in place of|rather than)\s+(.+)$/;
 const SWAP_FOR = /^(?:swapped|swap|subbed|sub|replaced|replace|switched|switch|changed|change)\s+(?:out\s+)?(?:the\s+)?(.+?)\s+(?:for|with|to)\s+(.+)$/;
 const ADD = /^(?:added|add|adding|used|use|threw in|put in|tossed in|stirred in|plus|with|extra)\s+(.+)$/;
