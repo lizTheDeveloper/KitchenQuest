@@ -1,6 +1,6 @@
 {
   "fingerprint": "b11b264e0d1105fc9004404550f230f08ba5f8415a7d2178b383de10e741b6c5",
-  "evalHash": "e07b9705a1b7d2f4fcdf6ca96d548cbee453e2599cd8129594a7ca2c294d9dfa",
+  "evalHash": "89be73aff81bd08fa57cf9b61b9b472ebc608121b6f7fe18fd9b73efc0e65a0b",
   "model": "qwen/qwen3.8-27b",
   "providers": [
     "tenstorrent"
@@ -155,9 +155,11 @@
       "id": "T07",
       "category": "deferred",
       "rep": 0,
-      "pass": true,
+      "pass": false,
       "hard": false,
-      "problems": []
+      "problems": [
+        "cards [meal], expected none"
+      ]
     },
     {
       "id": "T07",
