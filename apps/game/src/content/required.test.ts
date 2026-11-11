@@ -212,3 +212,14 @@ describe('M4 rule terms', () => {
     expect(content.ruleTerms.find((t) => t.name === 'no pork')?.severity).toBeNull();
   });
 });
+
+describe('M5 Step 2: the rule-adapted errand line', () => {
+  it("core's ERRAND_ADAPTED_TRIGGER is required, ai: never, and every line names the cook", async () => {
+    const { ERRAND_ADAPTED_TRIGGER } = await import('@kitchenquest/core/engine');
+    expect(REQUIRED_PAN_TRIGGERS).toContain(ERRAND_ADAPTED_TRIGGER);
+    const t = content.pan.triggers[ERRAND_ADAPTED_TRIGGER];
+    expect(t.ai).toBe('never');
+    expect(t.lines.length).toBeGreaterThanOrEqual(4);
+    for (const line of t.lines) expect(line).toContain('{cook}');
+  });
+});

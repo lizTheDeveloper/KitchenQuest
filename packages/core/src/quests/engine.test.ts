@@ -179,6 +179,8 @@ describe('quest engine', () => {
     expect(advance(item('ghee'), p, { type: 'errand', have: 'tapped' }, DAY, newId, ctx([avoid('ghee'), avoid('neutral_oil')]))).toMatchObject({ ok: true, adapted: { swap: null } });
     // Garlic → garlic-infused oil is unsafe for an allium rule, so it is never offered there.
     expect(advance(item('garlic'), p, { type: 'errand', have: 'tapped' }, DAY, newId, ctx([ALLIUM]))).toMatchObject({ ok: true, adapted: { item: 'garlic', swap: null } });
+    // A sulphites rule makes every other line ❓ (labels), so the ghee line's swap is never offered under it.
+    expect(advance(item('ghee'), p, { type: 'errand', have: 'tapped' }, DAY, newId, ctx([avoid('ghee'), avoid('sulphites')]))).toMatchObject({ ok: true, adapted: { swap: null } });
     // Every offered swap is itself ✅ for the rules, by the rules engine.
     if (r.ok && r.adapted?.swap) expect(errandAllowed(r.adapted.swap.id, ctx([avoid('ghee')]))).toBe(true);
   });

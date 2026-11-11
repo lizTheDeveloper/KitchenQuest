@@ -992,6 +992,18 @@ triggers:
       - "Post. {cook} would like a visit. I'd go. You should go. I'll come."
       - "The Bureau's post has arrived. {cook} is inviting you. Invitations from cooks are rare and should be answered."
 
+  quest.errand_adapted:
+    ai: never
+    when: A quest errand's item clashes with the player's rules and the cook file has no adapted lines of its own. The step still passes, with the same rewards; a labelled swap, when the rules engine passes one, is shown beside this line.
+    vars:
+      cook: "the cook"
+    lines:
+      - "That one isn't for you, so we leave it at the stall. {cook} will teach it your way. It counts in full."
+      - "Your rules come first. {cook} has an adapted way to do this, and it counts just the same."
+      - "No need to fetch that one. {cook} cooks around it for guests all the time. Same lesson, same welcome."
+      - "We'll skip that at the market. {cook} will show you the adapted way; nothing about the lesson is less for it."
+      - "Not that one for you. {cook} knows another way, and the kitchen is just as glad to have you."
+
   # ------------------------------------------------------------------
   # Meta: undo, confusion, AI down, progression
   # ------------------------------------------------------------------
