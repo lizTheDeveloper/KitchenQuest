@@ -99,13 +99,8 @@ export const VOICE_ALLOWLIST: readonly VoiceAllowance[] = [
     reason: "Marisol's storage FAQ: a food-safety keep time for leftovers, not a count of days played or missed.",
   },
   // Step 12 fix round 1 (I2): the countdown words in plain, unhurried senses. None sets a time limit or a scarcity.
-  {
-    file: 'content/dialogue/pan.yaml',
-    where: 'triggers.plan.saved[3]',
-    line: "Done. A plan's only a guess about the future, but it's a well-fed guess.",
-    reason: "plan.saved: 'only' means 'merely' (a plan is just a guess), which takes pressure off the plan. No time limit, nothing scarce.",
-    scan: 'countdown',
-  },
+  // M5 final m14: plan.saved[3], plan.dish_unknown[1] and frame.slot_empty[3] were reworded instead ("just a guess",
+  // "kept it out", "haven't filled it"), so they need no entry.
   {
     file: 'content/dialogue/pan.yaml',
     where: 'triggers.one_more.refresh[3]',
@@ -118,20 +113,6 @@ export const VOICE_ALLOWLIST: readonly VoiceAllowance[] = [
     where: 'triggers.week.move_partial[2]',
     line: "Half there: the plan is on your account, the ticks aren't all. Nothing has left this device; tap Move it again when you're ready.",
     reason: "week.move_partial: 'left' is the past of leave (nothing was taken off the device), a reassurance; 'when you're ready' sets no time.",
-    scan: 'countdown',
-  },
-  {
-    file: 'content/dialogue/pan.yaml',
-    where: 'triggers.plan.dish_unknown[1]',
-    line: "{dish} isn't a dish the cooks have taught, so I've left it out rather than guess. Tell me the dish's name another way?",
-    reason: "plan.dish_unknown (a safety read-back, never a guess): 'left it out' is the past of leave out. Nothing is scarce and nothing is timed.",
-    scan: 'countdown',
-  },
-  {
-    file: 'content/dialogue/pan.yaml',
-    where: 'triggers.frame.slot_empty[3]',
-    line: "Nothing I can verify fits the {slot} under your rules, so I've left it unfilled. The dish shows ❓ until you pick something you've checked.",
-    reason: "frame.slot_empty (can't verify is never safe): 'left it unfilled' is the past of leave. It says why a slot is empty and sets no time.",
     scan: 'countdown',
   },
 ];

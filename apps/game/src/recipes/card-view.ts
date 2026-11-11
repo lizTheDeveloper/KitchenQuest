@@ -22,7 +22,8 @@ export const LABEL_STORE_BOUGHT_TEXT = 'store-bought: what it contains depends o
  * brand, so a rule-driven one gets neutral wording.
  */
 /** A Pantry Frame's required slot that nothing in the cupboard fills (core's `empty_slot` finding). */
-export const EMPTY_SLOT_TEXT = 'nothing in your cupboard fits this yet, so this dish is not ready to cook';
+/** M5 final m10: no word about the cupboard (audit M-4), and true when items are there but the rules refuse them. */
+export const EMPTY_SLOT_TEXT = "nothing I can check against your rules fits this yet, so this dish isn't ready to cook";
 
 export function findingText(f: CardFinding): string {
   if (f.kind === 'empty_slot') return EMPTY_SLOT_TEXT;

@@ -149,6 +149,9 @@ describe('an empty frame slot (M5 Step 3 fix round 1, M4)', () => {
     const f = { ingredient: 'rice', kind: 'empty_slot', fromRule: false, status: 'unverified', path: null, ruleNote: null, swapLabel: null } as const;
     expect(findingText(f)).toBe(EMPTY_SLOT_TEXT);
     expect(findingText(f)).not.toMatch(/identify|label/);
+    // M5 final m10: no word about the cupboard (audit M-4); it says the rules can't check anything there.
+    expect(EMPTY_SLOT_TEXT).not.toMatch(/cupboard|pantry|fridge|shelf/i);
+    expect(EMPTY_SLOT_TEXT).toMatch(/check against your rules/);
   });
 });
 

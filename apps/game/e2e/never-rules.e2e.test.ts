@@ -218,14 +218,20 @@ describe('never rules, the weekly loop (M5 Step 12)', () => {
     }
   });
 
-  it('an allowlisted countdown line on screen passes only by its own location (plan.saved[3], said by the Pan)', async () => {
+  it('the confirmed plan card\'s last-variant line (plan.saved[3], said by the Pan) needs no countdown entry (M5 final m14)', async () => {
     app = await openScreen(SCREENS.find((s) => s.label === 'mentor panel (signed out): a plan card confirmed')!);
-    const entry = VOICE_ALLOWLIST.find((a) => a.where === 'triggers.plan.saved[3]')!;
+    const saved3 = LINE_SOURCES.find((src) => src.where === 'triggers.plan.saved[3]')!;
     const said = await app.page.locator('#pan-panel .bubble.pan [data-content]').allTextContents();
-    const text = said.map((t) => t.trim()).find((t) => allowedFilled(t, entry.line));
+    const text = said.map((t) => t.trim()).find((t) => allowedFilled(t, saved3.text));
     expect(text, said.join(' | ')).toBeDefined();
-    expect(COUNTDOWN.test(text!)).toBe(true);
-    expect(allowlistedAt(text!)).not.toBeNull();
+    // Reworded ("just a guess"), so it carries no countdown word and no entry stands in for it.
+    expect(COUNTDOWN.test(text!)).toBe(false);
+    expect(VOICE_ALLOWLIST.some((a) => a.where === 'triggers.plan.saved[3]')).toBe(false);
+    // The remaining countdown entries still pass only at their own location.
+    for (const a of VOICE_ALLOWLIST.filter((x) => x.scan === 'countdown')) {
+      expect(lintLines([{ file: a.file, where: a.where, text: a.line }], true), a.line).toEqual([]);
+      expect(lintLines([{ file: a.file, where: `${a.where}.elsewhere`, text: a.line }], true), a.line).not.toEqual([]);
+    }
     // The week screens say a trigger's first line (writtenLine): those carry no countdown word, so they need no entry.
     for (const id of ['plan.saved', 'one_more.refresh', 'week.move_partial']) {
       const first = LINE_SOURCES.find((src) => src.where === `triggers.${id}[0]`)!;

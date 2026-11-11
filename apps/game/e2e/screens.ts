@@ -485,8 +485,8 @@ export const LOOP_SCREENS: ScreenCase[] = [
     primary: (p) => p.locator('#pan-panel').getByRole('button', { name: 'Send', exact: true }),
   },
   {
-    // The Pan picks its line at random; fixed here to its last variant, plan.saved[3] ("A plan's only a guess"),
-    // which is allowlisted at its own location (fix round 1). The week screens always say a trigger's first line.
+    // The Pan picks its line at random; fixed here to its last variant, plan.saved[3] ("A plan's just a guess": M5
+    // final m14 reworded it from "only", so it needs no allowlist entry). The week screens say a trigger's first line.
     label: 'mentor panel (signed out): a plan card confirmed', loop: true, countdown: true, mentor: true, path: '/', seed: PAN_READY, initScript: 'Math.random = () => 0.99;',
     open: async (p) => {
       await p.locator('#pan-button').click();

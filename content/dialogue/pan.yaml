@@ -711,7 +711,7 @@ triggers:
       - "Planned. I've turned it into a shopping list, sorted by stall, minus what you already have."
       - "That's the week. The list's ready for market day."
       - "Saved. The plan is now a list, and the list is now Form 12-M. Don't worry, I'll carry it."
-      - "Done. A plan's only a guess about the future, but it's a well-fed guess."
+      - "Done. A plan's just a guess about the future, but it's a well-fed guess."
 
   plan.gap_green:
     ai: allowed
@@ -1086,7 +1086,7 @@ triggers:
     notes: "Plain. Never guesses, never suggests the nearest name."
     lines:
       - "I don't know a dish called {dish}. None of the cooks has taught it, so I haven't guessed. Which dish did you mean?"
-      - "{dish} isn't a dish the cooks have taught, so I've left it out rather than guess. Tell me the dish's name another way?"
+      - "{dish} isn't a dish the cooks have taught, so I've kept it out rather than guess. Tell me the dish's name another way?"
       - "I can't match {dish} to a dish the cooks teach. Nothing's been guessed. Say its name another way, or ask me to pick."
       - "No cook has taught {dish} yet, so it isn't in the plan. I won't guess at it. What did you have in mind?"
 
@@ -1308,7 +1308,7 @@ triggers:
       - "I can't fill the {slot} with anything that passes your rules, so it stays unfilled. I won't guess. Pick something you've checked, or choose another frame."
       - "No {slot} I can verify for your rules. That part stays open, and the dish shows ❓ until it's filled."
       - "The {slot} needs something that passes your rules, and I can't verify anything for it. It stays unfilled; I won't guess."
-      - "Nothing I can verify fits the {slot} under your rules, so I've left it unfilled. The dish shows ❓ until you pick something you've checked."
+      - "Nothing I can verify fits the {slot} under your rules, so I haven't filled it. The dish shows ❓ until you pick something I can check."
 
   cook.who_ate:
     ai: allowed
