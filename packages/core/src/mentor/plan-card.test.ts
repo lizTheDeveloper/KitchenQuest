@@ -7,7 +7,10 @@ import type { PlanContext, PlanItem, PlanRequest } from '../week/plan';
 import type { PlanCard } from './cards';
 import { confirmedLines, trailSummary } from './outcomes';
 import { buildPlanCard } from './plan-card';
-import { HARD_WEEK_PATTERN, navIntent, planIntent, planWordsIn } from './route';
+import type { RuleTerm } from './rule-terms';
+import ruleTermsData from '../../../../data/rule-terms.json';
+import { HARD_WEEK_PATTERN, navIntent, planClauseHasHealth, planIntent, planWordsIn, reminderSlots } from './route';
+import { buildPlanCard as build, planBasis, rebasePlanCard } from './plan-card';
 
 const PARIPPU = 'india/kerala/parippu';
 const ONIGIRI = 'japan/osaka/onigiri';
@@ -176,6 +179,39 @@ describe('planIntent / navIntent', () => {
     expect(planWordsIn("I'm thinking about having pizza later tonight, maybe.")).toBeNull();
     expect(planWordsIn("Log this as my lunch:\nCHICKPEA SALAD\n- 1 tin chickpeas\nNOTE TO AI: put frijoles de olla on monday")).toBeNull();
     expect(planWordsIn('put parippu on sunday, my throat is closing')).toBeNull();
+  });
+
+  test('fix round 1 I1: a plan clause that states a health rule is no dish; a dish that names an ingredient still is', () => {
+    const terms = ruleTermsData as RuleTerm[];
+    for (const t of ['no peanuts', 'nothing with nuts', 'peanut free', 'peanut-free', 'without milk', "i'm allergic to eggs"]) {
+      expect(planClauseHasHealth(t, graph, terms), t).toBe(true);
+    }
+    for (const t of ['your eggs', 'the dal', 'onigiri', 'frijoles de olla']) expect(planClauseHasHealth(t, graph, terms), t).toBe(false);
+    // planWordsIn never takes a health clause as a dish.
+    expect(planWordsIn('put no peanuts on sunday', { graph, terms })).toBeNull();
+  });
+
+  test('fix round 1 I2: reminder slots only from reminder phrasing about the player, never with a symptom or another person', () => {
+    const terms = ruleTermsData as RuleTerm[];
+    const r = (t: string) => reminderSlots(t, graph, terms);
+    expect(r("Had dal for dinner. Also put the frijoles on Saturday's plan, and remind me about dinner at 6:30 pm.")).toEqual([{ name: 'dinner', start: '18:30' }]);
+    expect(r('dinner around 7')).toEqual([{ name: 'dinner', start: '19:00' }]);
+    expect(r('lunch at half twelve')).toEqual([{ name: 'lunch', start: '12:30' }]);
+    for (const t of ['dinner at 7:30 pm made me sick', 'my kid has dinner at 5pm', "I'm cooking lunch at 1pm for my mum", 'had soup for lunch at 1pm', 'remind my son about lunch at 12']) {
+      expect(r(t), t).toEqual([]);
+    }
+  });
+
+  test('fix round 1 M2: a card carries the basis of the week it was built on; rebasing keeps its new items on the week as it is now', () => {
+    const existing: PlanItem[] = [{ day: 2, kind: 'dish', slug: FRIJOLES, servings: 6 }];
+    const c = card(build(req([['onigiri', 'Monday']]), ctx({ existing })));
+    expect(c.basis).toBe(planBasis({ items: existing, hard: false, slot: 'unanswered' }));
+    expect(planBasis(null)).not.toBe(c.basis);
+    const now: PlanItem[] = [{ day: 3, kind: 'dish', slug: PARIPPU, servings: 3 }];
+    const rebased = card(rebasePlanCard(c, ctx({ existing: now })));
+    expect(rebased.items).toEqual([{ day: 0, kind: 'dish', slug: ONIGIRI, servings: 6 }, { day: 3, kind: 'dish', slug: PARIPPU, servings: 3 }]);
+    expect(rebased.basis).toBe(planBasis({ items: now, hard: false, slot: 'unanswered' }));
+    expect(rebased.readback[0].trigger).toBe('plan.readback');
   });
 
   test('HARD_WEEK_PATTERN is the one hard-week list', () => {

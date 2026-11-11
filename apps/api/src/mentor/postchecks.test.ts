@@ -84,6 +84,18 @@ describe('applyPostChecks', () => {
     expect(post([plan('sunday')], 'pick 3 after that, market is saturday')).toEqual([plan('sunday')]);
   });
 
+  test('fix round 1 C1/M3: every model string in a plan call must be the player\'s own words and pass the screens, else it is dropped', () => {
+    const plan = (args: Partial<Extract<ToolArgs, { name: 'propose_plan' }>['args']>): ToolArgs => ({ name: 'propose_plan', args: { days: null, pick: null, hard_week: null, after: null, ...args } });
+    // The reviewer's probe: a model after that is not the player's words never reaches a line.
+    expect(post([plan({ pick: 3, after: 'all safe now' })], 'help me with my week please')).toEqual([plan({ pick: 3 })]);
+    expect(post([plan({ pick: 3, after: 'Saturday' })], 'pick 3 after saturday')).toEqual([plan({ pick: 3, after: 'Saturday' })]);
+    // M3: a weekday the player didn't say drops the day; the dish rule stands.
+    expect(post([plan({ days: [{ weekday: 'Tuesday', dish: 'onigiri' }] })], 'onigiri on monday please')).toEqual([]);
+    expect(post([plan({ days: [{ weekday: 'Monday', dish: 'onigiri' }] })], 'onigiri on monday please')).toEqual([plan({ days: [{ weekday: 'Monday', dish: 'onigiri' }] })]);
+    // I1: a dish string that is a health statement is never a plan dish.
+    expect(post([plan({ days: [{ weekday: 'Sunday', dish: 'no peanuts' }] })], 'plan my week: no peanuts on sunday')).toEqual([]);
+  });
+
   test('T03: the weekdays the player named set the market days', () => {
     expect(post([profile({ market_days: ['Sunday'] })], 'My market day is Saturday.')).toEqual([profile({ market_days: ['saturday'] })]);
     expect(post([profile({ meals_per_week: 5 })], 'Saturday, five meals')).toEqual([profile({ meals_per_week: 5 })]);

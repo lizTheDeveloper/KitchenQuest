@@ -9,6 +9,10 @@ import { buildApp } from '../src/app.js';
 import { defaultCatalog } from '../src/catalog.js';
 import { NOTICES } from '../src/consent/notices.js';
 import { CaptureMailer } from '../src/mail/mailer.js';
+import { and, eq, isNull } from 'drizzle-orm';
+import { consents } from '../src/db/schema.js';
+import { lockUserPlan } from '../src/db/advisory-locks.js';
+import { PROPOSAL_TTL_MS } from '../src/mentor/constants.js';
 import { RECIPES_DIR, syncCanon } from '../src/recipes/sync.js';
 import type { Db } from '../src/types.js';
 import { signIn } from './helpers/auth.js';
@@ -398,5 +402,140 @@ describe('C-13', () => {
       expect(all).not.toMatch(/\d{4}-\d{2}-\d{2}/);
       expect(all).not.toMatch(/less salt|Gran/);
     }
+  });
+});
+
+describe('fix round 1', () => {
+  const aiPlayer = () => player(['health_data', 'ai_health']);
+  const noCalls = () => reply('');
+
+  test('C1: the model\'s after "all safe now" never reaches a line; the ask echoes only the player\'s words', async () => {
+    const ai = fakeAi([planArgs({ pick: 3, after: 'all safe now' }), planArgs({ pick: 2, after: 'saturday' })]);
+    await makeApp(ai);
+    const p = await aiPlayer();
+    const r = await p.turn('help me with my week please');
+    expect(JSON.stringify(r)).not.toMatch(/all safe now/i);
+    expect(triggers(r)).not.toContain('plan.after_which_day');
+    // "after that" with two weekdays: the ask names the player's own word, never the model's.
+    const q = await aiPlayer();
+    const r2 = await q.turn("pick 2, i'm out friday and saturday so after that");
+    expect(r2.parts).toContainEqual({ kind: 'line', line: { trigger: 'plan.after_which_day', vars: { day: 'that' } } });
+  });
+
+  test('I1: health precedence inside plan turns: "no peanuts on sunday", "nothing with nuts", "peanut free" go to the health path; plain dishes still plan', async () => {
+    const ai = fakeAi([
+      noCalls(),
+      noCalls(),
+      calls([{ name: 'propose_plan', args: { days: [{ weekday: 'sunday', dish: 'parippu' }, { weekday: 'monday', dish: 'peanut free' }], pick: null, hard_week: null, after: null } }]),
+    ]);
+    await makeApp(ai);
+    const health = ['rule.ask_keep_off', 'rule.ask_what_else', 'rule.unknown_term', 'rule.which_one'];
+    for (const text of ['plan my week: no peanuts on sunday', 'plan my week: nothing with nuts on monday']) {
+      const p = await aiPlayer();
+      const r = await p.turn(text);
+      expect(r.cards.filter((c) => c.card.kind === 'plan'), text).toEqual([]);
+      expect(triggers(r).some((t) => health.includes(t)) || r.cards.some((c) => c.card.kind === 'rule'), `${text}: ${JSON.stringify(r.parts)}`).toBe(true);
+      expect(JSON.stringify(r), text).not.toMatch(/plan\.dish_unknown/);
+    }
+    const p = await aiPlayer();
+    const r = await p.turn('plan my week: parippu on sunday, peanut free on monday');
+    expect(planOf(r).items.map((i) => i.slug)).toEqual([PARIPPU]);
+    expect(JSON.stringify(r)).not.toMatch(/peanut free/);
+    // The plan card never stands in for the health ask.
+    expect(triggers(r).some((t) => health.includes(t)) || r.cards.some((c) => c.card.kind === 'rule')).toBe(true);
+    expect(ai.requests).toHaveLength(3);
+  });
+
+  test('I2: no code-built profile card for "dinner at 7:30 pm made me sick", "my kid has dinner at 5pm" or a meal cooked for someone; the health ask stays', async () => {
+    const ai = fakeAi([noCalls(), noCalls(), noCalls()]);
+    await makeApp(ai);
+    const results: TurnResponse[] = [];
+    for (const text of ['dinner at 7:30 pm made me sick', 'my kid has dinner at 5pm', "I'm cooking lunch at 1pm for my mum"]) {
+      const r = await (await aiPlayer()).turn(text);
+      expect(r.cards, text).toEqual([]);
+      results.push(r);
+    }
+    expect(triggers(results[0])).toContain('rule.ask_keep_off');
+  });
+
+  test('I2: a code-built profile card never suppresses the health ask', async () => {
+    const ai = fakeAi([noCalls()]);
+    await makeApp(ai);
+    const r = await (await aiPlayer()).turn('remind me about dinner at 6:30 pm, my tummy has been funny all week');
+    expect(r.cards.map((c) => c.card.kind)).toEqual(['profile']);
+    expect(triggers(r)).toContain('rule.ask_keep_off');
+  });
+
+  test('M1: a plan confirm takes plan: and the health_data grant before its proposal row', async () => {
+    await makeApp(null);
+    for (const hold of ['plan', 'consent'] as const) {
+      const p = await player();
+      const r = await p.turn('plan my week: onigiri on Monday');
+      const id = proposalIdOf(r);
+      let release!: () => void;
+      const gate = new Promise<void>((res) => (release = res));
+      let held!: () => void;
+      const isHeld = new Promise<void>((res) => (held = res));
+      const holder = db.transaction(async (tx) => {
+        if (hold === 'plan') await lockUserPlan(tx, p.userId);
+        else await tx.select({ id: consents.id }).from(consents).where(and(eq(consents.userId, p.userId), eq(consents.purpose, 'health_data'), isNull(consents.withdrawnAt))).for('update');
+        held();
+        await gate;
+      });
+      await isHeld;
+      const confirming = tap(p.cookie, id);
+      await new Promise((res) => setTimeout(res, 300));
+      // The confirm waits on the held lock, so it has not reached (locked) its proposal row yet.
+      const free = await sql`select id from mentor_proposals where id = ${id} for update skip locked`;
+      expect(free, hold).toHaveLength(1);
+      release();
+      await holder;
+      expect((await confirming).statusCode, hold).toBe(200);
+    }
+  });
+
+  test('M2: a card built on an older week is not saved: it is closed and re-offered on the week as it is now', async () => {
+    await makeApp(null);
+    const p = await player();
+    const r = await p.turn('plan my week: onigiri on Monday');
+    const id = proposalIdOf(r);
+    // The player edits the week on Form 7-W in between.
+    const edited: Plan = { weekStart: WEEK, items: [{ day: 3, kind: 'dish', slug: PARIPPU, servings: 3 }], hard: false, slot: 'unanswered' };
+    expect((await putPlan(p.cookie, edited)).statusCode).toBe(200);
+    const stale = await tap(p.cookie, id);
+    expect(stale.statusCode).toBe(409);
+    const err = stale.json<{ error: { code: string; details: { card: { proposalId: string; card: PlanCard }; parts: ReplyPart[] } } }>().error;
+    expect(err.code).toBe('plan_changed');
+    expect(err.details.card.card.items).toEqual([{ day: 0, kind: 'dish', slug: ONIGIRI, servings: 6 }, { day: 3, kind: 'dish', slug: PARIPPU, servings: 3 }]);
+    expect(err.details.parts[0]).toMatchObject({ kind: 'line', line: { trigger: 'plan.readback' } });
+    expect(await status(id)).toBe('rejected');
+    // Nothing was saved over the edit; the re-offered card saves the week with both.
+    expect((await currentPlan(p.cookie))?.items).toEqual(edited.items);
+    expect((await tap(p.cookie, err.details.card.proposalId)).statusCode).toBe(200);
+    expect((await currentPlan(p.cookie))?.items).toEqual(err.details.card.card.items);
+
+    // The typed yes: the re-offered card comes back as a card in the reply.
+    const q = await player();
+    const r2 = await q.turn('plan my week: onigiri on Monday');
+    expect((await putPlan(q.cookie, edited)).statusCode).toBe(200);
+    const yes = await q.turn('yes', { answering: proposalIdOf(r2) });
+    expect(yes.actions).toEqual([]);
+    expect(yes.cards.map((c) => c.card.kind)).toEqual(['plan']);
+    expect(triggers(yes)[0]).toBe('plan.readback');
+  });
+
+  test('M4: a yes to a plan card confirms it while open, and writes nothing once it has expired', async () => {
+    let at = NOW.getTime();
+    app = await buildApp({ config, db, mailer, ai: null, now: () => new Date(at), logger: false });
+    const p = await player();
+    const live = await p.turn('plan my week: onigiri on Monday');
+    expect((await p.turn('yes', { answering: proposalIdOf(live) })).actions).toMatchObject([{ kind: 'confirmed' }]);
+    const q = await player();
+    const old = await q.turn('plan my week: onigiri on Monday');
+    at += PROPOSAL_TTL_MS + 60_000;
+    const late = await q.turn('yes', { answering: proposalIdOf(old) });
+    expect(late.actions).toEqual([]);
+    expect(triggers(late)).not.toContain('plan.saved');
+    expect(await currentPlan(q.cookie)).toBeNull();
   });
 });
