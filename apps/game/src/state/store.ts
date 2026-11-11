@@ -5,7 +5,7 @@ import {
 import { sha256Hex } from './sha256';
 
 /** How long a plan (and its run) stays on the device after its week ends: the server's retention (H-11, Ruling 18). */
-export const PLAN_RETENTION_WEEKS = 8;
+const PLAN_RETENTION_WEEKS = 8;
 const DAY_MS = 86_400_000;
 /** The player's LOCAL calendar date as YYYY-MM-DD (as recipes/rules.ts `localDate`, which re-exports this). */
 export function localDate(now: Date): string {
