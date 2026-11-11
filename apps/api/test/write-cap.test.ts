@@ -104,8 +104,12 @@ describe('the daily write cap', () => {
   });
 
   it('atLeastAsStrict: same or wider targets, no milder severity, same phase', () => {
-    const r = (ids: string[], severity: StoredRule['severity'], extra: Partial<StoredRule> = {}) =>
-      ({ target: { kind: 'ingredient', ids }, type: 'avoid', severity, ...extra }) as StoredRule;
+    const r = (ids: string[], severity: StoredRule['severity'], extra: Partial<StoredRule> = {}): StoredRule => ({
+      target: { kind: 'ingredient', ids },
+      type: 'avoid',
+      severity,
+      ...extra,
+    });
     expect(atLeastAsStrict(r(['peanut'], 'allergy'), r(['peanut'], 'allergy'))).toBe(true);
     expect(atLeastAsStrict(r(['peanut'], 'allergy'), r(['peanut', 'sesame'], 'anaphylactic'))).toBe(true);
     expect(atLeastAsStrict(r(['peanut'], 'allergy'), r(['peanut'], 'preference'))).toBe(false);

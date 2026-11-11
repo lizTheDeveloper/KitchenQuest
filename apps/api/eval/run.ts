@@ -51,7 +51,8 @@ for (const name of ['OPENROUTER_API_KEY', 'AI_PROVIDERS', 'TEST_DATABASE_URL']) 
 
 const catalog = defaultCatalog();
 const key = () => randomBytes(32).toString('base64');
-const { db, sql, url, close } = await testDb();
+const scratch = await testDb();
+const { db, sql, url } = scratch;
 const config = loadConfig({
   DATABASE_URL: url,
   DATA_KEYS: `k1:${key()}`,
@@ -134,7 +135,7 @@ try {
   }
 } finally {
   await app?.close();
-  await close();
+  await scratch.close();
 }
 
 async function signIn(app: FastifyInstance, n: number): Promise<string> {

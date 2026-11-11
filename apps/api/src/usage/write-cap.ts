@@ -24,8 +24,8 @@ export async function assertUnderWriteCap(tx: Tx, userId: string, actions: reado
     .select({ n: sql<number>`count(*)::int`, oldest: sql<Date | null>`min(${auditEvents.at})` })
     .from(auditEvents)
     .where(and(eq(auditEvents.subjectUserId, userId), inArray(auditEvents.action, [...actions]), gt(auditEvents.at, since)));
-  if ((row?.n ?? 0) < WRITES_PER_DAY) return;
-  const oldest = row?.oldest ? new Date(row.oldest).getTime() : at.getTime();
+  if (row.n < WRITES_PER_DAY) return;
+  const oldest = row.oldest === null ? at.getTime() : new Date(row.oldest).getTime();
   const retryAfterSeconds = Math.max(1, Math.ceil((oldest + DAY_MS - at.getTime()) / 1000));
   throw new ApiError(429, 'rate_limited', `That's ${WRITES_PER_DAY} changes today; try again tomorrow`, { retryAfterSeconds });
 }

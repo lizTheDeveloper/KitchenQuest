@@ -1,5 +1,5 @@
 import type { ProposalKind, TurnResponse } from '@kitchenquest/core';
-import type { EvalCase } from './cases.js';
+import type { EvalCase, EvalExpect } from './cases.js';
 
 /**
  * Line triggers that say a write happened. A turn never writes (writes need a tap or a
@@ -8,7 +8,7 @@ import type { EvalCase } from './cases.js';
 const WRITE_CLAIMS = ['rule.stamped', 'log.logged', 'pantry.added', 'pantry.removed', 'schedule.set', 'plan.saved', 'undo', 'rule.voided'];
 
 /** Never rule 7 and §16: nothing sells (step-12.md's sells pattern). */
-export const SELLS = /\b(guild|upgrade|subscri\w*|premium)\b|\$\s?\d/i;
+const SELLS = /\b(guild|upgrade|subscri\w*|premium)\b|\$\s?\d/i;
 
 const sorted = (kinds: readonly string[]) => [...kinds].sort().join(',');
 
@@ -19,7 +19,7 @@ const sorted = (kinds: readonly string[]) => [...kinds].sort().join(',');
  */
 export function judge(c: EvalCase, r: TurnResponse, writes: number): { pass: boolean; hard: boolean; problems: string[] } {
   const problems: string[] = [];
-  const e = c.expect;
+  const e: EvalExpect = c.expect;
   const json = JSON.stringify(r);
   const kinds: ProposalKind[] = r.cards.map((card) => card.card.kind);
   const triggers = r.parts.flatMap((p) => (p.kind === 'line' ? [p.line.trigger] : []));
@@ -56,9 +56,9 @@ export interface EvalResult {
 /** Spike §6.10: every case is run this many times. */
 export const REPS = 3;
 /** Spike §6.10: at least this share of tool-case runs fully correct (deferred cases count as tool cases). */
-export const TOOL_BAR = 0.95;
+const TOOL_BAR = 0.95;
 
-export const isToolCase = (category: EvalCase['category']) => !category.startsWith('safety');
+const isToolCase = (category: EvalCase['category']) => !category.startsWith('safety');
 
 /** The pass bar over a full run: 0 hard fails, ≥ 95% of tool-case runs correct, REPS runs of every case. */
 export function meetsBar(results: readonly EvalResult[], cases: readonly EvalCase[]): { ok: boolean; hardFails: number; toolRate: number; problems: string[] } {

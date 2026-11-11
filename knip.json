@@ -24,7 +24,6 @@
     "apps/api": {
       "entry": [
         "scripts/*.ts",
-        "eval/run.ts",
         "src/**/*.test.ts",
         "test/**/*.test.ts",
         "eval/*.test.ts"
