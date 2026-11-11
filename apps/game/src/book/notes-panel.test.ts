@@ -53,7 +53,7 @@ describe('the notes panel (M5 Step 11)', () => {
     const go = t.el.querySelector<HTMLButtonElement>('.cook-with-notes-go')!;
     expect(go.disabled).toBe(false); // no rules: nothing to check against
     go.click();
-    expect(t.cooked[0].map((x) => x.id)).toEqual(['a']);
+    expect(t.cooked[0].map((x) => (x as BookNote).id)).toEqual(['a']);
   });
   test('with any rule, a note naming something the ledger can\'t identify is ❓, never ✅, and still cookable', () => {
     const milk: Rule = { id: 'm1', target: { kind: 'ingredient', ids: ['milk'] }, type: 'avoid', severity: 'intolerance' };
