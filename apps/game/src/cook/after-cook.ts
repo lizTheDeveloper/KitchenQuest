@@ -157,7 +157,6 @@ export function afterCook(slot: HTMLElement, input: AfterCookInput, deps: AfterC
     let consentDeclined = false;
     const withConsent = async (el: HTMLElement): Promise<boolean> => {
       if (deps.healthConsent() === 'granted') return true;
-      if (consentDeclined) return false;
       el.append(...lineEls([say('consent.health_first')]));
       const box = h('div');
       el.append(box);

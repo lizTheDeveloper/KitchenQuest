@@ -399,6 +399,16 @@ describe('M5 Step 11 fix I2: a signed-in meal_logged waits in its own account un
     await sync.uploadDeviceLog();
     expect(posted(posts)).toEqual([]);
   });
+  test('undo while its post waits in line: the meal is never posted', async () => {
+    const { store, posts, sync, time } = setup({ gapMs: 5_000 });
+    signIn(store);
+    await sync.record([lesson('2026-11-10')]); // sets the pacing clock: the next post waits
+    void sync.record([meal('m2')]);
+    await new Promise((r) => setTimeout(r, 0));
+    sync.forgetMeal('m2');
+    await time.advance(10_000);
+    expect(posted(posts)).toEqual([]);
+  });
   test('an account switch while pending: nothing is posted under the new account; it stays with its own', async () => {
     let online = false;
     const { store, posts, sync } = setup({ online: () => online });
