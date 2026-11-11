@@ -30,6 +30,8 @@ const PRE_ROUTES: Partial<Record<TurnIntent, string>> = {
   emergency: 'rule.emergency',
   child: 'child.grownup',
   medical: 'rule.medical_deflect',
+  // M5 final I2: weight loss and calorie counting get a fixed, plain deflection; the model never sees them.
+  weight: 'rule.weight_deflect',
   allowance: 'allowance.explain',
   thanks: 'thanks',
 };
@@ -504,6 +506,7 @@ export function isHealthText(text: string, graph: IngredientGraph, terms: readon
     intent === 'health' ||
     intent === 'emergency' ||
     intent === 'medical' ||
+    intent === 'weight' ||
     mentionsHealthTerm(text, graph, terms) ||
     severityFromText(text, graph) !== null ||
     parseRuleStatement(text, graph) !== null ||
@@ -597,13 +600,29 @@ const RESTRICTION_CUES: readonly RegExp[] = [
   /(?<![\p{L}\p{N}'-])(?!(?:feel|for|i'?m|im|am|is|are|was|were|be|been|being|get|got|set|you|me|we|they|he|she|it'?s|it|totally|completely|so|very|pretty|really|break|toll|tax|duty|scot|hands|fancy|stay|keep|run|roam|home|walk)\s+free\b)\p{L}[\p{L}'-]*\s+free\b/u,
   /\b(?:sin|sans|ohne|senza|zonder|zero)\s+\p{L}/u,
   /\bnot too \p{L}/u,
+  // M5 final I2 (when in doubt, health): the restriction verbs and negators the N7 lists missed, on any word.
+  // "i'm off sugar" (not "off to", "off out", "off work" …), "X doesn't agree with me", "stay away from X", "steer
+  // clear of X", "won't touch X", "nothing with X", and non-English "pas de", "keine", "kein", "sem", "bez", "geen".
+  /\b(?:i'?m|im|i am|we'?re|we are|i'?ve gone|i went|been|i'?ll be|going)\s+off\s+(?!(?:to|out|now|home|for|on|work|today|tonight|tomorrow|soon|then|again|sick|shopping|duty)\b)\p{L}/u,
+  /\b(?:do|does|did)(?:n'?t| not)\s+agree\s+with\s+(?:me|us|him|her|them|my)\b/u,
+  /\b(?:stay|stays|staying|stayed|keep|keeps|keeping|kept|steer|steers|steering|steered)\s+(?:well\s+)?(?:away\s+from|clear\s+of)\s+\p{L}/u,
+  /\b(?:won'?t|will not|wouldn'?t|would not|can'?t|cannot|can not|don'?t|do not|never)\s+(?:touch|do|go near|stomach|handle|tolerate|digest|manage)\s+\p{L}/u,
+  /\b(?:nothing|none|never)\s+(?:with|of|any|containing)\s+\p{L}/u,
+  /\b(?:pas de|keine|kein|keinen|sem|bez|geen)\s+\p{L}|\bpas d'\p{L}/u,
 ];
+/**
+ * M5 final I2: cutting or lowering a nutrient ("cutting carbs", "fewer carbs", "less bread"), and advice from a
+ * clinician ("my doctor said …", "the dietitian says").
+ */
+const NUTRIENT = '(?:carbs?|carbohydrates?|sugars?|sweets?|salt|sodium|fats?|calories?|cals?|protein|dairy|gluten|meat|red meat|bread|starch\\w*|alcohol|booze|caffeine|coffee|sweet things|junk|snacks?|portions?)';
+const NUTRIENT_CUE = new RegExp(`\\b(?:cut|cuts|cutting|reduce|reducing|reduced|lower|lowering|fewer|less|limit|limiting|restrict\\w*|ditch\\w*|quit\\w*|stop(?:ped|ping)? eating)\\s+(?:(?:the|my|on|down|back|out|down on|back on)\\s+)*${NUTRIENT}\\b`);
+const CLINICIAN_CUE = /\b(?:doctors?|dr|gp|dietitians?|dieticians?|nutritionists?|consultants?|nurses?|specialists?|cardiologists?|endocrinologists?|physicians?|midwife|midwives)(?:'s)?\s+(?:said|says|say|told|tells|wants|wanted|advised|advises|recommended|recommends|suggested|suggests|put me|has me|ordered)\b/;
 /** Food and drink, food animals, plants, symptom faces, medicine and "no entry" emoji (N7: "put parippu on monday. 🥜"). */
 const HEALTH_EMOJI =
   /[\u{1F330}-\u{1F37F}\u{1F950}-\u{1F96F}\u{1F9C0}-\u{1F9CB}\u{1FAD0}-\u{1FADF}\u{1F980}\u{1F990}\u{1F991}\u{1F99E}\u{1F9AA}\u{1F419}\u{1F41F}-\u{1F421}\u{1F402}-\u{1F404}\u{1F40F}-\u{1F411}\u{1F413}\u{1F414}\u{1F416}\u{1F437}\u{1F42E}\u{1F983}\u{1F986}\u{1F41D}\u{2615}\u{1F922}\u{1F92E}\u{1F927}\u{1F912}\u{1F915}\u{1F974}\u{1F637}\u{1F48A}\u{1F489}\u{1FA7A}\u{1FA79}\u{1F6AB}\u{26D4}]/u;
 export function dietCue(text: string): boolean {
   const t = normalizeTurn(text);
-  return DIET_CUE.test(t) || RESTRICTION_CUES.some((r) => r.test(t)) || HEALTH_EMOJI.test(t);
+  return DIET_CUE.test(t) || RESTRICTION_CUES.some((r) => r.test(t)) || NUTRIENT_CUE.test(t) || CLINICIAN_CUE.test(t) || HEALTH_EMOJI.test(t);
 }
 
 /** Words that make an ingredient named in a plan clause a rule, not a dish ("no peanuts", "peanut free"). */

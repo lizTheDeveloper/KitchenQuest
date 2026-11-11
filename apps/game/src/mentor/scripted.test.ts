@@ -453,7 +453,7 @@ describe('Ruling 1: the fixed lines never wait on the week code', () => {
     const never = () => { asked++; return new Promise<never>(() => undefined); };
     const e = createScriptedEngine({ dialogue: createDialogue(content.pan), graph, ruleTerms: content.ruleTerms, recipes, now: () => NOW, week: never });
     const within = <T>(p: Promise<T>) => Promise.race([p, new Promise<'waited'>((r) => { setTimeout(() => r('waited'), 50); })]);
-    for (const [text, trigger] of [['my throat is closing', 'rule.emergency'], ['should I take antibiotics for my rash', 'rule.medical_deflect'], ['thank you', 'thanks'], ["I'm 9", 'child.grownup']] as const) {
+    for (const [text, trigger] of [['my throat is closing', 'rule.emergency'], ['should I take antibiotics for my rash', 'rule.medical_deflect'], ['plan my week, i need to lose weight', 'rule.weight_deflect'], ['thank you', 'thanks'], ["I'm 9", 'child.grownup']] as const) {
       const r = await within(e.reply(text, ctx()));
       expect(r, text).not.toBe('waited');
       if (r !== 'waited') expect(said(r)[0]).toBe(trigger);

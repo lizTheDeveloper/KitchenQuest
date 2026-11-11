@@ -582,6 +582,16 @@ triggers:
       - "That's a question for a clinician. I can help you plan meals for whatever they recommend, and I'll read any rules back to you."
       - "That's a clinician's question, not a pan's. If something's happening right now, call your local emergency number. Otherwise, a doctor or dietitian can help, and I'll help you cook whatever they suggest."
 
+  rule.weight_deflect:
+    ai: never
+    when: The player talks about losing weight, their weight or BMI, or counting calories (M5 final review I2; spec §5 safeguards, voice §0.9–10). Code answers; the model never sees the turn.
+    notes: "No numbers, no targets, no praise for eating less, and never imply the player is ill. Plain words; no joke touches bodies or weight. Points to a clinician, and keeps the door open to cooking."
+    lines:
+      - "Weight is outside what a pan can help with: I don't do scales, numbers or targets. A doctor or dietitian can talk it through with you properly. What I can do is help you cook and eat enough, every day."
+      - "That's one for a doctor or a dietitian, not a pan. I keep no numbers about bodies. I'm here for cooking, and for making sure you're well fed."
+      - "I'll leave weight to the people trained for it: a doctor or a dietitian. If food has been feeling hard lately, they're good people to talk to, and there's no shame in it. I'll keep helping you cook."
+      - "I'm a pan. I know about food, not about numbers on a scale. For anything about weight, please ask a doctor or dietitian. Meanwhile, shall we plan something good to eat?"
+
   rule.unknown_term:
     ai: never
     when: The player named something to avoid that isn't in the ingredient graph or data/rule-terms.json (a missing ingredient, or a word such as halal, kosher or Jain that no one target can express). Nothing is saved.

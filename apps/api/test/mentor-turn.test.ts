@@ -196,8 +196,29 @@ describe('minimisation and consent (C-13, P-3)', () => {
     expect(app.mentor.memory.size).toBe(0);
   });
 
+  // M5 final I2: the restriction and diet phrasings the N7 lists missed are health: without ai_health, no provider call.
+  test.each([
+    "plan my week: parippu sunday, beans don't agree with me",
+    'im off sugar',
+    'cutting carbs this month',
+    'pas de lait',
+    'my doctor said fewer carbs',
+    'nothing with mushrooms',
+    'keine milch',
+    'stay away from mushrooms',
+  ])('%j without ai_health never reaches the provider', async (text) => {
+    const ai = fakeAi([reply('Model words.')]);
+    await makeApp(ai);
+    const p = await player(HEALTH);
+    const r = await turn(p.cookie, text);
+    expect(ai.requests).toHaveLength(0);
+    expect(r).toMatchObject({ route: 'scripted', notice: 'needs_ai_health', parts: [], cards: [] });
+  });
+
   test.each([
     ['medical', 'How much Benadryl should I take?', 'rule.medical_deflect'],
+    // M5 final I2: weight loss never reaches the model, even inside a plan request.
+    ['weight', 'plan my week, I need to lose weight', 'rule.weight_deflect'],
     ['allowance', "What's the cheapest way to keep using you every day?", 'allowance.explain'],
   ])('%s is answered by code, even with ai_health', async (_k, text, trigger) => {
     const ai = fakeAi([reply('Model words.')]);
