@@ -71,6 +71,11 @@ const PROFILE = {
   mealWindows: [{ name: 'dinner', start: '18:00', end: '20:00' }],
 };
 
+const PROGRESS_EVENTS = [
+  { id: 'ev-market-1', kind: 'market_run', at: '2026-11-09', weekStart: '2026-11-09' },
+  { id: 'ev-meal-1', kind: 'meal_logged', at: '2026-11-09', minute: 750 },
+];
+
 const SAID: StoredMessage = { role: 'player', text: 'I had peanut noodles for lunch' };
 const PAN_SAID: Extract<StoredMessage, { role: 'pan' }> = { role: 'pan', parts: [{ kind: 'line', line: { trigger: 'log.confirm', vars: {} } }], proposalIds: [] };
 const MEAL_CARD: MealCard = { kind: 'meal', meal: MEAL as MealCard['meal'], summary: 'lunch: peanut noodles', estimate: false, readback: [] };
@@ -114,6 +119,10 @@ async function fullPlayer(): Promise<Player> {
     payload: { add: [PANTRY_ITEM], removeNames: [], removeIds: [], confirmed: true },
   });
   expect(pantry.statusCode).toBe(200);
+  // Progress (U-5): a market run and a meal-log event, each earning grants (no catalogue needed for either).
+  const progress = await call(cookie, { method: 'POST', url: '/progress/events', payload: { events: PROGRESS_EVENTS } });
+  expect(progress.statusCode).toBe(200);
+  expect(progress.json<{ accepted: unknown[] }>().accepted).toHaveLength(2);
   expect((await call(cookie, { method: 'GET', url: '/rules' })).statusCode).toBe(200);
   await grant(db, id, 'founding', 'manual', new Date('2026-01-01T00:00:00Z'));
   await recordUsage(db, id, 'mentor_text', 3, 120);
@@ -229,6 +238,7 @@ describe('GET /me/export', () => {
       'rules.create',
       'meals.create',
       'pantry.change',
+      'progress.record',
       'account.export',
     ]);
     // Pan conversations with their messages, and proposals, decrypted (C-12).
@@ -262,6 +272,17 @@ describe('GET /me/export', () => {
     // Meals and pantry, decrypted.
     expect(x.meals).toEqual([{ ...MEAL, id: expect.any(String), createdAt: NOW.toISOString() }]);
     expect(x.pantry).toEqual([{ ...PANTRY_ITEM, id: expect.any(String), createdAt: NOW.toISOString() }]);
+    // Progress (U-5): both ledgers as stored, and the view derived from them.
+    expect(x.progress.events).toEqual(PROGRESS_EVENTS.map((e) => ({ ...e, createdAt: NOW.toISOString() })));
+    expect(x.progress.grants).toEqual(
+      expect.arrayContaining([
+        { id: 'ev-market-1#0', eventId: 'ev-market-1', isoDay: '2026-11-09', kind: 'xp', amount: 20, reason: 'market_run', createdAt: NOW.toISOString() },
+        { id: 'ev-market-1#1', eventId: 'ev-market-1', isoDay: '2026-11-09', kind: 'stamp', stamp: 'market_run', createdAt: NOW.toISOString() },
+        { id: 'ev-meal-1#0', eventId: 'ev-meal-1', isoDay: '2026-11-09', kind: 'xp', amount: 5, reason: 'nourishment', createdAt: NOW.toISOString() },
+      ]),
+    );
+    expect(x.progress.grants).toHaveLength(3);
+    expect(x.progress.view).toMatchObject({ xp: 25, level: 1, stamps: 1 });
     expect(x.auditEvents[0]).toEqual({
       at: NOW.toISOString(),
       actorKind: 'user',
@@ -427,6 +448,8 @@ describe('GET /me/export', () => {
       conversations: 'conversations',
       messages: 'conversations',
       mentor_proposals: 'proposals',
+      progress_events: 'progress',
+      reward_grants: 'progress',
       audit_events: 'auditEvents',
     };
     // Linked: a foreign key to users, or a column that holds a user id or an email.
@@ -514,6 +537,10 @@ describe('DELETE /me', () => {
     expect(await sql`select 1 from meal_logs where user_id = ${p.id}`).toHaveLength(0);
     expect(await sql`select 1 from pantry_items where user_id = ${p.id}`).toHaveLength(0);
     // And every mentor row (P-14).
+    // Both progress ledgers go with the account (U-5): events and grants alike.
+    for (const t of ['progress_events', 'reward_grants']) {
+      expect(await sql`select 1 from ${sql(t)} where user_id = ${p.id}`, t).toHaveLength(0);
+    }
     for (const t of ['conversations', 'messages', 'mentor_proposals']) {
       expect(await sql`select 1 from ${sql(t)} where user_id = ${p.id}`, t).toHaveLength(0);
     }

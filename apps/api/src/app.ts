@@ -6,7 +6,8 @@ import type { AiProvider } from './ai/provider.js';
 import { sweepPeriodically } from './auth/rate-limit.js';
 import { authRoutes } from './auth/routes.js';
 import { requireUser } from './auth/session.js';
-import { defaultCatalog, type Catalog } from './catalog.js';
+import { frameOptions } from '@kitchenquest/core';
+import { defaultCatalog, defaultLoopContent, type Catalog, type LoopContent } from './catalog.js';
 import { consentRoutes } from './consent/routes.js';
 import { mealRoutes } from './meals/routes.js';
 import { BudgetGuard } from './mentor/allowance.js';
@@ -15,8 +16,12 @@ import { MemoryFlags, MemoryHistory } from './mentor/memory.js';
 import { mentorRoutes, type MentorState } from './mentor/routes.js';
 import { pantryRoutes } from './pantry/routes.js';
 import { profileRoutes } from './profile/routes.js';
+import { progressRoutes, type ProgressRouteDeps } from './progress/routes.js';
+import { createRecipeIndexSource } from './recipes/recipe-index.js';
 import { recipeRoutes } from './recipes/routes.js';
 import { rulesRoutes } from './rules/routes.js';
+import { loadRules } from './rules/store.js';
+import { loadPantry } from './pantry/store.js';
 import type { Config } from './config.js';
 import { ApiError, loggableError } from './errors.js';
 import type { Db, Mailer } from './types.js';
@@ -32,6 +37,8 @@ export interface Deps {
   logger: FastifyServerOptions['logger'];
   /** Ingredient graph and substitutions; defaults to `data/`, loaded once (boot fails on bad data). */
   catalog?: Catalog;
+  /** The weekly loop's data and content (C10); defaults to `data/` and `content/`, checked against the catalog at boot. */
+  loop?: LoopContent;
 }
 
 function body(code: string, message: string, details?: unknown) {
@@ -41,6 +48,7 @@ function body(code: string, message: string, details?: unknown) {
 export async function buildApp(deps: Deps): Promise<FastifyInstance> {
   // First, so bad safety data stops the server before anything else starts.
   const catalog = deps.catalog ?? defaultCatalog();
+  const loop = deps.loop ?? defaultLoopContent();
   const tp = deps.config.trustProxy;
   // A hop count works at runtime but is missing from Fastify's types; this is the function it builds.
   const trustProxy = typeof tp === 'number' ? (_addr: string, hop: number) => hop < tp : tp;
@@ -103,7 +111,22 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
   await mealRoutes(app);
   await pantryRoutes(app, catalog);
   await mentorRoutes(app, catalog, mentor);
-  await accountRoutes(app);
+  // C7: one recipe index for the app, re-read when a recipe sync changes canon_recipes.
+  const recipes = createRecipeIndexSource();
+  const progress: ProgressRouteDeps = {
+    loop,
+    recipes,
+    // I3: a cook's standsInFor claim is judged with the player's stored rules, and their pantry for the frames.
+    rulesFor: async (tx, userId, today, index) => {
+      const rules = await loadRules(tx, deps.config.keyring, userId);
+      const subs = [...catalog.substitutions];
+      const pantry = await loadPantry(tx, deps.config.keyring, userId);
+      const frames = frameOptions(loop.frames, pantry, { rules, graph: catalog.graph, subs, today, keeps: loop.keeps });
+      return { rules, graph: catalog.graph, subs, recipes: index, frames };
+    },
+  };
+  await progressRoutes(app, progress);
+  await accountRoutes(app, progress);
 
   return app;
 }

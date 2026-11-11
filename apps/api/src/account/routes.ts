@@ -27,6 +27,10 @@ import { loadConversationsForExport } from '../mentor/conversations.js';
 import { loadProposalsForExport } from '../mentor/proposals.js';
 import { loadPantryForExport } from '../pantry/store.js';
 import { knownMealWindows } from '../profile/store.js';
+import { catalogueFor } from '../progress/catalogue.js';
+import type { ProgressRouteDeps } from '../progress/routes.js';
+import { progressViewOf } from '../progress/service.js';
+import { loadProgressForExport } from '../progress/store.js';
 import { loadRules } from '../rules/store.js';
 import { AI_PROCESSOR_IDS } from '../ai/processors.js';
 
@@ -123,7 +127,7 @@ const iso = (d: Date | null) => (d ? d.toISOString() : null);
  * ids, and the audit actor id (the player themselves,
  * or a staff identifier).
  */
-async function buildExport(tx: Tx, config: Config, userId: string, now: Date, registered: RegisteredProcessor[]) {
+async function buildExport(tx: Tx, config: Config, userId: string, now: Date, registered: RegisteredProcessor[], progressDeps: Pick<ProgressRouteDeps, 'loop' | 'recipes'>) {
   const user = (
     await tx
       .select({ id: users.id, email: users.email, createdAt: users.createdAt, ageConfirmedAt: users.ageConfirmedAt })
@@ -189,6 +193,10 @@ async function buildExport(tx: Tx, config: Config, userId: string, now: Date, re
     expiresAt: iso(p.expiresAt),
     decidedAt: iso(p.decidedAt),
   }));
+
+  // Progress (U-5): every event and grant as stored (erased meal-log events are gone; their grants stay), and the view.
+  const catalogue = catalogueFor(await progressDeps.recipes.current(tx), progressDeps.loop);
+  const progress = { ...(await loadProgressForExport(tx, userId)), view: await progressViewOf(tx, userId, catalogue) };
 
   const ents = await tx
     .select({
@@ -264,6 +272,7 @@ async function buildExport(tx: Tx, config: Config, userId: string, now: Date, re
     pantry,
     conversations: convs,
     proposals,
+    progress,
     consents: await consentHistory(tx, userId),
     entitlements: ents.map((e) => ({
       ...e,
@@ -294,7 +303,7 @@ async function buildExport(tx: Tx, config: Config, userId: string, now: Date, re
  * The player's data rights: `GET /me/export` (access and portability, C-7)
  * and `DELETE /me` (erasure, C-8). Both are audited (C-5) and free forever.
  */
-export async function accountRoutes(app: FastifyInstance): Promise<void> {
+export async function accountRoutes(app: FastifyInstance, progressDeps: Pick<ProgressRouteDeps, 'loop' | 'recipes'>): Promise<void> {
   const { db, config, now, ai } = app.deps;
   // Read once at boot, so a missing or malformed register stops the server.
   // The AI is "on" only when a provider was built (m-2): the same flag the turn route uses
@@ -332,7 +341,7 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
             { actorKind: 'user', actorId: userId, subjectUserId: userId, action: 'account.export', requestId: req.id },
             at,
           );
-          return buildExport(tx, config, userId, at, processors);
+          return buildExport(tx, config, userId, at, processors, progressDeps);
         },
         { isolationLevel: 'repeatable read' },
       );
@@ -359,7 +368,8 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
     const { id: userId, email } = req.user;
     // One transaction, in this order: the delete event first (so it is pseudonymized
     // with the rest), then the user (cascading to sessions, profile, rules, meal logs, pantry,
-    // conversations, messages, mentor proposals, consents, user_keys, entitlements, usage, self-read counts), then sign-in links by email,
+    // conversations, messages, mentor proposals, progress events, reward grants, consents, user_keys, entitlements, usage,
+    // self-read counts), then sign-in links by email,
     // then the audit trail, which the database pseudonymizes only once the user is gone.
     // A running export holds the user row, so the delete waits for it (see above).
     await db.transaction(async (tx) => {
