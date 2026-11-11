@@ -183,7 +183,7 @@ describe('mentor cards, trail and AI backend (M4 Step 10)', () => {
     expect(app.consoleErrors).toEqual([]);
   });
 
-  it('AI on: a server card is confirmed with exactly one POST { channel: "tap" } on a double click', async () => {
+  it('AI on: a server card is confirmed with exactly one POST { channel: "tap", conversationId } on a double click', async () => {
     const card = buildProfileCard({ marketDays: [6] });
     const confirms: Request[] = [];
     const turnBodies: unknown[] = [];
@@ -221,7 +221,7 @@ describe('mentor cards, trail and AI backend (M4 Step 10)', () => {
     await slip.getByRole('button', { name: 'Ink it ✔' }).dblclick();
     await page.locator('#pan-panel .trail-entry').waitFor();
     expect(confirms).toHaveLength(1);
-    expect(confirms[0].postDataJSON()).toEqual({ channel: 'tap' });
+    expect(confirms[0].postDataJSON()).toEqual({ channel: 'tap', conversationId: 'c1' }); // the conversation the card came from (fix round 5, H2)
     expect(await page.locator('#pan-panel .trail-text').textContent()).toBe(`🗓 Inked: ${card.summary}`);
     expect(app.consoleErrors).toEqual([]);
   });
