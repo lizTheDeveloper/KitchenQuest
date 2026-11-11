@@ -75,14 +75,41 @@ export function dayOfWeek(weekStart: string, today: string): number | null {
   return null;
 }
 
-let known: Plan | null = null;
-/** The last plan the game read or saved for the player's current week (the scripted engine's and cook mode's view of it). */
-export function rememberWeek(plan: Plan | null): void { known = plan; }
-/** The week remembered for `weekStart`, if any. */
-export const rememberedWeek = (weekStart: string): Plan | null => (known !== null && known.weekStart === weekStart ? known : null);
+let known: { weekStart: string; plan: Plan | null; account: string | null } | null = null;
+/**
+ * The player's current week as the game last read or saved it (signed in: the server's answer), for the scripted
+ * engine and cook mode, which can't wait for a fetch. Kept in memory only, and only for the account it was read for.
+ */
+export function rememberWeek(weekStart: string, plan: Plan | null, account: string | null): void { known = { weekStart, plan, account }; }
+/** The remembered week of this account (null: signed out), if any. */
+export const rememberedWeek = (account: string | null): { weekStart: string; plan: Plan | null } | null =>
+  (known !== null && known.account === account ? known : null);
 /** Whether `slug` is planned for `today` in the remembered week (a cook's `planned`, Ruling 7). */
 export function plannedOn(slug: string, today: string): boolean {
-  if (known === null) return false;
-  const day = dayOfWeek(known.weekStart, today);
-  return day !== null && known.items.some((i) => i.kind === 'dish' && i.slug === slug && i.day === day);
+  const plan = known?.plan ?? null;
+  if (plan === null) return false;
+  const day = dayOfWeek(plan.weekStart, today);
+  return day !== null && plan.items.some((i) => i.kind === 'dish' && i.slug === slug && i.day === day);
+}
+
+/** What `buildPlanCard` reads on the device: the plan week, its stored items, `hard` and slot, and the toolkit. */
+export type PlanCardContext = PlanContext & { slot: WeeklySlotInput };
+
+/**
+ * The plan card's context now, for the scripted engine (M5 Step 10): signed out, the device's week (from the
+ * device profile's market days); signed in, the week as last read from the server (else this date's Monday week,
+ * and the writer re-reads the week before it saves, so a stale one is re-offered, never written over). Null while
+ * the rules can't be read. `stored` is the week's plan as the card is built on (its basis).
+ */
+export function planCardContextOf(state: PlayerState, today: string, stored: (weekStart: string) => Plan | null, toolkit: ToolkitState | null): PlanCardContext | null {
+  const rules = rulesOf(state);
+  if (rules === null) return null;
+  const account = state.account?.email ?? null;
+  const remembered = account === null ? null : rememberedWeek(account);
+  const weekStart = remembered?.weekStart ?? weekOf(today, account === null ? (state.localProfile?.marketDays ?? []) : []);
+  const plan = account === null ? stored(weekStart) : (remembered?.plan ?? null);
+  const base = plan ?? emptyPlan(weekStart);
+  // No toolkit known yet (progress still loading): an empty one offers nothing new, and never anything unsafe.
+  const slot = slotInputFor(base, rules, toolkit ?? { techniques: {} }, today);
+  return { ...planContextFor(weekStart, rules, base.items), slot };
 }

@@ -1,4 +1,5 @@
-import { classifyTurn, stripPageEvents, type CardAction, type ProposalCard, type Severity, type TrailEntry } from '@kitchenquest/core/engine';
+import { classifyTurn, planFlags, stripPageEvents, type CardAction, type PlanFlag, type ProposalCard, type Severity, type TrailEntry } from '@kitchenquest/core/engine';
+import { planContextFor, rulesOf } from '../week/context';
 import type { ApiClient } from '../api/client';
 import type { BureauForm } from '../content/types';
 import { routeHref } from '../shell/router';
@@ -13,6 +14,7 @@ import type { Dialogue, Said, Vars } from './dialogue';
 import type { CardView, ConsentAnswer, LocalIntent, PanItem, PanReply, TurnContext } from './reply';
 import type { ScriptedEngine } from './scripted';
 import type { CardWriter, UndoOutcome, WriteOutcome } from './writer';
+import { navRoute } from './nav';
 
 /** The panel keeps the last this-many bubbles; older ones are removed so a long session can't grow without end. */
 export const MAX_BUBBLES = 50;
@@ -189,8 +191,13 @@ export function mountMentorPanel(root: HTMLElement, opts: {
     const deviceOnly = view.origin === 'local' && view.card.kind === 'rule' && store.get().account === null;
     let el: HTMLElement;
     try {
+      // A plan card's food-group line, from the player's rules now (none while they can't be read).
+      const rules = view.card.kind === 'plan' ? rulesOf(store.get()) : null;
+      const planFlag: PlanFlag = view.card.kind === 'plan' && rules !== null
+        ? planFlags({ weekStart: view.card.weekStart, items: view.card.items, hard: view.card.hard, slot: 'unanswered' }, planContextFor(view.card.weekStart, rules))
+        : null;
       el = renderCard(view, {
-        forms, now: opts.now, ...(deviceOnly ? { footnote: DEVICE_ONLY_FOOTNOTE } : {}),
+        forms, now: opts.now, planFlag, ...(deviceOnly ? { footnote: DEVICE_ONLY_FOOTNOTE } : {}),
         onConfirm: (edits) => confirm(view, 'tap', edits),
         onReject: () => reject(view),
       });
@@ -294,6 +301,17 @@ export function mountMentorPanel(root: HTMLElement, opts: {
         closeCard(c.el, CLOSED_TEXT);
         renderItems(said, []);
         return;
+      case 'plan_changed': {
+        // The week changed since this card was shown: it closes, and the card for the week as it is now follows.
+        cards.delete(key);
+        closeCard(c.el, CLOSED_TEXT);
+        const o = out.offered;
+        const fresh: CardView[] = o === null ? [] : 'proposalId' in o
+          ? [{ origin: 'server', proposalId: o.proposalId, expiresAt: o.expiresAt, card: o.card, issuedTurn: turn, ...(view.origin === 'server' && view.conversationId !== undefined ? { conversationId: view.conversationId } : {}) }]
+          : [{ origin: 'local', localId: crypto.randomUUID(), card: o, issuedTurn: turn }];
+        render({ items: out.items.length > 0 ? out.items : said, cards: fresh, intents: [], actions: [], notice: null });
+        return;
+      }
     }
   }
 
@@ -468,6 +486,15 @@ export function mountMentorPanel(root: HTMLElement, opts: {
           addLi('pan-item pan-rules-error', h('div', { class: 'rules-error', role: 'note' },
             h('p', null, item.message), h('p', null, h('a', { href: item.href, class: 'rules-error-link' }, 'Open Your rules'))));
           break;
+        case 'go': {
+          // Ruling 15: a chip the player taps; nothing navigates until then, and an unknown place is never a chip.
+          const to = navRoute(item.target);
+          if (to === null || !win) break;
+          const btn = h('button', { type: 'button', class: 'btn btn-secondary pan-go', 'data-content': '' }, item.said.text);
+          addLi('pan-item pan-go-item', btn);
+          btn.addEventListener('click', () => { win.location.hash = routeHref(to); });
+          break;
+        }
         case 'retry': {
           const btn = h('button', { type: 'button', class: 'btn btn-secondary pan-retry' }, 'Try again');
           const li = addLi('pan-item pan-retry-item', btn);

@@ -31,7 +31,7 @@ export async function mountRescue(slot: HTMLElement, ctx: AppContext, client: Ap
   const week = await createWeekSource({ store: ctx.store, client }).current(today);
   if (!alive()) return;
   const plan = week.ok ? week.value.plan : null;
-  if (week.ok) rememberWeek(plan);
+  if (week.ok) rememberWeek(week.value.weekStart, plan, ctx.store.get().account?.email ?? null);
   const offer = rescueOffer(ctx.store.get(), pantry, plan, today, content.frames, content.keeps, { recipes: canonRecipes(), graph, rules, subs: [...content.substitutions] });
   if (offer === null) return;
   noteNudge(ctx.store, offer, today);

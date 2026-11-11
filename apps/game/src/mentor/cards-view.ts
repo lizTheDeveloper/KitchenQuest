@@ -1,4 +1,5 @@
-import { WEEKDAY_NAMES, type ProposalCard, type Severity, type TrailEntry } from '@kitchenquest/core/engine';
+import { WEEKDAY_NAMES, type PlanCard, type PlanFlag, type ProposalCard, type Severity, type TrailEntry } from '@kitchenquest/core/engine';
+import { renderPlanView, slotDay, weekdayName, writtenLine } from '../week/plan-view';
 import { content } from '../content';
 import type { BureauForm } from '../content/types';
 import { contentText, h } from '../ui/dom';
@@ -68,16 +69,26 @@ function valuesFor(card: ProposalCard): Partial<Record<string, string>> {
       if (card.remove.length > 0) out.removed = join(card.remove);
       return out;
     }
-    case 'plan': {
-      // M5 Step 8 (C22): the code-built summary and each item's check; the read-back lines come with the reply.
-      const mark = { ok: '✅', swap: '🔁', unverified: '❓' } as const;
-      return {
-        days: card.summary,
-        checks: join(card.checks.map((c) => `${c.slug.slice(c.slug.lastIndexOf('/') + 1).replace(/-/g, ' ')} ${mark[c.status]}`)) || 'None',
-        hard_week: card.hard ? 'Yes' : 'No',
-      };
-    }
+    case 'plan':
+      // The day rows are drawn by plan-view.ts (below); the form's fields keep the summary and the hard week.
+      return { dishes: card.summary, hard_week: card.hard ? 'Yes' : 'No' };
   }
+}
+
+/**
+ * Form 7-W's day rows on the plan card (M5 Step 10): the same renderer as the plan screen. Each item's chip is the
+ * card's own check (never ⛔: a ⛔ item never reaches a card), and the week's One More Technique is shown without
+ * buttons (it is answered on the plan screen; never in a hard week).
+ */
+function planDays(card: PlanCard, flag: PlanFlag, now: () => Date): HTMLElement {
+  const rows = card.items.map((item, i) => ({ item, status: card.checks[i]?.slug === item.slug ? card.checks[i].status : ('unverified' as const), findings: [] }));
+  const plan = { weekStart: card.weekStart, items: card.items, hard: card.hard, slot: 'unanswered' as const };
+  const today = (() => { const d = now(); const pad = (n: number) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; })();
+  const day = card.offer === null || card.hard ? null : slotDay(plan, card.offer, today);
+  return renderPlanView({
+    weekStart: card.weekStart, rows, line: writtenLine, flag,
+    offer: card.offer === null || card.hard || day === null ? null : { offer: card.offer, day: weekdayName(card.weekStart, day) },
+  });
 }
 
 export function bureauSlip(form: BureauForm, titleId: string, ...children: (Node | null)[]): HTMLElement {
@@ -112,6 +123,8 @@ export function renderCard(view: CardView, opts: {
   onConfirm(edits?: { severity?: Severity }): void | Promise<void>; onReject(): void | Promise<void>;
   /** A plain note under the fields (Step 11: "*Kept on this device only." on a signed-out rule card). */
   footnote?: string;
+  /** A plan card's food-group line, from the player's rules now (the panel works it out). */
+  planFlag?: PlanFlag;
 }): HTMLElement {
   const { card } = view;
   const form = opts.forms[formIdFor(card)] as BureauForm | undefined;
@@ -128,6 +141,7 @@ export function renderCard(view: CardView, opts: {
       dl.append(h('div', { class: 'bureau-field' }, h('dt', null, contentText('label', f.label, { for: id })), h('dd', null, picker)));
       continue;
     }
+    if (card.kind === 'plan' && f.key === 'days') { dl.append(bureauFieldRow(f.label, planDays(card, opts.planFlag ?? null, opts.now))); continue; }
     const v = values[f.key];
     if (v !== undefined) dl.append(bureauFieldRow(f.label, v));
   }

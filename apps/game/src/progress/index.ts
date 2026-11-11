@@ -9,6 +9,7 @@ import type { ProgressService } from './service';
  */
 let deps: { client: ApiClient; store: PlayerStore; win: Window } | null = null;
 let loading: Promise<ProgressService> | null = null;
+let loaded: ProgressService | null = null;
 
 /** Called once by main.ts. On a sign-in (and on start when signed in, and when the connection comes back) the device log is uploaded once. */
 export function initProgress(client: ApiClient, store: PlayerStore, win: Window): void {
@@ -40,6 +41,9 @@ export function initProgress(client: ApiClient, store: PlayerStore, win: Window)
 export function progressService(): Promise<ProgressService> {
   if (!deps) return Promise.reject(new Error('progress is not initialised'));
   const d = deps;
-  loading ??= import('./service').then((m) => m.createProgressService(d));
+  loading ??= import('./service').then((m) => (loaded = m.createProgressService(d)));
   return loading;
 }
+
+/** The progress service once it has loaded (it loads with the kitchen), else null: for code that can't wait (the scripted plan card). */
+export const loadedProgress = (): ProgressService | null => loaded;

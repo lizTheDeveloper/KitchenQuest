@@ -9,8 +9,8 @@ import type { Screen } from '../shell/app';
 import { routeHref } from '../shell/router';
 import { SCREEN_TITLES } from '../shell/titles';
 import { contentText, h } from '../ui/dom';
-import { addDays, canonRecipes, dayOfWeek, emptyPlan, planContextFor, rememberWeek, rulesOf, slotInputFor } from './context';
-import { renderPlanView, weekdayName, writtenLine, type PlanRow, type SlotOfferView } from './plan-view';
+import { addDays, canonRecipes, emptyPlan, planContextFor, rememberWeek, rulesOf, slotInputFor } from './context';
+import { renderPlanView, slotDay, weekdayName, writtenLine, type PlanRow, type SlotOfferView } from './plan-view';
 import { footnote, rulesLink, showFailure, statusLine } from './screen-kit';
 import { createWeekSource, type WeekSource } from './source';
 
@@ -27,15 +27,6 @@ const servingsOf = (slug: string): number => {
   return Number.isFinite(s) ? Math.min(10, Math.max(0.5, s)) : 1;
 };
 const sameItem = (a: PlanItem, b: PlanItem) => a.day === b.day && a.kind === b.kind && a.slug === b.slug;
-
-/** Where the week's One More Technique would go: its dish's planned day, else the first day from today with no dish. */
-export function slotDay(plan: Plan, offer: SlotOffer, today: string): number | null {
-  const planned = plan.items.find((i) => i.kind === 'dish' && i.slug === offer.recipe);
-  if (planned) return planned.day;
-  const from = Math.max(1, dayOfWeek(plan.weekStart, today) ?? 0);
-  for (let d = from; d < 7; d++) if (!plan.items.some((i) => i.kind === 'dish' && i.day === d)) return d;
-  return null;
-}
 
 /** "Yes, add it": the dish on its day (when it isn't planned yet) and a practice lesson the day before. */
 export function acceptSlot(plan: Plan, offer: SlotOffer, day: number): Plan {
@@ -82,7 +73,7 @@ export function planScreen(api: ApiClient, source?: WeekSource): Screen {
       const { weekStart } = got.value;
       let saved: Plan | null = got.value.plan;
       let draft: Plan = saved ?? emptyPlan(weekStart);
-      rememberWeek(saved);
+      rememberWeek(weekStart, saved, ctx.store.get().account?.email ?? null);
       let toolkit: ToolkitState | null = null;
       void progressService().then((svc) => { toolkit = svc.view().toolkit; if (alive) draw(); }, () => undefined);
 
@@ -92,7 +83,7 @@ export function planScreen(api: ApiClient, source?: WeekSource): Screen {
         if (!r.ok) { showFailure(r, status, writtenLine); return false; }
         saved = next;
         draft = next;
-        rememberWeek(next);
+        rememberWeek(weekStart, next, ctx.store.get().account?.email ?? null);
         status.show(said ?? writtenLine('plan.saved', {}));
         draw();
         return true;

@@ -62,7 +62,7 @@ export function marketScreen(api: ApiClient, source?: WeekSource): Screen {
       if (!alive) return;
       if (!got.ok) { showFailure(got, status, writtenLine); if (got.kind === 'rules') body.append(rulesLink()); return; }
       const plan: Plan | null = got.value.plan;
-      rememberWeek(plan);
+      rememberWeek(got.value.weekStart, plan, ctx.store.get().account?.email ?? null);
       if (plan === null || !plan.items.some((i) => i.kind === 'dish')) { body.append(h('p', null, NO_PLAN)); return; }
 
       let run: MarketRunView | null = null;

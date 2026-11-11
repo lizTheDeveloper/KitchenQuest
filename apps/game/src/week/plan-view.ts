@@ -1,11 +1,11 @@
 import {
-  blockedDishLine, dishName, fillLine, WEEKDAY_NAMES, type CheckStatus, type CookAlternative, type Finding, type PlanFlag, type PlanItem, type SlotOffer,
+  blockedDishLine, dishName, fillLine, WEEKDAY_NAMES, type CheckStatus, type CookAlternative, type Finding, type Plan, type PlanFlag, type PlanItem, type SlotOffer,
 } from '@kitchenquest/core/engine';
 import { content, graph, techniqueName } from '../content';
 import { routeHref } from '../shell/router';
 import { statusChip } from '../ui/chips';
 import { contentText, h } from '../ui/dom';
-import { addDays, canonRecipes } from './context';
+import { addDays, canonRecipes, dayOfWeek } from './context';
 
 /**
  * Form 7-W's one renderer (M5 Step 10), shared by the Pan's plan card and the plan screen (`#/plan`). Every item
@@ -149,3 +149,13 @@ export function renderPlanView(o: PlanViewOpts): HTMLElement {
   if (o.offer) out.append(slotView(o.offer, o.line));
   return out;
 }
+
+/** Where the week's One More Technique would go: its dish's planned day, else the first day from today with no dish. */
+export function slotDay(plan: Plan, offer: SlotOffer, today: string): number | null {
+  const planned = plan.items.find((i) => i.kind === 'dish' && i.slug === offer.recipe);
+  if (planned) return planned.day;
+  const from = Math.max(1, dayOfWeek(plan.weekStart, today) ?? 0);
+  for (let d = from; d < 7; d++) if (!plan.items.some((i) => i.kind === 'dish' && i.day === d)) return d;
+  return null;
+}
+
