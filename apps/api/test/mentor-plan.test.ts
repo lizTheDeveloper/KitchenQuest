@@ -696,7 +696,7 @@ describe('fix round 4: the whole message, health first, a spelled age', () => {
     await makeApp(silent(3));
     const r = await (await player(['health_data', 'ai_health'])).turn('remind me about dinner at 6pm, thanks');
     expect(r.cards.map((c) => c.card.kind)).toEqual(['profile']);
-    const m = await (await player(['health_data', 'ai_health'])).turn("hi pan, my market day is saturday");
+    const m = await (await player(['health_data', 'ai_health'])).turn("ok, my market day is saturday");
     expect(JSON.stringify(m.cards)).toMatch(/"marketDays":\[6\]/);
     const p = await (await player(['health_data', 'ai_health'])).turn("put parippu on monday and my market's saturday, thanks");
     expect(r.cards.length + p.cards.length).toBeGreaterThan(1);
@@ -829,5 +829,66 @@ describe('fix round 4: the whole message, health first, a spelled age', () => {
     expect(r.cards.filter((c) => c.card.kind === 'plan')).toEqual([]);
     const s = await (await player(['health_data', 'ai_health'])).turn("pick 2 and parippu on monday");
     expect(s.cards.filter((c) => c.card.kind === 'plan')).toEqual([]);
+  });
+});
+
+// Fix round 5 (rulings 5a, 5c): every clause consumed by an existing grammar or a closed filler; a correction cue
+// means no plan or profile card, from code or from the model, and an ask instead.
+describe('fix round 5', () => {
+  const aiPlayer = () => player(['health_data', 'ai_health']);
+  const kinds = (r: TurnResponse) => r.cards.map((c) => c.card.kind).sort();
+  const profileCall = (args: object) => toolCall('propose_profile', args);
+  const WHICH_TIME = { kind: 'line', line: { trigger: 'profile.which_time', vars: { meal: 'dinner' } } };
+
+  test('5c: "dinner at 6pm, no wait, 7pm" with no model call → no card, the which-time ask', async () => {
+    await makeApp(fakeAi([reply('')]));
+    const r = await (await aiPlayer()).turn('remind me to eat dinner at 6pm, no wait, 7pm');
+    expect(r.cards).toEqual([]);
+    expect(r.parts).toContainEqual(WHICH_TIME);
+  });
+
+  test('5c: the same with the model\'s profile call (19:00 or 18:00) → no profile card, the which-time ask', async () => {
+    await makeApp(fakeAi([profileCall({ meal_windows: [{ name: 'dinner', start: '19:00' }] }), profileCall({ meal_windows: [{ name: 'dinner', start: '18:00' }] })]));
+    for (let i = 0; i < 2; i++) {
+      const r = await (await aiPlayer()).turn('remind me to eat dinner at 6pm, no wait, 7pm');
+      expect(r.cards.filter((c) => c.card.kind === 'profile')).toEqual([]);
+      expect(r.parts).toContainEqual(WHICH_TIME);
+    }
+  });
+
+  test('5c: a corrected plan → no plan card from the model either, plan.which_day', async () => {
+    await makeApp(fakeAi([planArgs({ days: [{ weekday: 'Tuesday', dish: 'parippu' }] }), reply('')]));
+    for (const p of [await aiPlayer(), await aiPlayer()]) {
+      const r = await p.turn('put parippu on monday, actually tuesday');
+      expect(r.cards.filter((c) => c.card.kind === 'plan')).toEqual([]);
+      expect(r.parts).toContainEqual({ kind: 'line', line: { trigger: 'plan.which_day', vars: { dish: 'parippu' } } });
+    }
+  });
+
+  test('5c: a corrected market day → no profile card from the model, the market-day ask', async () => {
+    await makeApp(fakeAi([profileCall({ market_days: ['Sunday'] })]));
+    const r = await (await aiPlayer()).turn('my market day is saturday, i mean sunday');
+    expect(r.cards).toEqual([]);
+    expect(triggers(r)).toContain('intake.market_day.ask');
+  });
+
+  test('5c: other cards in a corrected message stay (a meal the player ate)', async () => {
+    await makeApp(fakeAi([calls([
+      { name: 'propose_meal_log', args: { slot: 'lunch', when: 'today', dish: null, servings: null, description: 'soup' } },
+      { name: 'propose_plan', args: { days: [{ weekday: 'Friday', dish: 'onigiri' }], pick: null, hard_week: null, after: null } },
+    ])]));
+    const r = await (await aiPlayer()).turn('had soup for lunch. put onigiri on thursday, no wait, friday');
+    expect(kinds(r)).toEqual(['meal']);
+    expect(r.parts).toContainEqual({ kind: 'line', line: { trigger: 'plan.which_day', vars: { dish: 'onigiri' } } });
+  });
+
+  test('5a: a meal-log or pantry clause next to a closed clause → the code card; a T08-shaped clause → none', async () => {
+    await makeApp(fakeAi([reply(''), reply(''), reply('')]));
+    const r = await (await aiPlayer()).turn('had toast for lunch. put onigiri on monday');
+    expect(kinds(r)).toContain('plan');
+    const s = await (await aiPlayer()).turn("ran out of rice, my market's saturday");
+    expect(JSON.stringify(s.cards)).toMatch(/"marketDays":\[6\]/);
+    const t = await (await aiPlayer()).turn("idk just pick 3 things for this week. market's saturday so do the beans after that");
+    expect(t.cards).toEqual([]);
   });
 });

@@ -402,3 +402,21 @@ describe('M5 Step 4: the Bureau forms', () => {
     for (const id of ['quest_done', 'certificate', 'market_run']) expect(stampNames[id], id).toMatch(/\w/);
   });
 });
+
+describe('M5 Step 8 fix round 5 (5c): the which-time ask after a corrected meal time', () => {
+  it("core's CORRECTION_TIME_TRIGGER is required, ai: never, pinned, names the meal in every line, and claims nothing was kept", async () => {
+    const { CORRECTION_TIME_TRIGGER } = await import('@kitchenquest/core/engine');
+    expect(CORRECTION_TIME_TRIGGER).toBe('profile.which_time');
+    expect(REQUIRED_PAN_TRIGGERS).toContain(CORRECTION_TIME_TRIGGER);
+    const t = content.pan.triggers[CORRECTION_TIME_TRIGGER];
+    expect(t.ai).toBe('never');
+    expect(t.lines[0]).toBe("I heard two times for {meal}. Which one should I pencil in? Tell me once and I'll put it on a card.");
+    expect(t.lines.length).toBeGreaterThanOrEqual(4);
+    expect(t.lines.length).toBeLessThanOrEqual(6);
+    expect(new Set(t.lines).size).toBe(t.lines.length);
+    for (const line of t.lines) {
+      expect(line).toContain('{meal}');
+      expect(line).not.toMatch(/saved|inked|stamped|kept|noted/i);
+    }
+  });
+});

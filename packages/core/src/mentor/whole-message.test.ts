@@ -10,7 +10,7 @@ import { IngredientGraph } from '../ingredients/graph';
 import { canon } from '../week/fixtures';
 import { classifyTurn } from './intents';
 import type { RuleTerm } from './rule-terms';
-import { codeCardHealth, isHealthText, marketDayStated, planIntent, planWordsIn, reminderSlots } from './route';
+import { codeCardHealth, correctionAsks, correctionCue, isHealthText, marketDayStated, planIntent, planWordsIn, reminderSlots } from './route';
 
 const graph = IngredientGraph.fromData(ingredients);
 const terms = ruleTerms as RuleTerm[];
@@ -61,8 +61,6 @@ describe('N6: every clause closed or neutral, else no code card for the whole me
       'pick 2, no mushrooms',
       'pick 2. i hate mushrooms',
       'pick 2. no spicy',
-      'had toast for lunch. put onigiri on monday, and remind me about dinner at 6:30 pm',
-      "idk. pick 3. market's saturday",
     ]) {
       expect(planWordsIn(t, DISHES), t).toBeNull();
       expect(planIntent(t, DISHES), t).toBeNull();
@@ -82,7 +80,7 @@ describe('N6: every clause closed or neutral, else no code card for the whole me
   test('closed clauses with closed neutral clauses still make their cards; closed clauses of different kinds combine', () => {
     expect(reminderSlots('remind me about dinner at 6pm, thanks', DISHES)).toEqual([{ name: 'dinner', start: '18:00' }]);
     expect(reminderSlots('ok, remind me about dinner at 6pm please', DISHES)).toEqual([{ name: 'dinner', start: '18:00' }]);
-    expect(marketDayStated("hi pan, market's saturday", DISHES)).toBe(6);
+    expect(marketDayStated("ok, market's saturday", DISHES)).toBe(6);
     expect(planWordsIn('put parippu on monday, thank you', DISHES)?.days).toEqual([{ weekday: 'monday', dish: 'parippu' }]);
     expect(planIntent('plan my week: parippu on monday, thanks', DISHES)?.days).toEqual([{ weekday: 'monday', dish: 'parippu' }]);
     const mixed = "put onigiri on monday, my market's saturday and remind me about dinner at 6:30 pm";
@@ -209,5 +207,64 @@ describe('N10: each layer of the code-card exclusion, by behaviour', () => {
     // The same messages with a plain title make their cards.
     expect(reminderSlots('put onigiri on monday and remind me about dinner at 6pm', dishes)).toEqual([{ name: 'dinner', start: '18:00' }]);
     expect(marketDayStated("put onigiri on saturday and my market's saturday", dishes)).toBe(6);
+  });
+});
+
+describe('fix round 5 (5a): every clause consumed by an existing grammar or a closed neutral filler', () => {
+  test('the fillers idk, lol, ok, please, thanks (also, and, so already break clauses) are neutral', () => {
+    for (const t of ['idk put parippu on monday', 'put parippu on monday lol', 'ok put parippu on monday please', 'put parippu on monday thanks', 'so put parippu on monday']) {
+      expect(planWordsIn(t, DISHES)?.days, t).toEqual([{ weekday: 'monday', dish: 'parippu' }]);
+    }
+    expect(reminderSlots('idk, remind me about dinner at 6pm lol', DISHES)).toEqual([{ name: 'dinner', start: '18:00' }]);
+  });
+
+  test('a greeting is no filler of the ruled list: no card', () => {
+    for (const t of ["hi pan, market's saturday", "cheers, market's saturday", "great, market's saturday"]) expect(marketDayStated(t, DISHES), t).toBeNull();
+  });
+
+  test("a clause M4's meal-log parser reads whole is consumed", () => {
+    expect(planWordsIn('had toast for lunch. put onigiri on monday', DISHES)?.days).toEqual([{ weekday: 'monday', dish: 'onigiri' }]);
+    expect(reminderSlots('i ate porridge for breakfast, remind me about dinner at 6:30 pm', DISHES)).toEqual([{ name: 'dinner', start: '18:30' }]);
+    // Not a meal M4 reads ("had a long day"), or not the player's own clause: not consumed.
+    expect(planWordsIn('had a long day. put onigiri on monday', DISHES)).toBeNull();
+    expect(planWordsIn('my brother had toast. put onigiri on monday', DISHES)).toBeNull();
+  });
+
+  test("a clause M4's pantry parser reads whole is consumed", () => {
+    expect(marketDayStated("ran out of rice, my market's saturday", DISHES)).toBe(6);
+    expect(planWordsIn('i finished the rice. put onigiri on monday', DISHES)?.days).toEqual([{ weekday: 'monday', dish: 'onigiri' }]);
+    expect(planWordsIn('bought spinach. put onigiri on monday', DISHES)?.days).toEqual([{ weekday: 'monday', dish: 'onigiri' }]);
+    expect(planWordsIn('my mum finished the rice. put onigiri on monday', DISHES)).toBeNull();
+  });
+
+  test('no form is added for an eval text: T08\'s "idk just pick 3 things…" and "do the beans after that" stay unconsumed', () => {
+    const t08 = "idk just pick 3 things for this week. market's saturday so do the beans after that";
+    expect(marketDayStated(t08, DISHES)).toBeNull();
+    expect(planWordsIn(t08, DISHES)).toBeNull();
+    const t13 = "Had dal for dinner. Also put the frijoles on Saturday's plan, and remind me about dinner at 6:30 pm.";
+    expect(reminderSlots(t13, DISHES)).toEqual([]);
+  });
+});
+
+describe('fix round 5 (5c): a correction cue means no plan or profile card for the message, and an ask', () => {
+  test('the cues', () => {
+    for (const t of ['dinner at 6pm, no wait, 7pm', 'put parippu on monday, actually tuesday', 'onigiri instead', 'scratch that, lunch at 1', 'i mean tuesday', 'I meant Friday'])
+      expect(correctionCue(t), t).toBe(true);
+    for (const t of ['remind me about dinner at 6pm', 'put parippu on monday', 'no thanks', 'my market day is saturday']) expect(correctionCue(t), t).toBe(false);
+  });
+
+  test('no code card from a corrected message, even when every clause is closed', () => {
+    expect(planIntent('plan my week: parippu on monday, actually', DISHES)).toBeNull();
+    expect(planWordsIn('put parippu on monday instead', DISHES)).toBeNull();
+    expect(planWordsIn('i mean, put parippu on tuesday', DISHES)).toBeNull();
+    expect(reminderSlots('i mean, remind me about dinner at 7pm', DISHES)).toEqual([]);
+    expect(marketDayStated("actually, market's sunday", DISHES)).toBeNull();
+  });
+
+  test('the asks: which time for a timed meal, which day for a named dish, the market day for a market day', () => {
+    expect(correctionAsks('remind me to eat dinner at 6pm, no wait, 7pm', DISHES)).toEqual([{ trigger: 'profile.which_time', vars: { meal: 'dinner' } }]);
+    expect(correctionAsks('put parippu on monday, actually tuesday', DISHES)).toEqual([{ trigger: 'plan.which_day', vars: { dish: 'parippu' } }]);
+    expect(correctionAsks('my market day is saturday, actually sunday', DISHES)).toEqual([{ trigger: 'intake.market_day.ask', vars: {} }]);
+    expect(correctionAsks('put parippu on monday', DISHES)).toEqual([]);
   });
 });
