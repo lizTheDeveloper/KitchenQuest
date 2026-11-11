@@ -18,6 +18,7 @@ import {
 } from '@kitchenquest/core';
 import { eq } from 'drizzle-orm';
 import type { AiMessage, AiTool } from '../ai/provider.js';
+import { REQUEST_PARAMS } from '../ai/openrouter.js';
 import type { Catalog } from '../catalog.js';
 import type { Tx } from '../consent/ledger.js';
 import type { Keyring } from '../crypto/keyring.js';
@@ -240,9 +241,18 @@ export function renderMessages(prompt: PanPrompt, ctx: PromptContext, history: S
   ];
 }
 
-/** sha256 hex of everything that shapes the model's behaviour; Step 12's eval gate. */
-export function promptFingerprint(prompt: PanPrompt, tools: AiTool[], model: string, providers: string[]): string {
+/**
+ * sha256 hex of everything that shapes the model's behaviour; Step 12's eval gate. The request parameters
+ * (temperature, max_tokens, reasoning, tool_choice) are in it too (M4 final I-3).
+ */
+export function promptFingerprint(
+  prompt: PanPrompt,
+  tools: AiTool[],
+  model: string,
+  providers: string[],
+  request: Readonly<Record<string, unknown>> = REQUEST_PARAMS,
+): string {
   return createHash('sha256')
-    .update(JSON.stringify({ version: MENTOR_PROMPT_VERSION, system: prompt.system, examples: prompt.examples, tools, model, providers }))
+    .update(JSON.stringify({ version: MENTOR_PROMPT_VERSION, system: prompt.system, examples: prompt.examples, tools, model, providers, request }))
     .digest('hex');
 }

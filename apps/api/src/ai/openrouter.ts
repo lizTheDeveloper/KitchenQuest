@@ -20,9 +20,11 @@ export interface AiConfig {
   dailyBudgetMicroUsd: number;
 }
 
-/** §7.6b.6: low temperature, reasoning off. Replies are short (3-sentence limit). */
-const TEMPERATURE = 0.3;
-const MAX_TOKENS = 200;
+/**
+ * §7.6b.6: low temperature, reasoning off. Replies are short (3-sentence limit). These shape the model's tool
+ * calls as much as the prompt does, so they are part of the eval fingerprint (M4 final I-3, mentor/prompt.ts).
+ */
+export const REQUEST_PARAMS = Object.freeze({ temperature: 0.3, max_tokens: 200, reasoning: Object.freeze({ enabled: false }), tool_choice: 'auto' } as const);
 const RETRY_DELAY_MS = 300;
 
 function wireMessage(m: AiMessage): Record<string, unknown> {
@@ -45,12 +47,12 @@ export function buildRequestBody(cfg: AiConfig, req: AiRequest): Record<string, 
     ...(req.tools.length > 0
       ? {
           tools: req.tools.map((t: AiTool) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } })),
-          tool_choice: 'auto',
+          tool_choice: REQUEST_PARAMS.tool_choice,
         }
       : {}),
-    temperature: TEMPERATURE,
-    max_tokens: MAX_TOKENS,
-    reasoning: { enabled: false },
+    temperature: REQUEST_PARAMS.temperature,
+    max_tokens: REQUEST_PARAMS.max_tokens,
+    reasoning: { ...REQUEST_PARAMS.reasoning },
     usage: { include: true },
     stream: false,
     // VERIFY: confirm the current OpenRouter names of `data_collection`, `zdr` and

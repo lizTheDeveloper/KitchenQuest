@@ -3,6 +3,7 @@
 // `npm run eval:mentor` writes. The one skip is MENTOR_EVAL_GATE=skip-no-network, never set in the default CI job.
 import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { REQUEST_PARAMS } from '../src/ai/openrouter.js';
 import { loadConfig } from '../src/config.js';
 import { loadPanBank } from '../src/mentor/lines.js';
 import { loadPanPrompt, promptFingerprint } from '../src/mentor/prompt.js';
@@ -78,5 +79,10 @@ describe('the mentor eval gate', () => {
     expect(promptFingerprint(prompt, MENTOR_TOOLS, 'qwen/other', providers)).not.toBe(base);
     expect(promptFingerprint(prompt, MENTOR_TOOLS.slice(1), model, providers)).not.toBe(base);
     expect(promptFingerprint({ ...prompt, system: `${prompt.system} ` }, MENTOR_TOOLS, model, providers)).not.toBe(base);
+    // M4 final I-3: the request parameters are in it too.
+    expect(promptFingerprint(prompt, MENTOR_TOOLS, model, providers, REQUEST_PARAMS)).toBe(base);
+    for (const change of [{ temperature: 0.7 }, { max_tokens: 400 }, { reasoning: { enabled: true } }, { tool_choice: 'required' }]) {
+      expect(promptFingerprint(prompt, MENTOR_TOOLS, model, providers, { ...REQUEST_PARAMS, ...change }), JSON.stringify(change)).not.toBe(base);
+    }
   });
 });

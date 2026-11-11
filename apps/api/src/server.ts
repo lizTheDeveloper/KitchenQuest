@@ -7,6 +7,7 @@ import { loadConfig } from './config.js';
 import * as schema from './db/schema.js';
 import { scheduleRetention } from './jobs/retention.js';
 import { loggerOptions } from './logging/redact.js';
+import { evaluatedAi } from './mentor/eval-gate.js';
 import { LogMailer, SmtpMailer } from './mail/mailer.js';
 import type { Mailer } from './types.js';
 
@@ -22,7 +23,11 @@ const db = drizzle(sql, { schema });
 const aiLog: Pick<FastifyBaseLogger, 'warn'> = {
   warn: (...args: Parameters<FastifyBaseLogger['warn']>) => app.log.warn(...args),
 };
-const ai = config.ai ? createOpenRouterProvider(config.ai, { fetch, log: aiLog }) : null;
+// I-3: in production the live AI config must match the recorded passing eval, or the AI stays off (logged loudly).
+// The app's logger exists only once the app is built, so the warning is held until then.
+const gateErrors: { obj: object; msg: string }[] = [];
+const evaluated = evaluatedAi(config.ai, process.env.NODE_ENV, { error: (obj, msg) => gateErrors.push({ obj, msg }) });
+const ai = evaluated ? createOpenRouterProvider(evaluated, { fetch, log: aiLog }) : null;
 const app = await buildApp({
   config,
   db,
@@ -32,6 +37,7 @@ const app = await buildApp({
   logger: loggerOptions(process.env.LOG_LEVEL ?? 'info'),
 });
 
+for (const e of gateErrors) app.log.error(e.obj, e.msg);
 if (ai && process.env.NODE_ENV !== 'production') app.log.warn('AI enabled outside production: synthetic data only (P-11)');
 
 // C-6: retention runs at boot and hourly; it logs counts only.
