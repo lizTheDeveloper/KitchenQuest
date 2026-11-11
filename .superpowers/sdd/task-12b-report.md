@@ -56,3 +56,4 @@ apps/api tests need TEST_DATABASE_URL (no DB here); only content/dialogue/pan.ya
 - F4: tests: outage.test.ts (all of the above, failing background post), lazy-backend.test.ts, and mount-safety.test.ts through the real `mountMentor` wiring (S23 then "I'm allergic to eggs": no consents call, no card, both turns posted in one conversation). Mutations checked: removing `local:` from index.ts and removing the sticky flag each fail tests.
 - Note: a signed-in AI player's emergency/medical/child text is posted to the server only in the background; the visible answer is local.
 - Gates: typecheck, lint (0 errors), core 1610, game 703, build (first paint 288.2 KB); e2e see below.
+- e2e: 187/188 in two full runs with the world-map pin-size test failing (320 and 400 widths, a layout measurement; the other tree was running e2e on the same machine). e2e/world alone: 19/19. Not touched by this change.
