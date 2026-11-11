@@ -548,7 +548,7 @@ describe('PUT /rules/:id with If-Match (M4 final N4: a conditional write)', () =
         if (prop !== 'select' || typeof v !== 'function') return v;
         return (...args: unknown[]) => wrap((v as (...a: unknown[]) => object).apply(target, args));
       },
-    }) as Db;
+    });
     const racyApp = await buildApp({ config, db: racy, mailer, ai: null, now: () => NOW, logger: false });
     try {
       const res = await racyApp.inject({ method: 'GET', url: '/rules', cookies: { kq_session: c } });
