@@ -742,9 +742,9 @@ triggers:
       finding: "the engine's finding, e.g. 'Worcestershire contains anchovy, which is fish'"
     lines:
       - "{dish} won't work with your rules: {finding}. The cook will teach you an adapted version if there is one. Shall I check?"
-      - "Not that one, I'm afraid. {finding}. Let me look for an adapted version or another dish."
+      - "Not {dish}, I'm afraid: {finding}. Let me look for an adapted version or another dish."
       - "{dish} clashes with your rules: {finding}. I'll ask the cook about an adapted version, or we can pick something else."
-      - "That one's blocked for you: {finding}. Let's pick another dish, or an adapted version if the cook has one."
+      - "{dish} is blocked for you: {finding}. Let's pick another dish, or an adapted version if the cook has one."
 
   plan.dish_sacred:
     ai: never
@@ -1246,15 +1246,15 @@ triggers:
 
   rescue.unverified:
     ai: never
-    when: The rescue's frame or dish is ❓ for the player's rules, so nothing is suggested for the item.
+    when: The rescue's frame or dish is ❓ for the player's rules. It is still offered, beside "Cook the frame", with the ❓ badge (Ruling 3 of fix round 1).
     vars:
       item: "the item"
-    notes: "Plain. No joke touches a ❓ line."
+    notes: "Plain and honest beside a Cook button: says what can't be checked and what to do. No guarantee, no joke. Compost is always an option."
     lines:
-      - "I can't check a dish for the {item} against your rules, so I won't suggest one. Check the labels if you cook it yourself, or the compost is fine."
-      - "There's nothing I can verify for the {item} under your rules, so no suggestion from me. Check labels if you cook it yourself."
-      - "The dish for the {item} gets a ❓ for your rules, so I won't offer it. Read the labels before cooking it any other way, or compost it."
-      - "I can't verify a dish for the {item} against your rules, so there's no suggestion from me. If you cook it, check every label first."
+      - "I can't check a dish for the {item} against your rules. Check the label before you cook."
+      - "There's a frame that would use the {item}, but I can't check all of it against your rules. Check every label before you cook it."
+      - "I can't verify the {item}'s frame for your rules, so it shows ❓. If you cook it, read the labels first; the compost is fine too."
+      - "The {item} could go in this frame, but I can't check it against your rules. Read the labels before you cook, or compost the {item}."
 
   frame.offer:
     ai: allowed

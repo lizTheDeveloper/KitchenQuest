@@ -781,6 +781,32 @@ describe('card writer: the plan card (M5 Step 10)', () => {
     expect(out).toMatchObject({ ok: false, reason: 'plan_changed', offered: reoffered });
   });
 
+  test('Ruling 5 (local card): a dish ⛔ since the card was built is named with plan.blocked_dish and what blocks it; nothing saved', async () => {
+    const { store, writer } = setup({});
+    const view = await planCard(store);
+    store.update((s) => ({ ...s, localRules: [{ id: 'r', target: { kind: 'ingredient', ids: ['coconut'] }, type: 'avoid', severity: 'allergy' }] }));
+    const out = await writer.confirm(view, 'tap');
+    expect(out).toMatchObject({ ok: false, reason: 'closed' });
+    if (out.ok) return;
+    expect(said(out.items)).toEqual(['plan.blocked_dish']);
+    const text = out.items[0].kind === 'said' ? out.items[0].said.text : '';
+    expect(text).toContain('Parippu Curry');
+    expect(text).toMatch(/coconut/);
+    expect(store.get().localWeek.plans).toEqual([]);
+  });
+
+  test('Ruling 5 (server card): 400 plan_invalid shows the server\'s own plan.blocked_dish lines and closes the card', async () => {
+    const parts = [{ kind: 'line', line: { trigger: 'plan.blocked_dish', vars: { dish: 'Parippu Curry', finding: 'coconut oil counts as coconut' } } }];
+    const { store, writer } = setup({ confirmProposal: () => fail(400, 'plan_invalid', { problems: ['blocked: india/kerala/parippu'], parts }) }, signedIn);
+    const view = server((await planCard(store)).card);
+    const out = await writer.confirm(view, 'tap');
+    expect(out).toMatchObject({ ok: false, reason: 'closed' });
+    if (out.ok) return;
+    expect(said(out.items)).toEqual(['plan.blocked_dish']);
+    expect(out.items[0].kind === 'said' && out.items[0].said.text).toContain('coconut oil counts as coconut');
+    expect(await writer.confirm(view, 'tap')).toMatchObject({ ok: false, reason: 'closed', items: [] });
+  });
+
   test('partsToItems: a go part is a chip item carrying its nav.offer line', () => {
     const items = partsToItems([{ kind: 'go', target: { to: 'plan' }, line: { trigger: 'nav.offer', vars: { place: "the week's plan" } } }], createDialogue(content.pan));
     expect(items).toMatchObject([{ kind: 'go', target: { to: 'plan' }, said: { trigger: 'nav.offer' } }]);

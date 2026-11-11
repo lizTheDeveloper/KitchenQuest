@@ -168,6 +168,10 @@ describe('M4 Pan triggers', () => {
     for (const line of lines('rule.unknown_term')) {
       expect(line).toMatch(/nothing(?:'s| has) been saved|haven't saved|not saved/i);
       expect(line).toMatch(/label/i);
+      // Ruling 3 (Task 10 fix round 1): shown beside "Cook the frame", so it never says it won't offer one, and it
+      // promises nothing.
+      expect(line).not.toMatch(/won't (?:suggest|offer)|no suggestion|nothing I can verify/i);
+      expect(line).not.toMatch(/\b(safe|guarantee|sure)\b/i);
     }
   });
 });
@@ -247,7 +251,7 @@ describe('M5 Step 4: the weekly-loop lines', () => {
     'plan.dish_unknown': "I don't know a dish called {dish}. None of the cooks has taught it, so I haven't guessed. Which dish did you mean?",
     'plan.unverified_dish': "{dish} gets a ❓: I can't verify everything in it against your rules. Check the labels before you cook it.",
     'plan.fewer_than_asked': "Fewer pass your rules this week than you asked for. Number picked: {count}. I won't fill the gaps with dishes I can't check.",
-    'rescue.unverified': "I can't check a dish for the {item} against your rules, so I won't suggest one. Check the labels if you cook it yourself, or the compost is fine.",
+    'rescue.unverified': "I can't check a dish for the {item} against your rules. Check the label before you cook.",
     'frame.slot_empty': "I can't fill the {slot} with anything that passes your rules, so it stays unfilled. I won't guess. Pick something you've checked, or choose another frame.",
     'margin.readback': 'In the margin: {summary}. Shall I write it in?',
     'margin.blocked': "That change clashes with your rules: {finding}. I won't put it in the notes you cook from.",
@@ -331,10 +335,16 @@ describe('M5 Step 4: the weekly-loop lines', () => {
   });
 
   it('fix round 1: a ❓ line never calls the dish fine; plan.fewer_than_asked reads for 0 and 1; plan.unverified_dish names no single cause', () => {
+    // Ruling 5 (Task 10 fix round 1): a blocked save always names the dish.
+    for (const line of lines('plan.blocked_dish')) expect(line).toContain('{dish}');
     for (const line of lines('rescue.unverified')) {
       expect(line).not.toMatch(/judgement/i);
       expect(line.replace(/compost is fine/g, '')).not.toMatch(/\bfine\b/i);
       expect(line).toMatch(/label/i);
+      // Ruling 3 (Task 10 fix round 1): shown beside "Cook the frame", so it never says it won't offer one, and it
+      // promises nothing.
+      expect(line).not.toMatch(/won't (?:suggest|offer)|no suggestion|nothing I can verify/i);
+      expect(line).not.toMatch(/\b(safe|guarantee|sure)\b/i);
     }
     for (const line of lines('plan.fewer_than_asked')) expect(line, line).not.toMatch(/\{count\}\s+(?:dishes|that|of)\b/);
     for (const line of lines('plan.unverified_dish')) expect(line).not.toMatch(/depends on the label/);

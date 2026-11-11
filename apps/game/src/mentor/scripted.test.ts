@@ -390,3 +390,27 @@ describe('scripted engine: the week (M5 Step 10)', () => {
     expect(r.items.some((i) => i.kind === 'go')).toBe(false);
   });
 });
+
+describe('Ruling 1: the fixed lines never wait on the week code', () => {
+  test('an emergency, a child turn, a medical question and thanks are answered while the week import never resolves', async () => {
+    let asked = 0;
+    const never = () => { asked++; return new Promise<never>(() => undefined); };
+    const e = createScriptedEngine({ dialogue: createDialogue(content.pan), graph, ruleTerms: content.ruleTerms, recipes, now: () => NOW, week: never });
+    const within = <T>(p: Promise<T>) => Promise.race([p, new Promise<'waited'>((r) => { setTimeout(() => r('waited'), 50); })]);
+    for (const [text, trigger] of [['my throat is closing', 'rule.emergency'], ['should I take antibiotics for my rash', 'rule.medical_deflect'], ['thank you', 'thanks'], ["I'm 9", 'child.grownup']] as const) {
+      const r = await within(e.reply(text, ctx()));
+      expect(r, text).not.toBe('waited');
+      if (r !== 'waited') expect(said(r)[0]).toBe(trigger);
+    }
+    expect(asked).toBe(0);
+    // A plan turn does wait for it.
+    expect(await within(e.reply('plan my week: parippu on Sunday', ctx()))).toBe('waited');
+  });
+
+  test('if the week code cannot load, the turn is still answered (no plan, the plain line)', async () => {
+    const e = createScriptedEngine({ dialogue: createDialogue(content.pan), graph, ruleTerms: content.ruleTerms, recipes, now: () => NOW, week: () => Promise.reject(new Error('offline')) });
+    const r = await e.reply('plan my week: parippu on Sunday', ctx());
+    expect(cards(r)).toEqual([]);
+    expect(said(r)).toEqual(['didnt_understand']);
+  });
+});

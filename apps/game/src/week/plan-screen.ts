@@ -11,6 +11,7 @@ import { SCREEN_TITLES } from '../shell/titles';
 import { contentText, h } from '../ui/dom';
 import { addDays, canonRecipes, emptyPlan, planContextFor, rulesOf, slotInputFor } from './context';
 import { rememberWeek } from './memory';
+import { blockedLinesFor, blockedSlugs } from './blocked';
 import { renderPlanView, slotDay, weekdayName, writtenLine, type PlanRow, type SlotOfferView } from './plan-view';
 import { footnote, rulesLink, showFailure, statusLine } from './screen-kit';
 import { createWeekSource, type WeekSource } from './source';
@@ -81,7 +82,14 @@ export function planScreen(api: ApiClient, source?: WeekSource): Screen {
       const save = async (next: Plan, said: string | null): Promise<boolean> => {
         const r = await week.save(next, today);
         if (!alive) return false;
-        if (!r.ok) { showFailure(r, status, writtenLine); return false; }
+        if (!r.ok) {
+          // Ruling 5: a dish ⛔ since it was planned is named, with what blocks it; "try again" would never work.
+          const rules = rulesOf(ctx.store.get());
+          const lines = r.kind === 'invalid' && blockedSlugs(r.problems).length > 0 && rules !== null ? blockedLinesFor(next, rules) : [];
+          if (lines.length > 0) status.show(lines.map((l) => writtenLine(l.trigger, l.vars)).join(' '));
+          else showFailure(r, status, writtenLine);
+          return false;
+        }
         saved = next;
         draft = next;
         rememberWeek(weekStart, next, ctx.store.get().account?.email ?? null);

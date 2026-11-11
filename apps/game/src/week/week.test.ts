@@ -252,3 +252,24 @@ describe('plan screen (signed out)', () => {
     expect(el.querySelector('.week-note')!.textContent).toMatch(/rules|blocked|clashes|Not that one/);
   });
 });
+
+describe('Ruling 5: a save blocked by a dish that is ⛔ now', () => {
+  test('the plan screen names the dish with plan.blocked_dish, never "try again"', async () => {
+    const s = store();
+    createWeekStore({ store: s }).savePlan(plan([dish(6, PARIPPU)]));
+    s.update((x) => ({ ...x, localRules: [COCONUT] }));
+    const el = document.createElement('div');
+    document.body.append(el);
+    await planScreen(noClient).mount(el, { name: 'plan' }, appCtx(s));
+    await flush();
+    el.querySelector<HTMLSelectElement>('#plan-add-1')!.value = ONIGIRI;
+    el.querySelector<HTMLButtonElement>('#plan-add-btn-1')!.click();
+    el.querySelector<HTMLButtonElement>('.plan-save')!.click();
+    await flush();
+    const note = el.querySelector('.week-note')!.textContent!;
+    expect(note).toContain('Parippu Curry');
+    expect(note).toMatch(/coconut/);
+    expect(note).not.toMatch(/try again/i);
+    el.remove();
+  });
+});
