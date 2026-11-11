@@ -299,6 +299,34 @@ describe('quest engine', () => {
       expect(p.cookedOn).toEqual({});
     });
 
+    it('I2: a dairy player cooking the ❓ parippu (labels checked) completes the step; the lesson stays an option only while it is uncooked', () => {
+      const MILK: Rule = { id: 'r-milk', target: { kind: 'ingredient', ids: ['milk'] }, type: 'avoid', severity: 'allergy' };
+      expect(dishStatus('india/kerala/parippu', ctx([MILK]))).toBe('unverified');
+      const h = playSteps(leela, EMPTY_HISTORY, 4);
+      // Not cooked yet: no ✅ alternative in the canon (all ❓), so the adapted lesson is open.
+      expect(alternativesFor(cookStep, ctx([MILK]))).toEqual([]);
+      expect(advance(leela, view(h, cat), { type: 'cook', lesson: true }, DAY, newId, ctx([MILK])).ok).toBe(true);
+      // Cooked for real: the quest's own dish counts, with no adapted marker.
+      const cooked: ProgressEvent = { id: newId(), kind: 'cooked', at: DAY, recipe: 'india/kerala/parippu', planned: false };
+      const h2 = record(h, [cooked], cat);
+      const r = advance(leela, view(h2, cat), { type: 'cook', cookedEventId: cooked.id }, DAY, newId, ctx([MILK]));
+      expect(r.ok).toBe(true);
+      if (r.ok) {
+        expect(r.events.map((e) => e.kind)).toEqual(['quest_step', 'quest_done']);
+        expect(r.cook).toBeUndefined();
+      }
+      // A ⛔ dish cooked anyway still does not count (the game never offers it as cookable).
+      expect(advance(leela, view(h2, cat), { type: 'cook', cookedEventId: cooked.id }, DAY, newId, ctx([ALLIUM]))).toMatchObject({ ok: false, reason: 'not_current' });
+    });
+
+    it('M1: a cook dated after the step (clock skew, a forged upload) does not complete it', () => {
+      const h = playSteps(leela, EMPTY_HISTORY, 4);
+      const future: ProgressEvent = { id: newId(), kind: 'cooked', at: '2026-11-11', recipe: 'india/kerala/parippu', planned: false };
+      const h2 = record(h, [future], cat);
+      expect(advance(leela, view(h2, cat), { type: 'cook', cookedEventId: future.id }, DAY, newId, ctx())).toMatchObject({ ok: false, reason: 'not_current' });
+      expect(advance(leela, view(h2, cat), { type: 'cook', cookedEventId: future.id }, '2026-11-11', newId, ctx()).ok).toBe(true);
+    });
+
     it('a blocked or unverified dish is never offered as an alternative, and cooking one never completes the step', () => {
       const offered = alternativesFor(cookStep, altCtx([ALLIUM]));
       for (const a of offered) {

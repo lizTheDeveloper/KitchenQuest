@@ -250,12 +250,15 @@ export function advance(q: Quest, p: ProgressView, input: StepInput, at: string,
       const since = own(p.questStartedOn, q.id) ?? at;
       const cookedSince = (dates: string[] | undefined) => (dates ?? []).some((d) => d >= since && d <= at);
       const lesson = input.type === 'cook' && 'lesson' in input;
-      if (passes(dishStatus(step.recipe, ctx))) {
-        if (lesson || !cookedSince(own(p.cookedOn, step.recipe))) return refuse('not_current');
+      const status = dishStatus(step.recipe, ctx);
+      // The quest's own dish, really cooked since the quest started, counts unless the rules block it: a ❓ dish is
+      // cookable once the player has checked the labels (I2 ruling), so its cook completes the step too.
+      if (status !== 'blocked' && !lesson && cookedSince(own(p.cookedOn, step.recipe))) {
         events.push(stepEvent());
         break;
       }
-      // The rules block the dish (⛔ or ❓): a player's rules never lock them out of progress (concern-1 ruling).
+      if (passes(status)) return refuse('not_current');
+      // ⛔, or ❓ and not cooked: a player's rules never lock them out of progress (concern-1 ruling).
       const alternatives = alternativesFor(step, ctx);
       if (alternatives.length > 0) {
         if (lesson) return refuse('not_current');
