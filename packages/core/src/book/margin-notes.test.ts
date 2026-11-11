@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 import type { ParsedRecipe } from '../recipe/types';
 import { stepPlainText } from '../recipe/steps';
 import { canon, dish, graph, PEANUT, subs } from '../week/fixtures';
-import { applyNotes, checkWithNotes, MAX_NOTE_OPS, NOTE_TEXT_MAX, parseMarginNote, validateNote, type MarginNote, type NoteOp } from './margin-notes';
+import { applyNotes, checkWithNotes, MAX_NOTE_OPS, noteMentions, NOTE_TEXT_MAX, parseMarginNote, validateNote, type MarginNote, type NoteOp } from './margin-notes';
 
 const DAY = '2026-11-11';
 const PARIPPU = 'india/kerala/parippu';
@@ -162,5 +162,25 @@ describe('fix round 1, C1: every ingredient a note names counts for safety, read
     ]);
     expect(parseMarginNote('then added peanut butter', lentilSoup, graph).ops).toEqual([{ op: 'add', name: 'peanut butter' }]);
     expect(parseMarginNote('so I used peanut butter instead of coconut milk', lentilSoup, graph).ops).toEqual([{ op: 'swap', from: 'coconut milk', to: 'peanut butter' }]);
+  });
+});
+
+describe('fix round 1, N2: plural forms in the note scan', () => {
+  const m = (text: string): string[] => noteMentions([{ recipe: 'x', ops: [], text, at: DAY }], graph);
+  test.each([
+    ['a handful of berries', 'berry'],
+    ['two green chillies', 'green_chili'],
+    ['three bay leaves', 'bay_leaf'],
+    ['crumbs from two loaves', 'loaf'],
+    ['blunt knives', 'test_knife'],
+    ['salted peanuts', 'peanut'],
+    ['a few tomatoes', 'tomato'],
+    ['one berry', 'berry'],
+  ])('"%s" names %s', (text, id) => {
+    expect(m(text)).toContain(id);
+  });
+  test('a plural of a blocked ingredient is checked: "berries" under a berry rule → ⛔', () => {
+    const r = checkWithNotes(lentilSoup, [{ recipe: 'x', ops: [], text: 'topped with berries', at: DAY }], [{ ...PEANUT, id: 'r-berry', target: { kind: 'ingredient', ids: ['berry'] } }], graph, subs, DAY);
+    expect(r.status).toBe('blocked');
   });
 });

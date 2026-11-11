@@ -26,6 +26,11 @@ const EXTRA: IngredientNode[] = [
   { id: 'chickpea', name: 'chickpea' },
   { id: 'lentil', name: 'lentil' },
   { id: 'peanut_butter', name: 'peanut butter', contains: ['peanut'] },
+  // Plural forms (fix round 1, N2): -y → -ies, -f → -ves, -fe → -ves. "knife" stands in for any -fe label.
+  { id: 'berry', name: 'berry' },
+  { id: 'bay_leaf', name: 'bay leaf' },
+  { id: 'loaf', name: 'loaf' },
+  { id: 'test_knife', name: 'knife' },
 ];
 
 export const graph = IngredientGraph.fromData({ ingredients: [...ingredients.ingredients, ...EXTRA] });
