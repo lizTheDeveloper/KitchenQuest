@@ -82,7 +82,7 @@ Quoted from the spec unless marked. Every task's requirements include this secti
 
 **Gates:**
 - The M4 final-review fix wave is merged into `claude/eager-cori-h3gmju`. At the time of writing it is in progress after `25f0efb` (C-1 sticky child flag, I-1–I-3, M-2). M5 starts from that merge and does not touch the files it changes until it lands.
-- **Step 8** changes the Pan's tools, so the prompt fingerprint changes and the M4 eval gate (`apps/api/test/eval-gate.test.ts`) fails until a passing `apps/api/eval/last-pass.json` is recorded. **Step 8.4 is blocked until the founder runs `npm run eval:mentor`** (M4 ruling C28: never set `MENTOR_EVAL_GATE=skip-no-network` on the default branch).
+- **Step 8** changes the Pan's tools, so the prompt fingerprint changes and the M4 eval gate (`apps/api/test/eval-gate.test.ts`) fails until a passing `apps/api/eval/last-pass.json` is recorded. **Step 8.4 needs one `npm run eval:mentor` run by the implementer** (OpenRouter key is proxy-injected; `OPENROUTER_API_KEY=proxy-injected NODE_USE_ENV_PROXY=1`, synthetic data only; one run decides) (M4 ruling C28: never set `MENTOR_EVAL_GATE=skip-no-network` on the default branch).
 - Steps 1–4 touch only core, `data/` and `content/`, so they can start at once. Steps 5–7 need Step 1 (and Step 3 for 6–7). Steps 9–11 need Step 4's content and their API steps' routes for their e2e mocks.
 
 Earlier-milestone files each task touches (new files are listed in each step):
@@ -145,7 +145,7 @@ Where the spec, the audit and the content disagree or are silent, the planner de
 
 Order:
 - Steps 1 → 2 → 3 → 4 in order. Each is core or content, and the game build compiles both, so run the game's `npm test` after each.
-- 5 → 6 → 7 → 8 in order. Step 8 is blocked at 8.4 on the founder's eval run.
+- 5 → 6 → 7 → 8 in order. Step 8.4 includes one eval run.
 - 9 after 4 and 5; 10 after 6 and 8; 11 after 7 and 10.
 - 12 last.
 

@@ -8,7 +8,7 @@ M4 deferred `plan_week` / `edit_plan` and the navigation tools to this milestone
 
 The scripted path builds the same card from the same core functions, so "plan my week: dal on Sunday" and "pick 3" work with the AI off.
 
-**Pre-flight:** the tools change, so `promptFingerprint` changes and `apps/api/test/eval-gate.test.ts` fails until a new passing `apps/api/eval/last-pass.json` exists. **Step 8.4 is blocked until the founder runs `npm run eval:mentor`.** Report it as blocked; never set `MENTOR_EVAL_GATE=skip-no-network` (M4 ruling C28).
+**Pre-flight:** the tools change, so `promptFingerprint` changes and `apps/api/test/eval-gate.test.ts` fails until a new passing `apps/api/eval/last-pass.json` exists. **Step 8.4 is blocked until the founder runs `npm run eval:mentor`.** If it fails the bar, report BLOCKED with the table; never set `MENTOR_EVAL_GATE=skip-no-network` (M4 ruling C28).
 
 **Files:**
 - Create: `packages/core/src/mentor/plan-card.ts` (+ test), `apps/api/test/mentor-plan.test.ts`
@@ -84,5 +84,5 @@ test('judge: T07 passes with the expected plan card; a plan card containing a bl
 ```
 - [ ] **8.2 Run** `npm test -w @kitchenquest/core -- plan-card` and `npm test -w @kitchenquest/api -- mentor eval` → FAIL.
 - [ ] **8.3 Implement.** Then hand off to the founder for `npm run eval:mentor` (synthetic data, dev key, M4 Step 12 procedure). The pass bar is unchanged: 0 hard fails and ≥ 95% of tool cases fully correct.
-- [ ] **8.4 Run** `npm test` at the root (eval gate included, no skip flag) → PASS. **Blocked until the founder's eval run writes a passing `apps/api/eval/last-pass.json`;** record it in `.superpowers/sdd/README-m5-loop/progress.md`.
+- [ ] **8.4 Run** `npm test` at the root (eval gate included, no skip flag) → PASS. after one `npm run eval:mentor` run writes a passing `apps/api/eval/last-pass.json`; record it in `.superpowers/sdd/README-m5-loop/progress.md`.
 - [ ] **8.5 Commit** `feat(mentor): plan cards and navigation chips — the model proposes, core resolves and checks, the player taps`
