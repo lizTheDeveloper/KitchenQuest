@@ -255,7 +255,7 @@ describe('M5 Step 4: the weekly-loop lines', () => {
     'week.move_partial': "Your plan is with your account now, but the ticked items didn't all follow. Everything is still on this device too; tap Move it again to finish.",
     'frame.slot_empty': "I can't fill the {slot} with anything that passes your rules, so it stays unfilled. I won't guess. Pick something you've checked, or choose another frame.",
     'margin.readback': 'In the margin: {summary}. Shall I write it in?',
-    'margin.blocked': "That change clashes with your rules: {finding}. I won't put it in the notes you cook from.",
+    'margin.blocked': "That change clashes with your rules: {finding}. If you keep this note, 'Cook with my notes' stays off for this dish while it clashes. The recipe as the cook wrote it is still there.",
     'margin.needs_account': "Margin notes live with your account, so they're kept private. Sign in from Settings, and the margin is yours.",
     'log.dish_offer': 'Log {dish} as a meal? One tap, or skip it.',
     'book.exported': "Your Recipe Book is saved to your device. It's yours, always free.",

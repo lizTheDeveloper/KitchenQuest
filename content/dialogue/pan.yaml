@@ -1340,15 +1340,15 @@ triggers:
 
   margin.blocked:
     ai: never
-    when: A margin note's swap or addition clashes with the player's rules; "cook with my notes" stays off for it.
+    when: A margin note's swap or addition clashes with the player's rules. The note can still be kept, but while it clashes "Cook with my notes" stays off for the whole dish (Task 11 fix I4).
     vars:
       finding: "the engine's finding, e.g. 'peanut butter contains peanut'"
-    notes: "Plain. No joke touches an allergen line."
+    notes: "Plain and true (voice §0.8). Says what happens: the note is kept if the player writes it in, and 'Cook with my notes' stays off for this dish while it clashes; the cook's recipe is still there. No joke touches an allergen line. # REVIEW: reworded in Task 11 fix round 1, for content review."
     lines:
-      - "That change clashes with your rules: {finding}. I won't put it in the notes you cook from."
-      - "{finding}. That's against your rules, so it can't go in your cooking notes."
-      - "Your rules say no to that: {finding}. The recipe stays as the cook wrote it."
-      - "I can't use that change with your rules: {finding}. Your cooking notes stay without it."
+      - "That change clashes with your rules: {finding}. If you keep this note, 'Cook with my notes' stays off for this dish while it clashes. The recipe as the cook wrote it is still there."
+      - "{finding}. That's against your rules. You can keep the note, but 'Cook with my notes' stays off for this dish until it no longer clashes."
+      - "Your rules say no to that: {finding}. Keep the note if you like; 'Cook with my notes' stays off for this dish while it's there. The cook's recipe is unchanged."
+      - "I can't cook that change with your rules: {finding}. If the note is kept, 'Cook with my notes' stays off for this dish. You can still cook the recipe as the cook wrote it."
 
   margin.needs_account:
     ai: never

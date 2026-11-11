@@ -321,3 +321,18 @@ describe('after cook (M5 Step 11)', () => {
     expect(t.recorded).toEqual([]);
   });
 });
+
+describe('fix M5: a declined consent card is not asked again in the same flow', () => {
+  test('declined at "Did you change anything?" → "Log it?" doesn\'t ask again, and logs nothing', async () => {
+    const t = setup({ consent: 'missing' });
+    void t.run();
+    await t.flush();
+    t.button('Skip', t.slip('cooked_for')!).click();
+    await t.flush();
+    await t.flush();
+    await t.flush();
+    expect(t.consentAsks).toHaveLength(1);
+    expect(t.slip('meal')).toBeNull();
+    expect(t.calls).toEqual([]);
+  });
+});

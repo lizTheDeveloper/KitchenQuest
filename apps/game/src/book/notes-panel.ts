@@ -33,6 +33,9 @@ export const fmtDate = (d: string): string => {
   return Number.isNaN(t.getTime()) ? d.slice(0, 10) : t.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 };
 
+/** A Delete button's name tells notes of one day apart (M7): the date and the note's first words. */
+const firstWords = (t: string): string => { const w = t.split(/\s+/).slice(0, 6).join(' '); return w.length < t.length ? `${w}…` : w; };
+
 const DAY_MS = 86_400_000;
 /** A deleted note put back by its undo keeps its date when the server still accepts it (within a day of today), else today. */
 export function restoredAt(at: string, today: string): string {
@@ -72,9 +75,9 @@ export function notesPanel(el: HTMLElement, input: { slug: string; recipe: Parse
   const drawList = () => {
     if (notes.length === 0) { list.replaceChildren(h('li', { class: 'book-note-none' }, NONE)); drawCook(); return; }
     list.replaceChildren(...notes.map((n) => {
-      const del = h('button', { type: 'button', class: 'btn btn-secondary btn-small book-note-delete', 'aria-label': `Delete the note from ${fmtDate(n.at)}` }, 'Delete');
+      const del = h('button', { type: 'button', class: 'btn btn-secondary btn-small book-note-delete', 'aria-label': `Delete the note from ${fmtDate(n.at)}: ${firstWords(noteText(n))}` }, 'Delete');
       del.addEventListener('click', () => { void remove(n, del); });
-      return h('li', { class: 'book-note', 'data-id': n.id }, h('span', { class: 'book-note-date' }, `${fmtDate(n.at)}: `), h('span', { class: 'book-note-text' }, noteText(n)), ' ', del);
+      return h('li', { class: 'book-note', 'data-id': n.id, tabindex: -1 }, h('span', { class: 'book-note-date' }, `${fmtDate(n.at)}: `), h('span', { class: 'book-note-text' }, noteText(n)), ' ', del);
     }));
     drawCook();
   };
@@ -107,6 +110,8 @@ export function notesPanel(el: HTMLElement, input: { slug: string; recipe: Parse
         kept: (r) => {
           notes = [...notes, { ...r.note, id: r.id }];
           drawList();
+          // M7: the stamp button is now disabled; focus goes to the note just written, never to the page.
+          list.querySelector<HTMLElement>(`.book-note[data-id="${CSS.escape(r.id)}"]`)?.focus();
           addBox.append(undoButton(r.undoUntil, deps.now, async () => {
             const ok = (await deps.writer.unkeep('margin_note', r.id)) === 'undone';
             if (ok) { notes = notes.filter((x) => x.id !== r.id); drawList(); }

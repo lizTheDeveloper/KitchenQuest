@@ -85,3 +85,54 @@ describe('the notes panel (M5 Step 11)', () => {
     expect(restoredAt('2026-11-01', '2026-11-10')).toBe('2026-11-10');
   });
 });
+
+describe('fix I4: margin.blocked tells the truth', () => {
+  test('every line says the note is kept and "Cook with my notes" stays off while it clashes; none says the change is left out', () => {
+    const lines = content.pan.triggers['margin.blocked'].lines;
+    expect(lines.length).toBeGreaterThanOrEqual(4);
+    for (const l of lines) {
+      expect(l).toContain('{finding}');
+      expect(l).toMatch(/Cook with my notes/);
+      expect(l).toMatch(/\b(?:keep|kept)\b/i);
+      expect(l).not.toMatch(/won't put|without it|can't go in|stay without/i);
+    }
+  });
+});
+
+describe('fix M7: accessibility', () => {
+  test('two notes from one day have different Delete names', () => {
+    const t = setup([n('a', [{ op: 'add', name: 'lime' }]), n('b', [{ op: 'remove', name: 'chilli' }])]);
+    const names = [...t.el.querySelectorAll('.book-note-delete')].map((b) => b.getAttribute('aria-label'));
+    expect(new Set(names).size).toBe(2);
+    expect(names[0]).toContain('added lime');
+  });
+  test('after "Write it in", focus goes to the new note, never the page', async () => {
+    const t = setup([]);
+    t.el.querySelector<HTMLButtonElement>('.book-note-new')!.click();
+    t.el.querySelector<HTMLTextAreaElement>('.note-text')!.value = 'added lime';
+    t.el.querySelector<HTMLButtonElement>('.note-readback')!.click();
+    await flush();
+    t.el.querySelector<HTMLButtonElement>('.slip-confirm')!.click();
+    await flush();
+    expect(document.activeElement).toBe(t.el.querySelector('.book-note[data-id="new-1"]'));
+  });
+});
+
+describe('fix M6: the book\'s consent card always answers', () => {
+  const consents = { ok: true, status: 200, data: { consents: [], needsReconsent: [], notices: { health_data: { version: 'v3', text: 'The notice.' } } } };
+  test('a failed grant says so and answers false; a good one answers true; no notice answers false', async () => {
+    const { askConsentIn } = await import('./book-screen');
+    for (const [grant, want] of [[{ ok: false, status: 500, error: { code: 'x', message: '' } }, false], [{ ok: true, status: 201, data: {} }, true]] as const) {
+      const box = document.createElement('div');
+      const client = { consents: () => Promise.resolve(consents), grantConsent: () => Promise.resolve(grant) } as never;
+      const p = askConsentIn(box, client);
+      await flush();
+      box.querySelector<HTMLButtonElement>('.consent-agree')!.click();
+      expect(await p).toBe(want);
+      if (!want) expect(box.textContent).toBe(content.pan.triggers['ui.rules.consent_failed'].lines[0]);
+    }
+    const box = document.createElement('div');
+    expect(await askConsentIn(box, { consents: () => Promise.resolve({ ok: false, status: 0, error: { code: 'network', message: '' } }) } as never)).toBe(false);
+    expect(box.textContent).toBe(content.pan.triggers['ui.rules.consent_unavailable'].lines[0]);
+  });
+});

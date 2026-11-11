@@ -10,6 +10,7 @@ import { RouteNotFound, type AppContext, type Screen } from '../shell/app';
 import { routeHref } from '../shell/router';
 import { SCREEN_TITLES } from '../shell/titles';
 import { contentText, h } from '../ui/dom';
+import { copy } from '../content/copy';
 import { cookWithNotes } from '../cook/with-notes';
 import { BOOK_FILE_NAME, bookFile, redactNotes } from './book-export';
 import { bookPages, NO_TALLY, notesBySlug, type BookNote, type BookPage } from './book-model';
@@ -175,18 +176,23 @@ function mountNotes(slot: HTMLElement, page: BookPage, ctx: AppContext, client: 
   });
 }
 
-/** The 3-C card in `box` (the M4 path, the v3 notice from the API, verbatim). */
-function askConsentIn(box: HTMLElement, client: ApiClient): Promise<boolean> {
+/**
+ * The 3-C card in `box` (the M4 path, the v3 notice from the API, verbatim). True once granted. A notice that can't
+ * load, or a grant that fails, says so plainly and answers false (fix M6): the caller never waits forever.
+ */
+export function askConsentIn(box: HTMLElement, client: ApiClient): Promise<boolean> {
   return new Promise((resolve) => {
     void client.consents().then((r) => {
       const notice = r.ok ? r.data.notices.health_data : undefined;
       const form = content.bureau.forms.consent_health as BureauForm | undefined;
-      if (notice === undefined || form === undefined) { resolve(false); return; }
+      if (notice === undefined || form === undefined) { box.append(h('p', { role: 'status' }, copy('ui.rules.consent_unavailable'))); resolve(false); return; }
       const card = renderConsentCard('health_data', {
         form, notice,
         onAgree: async () => {
           const g = await client.grantConsent('health_data', notice.version);
-          if (g.ok) { card.remove(); resolve(true); }
+          card.remove();
+          if (!g.ok) box.append(h('p', { role: 'status' }, copy('ui.rules.consent_failed')));
+          resolve(g.ok);
         },
         onDecline: () => { card.remove(); resolve(false); },
       });

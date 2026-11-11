@@ -153,12 +153,17 @@ export function afterCook(slot: HTMLElement, input: AfterCookInput, deps: AfterC
     };
 
     /** The consent card first, when it's missing; resolves true once there is consent. */
+    /** M5: a "Not now" on the consent card holds for the rest of this flow; the card is never asked twice in a row. */
+    let consentDeclined = false;
     const withConsent = async (el: HTMLElement): Promise<boolean> => {
       if (deps.healthConsent() === 'granted') return true;
+      if (consentDeclined) return false;
       el.append(...lineEls([say('consent.health_first')]));
       const box = h('div');
       el.append(box);
-      return deps.askConsent(box);
+      const granted = await deps.askConsent(box);
+      if (!granted) consentDeclined = true;
+      return granted;
     };
 
     /** Step 2: a margin note. Never for a frame or a sacred dish; account-only; health data. */
@@ -184,6 +189,8 @@ export function afterCook(slot: HTMLElement, input: AfterCookInput, deps: AfterC
 
     /** Step 3: the one-tap log (spec §5). Account-only; health data. */
     const logIt = (next: () => void) => {
+      // M5: consent was just declined in this flow: the log (health data too) is not offered again.
+      if (deps.signedIn() && consentDeclined && deps.healthConsent() !== 'granted') { next(); return; }
       const el = section('Log it?');
       if (!deps.signedIn()) { el.append(...lineEls([say('log.needs_account')])); next(); return; }
       void withConsent(el).then((granted) => {
