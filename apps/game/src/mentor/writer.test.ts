@@ -11,7 +11,7 @@ import type { LocalCardView, PanItem, ServerCardView } from './reply';
 import { createCardWriter, partsToItems, type WriteOutcome } from './writer';
 import { createScriptedEngine } from './scripted';
 import { createWeekTurn } from './week-turn';
-import { forgetWeek, rememberWeek } from '../week/memory';
+import { forgetWeek, plannedOn, rememberedWeek, rememberWeek } from '../week/memory';
 
 const T0 = new Date('2026-11-10T12:00:00Z');
 const ok = <T>(data: T, status = 200): ApiResult<T> => ({ ok: true, status, data });
@@ -825,6 +825,17 @@ describe('card writer: the plan card (M5 Step 10)', () => {
     const u = await writer.undo(out.trail);
     expect(u.status).toBe('nothing');
     expect(said(u.items)).toEqual(['plan.blocked_dish']);
+  });
+
+  test('N4: an account switch while a plan card\'s save is on its way: no undo for the new session, nothing remembered for it', async () => {
+    const { store, writer } = setup({
+      getPlan: () => ok({ plan: null, weekStart: '2026-11-09', checks: [] }),
+      putPlan: (p) => { store.update((s) => ({ ...s, account: { email: 'other@example.com' } })); return ok({ plan: { ...(p as object), id: 'row' }, checks: [] }); },
+    }, signedIn);
+    const out = await writer.confirm(await planCard(store), 'tap');
+    expect(out).toMatchObject({ ok: false, reason: 'closed', items: [] });
+    expect(rememberedWeek('other@example.com')).toBeNull();
+    expect(plannedOn('india/kerala/parippu', '2026-11-15', 'other@example.com')).toBe(false);
   });
 
   test('partsToItems: a go part is a chip item carrying its nav.offer line', () => {

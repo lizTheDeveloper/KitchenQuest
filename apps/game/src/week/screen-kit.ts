@@ -15,11 +15,14 @@ export function statusLine(id?: string): { el: HTMLElement; show(text: string): 
   return { el, show(text) { el.textContent = text; } };
 }
 
+/** A consent card's answer handler that runs `fn` only on a grant (never on "Not now" or a notice that didn't load). */
+export const grantedOnly = (fn?: () => void) => (answer: string): void => { if (answer === 'granted') fn?.(); };
+
 /** Open the Pan with `consent.health_first` and the health consent card; `onGranted` runs once it is filed. */
 export function askHealthConsent(onGranted?: () => void): void {
   const { dialogue } = getMentorServices();
   const pan = getMentor();
-  const onAnswer = (a: string) => { if (a === 'granted') onGranted?.(); };
+  const onAnswer = grantedOnly(onGranted);
   pan.show({ items: [{ kind: 'said', said: dialogue.say('consent.health_first') }, { kind: 'consent', purpose: 'health_data', onAnswer }], cards: [], intents: [], actions: [], notice: null });
   pan.open();
 }

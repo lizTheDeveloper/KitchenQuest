@@ -3,7 +3,7 @@ import {
 } from '@kitchenquest/core/engine';
 import { content } from '../content';
 import type { LocalRun, PlayerState, PlayerStore } from '../state/store';
-import { addDays, canonRecipes, devicePlan, planContextFor, PLAN_RETENTION_WEEKS, rulesOf } from './context';
+import { canonRecipes, devicePlan, planContextFor, retainedWeek, rulesOf } from './context';
 
 /**
  * The week on this device (M5 Step 10, Ruling 8): signed out, the plan and its market run live in the player store,
@@ -37,10 +37,7 @@ const viewOf = (r: LocalRun): MarketRunView => ({ id: r.id, weekStart: r.weekSta
 const storedPlan = devicePlan;
 
 /** Plans (and runs) whose week ended more than PLAN_RETENTION_WEEKS ago leave the device. */
-function retained(s: PlayerState, today: string): PlayerState['localWeek'] {
-  const oldest = addDays(today, -7 * (PLAN_RETENTION_WEEKS + 1));
-  return { plans: s.localWeek.plans.filter((p) => p.weekStart >= oldest), runs: s.localWeek.runs.filter((r) => r.weekStart >= oldest) };
-}
+const retained = (s: PlayerState, today: string): PlayerState['localWeek'] => retainedWeek(s.localWeek, today);
 
 /** The run's rows now (the server's `recompute`): ticked rows kept exactly, every other row from `marketList`. */
 function recompute(s: PlayerState, plan: Plan, existing: LocalRun | null): Pick<LocalRun, 'items' | 'pantryIds'> | null {

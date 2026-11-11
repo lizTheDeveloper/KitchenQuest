@@ -248,6 +248,7 @@ export function createCardWriter(deps: {
       }
       case 'reoffer': return { ok: false, reason: 'plan_changed', items: w.lines.map(say), offered: w.card };
       case 'blocked': return { ok: false, reason: 'closed', items: w.lines.map(say) };
+      case 'left': return { ok: false, reason: 'closed', items: [] };
       case 'refused':
         switch (w.failure.kind) {
           case 'consent': return { ok: false, reason: 'consent_required', items: [line('consent.health_first'), { kind: 'consent', purpose: 'health_data' }] };

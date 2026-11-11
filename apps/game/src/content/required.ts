@@ -30,6 +30,8 @@ export const M5_LOOP_TRIGGERS_AI = {
   'book.empty': 'allowed',
   'book.exported': 'never',
   'nav.offer': 'never',
+  // Task 10 fix round 2 (N2): the move tap's plan landed but its ticks or finish didn't all follow.
+  'week.move_partial': 'never',
 } as const satisfies Record<string, 'never' | 'allowed'>;
 const M5_LOOP_TRIGGERS = Object.keys(M5_LOOP_TRIGGERS_AI);
 

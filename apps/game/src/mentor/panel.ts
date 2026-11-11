@@ -224,6 +224,8 @@ export function mountMentorPanel(root: HTMLElement, opts: {
     if (!opts.week) { li.remove(); sayLine('didnt_understand'); return; }
     void opts.week().then((w) => {
       if (destroyed || startedIn !== epoch || !li.isConnected) return;
+      // N5: a child spoke while the week's code loaded: no new card is shown (m-4), the place is taken away.
+      if (childSpoke()) { li.remove(); return; }
       if (!w.isPlanCard(view.card)) { li.remove(); sayLine('didnt_understand'); return; }
       drawCard(view, li, w.planCardBody(view.card));
     }, (err: unknown) => {

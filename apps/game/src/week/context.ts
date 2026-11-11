@@ -17,7 +17,13 @@ const DAY_MS = 86_400_000;
 export const addDays = (date: string, days: number): string => new Date(Date.parse(`${date}T00:00:00Z`) + days * DAY_MS).toISOString().slice(0, 10);
 
 /** How long a plan (and its run) stays on the device after its week ends: the server's retention (Ruling 18). */
-export const PLAN_RETENTION_WEEKS = 8;
+const PLAN_RETENTION_WEEKS = 8;
+
+/** The device week without plans and runs whose week ended more than PLAN_RETENTION_WEEKS before `today`. */
+export function retainedWeek(w: PlayerState['localWeek'], today: string): PlayerState['localWeek'] {
+  const oldest = addDays(today, -7 * (PLAN_RETENTION_WEEKS + 1));
+  return { plans: w.plans.filter((p) => p.weekStart >= oldest), runs: w.runs.filter((r) => r.weekStart >= oldest) };
+}
 
 let canon: ReadonlyMap<string, ParsedRecipe> | null = null;
 /** Every canon recipe by slug, as core's `PlanContext.recipes` (built once). */

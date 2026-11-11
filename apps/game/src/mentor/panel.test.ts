@@ -744,3 +744,24 @@ test('M1: a card re-offered after plan_changed without its id or expiry is never
   await flush();
   expect(root.querySelectorAll('.pan-card:not(.is-closed)').length).toBe(0);
 });
+
+test('N5: a child turn while the week code loads: the plan card is never drawn', async () => {
+  let release!: () => void;
+  const flag = { on: false, set() { this.on = true; }, reset() { this.on = false; } };
+  document.body.replaceChildren();
+  const root = document.createElement('div');
+  document.body.append(root);
+  const store = createStore(null);
+  const real = createWeekTurn({ store, client, now: () => T0, dialogue, recipes, cooks: {} });
+  const pan = mountMentorPanel(root, {
+    week: () => new Promise((r) => { release = () => r(real); }),
+    mode: 'standard', backend: { kind: 'scripted', reply: () => Promise.resolve(reply(['x'])) }, dialogue, writer: fakeWriter(), engine, client,
+    forms: content.bureau.forms, store, reducedMotion: () => true, now: () => T0, child: flag,
+  });
+  pan.show({ ...reply([]), cards: [local(PLAN_CARD())] });
+  flag.set();
+  release();
+  await flush();
+  expect(root.querySelector('.pan-card')).toBeNull();
+  expect(root.querySelector('.pan-card-item')).toBeNull();
+});

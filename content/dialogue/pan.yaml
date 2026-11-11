@@ -1256,6 +1256,16 @@ triggers:
       - "I can't verify the {item}'s frame for your rules, so it shows ❓. If you cook it, read the labels first; the compost is fine too."
       - "The {item} could go in this frame, but I can't check it against your rules. Read the labels before you cook, or compost the {item}."
 
+  week.move_partial:
+    ai: never
+    when: "The player tapped 'Move this week to your account?' and the plan reached the account, but the ticked market items or the finished shop didn't all follow (Task 10 fix round 2, N2). Nothing was removed from the device; a second tap carries on."
+    notes: "Plain and truthful: says what moved and what didn't. No joke, no blame."
+    lines:
+      - "Your plan is with your account now, but the ticked items didn't all follow. Everything is still on this device too; tap Move it again to finish."
+      - "The plan moved to your account. Some of the market list didn't, so this device keeps its copy for now. Tap Move it again to send the rest."
+      - "Half there: the plan is on your account, the ticks aren't all. Nothing has left this device; tap Move it again when you're ready."
+      - "Your account has the plan. The shopping ticks didn't all go through, so I've kept everything here as well. Try Move it again."
+
   frame.offer:
     ai: allowed
     when: A Pantry Frame filled from what's in the cupboard. Never comments on how much is there (audit M-4).

@@ -76,7 +76,9 @@ type PlanWrite =
   | { kind: 'reoffer'; lines: LineRef[]; card: PlanCard | null }
   /** Ruling 5: a dish is ⛔ now: nothing saved, and `plan.blocked_dish` names it. */
   | { kind: 'blocked'; lines: LineRef[] }
-  | { kind: 'refused'; failure: WeekFailure };
+  | { kind: 'refused'; failure: WeekFailure }
+  /** N4: the account changed while the write was on its way. */
+  | { kind: 'left' };
 
 export interface WeekTurn {
   /** A plan (closed grammar) → its card and read-back; a navigation → a chip; else null. */
@@ -181,10 +183,14 @@ export function createWeekTurn(d: {
 
     async writePlan(card) {
       const day = today();
+      // N4: the account this write is for, read before the first await; a session that changed meanwhile is never remembered.
+      const who = account();
+      const same = () => account() === who;
       const cur = await source.current(day);
       if (!cur.ok) return { kind: 'refused', failure: cur };
       const { weekStart, plan: stored } = cur.value;
-      rememberWeek(weekStart, stored, account());
+      if (!same()) return { kind: 'left' };
+      rememberWeek(weekStart, stored, who);
       if (weekStart !== card.weekStart || planBasis(stored) !== card.basis) return reoffer(card, weekStart, stored);
       const slot = stored?.slot ?? 'unanswered';
       const plan: Plan = { weekStart, items: card.items, hard: card.hard, slot: card.offer !== null && slot === 'unanswered' ? 'offered' : slot };
@@ -198,13 +204,17 @@ export function createWeekTurn(d: {
         }
         return { kind: 'refused', failure: r };
       }
-      rememberWeek(weekStart, plan, account());
+      // The session changed while the save was on its way: it landed for the old one, so no undo is offered here
+      // (it would write to the new session) and nothing is remembered for it.
+      if (!same()) return { kind: 'left' };
+      rememberWeek(weekStart, plan, who);
       return { kind: 'saved', weekStart, previous: r.value.previous };
     },
 
     async restore(weekStart, previous) {
+      const who = account();
       const r = await source.restore(weekStart, previous, today());
-      if (r.ok) { rememberWeek(weekStart, previous, account()); return { kind: 'ok' }; }
+      if (r.ok) { if (account() === who) rememberWeek(weekStart, previous, who); return { kind: 'ok' }; }
       const rules = rulesOf(store.get());
       if (r.kind === 'invalid' && previous !== null && rules !== null) {
         const lines = blockedLinesFor(previous, rules);

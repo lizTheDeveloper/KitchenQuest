@@ -8,7 +8,7 @@ import { createScriptedEngine } from './scripted';
 import { createStore } from '../state/store';
 import type { ApiClient } from '../api/client';
 import { createWeekTurn } from './week-turn';
-import { forgetWeek, plannedOn, rememberWeek } from '../week/memory';
+import { forgetWeek, plannedOn, rememberedWeek, rememberWeek } from '../week/memory';
 
 // AI off, real compiled content: the engine runs on the same core toolkit as the server.
 const recipes = Object.entries(content.recipes).map(([slug, r]) => ({ slug, title: r.meta.title }));
@@ -424,6 +424,15 @@ describe('I5: the week turn\'s contracts', () => {
     // A Saturday market week (the 7th): Sunday is its day 1, not the Monday week's day 6.
     const r = t.intent('plan my week: parippu on Sunday', 1)!;
     expect(r.cards[0].card).toMatchObject({ weekStart: '2026-11-07', items: [{ day: 1 }] });
+  });
+  test('N3: a week read for one account is never remembered for the account signed in when it lands', async () => {
+    forgetWeek();
+    const s = createStore(null);
+    s.update((x) => ({ ...x, account: { email: 'a@example.com' }, accountRules: [] }));
+    const client = { getPlan: () => { s.update((x) => ({ ...x, account: { email: 'b@example.com' } })); return Promise.resolve({ ok: true, status: 200, data: { plan: null, weekStart: '2026-11-07', checks: [] } }); } } as unknown as ApiClient;
+    await createWeekTurn({ store: s, client, now: () => NOW, dialogue, recipes, cooks: {} }).prefetch();
+    expect(rememberedWeek('a@example.com')).toBeNull();
+    expect(rememberedWeek('b@example.com')).toBeNull();
   });
 });
 

@@ -252,6 +252,7 @@ describe('M5 Step 4: the weekly-loop lines', () => {
     'plan.unverified_dish': "{dish} gets a ❓: I can't verify everything in it against your rules. Check the labels before you cook it.",
     'plan.fewer_than_asked': "Fewer pass your rules this week than you asked for. Number picked: {count}. I won't fill the gaps with dishes I can't check.",
     'rescue.unverified': "I can't check a dish for the {item} against your rules. Check the label before you cook.",
+    'week.move_partial': "Your plan is with your account now, but the ticked items didn't all follow. Everything is still on this device too; tap Move it again to finish.",
     'frame.slot_empty': "I can't fill the {slot} with anything that passes your rules, so it stays unfilled. I won't guess. Pick something you've checked, or choose another frame.",
     'margin.readback': 'In the margin: {summary}. Shall I write it in?',
     'margin.blocked': "That change clashes with your rules: {finding}. I won't put it in the notes you cook from.",
@@ -273,6 +274,7 @@ describe('M5 Step 4: the weekly-loop lines', () => {
     'rescue.offer': ['item', 'technique', 'dish'],
     'rescue.compost': ['item'],
     'rescue.unverified': ['item'],
+    'week.move_partial': [],
     'frame.offer': ['frame', 'technique'],
     'frame.slot_empty': ['slot'],
     'margin.readback': ['summary'],
@@ -286,7 +288,7 @@ describe('M5 Step 4: the weekly-loop lines', () => {
 
   it('requires every M5 trigger, each with the plan\'s ai value', async () => {
     const { M5_LOOP_TRIGGERS_AI } = await import('./required');
-    expect(Object.keys(M5_LOOP_TRIGGERS_AI)).toHaveLength(30);
+    expect(Object.keys(M5_LOOP_TRIGGERS_AI)).toHaveLength(31);
     for (const [id, ai] of Object.entries(M5_LOOP_TRIGGERS_AI)) {
       expect(REQUIRED_PAN_TRIGGERS, id).toContain(id);
       expect(triggers[id], id).toBeDefined();

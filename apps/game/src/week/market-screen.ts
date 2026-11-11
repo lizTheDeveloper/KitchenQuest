@@ -47,6 +47,9 @@ export function marketScreen(api: ApiClient, source?: WeekSource): Screen {
     title: SCREEN_TITLES.market,
     async mount(el, _route, ctx) {
       const today = localDate(ctx.now());
+      // N4: the account the screen's reads and writes are for, taken before any await.
+      const who = ctx.store.get().account?.email ?? null;
+      const remember = (weekStart: string, p: Plan | null) => { if ((ctx.store.get().account?.email ?? null) === who) rememberWeek(weekStart, p, who); };
       const week = source ?? createWeekSource({ store: ctx.store, client: api });
       const familyTable = ctx.store.get().settings.familyTable;
       const form = content.bureau.forms.market_list;
@@ -71,7 +74,7 @@ export function marketScreen(api: ApiClient, source?: WeekSource): Screen {
         onConsent: (retry) => { askHealthConsent(retry); },
       });
       if (offer) status.el.after(offer);
-      rememberWeek(got.value.weekStart, plan, ctx.store.get().account?.email ?? null);
+      remember(got.value.weekStart, plan);
       if (plan === null || !plan.items.some((i) => i.kind === 'dish')) { body.append(h('p', null, NO_PLAN)); return; }
 
       let run: MarketRunView | null = null;
