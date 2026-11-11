@@ -1,10 +1,15 @@
 import fc from 'fast-check';
 import { describe, expect, test } from 'vitest';
+import { CAT } from '../progress/fixtures';
+import type { ProgressEvent } from '../progress/types';
 import * as toolkitModule from './toolkit';
 import {
   EMPTY_TOOLKIT,
   freshness,
+  recognizedCook,
   recordTechnique,
+  refreshDue,
+  toolkitFromEvents,
   toolkitRows,
   validateThresholds,
   type TechniqueEvent,
@@ -124,7 +129,7 @@ describe('validateThresholds', () => {
 });
 
 test('public surface has no removal', () => {
-  expect(Object.keys(toolkitModule).sort()).toEqual(['EMPTY_TOOLKIT', 'freshness', 'recordTechnique', 'toolkitRows', 'validateThresholds']);
+  expect(Object.keys(toolkitModule).sort()).toEqual(['EMPTY_TOOLKIT', 'freshness', 'recognizedCook', 'recordTechnique', 'refreshDue', 'toolkitFromEvents', 'toolkitRows', 'validateThresholds']);
 });
 
 describe('prototype-named technique keys', () => {
@@ -143,5 +148,61 @@ describe('prototype-named technique keys', () => {
     expect(s.techniques['__proto__']).toMatchObject({ tier: 'tried', firstAt: '2026-01-01', recipes: ['b'] });
     expect(JSON.parse(JSON.stringify(s))).toEqual(JSON.parse(JSON.stringify(s)));
     expect(({} as Record<string, unknown>).tier).toBeUndefined();
+  });
+});
+
+describe('M5 event kinds', () => {
+  test('recognized lifts Tried to Yours and nothing else; dates stay', () => {
+    const tried = run([cooked('tadka', '2026-01-02', 'parippu')]);
+    const r = recordTechnique(tried, { kind: 'recognized', technique: 'tadka', at: '2026-05-01' });
+    expect(r.techniques.tadka).toEqual({ tier: 'yours', firstAt: '2026-01-02', lastUsedAt: '2026-01-02', recipes: ['parippu'] });
+    const seen = run([lesson('tadka', '2026-01-01')]);
+    expect(recordTechnique(seen, { kind: 'recognized', technique: 'tadka', at: '2026-05-01' })).toBe(seen);
+    expect(recordTechnique(EMPTY_TOOLKIT, { kind: 'recognized', technique: 'tadka', at: '2026-05-01' })).toBe(EMPTY_TOOLKIT);
+  });
+
+  test('imported merges upward: max tier, earliest first use, latest last use, recipes joined', () => {
+    const s = run([cooked('tadka', '2026-02-01', 'a')]);
+    const merged = recordTechnique(s, { kind: 'imported', technique: 'tadka', at: '2026-03-01', tier: 'seen', firstAt: '2026-01-01', lastUsedAt: '2026-01-15', recipes: [] });
+    expect(merged.techniques.tadka).toEqual({ tier: 'tried', firstAt: '2026-01-01', lastUsedAt: '2026-02-01', recipes: ['a'] });
+    const yours = recordTechnique(s, { kind: 'imported', technique: 'tadka', at: '2026-03-01', tier: 'tried', firstAt: '2026-01-01', lastUsedAt: '2026-03-01', recipes: ['b'] });
+    expect(yours.techniques.tadka).toEqual({ tier: 'yours', firstAt: '2026-01-01', lastUsedAt: '2026-03-01', recipes: ['a', 'b'] });
+    expect(() => recordTechnique(s, { kind: 'imported', technique: 'tadka', at: '2026-03-01', tier: 'seen', firstAt: 'x', lastUsedAt: '2026-01-01', recipes: [] })).toThrow();
+  });
+
+  test('refreshDue: Tried or Yours and Rusty on the day, on the toolkit before the event', () => {
+    const s = run([cooked('tadka', '2026-01-01', 'a'), lesson('zest', '2025-01-01')]);
+    expect(refreshDue(s, 'tadka', '2026-04-30', T)).toBe(false); // 119 days: Warm
+    expect(refreshDue(s, 'tadka', '2026-05-01', T)).toBe(true); // 120 days: Rusty
+    expect(refreshDue(s, 'zest', '2026-05-01', T)).toBe(false); // Seen never fades
+    expect(refreshDue(s, 'nothing', '2026-05-01', T)).toBe(false);
+    expect(refreshDue(s, 'tadka', 'someday', T)).toBe(false);
+    expect(refreshDue(s, '__proto__', '2026-05-01', T)).toBe(false);
+  });
+
+  test('toolkitFromEvents reads lessons, cooks, drills, frames, quest skills and recognition through the catalogue', () => {
+    const e = (x: Omit<ProgressEvent, 'id'>, i: number) => ({ ...x, id: String(i) }) as ProgressEvent;
+    const events = [
+      { kind: 'lesson', at: '2026-01-01', recipe: 'onigiri' },
+      { kind: 'cooked', at: '2026-01-02', recipe: 'parippu', planned: true },
+      { kind: 'drill', at: '2026-01-03', quest: 'leela-tempering', step: 3, technique: 'knife' },
+      { kind: 'frame_cooked', at: '2026-01-04', frame: 'quick-tomato', technique: 'quick-sauce' },
+      { kind: 'quest_done', at: '2026-01-05', quest: 'marisol-salt-question' },
+      { kind: 'recognized', at: '2026-01-06', quest: 'haruka-gluey-rice', technique: 'tempering' },
+      { kind: 'cooked', at: '2026-01-07', recipe: 'unknown-dish', planned: false },
+      { kind: 'meal_logged', at: '2026-01-08', minute: 600 },
+      { kind: 'lesson', at: 'not-a-date', recipe: 'parippu' },
+    ].map((x, i) => e(x as Omit<ProgressEvent, 'id'>, i));
+    const tiers = Object.fromEntries(Object.entries(toolkitFromEvents(events, CAT).techniques).map(([k, r]) => [k, r.tier]));
+    expect(tiers).toEqual({ grains: 'seen', shaping: 'seen', 'heat-control': 'tried', legumes: 'tried', tempering: 'yours', knife: 'seen', 'quick-sauce': 'tried', patience: 'seen' });
+    expect(toolkitFromEvents(events, CAT).techniques['quick-sauce'].recipes).toEqual(['frame:quick-tomato']);
+  });
+
+  test('recognizedCook names the other cook, or null', () => {
+    const s = run([cooked('tempering', '2026-01-02', 'parippu'), cooked('grains', '2026-01-02', 'onigiri'), cooked('grains', '2026-01-03', 'onigiri-2')]);
+    expect(recognizedCook(s, 'tempering', 'haruka', CAT)).toBe('leela');
+    expect(recognizedCook(s, 'tempering', 'leela', CAT)).toBeNull();
+    expect(recognizedCook(s, 'grains', 'leela', CAT)).toBeNull(); // already Yours
+    expect(recognizedCook(s, 'knife', 'leela', CAT)).toBeNull();
   });
 });

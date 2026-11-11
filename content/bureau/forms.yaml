@@ -191,12 +191,15 @@ forms:
   plan:
     number: "7-W"
     title: "Weekly Plan"
-    purpose: "The plan card: dishes for the week with their allergy-check chips and the balance view."
+    purpose: "The plan card and the plan screen: dishes for the week, day by day, with their rules-check chips, the balance view, the hard-week box and the One More Technique slot (M5). The form path plans the week with the AI off or capped (Ruling 27)."
     safety: false
     fields:
       - { key: dishes, label: "Dishes this week" }
+      - { key: days, label: "Day by day", hint: "What goes on which day. Leave a day blank and it stays blank." }
       - { key: checks, label: "Checked against your rules", hint: "✅ ok · 🔁 swap · ⛔ blocked · ❓ can't verify" }
       - { key: balance, label: "Balance", hint: "Protein, grains, fruit and veg across the week." }
+      - { key: hard_week, label: "A hard week", hint: "Easy dishes, no extras, no new technique." }
+      - { key: one_more, label: "One More Technique (optional)", hint: "At most one a week. 'Not this week' is a full answer." }
     buttons: { confirm: "Plan it ✔", decline: "Change something" }
     stamp: approved
     footnotes:
@@ -211,14 +214,78 @@ forms:
     fields:
       - { key: stall, label: "Stall" }
       - { key: item, label: "Item" }
+      - { key: for_dish, label: "For", hint: "The dish it's for, marked 'swapped' when your rules chose a substitute." }
       - { key: quantity, label: "Quantity" }
       - { key: status, label: "Status", hint: "To fetch · In the bag · Substituted (labelled)" }
+      # The display name of the `general` stall: anything no market stall keeps (C11). The build reads this label.
+      - { key: general_stall, label: "The General Counter", hint: "Everything the four stalls don't keep." }
     buttons: { confirm: "Run complete", undo: "Un-tick" }
     stamp: received
     footnotes:
       - "*The Pantry Bureau reminds you that all market transactions must be witnessed by at least one (1) vegetable."
       - "*About ½ lb (225 g) of boneless raw meat per person. Example prices."
       - "*Substitutes are labelled and re-checked against your rules. The Bureau adores a label."
+
+  margin_note:
+    number: "2-M/MARGIN"
+    title: "Margin Note"
+    purpose: "The card after 'Did you change anything?' (cook.changes_ask): the player's own note beside a taught dish. Private, account-only and health data (Ruling 9). The canon text is never altered; every swap or addition is re-checked against the player's rules before 'cook with my notes' can be used. Never offered on a sacred dish (audit M-5)."
+    safety: true
+    fields:
+      - { key: dish, label: "Dish" }
+      - { key: note, label: "Your note", hint: "In your own words. Only you can see it." }
+      - { key: changes, label: "Ingredient changes", hint: "Each one checked against your rules before you can cook with it." }
+      - { key: checks, label: "Checked against your rules", hint: "✅ ok · 🔁 swap · ⛔ blocked · ❓ can't verify" }
+    buttons: { confirm: "Write it in ✔", decline: "Not quite", undo: "Undo" }
+    stamp: margin
+    footnotes:
+      - "*The cook's recipe is never altered. Your note sits beside it, in the margin, where notes have always lived."
+
+  cooked_for:
+    number: "5-S/SHARED TABLE"
+    title: "Shared Table"
+    purpose: "Cooked for Someone, after cook mode (cook.who_ate). A fixed count and, optionally, one fixed word; no names, no free text (Ruling 10). Skippable, private and account-only. Never a requirement for trust or progress, never compared with anyone; eating alone gets equal warmth (audit M-9)."
+    safety: false
+    fields:
+      - { key: count, label: "How many ate", hint: "Just me · One more · Two or three · Four or more" }
+      - { key: who, label: "Who (optional)", hint: "Partner, family, flatmates, friends, neighbours, colleagues or guests. No names." }
+    buttons: { confirm: "Stamp it ✔", decline: "Skip" }
+    stamp: fed
+    footnotes:
+      - "*A table for one and a table for twelve are filed in the same drawer, at the same height."
+      - "*No names are recorded. The Bureau counts plates, never people."
+
+  technique_certificate:
+    number: "51-T"
+    title: "Certificate of Technique"
+    purpose: "Shown when a technique reaches 'Yours' (audit M-1, certificate.technique). Earns a Bureau Stamp; nothing earned is ever taken back."
+    safety: false
+    fields:
+      - { key: technique, label: "Technique" }
+      - { key: learned_with, label: "Practised in", hint: "The kitchens and dishes where your hands learned it." }
+      - { key: tier, label: "Tier", hint: "Yours" }
+    buttons: { confirm: "Continue" }
+    stamp: yours
+    footnotes:
+      - "*A Certificate of Technique cannot be revoked, expire or slip behind the filing cabinet. The Bureau checked behind the filing cabinet."
+      - "*Confers no rights, titles or kitchens. It does confer the right to cook without the recipe open, now and then."
+
+  frame:
+    number: "8-F/FRAME"
+    title: "Pantry Frame"
+    title_aside: "A dish shaped like your cupboard."
+    purpose: "A Pantry Frame filled from the pantry (Ruling 13): the technique, each slot's filler with its own rules-check chip, and the filled dish's check. A slot nothing passes stays unfilled and the dish shows ❓ (frame.slot_empty). The three seed frames are drafts by the Bureau's editors."
+    safety: false
+    fields:
+      - { key: technique, label: "Technique" }
+      - { key: slots, label: "From your pantry", hint: "Each filler checked against your rules on its own." }
+      - { key: checks, label: "Checked against your rules", hint: "✅ ok · 🔁 swap · ⛔ blocked · ❓ can't verify" }
+      - { key: credit, label: "Drafted by" }
+    buttons: { confirm: "Cook it", decline: "Not now" }
+    stamp: cooked
+    footnotes:
+      - "*Frames are drafted by the Bureau's editors, not by a community of cooks. The Bureau is working on its handwriting."
+      - "*A slot the rules engine can't fill is left unfilled. The Bureau does not guess. Guessing is for weather forecasters."
 
   practice_log:
     number: "9-Q"
@@ -271,7 +338,7 @@ forms:
   introduction_letter:
     number: "12-C"
     title: "Letter of Introduction"
-    purpose: "Shown when a cook introduces the player to another cook, opening a new country."
+    purpose: "Shown when a cook introduces the player to another cook; the friend's pin changes to 'expecting you' (Ruling 3: every launch cook is visitable anyway)."
     safety: false
     fields:
       - { key: from, label: "From" }
@@ -383,6 +450,8 @@ stamps:
   void: "VOID"
   retracted: "RETRACTED"
   enough: "ENOUGH"
+  margin: "IN THE MARGIN"
+  yours: "YOURS"
 
 # ----------------------------------------------------------------------------
 # Bureau Stamp names (the soft currency), by what earns them
@@ -402,6 +471,10 @@ stamp_names:
   first_dish: "First Dish Cooked"
   enough_day: "A Well-Fed Day"
   travel: "Travel Permit, Stamped"
+  # One name per StampId (data/rewards.yaml stamps, C13); the build fails without each.
+  quest_done: "A Quest, Completed With Thanks"
+  certificate: "Certificate of Technique"
+  market_run: "Market Run, Complete"
 
 # ----------------------------------------------------------------------------
 # General footnote pool for UI copy. Tag = where it may appear.

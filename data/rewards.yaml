@@ -1,0 +1,20 @@
+# Progress rewards (M5, Ruling 7). First values; tunable here, not in code.
+# A retune never lowers anything already granted: grants are fixed when made (spec §6).
+# Licensed CC BY-SA 4.0, like content/.
+xp:
+  lesson: 10
+  drill: 10
+  cook: 30
+  frame: 20
+  market_run: 20
+  refresh: 15
+  # Ruling 5: flat per qualifying log, blind to what or how much was eaten.
+  nourishment: { per_log: 5, max_per_day: 3, min_gap_minutes: 120 }
+# Cumulative XP for level 2, 3, …; strictly increasing.
+levels: [100, 250, 450, 700, 1000, 1400, 1900, 2500]
+stamps: { quest_done: 1, certificate: 1, market_run: 1 }
+trust:
+  # names[0] is Stranger and names[1] Guest (the cook's quest done); then one name per weeks_for_level entry.
+  names: [Stranger, Guest, Acquainted, Trusted apprentice, Family friend, Keeper of the dish]
+  # Distinct ISO weeks in which the player cooked that cook's dish, for levels 2, 3, 4 and 5 (Ruling 2).
+  weeks_for_level: [2, 4, 7, 10]

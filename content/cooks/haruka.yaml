@@ -78,6 +78,14 @@ quest:
         - "Firm enough to hold, soft enough that the grains are still grains. If you squeeze the air out, it becomes a stone with a filling. Customers do not want a stone."
         - "Again. Wet hands. Every single one. Not most. Every."
 
+    # M5: recognition of a technique learned in another cook's kitchen (audit M-3). Empty in M5: the game speaks
+    # the Pan's generic quest.recognize line when the technique is known, and nothing otherwise. The cook's own
+    # lines need a reviewer from this cuisine and wait for M10.
+    - type: recognize
+      technique: patience
+      lines: []
+      otherwise: []
+
     - type: cook
       recipe: japan/osaka/onigiri
 

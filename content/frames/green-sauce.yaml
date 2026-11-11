@@ -1,0 +1,21 @@
+# Pantry Frame (spec §17, Ruling 13): a technique with slots, filled from the cupboard by core fillFrame. Every filler
+# is checked against the player's rules on its own and the filled dish as a whole. Slots name graph ids only.
+# A draft seed frame for M5, written by the Bureau's editors, not a community; M10's writers may reword it.
+# Licensed CC BY-SA 4.0, like the rest of content/.
+id: green-sauce
+title: "Green sauce"
+technique: emulsion
+status: draft
+credit: "Drafted by Kitchen Quest editors"
+slots:
+  - { key: herb, accepts: [herb], optional: false }
+  - { key: acid, accepts: [lime], optional: false }
+  - { key: oil, accepts: [neutral_oil], optional: false }
+  - { key: nut, accepts: [nut], optional: true }
+steps:
+  # REVIEW: food safety. Wash fresh herbs well under running water; a raw sauce keeps a day or two, covered, in the fridge.
+  - "Wash {herb}, shake it dry and chop it fine."
+  - "Squeeze in {acid} and stir."
+  - "Beat in {oil} a spoonful at a time, so it thickens instead of splitting."
+  - "Crush {nut} and stir it through for body."
+rescues: [herb]

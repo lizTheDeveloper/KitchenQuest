@@ -60,6 +60,13 @@ export interface ProfileCard {
 export interface PantryItem {
   name: string;
   ingredientId: string | null;
+  /**
+   * M5 (Ruling 12): the local date the player bought it. Only the market tick (Steps 6 and 10) sets it, together with
+   * `source: 'market'`. M4 rows, and everything told to the Pan, have neither field.
+   */
+  addedOn?: string;
+  /** Where it came from. Missing means told (C9): told food is never rescued, since it has no purchase date. */
+  source?: 'told' | 'market';
 }
 export interface PantryCard {
   kind: 'pantry';
@@ -177,6 +184,14 @@ export function buildRuleCard(
     return { ok: true, card: cardFor(target, input.severity, graph) };
   }
   const id = graph.resolve(term);
+  if (id !== null && graph.get(id).broad === true) {
+    // "allergic to herbs": too broad to file (C1 ruling). Ask which one, offering the kinds the graph knows; never a card.
+    // Only its direct kinds (N1): a sprig is a form of curry leaf, never offered as a peer of it.
+    const kinds = graph.descendants(id).filter((k) => graph.get(k).isA?.includes(id) === true).map((k) => ({ id: k, name: graph.get(k).name })).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    const names = kinds.map((k) => k.name);
+    const examples = names.length > 1 ? `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}` : (names[0] ?? graph.get(id).name);
+    return { ok: false, reason: 'ambiguous', options: kinds, line: { trigger: 'rule.which_kind', vars: { term, examples } } };
+  }
   if (id !== null) {
     const target = { ids: [id], name: graph.get(id).name, form: null, termSeverity: null };
     return { ok: true, card: cardFor(target, input.severity, graph) };

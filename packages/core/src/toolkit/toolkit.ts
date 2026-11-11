@@ -1,29 +1,8 @@
+import type { Catalogue, ProgressEvent } from '../progress/types';
 import { isValidDate } from '../rules/active';
+import type { Freshness, FreshnessThresholds, TechniqueEvent, TechniqueRecord, Tier, ToolkitRow, ToolkitState } from './types';
 
-export type Tier = 'seen' | 'tried' | 'yours';
-export type Freshness = 'sharp' | 'warm' | 'rusty';
-export interface FreshnessThresholds {
-  warmAfterDays: number;
-  rustyAfterDays: number;
-}
-export type TechniqueEvent =
-  | { kind: 'lesson'; technique: string; at: string } // at: YYYY-MM-DD
-  | { kind: 'cooked'; technique: string; at: string; recipe: string }; // recipe: canon slug
-export interface TechniqueRecord {
-  tier: Tier;
-  firstAt: string;
-  lastUsedAt: string;
-  recipes: string[];
-}
-export interface ToolkitState {
-  techniques: Record<string, TechniqueRecord>;
-}
-export interface ToolkitRow {
-  technique: string;
-  tier: Tier;
-  /** null for 'seen': a technique only read about has nothing to fade. */
-  freshness: Freshness | null;
-}
+export type { Tier, Freshness, FreshnessThresholds, TechniqueEvent, TechniqueRecord, ToolkitState, ToolkitRow } from './types';
 
 export const EMPTY_TOOLKIT: ToolkitState = Object.freeze({ techniques: Object.freeze({}) });
 
@@ -43,20 +22,128 @@ export function recordTechnique(state: ToolkitState, event: TechniqueEvent): Too
   const at = requireDate(event.at, 'event date');
   // Own keys only: a technique id such as "__proto__" or "constructor" is data, never an inherited property.
   const old = Object.hasOwn(state.techniques, event.technique) ? state.techniques[event.technique] : undefined;
-  const recipes = old ? [...old.recipes] : [];
-  if (event.kind === 'cooked' && !recipes.includes(event.recipe)) recipes.push(event.recipe);
 
-  let computed: Tier = event.kind === 'cooked' ? 'tried' : 'seen';
-  if (recipes.length >= 2) computed = 'yours';
+  let record: TechniqueRecord;
+  if (event.kind === 'recognized') {
+    // Recognition only ever lifts Tried to Yours. It is not a use, so the dates stay as they were.
+    if (!old || old.tier !== 'tried') return state;
+    record = { ...old, recipes: [...old.recipes], tier: 'yours' };
+  } else if (event.kind === 'imported') {
+    const firstAt = requireDate(event.firstAt, 'imported firstAt');
+    const lastUsedAt = requireDate(event.lastUsedAt, 'imported lastUsedAt');
+    const recipes = old ? [...old.recipes] : [];
+    for (const r of event.recipes) if (!recipes.includes(r)) recipes.push(r);
+    let tier = old ? maxTier(old.tier, event.tier) : event.tier;
+    if (recipes.length >= 2) tier = 'yours';
+    record = {
+      tier,
+      firstAt: old && old.firstAt < firstAt ? old.firstAt : firstAt,
+      lastUsedAt: old && old.lastUsedAt > lastUsedAt ? old.lastUsedAt : lastUsedAt,
+      recipes,
+    };
+  } else {
+    const recipes = old ? [...old.recipes] : [];
+    if (event.kind === 'cooked' && !recipes.includes(event.recipe)) recipes.push(event.recipe);
 
-  const record: TechniqueRecord = {
-    tier: old ? maxTier(old.tier, computed) : computed,
-    firstAt: old && old.firstAt < at ? old.firstAt : at,
-    lastUsedAt: old && old.lastUsedAt > at ? old.lastUsedAt : at,
-    recipes,
-  };
+    let computed: Tier = event.kind === 'cooked' ? 'tried' : 'seen';
+    if (recipes.length >= 2) computed = 'yours';
+
+    record = {
+      tier: old ? maxTier(old.tier, computed) : computed,
+      firstAt: old && old.firstAt < at ? old.firstAt : at,
+      lastUsedAt: old && old.lastUsedAt > at ? old.lastUsedAt : at,
+      recipes,
+    };
+  }
   // fromEntries defines own properties, so "__proto__" is stored as a key, not used as a prototype setter.
   return { techniques: Object.fromEntries([...Object.entries(state.techniques).filter(([k]) => k !== event.technique), [event.technique, record]]) };
+}
+
+/**
+ * Whether using `technique` on `at` refreshes it: it was Tried or Yours and Rusty on that day, judged on the
+ * toolkit as it stood before the event. Seen has nothing to fade; a bad date is never due.
+ */
+export function refreshDue(state: ToolkitState, technique: string, at: string, t: FreshnessThresholds): boolean {
+  if (!isValidDate(at) || !Object.hasOwn(state.techniques, technique)) return false;
+  const r = state.techniques[technique];
+  if (r.tier === 'seen' || !isValidDate(r.lastUsedAt)) return false;
+  return freshness(r.lastUsedAt, at, t) === 'rusty';
+}
+
+/** The frame entry a frame cook adds to a technique's recipe list: it counts as one more distinct dish. */
+const frameKey = (frame: string): string => `frame:${frame}`;
+
+function techniqueEventsOf(state: ToolkitState, e: ProgressEvent, cat: Catalogue): TechniqueEvent[] {
+  switch (e.kind) {
+    case 'lesson': {
+      const r = cat.recipes.get(e.recipe);
+      // A sacred dish is a story only (spec §10): it sits outside the toolkit loop.
+      if (!r || r.sacred) return [];
+      return r.skills.map((technique) => ({ kind: 'lesson', technique, at: e.at }));
+    }
+    case 'drill':
+      return [{ kind: 'lesson', technique: e.technique, at: e.at }];
+    case 'cooked': {
+      const r = cat.recipes.get(e.recipe);
+      if (!r || r.sacred) return [];
+      return r.skills.map((technique) => ({ kind: 'cooked', technique, at: e.at, recipe: e.recipe }));
+    }
+    case 'frame_cooked':
+      return [{ kind: 'cooked', technique: e.technique, at: e.at, recipe: frameKey(e.frame) }];
+    case 'quest_done': {
+      // Ruling 4: each rewards.skills key is a technique practised, read as Seen. Part of the fold, never a grant.
+      const q = cat.quests.get(e.quest);
+      return q ? q.skills.map((technique) => ({ kind: 'lesson', technique, at: e.at })) : [];
+    }
+    case 'recognized': {
+      const q = cat.quests.get(e.quest);
+      if (!q || recognizedCook(state, e.technique, q.cook, cat) === null) return [];
+      return [{ kind: 'recognized', technique: e.technique, at: e.at }];
+    }
+    case 'imported':
+      return [{ kind: 'imported', technique: e.technique, at: e.at, tier: e.tier, firstAt: e.firstAt, lastUsedAt: e.lastUsedAt, recipes: [...e.recipes] }];
+    case 'quest_step':
+    case 'market_run':
+    case 'meal_logged':
+      return [];
+    default:
+      return []; // stored data is not trusted: an unknown kind changes nothing
+
+  }
+}
+
+/**
+ * The other cook whose dish gave `technique` its Tried tier, when the player has it at Tried from a recipe of a
+ * cook other than `questCook` (audit M-3); null otherwise. Frame entries and unknown recipes have no cook.
+ */
+export function recognizedCook(state: ToolkitState, technique: string, questCook: string, cat: Pick<Catalogue, 'recipes'>): string | null {
+  if (!Object.hasOwn(state.techniques, technique)) return null;
+  const r = state.techniques[technique];
+  if (r.tier !== 'tried') return null;
+  for (const slug of r.recipes) {
+    const cook = cat.recipes.get(slug)?.cook;
+    if (cook !== undefined && cook !== questCook) return cook;
+  }
+  return null;
+}
+
+/**
+ * The toolkit as a fold over progress events (Ruling 7), optionally continuing from `start` (a compacted base).
+ * Pure and total: an event it cannot read (a bad date, an unknown recipe) changes nothing.
+ */
+export function toolkitFromEvents(events: readonly ProgressEvent[], cat: Catalogue, start: ToolkitState = EMPTY_TOOLKIT): ToolkitState {
+  let state = start;
+  for (const e of events) {
+    if (!isValidDate(e.at)) continue;
+    for (const te of techniqueEventsOf(state, e, cat)) {
+      try {
+        state = recordTechnique(state, te);
+      } catch {
+        // a malformed imported record (bad dates): skipped, never thrown out of the fold
+      }
+    }
+  }
+  return state;
 }
 
 function dayNumber(date: string): number {

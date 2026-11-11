@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
 import { describe, expect, it } from 'vitest';
+import { STALL_IDS } from '@kitchenquest/core';
 import { REQUIRED_PAN_TRIGGERS } from '../../src/content/required';
 import { compileContent, ContentError } from './compile';
 import { readContentFiles } from './read';
@@ -43,9 +44,9 @@ introduction: ["i"]
 faq: []
 `;
 
-const stall = (questionOptions = options(3)) => `
-id: wen
-name: "Wen"
+const stall = (questionOptions = options(3), id = 'wen') => `
+id: ${id}
+name: "Stall ${id}"
 persona: ["p"]
 triggers:
   greet:
@@ -64,15 +65,22 @@ variants:
         explain: "E"
 `;
 
-const bureau = (over: { stamp?: string; noTravel?: boolean; tag?: string; noCrossContact?: boolean; noAiCharacters?: boolean } = {}) => {
-  const form = (stamp: string) =>
-    `    number: "1"\n    title: "T"\n    fields: []\n    buttons: { confirm: "ok" }\n    stamp: ${stamp}\n`;
+const M5_FORMS = ['plan', 'margin_note', 'cooked_for', 'technique_certificate', 'frame'];
+const bureau = (
+  over: { stamp?: string; noTravel?: boolean; tag?: string; noCrossContact?: boolean; noAiCharacters?: boolean; omitForm?: string; noGeneralStall?: boolean; omitStampName?: string } = {},
+) => {
+  const form = (stamp: string, fields = '[]') =>
+    `    number: "1"\n    title: "T"\n    fields: ${fields}\n    buttons: { confirm: "ok" }\n    stamp: ${stamp}\n`;
+  const marketFields = over.noGeneralStall ? '[{ key: stall, label: "Stall" }]' : '[{ key: stall, label: "Stall" }, { key: general_stall, label: "The Counter" }]';
+  const m5 = M5_FORMS.filter((f) => f !== over.omitForm).map((f) => `  ${f}:\n${form('approved')}`).join('');
+  const market = over.omitForm === 'market_list' ? '' : `  market_list:\n${form('approved', marketFields)}`;
+  const stampNames = ['quest_done', 'certificate', 'market_run'].filter((k) => k !== over.omitStampName).map((k) => `  ${k}: "${k}"\n`).join('');
   return `forms:
-${over.noTravel ? '' : `  travel:\n${form(over.stamp ?? 'approved')}`}  certificate:\n${form('approved')}stamps:
+${over.noTravel ? '' : `  travel:\n${form(over.stamp ?? 'approved')}`}  certificate:\n${form('approved')}${m5}${market}stamps:
   approved: "APPROVED"
 stamp_names:
   travel: "Travel"
-footnotes:
+${stampNames}footnotes:
   - { tag: ${over.tag ?? 'any'}, text: "*x" }
 disclaimers:
   allergy: "plain"
@@ -98,20 +106,56 @@ Chop @onion{1} and wait. ${over.timer ?? '~{5%minutes}'}
 const ruleTerm = (name: string, phrases: string[], ids: string[]) => ({ name, phrases, ids, severity: null, form: 'rule_diet' });
 const ruleTerms = (terms = [ruleTerm('no onion', ['no onion', 'onion free'], ['onion'])]) => JSON.stringify(terms);
 
-const techniques = (warm = 42, rusty = 120) =>
-  `freshness: { warm_after_days: ${warm}, rusty_after_days: ${rusty} }\ntechniques:\n  - { id: knife, name: "Knife" }\n`;
+const techniques = (warm = 42, rusty = 120, adjacent = '') =>
+  `freshness: { warm_after_days: ${warm}, rusty_after_days: ${rusty} }\ntechniques:\n  - { id: knife, name: "Knife", adjacent: [${adjacent}], prereqs: [] }\n  - { id: stir-fry, name: "Stir-frying", adjacent: [], prereqs: [knife] }\n`;
+
+const rewards = (levels = '[100, 250]') => `xp:
+  lesson: 10
+  drill: 10
+  cook: 30
+  frame: 20
+  market_run: 20
+  refresh: 15
+  nourishment: { per_log: 5, max_per_day: 3, min_gap_minutes: 120 }
+levels: ${levels}
+stamps: { quest_done: 1, certificate: 1, market_run: 1 }
+trust:
+  names: [Stranger, Guest, Acquainted]
+  weeks_for_level: [2]
+`;
+
+const frame = (over: { id?: string; accepts?: string; technique?: string } = {}) => `
+id: ${over.id ?? 'onion-fry'}
+title: "Fried onion"
+technique: ${over.technique ?? 'stir-fry'}
+status: draft
+credit: "Drafted by Kitchen Quest editors"
+slots:
+  - { key: veg, accepts: [${over.accepts ?? 'onion'}], optional: false }
+steps:
+  - "Fry {veg}."
+rescues: [onion]
+`;
 
 function valid(): Record<string, string> {
   return {
     'content/dialogue/pan.yaml': pan(),
     'content/cooks/ann.yaml': cook(),
     'content/market/wen.yaml': stall(),
+    'content/market/bram.yaml': stall(options(3), 'bram'),
+    'content/market/okafor-sato.yaml': stall(options(3), 'okafor-sato'),
+    'content/market/spice.yaml': stall(options(3), 'spice'),
+    'content/frames/onion-fry.yaml': frame(),
     'content/bureau/forms.yaml': bureau(),
     'recipes/x/y/z.cook': recipe(),
     'data/ingredients.json': JSON.stringify({ ingredients: [{ id: 'onion', name: 'onion' }, { id: 'shallot', name: 'shallot' }] }),
     'data/substitutions.json': JSON.stringify([{ from: 'onion', to: 'shallot' }]),
     'data/techniques.yaml': techniques(),
     'data/rule-terms.json': ruleTerms(),
+    'data/rewards.yaml': rewards(),
+    'data/keeps.json': JSON.stringify({ onion: 30 }),
+    'data/stalls.json': JSON.stringify({ onion: 'wen', shallot: 'general' }),
+    'data/food-groups.json': JSON.stringify({ onion: 'veg_fruit' }),
   };
 }
 
@@ -155,11 +199,41 @@ describe('compileContent: the real repo', () => {
   it('compiles data/rule-terms.json', () => {
     expect(content.ruleTerms.map((t) => t.name)).toContain('vegetarian');
   });
+
+  it('compiles the M5 data: three draft frames, rewards, keeps, food groups, the stall map and every stall name (C35)', () => {
+    expect(content.frames.map((f) => f.id)).toEqual(['fried-rice', 'green-sauce', 'quick-tomato-sauce']);
+    expect(content.rewards.trust.names).toHaveLength(6);
+    expect(content.keeps.cooked_rice).toBe(1);
+    expect(content.stallOf.onion ?? content.stallOf.allium).toBe('wen');
+    expect(content.foodGroups.rice).toBe('grain');
+    expect(content.stallNames).toEqual({ wen: 'Old Wen', bram: 'Big Bram', 'okafor-sato': 'Mr. Okafor-Sato', spice: 'The Spice Merchant', general: 'The General Counter' });
+    for (const id of ['quest_done', 'certificate', 'market_run']) expect(content.bureau.stamp_names[id], id).toBeTruthy();
+    expect(content.techniques.techniques.find((t) => t.id === 'tempering')).toMatchObject({ adjacent: ['quick-sauce'], prereqs: ['heat-control'] });
+  });
+
+  it('ships one recognize step per cook, before the cook step, with empty lines until M10 (C2, audit M-3)', () => {
+    const recognize = Object.fromEntries(
+      Object.values(content.cooks).map((c) => [c.id, c.quest.steps.slice(-2).map((s) => (s.type === 'recognize' ? `${s.technique}:${s.lines.length}/${s.otherwise.length}` : s.type))]),
+    );
+    expect(recognize).toEqual({ leela: ['patience:0/0', 'cook'], marisol: ['tempering:0/0', 'cook'], haruka: ['patience:0/0', 'cook'] });
+  });
 });
 
 describe('compileContent: a minimal valid set', () => {
   it('compiles', () => {
     expect(compileContent(valid()).recipes['x/y/z'].steps.length).toBe(1);
+  });
+
+  it('carries the M5 data through (C35): rewards, frames, keeps, food groups, the stall map, and a name for every StallId', () => {
+    const c = compileContent(valid());
+    expect(c.rewards.levels).toEqual([100, 250]);
+    expect(c.frames.map((f) => f.id)).toEqual(['onion-fry']);
+    expect(c.keeps).toEqual({ onion: 30 });
+    expect(c.foodGroups).toEqual({ onion: 'veg_fruit' });
+    expect(c.stallOf).toEqual({ onion: 'wen', shallot: 'general' });
+    expect(Object.keys(c.stallNames).sort()).toEqual([...STALL_IDS].sort());
+    expect(c.stallNames).toMatchObject({ wen: 'Stall wen', spice: 'Stall spice', general: 'The Counter' });
+    expect(c.techniques.techniques[1]).toEqual({ id: 'stir-fry', name: 'Stir-frying', adjacent: [], prereqs: ['knife'] });
   });
 
   it('carries the rule terms through', () => {
@@ -214,7 +288,32 @@ describe('compileContent: each check fails with the path and the offending value
     ['a rule term with an unknown form', (f) => (f['data/rule-terms.json'] = ruleTerms([{ ...ruleTerm('no onion', ['no onion'], ['onion']), form: 'rule_whim' }])), ['data/rule-terms.json', 'no onion', 'rule_whim']],
     ['a stall id that differs from its file name', (f) => (f['content/market/wen.yaml'] = stall().replace('id: wen', 'id: ben')), ['content/market/wen.yaml', 'ben']],
     ['no cooks', (f) => delete f['content/cooks/ann.yaml'], ['cooks', 'no cooks']],
-    ['no stalls', (f) => delete f['content/market/wen.yaml'], ['market', 'no stalls']],
+    ['no stalls', (f) => { for (const p of Object.keys(f)) if (p.startsWith('content/market/')) delete f[p]; }, ['market', 'no stalls']],
+    // ---- M5 Step 4 ----
+    ['a frame slot naming an id missing from the graph', (f) => (f['content/frames/onion-fry.yaml'] = frame({ accepts: 'unobtainium' })), ['content/frames/onion-fry.yaml', 'unknown ingredient "unobtainium"']],
+    ['a frame with an unknown technique', (f) => (f['content/frames/onion-fry.yaml'] = frame({ technique: 'alchemy' })), ['content/frames/onion-fry.yaml', 'alchemy']],
+    ['a frame whose id differs from its file name', (f) => (f['content/frames/onion-fry.yaml'] = frame({ id: 'leek-fry' })), ['content/frames/onion-fry.yaml', 'leek-fry']],
+    ['a frame that does not parse', (f) => (f['content/frames/onion-fry.yaml'] = 'id: [x'), ['content/frames/onion-fry.yaml', 'YAML']],
+    ["a recognize step of the cook's own technique", (f) => (f['content/cooks/ann.yaml'] = cook({ steps: '    - { type: recognize, technique: knife, lines: [], otherwise: [] }\n    - { type: cook, recipe: x/y/z }' })), ['content/cooks/ann.yaml', 'recognize "knife"', 'learned elsewhere']],
+    ['a recognize step of an unknown technique', (f) => (f['content/cooks/ann.yaml'] = cook({ steps: '    - { type: recognize, technique: telepathy, lines: [], otherwise: [] }' })), ['content/cooks/ann.yaml', 'telepathy']],
+    ['a recognize step without its otherwise lines', (f) => (f['content/cooks/ann.yaml'] = cook({ steps: '    - { type: recognize, technique: stir-fry, lines: [] }' })), ['content/cooks/ann.yaml', 'otherwise']],
+    ["a cook step whose technique isn't one of its recipe's skills", (f) => (f['content/cooks/ann.yaml'] = cook({ steps: '    - { type: cook, recipe: x/y/z, technique: stir-fry }' })), ['content/cooks/ann.yaml', 'cook technique "stir-fry"']],
+    ['an errand whose adapted lines are not a list', (f) => (f['content/cooks/ann.yaml'] = cook({ steps: '    - { type: errand, stall: wen, item: onion, lines: ["go"], adapted: "no" }' })), ['content/cooks/ann.yaml', 'adapted']],
+    ['a travel step to an unknown place', (f) => (f['content/cooks/ann.yaml'] = cook({ steps: '    - { type: travel, place: atlantis, lines: [] }' })), ['content/cooks/ann.yaml', 'atlantis']],
+    ['keeps with an unknown id', (f) => (f['data/keeps.json'] = JSON.stringify({ onion: 30, kale: 4 })), ['data/keeps.json', '"kale" is not an ingredient id']],
+    ['keeps with a bad day count', (f) => (f['data/keeps.json'] = JSON.stringify({ onion: 0 })), ['data/keeps.json', '"onion"', 'whole number of days']],
+    ['a stalls.json value that is not a stall', (f) => (f['data/stalls.json'] = JSON.stringify({ onion: 'dairy' })), ['data/stalls.json', '"onion" names "dairy"']],
+    ['a stalls.json key that is not in the graph', (f) => (f['data/stalls.json'] = JSON.stringify({ kale: 'wen' })), ['data/stalls.json', 'kale']],
+    ['a food group that is not one', (f) => (f['data/food-groups.json'] = JSON.stringify({ onion: 'snacks' })), ['data/food-groups.json', 'snacks']],
+    ['food groups that are not a mapping', (f) => (f['data/food-groups.json'] = '["onion"]'), ['data/food-groups.json']],
+    ['a StampId with no stamp_names entry', (f) => (f['content/bureau/forms.yaml'] = bureau({ omitStampName: 'market_run' })), ['content/bureau/forms.yaml', 'stamp_names.market_run']],
+    ['an unknown id in a technique\'s adjacent', (f) => (f['data/techniques.yaml'] = techniques(42, 120, 'juggling')), ['data/techniques.yaml', 'knife', 'unknown technique "juggling"']],
+    ['rewards with non-increasing levels', (f) => (f['data/rewards.yaml'] = rewards('[100, 100]')), ['data/rewards.yaml', 'levels must be strictly increasing']],
+    ['a missing rewards file', (f) => delete f['data/rewards.yaml'], ['data/rewards.yaml', 'missing']],
+    ['a missing M5 form', (f) => (f['content/bureau/forms.yaml'] = bureau({ omitForm: 'margin_note' })), ['content/bureau/forms.yaml', 'forms.margin_note']],
+    ['a market list form without the general stall name', (f) => (f['content/bureau/forms.yaml'] = bureau({ noGeneralStall: true })), ['content/bureau/forms.yaml', 'general_stall']],
+    ['a missing market stall file', (f) => delete f['content/market/spice.yaml'], ['content/market/spice.yaml', 'missing']],
+    ['a market stall the game does not know', (f) => (f['content/market/dairy.yaml'] = stall(options(3), 'dairy')), ['content/market/dairy.yaml', 'dairy']],
     ['no recipes', (f) => delete f['recipes/x/y/z.cook'], ['recipes', 'no recipes']],
     ['a .yml file in place of .yaml', (f) => (f['content/cooks/bob.yml'] = cook({ id: 'bob' })), ['content/cooks/bob.yml', 'not loaded']],
     ['a recipe with the wrong extension', (f) => (f['recipes/x/y/w.cooklang'] = recipe()), ['recipes/x/y/w.cooklang', 'not loaded']],
@@ -287,6 +386,13 @@ describe('compileContent: real repo fidelity', () => {
       expect(content.pan.triggers[id], id).toBeDefined();
       expect(content.pan.triggers[id].ai, id).toBe('never');
     }
+  });
+
+  it("rewrites the `when` of the triggers the rulings contradict (C30, Rulings 3 and 4)", () => {
+    const triggers = (src('content/dialogue/pan.yaml') as { triggers: Record<string, { when: string }> }).triggers;
+    expect(triggers.introduction_received.when).toBe("A cook introduces the player to a friend; the friend's pin changes to 'expecting you'.");
+    expect(triggers.skill_up.when).toBe('A technique moves up a tier (Seen → Tried, Tried → Yours).');
+    expect(triggers.stamp_earned.when).not.toMatch(/spend|hat/i);
   });
 
   it('drops writer-only keys from the client bundle', () => {

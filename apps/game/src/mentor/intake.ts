@@ -1,5 +1,5 @@
 import {
-  alreadySavedLine, askForDroppedTerms, buildPantryCard, buildProfileCard, buildRuleCard, classifyTurn, leftoverNamedIngredients, LIST_SPLIT, normalizeName,
+  alreadySavedLine, askForDroppedTerms, broadKindsAsked, buildPantryCard, buildProfileCard, buildRuleCard, classifyTurn, leftoverNamedIngredients, LIST_SPLIT, normalizeName,
   normalizeTurn, parseCount, parsePantryAdds, parseRuleStatement, parseWeekdays, preRoute, stripPageEvents, WEEKDAY_NAMES,
   type IngredientGraph, type IntakeStep, type LineRef, type ProposalCard, type RuleCardResult, type RuleTerm, type Severity,
 } from '@kitchenquest/core/engine';
@@ -136,13 +136,18 @@ export function parseIntakeAnswer(
       // Fix round 2 (structural): every named allergen gets a card or an ask. A ledger name no card covers
       // ("vegan and peanuts") gets its own bare card: no severity stated, so it asks and defaults to Severe (a tap).
       const covered = results.flatMap((r) => (r.ok ? r.card.rule.target.ids : []));
+      // A which-kind ask ("herbs", C1) answers its broad category: never a second ask for it.
+      covered.push(...broadKindsAsked(results.flatMap((r) => (!r.ok && r.reason === 'ambiguous' && r.line.trigger === 'rule.which_kind' ? r.options.map((o) => o.id) : [])), graph));
       const { left, excluded } = leftoverNamedIngredients(raw, covered, graph);
       for (const name of left) results.push(buildRuleCard({ term: name, severity: null }, graph, ruleTerms));
       if (results.length === 0) return { kind: 'unparsed' };
       // "peanuts but not tree nuts": the allowance is never a card, and the Pan says it isn't written down.
       const notes = excluded.map((term): LineRef => ({ trigger: 'rule.exclusion_not_kept', vars: { term } }));
       // The Step 7 ask-for-dropped-terms rule (Carry from Step 1): a severe statement never loses a named ingredient.
-      const ask = askForDroppedTerms(raw, [...(statement?.terms ?? items.map((i) => i.term)), ...left], results.length > 0, graph);
+      const dropped = askForDroppedTerms(raw, [...(statement?.terms ?? items.map((i) => i.term)), ...left], results.length > 0, graph);
+      // A name the player said is fine ("but not peanuts") gets only rule.exclusion_not_kept, never an ask as well.
+      const isExcluded = (term: string | undefined) => term !== undefined && excluded.some((e) => e === term || (graph.resolve(e) ?? e) === graph.resolve(term));
+      const ask = dropped !== null && isExcluded(dropped.vars.term) ? null : dropped;
       if (results.length === 1 && ask === null && notes.length === 0) {
         return results[0].ok ? { kind: 'card', card: results[0].card } : { kind: 'reply', reply: results[0] };
       }

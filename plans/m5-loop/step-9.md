@@ -11,9 +11,9 @@ The game becomes a game. Visiting a cook runs their quest through core's engine.
   - `apps/game/src/quests/quest-runner.ts`: drives a quest's steps in the visit screen with the existing dialogue box;
   - `apps/game/src/kitchen/apprentice-card.ts`: level, stamps, the Shared Table tally later (Step 11).
 - Modify:
-  - `apps/game/src/state/store.ts` (+ test): `PlayerState.progress = { events: ProgressEvent[]; pendingUpload: string[] }`; `MAX_DEVICE_EVENTS`; `mergeProgress` (union by id, never dropping); on parse, M3 `toolkit` records with no matching `imported` event become `imported` events once;
+  - `apps/game/src/state/store.ts` (+ test): `PlayerState.progress = { events: ProgressEvent[]; grants: RewardGrant[]; base: ProgressSnapshot | null; pendingUpload: string[] }` (the device's own `ProgressHistory` plus the ids not yet uploaded); `MAX_DEVICE_EVENTS`; `mergeProgress` (union by id over the events still held; never drops one, and never lowers `base`); on parse, M3 `toolkit` records with no matching `imported` event become `imported` events once;
   - `apps/game/src/api/{client,types}.ts`: `getProgress()`, `postProgressEvents(events)`;
-  - `apps/game/src/world/visit-screen.ts`: intro → quest runner (when the quest isn't done) → card → cook; on later visits, the `trust_lines[level]` line, then the card;
+  - `apps/game/src/world/visit-screen.ts`: intro → quest runner (when the quest is `open` or `in_progress`) → card → cook; a `waiting` quest (its `unlock.requires` not done, C4) is not started: the visit goes intro → card, and the cook stays visitable and cookable; on later visits, the `trust_lines[level]` line, then the card;
   - `apps/game/src/world/map-screen.ts` and `pins.ts`: pin states "expecting you" (introduced) and "awaiting an introduction" + "Travel anyway" (Ruling 3); the quest-offered letter; no locked pins;
   - `apps/game/src/kitchen/kitchen-screen.ts`: the apprentice card; the toolkit from progress;
   - `apps/game/src/kitchen/toolkit-view.ts` (+ test): Yours rows show the 51-T certificate; a Rusty row keeps M3's invitation (no new warning, no red);
@@ -22,45 +22,56 @@ The game becomes a game. Visiting a cook runs their quest through core's engine.
 - Test: `apps/game/src/progress/*.test.ts`, `apps/game/src/quests/quest-runner.test.ts`, and `apps/game/e2e/quests.e2e.test.ts` (new).
 
 **Interfaces:**
-- Consumes: `advance`, `currentStep`, `questStatus`, `recognizedFrom`, `grantsFor`, `deriveProgress`, `trustLevel` (Steps 1–2); `GET /progress`, `POST /progress/events` (Step 5); content triggers (Step 4); `showDialogue`, `openModal`, `bureauSlip`, `announce` (M3/M4 UI).
+- Consumes: `advance`, `StepContext`, `currentStep`, `questStatus`, `recognizedFrom`, `grantsFor`, `deriveProgress`, `compactHistory`, `ProgressSnapshot`, `MAX_PROGRESS_EVENTS_PER_DAY`, `trustLevel` (Steps 1–2); `GET /progress`, `POST /progress/events` (Step 5); content triggers (Step 4); `showDialogue`, `openModal`, `bureauSlip`, `announce` (M3/M4 UI).
 - Produces:
 ```ts
 // progress/log.ts
 export function newEventId(): string;   // crypto.randomUUID
-export function appendEvents(store: PlayerStore, events: ProgressEvent[]): void;     // capped at MAX_DEVICE_EVENTS (oldest `imported`-safe compaction: never drops a quest_done/first-cook)
+export function appendEvents(store: PlayerStore, events: ProgressEvent[], grants: RewardGrant[]): void;
+  // over MAX_DEVICE_EVENTS, core compactHistory folds the oldest events and their grants into `progress.base` (a totals snapshot,
+  // C15); no derived value ever drops, and the next event's grants are the same as without compaction
 // progress/sync.ts
 export function createProgressSync(deps: { store: PlayerStore; client: ApiClient; online(): boolean }): {
-  record(events: ProgressEvent[]): Promise<RewardGrant[]>;   // signed in: POST (accepted grants returned); signed out: grantsFor locally
-  uploadDeviceLog(): Promise<void>;                           // on sign-in: post every device event once, in order, 100 per request; duplicates fine
+  record(events: ProgressEvent[]): Promise<RewardGrant[]>;   // signed in: POST (accepted grants returned); signed out: grantsFor locally,
+                                                              // the same core checks as the server, the daily cap included (C14)
+  uploadDeviceLog(): Promise<void>;                           // on sign-in: post every held device event once, in order, 100 per request,
+                                                              // with upload: true (Step 5: older dates accepted); duplicates fine
   stop(): void;
 };
 // progress/view.ts
-export function currentProgress(state: PlayerState, account: ProgressView | null, cat: Catalogue): ProgressView;  // account wins when signed in
+export function currentProgress(state: PlayerState, account: ProgressView | null, cat: Catalogue): ProgressView;
+  // signed out: deriveProgress of the device history. Signed in: the field-wise max of the account view and the device view (XP, level,
+  // stamps, each cook's trust, each technique's tier, quests done and steps, dates as a union), so nothing shown ever drops — also when
+  // compacted device events never reached the account (C14, C15)
 // quests/quest-runner.ts
 export function runQuest(slot: HTMLElement, q: Quest, deps: { progress: ProgressView; record: (e: ProgressEvent[]) => Promise<RewardGrant[]>;
-  pantry: () => PantryItem[]; rules: () => Rule[]; signal: AbortSignal }): Promise<'done' | 'paused'>;
+  pantry: () => PantryItem[]; rules: () => Rule[]; graph: IngredientGraph; subs: Substitution[]; today: () => string;
+  signal: AbortSignal }): Promise<'done' | 'paused'>;   // builds advance's StepContext from rules/graph/subs/today (C5)
 ```
 - Grants arriving from the server or computed locally become lines through `announce.ts`:
   - `level` → `levelup`;
-  - `trust` → `trust_up`, and the introduction letter at level 3 (`introduction_received`);
+  - `trust` → `trust_up`, and the introduction letter at level 3 (`introduction_received`, which changes the friend's pin to "expecting you"; no new country opens, Ruling 3);
   - `certificate` → `certificate.technique`;
-  - `stamp` → `stamp_earned`.
+  - `stamp` → `stamp_earned`, with `{stamp}` from `bureau.stamp_names[grant.stamp]` (C13).
 
   At most two lines per event, in that order. Nourishment XP has **no line and no toast**: logging food is never applauded by a number (audit R4).
 - Riddles: a wrong option shows its `reaction` and keeps the step, with no penalty. Riddle answers are buttons, keyboard-reachable, and axe-clean.
-- Errands: the step shows "I've got it" (a tap), and passes on its own if the item is in the pantry or ticked on this week's list. A blocked item shows the cook's adapted line.
+- Errands: the step shows "I've got it" (a tap), and passes on its own if the item is in the pantry or ticked on this week's list. A rule-blocked item completes the step as adapted: the cook's `adapted` lines or the Pan's `quest.errand_adapted`, plus a labelled swap card when core returns a rules-safe swap. A rule-blocked quest dish offers `alternativesFor` (recipes and frames, ✅ or swap only), else the adapted lesson (`quest.cook_adapted`).
 - The Travel step is satisfied on arrival.
 - Recognize: on a known technique, the Pan says `quest.recognize`, the event is recorded, and the certificate line may follow.
 - "Cook it anyway" is available on every canon dish card, whatever the trust or tier. The ⛔ status still disables Cook (M3 rule, Review Focus 1).
-- Signed out, the same grants are computed by core on the device, so a signed-out player sees the same level-up a signed-in one would. On sign-in, the account's view replaces the device view after upload, and the larger value of each field is shown until the upload completes (no visible drop).
+- Signed out, the same grants are computed by core on the device, so a signed-out player sees the same level-up a signed-in one would. On sign-in, the device log is uploaded with `upload: true`, and from then on `currentProgress` shows the field-wise max of the account view and the device view (no visible drop, before or after the upload completes).
 - No streak counter, no "days in a row", no countdown, no "x of 9" anywhere (Step 12 scans).
 
 - [ ] **9.1 Write the failing tests:**
 ```ts
 test('store: M3 toolkit records become imported events once; a reload does not import twice', ...);
-test('store: mergeProgress unions by id and never drops an event; a 2001st event compacts without dropping quest_done', ...);
-test('sync: signed out → local grants; sign-in → device log uploaded once; replay after offline → duplicates only, no double lines', ...);
-test('quest runner: Leela\'s quest from talk to cook, events in order; wrong riddle → reaction, same step', ...);
+test('store: mergeProgress unions by id and never drops a held event; a 2001st event compacts into base and no derived value drops (C15)', ...);
+test('sync: signed out → local grants; sign-in → device log uploaded once with upload: true; replay after offline → duplicates only, no double lines', ...);
+test('sync: signed out, the 201st event of one day gets no grants, as on the server (C14)', ...);
+test('view: signed in, an account view lower than the device view (compacted events) shows the device values (C14, C15)', ...);
+test('quest runner: Leela\'s quest talk → errand → drill → riddle → recognize → cook, events in order; wrong riddle → reaction, same step', ...);
+test('quest runner: an errand item blocked by the player\'s rules → adapted, with the cook\'s lines or the Pan fallback, plus a swap card (C5); a waiting quest is not started (C4)', ...);
 test('trust lines: level 2 shows a trust_lines[2] line on return; level 0 never shows return lines', ...);
 test('map: unintroduced cook → "Awaiting an introduction" + Travel anyway; introduced → "expecting you"; no locked pin', ...);
 test('nourishment grants produce no line, no toast', ...);

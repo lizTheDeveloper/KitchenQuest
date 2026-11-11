@@ -13,7 +13,7 @@ import { CaptureMailer } from '../src/mail/mailer.js';
 import { GUILD_KINDS } from '../src/mentor/allowance.js';
 import { loadPanBank } from '../src/mentor/lines.js';
 import { createProposal } from '../src/mentor/proposals.js';
-import { recordSentLive } from '../src/mentor/turn.js';
+import { coveredIds, recordSentLive } from '../src/mentor/turn.js';
 import { RECIPES_DIR, syncCanon } from '../src/recipes/sync.js';
 import type { Db } from '../src/types.js';
 import { signIn } from './helpers/auth.js';
@@ -445,10 +445,52 @@ describe('tools — the model can only propose', () => {
     expect(kiwi.parts).toEqual([lineOf('rule.unknown_term', { term: 'kiwi' })]);
     expect(kiwi.cards).toEqual([]);
     const pea = await turn(p.cookie, "I'm allergic to pea");
-    // Search hits are offered, never picked: "pea" is a prefix of peanut and of "pearl barley".
-    expect(pea.parts).toEqual([lineOf('rule.which_one', { term: 'pea' }), { kind: 'choices', options: [{ id: 'barley', name: 'barley' }, { id: 'peanut', name: 'peanut' }], severity: 'allergy' }]);
+    // Search hits are offered, never picked: "pea" is a prefix of peanut, "peanut oil" (M5 Step 4) and "pearl barley".
+    expect(pea.parts).toEqual([
+      lineOf('rule.which_one', { term: 'pea' }),
+      { kind: 'choices', options: [{ id: 'barley', name: 'barley' }, { id: 'peanut', name: 'peanut' }, { id: 'peanut_oil', name: 'peanut oil' }], severity: 'allergy' },
+    ]);
     expect(pea.cards).toEqual([]);
     expect(await countOf('mentor_proposals', p.userId)).toBe(0);
+  });
+
+  test('"allergic to herbs" files no rule: the Pan asks which herb, with the kinds it knows (M5 Step 4 fix round 1, C1)', async () => {
+    const ai = fakeAi([toolCall('propose_rule', { term: 'herbs', severity: 'anaphylactic' })]);
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    const r = await turn(p.cookie, "I'm allergic to herbs");
+    expect(r.parts).toEqual([
+      lineOf('rule.which_kind', { term: 'herbs', examples: 'curry leaf or epazote' }),
+      { kind: 'choices', options: [{ id: 'curry_leaf', name: 'curry leaf' }, { id: 'epazote', name: 'epazote' }], severity: 'allergy' },
+    ]);
+    expect(r.cards).toEqual([]);
+    expect(await countOf('mentor_proposals', p.userId)).toBe(0);
+    expect(await countOf('rules', p.userId)).toBe(0);
+  });
+
+  test('N2: a which-one ask (curry) never covers the herbs category: "herbs" is still asked about', async () => {
+    const ai = fakeAi([toolCall('propose_rule', { term: 'curry', severity: 'allergy' })]);
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    const r = await turn(p.cookie, "I'm allergic to curry and herbs");
+    expect(r.parts.some((x) => x.kind === 'line' && x.line.trigger === 'rule.which_one')).toBe(true);
+    expect(r.parts).toContainEqual(lineOf('rule.ask_what_else', { term: 'fresh herbs' }));
+    expect(r.cards).toEqual([]);
+    // The coverage itself: only a which-kind ask's options stand for their broad category.
+    const asked = (trigger: string) => ({ cards: [], parts: [lineOf(trigger, { term: 'x' }), { kind: 'choices' as const, options: [{ id: 'curry_leaf', name: 'curry leaf' }], severity: null }] });
+    expect(coveredIds(asked('rule.which_one') as never, catalog.graph)).not.toContain('herb');
+    expect(coveredIds(asked('rule.which_kind') as never, catalog.graph)).toContain('herb');
+  });
+
+  test('N3: "allergic to herbs and peanuts" keeps the peanut card at the stated severity beside the which-kind ask', async () => {
+    const call = (term: string): AiToolCall => ({ id: `call_${term}`, name: 'propose_rule', arguments: JSON.stringify({ term, severity: 'allergy' }) });
+    const ai = fakeAi([withCalls([call('herbs'), call('peanuts')])]);
+    await makeApp(ai);
+    const p = await player(AI_HEALTH);
+    const r = await turn(p.cookie, "I'm allergic to herbs and peanuts");
+    const rules = r.cards.map((c) => c.card).filter((c) => c.kind === 'rule');
+    expect(rules.map((c) => c.kind === 'rule' && [c.rule.target.ids, c.rule.severity])).toEqual([[['peanut'], 'allergy']]);
+    expect(r.parts.filter((x) => x.kind === 'line' && x.line.trigger === 'rule.which_kind')).toHaveLength(1);
   });
 
   test('a severe statement with an ingredient no card covers gets a scripted ask (Step 1 carry)', async () => {

@@ -1,11 +1,16 @@
 # Technique Toolkit data (spec §17). Thresholds are tunable here, not in code.
 # Licensed CC BY-SA 4.0, like content/.
+# adjacent: the techniques to suggest after this one (need not be symmetric; Step 2's weekly slot).
+# prereqs: the techniques best tried first (advisory, never a lock). Checked by core validateTechniques.
 freshness: { warm_after_days: 42, rusty_after_days: 120 }
 techniques:
-  - { id: legumes, name: "Legumes" }
-  - { id: heat-control, name: "Heat control" }
-  - { id: tempering, name: "Tempering" }
-  - { id: grains, name: "Grains" }
-  - { id: shaping, name: "Shaping" }
-  - { id: patience, name: "Patience" }
-  - { id: knife, name: "Knife skills" }
+  - { id: legumes, name: "Legumes", adjacent: [tempering], prereqs: [] }
+  - { id: heat-control, name: "Heat control", adjacent: [tempering, stir-fry, quick-sauce], prereqs: [] }
+  - { id: tempering, name: "Tempering", adjacent: [quick-sauce], prereqs: [heat-control] }
+  - { id: grains, name: "Grains", adjacent: [shaping, stir-fry], prereqs: [] }
+  - { id: shaping, name: "Shaping", adjacent: [knife], prereqs: [grains] }
+  - { id: patience, name: "Patience", adjacent: [emulsion], prereqs: [] }
+  - { id: knife, name: "Knife skills", adjacent: [emulsion], prereqs: [] }
+  - { id: stir-fry, name: "Stir-frying", adjacent: [], prereqs: [heat-control, grains] }
+  - { id: emulsion, name: "Emulsions", adjacent: [], prereqs: [knife] }
+  - { id: quick-sauce, name: "Quick sauces", adjacent: [], prereqs: [heat-control] }

@@ -152,7 +152,7 @@ triggers:
     lines:
       - "Second: roughly how many meals a week do you want to cook yourself? Honest number. Three is a perfectly good number."
       - "How many times a week can you realistically cook? Not aspirationally. Realistically. I've met aspiration. It doesn't wash up."
-      - "Roughly how many home-cooked meals a week? Leftovers count. Leftovers are cooking twice for the price of once."
+      - "Roughly how many home-cooked meals a week? Leftovers count. Leftovers are cooking twice for the effort of once."
       - "How much cooking are we talking? A couple of nights? Most nights? I'll plan to fit, not to impress."
       - "Question two: how many meals a week will you cook? I'll plan exactly that many and not one more, because the Bureau doesn't reward heroics."
 
@@ -603,6 +603,19 @@ triggers:
       - "The word {term} could mean more than one ingredient. Tap the one you mean, and I'll read it back before anything's filed."
       - "More than one ingredient matches {term}. Please tap the right one, so I file exactly that."
 
+  rule.which_kind:
+    ai: never
+    when: The player named a category too broad to be one rule ("allergic to herbs", fix round 1 C1). Nothing is filed; the kinds the graph knows are offered as buttons, and the player can name another.
+    vars:
+      term: "the player's word, e.g. 'herbs'"
+      examples: "the kinds the graph knows, built by code, e.g. 'curry leaf or epazote'"
+    notes: "Plain. No jokes. Never files a category rule."
+    lines:
+      - "{term} covers too many things for one rule, so I haven't filed anything. Which one do you need to avoid? Tap one, such as {examples}, or tell me its name."
+      - "I can't check dishes for {term} as one group; it's too broad to be sure of. Which one is it? For example {examples}, or name it and I'll read it back. Nothing's been saved."
+      - "Which {term} do you mean? Tap one, such as {examples}, or tell me its name plainly. Nothing's been saved yet."
+      - "{term} could mean a great many things, so nothing's been filed. Tell me the one to avoid, such as {examples}, and I'll read it back."
+
   rule.tap_needed:
     ai: never
     when: The player typed "yes" while a severe (anaphylactic or allergy) card is open. A typed yes never confirms a severe card.
@@ -731,7 +744,18 @@ triggers:
       - "{dish} won't work with your rules: {finding}. The cook will teach you an adapted version if there is one. Shall I check?"
       - "Not that one, I'm afraid. {finding}. Let me look for an adapted version or another dish."
       - "{dish} clashes with your rules: {finding}. I'll ask the cook about an adapted version, or we can pick something else."
-      - "That one's blocked for you: {finding}. Let's find another dish, or an adapted version if the cook has one."
+      - "That one's blocked for you: {finding}. Let's pick another dish, or an adapted version if the cook has one."
+
+  plan.dish_sacred:
+    ai: never
+    when: The player names a sacred dish (sacred true) in a plan request. It is never placed in a plan; the dish is kept for its occasion (spec §10). Plain and respectful, no jokes.
+    vars:
+      dish: "the dish"
+    lines:
+      - "{dish} is kept for its occasion, so it doesn't go in a weekly plan. Shall we pick something else for that day?"
+      - "{dish} belongs to its own day and its own table. I'll leave it out of the plan, with respect. Another dish for that night?"
+      - "We don't plan {dish} like an ordinary supper; it's made for its occasion. Let's choose something else for the week."
+      - "{dish} is one the family keeps for a special day, so it stays off the plan. Would you like another dish there?"
 
   plan.swap_applied:
     ai: never
@@ -992,6 +1016,370 @@ triggers:
       - "Post. {cook} would like a visit. I'd go. You should go. I'll come."
       - "The Bureau's post has arrived. {cook} is inviting you. Invitations from cooks are rare and should be answered."
 
+  quest.errand_adapted:
+    ai: never
+    when: A quest errand's item clashes with the player's rules and the cook file has no adapted lines of its own. The step still passes, with the same rewards; a labelled swap, when the rules engine passes one, is shown beside this line.
+    vars:
+      cook: "the cook"
+    lines:
+      - "That one isn't for you, so we leave it at the stall. {cook} will teach it your way. It counts in full."
+      - "Your rules come first. {cook} has an adapted way to do this, and it counts just the same."
+      - "No need to fetch that one. {cook} cooks around it for guests all the time. Same lesson, same welcome."
+      - "We'll skip that at the market. {cook} will show you the adapted way; nothing about the lesson is less for it."
+      - "Not that one for you. {cook} knows another way, and the kitchen is just as glad to have you."
+
+  quest.cook_adapted:
+    ai: never
+    when: A quest's dish clashes with the player's rules and no other dish or frame for its techniques passes them, so the cook step completes as a lesson instead. Same quest rewards; nothing is cooked, so no technique moves past Seen.
+    vars:
+      cook: "the cook"
+    lines:
+      - "That dish isn't for you, so {cook} teaches it as a lesson today. You'll know how it goes, and the quest counts in full."
+      - "Your rules come first. {cook} walks you through it instead of cooking it, and that counts just the same."
+      - "No need to cook this one. {cook} talks you through every step; you're just as welcome in this kitchen."
+      - "We watch and listen this time. {cook} shows you how it's done, and the lesson is yours all the same."
+      - "{cook} will teach this one by telling, not cooking. Nothing about the quest is less for it."
+
+  # ------------------------------------------------------------------
+  # The weekly loop (Milestone 5): plan → market run → cook → log, with the quest additions around it.
+  # Written lines only, even where ai: allowed (Ruling 21). Code fires these by id (REQUIRED_PAN_TRIGGERS).
+  # Frame and rescue lines never comment on how much is in the cupboard (audit M-4), never count down,
+  # never mention money, and give no numbers of hours or calories.
+  # ------------------------------------------------------------------
+
+  plan.readback:
+    ai: never
+    when: Read-back of a plan card (Form 7-W), built by code; nothing is planned until the player taps the card.
+    vars:
+      summary: "what goes on which day, built by code, e.g. 'parippu on Sunday, onigiri on Tuesday'"
+    notes: "Plain. Never says the plan is saved before the tap."
+    lines:
+      - "Here's the week as I have it: {summary}. Shall I plan it?"
+      - "Reading it back: {summary}. Is that the week?"
+      - "{summary}. That's the plan as I heard it. Tap the card if it's right."
+      - "So: {summary}. Check the card, and tap 'Plan it' if that's the week you want."
+
+  plan.dish_unknown:
+    ai: never
+    when: A dish the player named isn't one the cooks teach (core matchDish found no canon dish); nothing is guessed (Ruling 22).
+    vars:
+      dish: "the player's words for the dish, as typed (default: that dish)"
+    notes: "Plain. Never guesses, never suggests the nearest name."
+    lines:
+      - "I don't know a dish called {dish}. None of the cooks has taught it, so I haven't guessed. Which dish did you mean?"
+      - "{dish} isn't a dish the cooks have taught, so I've left it out rather than guess. Tell me the dish's name another way?"
+      - "I can't match {dish} to a dish the cooks teach. Nothing's been guessed. Say its name another way, or ask me to pick."
+      - "No cook has taught {dish} yet, so it isn't in the plan. I won't guess at it. What did you have in mind?"
+
+  plan.unverified_dish:
+    ai: never
+    when: A planned dish is ❓ for the player's rules on its day (unresolved or label-dependent); it shows ❓, never ✅.
+    vars:
+      dish: "the dish"
+    notes: "Plain. No joke touches a ❓ line."
+    lines:
+      - "{dish} gets a ❓: I can't verify everything in it against your rules. Check the labels before you cook it."
+      - "{dish} is marked ❓. I can't check every ingredient against your rules from here, so please read the labels first."
+      - "A ❓ on {dish}: I can't verify all of it for your rules. Check the packets and labels before you cook it."
+      - "I can't say {dish} fits your rules, so it shows ❓, not ✅. The labels have the last word."
+
+  plan.fewer_than_asked:
+    ai: never
+    when: "'Pick N' found fewer taught dishes that pass the player's rules than asked; core suggestPlan never pads with ❓ or ⛔."
+    vars:
+      count: "how many dishes were picked, as a numeral (0 or more); every line reads for 0, 1 or many"
+    lines:
+      - "Fewer pass your rules this week than you asked for. Number picked: {count}. I won't fill the gaps with dishes I can't check."
+      - "I've picked what passes your rules this week, and that comes to {count} in all. Each one is checked."
+      - "Of the dishes the cooks have taught, the number that pass your rules this week is {count}. The rest of the week is yours to fill as you like."
+      - "That's as many as pass your rules this week ({count}). More would mean dishes your rules block or I can't verify, and I won't do that."
+
+  plan.hard_week:
+    ai: allowed
+    when: The player said it's a hard week. The plan keeps to easy dishes, adds no extras, and offers no new technique (audit M-2).
+    lines:
+      - "A hard week, then. Easy dishes, nothing extra. The kitchen keeps. So do I."
+      - "A hard week. Simple food, no extras, no new techniques. Eating is the whole job this week."
+      - "Hard weeks happen. Quick dishes, nothing to learn, nothing to prove."
+      - "Understood. The easiest dishes, and nothing new this week. Even cast iron has weeks like that; 1911 was one."
+      - "A gentle week. Easy food, and that's plenty. Toast counts too."
+
+  one_more.offer:
+    ai: allowed
+    when: "The weekly One More Technique slot offers a new technique: at most one a week, opt-in, never in a hard week (spec §17, audit M-2)."
+    vars:
+      technique: "the technique offered, e.g. 'Stir-frying'"
+      known: "a technique the player already has that it builds on, e.g. 'Heat control'"
+      dish: "the dish or frame that teaches it, checked against the player's rules on every day of the week"
+      day: "the weekday it would go on"
+    notes: "An invitation. 'Not this week' must always read as a full answer. No urgency, no cost."
+    lines:
+      - "One more technique, if you'd like it: {technique}. It builds on your {known}. {dish} on {day} would teach it. Or not this week; that's a full answer."
+      - "A thought for the week: {technique}, by way of {dish} on {day}. Your {known} will do half the work. Say no and nothing changes."
+      - "Since you've got {known}, {technique} is the next door along. {dish}, {day}? If you fancy it."
+      - "There's room for one new thing: {technique}. {dish} on {day} would do it. 'Not this week' is a perfectly good answer."
+      - "Your {known} has a neighbour: {technique}. Try {dish} on {day}? The Bureau has no opinion. I have a small one."
+
+  one_more.refresh:
+    ai: allowed
+    when: The weekly slot offers a refresher for a Rusty technique instead. It shares the One More Technique slot; an invitation, never a warning (spec §17 Freshness guardrails).
+    vars:
+      technique: "the technique"
+      dish: "a dish that practises it"
+    notes: "Never 'fading', 'rusty', 'losing' or 'before it's gone'. Nothing is lost; nothing is lowered."
+    lines:
+      - "{technique} would enjoy a visit. {dish} this week? An invitation, nothing more."
+      - "{technique} keeps. It hasn't gone anywhere. {dish} would say hello to it, if you like."
+      - "Fancy a refresher? {dish} brings {technique} back to the hand. Or not; it keeps."
+      - "{technique} is waiting where you left it. {dish} is a nice way back in, whenever suits."
+
+  one_more.declined:
+    ai: allowed
+    when: The player said "not this week" to the weekly technique. A full, warm answer with no cost.
+    lines:
+      - "Not this week. That's a full answer. The week's good as it is."
+      - "Fair enough. No new technique, no fuss. The plan stands."
+      - "Right you are. The technique will still be there. So will I."
+      - "Not this week, then. Cooking what you know is cooking. That counts."
+
+  one_more.accepted:
+    ai: allowed
+    when: The player said yes to the weekly technique; a practice (drill) day is added before the cook day.
+    vars:
+      day: "the practice day"
+    lines:
+      - "Good. A practice on {day}, before the cook day. Short and useful, like a good knife."
+      - "Practice day: {day}. The dish will thank you for it."
+      - "On {day}, a little practice first. Then the real thing. That's how every cook I know learned."
+      - "{day} for practice. I'll be there. I'm always there."
+
+  market.ticked_pantry:
+    ai: allowed
+    when: Items ticked off the market list went into the pantry, dated today (Ruling 16). Ticking is undoable.
+    vars:
+      items: "the items, e.g. 'onions, black beans'"
+    lines:
+      - "{items}: in the pantry, dated today."
+      - "Into the cupboard: {items}, with today's date on them."
+      - "{items}, home and shelved. The Bureau likes a dated shelf."
+      - "In the pantry: {items}. Un-tick if that was a slip of the thumb."
+
+  market.run_done:
+    ai: allowed
+    when: The player taps "That's the shop done" (once a week). Earns market-run XP and a stamp once per ISO week (Ruling 23); the line promises neither.
+    lines:
+      - "That's the shop done. Everything ticked is in the pantry. Now we cook."
+      - "Run complete. The bag is heavy and the week looks fed."
+      - "Home with the shopping. Well done. The vegetables are making plans already."
+      - "Shop done. Unpack, put the kettle on, then dinner."
+
+  rescue.offer:
+    ai: allowed
+    when: Use-It-Up, as a rescue (audit M-4, M-14). At most one a day, only for food the player bought at the market, from a curated keep time. A gentle offer, never a countdown, never money.
+    vars:
+      item: "the bought item, e.g. 'spinach'"
+      technique: "the technique the dish practises"
+      dish: "the frame or dish that uses it, checked against the player's rules"
+    notes: "Never comments on how much is in the cupboard. No numbers of days or hours. Compost is always an option."
+    lines:
+      - "The {item} from market day would make a good {dish}. It's {technique}, and quick. Shall we?"
+      - "A thought for the {item}: {dish}. A little {technique}, a good ending, no waste."
+      - "That {item} is ready for a second act. {dish} would suit it, and it's good {technique} practice."
+      - "The {item} would like to be {dish}. I'm told it's keen. A bit of {technique} does it."
+      - "If you're cooking soon, {dish} would use the {item} nicely. Good {technique} practice too."
+
+  rescue.compost:
+    ai: allowed
+    when: The player composts a rescued item. Acknowledged warmly; never a loss, never money (audit M-14).
+    vars:
+      item: "the item"
+    lines:
+      - "Compost counts. The worms send their thanks."
+      - "Into the compost with the {item}. It goes on to grow something. That's a good ending too."
+      - "The {item} goes to the compost. Gardens are kitchens with patience."
+      - "The {item} retires to the garden, with honours. The worms have been told."
+
+  rescue.unverified:
+    ai: never
+    when: The rescue's frame or dish is ❓ for the player's rules, so nothing is suggested for the item.
+    vars:
+      item: "the item"
+    notes: "Plain. No joke touches a ❓ line."
+    lines:
+      - "I can't check a dish for the {item} against your rules, so I won't suggest one. Check the labels if you cook it yourself, or the compost is fine."
+      - "There's nothing I can verify for the {item} under your rules, so no suggestion from me. Check labels if you cook it yourself."
+      - "The dish for the {item} gets a ❓ for your rules, so I won't offer it. Read the labels before cooking it any other way, or compost it."
+      - "I can't verify a dish for the {item} against your rules, so there's no suggestion from me. If you cook it, check every label first."
+
+  frame.offer:
+    ai: allowed
+    when: A Pantry Frame filled from what's in the cupboard. Never comments on how much is there (audit M-4).
+    vars:
+      frame: "the frame's title, e.g. 'Green sauce'"
+      technique: "the technique it practises"
+    lines:
+      - "From what's in the cupboard: {frame}. It's {technique}, built from your shelves."
+      - "Your cupboard makes a {frame}. A good bit of {technique}, and dinner."
+      - "{frame}, from things you already have. {technique}, start to finish."
+      - "There's a {frame} in your cupboard waiting to happen. A {technique} lesson with a dinner attached."
+
+  frame.slot_empty:
+    ai: never
+    when: A required frame slot has no filler that passes the player's rules; it stays unfilled and the frame shows ❓, never a guess.
+    vars:
+      slot: "the slot's name, e.g. 'rice'"
+    notes: "Plain. About the slot, never about the cupboard."
+    lines:
+      - "I can't fill the {slot} with anything that passes your rules, so it stays unfilled. I won't guess. Pick something you've checked, or choose another frame."
+      - "No {slot} I can verify for your rules. That part stays open, and the dish shows ❓ until it's filled."
+      - "The {slot} needs something that passes your rules, and I can't verify anything for it. It stays unfilled; I won't guess."
+      - "Nothing I can verify fits the {slot} under your rules, so I've left it unfilled. The dish shows ❓ until you pick something you've checked."
+
+  cook.who_ate:
+    ai: allowed
+    when: After cook mode, Cooked for Someone asks "Who ate with you?" Skippable; no names are kept (Ruling 10).
+    lines:
+      - "Who ate with you? You can skip this; it's for your book and nobody else's."
+      - "Before you wash up: who ate? Yourself, or company? Skip it if you'd rather."
+      - "Who was at the table? Optional. The Bureau counts plates, never people."
+      - "Did anyone eat with you? Tap to skip; it changes nothing."
+
+  cooked_for.alone:
+    ai: allowed
+    when: The player answered "just me". Equal warmth to cooking for others (audit M-9); never a comparison.
+    lines:
+      - "Feeding yourself counts. It's the first person on the list."
+      - "A table for one is still a table. Well fed is well fed."
+      - "You cooked for you. That's the person I worry about most."
+      - "Dinner for one, properly made. That's what the kitchen is for."
+
+  cooked_for.shared:
+    ai: allowed
+    when: The player fed others. Never compared with anyone, never a requirement for anything.
+    lines:
+      - "You fed people. That's the oldest kindness there is."
+      - "A full table. The cooks would be pleased; that's why they teach."
+      - "Cooked for company. Every recipe on this map started that way."
+      - "Someone ate well tonight because of you. That's a good evening's work."
+
+  cook.changes_ask:
+    ai: allowed
+    when: After cook mode, "Did you change anything?" opens a margin note. Skippable; account-only (Ruling 9).
+    lines:
+      - "Did you change anything? A swap, a pinch more of something? Skip it if not."
+      - "Anything you'd do differently next time? It goes in your margin, for you alone."
+      - "Change anything? Margin notes are for your book, never the cook's page."
+      - "Any notes for next time? Tap to skip; the recipe stays as the cook wrote it."
+
+  margin.readback:
+    ai: never
+    when: Read-back of a margin-note card (Form 2-M/MARGIN), built by code; nothing is kept until the player taps.
+    vars:
+      summary: "the note as code read it, e.g. 'used oat milk instead of milk'"
+    notes: "Plain. Never says the note is kept before the tap. The canon text is never altered (audit M-5)."
+    lines:
+      - "In the margin: {summary}. Shall I write it in?"
+      - "Reading it back: {summary}. The cook's recipe stays as it is. Shall I add the note?"
+      - "{summary}. That goes in your margin, not the recipe. Is that right?"
+      - "So the note says: {summary}. The recipe itself won't change. Shall I add it to your margin?"
+
+  margin.blocked:
+    ai: never
+    when: A margin note's swap or addition clashes with the player's rules; "cook with my notes" stays off for it.
+    vars:
+      finding: "the engine's finding, e.g. 'peanut butter contains peanut'"
+    notes: "Plain. No joke touches an allergen line."
+    lines:
+      - "That change clashes with your rules: {finding}. I won't put it in the notes you cook from."
+      - "{finding}. That's against your rules, so it can't go in your cooking notes."
+      - "Your rules say no to that: {finding}. The recipe stays as the cook wrote it."
+      - "I can't use that change with your rules: {finding}. Your cooking notes stay without it."
+
+  margin.needs_account:
+    ai: never
+    when: A signed-out player tries to keep a margin note; notes are account-only (Ruling 9).
+    lines:
+      - "Margin notes live with your account, so they're kept private. Sign in from Settings, and the margin is yours."
+      - "I can keep margin notes once you're signed in. Settings has the sign-in. The recipe works as it is meanwhile."
+      - "Notes need an account, so they sit with your other private things. Sign in from Settings whenever you like."
+      - "To keep a margin note I need you signed in; Settings has the sign-in. Nothing about the recipe changes meanwhile."
+
+  log.dish_offer:
+    ai: never
+    when: The one-tap log card after cooking a dish (spec §5); skippable. Signed-out players get log.needs_account instead.
+    vars:
+      dish: "the dish cooked"
+    lines:
+      - "Log {dish} as a meal? One tap, or skip it."
+      - "{dish}: shall I put it in the food log? Tap to log, or skip."
+      - "Want {dish} in your food log? It's one tap. Skipping is fine too."
+      - "Shall I log {dish}? One tap does it, and skipping costs nothing."
+
+  quest.recognize:
+    ai: allowed
+    when: A quest's recognize step, when the player has its technique at Tried from another cook's dish (audit M-3). The generic line until M10's cook lines; nothing is said otherwise.
+    vars:
+      technique: "the technique, e.g. 'Tempering'"
+      cook: "the cook whose kitchen this is"
+    notes: "Recognition, never comparison: no cuisine is a 'version of' another. Credit the other kitchen, warmly."
+    lines:
+      - "{cook} has noticed how you handle the {technique}. Someone taught you well, and {cook} can tell."
+      - "Your hands already know {technique}. {cook} sees it straight away. Good teachers recognise good teaching."
+      - "{cook} nods at your {technique}. Learned in another kitchen, and welcome in this one."
+      - "{technique}: you've done this before, and {cook} can see it. Kitchens talk to each other through your hands."
+      - "{cook} spots the {technique} at once. Different kitchen, same care."
+
+  quest.travel_anyway:
+    ai: allowed
+    when: The player visits a cook who hasn't had an introduction yet; every launch cook is visitable anyway (Ruling 3).
+    vars:
+      cook: "the cook"
+    lines:
+      - "{cook} hasn't had a letter about you yet, but the door's open. Guests are welcome; introductions come later."
+      - "No introduction yet for {cook}. That's fine. Knock politely, wash your hands, and listen."
+      - "We can visit {cook} now. An introduction would be nice, but a polite guest is always let in."
+      - "{cook} is expecting nobody in particular, which means anybody polite. Off we go."
+
+  certificate.technique:
+    ai: allowed
+    when: A technique reaches "Yours" and the Bureau issues Form 51-T, the Certificate of Technique (audit M-1).
+    vars:
+      technique: "the technique"
+    lines:
+      - "{technique} is yours now. The Bureau has issued Form 51-T, the Certificate of Technique. Your hands knew first."
+      - "Certificate of Technique: {technique}. Yours, for keeps. Nobody can take it back, least of all the Bureau."
+      - "{technique}, certified yours. You cooked your way there. That's the only way there is."
+      - "The Bureau certifies {technique} as yours. I certify that I saw it happen."
+
+  book.empty:
+    ai: allowed
+    when: The Recipe Book before any dish has been taught.
+    lines:
+      - "The Recipe Book is waiting for its first page. A cook will write it with you."
+      - "Nothing in the book yet. The first page comes when a cook teaches you a dish."
+      - "A fresh book. The Bureau considers that one of life's great pleasures. Visit a cook to start it."
+      - "The book's ready. The pages fill as the cooks teach you."
+
+  book.exported:
+    ai: never
+    when: The Recipe Book file was saved to the player's device. It's theirs, and export is always free (spec §16).
+    lines:
+      - "Your Recipe Book is saved to your device. It's yours, always free."
+      - "Saved: the Recipe Book file. It's yours to keep, always free."
+      - "The book is saved as a file on your device. Yours, always, and it never costs a thing."
+      - "Your Recipe Book file is on your device now. It's yours to keep, and exporting it is always free."
+
+  nav.offer:
+    ai: never
+    when: The line beside a navigation chip (Ruling 15). Nothing moves until the player taps the chip.
+    vars:
+      place: "the place's name, e.g. 'the market list'"
+    lines:
+      - "Tap to go to {place}."
+      - "{place} is a tap away."
+      - "Shall we go to {place}? Tap when you're ready."
+      - "When you're ready, tap to go to {place}."
+
   # ------------------------------------------------------------------
   # Meta: undo, confusion, AI down, progression
   # ------------------------------------------------------------------
@@ -1083,21 +1471,22 @@ triggers:
       stamp: "the stamp's name, e.g. 'Seasonal Sorting'"
     lines:
       - "A stamp! The Bureau will be insufferable about this."
-      - "Stamp earned: {stamp}. Spend it on a hat. For me. I'm told I'd suit a hat."
+      - "Stamp earned: {stamp}. It goes in the book with the others. The book is getting heavy. Good."
       - "{stamp}, stamped. The ink is still wet. Don't blow on it; the Bureau considers that tampering."
       - "Another stamp. Your book is filling up. The Bureau is filling up with pride. It's mostly filing."
       - "Stamped: {stamp}. That's a real skill you'll use in a real shop. The stamp is just the receipt."
 
   skill_up:
     ai: allowed
-    when: A skill (knife, heat control, legumes, etc.) gains a level.
+    when: "A technique moves up a tier (Seen → Tried, Tried → Yours)."
     vars:
-      skill: "the skill name"
+      technique: "the technique's name, e.g. 'Heat control'"
+    notes: "Techniques have tiers, not levels (Ruling 4). Never 'level' here."
     lines:
-      - "{skill} is improving. Your hands know more than they did last week."
-      - "{skill}, up a level. Skills are just mistakes you've stopped making."
-      - "Better at {skill}. I can tell. I can always tell."
-      - "{skill}: better. Your hands are learning faster than you think."
+      - "{technique} is improving. Your hands know more than they did last week."
+      - "{technique}, a tier further along. Skills are mistakes you've stopped making."
+      - "Better at {technique}. I can tell. I can always tell."
+      - "{technique}: better. Your hands are learning faster than you think."
 
   trust_up:
     ai: allowed
@@ -1112,16 +1501,16 @@ triggers:
 
   introduction_received:
     ai: allowed
-    when: A cook introduces the player to a friend, opening a new country on the map.
+    when: "A cook introduces the player to a friend; the friend's pin changes to 'expecting you'."
     vars:
       cook: "the introducing cook"
       friend: "the cook being introduced"
-      place: "the new place"
+      place: "the friend's place"
     lines:
       - "{cook} has written to {friend} in {place}. That's an introduction. They don't hand those out; they give them."
-      - "A new pin on the map: {place}. {friend} is expecting you, because {cook} vouched for you. Don't make {cook} regret it."
+      - "{friend}, in {place}, is expecting you now, because {cook} vouched for you. Don't make {cook} regret it."
       - "{friend}, in {place}. An introduction from {cook}. In the Bureau's hierarchy of documents, this outranks a stamp."
-      - "A letter of introduction: {cook} to {friend}, {place}. That's a door opened on your behalf. Walk through it politely."
+      - "A letter of introduction: {cook} to {friend}, {place}. {friend} is expecting you now. Arrive hungry and polite."
 
   # ------------------------------------------------------------------
   # Mentor conversation (Milestone 4). Fired by code, never written by the model.

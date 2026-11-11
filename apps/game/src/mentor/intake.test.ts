@@ -400,3 +400,42 @@ describe('createIntake', () => {
   });
 });
 
+
+describe('M5 Step 4 fix round 1 (C1): herbs is never a rule', () => {
+  test.each(['herbs', 'allergic to herbs', 'fresh herbs and peanuts'])('"%s" files no herb rule: one which-kind ask, never a second', (text) => {
+    const r = parseIntakeAnswer('allergies', text, deps);
+    const results = r.kind === 'rules' ? r.results : r.kind === 'reply' ? [r.reply] : r.kind === 'card' ? [{ ok: true as const, card: r.card }] : [];
+    for (const x of results) if (x.ok && x.card.kind === 'rule') expect(x.card.rule.target.ids).not.toContain('herb');
+    const asks = results.filter((x) => !x.ok && x.line.trigger === 'rule.which_kind');
+    expect(asks).toHaveLength(1);
+  });
+});
+
+describe('M5 Step 4 fix round 2', () => {
+  const SEVERITY_RANK = { preference: 0, intolerance: 1, allergy: 2, anaphylactic: 3 } as const;
+  const resultsOf = (text: string) => {
+    const r = parseIntakeAnswer('allergies', text, deps);
+    return r.kind === 'rules' ? r.results : r.kind === 'reply' ? [r.reply] : r.kind === 'card' ? [{ ok: true as const, card: r.card }] : [];
+  };
+
+  test('"allergic to herbs and peanuts": the peanut card at the stated severity, never weaker, plus one which-kind ask with direct kinds (N1, N3)', () => {
+    const results = resultsOf('allergic to herbs and peanuts');
+    const cardsOf = results.flatMap((x) => (x.ok && x.card.kind === 'rule' ? [x.card] : []));
+    expect(cardsOf.map((c) => c.rule.target.ids)).toEqual([['peanut']]);
+    for (const c of cardsOf) expect(SEVERITY_RANK[c.rule.severity]).toBeGreaterThanOrEqual(SEVERITY_RANK.allergy);
+    expect(cardsOf[0].rule.severity).toBe('allergy');
+    const asks = results.filter((x) => !x.ok && x.line.trigger === 'rule.which_kind');
+    expect(asks).toHaveLength(1);
+    const ask = asks[0];
+    if (!ask.ok && ask.reason === 'ambiguous') expect(ask.options.map((o) => o.id)).toEqual(['curry_leaf', 'epazote']);
+  });
+
+  test.each(['I\'m allergic to sesame but not peanuts', 'allergic to milk but not peanuts'])('"%s": the excluded name gets only rule.exclusion_not_kept, never an ask', (text) => {
+    const r = parseIntakeAnswer('allergies', text, deps);
+    expect(r.kind).toBe('rules');
+    if (r.kind !== 'rules') return;
+    expect(r.notes).toEqual([{ trigger: 'rule.exclusion_not_kept', vars: { term: 'peanut' } }]);
+    expect(r.ask === null || r.ask.vars.term !== 'peanut').toBe(true);
+    for (const x of r.results) if (x.ok && x.card.kind === 'rule') expect(x.card.rule.target.ids).not.toContain('peanut');
+  });
+});

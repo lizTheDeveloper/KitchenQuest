@@ -11,6 +11,7 @@ import {
   classifyTurn,
   isSevereCard,
   isSuitabilityQuestion,
+  broadKindsAsked,
   leftoverNamedIngredients,
   matchDish,
   MENTOR_TURN_DEADLINE_MS,
@@ -306,7 +307,7 @@ async function lockConversation(tx: Tx, userId: string, conversationId: string):
  * non-allergen names a meal or pantry card carries. A meal or pantry card never covers a major
  * allergen (fix round 1, C1): "peanut butter toast … allergic to peanuts" still asks about peanut.
  */
-function coveredIds(reply: Reply, graph: IngredientGraph): string[] {
+export function coveredIds(reply: Reply, graph: IngredientGraph): string[] {
   const ids: string[] = [...(reply.onFile ?? [])];
   for (const c of reply.cards) if (c.kind === 'rule') ids.push(...c.rule.target.ids);
   // C1 over-ask (M4 final): what a meal or pantry card names is accounted for, except a major allergen (never covered by one).
@@ -314,7 +315,14 @@ function coveredIds(reply: Reply, graph: IngredientGraph): string[] {
     if (c.kind === 'meal') ids.push(...nonAllergenNamedIds(c.meal.item.kind === 'free' ? c.meal.item.description : c.summary, graph));
     if (c.kind === 'pantry') ids.push(...nonAllergenNamedIds([...c.add.map((a) => a.name), ...c.remove].join(', '), graph));
   }
-  for (const p of reply.parts) if (p.kind === 'choices') ids.push(...p.options.map((o) => o.id));
+  ids.push(...reply.parts.flatMap((p) => (p.kind === 'choices' ? p.options.map((o) => o.id) : [])));
+  // A which-kind ask ("herbs", C1) accounts for its broad category too: the ask is its answer, never a second ask.
+  // Only a which-kind ask's own choices (N2): a which-one ask's hits ("curry" → curry leaf) never cover "herbs".
+  const kindChoices = reply.parts.flatMap((p, i) => {
+    const before = i > 0 ? reply.parts[i - 1] : undefined;
+    return p.kind === 'choices' && before?.kind === 'line' && before.line.trigger === 'rule.which_kind' ? p.options.map((o) => o.id) : [];
+  });
+  ids.push(...broadKindsAsked(kindChoices, graph));
   return ids;
 }
 
@@ -352,6 +360,7 @@ function askForLeftoverNames(reply: Reply, raw: string, intakeStep: TurnRequest[
 const RULE_OUTCOME_LINES = new Set([
   'rule.unknown_term',
   'rule.which_one',
+  'rule.which_kind',
   'consent.health_first',
   'rule.ask_what_else',
   'rule.ask_keep_off',

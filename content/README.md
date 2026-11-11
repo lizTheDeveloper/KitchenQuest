@@ -22,6 +22,10 @@ content/
     spice.yaml           # the Spice Merchant
   bureau/
     forms.yaml           # form numbers, titles, field labels, stamps, footnotes
+  frames/
+    fried-rice.yaml      # Pantry Frames (M5): a technique with slots, filled from the cupboard
+    green-sauce.yaml
+    quick-tomato-sauce.yaml
 ```
 
 Beside this folder, `data/techniques.yaml` holds the Technique Toolkit: the technique ids and display names (`id`, `name`) that recipe `skills:` and quest `drill` steps refer to, and the freshness thresholds (`warm_after_days: 42`, `rusty_after_days: 120`, spec §17), which are tunable data, not code. The Pan has two lines for the toolkit and voice: `toolkit.rusty_invite` (an invitation beside a Rusty technique, never a warning; variable `{technique}`) and `voice.not_yet` (hold-to-talk before live voice exists; removed when voice ships). The game build compiles all of this folder, `recipes/` and `data/` and fails, naming the file, if any of it is invalid: a missing required Pan trigger, a cook or recipe that points at something that doesn't exist, a riddle without exactly one correct option, and so on.
@@ -74,8 +78,10 @@ quest:
     - { type: talk, lines: ["..."] }
     - { type: riddle, prompt: "...", options: [{ text: "...", correct: false, reaction: "..." }], explain: "..." }
     - { type: drill, skill: knife, prompt: "...", lines: ["..."] }
-    - { type: errand, stall: wen, item: onion, lines: ["..."] }
-    - { type: cook, recipe: india/kerala/parippu }
+    - { type: errand, stall: wen, item: onion, lines: ["..."], adapted: ["..."] }
+    - { type: travel, place: marisol, lines: ["..."] }
+    - { type: recognize, technique: patience, lines: [], otherwise: [] }
+    - { type: cook, recipe: india/kerala/parippu, technique: tempering }
   rewards: { xp: 40, trust: 1, skills: { knife: 10 } }
 ```
 
@@ -84,7 +90,11 @@ quest:
 - **riddle:** exactly one option has `correct: true`. Wrong options keep the player on the step ("try again"); every option has a `reaction`. `explain` is shown after the correct answer, as the plain-language reason.
 - **drill:** a short technique lesson. `skill` is a skill id (`knife`, `heat-control`, `tempering`, `legumes`, `patience`, `grains`, `shaping`, …). `prompt` is the instruction; `lines` are the cook's coaching.
 - **errand:** sends the player to a market stall (`wen`, `bram`, `okafor-sato`, `spice`) for `item` (an ingredient id). The stall's own choosing minigame for that item runs if one exists. `lines` are what the cook says when sending and on return (the last line is the return line). If the rules engine blocks the item, the stall offers the cook's adapted version instead; the cook's `faq` covers the substitute.
-- **cook:** opens cook mode for `recipe`, a path under `recipes/` without the `.cook` extension (`india/kerala/parippu`).
+- **errand `adapted`** (optional, M5): what the cook says instead when the player's rules block the item (⛔, swap-only or ❓). The step still passes with the same rewards; a player's rules never lock them out of progress. Without it the Pan says `quest.errand_adapted`.
+- **travel** (M5): passed by arriving at `place`, a cook id (`#/visit`). `lines` are said on arrival.
+- **recognize** (M5, audit M-3): `technique` must be one learned elsewhere, never a skill of this cook's own recipes (the build checks it). `lines` are said when the player has it at Tried from another cook's dish, else `otherwise`. In M5 both are empty in every cook file: the game speaks the Pan's generic `quest.recognize` when the technique is known, and nothing otherwise. Each cook's own recognition lines need that cuisine's reviewer, so they wait for M10. Shipped: Leela on `patience`, Marisol on `tempering` (blooming chile in oil), Haruka on `patience`, each just before the `cook` step.
+- **cook:** opens cook mode for `recipe`, a path under `recipes/` without the `.cook` extension (`india/kerala/parippu`). Optional `technique` (M5) must be one of that recipe's `skills`: when the player's rules block the dish, only stand-in dishes and frames that practise that technique count (core `alternativesFor`). Without it, any of the recipe's skills does. If none passes the rules, the step completes as an adapted lesson (`quest.cook_adapted`).
+- The build runs core `validateQuests` over every quest (the API catalogue runs the same check), and fails, naming the cook file, on a bad reference, a riddle without exactly one correct option, an `unlock.requires` cycle, or a recognize step of the cook's own technique.
 
 ### FAQ (cooks and stalls → `faq:`)
 
@@ -124,6 +134,8 @@ faq: [ ... ]              # see FAQ
 ```
 
 **Trust levels** are 1–5: 1 Guest, 2 Acquainted, 3 Trusted apprentice, 4 Family friend, 5 Keeper of the dish (the cook trusts you to teach it to someone else). Level 0, Stranger, is before the first visit and has no return lines. *(The prototype used 0–4 with the same names minus "Keeper"; the founder should confirm the fifth level.)*
+
+**The trust ladder (M5, Ruling 1).** Six states: 0 Stranger plus the five levels above. The names live in `data/rewards.yaml` (`trust.names`). Guest comes when the cook's quest is done; each later level comes from distinct ISO weeks in which the player cooked that cook's dish (`trust.weeks_for_level`: 2, 4, 7 and 10 cook-weeks for levels 2–5), at most one level a week (Ruling 2). The weeks need not be consecutive, so it is no streak, and trust never decays. Trust gates are advisory: every launch cook stays visitable, and an introduction letter (at trust 3) changes the friend's pin to "expecting you" (Ruling 3). `unlock.trust` gates nothing. *(Founder to confirm the fifth level and the pace, as above.)*
 
 **Photo reactions** in `reactions.photo` are written so they make sense without seeing the photo. They're the fallback when the AI is down or the image can't be read. The AI's own reaction follows the same rules (voice guide §0.12): name something visible, give one tip, never body comments or "that's wrong".
 
@@ -192,6 +204,49 @@ The server agent and the client's scripted engine emit these by id, so they are 
 
 The engine also emits the existing `rule.*` read-back, stamp, void, emergency and medical lines, `log.confirm_readback`, `log.logged`, `pantry.added`/`removed`, `schedule.set`/`bad_time`, `undo`, `undo.nothing`, `didnt_understand`, `rate_limited`, and every Form 1-A intake trigger (`intake.open` to `intake.complete`, listed one by one).
 
+### Pantry Frames (`frames/*.yaml`, Milestone 5)
+
+A frame is a technique with slots, filled from the player's pantry by core `fillFrame` (spec §17, Ruling 13). One file per frame; the file name is its `id`.
+
+```yaml
+id: green-sauce                 # kebab-case, equal to the file name
+title: "Green sauce"
+technique: emulsion             # a data/techniques.yaml id
+status: draft                   # draft | reviewed
+credit: "Drafted by Kitchen Quest editors"
+slots:
+  - { key: herb, accepts: [herb], optional: false }   # accepts: ingredient ids from data/ingredients.json only
+  - { key: nut, accepts: [nut], optional: true }      # a category id accepts any kind of it (isA)
+steps:
+  - "Wash {herb}, shake it dry and chop it fine."     # {slot} placeholders; a step naming an unfilled slot is left out
+rescues: [herb]                 # ingredient ids Use-It-Up may rescue with this frame; each must fit some slot
+```
+
+- Every filler is checked by the rules engine on its own and the filled dish as a whole. ⛔ fillers are never chosen; ❓ ones (label-dependent, unresolved) are never chosen for the player. A required slot nothing passes stays unfilled and the dish shows ❓ (`frame.slot_empty`), never a guess.
+- Steps name only what a slot holds. An ingredient written into a step but not in a slot is never checked against the player's rules, so don't.
+- The build runs core `validateFrames` on each file and fails, naming it, on a slot id missing from the graph, an unknown technique, a step using an unknown slot, a required slot no step uses, or a rescue no slot accepts.
+- **The three seed frames** (fried rice `stir-fry`, green sauce `emulsion`, quick tomato sauce `quick-sauce`) are `status: draft`, credited to the Bureau's editors, not a community. M10's writers may reword them. Rescues: `herb` → green sauce, `tomato` → quick tomato sauce, `cooked_rice` (and `spinach`) → fried rice. Every food-safety line is `# REVIEW:`-flagged in the file (cold rice storage and reheating, raw egg, washing herbs, soft tomatoes). Because `herb` is label-dependent, a pantry that says only "herbs" fills the green sauce for a player with no restricting rules; with any rule, the herb slot waits for a herb the player names or picks (and then the sauce shows ❓). The graph's herbs (curry leaf, epazote) fit the herb slots too: a reviewer may want to narrow the green sauce's `accepts`.
+- No frame or rescue line comments on how much is in the cupboard ("only", "just", "empty", "bare", "sad"): a sparse cupboard is never a joke (audit M-4). The voice scan fails on it.
+
+### Data files (`data/`)
+
+Beside this folder, the game build reads these files and fails, naming the file, on anything invalid. The API catalogue (M5 Step 5) runs the same core checks. JSON has no comments, so the review flags for the JSON files live here.
+
+- **`data/rewards.yaml`** (M5, Ruling 7): XP amounts (`lesson`, `drill`, `cook`, `frame`, `market_run`, `refresh`), the flat, capped daily nourishment XP (Ruling 5: per qualifying log, blind to what or how much was eaten), the cumulative level curve (strictly increasing), stamps per occasion (`quest_done`, `certificate`, `market_run`, the `StampId`s; each needs a `stamp_names` entry in `bureau/forms.yaml`), and the trust ladder. Tunable here, never in code; a retune never lowers anything already granted. Checked by core `validateRewards`.
+- **`data/techniques.yaml`**: the Technique Toolkit, with `adjacent` (what to suggest after a technique, for the weekly One More Technique slot) and `prereqs` (best tried first; advisory, never a lock). Checked by core `validateTechniques` (unknown ids, self references, a prereqs cycle).
+- **`data/keeps.json`** (M5, Ruling 12): `{ ingredientId: days }`, how long a perishable keeps once bought, for Use-It-Up Rescue and frame filling. Conservative day counts. The lookup is by the bought item's own id, with no isA ancestry, so keys are concrete ingredients (`herb` is listed because it is the id a told or bought "herbs" resolves to). An id with no entry means no nudge: a spoil date is never guessed. Whole days, 1 to 365, ids in the graph only (core `validateKeeps`).
+- **`data/stalls.json`** (M5, C11): `{ ingredient or category id: stall }`, which market stall sells it, for Form 12-M. A category entry covers its kinds through isA (`allium` sends onions, shallots and garlic to Old Wen); an ingredient's own entry wins (`celery_seed` goes to the Spice Merchant, not Wen). Anything unlisted goes to `general` (the General Counter, named by Form 12-M's `general_stall` field). Values are `content/market` ids or `general`; there is no dairy stall (core `validateStallMap`).
+- **`data/food-groups.json`** (M5): `{ ingredient or category id: veg_fruit | protein | grain }`, for the plan's balance line (`plan.gap_green`, `plan.gap_protein`, `plan.balanced`). It never scores anything; garnishes (herbs, curry leaves) are left out so a sprinkle doesn't count as "something green" (core `validateFoodGroups`).
+
+Review flags for the JSON files:
+
+- `# REVIEW:` **every `data/keeps.json` entry**, against a national food-safety source (USDA FoodKeeper, UK FSA): `cooked_rice` 1 day (FSA/NHS: cool within about an hour, fridge, eat within 24 hours; USDA allows 3–4 days, the stricter figure is kept), `spinach` 3, `herb` 4, `epazote` 4, `tomato` 3 (ripe, at room temperature), `green_chili` 7, `lime` 14 (fridge). The Step 4 data check confirmed spinach, tomato, green chilli, lime and cooked rice against extension charts and NHS/FSA; herb and epazote have no primary source yet (conservative, still to confirm).
+- `# REVIEW:` **the M5 nodes in `data/ingredients.json`** (Ruling C12): `tomato` (FDC 170457), `spinach` (FDC 168462), `lime` (FDC 168155), `cooked_rice` (FDC 168932, "Rice, white, short-grain, cooked, unenriched", which declares no fibre or sugars, so none is given; `contains: [rice]`, so a rule on rice covers leftover rice) and `herb` (a category, "fresh herbs", no FDC record, no nutrition values). FDC values were checked against the FDC portal (Step 4 data check). The produce nodes carry no `isA`, `contains` or `unsafeFor` edge beyond what their sources state.
+- `# REVIEW:` **`herb` is label-dependent and broad** (Step 4 fix round 1, C1). A line or pantry item that says only "herbs" could be any herb (celery leaf, chives, lovage), so it is ❓ under any restricting rule, never ✅, and a Pantry Frame never fills a slot with it for the player. `broad: true` means it is never a rule target: "allergic to herbs" gets `rule.which_kind` ("which one?") with the herbs the graph knows as buttons, never a card on the category. The graph's own herbs, `curry_leaf` (and `curry_leaf_sprig`) and `epazote`, are filed under it with `isA: [herb]`. Filing more herbs (coriander, parsley, mint) under it needs the same review.
+- `# REVIEW:` **`peanut_oil`** (FDC 171410, "Oil, peanut, salad or cooking"; M5 Step 4, Step 3 N1), aliases "groundnut oil", "arachis oil", "refined peanut oil", "roasted peanut oil" and "cold-pressed peanut oil", `contains: [peanut]`, and the alias "arachis" on `peanut`, so a margin note or a rule naming them is checked as peanut: ⛔ under a peanut rule, never ✅. Refined peanut oil is treated as containing peanut on purpose: a label can't be verified from here. "PB" is deliberately not an alias (too ambiguous).
+- `# REVIEW:` **`cooked_rice`'s aliases** "leftover rice", "cold rice" and "day-old rice" read any leftover as plain cooked rice (`contains: [rice]` only). Takeaway egg-fried rice told as "leftover rice" would fill the fried-rice frame ✅ under an egg rule. The content reviewer decides whether these aliases stay, or whether leftovers need their own ❓ node.
+- `# REVIEW:` `data/stalls.json` and `data/food-groups.json` placements (fish and dairy at the General Counter; eggs at Big Bram's Protein Counter; tortillas at Okafor-Sato's, because Doña Marisol asked nicely).
+
 ### Rule terms (`data/rule-terms.json`)
 
 Words that name a rule rather than one ingredient: "vegetarian", "vegan", "pescatarian", "coeliac", "no pork". Each entry is a core `RuleTerm`:
@@ -210,6 +265,57 @@ The game build compiles the file into the content bundle (`ruleTerms`) and check
 JSON has no comments, so its review flags live here:
 
 - `# REVIEW:` halal, kosher and Jain are deliberately absent. No one target can express them, so they resolve to `rule.unknown_term` (or an options list), never to a narrower rule. Adding a term for any of them needs a reviewer from that tradition, and the graph must first carry everything it excludes.
+
+### The weekly loop's Pan triggers (Milestone 5)
+
+Code fires these by id, so they are all in `REQUIRED_PAN_TRIGGERS` (`apps/game/src/content/required.ts`, with each one's `ai` value in `M5_LOOP_TRIGGERS_AI`). Written lines only, even where `ai: allowed` (Ruling 21). The `ai: never` ones are plain read-backs and safety lines, and their first lines are pinned by `required.test.ts`.
+
+| Trigger | ai | When | Vars |
+|---|---|---|---|
+| `plan.readback` | never | Read-back of a plan card: what goes on which day. | `summary` |
+| `plan.dish_unknown` | never | A named dish isn't one the cooks teach; nothing is guessed. | `dish` |
+| `plan.unverified_dish` | never | A planned dish is ❓; check the labels. | `dish` |
+| `plan.fewer_than_asked` | never | "Pick N" found fewer dishes that pass the rules. | `count` |
+| `plan.dish_sacred` | never | A sacred dish named in a plan; kept for its occasion (M5 Step 3). | `dish` |
+| `plan.hard_week` | allowed | The player said it's a hard week: easy dishes, no extras. | |
+| `one_more.offer` | allowed | The weekly technique slot (new). | `technique`, `known`, `dish`, `day` |
+| `one_more.refresh` | allowed | The weekly slot as a refresher; an invitation, never a warning. | `technique`, `dish` |
+| `one_more.declined` | allowed | "Not this week": full, warm, no cost. | |
+| `one_more.accepted` | allowed | Drill day added before the cook day. | `day` |
+| `market.ticked_pantry` | allowed | Ticked items went into the pantry. | `items` |
+| `market.run_done` | allowed | The run is finished (once a week). | |
+| `rescue.offer` | allowed | Use-It-Up, as a rescue (audit M-14). | `item`, `technique`, `dish` |
+| `rescue.compost` | allowed | Compost, warmly. | `item` |
+| `rescue.unverified` | never | The rescue's frame or dish is ❓ for the player. | `item` |
+| `frame.offer` | allowed | A Pantry Frame from what's in the cupboard; never comments on how much is there. | `frame`, `technique` |
+| `frame.slot_empty` | never | A required slot has no filler that passes the rules. | `slot` |
+| `cook.who_ate` | allowed | After cook mode: "Who ate with you?" Skippable. | |
+| `cooked_for.alone` | allowed | Just me: equal warmth. | |
+| `cooked_for.shared` | allowed | Fed others. | |
+| `cook.changes_ask` | allowed | "Did you change anything?" Skippable. | |
+| `margin.readback` | never | Read-back of a margin-note card. | `summary` |
+| `margin.blocked` | never | A note's swap or addition clashes with the player's rules. | `finding` |
+| `margin.needs_account` | never | Notes are account-only. | |
+| `log.dish_offer` | never | The one-tap log card after cooking. | `dish` |
+| `quest.recognize` | allowed | Generic recognition, until M10's cook lines; never "a version of". | `technique`, `cook` |
+| `quest.travel_anyway` | allowed | An unintroduced cook, visitable anyway (Ruling 3). | `cook` |
+| `quest.errand_adapted`, `quest.cook_adapted` | never | A rule-blocked errand or dish, passed the adapted way with the same rewards (M5 Step 2). | `cook` |
+| `certificate.technique` | allowed | "Yours": the Bureau Certificate of Technique (Form 51-T). | `technique` |
+| `book.empty` | allowed | The Recipe Book before any dish is taught. | |
+| `book.exported` | never | The book file was saved; it's yours, always free. | |
+| `nav.offer` | never | The line beside a navigation chip. | `place` |
+
+Also emitted by core since Step 4 fix round 1: `rule.which_kind` (ai: never, vars `term`, `examples`), the ask for a category too broad to be one rule ("allergic to herbs").
+
+**Content review (M5):** every line above, with these first: `quest.errand_adapted`, `quest.cook_adapted` and `plan.dish_sacred` (kept as written in Steps 2–3), and `one_more.refresh`, `rescue.compost` and `introduction_received` (reworded in fix round 1 so a refresher never names the absence, compost brings no word of shame, and an introduction opens no door).
+
+Rewritten in M5 (C30): `stamp_earned` spends nothing (stamps are spent nowhere until M10, Ruling 17); `introduction_received` opens no new country (every launch cook is already on the map, Ruling 3); `skill_up` is about technique tiers, never levels (Ruling 4), and its variable is `{technique}`.
+
+The new Bureau forms: `margin_note` (2-M/MARGIN, a plain safety form: notes are health data, Ruling 9), `cooked_for` (5-S/SHARED TABLE: a fixed count and an optional fixed word, never a name), `technique_certificate` (51-T) and `frame` (8-F/FRAME). Form 7-W gains `days`, `hard_week` and `one_more`; Form 12-M gains `for_dish` and `general_stall`, whose label names the general stall.
+
+### The voice scan
+
+`apps/game/src/content/voice-scan.test.ts` runs over every line, form, frame and recipe (title, steps, ingredient display names and notes) the client bundle carries: voice §7's banned words; unlock, loot, collect, acquire, discover, and "found" about recipes; streak, "missed" and "x days"; "version of"; Guild, price, upgrade, premium, subscribe; HIPAA and "medical-grade"; hours or calories in nourishment or rescue lines; a frame or rescue line about a sparse cupboard; and spending stamps. No pattern is weakened (Ruling 24): a legitimate teaching line a pattern catches goes in `apps/game/src/content/voice-allowlist.ts`, by file, location (its key path) and exact text, with its reason; the same words pasted anywhere else are scanned. Edit an allowlisted line and the scan fails again until the entry is re-justified. The market stall files aren't in the client bundle yet; they are scanned when M6 gives them a screen.
 
 ## Review flags
 

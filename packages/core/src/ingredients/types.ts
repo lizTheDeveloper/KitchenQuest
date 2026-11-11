@@ -13,7 +13,12 @@ export interface IngredientNode {
   aliases?: string[];
   isA?: string[]; // e.g. cashew -> ['tree_nut']
   contains?: string[]; // e.g. soy_sauce -> ['wheat', 'soy']
-  labelDependent?: boolean; // store-bought compound; contents vary by brand
+  labelDependent?: boolean; // store-bought compound, or a category line of unknown members ("herbs"); contents vary
+  /**
+   * A category too broad to be a rule target ("herbs"): a rule naming it gets an ask for which kind (`rule.which_kind`),
+   * never a card, since a rule on the category would cover only the kinds the graph happens to list.
+   */
+  broad?: boolean;
   /**
    * Rule target ids this ingredient counts as for checking, though no isA/contains edge reaches
    * them: e.g. garlic-infused oil carries garlic flavour (unsafe for a garlic or allium allergy)

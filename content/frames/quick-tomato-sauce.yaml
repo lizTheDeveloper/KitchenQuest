@@ -1,0 +1,19 @@
+# Pantry Frame (spec §17, Ruling 13): a technique with slots, filled from the cupboard by core fillFrame. Every filler
+# is checked against the player's rules on its own and the filled dish as a whole. Slots name graph ids only.
+# A draft seed frame for M5, written by the Bureau's editors, not a community; M10's writers may reword it.
+# Licensed CC BY-SA 4.0, like the rest of content/.
+id: quick-tomato-sauce
+title: "Quick tomato sauce"
+technique: quick-sauce
+status: draft
+credit: "Drafted by Kitchen Quest editors"
+slots:
+  - { key: tomato, accepts: [tomato], optional: false }
+  - { key: oil, accepts: [neutral_oil, coconut_oil], optional: false }
+  - { key: allium, accepts: [allium], optional: true }
+steps:
+  - "Warm {oil} in a pan over a medium heat."
+  - "Soften {allium} in it, stirring, until it turns translucent."
+  # REVIEW: food safety. Soft tomatoes are fine to cook; mouldy or leaking ones go in the compost, not the pan.
+  - "Chop {tomato}, add it and cook it down, stirring, until it turns saucy."
+rescues: [tomato]

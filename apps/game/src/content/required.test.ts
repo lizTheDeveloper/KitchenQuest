@@ -212,3 +212,193 @@ describe('M4 rule terms', () => {
     expect(content.ruleTerms.find((t) => t.name === 'no pork')?.severity).toBeNull();
   });
 });
+
+describe('M5 Step 2: the rule-adapted quest lines', () => {
+  it("core's ERRAND_ADAPTED_TRIGGER and COOK_ADAPTED_TRIGGER are required, ai: never, and every line names the cook", async () => {
+    const { COOK_ADAPTED_TRIGGER, ERRAND_ADAPTED_TRIGGER } = await import('@kitchenquest/core/engine');
+    for (const id of [ERRAND_ADAPTED_TRIGGER, COOK_ADAPTED_TRIGGER]) {
+      expect(REQUIRED_PAN_TRIGGERS).toContain(id);
+      const t = content.pan.triggers[id];
+      expect(t.ai, id).toBe('never');
+      expect(t.lines.length, id).toBeGreaterThanOrEqual(4);
+      for (const line of t.lines) expect(line, id).toContain('{cook}');
+    }
+  });
+});
+
+describe('M5 Step 3 fix round 1: the sacred-dish plan line', () => {
+  it("core's PLAN_DISH_SACRED_TRIGGER is required, ai: never, names the dish, and never says unknown or blocked", async () => {
+    const { PLAN_DISH_SACRED_TRIGGER } = await import('@kitchenquest/core/engine');
+    expect(REQUIRED_PAN_TRIGGERS).toContain(PLAN_DISH_SACRED_TRIGGER);
+    const t = content.pan.triggers[PLAN_DISH_SACRED_TRIGGER];
+    expect(t.ai).toBe('never');
+    expect(t.lines.length).toBeGreaterThanOrEqual(4);
+    for (const line of t.lines) {
+      expect(line).toContain('{dish}');
+      expect(line).not.toMatch(/don't know|unknown|blocked|unlock|locked/i);
+    }
+  });
+});
+
+describe('M5 Step 4: the weekly-loop lines', () => {
+  /** The first line of every ai: never M5 trigger, verbatim: code and Steps 8–11 rely on these exact read-backs. */
+  const FIRST_LINES: Record<string, string> = {
+    'plan.readback': "Here's the week as I have it: {summary}. Shall I plan it?",
+    'plan.dish_unknown': "I don't know a dish called {dish}. None of the cooks has taught it, so I haven't guessed. Which dish did you mean?",
+    'plan.unverified_dish': "{dish} gets a ❓: I can't verify everything in it against your rules. Check the labels before you cook it.",
+    'plan.fewer_than_asked': "Fewer pass your rules this week than you asked for. Number picked: {count}. I won't fill the gaps with dishes I can't check.",
+    'rescue.unverified': "I can't check a dish for the {item} against your rules, so I won't suggest one. Check the labels if you cook it yourself, or the compost is fine.",
+    'frame.slot_empty': "I can't fill the {slot} with anything that passes your rules, so it stays unfilled. I won't guess. Pick something you've checked, or choose another frame.",
+    'margin.readback': 'In the margin: {summary}. Shall I write it in?',
+    'margin.blocked': "That change clashes with your rules: {finding}. I won't put it in the notes you cook from.",
+    'margin.needs_account': "Margin notes live with your account, so they're kept private. Sign in from Settings, and the margin is yours.",
+    'log.dish_offer': 'Log {dish} as a meal? One tap, or skip it.',
+    'book.exported': "Your Recipe Book is saved to your device. It's yours, always free.",
+    'nav.offer': 'Tap to go to {place}.',
+  };
+  /** Every {var} each M5 trigger declares (the plan's table). */
+  const M5_VARS: Record<string, string[]> = {
+    'plan.readback': ['summary'],
+    'plan.dish_unknown': ['dish'],
+    'plan.unverified_dish': ['dish'],
+    'plan.fewer_than_asked': ['count'],
+    'one_more.offer': ['technique', 'known', 'dish', 'day'],
+    'one_more.refresh': ['technique', 'dish'],
+    'one_more.accepted': ['day'],
+    'market.ticked_pantry': ['items'],
+    'rescue.offer': ['item', 'technique', 'dish'],
+    'rescue.compost': ['item'],
+    'rescue.unverified': ['item'],
+    'frame.offer': ['frame', 'technique'],
+    'frame.slot_empty': ['slot'],
+    'margin.readback': ['summary'],
+    'margin.blocked': ['finding'],
+    'log.dish_offer': ['dish'],
+    'quest.recognize': ['technique', 'cook'],
+    'quest.travel_anyway': ['cook'],
+    'certificate.technique': ['technique'],
+    'nav.offer': ['place'],
+  };
+
+  it('requires every M5 trigger, each with the plan\'s ai value', async () => {
+    const { M5_LOOP_TRIGGERS_AI } = await import('./required');
+    expect(Object.keys(M5_LOOP_TRIGGERS_AI)).toHaveLength(30);
+    for (const [id, ai] of Object.entries(M5_LOOP_TRIGGERS_AI)) {
+      expect(REQUIRED_PAN_TRIGGERS, id).toContain(id);
+      expect(triggers[id], id).toBeDefined();
+      expect(triggers[id].ai, id).toBe(ai);
+    }
+    for (const id of Object.keys(FIRST_LINES)) expect(M5_LOOP_TRIGGERS_AI[id as keyof typeof M5_LOOP_TRIGGERS_AI], id).toBe('never');
+    expect(Object.entries(M5_LOOP_TRIGGERS_AI).filter(([, ai]) => ai === 'never').map(([id]) => id).sort()).toEqual(Object.keys(FIRST_LINES).sort());
+  });
+
+  it.each(Object.entries(FIRST_LINES))('%s opens with its pinned line and has 4–6 distinct lines (Ruling 21)', (id, first) => {
+    expect(lines(id)[0]).toBe(first);
+    expect(lines(id).length, id).toBeGreaterThanOrEqual(4);
+    expect(lines(id).length, id).toBeLessThanOrEqual(6);
+    expect(new Set(lines(id)).size, `${id} repeats a line`).toBe(lines(id).length);
+  });
+
+  it('every ai: allowed M5 trigger ships 4–6 written lines (Ruling 21)', async () => {
+    const { M5_LOOP_TRIGGERS_AI } = await import('./required');
+    for (const [id, ai] of Object.entries(M5_LOOP_TRIGGERS_AI)) {
+      if (ai !== 'allowed') continue;
+      expect(lines(id).length, id).toBeGreaterThanOrEqual(4);
+      expect(lines(id).length, id).toBeLessThanOrEqual(6);
+    }
+  });
+
+  it.each(Object.keys(M5_VARS))('%s declares exactly its variables', (id) => {
+    expect(Object.keys(triggers[id].vars ?? {}).sort()).toEqual([...M5_VARS[id]].sort());
+    // An ai: never line uses every declared variable, so no read-back is missing its content.
+    if (triggers[id].ai === 'never') {
+      for (const line of lines(id)) {
+        const used = [...line.matchAll(/\{(\w+)\}/g)].map((m) => m[1]);
+        expect(new Set(used), line).toEqual(new Set(M5_VARS[id]));
+      }
+    }
+  });
+
+  it('declares no variables for the M5 triggers without any', async () => {
+    const { M5_LOOP_TRIGGERS_AI } = await import('./required');
+    for (const id of Object.keys(M5_LOOP_TRIGGERS_AI).filter((t) => !(t in M5_VARS))) expect(triggers[id].vars, id).toBeUndefined();
+  });
+
+  it('read-backs claim nothing before the tap', () => {
+    for (const id of ['plan.readback', 'margin.readback']) {
+      for (const line of lines(id)) expect(line, id).not.toMatch(/\b(saved|filed|logged|stamped|kept|on file)\b/i);
+    }
+  });
+
+  it('fix round 1: a ❓ line never calls the dish fine; plan.fewer_than_asked reads for 0 and 1; plan.unverified_dish names no single cause', () => {
+    for (const line of lines('rescue.unverified')) {
+      expect(line).not.toMatch(/judgement/i);
+      expect(line.replace(/compost is fine/g, '')).not.toMatch(/\bfine\b/i);
+      expect(line).toMatch(/label/i);
+    }
+    for (const line of lines('plan.fewer_than_asked')) expect(line, line).not.toMatch(/\{count\}\s+(?:dishes|that|of)\b/);
+    for (const line of lines('plan.unverified_dish')) expect(line).not.toMatch(/depends on the label/);
+  });
+
+  it('fix round 1: no refresher names the absence; compost brings no shame; an introduction opens no door', () => {
+    for (const line of lines('one_more.refresh')) expect(line).not.toMatch(/been a while|since you|haven't/i);
+    for (const line of lines('rescue.compost')) expect(line).not.toMatch(/shame|guilt|sorry/i);
+    for (const line of lines('introduction_received')) expect(line).not.toMatch(/door|opened|let in|unlock/i);
+  });
+
+  it('says the compost line as one line, and "just me" gets equal warmth', () => {
+    expect(lines('rescue.compost')).toContain('Compost counts. The worms send their thanks.');
+    expect(lines('cooked_for.alone')).toContain("Feeding yourself counts. It's the first person on the list.");
+  });
+
+  it("'not this week' is a full answer, and a refresher is an invitation, never a warning", () => {
+    for (const line of lines('one_more.offer')) expect(line, line).not.toMatch(/\b(must|should|need to|before it|lose|losing|fading|rusty)\b/i);
+    for (const line of lines('one_more.refresh')) expect(line, line).not.toMatch(/\b(fading|rusty|losing|lose|warning|before it's gone|slipping)\b/i);
+    for (const line of lines('one_more.declined')) expect(line, line).not.toMatch(/\b(shame|pity|sadly|missed|next time)\b/i);
+  });
+
+  it('quest.recognize never says one kitchen\'s dish is a version of another\'s', () => {
+    for (const line of lines('quest.recognize')) expect(line).not.toMatch(/\bversions? of\b|\bsame as\b|\blike (?:a|the) [a-z]+ (?:dish|recipe)\b/i);
+  });
+
+  it('rewrites the lines the rulings contradict (C30): stamps buy nothing, introductions open no country, techniques have tiers', () => {
+    // The `when` texts are writer-only and dropped from the bundle; build/content/compile.test.ts pins them.
+    for (const line of lines('stamp_earned')) expect(line).not.toMatch(/\b(spend|spent|buy|hat)\b/i);
+    for (const line of lines('introduction_received')) expect(line).not.toMatch(/new country|new pin|opening/i);
+    for (const line of lines('skill_up')) expect(line).not.toMatch(/\blevel\b/i);
+    expect(triggers.skill_up.vars).toEqual({ technique: expect.any(String) });
+  });
+});
+
+describe('M5 Step 4: the Bureau forms', () => {
+  const { forms, stamp_names: stampNames, stamps } = content.bureau;
+  const keys = (id: string) => forms[id].fields.map((f) => f.key);
+
+  it('7-W gains days, hard_week and one_more; 12-M gains stall, for_dish and general_stall', () => {
+    expect(forms.plan.number).toBe('7-W');
+    expect(keys('plan')).toEqual(expect.arrayContaining(['days', 'hard_week', 'one_more']));
+    expect(forms.market_list.number).toBe('12-M');
+    expect(keys('market_list')).toEqual(expect.arrayContaining(['stall', 'for_dish', 'general_stall']));
+  });
+
+  it.each([
+    ['margin_note', '2-M/MARGIN'],
+    ['cooked_for', '5-S/SHARED TABLE'],
+    ['technique_certificate', '51-T'],
+    ['frame', '8-F/FRAME'],
+  ])('has the new form %s (%s) with a stamp the Bureau defines', (id, number) => {
+    expect(forms[id].number).toBe(number);
+    expect(forms[id].stamp in stamps).toBe(true);
+    for (const note of forms[id].footnotes ?? []) expect(note).toMatch(/^\*/);
+  });
+
+  it('the margin note is a plain safety form (health data, Ruling 9); Shared Table asks for no names', () => {
+    expect(forms.margin_note.safety).toBe(true);
+    expect(forms.margin_note.title_aside).toBeUndefined();
+    expect(forms.cooked_for.fields.map((f) => f.hint ?? '').join(' ')).toMatch(/No names/);
+  });
+
+  it('names every StampId (C13)', () => {
+    for (const id of ['quest_done', 'certificate', 'market_run']) expect(stampNames[id], id).toMatch(/\w/);
+  });
+});

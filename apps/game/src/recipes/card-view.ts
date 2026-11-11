@@ -21,7 +21,11 @@ export const LABEL_STORE_BOUGHT_TEXT = 'store-bought: what it contains depends o
  * a rule through a kind or category, and an unmeasured quantity under a per-serving limit. Only the first is about a
  * brand, so a rule-driven one gets neutral wording.
  */
+/** A Pantry Frame's required slot that nothing in the cupboard fills (core's `empty_slot` finding). */
+export const EMPTY_SLOT_TEXT = 'nothing in your cupboard fits this yet, so this dish is not ready to cook';
+
 export function findingText(f: CardFinding): string {
+  if (f.kind === 'empty_slot') return EMPTY_SLOT_TEXT;
   if (f.kind === 'unresolved') return "we couldn't identify this ingredient, so it isn't checked";
   if (f.kind === 'label') return f.fromRule ? LABEL_RULE_TEXT : LABEL_STORE_BOUGHT_TEXT;
   return f.swapLabel ?? 'not with your rules';
