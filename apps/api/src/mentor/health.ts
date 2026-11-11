@@ -1,4 +1,4 @@
-import { dietCue, isHealthText as isHealthTextIn } from '@kitchenquest/core';
+import { isHealthText as isHealthTextIn } from '@kitchenquest/core';
 import type { Catalog } from '../catalog.js';
 
 /**
@@ -8,8 +8,9 @@ import type { Catalog } from '../catalog.js';
  * phrase or health word, any severity, or any rule statement. Over-catches on
  * purpose. The turn adds the intake step and open cards; `minimiseHistory`
  * uses it as is (I2). M5 Step 8 fix round 2: a diet or restriction cue ("keto", "low sugar", "minus the …") is
- * health too, so such a message takes M4's health path first.
+ * health too, so such a message takes M4's health path first; fix round 4 (N7) moved that cue into core's
+ * `isHealthText`, so the client's gate holds it too.
  */
 export function isHealthText(text: string, catalog: Catalog): boolean {
-  return isHealthTextIn(text, catalog.graph, catalog.ruleTerms) || dietCue(text);
+  return isHealthTextIn(text, catalog.graph, catalog.ruleTerms);
 }

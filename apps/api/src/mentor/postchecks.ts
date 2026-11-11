@@ -1,6 +1,6 @@
 import {
   ANAPHYLACTIC_CUE,
-  reminderSlots,
+  reminderClauses,
   clockForSlot,
   dropMealsMatchingRemovals,
   HARD_WEEK_PATTERN,
@@ -285,7 +285,7 @@ export function applyPostChecks(
         // M5 Step 8 ruling (b): windows the model left out, when the player's own words time a meal (T13), come from
         // those words by M4's clock parser. Nothing else is added; a slot the player didn't time never is.
         if (args.meal_windows === null || args.meal_windows.length === 0) {
-          const timed = reminderSlots(playerText);
+          const timed = reminderClauses(playerText);
           if (timed.length > 0) args.meal_windows = timed;
         }
         if (args.market_days !== null && weekdays.length > 0) args.market_days = weekdays.map((d) => WEEKDAY_NAMES[d]);

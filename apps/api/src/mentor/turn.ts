@@ -14,9 +14,7 @@ import {
   broadKindsAsked,
   reminderSlots,
   marketDayStated,
-  dietCue,
-  HEALTH_WORDS,
-  mentionsHealthTerm,
+  codeCardHealth,
   WEEKDAY_NAMES,
   leftoverNamedIngredients,
   matchDish,
@@ -455,16 +453,18 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
   // of that kind (none, or one whose arguments didn't parse: a malformed call is never used) and the tool is offered
   // (R4; rule help). Nothing at all on a message with a health term, symptom, severity, rule statement or diet cue:
   // that message goes down M4's health path first. A code card never suppresses its ask (`codeProfile` below).
+  // Fix round 4: every clause of the message must be closed or neutral (N6, inside the core readers), and the health
+  // check is all of M4's gate except the bare meal-time words (N11, core codeCardHealth).
   const own = stripPageEvents(playerOwnWords(f.raw)).text;
-  const healthWords = mentionsHealthTerm(own, graph, deps.catalog.ruleTerms) || HEALTH_WORDS.test(normalizeTurn(own)) || severityFromText(own, graph) !== null || parseRuleStatement(own, graph) !== null || dietCue(own);
+  const healthWords = codeCardHealth(own, graph, deps.catalog.ruleTerms);
   const dishes = [...index].map(([slug, r]) => ({ slug, title: r.meta.title }));
   const words = !healthWords && offered.has('propose_plan') && !calls.some((c) => c.name === 'propose_plan') ? planWordsIn(f.raw, dishes) : null;
   if (words !== null) calls.push({ name: 'propose_plan', args: { days: words.days, pick: words.pick, hard_week: words.hard, after: words.after } });
-  const timed = !healthWords && offered.has('propose_profile') && !calls.some((c) => c.name === 'propose_profile') ? reminderSlots(f.raw) : [];
+  const timed = !healthWords && offered.has('propose_profile') && !calls.some((c) => c.name === 'propose_profile') ? reminderSlots(f.raw, dishes) : [];
   if (timed.length > 0) calls.push({ name: 'propose_profile', args: { market_days: null, meals_per_week: null, region: null, country: null, meal_windows: timed } });
   const market =
     !healthWords && offered.has('propose_profile') && !calls.some((c) => c.name === 'propose_profile' && c.args.market_days !== null && c.args.market_days.length > 0)
-      ? marketDayStated(f.raw)
+      ? marketDayStated(f.raw, dishes)
       : null;
   if (market !== null) {
     const profileCall = calls.find((c): c is Extract<ToolArgs, { name: 'propose_profile' }> => c.name === 'propose_profile');

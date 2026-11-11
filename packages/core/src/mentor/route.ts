@@ -138,7 +138,7 @@ const pluralForms = (g: string): string[] => [g, ...(g.endsWith('es') ? [g.slice
  * conditions, symptoms and medicines. Over-catches on purpose.
  */
 export const HEALTH_WORDS =
-  /\b(al+erg|intoleran|diabet|coeliac|celiac|migraine|ibs|crohn|pregnan|epi-?pen|anaphyla|hives|reaction|symptom|medic|tablet|pill|dose|mg|rash|itch|sick|ill|throw(n|s|ing)? up|threw up|vomit|nause|stomach|tumm(y|ies)|hurt|swell|swollen|wheez|cramp|bloat|diarrh)\w*/i;
+  /\b(al+erg|intoleran|diabet|coeliac|celiac|migraine|ibs|crohn|pregnan|epi-?pen|anaphyla|hives|reaction|symptom|medic|tablet|pill|dose|mg|rash|itch|sick|ill|throw(n|s|ing)? up|threw up|vomit|nause|stomach|tumm(y|ies)|hurt|swell|swollen|wheez|cramp|bloat|diarrh|gout|cholesterol|blood[ -]?(pressure|sugar|glucose)|bp\b|hypertens|hypotens|kidney|renal|ckd\b|dialys|anaemi|anemi|iron[ -]deficien|low[ -]iron|breast-?fe|type[ -]?(1|2|one|two)\b|phenylketon|pku\b|colitis|reflux|gerd\b|heartburn|ulcer|gastritis|gastroenteritis|histamine|lactose|fructose|fodmap|g6pd|favism|pcos|thyroid|chemo|asthma|eczema|glucose|hypoglyc|hyperglyc|dizz|head ?ache|lighthead|light-head|shaky|shakiness|the shakes|faint|queas|unwell|scratchy|sore throat|palpitat|jitter|indigest|constipat|gassy|flatulen|heart (condition|disease|problem)|liver (disease|problem))\w*/i;
 
 /** The allergen labels short enough that only a substitution or swap counts as a slip ("egs", "soi", "milc"). */
 const SHORT_ALLERGENS: readonly string[] = ['egg', 'soy', 'nut', 'fish', 'milk', 'oat'];
@@ -493,7 +493,29 @@ export function isHealthText(text: string, graph: IngredientGraph, terms: readon
     intent === 'medical' ||
     mentionsHealthTerm(text, graph, terms) ||
     severityFromText(text, graph) !== null ||
-    parseRuleStatement(text, graph) !== null
+    parseRuleStatement(text, graph) !== null ||
+    dietCue(text)
+  );
+}
+
+/** M4's bare meal-time words (HEALTH_PATTERN's meal slots and eating verbs): the only part of it code cards set aside. */
+const MEAL_TIME_WORDS = /\b(?:breakfast|brekkie|lunch|dinner|supper|snack\w*|ate|eaten|had)\b/g;
+
+/**
+ * Fix round 4 (N11): the player's words (`own`, already cut at injected or pasted text) hold health for a code-built
+ * card: all of M4's health gate (`isHealthText`) on the text with only the bare meal-time words masked out, plus
+ * every check on the text as written (a graph name, health word, severity, rule statement or diet cue). A reminder
+ * clause ("remind me to eat dinner at 6pm") is health in M4's gate only through its meal word, so it can still make
+ * its card; "i'm on a diet", "i don't eat pork" or "rough after" cannot.
+ */
+export function codeCardHealth(own: string, graph: IngredientGraph, terms: readonly RuleTerm[]): boolean {
+  const masked = normalizeTurn(own).replace(MEAL_TIME_WORDS, ' ');
+  return (
+    isHealthText(masked, graph, terms) ||
+    mentionsHealthTerm(own, graph, terms) ||
+    severityFromText(own, graph) !== null ||
+    parseRuleStatement(own, graph) !== null ||
+    dietCue(own)
   );
 }
 
@@ -544,14 +566,27 @@ const HARD_WORDS = '(?:hard|rough|tough|busy|stressful|exhausting|tiring|difficu
 export const HARD_WEEK_PATTERN = new RegExp(`\\b${HARD_WORDS}\\b`);
 
 /**
- * A diet or restriction cue (fix round 2): the message goes down M4's health path first, and code builds no card
- * from it. "keto", "low sugar", "less spicy", "minus the peanuts", "hold the …", "go easy on …", "sesame-free",
- * "without …".
+ * A diet or restriction cue (fix round 2; widened in fix round 4, N7: when in doubt, health): the message goes down
+ * M4's health path first (it is part of `isHealthText`), and code builds no card from it. Diets and religious
+ * restrictions ("keto", "halal", "fasting", "ramadan", "lent", "low sugar", "less spicy", "plant based"), restriction
+ * forms on any word ("no beef", "beef free", "sesame-free", "without …", "sin …", "zero sugar", "minus the …", "hold
+ * the …", "go easy on …", "not too …", "cut out …"), spice words, and food, symptom or medicine emoji.
  */
 const DIET_CUE =
-  /\b(keto|paleo|vegan|vegetarian|pescatarian|low[- ](?:carb|carbs|fat|sugar|salt|sodium|cal\w*|fodmap|gi|spice)|less (?:salt|salty|sugar|sugary|spicy|spice|fat|fatty|oil|oily|meat|dairy|sweet|carbs?)|minus|without|hold the|go easy on|easy on the|light on|reduced|free of|no added|\w+-free)\b/;
+  /\b(keto|paleo|vegan|vegetarian|pescatarian|plant[- ]based|halal|haram|kosher|jain|sattvic|satvik|fasting|fast day|ramadan|ramzan|iftar|suhoor|suhur|sehri|lent|lenten|passover|navratri|ekadashi|yom kippur|teetotal\w*|sober|alcohol\w*|spic(?:e|es|y|ier|iest|iness)|(?:low|lower|reduced|less|zero|high)[- ](?:carb|carbs|fat|fats|sugar|sugars|salt|sodium|cal\w*|fodmap|gi|spice|protein|cholesterol|iron|purine|potassium|phosphorus|lactose|gluten|residue|fibre|fiber|histamine|oxalate)|less (?:salt|salty|sugar|sugary|spicy|spice|fat|fatty|oil|oily|meat|dairy|sweet|carbs?)|minus|without|hold the|go easy on|easy on the|light on|reduced|free of|no added|cut(?:ting)? (?:out|down on|back on)|giv(?:e|ing) up|gave up|given up|\w+-free)\b/;
+/** Restriction forms on any word (N7): "no X", "X free", "sin X", "zero X", "not too X"; never a polite "no thanks". */
+const RESTRICTION_CUES: readonly RegExp[] = [
+  /\bno\s+(?!thanks?\b|thank you\b|thx\b|problem|probs\b|worries\b|worry\b|idea\b|rush\b)\p{L}/u,
+  /(?<![\p{L}\p{N}'-])(?!(?:feel|for|i'?m|im|am|is|are|was|were|be|been|being|get|got|set|you|me|we|they|he|she|it'?s|it|totally|completely|so|very|pretty|really|break|toll|tax|duty|scot|hands|fancy|stay|keep|run|roam|home|walk)\s+free\b)\p{L}[\p{L}'-]*\s+free\b/u,
+  /\b(?:sin|sans|ohne|senza|zonder|zero)\s+\p{L}/u,
+  /\bnot too \p{L}/u,
+];
+/** Food and drink, food animals, plants, symptom faces, medicine and "no entry" emoji (N7: "put parippu on monday. 🥜"). */
+const HEALTH_EMOJI =
+  /[\u{1F330}-\u{1F37F}\u{1F950}-\u{1F96F}\u{1F9C0}-\u{1F9CB}\u{1FAD0}-\u{1FADF}\u{1F980}\u{1F990}\u{1F991}\u{1F99E}\u{1F9AA}\u{1F419}\u{1F41F}-\u{1F421}\u{1F402}-\u{1F404}\u{1F40F}-\u{1F411}\u{1F413}\u{1F414}\u{1F416}\u{1F437}\u{1F42E}\u{1F983}\u{1F986}\u{1F41D}\u{2615}\u{1F922}\u{1F92E}\u{1F927}\u{1F912}\u{1F915}\u{1F974}\u{1F637}\u{1F48A}\u{1F489}\u{1FA7A}\u{1FA79}\u{1F6AB}\u{26D4}]/u;
 export function dietCue(text: string): boolean {
-  return DIET_CUE.test(normalizeTurn(text));
+  const t = normalizeTurn(text);
+  return DIET_CUE.test(t) || RESTRICTION_CUES.some((r) => r.test(t)) || HEALTH_EMOJI.test(t);
 }
 
 /** Words that make an ingredient named in a plan clause a rule, not a dish ("no peanuts", "peanut free"). */
@@ -630,8 +665,11 @@ export function planIntent(text: string, dishes: readonly { slug: string; title:
   let pick: number | null = null;
   let hard: boolean | null = null;
   let after: string | null = null;
+  let closed = false;
   for (const c of clauses) {
     let m: RegExpExecArray | null;
+    if (NEUTRAL_CLAUSE.test(c)) continue;
+    closed = true;
     if (HARD_CLAUSE.test(c)) hard = true;
     else if ((m = PICK_CLAUSE.exec(c)) !== null && pick === null) {
       pick = pickOf(m[1]);
@@ -643,34 +681,13 @@ export function planIntent(text: string, dishes: readonly { slug: string; title:
       days.push({ weekday: dayOf(m[1]), dish: m[2] });
     } else return null;
   }
-  if (pick !== null && (pick < 1 || pick > 7)) return null;
+  if (!closed || (pick !== null && (pick < 1 || pick > 7))) return null;
   return { days: days.length > 0 ? days : null, pick, hard, after };
 }
 
-/**
- * The closed plan clauses inside a longer message (M4's "code wins where code can read the player's words"): only
- * clauses that are exactly `put (the )?<dish> (on )?<weekday>` or `pick N( dishes)?( for this week)?`. The server
- * proposes them when the model made no plan call. Null when there are none, for a safety turn, and outside the
- * player's own words.
- */
-export function planWordsIn(text: string, dishes: readonly { slug: string; title: string }[]): { days: { weekday: string; dish: string }[] | null; pick: number | null; hard: null; after: null } | null {
-  const own = ownClauseText(text);
-  if (own === null) return null;
-  const forms = dishForms(dishes);
-  const days: { weekday: string; dish: string }[] = [];
-  let pick: number | null = null;
-  for (const c of own.split(SEP).filter((x) => x !== '')) {
-    let m: RegExpExecArray | null;
-    if ((m = DISH_DAY.exec(c)) !== null && m.at(1) !== undefined && forms.has(m[2])) days.push({ weekday: dayOf(m[3]), dish: m[2] });
-    else if ((m = PICK_CLAUSE.exec(c)) !== null && m.at(2) === undefined && pick === null) pick = pickOf(m[1]);
-  }
-  if (pick !== null && (pick < 1 || pick > 7)) pick = null;
-  if (days.length === 0 && pick === null) return null;
-  return { days: days.length > 0 ? days : null, pick, hard: null, after: null };
-}
-
-/** A symptom, condition or diet word anywhere in the message: code builds no reminder or market card from it. */
-const symptomOrDiet = (own: string): boolean => HEALTH_WORDS.test(own) || DIET_CUE.test(own);
+/** A closed neutral clause (fix round 4, N6): a greeting, please, thanks or ok. It adds nothing and takes nothing away. */
+const NEUTRAL_CLAUSE =
+  /^(?:please|pls|plz|thanks|thank you|thanks pan|thank you pan|thx|ta|cheers|ok|okay|ok pan|okay pan|hi|hello|hey|hi pan|hello pan|hey pan|cool|great)$/;
 
 const SLOT_FORMS: Readonly<Record<string, MealSlot>> = { breakfast: 'breakfast', brekkie: 'breakfast', lunch: 'lunch', dinner: 'dinner', supper: 'dinner', snack: 'snack' };
 const REMINDER = new RegExp(
@@ -678,42 +695,117 @@ const REMINDER = new RegExp(
 );
 /** The words a clock may be written in ("like half twelve", "7ish pm", "6:30 pm"); any other word is left over. */
 const CLOCK_WORD = /^(?:\d{1,2}(?:[:.]\d{2})?(?:am|pm|ish)?|am|pm|a\.m|p\.m|ish|like|half|quarter|past|to|noon|midday|o'?clock|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|thirty|forty-five)$/;
+const MARKET = new RegExp(`^(?:my )?market(?: day)?(?:'s| is)(?: on)? ${WD}$`);
+
+/** One meal-time reminder clause, read whole: the meal and its clock, or null. */
+function reminderClause(c: string): { name: MealSlot; start: string } | null {
+  const m = REMINDER.exec(c);
+  if (m === null || !m[2].split(/\s+/).every((w) => CLOCK_WORD.test(w))) return null;
+  const clock = parseClock(c);
+  return clock === null ? null : { name: SLOT_FORMS[m[1]], start: clock };
+}
+
+type CodeClause =
+  | { kind: 'day'; weekday: string; dish: string }
+  | { kind: 'pick'; pick: number }
+  | { kind: 'reminder'; name: MealSlot; start: string }
+  | { kind: 'market'; day: number }
+  | { kind: 'neutral' };
+
+/** One clause, read whole by a closed form code builds a card from, or null. */
+function codeClause(c: string, forms: ReadonlySet<string>): CodeClause | null {
+  if (NEUTRAL_CLAUSE.test(c)) return { kind: 'neutral' };
+  let m: RegExpExecArray | null;
+  if ((m = DISH_DAY.exec(c)) !== null && m.at(1) !== undefined && forms.has(m[2])) return { kind: 'day', weekday: dayOf(m[3]), dish: m[2] };
+  if ((m = PICK_CLAUSE.exec(c)) !== null) {
+    const pick = pickOf(m[1]);
+    return m.at(2) === undefined && pick >= 1 && pick <= 7 ? { kind: 'pick', pick } : null;
+  }
+  const timed = reminderClause(c);
+  if (timed !== null) return { kind: 'reminder', ...timed };
+  if ((m = MARKET.exec(c)) !== null) return { kind: 'market', day: WEEKDAY_NAMES.indexOf(dayOf(m[1]) as (typeof WEEKDAY_NAMES)[number]) };
+  return null;
+}
 
 /**
- * Meal-time reminders the player sets for themself (fix round 2), each clause exactly
- * `(remind me (to|about) )?(i )?(eat|have )?(my )?<meal> (is )?(at|around|about) <clock>`, the clock in clock words
- * only and read by M4's clock parser. For each meal, the first such clause. None in a message with a symptom,
- * condition or diet word, from a safety turn, or outside the player's own words.
+ * Fix round 4 (N6 ruling): the message read whole for code-built cards. Every clause must be exactly one closed form
+ * (`put (the )?<dish> (on )?<weekday>`, `pick N( dishes)?( for this week)?`, a meal-time reminder, a stated market
+ * day) or a closed neutral clause (please, thanks, ok, a greeting); one other clause anywhere ("no wait, 7pm", "for
+ * my brother", "actually tuesday", "bitte") and code builds no card from the message. A second pick, or a second
+ * time for one meal, is a doubt: no card either. Null too for a safety turn and outside the player's own words.
  */
-export function reminderSlots(text: string): { name: MealSlot; start: string }[] {
+function codeClauses(text: string, dishes: readonly { slug: string; title: string }[]): { own: string; clauses: CodeClause[] } | null {
+  const own = ownClauseText(text);
+  if (own === null) return null;
+  const forms = dishForms(dishes);
+  const clauses: CodeClause[] = [];
+  for (const c of own.split(SEP).filter((x) => x !== '')) {
+    const read = codeClause(c, forms);
+    if (read === null) return null;
+    clauses.push(read);
+  }
+  const picks = clauses.filter((c) => c.kind === 'pick');
+  const meals = clauses.flatMap((c) => (c.kind === 'reminder' ? [c.name] : []));
+  if (picks.length > 1 || new Set(meals).size !== meals.length) return null;
+  return { own, clauses };
+}
+
+/**
+ * The closed plan clauses of a message whose every clause is closed (`codeClauses`, N6): `put (the )?<dish> (on
+ * )?<weekday>` and `pick N( dishes)?( for this week)?`. The server proposes them when the model made no plan call.
+ * Null when there are none, when any clause is not closed, for a safety turn, and outside the player's own words.
+ */
+export function planWordsIn(text: string, dishes: readonly { slug: string; title: string }[]): { days: { weekday: string; dish: string }[] | null; pick: number | null; hard: null; after: null } | null {
+  const read = codeClauses(text, dishes);
+  if (read === null) return null;
+  const days = read.clauses.flatMap((c) => (c.kind === 'day' ? [{ weekday: c.weekday, dish: c.dish }] : []));
+  const pick = read.clauses.flatMap((c) => (c.kind === 'pick' ? [c.pick] : [])).at(0) ?? null;
+  if (days.length === 0 && pick === null) return null;
+  return { days: days.length > 0 ? days : null, pick, hard: null, after: null };
+}
+
+/** A symptom, condition or diet word anywhere in the message: code builds no reminder or market card from it. */
+const symptomOrDiet = (own: string): boolean => HEALTH_WORDS.test(own) || dietCue(own);
+
+/**
+ * Meal-time reminders the player sets for themself, for a code-built profile card: each clause exactly
+ * `(remind me (to|about) )?(i )?(eat|have )?(my )?<meal> (is )?(at|around|about) <clock>`, the clock in clock words
+ * only and read by M4's clock parser, in a message whose every clause is closed (`codeClauses`, N6; pass the canon
+ * `dishes` so a closed plan clause counts as closed). None in a message with a symptom, condition or diet word, from
+ * a safety turn, or outside the player's own words.
+ */
+export function reminderSlots(text: string, dishes: readonly { slug: string; title: string }[] = []): { name: MealSlot; start: string }[] {
+  const read = codeClauses(text, dishes);
+  if (read === null || symptomOrDiet(read.own)) return [];
+  return read.clauses.flatMap((c) => (c.kind === 'reminder' ? [{ name: c.name, start: c.start }] : []));
+}
+
+/**
+ * The meal-time reminder clauses inside a longer message, clause by clause (fix round 2's reader): only for the
+ * windows a model's own `propose_profile` call left out (Step 8 ruling b, T13), never for a card code builds itself.
+ * For each meal, the first such clause. None with a symptom, condition or diet word, from a safety turn, or outside
+ * the player's own words.
+ */
+export function reminderClauses(text: string): { name: MealSlot; start: string }[] {
   const own = ownClauseText(text);
   if (own === null || symptomOrDiet(own)) return [];
   const out: { name: MealSlot; start: string }[] = [];
   for (const c of own.split(SEP).filter((x) => x !== '')) {
-    const m = REMINDER.exec(c);
-    if (m === null || !m[2].split(/\s+/).every((w) => CLOCK_WORD.test(w))) continue;
-    const clock = parseClock(c);
-    const slot = SLOT_FORMS[m[1]];
-    if (clock !== null && !out.some((o) => o.name === slot)) out.push({ name: slot, start: clock });
+    const timed = reminderClause(c);
+    if (timed !== null && !out.some((o) => o.name === timed.name)) out.push(timed);
   }
   return out;
 }
 
-const MARKET = new RegExp(`^(?:my )?market(?: day)?(?:'s| is)(?: on)? ${WD}$`);
-
 /**
- * The market day the player states for themself (fix round 2): a clause that is exactly `my market( day)? is (on
- * )?<weekday>` or `market( day)?('s| is) (on )?<weekday>`, in a message naming exactly one weekday, with no
- * symptom, condition or diet word. The weekday (0 = Sunday), or null.
+ * The market day the player states for themself: a clause that is exactly `my market( day)? is (on )?<weekday>` or
+ * `market( day)?('s| is) (on )?<weekday>`, in a message whose every clause is closed (`codeClauses`, N6), naming
+ * exactly one weekday, with no symptom, condition or diet word. The weekday (0 = Sunday), or null.
  */
-export function marketDayStated(text: string): number | null {
-  const own = ownClauseText(text);
-  if (own === null || symptomOrDiet(own) || parseWeekdays(own).length !== 1) return null;
-  for (const c of own.split(SEP).filter((x) => x !== '')) {
-    const m = MARKET.exec(c);
-    if (m !== null) return WEEKDAY_NAMES.indexOf(dayOf(m[1]) as (typeof WEEKDAY_NAMES)[number]);
-  }
-  return null;
+export function marketDayStated(text: string, dishes: readonly { slug: string; title: string }[] = []): number | null {
+  const read = codeClauses(text, dishes);
+  if (read === null || symptomOrDiet(read.own) || parseWeekdays(read.own).length !== 1) return null;
+  return read.clauses.flatMap((c) => (c.kind === 'market' ? [c.day] : [])).at(0) ?? null;
 }
 
 const NAV_PLACES: Readonly<Record<string, 'kitchen' | 'map' | 'plan' | 'market' | 'book'>> = {
