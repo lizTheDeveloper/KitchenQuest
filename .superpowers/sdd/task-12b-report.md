@@ -48,3 +48,11 @@ apps/api tests need TEST_DATABASE_URL (no DB here); only content/dialogue/pan.ya
 - N7: a raise keeps the account rule's `note`; undo restores the whole earlier rule (tested).
 - N4 left alone as instructed (needs a server conditional write).
 - Gates: typecheck, lint (0 errors), core 1610, game 695, build (first paint 287.2 KB), e2e 188.
+
+## Fix round 3
+- F1: `createLocalSafety` (mentor/outage.ts) keeps a sticky child flag per AI conversation: once a child turn is seen, every later text turn is answered locally with `child.grownup` and never reaches the AI backend; an emergency in a child conversation gets the emergency line with no rule ask. The flag resets with a new AI backend and on `clearConversation()`.
+- F2: every locally answered turn is also posted to `/mentor/turn` in the background (serial queue, reply ignored except the conversation id, failures swallowed). The AI backend now shares the conversation id (`conversation` dep), so the server's child flag and turn counter advance in the same conversation.
+- F3: the local emergency answer matches turn.ts: emergency line, then `emergencyRuleAsk` when the message states a rule (no card), no ask once a child spoke; an emergency does not set the child flag. Medical gets the deflect line.
+- F4: tests: outage.test.ts (all of the above, failing background post), lazy-backend.test.ts, and mount-safety.test.ts through the real `mountMentor` wiring (S23 then "I'm allergic to eggs": no consents call, no card, both turns posted in one conversation). Mutations checked: removing `local:` from index.ts and removing the sticky flag each fail tests.
+- Note: a signed-in AI player's emergency/medical/child text is posted to the server only in the background; the visible answer is local.
+- Gates: typecheck, lint (0 errors), core 1610, game 703, build (first paint 288.2 KB); e2e see below.
