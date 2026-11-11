@@ -57,7 +57,7 @@ export function planScreen(api: ApiClient, source?: WeekSource): Screen {
       // N4: the account the screen's reads and writes are for, taken before any await.
       const who = ctx.store.get().account?.email ?? null;
       const remember = (weekStart: string, p: Plan | null) => { if ((ctx.store.get().account?.email ?? null) === who) rememberWeek(weekStart, p, who); };
-      const week = source ?? createWeekSource({ store: ctx.store, client: api });
+      const week = source ?? createWeekSource({ store: ctx.store, client: api, today: () => localDate(ctx.now()) });
       const familyTable = ctx.store.get().settings.familyTable;
       const status = statusLine('plan-status');
       const body = h('div', { class: 'plan-body' });

@@ -42,10 +42,7 @@ export function rulesStateForApiError(error: ApiErrorBody, status: number): Rule
 }
 
 /** The player's LOCAL calendar date as YYYY-MM-DD: at 23:30 in UTC−8 it is still today, not tomorrow. */
-export function localDate(now: Date): string {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-}
+export { localDate } from '../state/store';
 
 /** What a card depends on in the player state, as a comparable key: re-render only when this changes. */
 export function cardInputsKey(state: PlayerState): string {

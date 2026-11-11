@@ -107,7 +107,7 @@ export function createWeekTurn(d: {
   recipes: readonly { slug: string; title: string }[]; cooks: Readonly<Record<string, string>>; source?: WeekSource;
 }): WeekTurn {
   const { store, dialogue, recipes } = d;
-  const source = d.source ?? createWeekSource({ store, client: d.client });
+  const source = d.source ?? createWeekSource({ store, client: d.client, today: () => localDate(d.now()) });
   const today = () => localDate(d.now());
   const account = () => store.get().account?.email ?? null;
   const say = (l: LineRef): PanItem => ({ kind: 'said', said: dialogue.say(l.trigger, l.vars) });

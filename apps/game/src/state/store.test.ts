@@ -570,3 +570,37 @@ describe('progress partitions (C1 ruling)', () => {
   });
 });
 
+
+// M5 final I3: device weeks are kept PLAN_RETENTION_WEEKS (8) after they end, as H-11, also when nothing is saved:
+// an old week leaves the device when the store loads, and on each sign-in and sign-out.
+describe('I3: on-device retention for week data', () => {
+  const NOW = new Date(2026, 10, 11, 12); // local Wed 11 Nov 2026
+  const week = (weekStart: string) => ({ weekStart, items: [{ day: 0, kind: 'dish' as const, slug: 'india/kerala/parippu', servings: 2 }], hard: false, slot: 'unanswered' as const });
+  const run = (weekStart: string) => ({ id: `r-${weekStart}`, weekStart, items: [], doneAt: null, pantryIds: {} });
+  // The week of 2026-08-03 ended 2026-08-10, more than 8 weeks before today; 2026-09-14 ended inside the 8 weeks.
+  const OLD = '2026-08-03', KEPT = '2026-09-14';
+  const seeded = (account: { email: string } | null) =>
+    memStorage({ [STORE_KEY]: JSON.stringify({ v: 1, account, localWeek: { plans: [week(OLD), week(KEPT)], runs: [run(OLD), run(KEPT)] } }) });
+
+  it.each([null, { email: 'cook@example.com' }])('an old device week vanishes at load (account %j), and storage is rewritten', (account) => {
+    const st = seeded(account);
+    const s = createStore(st, undefined, undefined, () => NOW);
+    expect(s.get().localWeek.plans.map((p) => p.weekStart)).toEqual([KEPT]);
+    expect(s.get().localWeek.runs.map((r) => r.weekStart)).toEqual([KEPT]);
+    expect(JSON.parse(st.getItem(STORE_KEY)!).localWeek.plans.map((p: { weekStart: string }) => p.weekStart)).toEqual([KEPT]);
+  });
+
+  it('an old week is pruned again on sign-in and on sign-out', () => {
+    let now = new Date(2026, 8, 20, 12); // 20 Sep: both weeks still inside retention at load
+    const s = createStore(seeded(null), undefined, undefined, () => now);
+    expect(s.get().localWeek.plans).toHaveLength(2);
+    now = NOW;
+    s.update((x) => ({ ...x, settings: { ...x.settings, showCalories: true } }));
+    expect(s.get().localWeek.plans).toHaveLength(2); // an ordinary update is no retention point
+    s.update((x) => ({ ...x, account: { email: 'cook@example.com' } })); // sign-in
+    expect(s.get().localWeek.plans.map((p) => p.weekStart)).toEqual([KEPT]);
+    now = new Date(2027, 0, 20, 12);
+    s.update((x) => ({ ...x, account: null })); // sign-out
+    expect(s.get().localWeek).toEqual({ plans: [], runs: [] });
+  });
+});

@@ -588,3 +588,12 @@ describe('N4: the week screens remember a week only for the account they read it
     el.remove();
   });
 });
+
+describe('M5 final I3: the device save prunes on today, not on the saved week', () => {
+  test('saving a past week through the source still drops a week that ended more than 8 weeks before today', async () => {
+    const s = store({ localWeek: { plans: [plan([dish(0, ONIGIRI)], { weekStart: '2026-09-07' })], runs: [] } });
+    const src = createWeekSource({ store: s, client: noClient, today: () => TODAY });
+    expect(await src.save(plan([dish(0, PARIPPU)], { weekStart: '2026-09-14' }), TODAY)).toMatchObject({ ok: true });
+    expect(s.get().localWeek.plans.map((p) => p.weekStart)).toEqual(['2026-09-14']);
+  });
+});

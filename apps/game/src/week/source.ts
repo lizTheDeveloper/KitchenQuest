@@ -1,7 +1,7 @@
 import type { MarketRunView, Plan } from '@kitchenquest/core/engine';
 import type { ApiClient } from '../api/client';
 import type { ApiResult } from '../api/types';
-import type { PlayerStore } from '../state/store';
+import { localDate, type PlayerStore } from '../state/store';
 import { weekOf } from './context';
 import { createWeekStore, type WeekStore } from './local-week';
 
@@ -51,9 +51,10 @@ function refusal<T>(r: Extract<ApiResult<unknown>, { ok: false }>): WeekResult<T
 /** The plan without the server's row id: the shape a save and an undo send. */
 const bare = (p: (Plan & { id?: string }) | null): Plan | null => (p === null ? null : { weekStart: p.weekStart, items: p.items, hard: p.hard, slot: p.slot });
 
-export function createWeekSource(deps: { store: PlayerStore; client: ApiClient; device?: WeekStore }): WeekSource {
+export function createWeekSource(deps: { store: PlayerStore; client: ApiClient; device?: WeekStore; today?: () => string }): WeekSource {
   const { store, client } = deps;
-  const device = deps.device ?? createWeekStore({ store });
+  // M5 final I3: the device prune is anchored on today, never on the saved plan's week.
+  const device = deps.device ?? createWeekStore({ store, today: deps.today ?? (() => localDate(new Date())) });
   const signedIn = () => store.get().account !== null;
   const familyTable = () => store.get().settings.familyTable;
 

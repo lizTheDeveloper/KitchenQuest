@@ -29,7 +29,7 @@ export async function mountRescue(slot: HTMLElement, ctx: AppContext, client: Ap
     if (!p.ok) return;
     pantry = p.data.items;
   }
-  const week = await createWeekSource({ store: ctx.store, client }).current(today);
+  const week = await createWeekSource({ store: ctx.store, client, today: () => localDate(ctx.now()) }).current(today);
   if (!alive()) return;
   const plan = week.ok ? week.value.plan : null;
   // N4: remembered only for the account this read was made for.
