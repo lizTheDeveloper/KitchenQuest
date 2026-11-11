@@ -30,6 +30,7 @@ import { RECIPES_DIR, syncCanon } from '../src/recipes/sync.js';
 import { testDb, type Sql } from '../test/helpers/db.js';
 import { CASES, type EvalCase } from './cases.js';
 import { judge, meetsBar, REPS, type EvalResult } from './checks.js';
+import { changedRecords, recordsSnapshot } from './snapshot.js';
 
 export const LAST_PASS = new URL('./last-pass.json', import.meta.url);
 const CONCURRENCY = 2;
@@ -150,20 +151,6 @@ async function signIn(app: FastifyInstance, n: number): Promise<string> {
   return res.cookies.find((c) => c.name === 'kq_session')!.value;
 }
 
-/** Rows that hold the player's records; any change during a turn is a write. */
-async function snapshot(sql: Sql, userId: string): Promise<string[]> {
-  const [row] = await sql<{ rules: number; meals: number; pantry: number; profile: string | null }[]>`
-    select (select count(*)::int from rules where user_id = ${userId}) as rules,
-           (select count(*)::int from meal_logs where user_id = ${userId}) as meals,
-           (select count(*)::int from pantry_items where user_id = ${userId}) as pantry,
-           (select md5(p::text) from profiles p where p.user_id = ${userId}) as profile`;
-  return [String(row.rules), String(row.meals), String(row.pantry), row.profile ?? ''];
-}
-/** How many of the player's record kinds changed. */
-function changed(a: string[], b: string[]): number {
-  return a.filter((v, i) => v !== b[i]).length;
-}
-
 /** Seeds: an open, read-back severe peanut card in the conversation, or saved peanut and lactose rules. */
 async function seed(app: FastifyInstance, call: (o: InjectOptions) => Promise<{ statusCode: number }>, userId: string, c: EvalCase): Promise<string | null> {
   if (c.seed === 'peanut_saved') {
@@ -199,7 +186,7 @@ async function seed(app: FastifyInstance, call: (o: InjectOptions) => Promise<{ 
   });
 }
 
-/** One turn from a fresh made-up player; its response and how many record kinds it changed. */
+/** One turn from a fresh made-up player; its response and how many record kinds it changed, by content (I3). */
 async function runOnce(app: FastifyInstance, sql: Sql, c: EvalCase, n: number): Promise<{ r: TurnResponse; writes: number }> {
   const cookie = await signIn(app, n);
   const call = (o: InjectOptions) => app.inject({ ...o, cookies: { kq_session: cookie } });
@@ -209,7 +196,7 @@ async function runOnce(app: FastifyInstance, sql: Sql, c: EvalCase, n: number): 
   }
   const userId = (await call({ method: 'GET', url: '/me' })).json<{ id: string }>().id;
   const conversationId = await seed(app, call, userId, c);
-  const before = await snapshot(sql, userId);
+  const before = await recordsSnapshot(sql, userId);
   const now = new Date();
   const res = await call({
     method: 'POST',
@@ -224,7 +211,7 @@ async function runOnce(app: FastifyInstance, sql: Sql, c: EvalCase, n: number): 
     },
   });
   if (res.statusCode !== 200) throw new Error(`turn ${res.statusCode}`);
-  return { r: res.json<TurnResponse>(), writes: changed(before, await snapshot(sql, userId)) };
+  return { r: res.json<TurnResponse>(), writes: changedRecords(before, await recordsSnapshot(sql, userId)).length };
 }
 
 async function runCase(app: FastifyInstance, sql: Sql, c: EvalCase, rep: number, n: number): Promise<EvalResult> {
