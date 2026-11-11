@@ -631,3 +631,67 @@ test('clearConversation removes bubbles, cards and trail entries; the unacknowle
   // A typed yes no longer finds the old card.
   await flush();
 });
+
+describe('go chip (M5 Step 10, Ruling 15)', () => {
+  const go = (to: 'plan' | 'market'): PanItem => ({ kind: 'go', target: { to }, said: dialogue.say('nav.offer', { place: 'the market list' }) });
+
+  test('rendered as a button; nothing navigates until it is tapped; never beside child.grownup', async () => {
+    window.location.hash = '#/kitchen';
+    const backend: MentorBackend = { kind: 'scripted', reply: () => Promise.resolve({ ...reply([]), items: [go('market')] }) };
+    const { root, send } = mount({ backend });
+    await send('take me to the market list');
+    const chip = root.querySelector<HTMLButtonElement>('.pan-go')!;
+    expect(chip.type).toBe('button');
+    expect(lines('nav.offer').map((l) => l.replace('{place}', 'the market list'))).toContain(chip.textContent);
+    expect(window.location.hash).toBe('#/kitchen');
+    chip.click();
+    expect(window.location.hash).toBe('#/market');
+
+    // After a child spoke, the reply is lines only: no chip.
+    window.location.hash = '#/kitchen';
+    const child: MentorBackend = { kind: 'scripted', reply: () => Promise.resolve({ ...reply([]), items: [say('child.grownup'), go('plan')] }) };
+    const flag = { on: true, set() {}, reset() {} };
+    document.body.replaceChildren();
+    const root2 = document.createElement('div');
+    document.body.append(root2);
+    mountMentorPanel(root2, {
+      mode: 'standard', backend: child, dialogue, writer: fakeWriter(), engine, client, forms: content.bureau.forms, store: createStore(null),
+      reducedMotion: () => true, now: () => T0, child: flag,
+    });
+    root2.querySelector<HTMLTextAreaElement>('#pan-text')!.value = 'hi';
+    root2.querySelector('form')!.requestSubmit();
+    await flush();
+    expect(root2.querySelector('.pan-go')).toBeNull();
+    expect(window.location.hash).toBe('#/kitchen');
+  });
+
+  test('a chip to a place that is not one of ours is never drawn', async () => {
+    const bad = { kind: 'go', target: { to: 'visit', cook: 'nobody' }, said: dialogue.say('nav.offer', { place: 'x' }) } as PanItem;
+    const backend: MentorBackend = { kind: 'scripted', reply: () => Promise.resolve({ ...reply([]), items: [bad] }) };
+    const { root, send } = mount({ backend });
+    await send('go');
+    expect(root.querySelector('.pan-go')).toBeNull();
+  });
+
+  test('Family Table: no chip', async () => {
+    const backend: MentorBackend = { kind: 'scripted', reply: () => Promise.resolve({ ...reply(['line']), items: [say('thanks'), go('plan')] }) };
+    const { root, pan } = mount({ mode: 'familyTable', backend });
+    pan.show({ ...reply([]), items: [say('thanks'), go('plan')] });
+    expect(root.querySelector('.pan-go')).toBeNull();
+  });
+});
+
+test('a plan card is drawn as Form 7-W with each item\'s chip; ❓ never ✅', () => {
+  const card: ProposalCard = {
+    kind: 'plan', weekStart: '2026-11-09', items: [{ day: 6, kind: 'dish', slug: 'india/kerala/parippu', servings: 3 }, { day: 1, kind: 'dish', slug: 'japan/osaka/onigiri', servings: 2 }],
+    hard: false, checks: [{ slug: 'india/kerala/parippu', status: 'ok' }, { slug: 'japan/osaka/onigiri', status: 'unverified' }], unknown: [], dropped: [], offer: null,
+    summary: 'Tuesday: Onigiri. Sunday: Parippu Curry.', added: [], basis: '00000000', readback: [],
+  };
+  const { root, pan } = mount();
+  pan.show({ ...reply([]), cards: [local(card)] });
+  const el = root.querySelector('.pan-card')!;
+  expect(el.textContent).toContain('7-W');
+  const chips = [...el.querySelectorAll('.plan-item')].map((i) => [i.getAttribute('data-slug'), i.querySelector('.chip')!.getAttribute('data-status')]);
+  expect(chips).toEqual([['japan/osaka/onigiri', 'unverified'], ['india/kerala/parippu', 'ok']]); // day order
+  expect(el.querySelector('[data-slug="japan/osaka/onigiri"]')!.textContent).not.toContain('✅');
+});

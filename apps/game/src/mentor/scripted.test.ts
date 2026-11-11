@@ -5,6 +5,8 @@ import { createChildFlag } from './child-flag';
 import { createDialogue } from './dialogue';
 import type { CardView, LocalCardView, PanReply, TurnContext } from './reply';
 import { createScriptedEngine } from './scripted';
+import { createStore } from '../state/store';
+import { devicePlan, planCardContextOf } from '../week/context';
 
 // AI off, real compiled content: the engine runs on the same core toolkit as the server.
 const recipes = Object.entries(content.recipes).map(([slug, r]) => ({ slug, title: r.meta.title }));
@@ -331,5 +333,61 @@ describe('M5 Step 4 fix round 2: a herb ask beside a real allergen', () => {
     expect(said(r).filter((t) => t === 'rule.which_kind')).toHaveLength(1);
     const choices = r.items.find((i) => i.kind === 'choices');
     expect(choices?.kind === 'choices' && choices.options.map((o) => o.id)).toEqual(['curry_leaf', 'epazote']);
+  });
+});
+
+describe('scripted engine: the week (M5 Step 10)', () => {
+  const week = engineWithWeek();
+  function engineWithWeek() {
+    const store = createStore(null);
+    return {
+      store,
+      engine: createScriptedEngine({
+        dialogue: createDialogue(content.pan), graph, ruleTerms: content.ruleTerms, recipes, now: () => NOW,
+        week: () => planCardContextOf(store.get(), '2026-11-10', (w) => devicePlan(store.get(), w), null),
+        cooks: { leela: 'Leela' },
+      }),
+    };
+  }
+
+  test('"plan my week: parippu on Sunday" → a plan card with its read-back, nothing written', () => {
+    const r = week.engine.reply('plan my week: parippu on Sunday', ctx({ signedIn: false }));
+    expect(cards(r)).toMatchObject([{ kind: 'plan', weekStart: '2026-11-09', items: [{ day: 6, kind: 'dish', slug: 'india/kerala/parippu' }], checks: [{ status: 'ok' }] }]);
+    expect(said(r)[0]).toBe('plan.readback');
+    expect(week.store.get().localWeek.plans).toEqual([]);
+  });
+
+  test('"dal on Sunday" → plan.dish_unknown, no card (C1)', () => {
+    for (const text of ['dal on Sunday', 'plan my week: dal on sunday']) {
+      const r = week.engine.reply(text, ctx({ signedIn: false }));
+      expect(cards(r)).toEqual([]);
+      expect(said(r)).toEqual(['plan.dish_unknown']);
+      expect(r.items[0].kind === 'said' && r.items[0].said.text).toContain('dal');
+    }
+  });
+
+  test('a day that names no single day asks which day; "pick 3 after the weekend" asks which day after; no card', () => {
+    let r = week.engine.reply('put parippu on the weekend', ctx({ signedIn: false }));
+    expect(cards(r)).toEqual([]);
+    expect(said(r)).toEqual(['plan.which_day']);
+    r = week.engine.reply('pick 3 after the weekend', ctx({ signedIn: false }));
+    expect(cards(r)).toEqual([]);
+    expect(said(r)).toEqual(['plan.after_which_day']);
+  });
+
+  test('"take me to the market list" → a go chip with nav.offer, never a navigation by itself', () => {
+    const r = week.engine.reply('take me to the market list', ctx());
+    expect(r.items).toMatchObject([{ kind: 'go', target: { to: 'market' }, said: { trigger: 'nav.offer' } }]);
+    expect(cards(r)).toEqual([]);
+  });
+
+  test('a health turn never becomes a plan ask', () => {
+    const r = week.engine.reply('no peanuts on sunday', ctx());
+    expect(said(r)).not.toContain('plan.dish_unknown');
+  });
+
+  test('a child turn: the grown-up line and no go chip', () => {
+    const r = week.engine.reply("I'm 9, take me to the market list", ctx());
+    expect(r.items.some((i) => i.kind === 'go')).toBe(false);
   });
 });

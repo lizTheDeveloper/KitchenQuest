@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { buildMealCard, buildPantryCard, buildProfileCard, buildRuleCard, UNDO_WINDOW_MS, validateRules, type ProposalCard, type Rule } from '@kitchenquest/core/engine';
+import { buildMealCard, buildPantryCard, buildProfileCard, buildRuleCard, UNDO_WINDOW_MS, validateRules, type PlanCard, type ProposalCard, type Rule } from '@kitchenquest/core/engine';
 import type { ApiClient } from '../api/client';
 import type { ApiResult } from '../api/types';
 import { content, graph } from '../content';
@@ -9,6 +9,8 @@ import { createStore, type PlayerState } from '../state/store';
 import { createDialogue } from './dialogue';
 import type { LocalCardView, PanItem, ServerCardView } from './reply';
 import { createCardWriter, partsToItems, type WriteOutcome } from './writer';
+import { createScriptedEngine } from './scripted';
+import { devicePlan, planCardContextOf } from '../week/context';
 
 const T0 = new Date('2026-11-10T12:00:00Z');
 const ok = <T>(data: T, status = 200): ApiResult<T> => ({ ok: true, status, data });
@@ -700,5 +702,87 @@ describe('raiseRule (the rules screen raising an account rule)', () => {
     const { writer, calls } = setup({}, { ...signedIn, settings: { ...createStore(null).get().settings, familyTable: true } });
     expect(await writer.raiseRule(local(raisedCard()), at('intolerance'))).toMatchObject({ ok: false, reason: 'invalid' });
     expect(calls).toEqual([]);
+  });
+});
+
+describe('card writer: the plan card (M5 Step 10)', () => {
+  const engineFor = (store: ReturnType<typeof createStore>) => createScriptedEngine({
+    dialogue: createDialogue(content.pan), graph, ruleTerms: content.ruleTerms,
+    recipes: Object.entries(content.recipes).map(([slug, r]) => ({ slug, title: r.meta.title })), now: () => T0,
+    week: () => planCardContextOf(store.get(), '2026-11-10', (w) => devicePlan(store.get(), w), null),
+  });
+  const planCard = (store: ReturnType<typeof createStore>, text = 'plan my week: parippu on Sunday') => {
+    const r = engineFor(store).reply(text, { turn: 1, openCards: [], intakeStep: null, signedIn: store.get().account !== null, trail: [] });
+    return r.cards[0] as LocalCardView;
+  };
+  const PLAN = { weekStart: '2026-11-09', items: [{ day: 6, kind: 'dish', slug: 'india/kerala/parippu', servings: 3 }], hard: false, slot: 'unanswered' };
+
+  test('scripted engine: tap → saved locally (signed out); undo restores the week as it was', async () => {
+    const { store, calls, writer } = setup({});
+    const view = planCard(store);
+    const out = await writer.confirm(view, 'tap');
+    expect(calls).toEqual([]);
+    expect(out.ok).toBe(true);
+    expect(store.get().localWeek.plans).toEqual([PLAN]);
+    if (!out.ok) return;
+    expect(said(out.items)).toContain('plan.saved');
+    expect((await writer.undo(out.trail)).status).toBe('undone');
+    expect(store.get().localWeek.plans).toEqual([]);
+  });
+
+  test('signed in: GET /plans/current then PUT /plans with today; undo deletes the week it created', async () => {
+    const { store, calls, writer } = setup({
+      getPlan: () => ok({ plan: null, weekStart: '2026-11-09', checks: [] }),
+      putPlan: (p) => ok({ plan: { ...(p as object), id: 'row' }, checks: [] }),
+      deletePlan: () => ok(null, 204),
+    }, signedIn);
+    const out = await writer.confirm(planCard(store), 'tap');
+    expect(out.ok).toBe(true);
+    expect(calls.map((c) => c.name)).toEqual(['getPlan', 'getPlan', 'putPlan']);
+    expect(calls[0].args).toEqual(['2026-11-10']);
+    expect(calls[2].args).toEqual([PLAN, '2026-11-10']);
+    if (!out.ok) return;
+    await writer.undo(out.trail);
+    expect(calls.at(-1)).toEqual({ name: 'deletePlan', args: ['2026-11-09'] });
+  });
+
+  test('403 consent_required: plans are health data, so the consent card; nothing is written', async () => {
+    const { store, writer } = setup({
+      getPlan: () => ok({ plan: null, weekStart: '2026-11-09', checks: [] }),
+      putPlan: () => fail(403, 'consent_required', { purpose: 'health_data' }),
+    }, signedIn);
+    const out = await writer.confirm(planCard(store), 'tap');
+    expect(out).toMatchObject({ ok: false, reason: 'consent_required' });
+    if (out.ok) return;
+    expect(out.items.some((i) => i.kind === 'consent' && i.purpose === 'health_data')).toBe(true);
+  });
+
+  test('the week changed since the card was shown: nothing saved, the card is offered again on the week now', async () => {
+    const other = { weekStart: '2026-11-09', items: [{ day: 1, kind: 'dish', slug: 'japan/osaka/onigiri', servings: 2 }], hard: false, slot: 'unanswered', id: 'row' };
+    const { store, calls, writer } = setup({ getPlan: () => ok({ plan: other, weekStart: '2026-11-09', checks: [] }) }, signedIn);
+    const view = planCard(store);
+    const out = await writer.confirm(view, 'tap');
+    expect(calls.map((c) => c.name)).toEqual(['getPlan']);
+    expect(out).toMatchObject({ ok: false, reason: 'plan_changed' });
+    if (out.ok || out.reason !== 'plan_changed') return;
+    const offered = out.offered as PlanCard;
+    expect(offered.items.map((i) => i.slug).sort()).toEqual(['india/kerala/parippu', 'japan/osaka/onigiri']);
+    // A second tap on the closed card writes nothing.
+    expect(await writer.confirm(view, 'tap')).toMatchObject({ ok: false, reason: 'closed' });
+  });
+
+  test('a server plan card: the tap sends today; 409 plan_changed re-offers the server card', async () => {
+    const reoffered = { proposalId: 'P2', expiresAt: '2026-11-10T12:30:00Z', card: { kind: 'plan' } };
+    const { store, calls, writer } = setup({
+      confirmProposal: () => fail(409, 'plan_changed', { card: reoffered, parts: [{ kind: 'line', line: { trigger: 'plan.readback', vars: { summary: 'Sunday: Parippu Curry' } } }] }),
+    }, signedIn);
+    const out = await writer.confirm(server(planCard(store).card), 'tap');
+    expect(calls[0].args[3]).toBe('2026-11-10');
+    expect(out).toMatchObject({ ok: false, reason: 'plan_changed', offered: reoffered });
+  });
+
+  test('partsToItems: a go part is a chip item carrying its nav.offer line', () => {
+    const items = partsToItems([{ kind: 'go', target: { to: 'plan' }, line: { trigger: 'nav.offer', vars: { place: "the week's plan" } } }], createDialogue(content.pan));
+    expect(items).toMatchObject([{ kind: 'go', target: { to: 'plan' }, said: { trigger: 'nav.offer' } }]);
   });
 });
