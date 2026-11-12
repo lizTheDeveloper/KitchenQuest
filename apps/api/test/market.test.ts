@@ -188,7 +188,7 @@ describe('stall rounds (M6 Step 6)', () => {
     // The database refuses an unsealed round and a sealed event of another kind.
     await expect(sql`insert into progress_events (user_id, client_id, kind, at, body) values (${p.id}, ${randomUUID()}, 'stall_round', ${TODAY}, '{}')`).rejects.toThrow(/progress_events_sealed_check/);
     await expect(
-      sql`insert into progress_events (user_id, client_id, kind, at, body, sealed) values (${p.id}, ${randomUUID()}, 'lesson', ${TODAY}, '{}', ${one.sealed!})`,
+      sql`insert into progress_events (user_id, client_id, kind, at, body, sealed) values (${p.id}, ${randomUUID()}, 'lesson', ${TODAY}, '{}', ${one.sealed})`,
     ).rejects.toThrow(/progress_events_sealed_check/);
     // Read back opened: the view counts them (5 XP each for parmesan and avocado; tempeh pick 2 is wrong).
     expect(await view(p.cookie)).toMatchObject({ xp: 10, stamps: 2 });
