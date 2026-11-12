@@ -299,7 +299,8 @@ questions:
     options:
       - text: "In the fridge overnight, on a plate on the bottom shelf."
         correct: true
-        reaction: "Right. Slow and cold. In a hurry: sealed bag in cold water, changing the water every 30 minutes. Or the microwave, then cook straight away."
+        # REVIEW: M6 Step 5 voice scan: reworded from "In a hurry" (the stall scarcity pattern). Content review.
+        reaction: "Right. Slow and cold. Short on time: sealed bag in cold water, changing the water every 30 minutes. Or the microwave, then cook straight away."
       - text: "On the counter all day."
         correct: false
         reaction: "The outside warms into the bacteria's favourite range while the middle's still frozen. Fridge, cold water, or microwave-then-cook."
@@ -787,7 +788,8 @@ item_tips:
     pick: "A good layer of fat on top, flexible when you bend the package."
     store: "Fridge 3–5 days."
   ground_beef:
-    pick: "Check the lean-to-fat ratio: 80/20 for juicy burgers, leaner for sauces. Cold to the touch, no grey throughout."
+    # REVIEW: M6 Step 5 voice scan: reworded from "80/20" (the x/y completion pattern). Content review.
+    pick: "Check the lean-to-fat ratio: about 80% lean for juicy burgers, leaner for sauces. Cold to the touch, no grey throughout."
     store: "Cook or freeze within 1–2 days of buying. Cook to 71°C (160°F)."
   chicken_thigh:
     pick: "Plump, pink, no strong smell. Bone-in, skin-on is cheapest; boneless is fastest."
@@ -837,8 +839,10 @@ faq:
     a_if_blocked: "Yes, ideally: one board for raw foods, one for everything else. Wash it hot and soapy after use, and wash your hands and the knife too."
     tags: [safety]
   - q: ["what is marbling", "why marbling"]
-    a: "The thin streaks of fat inside the muscle. They melt as it cooks and keep the meat juicy and flavourful. More marbling usually means more tender and more expensive."
-    a_if_blocked: "The thin streaks of fat inside a cut. They melt as it cooks and keep it juicy and full of flavour."
+    # REVIEW: M6 Step 5 voice scan: reworded from "streaks" (the streak pattern). Content review.
+    a: "The thin flecks of fat inside the muscle. They melt as it cooks and keep the meat juicy and flavourful. More marbling usually means more tender and more expensive."
+    # REVIEW: M6 Step 5 voice scan: reworded from "streaks" (the streak pattern). Content review.
+    a_if_blocked: "The thin flecks of fat inside a cut. They melt as it cooks and keep it juicy and full of flavour."
   - q: ["what is the difference between pork loin and tenderloin", "loin vs tenderloin"]
     a: "Tenderloin is a small, narrow, very lean muscle — quick to cook. Loin is a much bigger, wider cut from along the back, sold as roasts or chops. Different sizes, different cooking times. Don't swap one for the other without adjusting."
   - q: ["what does sell by mean", "use by date", "best before meat"]

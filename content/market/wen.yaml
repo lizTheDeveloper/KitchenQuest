@@ -189,7 +189,8 @@ seasonal:
             reaction: "Sadly not. Local field tomatoes give up at the first frost, usually October. This one is from a greenhouse or a long way south."
           - text: "Local, stored from the autumn harvest"
             correct: false
-            reaction: "Tomatoes don't store for months. They go mealy and sad. Don't keep them in the fridge either; it's how they lose their will to live."
+            # REVIEW: M6 Step 5 voice scan: reworded from "sad" (the scarcity-joke pattern: the line names the fridge). Content review.
+            reaction: "Tomatoes don't store for months. They go mealy and dull. Don't keep them in the fridge either; it's how they lose their will to live."
           - text: "Well-travelled: shipped in from far away"
             correct: true
             reaction: "Correct. Field tomatoes here quit at the first frost. Pro move: canned tomatoes are picked ripe — better for November cooking than these."
@@ -481,9 +482,11 @@ questions:
       - text: "Heavy for its size. Matte tan skin your fingernail can't dent. Dry stem attached."
         correct: true
         reaction: "Perfect. Heavy means dense flesh; matte, hard skin means fully mature; a dry stem keeps rot out. It'll keep on a cool shelf for weeks."
-      - text: "Shiny, with green streaks. Feels light."
+      # REVIEW: M6 Step 5 voice scan: reworded from "streaks" (the streak pattern; the option text is re-pinned, a deliberate text fix). Content review.
+      - text: "Shiny, with green stripes. Feels light."
         correct: false
-        reaction: "Glossy skin and green streaks on a butternut mean it was picked young. Light means less flesh and more disappointment."
+        # REVIEW: M6 Step 5 voice scan: reworded from "streaks" (the streak pattern). Content review.
+        reaction: "Glossy skin and green stripes on a butternut mean it was picked young. Light means less flesh and more disappointment."
       - text: "No stem — just a hole where the stem used to be."
         correct: false
         reaction: "Stemless squash spoil faster; the hole is a front door for mould. Keep looking."
@@ -660,7 +663,8 @@ questions:
         reaction: "Lovely centrepiece. Terrible carrot storage. Tops off, fridge."
       - text: "Store them on the counter in the sun."
         correct: false
-        reaction: "Warm carrots go soft and sad. Fridge, in a bag or a drawer."
+        # REVIEW: M6 Step 5 voice scan: reworded from "sad" (the scarcity-joke pattern: the line names the fridge). Content review.
+        reaction: "Warm carrots go soft and floppy. Fridge, in a bag or a drawer."
     explain: "Cut leafy tops off carrots before storing, because the leaves pull moisture from the root; keep the carrots in the fridge."
 
   - id: wen-garlic-sprout
@@ -765,7 +769,8 @@ questions:
 item_tips:
   avocado:
     pick: "Palm, not fingertips. Gentle give, darkening skin, and green under the stem cap means today. Rock-hard means a few days."
-    store: "Counter to ripen (paper bag with a banana to hurry it). Fridge once ripe, for a day or two more."
+    # REVIEW: M6 Step 5 voice scan: reworded from "to hurry it" (the stall scarcity pattern). Content review.
+    store: "Counter to ripen (paper bag with a banana to speed it up). Fridge once ripe, for a day or two more."
   tomato:
     pick: "Heavy for its size, smells like tomato at the stem, deep even colour, no soft spots."
     store: "Counter, stem side down, out of the sun. Fridge only if fully ripe and you can't eat it in time; warm it back up before eating."

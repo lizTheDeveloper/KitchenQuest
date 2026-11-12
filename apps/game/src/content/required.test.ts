@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { content } from './index';
-import { REQUIRED_DISCLAIMERS, REQUIRED_PAN_TRIGGERS } from './required';
+import { loadMarket } from '../market/content';
+import { M6_MARKET_TRIGGERS_AI, REQUIRED_DISCLAIMERS, REQUIRED_PAN_TRIGGERS, REQUIRED_STALL_TRIGGERS } from './required';
 
 // M4 Step 2: the written lines the server and the scripted engine emit by id. The first line of
 // each is the plan's wording, verbatim; Steps 7–11 rely on these ids existing and on `ai: never`.
@@ -454,6 +455,67 @@ describe('M5 final m6: the which-count ask after a corrected pick count', () => 
     for (const line of t.lines) {
       expect(line).not.toMatch(/\d|calorie|kg|pound|bmi|goal|target weight/i);
       expect(line).toMatch(/doctor|dietitian/i);
+    }
+  });
+});
+
+describe('M6 Step 5: the market triggers', () => {
+  // Each stall's safety lines, as the files have them after Step 4 (C19). The first line of each is pinned: an edit
+  // to a safety line is a deliberate, reviewed change here too.
+  const STALL_FIRST_LINES: Record<string, Record<string, string>> = {
+    wen: {
+      out_of_stock: 'No {item} today. {swap} does the same job. Labelled, and checked against your rules.',
+      out_of_stock_none: 'No {item} today, and nothing here I can check against your rules to stand in. Skip it this week; the dish will forgive you.',
+      medical: "That one's for a doctor or a dietitian — I sell food, not diagnoses. What I can tell you is how to pick a good one of whatever they tell you to eat.",
+    },
+    bram: {
+      out_of_stock: 'Out of {item}, sorry. {swap} does the same job in that dish. Labelled, and checked against your rules.',
+      out_of_stock_none: 'No {item} today, and nothing in my case I can check against your rules to take its place. Skip it this week.',
+      medical: "That one's for a doctor or a dietitian — I sell food, not diagnoses. What I can tell you is how to pick a good one of whatever they tell you to eat.",
+      religious_rules: "I can tell you what a label says and who certified it. What counts for you is your community's call, not mine. Look for the certification mark you trust, and ask your community if you're unsure.",
+    },
+    'okafor-sato': {
+      out_of_stock: 'No {item} today. {swap} will do that job. Checked against your rules, and labelled.',
+      out_of_stock_none: 'No {item} today. Nothing here that I can check against your rules does its job. Skip it this week.',
+      medical: "That one's for a doctor or a dietitian. I sell beans, not diagnoses. Once they've told you what suits you, I'll tell you which bean to buy.",
+    },
+    spice: {
+      out_of_stock: 'No {item} today. {swap} is the closest in that dish. Checked against your rules, and labelled.',
+      out_of_stock_none: 'No {item} today, alas — and nothing in my sacks I can check against your rules to stand in. Skip it this week.',
+      allergen_note: "Spice blends can contain allergens that aren't obvious, like wheat in asafoetida, or mustard, celery or sesame in blends. Please check every label, and choose single spices where you can.",
+    },
+  };
+
+  it('the Step 4 Pan triggers exist with their ai values; stall safety triggers are ai: never with pinned first lines', async () => {
+    expect(Object.keys(M6_MARKET_TRIGGERS_AI)).toHaveLength(16);
+    for (const [id, ai] of Object.entries(M6_MARKET_TRIGGERS_AI)) {
+      expect(REQUIRED_PAN_TRIGGERS, id).toContain(id);
+      expect(content.pan.triggers[id], id).toBeDefined();
+      expect(content.pan.triggers[id].ai, id).toBe(ai);
+      // M5 Ruling 21: an ai: never trigger has 4–6 written lines.
+      if (ai === 'never') {
+        expect(lines(id).length, id).toBeGreaterThanOrEqual(4);
+        expect(lines(id).length, id).toBeLessThanOrEqual(6);
+      }
+    }
+    const market = await loadMarket();
+    expect(Object.keys(REQUIRED_STALL_TRIGGERS).sort()).toEqual(Object.keys(market.stalls).sort());
+    expect(Object.fromEntries(Object.entries(STALL_FIRST_LINES).map(([s, t]) => [s, Object.keys(t)]))).toEqual(REQUIRED_STALL_TRIGGERS);
+    for (const [stall, triggers] of Object.entries(STALL_FIRST_LINES)) {
+      const shipped = market.stalls[stall as keyof typeof market.stalls].triggers;
+      for (const [id, first] of Object.entries(triggers)) {
+        expect(shipped[id], `${stall} ${id}`).toBeDefined();
+        expect(shipped[id].ai, `${stall} ${id}`).toBe('never');
+        expect(shipped[id].lines[0], `${stall} ${id}`).toBe(first);
+      }
+      // The Spice Merchant has no medical line; its allergen note stands in (core faqFor's generic line).
+      if (stall === 'spice') expect(shipped.medical).toBeUndefined();
+    }
+  });
+
+  it('season.now and season.other are information only: no countdown, no warning (never rule 5)', () => {
+    for (const id of ['season.now', 'season.other']) {
+      for (const line of lines(id)) expect(line, line).not.toMatch(/\b(only|left|hurry|soon|last|before|ends?|while|days?|weeks?)\b|!/i);
     }
   });
 });
