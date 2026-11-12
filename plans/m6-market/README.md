@@ -154,7 +154,7 @@ Where the spec, the audit and the content disagree or are silent, the planner de
 ## Tasks
 
 - [x] [Step 1 — Core: stall banks, rules filtering, the Protein Counter and answers](step-1.md)
-- [ ] [Step 2 — Core: seasonality, region resolution and The Season's Table](step-2.md)
+- [x] [Step 2 — Core: seasonality, region resolution and The Season's Table](step-2.md)
 - [ ] [Step 3 — Core: stall rewards, market-list amounts and stall swaps](step-3.md)
 - [ ] [Step 4 — Data and content: market graph nodes, seasonal table, stall content fixes and new lines](step-4.md)
 - [ ] [Step 5 — Build: stall schema and validation, the lazy market bundle and the stall voice scan](step-5.md)
