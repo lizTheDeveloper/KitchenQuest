@@ -128,17 +128,22 @@ export function validateRewards(d: unknown): string[] {
 
 /**
  * `Catalogue.market` from the stall files (M6): every question each file holds, with its bank. Built the same way by
- * the API (Step 6) and the device (Step 9). Throws on a stall id given twice or a question id in two banks of one
- * stall (the content build rejects both), so a broken catalogue fails at load, never at grant time.
+ * the API (Step 6) and the device (Step 9). Throws on a stall id given twice, a question id in two banks of one
+ * stall, or a question id at two stalls (fix round 1, M4: `marketAnswered` is keyed by the bare id, so a shared id would
+ * let one stall's answer use up another's first-correct XP), so a broken catalogue fails at load, never at grant time.
  */
 export function marketCatalogue(files: readonly StallFile[]): Map<string, MarketStall> {
   const out = new Map<string, MarketStall>();
+  const owner = new Map<string, string>();
   for (const file of files) {
     if (out.has(file.id)) throw new Error(`stall "${file.id}" is given twice`);
     const questions = new Map<string, { question: StallQuestion; variant: 'base' | 'protein_counter' | 'seasonal' }>();
     const add = (list: readonly StallQuestion[], variant: 'base' | 'protein_counter' | 'seasonal') => {
       for (const question of list) {
         if (questions.has(question.id)) throw new Error(`stall "${file.id}": question "${question.id}" is in two banks`);
+        const other = owner.get(question.id);
+        if (other !== undefined) throw new Error(`question "${question.id}" is at two stalls ("${other}" and "${file.id}")`);
+        owner.set(question.id, file.id);
         questions.set(question.id, { question, variant });
       }
     };
@@ -195,9 +200,11 @@ function validateStallRound(e: Record<string, unknown>, cat: Catalogue, rules: R
 
 /**
  * Whether an event reveals health data (M6 Ruling 17): a `stall_round` with any Protein Counter question, which shows
- * the player's rules exclude meat. The only place that decides which events the API seals (Step 6) and a `health_data`
- * delete erases. Fail closed: a round naming a stall or question the catalogue doesn't hold (content removed since),
- * or with no readable answers, counts as revealing. Base and seasonal rounds, and every other kind, are content-free.
+ * the player's rules exclude meat. It decides which rounds need `health_data` consent to be accepted, nothing more.
+ * Sealing is by kind, never by this: every `stall_round` is sealed at rest (Task 3 privacy ruling: answered question ids
+ * can imply a rule over time), and a `health_data` delete erases every `stall_round` (Task 3 ruling I2), not only the
+ * ones this calls revealing. Fail closed: a round naming a stall or question the catalogue doesn't hold (content
+ * removed since), or with no readable answers, counts as revealing. Every other kind is false.
  */
 export function isHealthRevealing(e: ProgressEvent, cat: Catalogue): boolean {
   if (e.kind !== 'stall_round') return false;

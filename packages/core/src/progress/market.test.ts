@@ -1,10 +1,10 @@
 // M6 Step 3: stall rounds earn what core decides from the stall file (Rulings 1, 2, 4 and 17).
 import fc from 'fast-check';
 import { describe, expect, test } from 'vitest';
-import { NO_PORK, VEGETARIAN } from '../market/fixtures';
+import { BRAM, NO_PORK, VEGETARIAN, WEN } from '../market/fixtures';
 import { compactHistory, deriveProgress } from './derive';
 import { CAT, DATA, EMPTY, MARKET_CAT, T, addDays, ev, last, play, rulesCtx, xpOf } from './fixtures';
-import { grantsFor, grantsForBatch, isHealthRevealing, validateRewards } from './rewards';
+import { grantsFor, grantsForBatch, isHealthRevealing, marketCatalogue, validateRewards } from './rewards';
 import type { ProgressEvent, ProgressHistory, RewardGrant } from './types';
 import { isoWeek } from './week';
 
@@ -188,6 +188,7 @@ describe('isHealthRevealing (Ruling 17)', () => {
     expect(isHealthRevealing(ev.round('bram', MON, [['bram-thermometer', 0]]), CAT)).toBe(true);
     expect(isHealthRevealing(ev.round('fishmonger', MON, [['x', 0]]), MARKET_CAT)).toBe(true);
     expect(isHealthRevealing({ ...ev.round('bram', MON, []), answers: null } as unknown as ProgressEvent, MARKET_CAT)).toBe(true);
+    expect(isHealthRevealing(ev.round('bram', MON, []), MARKET_CAT)).toBe(true);
   });
 });
 
@@ -254,6 +255,16 @@ describe('marketAnswered', () => {
       expect(() => deriveProgress(h, MARKET_CAT)).not.toThrow();
       expect(deriveProgress(h, MARKET_CAT).marketAnswered).toEqual({});
     }
+  });
+});
+
+describe('marketCatalogue (fix round 1, M4)', () => {
+  test('a question id at two stalls, a stall given twice, or an id in two banks of one stall → throws', () => {
+    const shared = { ...WEN, questions: [...WEN.questions, BRAM.questions[0]] };
+    expect(() => marketCatalogue([BRAM, shared])).toThrow(/bram-braise-cut.*two stalls|two stalls.*bram-braise-cut/);
+    expect(() => marketCatalogue([BRAM, BRAM])).toThrow(/given twice/);
+    expect(() => marketCatalogue([{ ...WEN, seasonal: { r: { '6': [WEN.questions[0]] } } }])).toThrow(/two banks/);
+    expect(marketCatalogue([BRAM, WEN]).size).toBe(2);
   });
 });
 

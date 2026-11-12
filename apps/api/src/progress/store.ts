@@ -5,9 +5,10 @@ import { progressEvents, rewardGrants, type GRANT_KINDS, type PROGRESS_KINDS } f
 import type { Db } from '../types.js';
 
 // The stored kinds are exactly core's: each list holds every kind and nothing else (a compile error otherwise).
-// M6: core's `stall_round` (Step 3) is stored only from Step 6, which adds the kind, its strict shape, the sealed body
-// of a Protein Counter round (Ruling 17) and the migration together. Until then it is not a stored kind: the service
-// rejects it before core sees it (`unknown_kind`), so no round lands unsealed. Step 6 removes this Exclude.
+// M6: core's `stall_round` (Step 3) is stored only from Step 6, which adds the kind, its strict shape, the migration and
+// a sealed body for EVERY stall round (Task 3 privacy ruling: sealing is by kind, not by `isHealthRevealing`, which only
+// decides the Protein Counter's `health_data` consent). Until then it is not a stored kind: the service rejects it
+// before core sees it (`unknown_kind`), so no round lands unsealed. Step 6 removes this Exclude.
 type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
 const kindsAgree: Same<(typeof PROGRESS_KINDS)[number], Exclude<ProgressEventKind, 'stall_round'>> = true;
 const grantKindsAgree: Same<(typeof GRANT_KINDS)[number], RewardGrant['kind']> = true;

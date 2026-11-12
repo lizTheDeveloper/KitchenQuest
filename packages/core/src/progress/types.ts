@@ -46,7 +46,8 @@ export type ProgressEvent =
    * A finished stall round (M6 Rulings 1 and 2). `answers` are the question ids answered and each pick's FILE index
    * (`scoreAnswer`'s `pick`), in answer order. There is no "correct" flag: core scores each pick from the stall file.
    * Only what was answered is here, never which questions the round showed (M2 privacy carry): a question the rules
-   * dropped leaves no trace. A Protein Counter round is health-revealing (`isHealthRevealing`, Ruling 17).
+   * dropped leaves no trace. Every stall round is sealed at rest, and a `health_data` delete erases every one (Task 3
+   * rulings); a Protein Counter round also needs `health_data` consent (`isHealthRevealing`, Ruling 17).
    */
   | { id: string; kind: 'stall_round'; at: string; stall: string; answers: { q: string; pick: number }[] }
   /** An M3 device toolkit record (Ruling 8). Grants nothing. */
