@@ -20,9 +20,13 @@ export function countingProvider(ai: AiProvider): AiProvider {
   };
 }
 
-/** Runs `fn` as one turn and returns its result with the number of model calls it made. */
-export async function countModelCalls<T>(fn: () => Promise<T>): Promise<{ result: T; modelCalls: number }> {
+/**
+ * Runs `fn` as one turn and returns its result with the number of model calls it made. `fn`'s result is awaited INSIDE
+ * the counted context (ruling round fix): Fastify's `app.inject` without a callback returns a lazy thenable that starts
+ * the request only when awaited, so awaiting it after `run` returned started the turn with no counter (every count 0).
+ */
+export async function countModelCalls<T>(fn: () => PromiseLike<T>): Promise<{ result: T; modelCalls: number }> {
   const counter = { n: 0 };
-  const result = await current.run(counter, fn);
+  const result = await current.run(counter, async () => await fn());
   return { result, modelCalls: counter.n };
 }

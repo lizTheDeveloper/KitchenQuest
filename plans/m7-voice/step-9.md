@@ -87,7 +87,7 @@ test('voice on shows the voice consent card; Not now leaves it off; granted turn
 test('accessibility without health_data shows Form 3-C; on → PUT /voice/accessibility; the copy names the fair-use ceiling', ...);
 test('the state line has no digit followed by min/minutes/s/left/remaining, no <progress>, <meter> or role=timer, no "Guild", "upgrade" or "premium"; resting_today reads "for today"', ...);
 test('the hands-free toggle is absent unless VITE_HANDS_FREE is on; voice credits list every allowed model\'s attribution', ...);
-// budget-plugin.test.ts: first paint ≤ M6 end + 2 KB with the toggle and the button in (B8)
+// budget-plugin.test.ts: first paint ≤ 359.6 KB (Step 7 baseline 357.6 KB + 2 KB, ruling round) with the toggle and the button in (B8)
 ```
 - [ ] **9.2 Run** `npm test -w @kitchenquest/game -- voice-turn heard-card speak-plan panel voice-section content budget` → FAIL.
 - [ ] **9.3 Implement.**

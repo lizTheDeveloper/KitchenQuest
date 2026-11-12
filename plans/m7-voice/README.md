@@ -108,7 +108,7 @@ Quoted from the spec unless marked. Every task's requirements include this secti
   - it asserts the flow reached `transcript` / `audio_end`;
   - it compares directory snapshots, not spies alone.
 - **Tests state their assertions (D3):** each test title in a step comes with its assertion in the step text. Type-level rules use `// @ts-expect-error` under `tsc`, plus a runtime check.
-- **First paint:** voice modules are lazy chunks. First paint may grow by at most 2 KB over M6's end value, asserted in Steps 8 and 9 (B8).
+- **First paint:** voice modules are lazy chunks. First paint may grow by at most 2 KB over the Step 7 baseline, asserted in Steps 8 and 9 (B8). Controller ruling (Step 7 ruling round): the baseline is Step 7's measured first paint, 357.6 KB, so the cap is **359.6 KB**; the budget target stays 360 KB and the hard budget 400 KB. (M6's end value, 354.4 KB, had already been passed by Steps 1–6.)
 - **No voice logic written twice.** The protocols, `heardCheck`, phonetic keys, speech text, chunking, cook commands and the filler choice live in core `voice/`, exported from `index.ts` and `engine.ts`.
 - **Logs:** `apps/voice` logs only enums and numbers (a typed `logEvent`). The API voice route logs no message body, frame, transcript or hint. Worker stderr is counted, never forwarded.
 - New error and close codes go in the doc comment on `ApiError` and in core `VoiceCloseReason`.
