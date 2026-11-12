@@ -130,6 +130,7 @@ interface RoadmapItem {
  * at the start of the line, bold (`**C-45**`) or not (`C-36`), with a letter suffix or not (`C-10b`). A split item
  * names its part right after the id, inside the bold when bold: `**N-1 (M2 part)**`, `**N-3 (partial)**`,
  * `C-36 (accounts part)`. A parenthesis after the bold (`**C-37** (CI part done…)`) is the whole item's text.
+ * Any other id-line form (`**C-49:**`, `[X]`, an indent, `*` bullets, lower case) is a problem (`roadmapIdProblems`).
  */
 function roadmapItems(doc: string): RoadmapItem[] {
   const re = new RegExp(String.raw`^- \[[ x~]\] (?:\*\*(${ID})(?: \(([^)]+)\))?\*\*|(${ID})(?: \(([^)]+)\))?(?![\w-]))`);
@@ -159,6 +160,12 @@ const ALLOWED_ROADMAP_ONLY: ReadonlyMap<string, string> = new Map();
 function roadmapIdProblems(roadmap: string, table: readonly string[]): string[] {
   const items = roadmapItems(roadmap);
   const problems: string[] = [];
+  // Review m5: any checklist-looking line that starts with an id (any bullet, box, indent, case or punctuation) must
+  // parse as an item; one that doesn't would escape every check below, so it is reported, never skipped.
+  const read = new Set(items.map((i) => i.line));
+  roadmap.split('\n').forEach((text, i) => {
+    if (/^\s*[-*+] \[.\] (?:\*\*)?[CN]-\d/i.test(text) && !read.has(i + 1)) problems.push(`line ${i + 1}: an id line the parser does not read: "${text}"`);
+  });
   const whole = items.filter((i) => i.part === null).map((i) => i.id);
   for (const id of new Set(whole.filter((id, i) => whole.indexOf(id) !== i))) problems.push(`${id} is a whole item twice`);
   const labels = new Map<string, string[]>();
@@ -208,6 +215,14 @@ describe('ROADMAP item ids', () => {
       'C-1 is a whole item twice',
       'C-2 (a part) names no whole C-2 item (line 5)',
       'C-1 has two "(a part)" parts',
+    ]);
+    // Review m5: an id line in a form the parser doesn't know is reported, never skipped.
+    expect(roadmapIdProblems(doc('- [x] **C-1** a', '- [ ] **C-1:** colon', '- [X] **C-1** upper', '  - [ ] C-1 indented', '* [ ] C-1 star', '- [ ] **c-1** lower', '- [ ] see C-1 in the text'), ['C-1'])).toEqual([
+      'line 4: an id line the parser does not read: "- [ ] **C-1:** colon"',
+      'line 5: an id line the parser does not read: "- [X] **C-1** upper"',
+      'line 6: an id line the parser does not read: "  - [ ] C-1 indented"',
+      'line 7: an id line the parser does not read: "* [ ] C-1 star"',
+      'line 8: an id line the parser does not read: "- [ ] **c-1** lower"',
     ]);
     // A suffixed duplicate, and the two-way C-table check.
     expect(roadmapIdProblems(doc('- [ ] **C-10b** a', '- [ ] C-10b b', '- [ ] **C-9** c'), ['C-10b', 'C-11', 'C-11'])).toEqual([
