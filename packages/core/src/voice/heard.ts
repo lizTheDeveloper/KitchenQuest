@@ -56,13 +56,23 @@ const isStop = (w: string): boolean => STOP_WORDS.has(w) || /\d/.test(w) || [...
 const MEAL_ONLY = /^(?:ate|eaten|had|breakfast|brekkie|lunch|dinner|supper|snack\w*)$/;
 
 /**
+ * Symptom and reaction words (fix round 3, R1): a closed list, the heard check's own (the shared mentor HEALTH_PATTERN
+ * is unchanged). "I ate selfish and got sick" is a reaction report, never chatter, so it is health wording whatever
+ * meal word it carries.
+ */
+const SYMPTOM_PATTERN =
+  /\b(?:sick(?:er|ness)?|ill(?:ness)?|unwell|poorly|nause\w*|queasy|rash(?:es)?|hives|itch\w*|swell\w*|swollen|tingl\w*|numb|reactions?|react(?:s|ed|ing)?|threw up|throw(?:s|ing)? up|thrown up|vomit\w*|puk(?:e|ed|es|ing)|(?:felt|feel|feels|feeling) (?:awful|bad|terrible|rough|funny|horrible|weird|ill|sick|unwell|off)|(?:couldn'?t|could not|can'?t|cannot) breathe?|breathless|short of breath|wheez\w*|stomach ?aches?|stomach (?:hurt\w*|pains?|cramps?)|tummy ?aches?|belly ?aches?|cramp(?:s|ed|ing)?|(?:lips?|tongue|throat|mouth|face) (?:(?:went|felt|got|was|were|is|are|goes) )?(?:funny|tingly|numb|swollen|itchy|weird|puffy)|(?:use|used|needed) (?:my|her|his|their|the) (?:pen|epi\w*|inhaler)|inhaler|diarrh\w*|dizz\w*|faint(?:ed|ing)?|(?:break|broke|breaks|breaking) out|(?:came|come|comes) up in)\b/;
+
+/**
  * Health wording (Ruling 4), read on the normal form: the mentor's health, rule-trigger, diet and severity patterns,
- * except that a meal word alone ("what's for dinner", "I had toast") is not health wording (fix round 2, N5). Without
- * health wording a transcript gets a heard card only for a food or rule term it names.
+ * plus symptom and reaction words (fix round 3, R1). A meal word alone ("what's for dinner", "I had toast") is not
+ * health wording (fix round 2, N5), but a meal word with a symptom word is. Without health wording a transcript gets
+ * a heard card only for a food or rule term it names.
  */
 export function hasHealthWording(normal: string): boolean {
   const health = new RegExp(HEALTH_PATTERN.source, 'g');
   return (
+    SYMPTOM_PATTERN.test(normal) ||
     [...normal.matchAll(health)].some((m) => !MEAL_ONLY.test(m[0])) ||
     normal.search(RULE_TRIGGER_PATTERN) >= 0 ||
     normal.search(DIET_WORD_PATTERN) >= 0 ||
@@ -108,19 +118,22 @@ interface Token {
   afterTrigger: boolean;
   /** A clause break (, . ; : ! ?) comes before this word. */
   broken: boolean;
+  /** Which break: the last punctuation mark before this word, or null. A comma continues a list (N8). */
+  brk: string | null;
 }
 
 function tokensOf(normal: string): Token[] {
   const spans = exemptSpans(normal);
   const triggerEnds = new Set([...normal.matchAll(new RegExp(RULE_TRIGGER_PATTERN.source, 'g'))].map((m) => m.index + m[0].length));
   const out: Token[] = [];
-  let broken = false;
+  let brk: string | null = null;
   for (const m of normal.matchAll(/[\p{L}\p{N}]+|[,.;:!?]/gu)) {
-    if (/^[,.;:!?]$/.test(m[0])) broken = true;
+    // a sentence or clause end outranks a comma between the same two words
+    if (/^[,.;:!?]$/.test(m[0])) brk = brk !== null && brk !== ',' ? brk : m[0];
     else {
       const [start, end] = [m.index, m.index + m[0].length];
-      out.push({ word: m[0], start, end, broken, exempt: spans.some(([a, b]) => a < end && start < b), afterTrigger: triggerEnds.has(start) });
-      broken = false;
+      out.push({ word: m[0], start, end, broken: brk !== null, brk, exempt: spans.some(([a, b]) => a < end && start < b), afterTrigger: triggerEnds.has(start) });
+      brk = null;
     }
   }
   return out;
@@ -223,21 +236,38 @@ export function heardCheck(transcript: string, graph: IngredientGraph, terms: re
   };
 
   /**
-   * Fix round 2 (N2), the short-word fail-safe: a word of 1–2 letters right after a rule trigger, then the end, a
-   * clause break, "and" or "or", that sounds exactly like an allergen ("allergic to so" / soy, "to it." / oat).
+   * Fix round 2 (N2), the short-word fail-safe: a word of 1–2 letters in the term position (right after a rule
+   * trigger, or a later item of its list: N8), then the end, a clause break, "and" or "or", that sounds exactly like
+   * an allergen ("allergic to so" / soy, "to it." / oat, "allergic to nuts and so").
    */
-  const shortAt = (i: number): { id: string; name: string }[] => {
+  const shortAt = (i: number, termPosition: boolean): { id: string; name: string }[] => {
     const t = toks[i];
-    if (!t.afterTrigger || [...t.word].length > 2 || /\d/.test(t.word)) return [];
+    if (!termPosition || [...t.word].length > 2 || /\d/.test(t.word)) return [];
     const next = toks.at(i + 1);
     if (next !== undefined && !next.broken && next.word !== 'and' && next.word !== 'or') return [];
     return allergenEchoes(t.word, graph);
   };
 
+  /**
+   * Where the next item of a trigger's list starts, after an item found in the term position that ends at `j`: past
+   * "and"/"or", or a comma (", and" too); none at a clause end (N8: "allergic to nuts, sesame and so").
+   */
+  const nextItem = (j: number): number => {
+    const t = toks.at(j);
+    if (t === undefined || (t.brk !== null && t.brk !== ',')) return -1;
+    const after = toks.at(j + 1);
+    if ((t.word === 'and' || t.word === 'or') && after !== undefined && after.brk === null) return j + 1;
+    return t.brk === ',' ? j : -1;
+  };
+
   const found: { heard: string; id: string | null; at: number; echoes?: { id: string; name: string }[] }[] = [];
+  let listAt = -1;
   for (let i = 0; i < toks.length; ) {
+    const termPosition = toks[i].afterTrigger || i === listAt;
+    const before = found.length;
+    const start = i;
     const exact = exactAt(i);
-    const echoes = exact === null ? shortAt(i) : [];
+    const echoes = exact === null ? shortAt(i, termPosition) : [];
     if (echoes.length > 0) {
       found.push({ heard: toks[i].word, id: null, at: i, echoes });
       i += 1;
@@ -251,6 +281,7 @@ export function heardCheck(transcript: string, graph: IngredientGraph, terms: re
       if (health && soundAt(i) !== undefined) found.push({ heard: toks[i].word, id: null, at: i });
       i += 1;
     }
+    if (termPosition && found.length > before && start < i) listAt = nextItem(i);
   }
 
   const byHeard = new Map<string, HeardTerm>();
