@@ -1,0 +1,124 @@
+{
+  "$comment": "M7 voice: every speech model and engine the voice service may load, with its licence (spec §7.7, Rulings 2 and 14). apps/voice/test/licences.test.ts enforces it, and loadVoiceConfig refuses any model that is not `allowed`. `files` are filled by the operator in Step 3 (path relative to VOICE_MODELS_DIR, sha256 of the download); production refuses a model with none. `verify: true` marks a licence still to be re-checked against the published package.",
+  "models": [
+    {
+      "id": "faster-whisper-tiny.en",
+      "kind": "stt",
+      "engine": "faster-whisper",
+      "source": "https://huggingface.co/Systran/faster-whisper-tiny.en",
+      "licence": "MIT",
+      "commercial": true,
+      "attribution": null,
+      "status": "allowed",
+      "files": []
+    },
+    {
+      "id": "faster-whisper-base.en",
+      "kind": "stt",
+      "engine": "faster-whisper",
+      "source": "https://huggingface.co/Systran/faster-whisper-base.en",
+      "licence": "MIT",
+      "commercial": true,
+      "attribution": null,
+      "status": "allowed",
+      "files": []
+    },
+    {
+      "id": "faster-whisper-small.en",
+      "kind": "stt",
+      "engine": "faster-whisper",
+      "source": "https://huggingface.co/Systran/faster-whisper-small.en",
+      "licence": "MIT",
+      "commercial": true,
+      "attribution": null,
+      "status": "allowed",
+      "files": []
+    },
+    {
+      "id": "kokoro-82m-v1.0",
+      "kind": "tts",
+      "engine": "kokoro-onnx",
+      "source": "https://huggingface.co/hexgrad/Kokoro-82M",
+      "licence": "Apache-2.0",
+      "commercial": true,
+      "attribution": null,
+      "status": "allowed",
+      "voices": ["bm_fable", "bm_george", "af_heart"],
+      "files": []
+    },
+    {
+      "id": "piper-en_GB-northern_english_male-medium",
+      "kind": "tts",
+      "engine": "piper-tts",
+      "source": "https://huggingface.co/rhasspy/piper-voices/tree/main/en/en_GB/northern_english_male/medium",
+      "licence": "CC-BY-SA-4.0",
+      "commercial": true,
+      "attribution": "The Pan's voice is the Piper voice en_GB northern_english_male (medium), from rhasspy/piper-voices, licensed CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/).",
+      "status": "allowed",
+      "voices": ["northern_english_male"],
+      "files": []
+    },
+    {
+      "id": "piper-en_US-ryan-high",
+      "kind": "tts",
+      "engine": "piper-tts",
+      "source": "https://huggingface.co/rhasspy/piper-voices/tree/main/en/en_US/ryan/high",
+      "licence": "CC-BY-NC-SA-4.0",
+      "commercial": false,
+      "attribution": null,
+      "status": "excluded",
+      "reason": "non-commercial",
+      "voices": ["ryan"],
+      "files": []
+    },
+    {
+      "id": "piper-en_US-lessac-medium",
+      "kind": "tts",
+      "engine": "piper-tts",
+      "source": "https://huggingface.co/rhasspy/piper-voices/tree/main/en/en_US/lessac/medium",
+      "licence": "NOASSERTION",
+      "commercial": false,
+      "attribution": null,
+      "status": "unverified",
+      "reason": "the training data's licence needs a check before use (spec §7.7)",
+      "voices": ["lessac"],
+      "files": []
+    },
+    {
+      "id": "piper-en_GB-alan-medium",
+      "kind": "tts",
+      "engine": "piper-tts",
+      "source": "https://huggingface.co/rhasspy/piper-voices/tree/main/en/en_GB/alan/medium",
+      "licence": "NOASSERTION",
+      "commercial": false,
+      "attribution": null,
+      "status": "unverified",
+      "reason": "the training data's licence needs a check before use (spec §7.7)",
+      "voices": ["alan"],
+      "files": []
+    },
+    {
+      "id": "piper-en_US-amy-medium",
+      "kind": "tts",
+      "engine": "piper-tts",
+      "source": "https://huggingface.co/rhasspy/piper-voices/tree/main/en/en_US/amy/medium",
+      "licence": "NOASSERTION",
+      "commercial": false,
+      "attribution": null,
+      "status": "unverified",
+      "reason": "the training data's licence needs a check before use (spec §7.7)",
+      "voices": ["amy"],
+      "files": []
+    }
+  ],
+  "engines": [
+    { "id": "faster-whisper", "licence": "MIT", "boundary": "in-worker-process" },
+    { "id": "ctranslate2", "licence": "MIT", "boundary": "in-worker-process" },
+    { "id": "onnxruntime", "licence": "MIT", "boundary": "in-worker-process" },
+    { "id": "kokoro-onnx", "licence": "MIT", "boundary": "in-worker-process", "verify": true },
+    { "id": "espeak-ng", "licence": "GPL-3.0-or-later", "boundary": "in-worker-process" },
+    { "id": "piper-tts", "licence": "GPL-3.0-or-later", "boundary": "separate-process" }
+  ],
+  "cast": { "pan": { "model": "piper-en_GB-northern_english_male-medium", "voice": "northern_english_male" } },
+  "gpuCast": { "pan": { "model": "kokoro-82m-v1.0", "voice": "bm_fable" } }
+}

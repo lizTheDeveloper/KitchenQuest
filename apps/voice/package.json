@@ -1,0 +1,22 @@
+{
+  "name": "@kitchenquest/voice",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --import tsx src/main.ts",
+    "test": "NODE_OPTIONS=--no-warnings=ExperimentalWarning vitest run",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
+    "bench": "node -e \"console.error('The latency benchmark (bench/run.ts) arrives in M7 Step 3.'); process.exit(1)\""
+  },
+  "dependencies": {
+    "@kitchenquest/core": "*",
+    "ws": "8.22.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "@types/ws": "^8.18.2",
+    "tsx": "^4.20.0",
+    "vitest": "^5.1.0"
+  }
+}
