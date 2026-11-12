@@ -45,6 +45,20 @@ describe('grant lines', () => {
     expect(Object.hasOwn(content.pan.triggers, 'stamp_earned.market_game')).toBe(true);
   });
 
+  test('fix round 1, M2: a Protein Counter round\'s stamp names the Protein Counter, never the butcher', async () => {
+    const { loadMarket } = await import('../market/content');
+    const { withMarket } = await import('./catalogue');
+    const market = await loadMarket();
+    withMarket(market);
+    const pcq = market.stalls.bram.variants!.protein_counter!.questions[0];
+    const round = { id: 'r2', kind: 'stall_round', at: '2026-11-09', stall: 'bram', answers: [{ q: pcq.id, pick: 0 }] } as ProgressEvent;
+    expect(grantLines([g({ kind: 'stamp', stamp: 'market_game' }, 'r2')], [round])).toEqual([
+      { trigger: 'stamp_earned.market_game', vars: { stall: market.stalls.bram.variants!.protein_counter!.name } },
+    ]);
+    const base = { ...round, id: 'r3', answers: [{ q: market.stalls.bram.questions[0].id, pick: 0 }] } as ProgressEvent;
+    expect(grantLines([g({ kind: 'stamp', stamp: 'market_game' }, 'r3')], [base])[0].vars.stall).toBe('Big Bram');
+  });
+
   test('XP alone says nothing', () => {
     expect(grantLines([g({ kind: 'xp', amount: 30, reason: 'cook' })], [ev('cooked')])).toEqual([]);
   });

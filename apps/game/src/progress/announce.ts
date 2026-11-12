@@ -1,6 +1,7 @@
 import type { ProgressEvent, RewardGrant } from '@kitchenquest/core/engine';
 import { content, techniqueName } from '../content';
 import type { ClientContent } from '../content/types';
+import { catalogueOf } from './catalogue';
 
 /** A Pan line to say: a trigger in content/dialogue/pan.yaml and its variables. */
 export interface GrantLine { trigger: string; vars: Record<string, string> }
@@ -60,7 +61,11 @@ function linesForEvent(event: ProgressEvent | undefined, grants: readonly Reward
   if (stamp && stamp.stamp === 'market_game' && event?.kind === 'stall_round') {
     // M6 Step 9: the weekly stall stamp names the keeper, from the event's own stall (`stallNames`, first paint).
     const names: Readonly<Record<string, string>> = c.stallNames;
-    out.push({ trigger: 'stamp_earned.market_game', vars: { stall: Object.hasOwn(names, event.stall) ? names[event.stall] : 'the stall' } });
+    // Fix round 1 (M2): a Protein Counter round (its answers in that bank, by membership) names the counter itself.
+    const market = catalogueOf().market?.get(event.stall);
+    const pc = market?.file.variants?.protein_counter?.name;
+    const counter = pc !== undefined && event.answers.some((a) => market?.questions.get(a.q)?.variant === 'protein_counter');
+    out.push({ trigger: 'stamp_earned.market_game', vars: { stall: counter ? pc : Object.hasOwn(names, event.stall) ? names[event.stall] : 'the stall' } });
   } else if (stamp) {
     const names = c.bureau.stamp_names;
     out.push({ trigger: 'stamp_earned', vars: { stamp: Object.hasOwn(names, stamp.stamp) ? names[stamp.stamp] : stamp.stamp } });

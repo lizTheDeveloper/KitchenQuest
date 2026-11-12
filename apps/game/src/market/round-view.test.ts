@@ -47,6 +47,14 @@ describe('the round view (M6 Step 9)', async () => {
     expect(el.textContent).not.toMatch(/\bxp\b|lost|lose|penalt|-\s?\d/i);
   });
 
+  test('I4: with no safe keeper line and no safe Pan line, no line is said at all (never an unchecked one)', () => {
+    const el = mount();
+    renderRound(el, { ...deps(wen), keeperLine: () => null, panLine: () => null });
+    options(el)[0].click();
+    expect(el.querySelector('.stall-feedback .stall-said')).toBeNull();
+    expect(el.querySelector('.stall-feedback .stall-reaction')).not.toBeNull();
+  });
+
   test('a correct answer gets the keeper\'s correct line; Next, then the last question finishes the round with every answer', () => {
     const ended: { how: string; answers: RoundAnswer[] }[] = [];
     const el = mount();

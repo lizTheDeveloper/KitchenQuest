@@ -17,8 +17,10 @@ export interface RoundDeps {
   gameName(game: string): string | null;
   /** The keeper's `correct` / `wrong` line for this question, already rules-checked; null → the Pan's line. */
   keeperLine(trigger: 'correct' | 'wrong', questionId: string): string | null;
-  /** The Pan's written line for a trigger (`market.cheer`, `market.wrong`). */
-  panLine(trigger: 'market.cheer' | 'market.wrong'): string;
+  /** The Pan's written line for a trigger, already rules-checked (I4); null when none is safe (then no line). */
+  panLine(trigger: 'market.answer_right' | 'market.wrong', questionId: string): string | null;
+  /** Whether this question may still be answered under the player's rules now (I2); false refuses the pick. */
+  canAnswer?(q: StallQuestion): boolean;
   /** An item sprite's URL for an ingredient id, when the assets manifest has one. */
   itemArt(ingredientId: string): string | null;
   /** The display name of an ingredient id (a ripeness picture's alt text when the option has none). */
@@ -107,6 +109,7 @@ export function renderRound(el: HTMLElement, deps: RoundDeps): RoundHandle {
 
     const answer = (pick: number) => {
       if (picked || over) return; // the answer is final: no re-pick on this question in this round
+      if (deps.canAnswer !== undefined && !deps.canAnswer(q)) return; // I2: closed by the rules since it was shown
       picked = true;
       answers.push({ q: q.id, pick });
       const scored = scoreAnswer(q, pick);
@@ -123,11 +126,12 @@ export function renderRound(el: HTMLElement, deps: RoundDeps): RoundHandle {
       }
       const trigger = scored.correct ? 'correct' : 'wrong';
       const keeper = deps.keeperLine(trigger, q.id);
+      const pan = keeper === null ? deps.panLine(scored.correct ? 'market.answer_right' : 'market.wrong', q.id) : null;
       const said = keeper !== null
         ? h('p', { class: 'stall-said' }, h('span', { class: 'stall-speaker' }, `${deps.keeper}: `), contentText('span', keeper))
-        : h('p', { class: 'stall-said' }, h('span', { class: 'stall-speaker' }, 'The Pan: '), contentText('span', deps.panLine(scored.correct ? 'market.cheer' : 'market.wrong')));
+        : pan === null ? null : h('p', { class: 'stall-said' }, h('span', { class: 'stall-speaker' }, 'The Pan: '), contentText('span', pan));
       feedback.replaceChildren(
-        said,
+        ...(said === null ? [] : [said]),
         contentText('p', scored.reaction, { class: 'stall-reaction' }),
         h('p', { class: 'stall-explain' }, h('strong', null, 'Why: '), contentText('span', scored.explain)),
       );

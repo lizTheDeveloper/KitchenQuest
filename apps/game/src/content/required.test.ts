@@ -487,7 +487,7 @@ describe('M6 Step 5: the market triggers', () => {
   };
 
   it('the Step 4 Pan triggers exist with their ai values; stall safety triggers are ai: never with pinned first lines', async () => {
-    expect(Object.keys(M6_MARKET_TRIGGERS_AI)).toHaveLength(16);
+    expect(Object.keys(M6_MARKET_TRIGGERS_AI)).toHaveLength(17); // Step 9 fix round 1 (I4): + market.answer_right
     for (const [id, ai] of Object.entries(M6_MARKET_TRIGGERS_AI)) {
       expect(REQUIRED_PAN_TRIGGERS, id).toContain(id);
       expect(content.pan.triggers[id], id).toBeDefined();

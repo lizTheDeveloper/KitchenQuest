@@ -42,9 +42,11 @@ export function appendEvents(
     };
     // M6 Step 9 (C9): a stall round is scored from the stall files, which the device catalogue holds only once the lazy
     // market content has loaded. Folding one without them would fix its answers as never correct in the snapshot, so
-    // the log waits (a little over its cap) until a catalogue with the market compacts it.
+    // the log waits until a catalogue with the market compacts it, up to twice its cap (fix round 1, M6: never without
+    // bound). Past that it compacts anyway: a round folded unscored can only let a question earn its first-correct XP
+    // once more (raise only, §6), never lower anything.
     const unscored = cat.market === undefined && h.events.some((e) => e.kind === 'stall_round');
-    if (h.events.length > max && !unscored) h = compactHistory(h, max, cat);
+    if (h.events.length > (unscored ? 2 * max : max)) h = compactHistory(h, max, cat);
     const kept = new Set(h.events.map((e) => e.id));
     const pending = opts.pending === false ? p.pendingUpload : [...p.pendingUpload, ...fresh.map((e) => e.id)];
     return withPartition(s, key, {

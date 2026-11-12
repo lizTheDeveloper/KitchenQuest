@@ -76,6 +76,11 @@ describe('the device catalogue and the market (M6 Step 9, C9)', () => {
     appendEvents(store, null, [round(1), lesson(1), lesson(2)], [], { cat: noMarket, max: 2 });
     expect(store.get().progress.events).toHaveLength(3);
     expect(store.get().progress.base).toBeNull();
+    // M6 (fix round 1): never without bound. Past twice the cap the log compacts anyway: a folded round's answers count
+    // as never correct, which can only let a question earn its first-correct XP once more (raise only, §6).
+    appendEvents(store, null, [lesson(3), lesson(4)], [], { cat: noMarket, max: 2 });
+    expect(store.get().progress.events.length).toBeLessThanOrEqual(2);
+    expect(store.get().progress.base).not.toBeNull();
     const plain = createStore(null);
     appendEvents(plain, null, [lesson(1), lesson(2), lesson(3)], [], { cat: noMarket, max: 2 });
     expect(plain.get().progress.events).toHaveLength(2);

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, expect, test } from 'vitest';
-import { keeperLines, optionOrder, type ProgressEvent, type ProgressView, type Rule } from '@kitchenquest/core/engine';
+import { keeperLines, optionOrder, stallBank, type ProgressEvent, type ProgressView, type Rule } from '@kitchenquest/core/engine';
 import type { ApiClient } from '../api/client';
 import { content, graph } from '../content';
 import { catalogueOf, rulesContextOf, withMarket } from '../progress/catalogue';
@@ -10,7 +10,7 @@ import type { AppContext } from '../shell/app';
 import type { Route } from '../shell/router';
 import { createStore, type PlayerState, type PlayerStore } from '../state/store';
 import { loadMarket } from './content';
-import { stallPlan, stallScreen } from './stall-screen';
+import { panLine, safeText, stallPlan, stallScreen } from './stall-screen';
 import { stallsScreen } from './stalls-screen';
 
 const NOW = new Date(2026, 10, 12, 10, 0); // Thursday 12 November 2026, local
@@ -26,24 +26,24 @@ function store(patch: Partial<PlayerState> = {}): PlayerStore {
   return s;
 }
 const ft = (s: PlayerStore) => { s.update((x) => ({ ...x, settings: { ...x.settings, familyTable: true } })); return s; };
-const client = (consent: 'granted' | 'missing' = 'granted') => ({
+const client = (consent: 'granted' | 'missing' | { now: 'granted' | 'missing' } = 'granted') => ({
   getProfile: () => Promise.resolve({ ok: true, status: 200, data: { ...PNW, country: null, region: null } }),
-  consents: () => Promise.resolve({ ok: true, status: 200, data: { consents: consent === 'granted' ? [{ purpose: 'health_data', withdrawnAt: null, current: true }] : [], needsReconsent: [], notices: {} } }),
+  consents: () => Promise.resolve({ ok: true, status: 200, data: { consents: (typeof consent === 'string' ? consent : consent.now) === 'granted' ? [{ purpose: 'health_data', withdrawnAt: null, current: true }] : [], needsReconsent: [], notices: {} } }),
 }) as unknown as Pick<ApiClient, 'getProfile' | 'consents'>;
 
 const EMPTY_VIEW = { marketAnswered: {} } as unknown as ProgressView;
-async function open(s: PlayerStore, id: 'wen' | 'bram' | 'okafor-sato' | 'spice', opts: { consent?: 'granted' | 'missing'; view?: ProgressView } = {}) {
+async function open(s: PlayerStore, id: 'wen' | 'bram' | 'okafor-sato' | 'spice', opts: { consent?: 'granted' | 'missing' | { now: 'granted' | 'missing' }; view?: ProgressView; noProgress?: true; now?: () => Date } = {}) {
   const sent: ProgressEvent[][] = [];
   const navigated: Route[] = [];
   const asked: (() => void)[] = [];
   const screen = stallScreen({
     client: client(opts.consent),
-    progress: () => Promise.resolve({ record: (e) => { sent.push(e); return Promise.resolve([]); }, view: () => opts.view ?? EMPTY_VIEW }),
+    progress: () => (opts.noProgress ? Promise.reject(new Error('no progress')) : Promise.resolve({ record: (e) => { sent.push(e); return Promise.resolve([]); }, view: () => opts.view ?? EMPTY_VIEW })),
     askConsent: (fn) => { asked.push(fn); },
   });
   const el = document.createElement('div');
   document.body.replaceChildren(el);
-  const ctx: AppContext = { store: s, now: () => NOW, navigate: (r) => { navigated.push(r); } };
+  const ctx: AppContext = { store: s, now: opts.now ?? (() => NOW), navigate: (r) => { navigated.push(r); } };
   await screen.mount(el, { name: 'stall', id }, ctx);
   await flush();
   return { el, sent, navigated, asked, screen };
@@ -213,12 +213,15 @@ describe('a stall (M6 Step 9)', async () => {
 
   test('signed in, a Protein Counter round waits for health_data consent and routes to the consent card', async () => {
     const s = store({ account: { email: 'a@example.com' }, accountRules: [VEGETARIAN] });
-    const { el, asked, navigated } = await open(s, 'bram', { consent: 'missing' });
+    const consent = { now: 'missing' as 'granted' | 'missing' };
+    const { el, asked } = await open(s, 'bram', { consent });
     expect(el.querySelector('.stall-option')).toBeNull();
     el.querySelector<HTMLButtonElement>('.stall-consent')!.click();
     expect(asked).toHaveLength(1);
+    consent.now = 'granted';
     asked[0]();
-    expect(navigated).toEqual([{ name: 'stall', id: 'bram' }]);
+    await flush();
+    expect(el.querySelector('.stall-option')).not.toBeNull(); // granted: the stall redraws with the round
     const granted = await open(s, 'bram', { consent: 'granted' });
     expect(granted.el.querySelector('.stall-option')).not.toBeNull();
     // A base stall needs no consent; nor does the Protein Counter signed out (the device keeps it, L-5).
@@ -244,6 +247,145 @@ describe('a stall (M6 Step 9)', async () => {
   });
 });
 
+describe('fix round 1 (review-task9)', async () => {
+  const market = await loadMarket();
+  const ctxOf = (rules: Rule[], country: string | null = null) => ({ rules, graph, subs: [...content.substitutions], date: TODAY, country });
+  const SOY = avoid('category', 'soy');
+  const roundIds = (sent: ProgressEvent[][]) => sent.flat().flatMap((e) => (e.kind === 'stall_round' ? e.answers.map((a) => a.q) : []));
+  const tofuish = (qid: string | undefined) => {
+    const q = market.stalls['okafor-sato'].questions.find((x) => x.id === qid);
+    return q !== undefined && stallPlan(market.stalls['okafor-sato'], ctxOf([SOY]), { country: null, region: null }, market.seasonality, new Map()).round.every((x) => x.id !== q.id)
+      && !stallBankIds(SOY).has(q.id);
+  };
+  const stallBankIds = (rule: Rule) => new Set(stallBank(market.stalls['okafor-sato'], ctxOf([rule])).questions.map((q) => q.id));
+
+  test('I2: a soy rule added mid-round: the tofu question disappears at once, and the answer to it is never recorded', async () => {
+    const s = store();
+    const { el, sent, screen } = await open(s, 'okafor-sato');
+    const first = shownIds(el)[0];
+    expect(tofuish(first)).toBe(true); // the round opens on a tofu question
+    const stale = el.querySelector<HTMLButtonElement>('.stall-option')!;
+    stale.click(); // answered under the old rules
+    s.update((x) => ({ ...x, localRules: [SOY] }));
+    await flush();
+    expect(el.textContent).not.toMatch(/tofu/i);
+    expect(shownIds(el).every((q) => stallBankIds(SOY).has(q!))).toBe(true);
+    expect(el.querySelector('.stall-faq')?.textContent ?? '').not.toMatch(/\bsoy|tofu|edamame|miso|tempeh\b/i);
+    // The tofu answer, now ⛔, is refused: nothing about it is recorded, now or on leaving.
+    screen.unmount?.();
+    expect(roundIds(sent)).not.toContain(first);
+  });
+
+  test('I2: a pick on a question the rules closed since it was drawn is refused (no reaction, no record)', async () => {
+    // A soy rule that starts tomorrow: the stall draws under today's rules, then the clock passes midnight unheard.
+    const tomorrow = '2026-11-13';
+    let now = NOW;
+    const s = store({ localRules: [{ ...SOY, phase: { start: tomorrow } }] });
+    const { el, sent, screen } = await open(s, 'okafor-sato', { now: () => now });
+    const first = shownIds(el)[0];
+    expect(tofuish(first)).toBe(true);
+    now = new Date(2026, 10, 13, 9, 0);
+    el.querySelector<HTMLButtonElement>('.stall-option')!.click();
+    expect(el.querySelector('.stall-feedback:not([hidden])')).toBeNull();
+    await flush();
+    expect(el.textContent).not.toMatch(/tofu/i); // redrawn under the rules as they are now
+    screen.unmount?.();
+    expect(roundIds(sent)).not.toContain(first);
+  });
+
+  test('I2: signed in, a stall opened before the account\'s rules arrive opens once they do', async () => {
+    const s = store({ account: { email: 'a@example.com' }, accountRules: null });
+    const { el } = await open(s, 'wen');
+    expect(el.querySelector('.stall-option')).toBeNull();
+    s.update((x) => ({ ...x, accountRules: [] }));
+    await flush();
+    expect(el.querySelector('.stall-option')).not.toBeNull();
+  });
+
+  test('I4: the Pan\'s market lines go through the rules text check: the strawberry market.cheer line never reaches a strawberry rule', () => {
+    const STRAWBERRY = avoid('ingredient', 'strawberry');
+    const liar = content.pan.triggers['market.cheer'].lines.find((l) => /strawberr/i.test(l))!;
+    expect(liar).toBeDefined();
+    const keys = Array.from({ length: 400 }, (_, i) => `k${i}`);
+    expect(keys.some((k) => panLine('market.cheer', k, ctxOf([])) === liar)).toBe(true);
+    expect(keys.some((k) => panLine('market.cheer', k, ctxOf([STRAWBERRY])) === liar)).toBe(false);
+    for (const t of ['market.answer_right', 'market.wrong', 'market.round_done', 'market.leave_round', 'market.bank_small', 'market.no_calendar']) {
+      for (const k of keys.slice(0, 50)) {
+        const line = panLine(t, k, ctxOf([STRAWBERRY, SOY]));
+        if (line !== null) expect(safeText(line, ctxOf([STRAWBERRY, SOY])), `${t}: ${line}`).toBe(true);
+      }
+    }
+    // Rules that can't be read: only a line naming no food at all.
+    for (const k of keys.slice(0, 50)) expect(panLine('market.stall_wait', k, null)).not.toBeNull();
+  });
+
+  test('M1: the keeper\'s correct and wrong lines are only those keeperLines keeps (a soy rule never hears the tofu lines)', async () => {
+    const os = market.stalls['okafor-sato'];
+    const who = `${os.name}: `;
+    const kept = new Set([...keeperLines(os, 'correct', ctxOf([SOY])), ...keeperLines(os, 'wrong', ctxOf([SOY]))].map((l) => who + l));
+    const dropped = [...os.triggers.correct.lines, ...os.triggers.wrong.lines].map((l) => who + l).filter((l) => !kept.has(l));
+    expect(dropped.length).toBeGreaterThan(0); // some are dropped for this player
+    let heard = 0;
+    for (let pick = 0; pick < 4; pick++) {
+      const { el } = await open(store({ localRules: [SOY] }), 'okafor-sato');
+      while (el.querySelector('.stall-round')) {
+        el.querySelectorAll<HTMLButtonElement>('.stall-option')[pick % el.querySelectorAll('.stall-option').length]!.click();
+        const said = el.querySelector('.stall-feedback .stall-said')?.textContent ?? null;
+        if (said !== null && said.startsWith(who)) { heard += 1; expect(kept.has(said), said).toBe(true); }
+        el.querySelector<HTMLButtonElement>('.stall-next')!.click();
+      }
+    }
+    expect(heard).toBeGreaterThan(0);
+  });
+
+  test('M3: a FAQ answer is shown only when it names nothing ⛔ or ❓ (core\'s fallback line included)', async () => {
+    const { el } = await open(store({ localRules: [SOY] }), 'okafor-sato');
+    for (const chip of el.querySelectorAll<HTMLButtonElement>('.stall-faq-chip')) {
+      chip.click();
+      const a = el.querySelector('.stall-faq-answer')!.textContent!.replace(/^[^:]+: /, '');
+      expect(safeText(a, ctxOf([SOY])), a).toBe(true);
+    }
+    const medical = market.stalls['okafor-sato'].triggers.medical.lines[0];
+    expect(el.textContent).not.toContain(medical);
+  });
+
+  test('M4: a round is never recorded into another partition: an account switch mid-round drops it', async () => {
+    const s = store();
+    const { el, sent, screen } = await open(s, 'wen');
+    el.querySelector<HTMLButtonElement>('.stall-option')!.click();
+    s.update((x) => ({ ...x, account: { email: 'b@example.com' }, accountRules: [] }));
+    await flush();
+    screen.unmount?.();
+    expect(sent).toEqual([]);
+  });
+
+  test('M5: closing or reloading the tab mid-round records the answers so far, once', async () => {
+    const { el, sent, screen } = await open(store(), 'wen');
+    el.querySelector<HTMLButtonElement>('.stall-option')!.click();
+    window.dispatchEvent(new Event('pagehide'));
+    window.dispatchEvent(new Event('pagehide'));
+    screen.unmount?.();
+    expect(sent).toHaveLength(1);
+    expect(roundIds(sent)).toHaveLength(1);
+  });
+
+  test('M7: with no progress service the round still plays, and the stall says nothing is kept', async () => {
+    const { el, sent } = await open(store(), 'wen', { noProgress: true });
+    expect(el.textContent).toContain("can't be kept just now");
+    expect(playThrough(el)).toBeGreaterThan(0);
+    expect(sent).toEqual([]);
+  });
+
+  test('M2: the stall never names the butcher first for a Protein Counter player', async () => {
+    const screen = stallScreen({ client: client(), progress: () => new Promise(() => {}), load: () => new Promise(() => {}) });
+    expect(screen.title).toBe('Stall');
+    const el = document.createElement('div');
+    void screen.mount(el, { name: 'stall', id: 'bram' }, { store: store({ localRules: [VEGETARIAN] }), now: () => NOW, navigate: () => {} });
+    await flush();
+    expect(el.querySelector('h1')!.textContent).toBe('Stall');
+  });
+});
+
 describe('the hub (M6 Step 9)', () => {
   test('one button per stall with its keeper\'s name and the round\'s games; a vegetarian sees the Protein Counter named', async () => {
     const s = store({ localRules: [VEGETARIAN] });
@@ -266,5 +408,27 @@ describe('the hub (M6 Step 9)', () => {
     screen.unmount?.();
     window.dispatchEvent(new CustomEvent('kq:action', { detail: { id: 'stall:wen' } }));
     expect(navigated).toHaveLength(2);
+  });
+});
+
+describe('the hub, fix round 1', () => {
+  test('I2: the hub re-filters live: a vegetarian rule names the Protein Counter, a soy rule drops the tofu game; M2: never the butcher first', async () => {
+    const s = store();
+    const screen = stallsScreen({ client: client() });
+    const el = document.createElement('div');
+    document.body.replaceChildren(el);
+    const opening = screen.mount(el, { name: 'stalls' }, { store: s, now: () => NOW, navigate: () => {} });
+    expect(el.querySelectorAll('.stall-button')).toHaveLength(0); // drawn once the stalls (and so the variant) are known
+    await opening;
+    const market = await loadMarket();
+    const name = (id: string) => el.querySelector(`.stall-button[data-stall="${id}"] .stall-button-name`)!.textContent;
+    const games = (id: string) => el.querySelector(`.stall-button[data-stall="${id}"] .stall-button-games`)!.textContent;
+    expect(name('bram')).toBe('Big Bram');
+    expect(games('okafor-sato')).toMatch(/tofu/i);
+    s.update((x) => ({ ...x, localRules: [VEGETARIAN, avoid('category', 'soy')] }));
+    await flush();
+    expect(name('bram')).toBe(market.stalls.bram.variants!.protein_counter!.name);
+    expect(games('okafor-sato')).not.toMatch(/tofu/i);
+    screen.unmount?.();
   });
 });
