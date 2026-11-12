@@ -320,7 +320,7 @@ describe('createIntake', () => {
       patch: { account: { email: 'a@b.c' }, accountRules: [] },
       mentorTurn: (req) => {
         bodies.push(req);
-        const res: TurnResponse = { conversationId: 'c1', route: 'ai', notice: null, toolTurn: true, actions: [], parts: [], cards: [] };
+        const res: TurnResponse = { conversationId: 'c1', route: 'ai', notice: null, toolTurn: true, actions: [], parts: [], cards: [], replyId: 'r1' };
         return Promise.resolve(ok(res));
       },
       ai: (client, store) => {
@@ -349,7 +349,7 @@ describe('createIntake', () => {
       mentorTurn: () => {
         n++;
         if (n === 1) return Promise.resolve({ ok: false, status: 503, error: { code: 'unavailable', message: '' } });
-        const res: TurnResponse = { conversationId: 'c1', route: 'scripted', notice: 'rate_limited', toolTurn: false, actions: [], parts: [], cards: [] };
+        const res: TurnResponse = { conversationId: 'c1', route: 'scripted', notice: 'rate_limited', toolTurn: false, actions: [], parts: [], cards: [], replyId: 'r2' };
         return Promise.resolve(ok(res));
       },
       ai: (client, store) => {

@@ -36,7 +36,7 @@ const consents = (purposes: ('health_data' | 'ai_health')[]): Consents => ({
 const BOTH = () => ok(consents(['health_data', 'ai_health']));
 
 const response = (patch: Partial<TurnResponse>): TurnResponse =>
-  ({ conversationId: 'c1', route: 'deterministic', parts: [], cards: [], actions: [], notice: null, toolTurn: false, ...patch });
+  ({ conversationId: 'c1', route: 'deterministic', parts: [], cards: [], actions: [], notice: null, toolTurn: false, replyId: 'r1', ...patch });
 const line = (trigger: string) => ({ kind: 'line' as const, line: { trigger, vars: {} } });
 const said = (r: { items: PanItem[] }) => r.items.flatMap((i) => (i.kind === 'said' ? [i.said.trigger] : []));
 

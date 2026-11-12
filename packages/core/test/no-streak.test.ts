@@ -1,6 +1,6 @@
 // No streaks, by vocabulary (M5 Step 12, spec §2.3, never rule 8, C28). A fast-check property in
 // src/progress/never-rules.test.ts pins the behaviour (no reward depends on consecutive days); this pins the words: no function or identifier in the
-// non-test source of core progress/, quests/, toolkit/, week/ or market/ (M6) names a streak, a run of days or a combo.
+// non-test source of core progress/, quests/, toolkit/, week/, market/ (M6) or voice/ (M7) names a streak, a run of days or a combo.
 //
 // Only `*.ts` files that are not `*.test.ts` are read. Comments, string literals, template text and regular
 // expression literals are stripped first and identifiers alone are matched, so a test title ("no streak term"), a
@@ -21,7 +21,7 @@ function streakIdentifiers(src: string): string[] {
   return (codeOnly(src).match(/[A-Za-z_$][\w$]*/g) ?? []).filter((id) => BANNED.test(id));
 }
 
-describe('no streak vocabulary in core progress/, quests/, toolkit/, week/ and market/ (C28, M6)', () => {
+describe('no streak vocabulary in core progress/, quests/, toolkit/, week/, market/ and voice/ (C28, M6, M7)', () => {
   it('the scan bites: a planted streak function, identifier or combo is caught; words in comments, strings and regexes are not', () => {
     const planted = [
       'export function longestStreak(days: string[]): number { return days.length; }',

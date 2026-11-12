@@ -22,6 +22,7 @@ function response(parts: ReplyPart[], cards: ProposalCard[] = [], extra: Partial
     actions: [],
     notice: null,
     toolTurn: cards.length > 0,
+    replyId: 'r1',
     ...extra,
   };
 }

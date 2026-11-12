@@ -1,6 +1,7 @@
 // M7 Step 1 (P1, Ruling 15): the browser <-> API voice protocol. Parsers are strict and closed: an unknown key, a
 // SpeakItem carrying text or variables, too many items or a non-integer id is refused (null), never repaired.
 import { describe, expect, test } from 'vitest';
+import type { ReplyPart, TurnRequest, TurnResponse } from '../mentor/protocol';
 import { MAX_SPEAK_ITEMS } from './constants';
 import { decodeFrame, encodeFrame, parseClientMsg, parseServerMsg, VOICE_PROTOCOL_VERSION, type ClientMsg, type ServerMsg, type SpeakItem } from './protocol';
 
@@ -130,5 +131,20 @@ describe('parseServerMsg', () => {
       {},
     ];
     for (const m of bad) expect(parseServerMsg(m), JSON.stringify(m)).toBeNull();
+  });
+});
+
+describe('the mentor protocol carries voice (M7)', () => {
+  test('a turn input is text or a transcript with optional heard words; a reply part may be a heard card; a response has a replyId', () => {
+    const text: TurnRequest['input'] = { kind: 'text', text: 'hi' };
+    const spoken: TurnRequest['input'] = { kind: 'transcript', text: 'allergic to selfish', heard: { words: ['selfish'] } };
+    const bare: TurnRequest['input'] = { kind: 'transcript', text: 'next step' };
+    // @ts-expect-error: heard words travel only with a transcript
+    const wrong: TurnRequest['input'] = { kind: 'text', text: 'hi', heard: { words: [] } };
+    const part: ReplyPart = { kind: 'heard', check: { terms: [{ heard: 'selfish', spelled: 'S-E-L-F-I-S-H', id: null, alternatives: [] }], speakSpelling: true } };
+    // @ts-expect-error: every response carries a replyId (M7, Ruling 15)
+    const noId: TurnResponse = { conversationId: null, route: 'scripted', parts: [], cards: [], actions: [], notice: null, toolTurn: false };
+    const withId: TurnResponse = { ...noId, replyId: 'r-1' };
+    expect([text.kind, spoken.kind, bare.kind, wrong.kind, part.kind, withId.replyId]).toEqual(['text', 'transcript', 'transcript', 'text', 'heard', 'r-1']);
   });
 });

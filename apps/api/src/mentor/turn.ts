@@ -125,7 +125,17 @@ const respond = (
   parts: ReplyPart[],
   notice: TurnNotice = null,
   extra: { cards?: ServerCard[]; toolTurn?: boolean; actions?: CardAction[] } = {},
-): TurnResponse => ({ conversationId, route, parts, cards: extra.cards ?? [], actions: extra.actions ?? [], notice, toolTurn: extra.toolTurn ?? false });
+): TurnResponse => ({
+  conversationId,
+  route,
+  parts,
+  cards: extra.cards ?? [],
+  actions: extra.actions ?? [],
+  notice,
+  toolTurn: extra.toolTurn ?? false,
+  // M7 Ruling 15: every response gets its own id, so a `speak` can name one of its line parts.
+  replyId: randomUUID(),
+});
 
 /**
  * Stage 1: open the conversation and bump its turn (live user → conversation row), and read what the gates need.
@@ -845,6 +855,7 @@ export async function runTurn(deps: TurnDeps, userId: string, req: TurnRequest, 
   const now = deps.now();
   // 1. The raw text is kept for the injection cut (C4); everything else reads the stripped text.
   const deadline = AbortSignal.timeout(MENTOR_TURN_DEADLINE_MS);
+  // M7 Step 1: a transcript's text is read like typed text here; its heard gate comes in Step 6.
   const raw = req.input.text;
   const stripped = stripPageEvents(raw).text.trim();
   const intent = classifyTurn(stripped);
