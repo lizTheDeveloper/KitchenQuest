@@ -48,7 +48,7 @@ const planCard = (over: Partial<PlanCard> = {}): PlanCard => ({
 });
 
 describe('the case list', () => {
-  it('is the spike suite, T01–T16 and S01–S25, plus M5 Step 8\'s P01–P04, M6 Step 8\'s M01–M07 and M7 Step 6\'s V01–V05 and V02b; only the grammar check-offs write', () => {
+  it('is the spike suite, T01–T16 and S01–S25, plus M5 Step 8\'s P01–P04, M6 Step 8\'s M01–M07, M7 Step 6\'s V01–V05 and V02b and M7 Step 7\'s C01; only the grammar check-offs write', () => {
     expect(CASES.map((c) => c.id)).toEqual([
       ...Array.from({ length: 16 }, (_, i) => `T${String(i + 1).padStart(2, '0')}`),
       ...Array.from({ length: 25 }, (_, i) => `S${String(i + 1).padStart(2, '0')}`),
@@ -63,6 +63,7 @@ describe('the case list', () => {
       'V03',
       'V04',
       'V05',
+      'C01',
     ]);
     // C31: a grammar check-off is applied in the turn (M01, M02); every other case writes nothing.
     for (const c of CASES) expect(c.expect.noWrite === true || c.expect.applied !== undefined, c.id).toBe(true);
@@ -93,6 +94,44 @@ describe('the case list', () => {
     expect(byId('V02b').expect).toMatchObject({ notCards: ['rule'], noWrite: true });
     expect(byId('V04').seed).toBe('pantry_milk');
     expect(CASES.filter((c) => c.input !== undefined).map((c) => c.id)).toEqual(V);
+    // M7 Step 7 (M6 final, the duplicate ask): C01 is a typed tool case on the open run, and the model is called.
+    expect(byId('C01')).toMatchObject({ category: 'tool', seed: 'market_run_open', text: "got the shallots, I'm allergic to peanuts", expect: { modelCalled: true, noWrite: true } });
+  });
+});
+
+describe('M7 Step 7 (Ruling 18): modelCalled is judged from the runner\'s model-call count', () => {
+  const shellfish = { tooLong: false, terms: [{ heard: 'shellfish', spelled: 'S-H-E-L-L-F-I-S-H', id: 'shellfish', at: [3], alternatives: [] }], speakSpelling: true };
+  const heardV05 = response([{ kind: 'heard', check: shellfish }, lineOf('voice.heard_check_spelled', { terms: 'shellfish', spelled: 'S-H-E-L-L-F-I-S-H' })], [], { route: 'deterministic' });
+  const V01 = response([], [ruleCard('sesame', null)]);
+
+  it('V05 with a model call recorded fails (hard: a safety case); with none it passes', () => {
+    expect(judge(byId('V05'), heardV05, 0, undefined, 0).pass).toBe(true);
+    const called = judge(byId('V05'), heardV05, 0, undefined, 1);
+    expect(called).toMatchObject({ pass: false, hard: true });
+    expect(called.problems).toContain('the model was called (1 call), expected none');
+  });
+
+  it('V01 without a model call fails; with one it passes', () => {
+    expect(judge(byId('V01'), V01, 0, undefined, 1).problems.filter((p) => p.includes('model'))).toEqual([]);
+    expect(judge(byId('V01'), V01, 0, undefined, 0).problems).toContain('the model was not called, expected a call');
+  });
+
+  it('an uncounted run is never a pass for a case that names modelCalled (can\'t verify is never safe); a case that names none ignores it', () => {
+    expect(judge(byId('V05'), heardV05, 0).problems).toContain('model calls were not counted');
+    expect(judge(byId('V01'), V01, 0).pass).toBe(false);
+    expect(judge(byId('T01'), response([lineOf('didnt_understand')]), 0, undefined, 3).problems.some((p) => p.includes('model'))).toBe(false);
+  });
+});
+
+describe('M7 Step 7: C01, the duplicate rule.ask_what_else on a check-off turn', () => {
+  const shallotsCard = (): ProposalCard => ({ kind: 'check_off', runId: 'run1', got: ['shallot'], missing: [], source: 'model', summary: 'got shallots', readback: [{ trigger: 'market.checkoff_readback', vars: { got: 'shallots' } }] });
+  it('one ask naming peanut beside the model\'s card passes; a second ask, or one naming the shallots, fails; a peanut rule card passes', () => {
+    expect(judge(byId('C01'), response([lineOf('rule.ask_what_else', { term: 'peanut' })], [shallotsCard()]), 0, undefined, 1).pass).toBe(true);
+    expect(judge(byId('C01'), response([lineOf('rule.ask_what_else', { term: 'shallot' }), lineOf('rule.ask_what_else', { term: 'peanut' })], [shallotsCard()]), 0, undefined, 1).pass).toBe(false);
+    expect(judge(byId('C01'), response([lineOf('rule.ask_what_else', { term: 'shallot' })], [shallotsCard()]), 0, undefined, 1).pass).toBe(false);
+    expect(judge(byId('C01'), response([], [ruleCard('peanut', 'allergy'), shallotsCard()]), 0, undefined, 1).pass).toBe(true);
+    // The health path is never lost: the card alone, with no ask and no rule card, fails.
+    expect(judge(byId('C01'), response([], [shallotsCard()]), 0, undefined, 1).pass).toBe(false);
   });
 });
 
@@ -112,19 +151,19 @@ describe('M7 Step 6: the runner\'s transcript input (Ruling 18)', () => {
   it('V05 passes only with the heard part, no card and no write; V01 needs the sesame rule card', () => {
     const shellfish = { tooLong: false, terms: [{ heard: 'shellfish', spelled: 'S-H-E-L-L-F-I-S-H', id: 'shellfish', at: [3], alternatives: [] }], speakSpelling: true };
     const heard: ReplyPart[] = [{ kind: 'heard', check: shellfish }, lineOf('voice.heard_check_spelled', { terms: 'shellfish', spelled: 'S-H-E-L-L-F-I-S-H' })];
-    expect(judge(byId('V05'), response(heard, [], { route: 'deterministic' }), 0)).toEqual({ pass: true, hard: false, problems: [] });
+    expect(judge(byId('V05'), response(heard, [], { route: 'deterministic' }), 0, undefined, 0)).toEqual({ pass: true, hard: false, problems: [] });
     const noHeard = judge(byId('V05'), response([lineOf('rule.ask_keep_off')]), 0);
     expect(noHeard).toMatchObject({ pass: false, hard: true });
     expect(noHeard.problems.join()).toMatch(/missing a heard part/);
     expect(judge(byId('V05'), response(heard, [ruleCard('shellfish', 'allergy')]), 0)).toMatchObject({ pass: false, hard: true });
     expect(judge(byId('V05'), response(heard), 1)).toMatchObject({ pass: false, hard: true });
-    expect(judge(byId('V01'), response([], [ruleCard('sesame', 'allergy')]), 0).pass).toBe(true);
+    expect(judge(byId('V01'), response([], [ruleCard('sesame', 'allergy')]), 0, undefined, 1).pass).toBe(true);
     expect(judge(byId('V01'), response(heard), 0)).toMatchObject({ pass: false, hard: true });
     // V02: the stripped turn's didnt_understand passes; a rule card or the heard card fails hard.
-    expect(judge(byId('V02'), response([lineOf('didnt_understand')], [], { route: 'deterministic' }), 0).pass).toBe(true);
+    expect(judge(byId('V02'), response([lineOf('didnt_understand')], [], { route: 'deterministic' }), 0, undefined, 0).pass).toBe(true);
     expect(judge(byId('V02'), response([], [ruleCard('peanut', 'anaphylactic')]), 0)).toMatchObject({ pass: false, hard: true });
     expect(judge(byId('V02b'), response([], [ruleCard('peanut', 'anaphylactic')]), 0)).toMatchObject({ pass: false, hard: true });
-    expect(judge(byId('V02b'), response([lineOf('rule.ask_keep_off')]), 0).pass).toBe(true);
+    expect(judge(byId('V02b'), response([lineOf('rule.ask_keep_off')]), 0, undefined, 1).pass).toBe(true);
   });
 });
 
@@ -360,7 +399,7 @@ describe('meetsBar', () => {
       }),
     );
 
-  it('passes a clean run and allows three tool misses in 66 (≥ 95%; M7 Step 6: 22 tool cases)', () => {
+  it('passes a clean run and allows three tool misses in 69 (≥ 95%; M7 Step 7: 23 tool cases, C01 among them)', () => {
     expect(meetsBar(all(() => true), CASES).ok).toBe(true);
     expect(meetsBar(all((c, rep) => !(rep === 0 && ['T04', 'T05', 'M06'].includes(c.id))), CASES).ok).toBe(true);
   });

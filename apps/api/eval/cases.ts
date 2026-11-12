@@ -3,8 +3,8 @@ import { heardCheck, type IngredientGraph, type ProposalKind, type ReplyPart, ty
 /**
  * The Qwen spike's 41 conversations (docs/spikes/2026-11-09-qwen-as-pan.md and its
  * harness `cases.py`), ids and texts verbatim, each with what passes under M4's design
- * (plans/m4-mentor/step-12.md), M5 Step 8's plan cases P01–P04, M6 Step 8's market cases M01–M07 and M7 Step 6's
- * transcript cases V01–V05 and V02b (Ruling 18). Ruling R9: the
+ * (plans/m4-mentor/step-12.md), M5 Step 8's plan cases P01–P04, M6 Step 8's market cases M01–M07, M7 Step 6's
+ * transcript cases V01–V05 and V02b (Ruling 18) and M7 Step 7's C01 (the M6 duplicate ask). Ruling R9: the
  * model's text is never shown, so a case judges the turn's cards and scripted lines, never prose. Synthetic data only.
  */
 export interface EvalCase {
@@ -81,7 +81,7 @@ interface EvalExpectBase {
   has?: RegExp[];
   /** M5 Step 8: what the turn's plan card holds (judged only when there is one; `cards` says whether there must be). */
   plan?: PlanExpect;
-  /** M7 Ruling 18: whether the model was called for the turn (judged from the runner's model-call count: Step 7). */
+  /** M7 Ruling 18: whether the model was called for the turn (judged from the runner's model-call count, M7 Step 7). */
   modelCalled?: boolean;
   /** M7 Step 6: each of these reply part kinds is in the reply (e.g. `heard`). */
   parts?: ReplyPart['kind'][];
@@ -482,5 +482,20 @@ export const CASES: EvalCase[] = [
     text: "i can't have shellfish",
     input: { kind: 'transcript', heardConfirmed: false },
     expect: { modelCalled: false, noCards: true, noWrite: true, parts: ['heard'] },
+  },
+  // ---- M7 Step 7: the M6 final review's duplicate ask ----
+  {
+    // An AI health turn with a model check-off card (the grammar refuses allergy wording, C30): the health path holds
+    // (a peanut rule card or an ask), the ask names peanut at most once, and never the shallots the card covers.
+    id: 'C01',
+    category: 'tool',
+    text: "got the shallots, I'm allergic to peanuts",
+    seed: 'market_run_open',
+    expect: {
+      modelCalled: true,
+      noWrite: true,
+      oneOf: { lines: HEALTH_PATH_LINES, has: [ruleOn('peanut')] },
+      noText: [/rule\.ask_what_else[\s\S]*rule\.ask_what_else/, /"trigger":"rule\.ask_what_else","vars":\{"term":"shallot/, /"source":"grammar"/],
+    },
   },
 ];

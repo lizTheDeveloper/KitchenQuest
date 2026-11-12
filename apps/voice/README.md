@@ -140,14 +140,20 @@ also verifies the models' sha256 pins; only production runs the latency gate.
 The operator benchmark (spec §12) measures the configured stack on the target box. It never runs in CI.
 
 ```sh
-BENCH_API_COOKIE='<the synthetic player session cookie>' BENCH_ORIGIN='https://<app origin>' \
+BENCH_API_COOKIE='kq_session=<the synthetic player session token>' BENCH_ORIGIN='https://<app origin>' \
   npm run bench -w @kitchenquest/voice -- --api https://<api host> --box ccx33-fsn1 \
   --cpu 'AMD EPYC 9454P, 8 dedicated vCPU' --llm qwen/qwen3.8-27b --providers tenstorrent
 ```
 
 It needs the API running with AI on, a throwaway database and a synthetic player, and this service running with real
-engines (it reads the same `VOICE_*` variables). It cannot run before the API's voice route and transcript turn exist
-(M7 Steps 5 and 6). Step 7 adds `--selftest` against fake engines.
+engines (it reads the same `VOICE_*` variables).
+
+`npm run bench -w @kitchenquest/voice -- --selftest` (M7 Step 7, P15) runs the same loop (`bench/loop.ts`) for one
+utterance against this service on fake engines and a stub API on loopback (`bench/selftest.ts`), and writes nothing.
+The stub holds the bench to what the real API does, with core's parsers: `GET /voice` needs the game's Origin and the
+`kq_session` cookie; every message is a core `ClientMsg` (`hello` carries `localDate` and `localTime`); a transcript turn
+naming a food answers with its heard card until `heard.words` confirm it; only a kept reply's written lines are spoken.
+`test/bench-selftest.test.ts` runs it in CI.
 
 1. **Utterances**: the spike's ten cooking phrases and ten short openers, spoken by the configured voice, resampled to
    16 kHz, each mixed clean, at 15 dB and at 5 dB of kitchen-like noise (the spike's recipe, seeded). Or `--recordings`.

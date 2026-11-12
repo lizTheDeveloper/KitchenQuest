@@ -6,7 +6,8 @@ import { readdirSync, readFileSync } from 'node:fs';
  * gate checks it, so a case, a check or the code that decides a turn, changed after the run, can't keep passing on
  * stale results.
  *
- * - The eval itself: cases, judge, write snapshot and the runner (its seeds and write count, fix round 2 N2).
+ * - The eval itself: cases, judge, write snapshot and the runner (its seeds and write count, fix round 2 N2), and
+ *   from M7 Step 7 the runner's model-call counter.
  * - M5 Step 8 fix round 4 (N8 ruling): the runtime import closure of the API turn entry (`src/mentor/turn.ts`),
  *   the core modules it reaches and the prompt render code (`prompt.ts`) among them; the API's `db/` and `crypto/`
  *   and type-only imports are left out. The gate test recomputes the closure from the source and fails when this
@@ -18,6 +19,12 @@ import { readdirSync, readFileSync } from 'node:fs';
  *   `catalog.ts`), `mentor/check-off.ts`, `ingredients/mentions.ts`, `nutrition/units.ts`, `week/amounts.ts` and
  *   `week/stock.ts`, and the API's `mentor/check-off-turn.ts`, `week/market-service.ts`, `progress/seal.ts` and
  *   `progress/snapshot.ts`.
+ * - M7 Step 7 (the Steps 1–6 voice layer and the M6 carries, recomputed from the closure): the turn now reaches core
+ *   `voice/` (`commands.ts`, `constants.ts`, `heard.ts`, `index.ts`, `phonetic.ts`, `protocol.ts`, `wire.ts`: the heard
+ *   gate, Ruling 4) and the API's `voice/registry.ts` (the per-user voice block, Ruling 17) and `voice/recent-replies.ts`
+ *   (Ruling 15). `voice/routes.ts` is not in it (P3: the route and the turn share only the registry). The eval's own
+ *   `model-calls.ts` (the runner's per-turn model-call counter, Ruling 18) is hashed with the runner. The cases now
+ *   include M7 Step 6's V01–V05 and V02b and Step 7's C01, so the record's case count follows `cases.ts`.
  * - The data the turn decides with: `data/ingredients.json` (the graph: `mentionsHealthTerm`, `resolve`),
  *   `data/rule-terms.json` (rule terms and cards) and every file of the canon recipes directory (the exact dish
  *   names `planIntent` accepts).
@@ -29,6 +36,7 @@ export const EVAL_FILES: readonly string[] = [
   './checks.ts',
   './snapshot.ts',
   './run.ts',
+  './model-calls.ts',
   '../src/ai/openrouter.ts',
   '../src/app.ts',
   '../src/audit/audit.ts',
@@ -74,6 +82,8 @@ export const EVAL_FILES: readonly string[] = [
   '../src/rules/store.ts',
   '../src/usage/usage.ts',
   '../src/usage/write-cap.ts',
+  '../src/voice/recent-replies.ts',
+  '../src/voice/registry.ts',
   '../src/week/local-date.ts',
   '../src/week/market-service.ts',
   '../src/week/plan-service.ts',
@@ -119,6 +129,13 @@ export const EVAL_FILES: readonly string[] = [
   '../../../packages/core/src/toolkit/one-more.ts',
   '../../../packages/core/src/toolkit/techniques.ts',
   '../../../packages/core/src/toolkit/toolkit.ts',
+  '../../../packages/core/src/voice/commands.ts',
+  '../../../packages/core/src/voice/constants.ts',
+  '../../../packages/core/src/voice/heard.ts',
+  '../../../packages/core/src/voice/index.ts',
+  '../../../packages/core/src/voice/phonetic.ts',
+  '../../../packages/core/src/voice/protocol.ts',
+  '../../../packages/core/src/voice/wire.ts',
   '../../../packages/core/src/week/amounts.ts',
   '../../../packages/core/src/week/data.ts',
   '../../../packages/core/src/week/frames.ts',
