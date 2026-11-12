@@ -482,7 +482,8 @@ describe('recent replies (Ruling 15)', () => {
 
   test('fix round 1 (M2): a clear wins over a turn in flight: forget, withdrawal or delete during the model call leaves nothing of that reply', async () => {
     for (const clear of ['forget', 'withdraw', 'delete'] as const) {
-      let p!: Awaited<ReturnType<typeof player>>;
+      // The player exists only once the app is built with this model (the model's call needs their cookie).
+      const who: { cookie?: string } = {};
       const ai = {
         model: 'fake/pan',
         async complete() {
@@ -493,12 +494,13 @@ describe('recent replies (Ruling 15)', () => {
               : clear === 'withdraw'
                 ? { method: 'DELETE', url: '/me/consents/health_data', payload: { healthData: 'keep' } }
                 : { method: 'DELETE', url: '/me', payload: { confirm: 'delete my account' } };
-          expect((await call(p.cookie, req)).statusCode, clear).toBe(204);
+          expect((await call(who.cookie!, req)).statusCode, clear).toBe(204);
           return reply('Something warm.');
         },
       };
       app = await buildApp({ config, db, mailer, ai, now: () => new Date(clock), logger: false, voiceUpstream: new FakeUpstream() });
-      p = await player();
+      const p = await player();
+      who.cookie = p.cookie;
       const res = await p.turnRes(typed('what should I cook tonight?'));
       if (clear === 'delete') {
         expect(res.statusCode, clear).toBe(401);
