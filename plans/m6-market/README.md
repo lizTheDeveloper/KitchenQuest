@@ -158,7 +158,7 @@ Where the spec, the audit and the content disagree or are silent, the planner de
 - [x] [Step 3 — Core: stall rewards, market-list amounts and stall swaps](step-3.md)
 - [x] [Step 4 — Data and content: market graph nodes, seasonal table, stall content fixes and new lines](step-4.md)
 - [x] [Step 5 — Build: stall schema and validation, the lazy market bundle and the stall voice scan](step-5.md)
-- [ ] [Step 6 — API: stall rounds, sealed health-revealing events, amounts and stock swaps](step-6.md)
+- [x] [Step 6 — API: stall rounds, sealed health-revealing events, amounts and stock swaps](step-6.md)
 - [ ] [Step 7 — API: the progress snapshot cache (m12) and the ROADMAP id test (N3)](step-7.md)
 - [ ] [Step 8 — API: the Pan at the market (check-off card, propose_check_off, N2 tuning, eval)](step-8.md)
 - [ ] [Step 9 — Game: the market scene and the stall minigames](step-9.md)
