@@ -24,6 +24,7 @@ const ctx: PromptContext = {
   turnsLeftToday: 15,
   openCards: [],
   week: { weekdays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'], hasPlan: false },
+  market: { runOpen: false },
 };
 
 describe('loadPanPrompt', () => {

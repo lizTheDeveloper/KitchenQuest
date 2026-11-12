@@ -3,6 +3,7 @@ import {
   markOutOfStock,
   marketList,
   normalizeName,
+  planWeekStart,
   STALL_IDS,
   stockSwaps,
   takeStockSwap,
@@ -17,7 +18,7 @@ import { lockLiveUser } from '../auth/live-user.js';
 import { consentHeldIn, lockConsentIn } from '../consent/ledger.js';
 import { sealFor } from '../crypto/userkeys.js';
 import { lockUserPlan } from '../db/advisory-locks.js';
-import { marketRuns } from '../db/schema.js';
+import { marketRuns, profiles } from '../db/schema.js';
 import { ApiError } from '../errors.js';
 import { changePantryIn, lockUserPantry } from '../pantry/service.js';
 import { loadPantry } from '../pantry/store.js';
@@ -108,6 +109,23 @@ export async function openRunIn(tx: Tx, deps: WeekDeps, userId: string, weekStar
   const sealed = await sealRun(tx, deps, userId, existing.id, { items, pantryIds }, at);
   await tx.update(marketRuns).set({ sealed }).where(and(eq(marketRuns.id, existing.id), eq(marketRuns.userId, userId)));
   return viewOf({ ...existing, items });
+}
+
+/**
+ * M6 Step 8: the player's OPEN market run for the plan week of `today` (their local date, Ruling 11), its rows computed
+ * now as an open computes them (C20, I1: a dish the rules now block has dropped its unticked rows), read only: no lock
+ * is taken and nothing is written (the profile is read, never created). Null when that week has no plan, the plan no
+ * run, or the run is done. The Pan's check-off matches the player's words against these rows; a tick re-reads the run
+ * under its locks (`tickIn`).
+ */
+export async function openRunViewIn(tx: Tx, deps: WeekDeps, userId: string, today: string): Promise<MarketRunView | null> {
+  const row = (await tx.select({ marketDays: profiles.marketDays }).from(profiles).where(eq(profiles.userId, userId))).at(0);
+  const plan = await loadPlan(tx, deps.keyring, userId, planWeekStart(today, row?.marketDays ?? []));
+  if (plan === null) return null;
+  const run = await loadRunForPlan(tx, deps.keyring, userId, plan.id);
+  if (run === null || run.doneAt !== null) return null;
+  const { items } = await recompute(tx, deps, userId, plan, run);
+  return viewOf({ ...run, items });
 }
 
 /** The player's run by id, row-locked; 404 when it is not theirs; 409 `run_closed` once it is done. */

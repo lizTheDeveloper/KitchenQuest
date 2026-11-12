@@ -35,6 +35,7 @@ function formIdFor(card: ProposalCard): string {
     case 'profile': return 'profile';
     case 'pantry': return 'pantry';
     case 'plan': return 'plan'; // Form 7-W (M5 Step 8; Step 10 completes the view)
+    case 'check_off': return 'market_list'; // Form 12-M (M6 Step 8, minimal; Step 10 completes the card)
   }
 }
 
@@ -71,6 +72,9 @@ function valuesFor(card: ProposalCard): Partial<Record<string, string>> {
     case 'plan':
       // The day rows are drawn by plan-view.ts (below); the form's fields keep the summary and the hard week.
       return { dishes: card.summary, hard_week: card.hard ? 'Yes' : 'No' };
+    case 'check_off':
+      // M6 Step 8 (minimal): the run's own row names, as code wrote them. Step 10 draws the rows and the stock chip.
+      return { item: card.summary };
   }
 }
 
@@ -170,7 +174,7 @@ export function renderCard(view: CardView, opts: {
   return el;
 }
 
-const TRAIL_LABEL: Readonly<Record<TrailEntry['kind'], string>> = { rule: '🛡 Stamped', meal: '📒 Logged', profile: '🗓 Inked', pantry: '🫙 Pantry', plan: '🗓 Planned' };
+const TRAIL_LABEL: Readonly<Record<TrailEntry['kind'], string>> = { rule: '🛡 Stamped', meal: '📒 Logged', profile: '🗓 Inked', pantry: '🫙 Pantry', plan: '🗓 Planned', check_off: '🧺 Ticked' };
 
 /**
  * A write in the trail (§7.0 "tap it to edit or undo", pre-flight C24). Undo lives until `undoUntil`. Edit stays

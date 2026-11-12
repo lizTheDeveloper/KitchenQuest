@@ -11,6 +11,9 @@ const MAKE_MY = new RegExp(String.raw`\bmake\b(?! (for|with|me|us|some|a|an|it)\
 /** "add milk to my pantry", "take milk off the list", "put rice in the cupboard". */
 const MOVE_ITEM = new RegExp(String.raw`\b(add|remove|put|take|cross|tick)\b[^.!?;]{0,30}\b(to|from|off|out of|in|into|on|onto) (my|our|the) ${RECORD}\b`);
 
+/** M6 Step 8: "tick the shallots", "tick off the onion", "cross the dal off": a market-list change asked for. */
+const TICK_ITEM = /\btick(s|ed)?\b|\b(check|cross)(es|ed)?\b(\s+[^\s.!?;]+){0,4}\s+off\b/;
+
 /**
  * The player's own words ask the game to change one of their records (fix round 4,
  * R9): a turn that made no card then says the scripted `write.not_done` line, so a
@@ -24,6 +27,7 @@ export function isWriteRequest(text: string, graph: IngredientGraph): boolean {
       (s) =>
         (CHANGE_VERB.test(s) && (RECORD_WORD.test(s) || severityFromText(s, graph) !== null || parseRuleStatement(s, graph) !== null)) ||
         MAKE_MY.test(s) ||
-        MOVE_ITEM.test(s),
+        MOVE_ITEM.test(s) ||
+        TICK_ITEM.test(s),
     );
 }

@@ -153,6 +153,15 @@ export function checkOffIntent(
 }
 
 /**
+ * The message reads whole as check-off clauses with no health wording outside the item names: the cheap first test the
+ * turn makes before it reads the market run (`checkOffIntent` and `checkOffWithoutRun` decide; this alone claims nothing).
+ */
+export function checkOffShaped(text: string, graph: IngredientGraph, terms: readonly RuleTerm[]): boolean {
+  const read = clausesOf(text);
+  return read !== null && !codeCardHealth(read.masked, graph, terms);
+}
+
+/**
  * M6 Step 8: the same closed grammar with no market run open (none, or the week's run is done). True when the message
  * would be claimed by `checkOffIntent` had every item been an open row: each item a food the graph names, under the
  * same whole-message and health checks. The turn then answers `market.no_run` with a chip to the list, and nothing is

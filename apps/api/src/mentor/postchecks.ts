@@ -325,6 +325,15 @@ export function applyPostChecks(
         } else out.push({ name: 'propose_navigation', args: { to, id: null } });
         break;
       }
+      case 'propose_check_off': {
+        // M6 Step 8 (Ruling 14, R5): at most one per turn; each item must be a short name in the player's own words
+        // that passes the screens, else it is dropped (never echoed). Code matches what is left to the open run.
+        if (out.some((c) => c.name === 'propose_check_off')) break;
+        const got = call.args.got.filter((w) => shortName(w, own) !== null);
+        const missing = call.args.missing.filter((w) => shortName(w, own) !== null && !got.includes(w));
+        if (got.length + missing.length > 0) out.push({ name: 'propose_check_off', args: { got, missing } });
+        break;
+      }
       case 'propose_meal_log': {
         // M4: a meal the player's text names (a pasted recipe counts: it is data, and the card asks).
         // R5: each free field must be the player's text and pass the screen, else it is dropped.
@@ -348,6 +357,17 @@ export function applyPostChecks(
   return out.filter(
     (c) => (c.name !== 'propose_meal_log' || keptMeals.has(c.args)) && (c.name !== 'propose_pantry_change' || c.args.add.length + c.args.remove.length > 0),
   );
+}
+
+/**
+ * M6 Step 8: the model's own text (never shown, R9) claims a write ("I've ticked the shallots for you") on a turn that
+ * made no card: the claim is replaced by `write.not_done`, never a bare `didnt_understand`, so a tick the model only
+ * said it made is never left to look done.
+ */
+export function claimsWriteWithoutCard(modelText: string, cards: number): boolean {
+  if (cards > 0 || modelText.trim() === '') return false;
+  const f = filterReply(modelText, { finish: 'stop' });
+  return !f.ok && f.reason === 'write_claim';
 }
 
 /**
