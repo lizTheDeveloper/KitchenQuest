@@ -34,7 +34,7 @@ export function drillFirstFor(recipe: ParsedRecipe, toolkit: ToolkitState, techn
  * The hint as an element: the line, and a chip that opens the cook's kitchen (`{ to: 'visit', cook }`). Never a
  * warning style, never a ❗; the Cook button beside it stays as it is.
  */
-export function drillFirstEl(text: string, chip: { label: string; href: string }): HTMLElement {
+function drillFirstEl(text: string, chip: { label: string; href: string }): HTMLElement {
   return h('div', { class: 'drill-first', role: 'note' },
     h('p', { class: 'drill-first-line', 'data-content': '' }, text),
     h('a', { class: 'btn btn-secondary drill-first-go', href: chip.href, 'data-content': '' }, chip.label));
