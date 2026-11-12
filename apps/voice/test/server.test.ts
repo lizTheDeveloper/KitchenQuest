@@ -4,11 +4,12 @@ import { execFile } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, test } from 'vitest';
+import { encodeFrame } from '@kitchenquest/core';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 import { boot } from '../src/boot';
 import { fakeStt, fakeTts } from '../src/engines/fake';
 import type { LogKind } from '../src/log';
-import { createVoiceServer, MAX_BUFFERED, socketIo } from '../src/server';
+import { CONGESTED_GRACE_MS, createVoiceServer, MAX_BUFFERED, socketIo } from '../src/server';
 import { connect, freePort, testConfig, TEST_TOKEN, upgradeStatus } from './helpers';
 
 const servers: { close(): Promise<void> }[] = [];
@@ -197,12 +198,14 @@ describe('fix round 2 (review N4): a client that stops reading', () => {
   function fakeWs() {
     const sent: unknown[] = [];
     const closes: number[] = [];
+    let terminated = 0;
     const ws = {
       bufferedAmount: 0,
       send: (d: unknown) => void sent.push(d),
       close: (code: number) => void closes.push(code),
+      terminate: () => void terminated++,
     };
-    return { ws, sent, closes };
+    return { ws, sent, closes, terminated: () => terminated };
   }
 
   test(`a send that leaves bufferedAmount over MAX_BUFFERED closes the socket with 1011 and reports congestion; under it, nothing closes`, () => {
@@ -230,5 +233,69 @@ describe('fix round 2 (review N4): a client that stops reading', () => {
     expect(closes).toEqual([1011]);
     io.json({ t: 'failed', id: 2, kind: 'tts' });
     expect(sent).toHaveLength(1);
+  });
+});
+
+describe('fix round 3 (review F2): a congested close ends the session at once', () => {
+  test(`over MAX_BUFFERED: the session is stopped at once (onShut), and the socket is terminated after CONGESTED_GRACE_MS, not ws's 30 s`, () => {
+    vi.useFakeTimers();
+    try {
+      const sent: unknown[] = [];
+      const closes: number[] = [];
+      let terminated = 0;
+      let shut = 0;
+      const ws = { bufferedAmount: MAX_BUFFERED + 1, send: (d: unknown) => void sent.push(d), close: (c: number) => void closes.push(c), terminate: () => void terminated++ };
+      const io = socketIo(ws, () => shut++);
+      expect(io.frame(new Uint8Array(4))).toBe(false);
+      expect(closes).toEqual([1011]);
+      expect(shut).toBe(1);
+      expect(terminated).toBe(0);
+      vi.advanceTimersByTime(CONGESTED_GRACE_MS - 1);
+      expect(terminated).toBe(0);
+      vi.advanceTimersByTime(1);
+      expect(terminated).toBe(1);
+      expect(CONGESTED_GRACE_MS).toBeLessThanOrEqual(2000);
+      // Once shut, nothing more: no second close, onShut or terminate.
+      io.json({ t: 'failed', id: 1, kind: 'tts' });
+      io.frame(new Uint8Array(4));
+      vi.advanceTimersByTime(10_000);
+      expect([closes.length, shut, terminated]).toEqual([1, 1, 1]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('a real client that stops reading: after the congested close, its listen and end reach no engine', async () => {
+    let calls = 0;
+    const server = createVoiceServer({
+      config: testConfig(),
+      stt: { model: 'counting', transcribe: () => (calls++, Promise.resolve('x')) },
+      // A TTS that floods: one speak yields far more than MAX_BUFFERED in big pieces, faster than any socket drains.
+      tts: {
+        model: 'flood',
+        sampleRate: 22_050,
+        synthesize: async function* (_t, _v, signal) {
+          for (let i = 0; i < 400 && !signal.aborted; i++) yield new Int16Array(64 * 1024);
+        },
+      },
+      log: () => {},
+    });
+    servers.push(server);
+    const c = await connect(await server.listen(0));
+    c.send({ t: 'hello', v: 1 });
+    await c.next();
+    const socket = (c.ws as unknown as { _socket: { pause(): void; resume(): void } })._socket;
+    socket.pause();
+    c.send({ t: 'speak', id: 1, voice: 'pan', chunks: [{ text: 'flood', cache: false }] });
+    await new Promise((r) => setTimeout(r, 300));
+    c.send({ t: 'listen', id: 2, hint: [] });
+    c.send(encodeFrame(2, new Int16Array(320)));
+    c.send({ t: 'end', id: 2 });
+    await new Promise((r) => setTimeout(r, CONGESTED_GRACE_MS + 300));
+    expect(calls).toBe(0);
+    // Reading again: the server already dropped the socket (terminate), so its 1011 close frame never arrives.
+    socket.resume();
+    const code = await Promise.race([c.closed, new Promise((r) => setTimeout(() => r('still open'), 3000))]);
+    expect(code).toBe(1006);
   });
 });

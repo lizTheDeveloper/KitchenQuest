@@ -140,11 +140,12 @@ describe('Session: listening', () => {
     expect(h.session.inspect()).toEqual({ utterance: null, hintWords: 0, bufferedSamples: 0, speech: null });
     await h.session.idle();
     expect(h.sent).toHaveLength(2); // ready, transcript 1; nothing for the cancelled one
-    // a new listen replaces an open one, releasing it
+    // a new listen replaces an open one, releasing it, and answers it (fix round 3: no utterance goes unanswered)
     h.msg({ t: 'listen', id: 3, hint: [] });
     h.frame(3, 320, 0x4b51);
     h.msg({ t: 'listen', id: 4, hint: [] });
     expect(allZero(h.buffers[2])).toBe(true);
+    expect(h.sent.at(-1)).toEqual({ t: 'failed', id: 3, kind: 'stt' });
     // close mid-utterance
     h.frame(4, 320, 0x4b51);
     expect(h.session.inspect().bufferedSamples).toBe(320);
@@ -369,8 +370,9 @@ describe('Session: fix round 1 (review I1, M2)', () => {
       if (id === 1) await until(() => calls === 1);
     }
     expect(calls).toBe(1);
-    // 1 was aborted by listen 2 (no reply, the one-at-a-time rule); 2, 3 and 4 each waited and were replaced; 5 waits.
-    expect(h.sent.slice(1)).toEqual([2, 3, 4].map((id) => ({ t: 'failed', id, kind: 'stt' })));
+    // 1 was aborted by listen 2 while transcribing; 2, 3 and 4 each waited and were replaced; 5 waits. Each replaced
+    // one is answered failed stt (fix round 3).
+    expect(h.sent.slice(1)).toEqual([1, 2, 3, 4].map((id) => ({ t: 'failed', id, kind: 'stt' })));
     expect(h.session.inspect()).toMatchObject({ utterance: 5, bufferedSamples: 320 });
     // Only the waiting utterance still holds audio; 1 was zeroed when replaced, 2-4 when they failed.
     expect(h.buffers.map(allZero)).toEqual([true, true, true, true, false]);
@@ -400,7 +402,11 @@ describe('Session: fix round 1 (review I1, M2)', () => {
     h.msg({ t: 'end', id: 2 });
     await until(() => h.sent.length > 1, 3000);
     await h.session.idle();
-    expect(h.sent.slice(1)).toEqual([{ t: 'transcript', id: 2, text: 'heard 6400' }]);
+    // 1 was replaced while transcribing: answered failed at once, and nothing more when its call later settles.
+    expect(h.sent.slice(1)).toEqual([
+      { t: 'failed', id: 1, kind: 'stt' },
+      { t: 'transcript', id: 2, text: 'heard 6400' },
+    ]);
     expect(calls).toEqual([320, 6400]);
     expect(h.buffers.every(allZero)).toBe(true);
     expect(h.session.inspect()).toEqual({ utterance: null, hintWords: 0, bufferedSamples: 0, speech: null });
@@ -418,10 +424,13 @@ describe('Session: fix round 1 (review I1, M2)', () => {
       h.frame(id, 320, 0x4b51);
       h.msg({ t: 'end', id });
     }
-    expect(h.sent.slice(1)).toEqual([{ t: 'failed', id: 2, kind: 'stt' }]);
+    expect(h.sent.slice(1)).toEqual([
+      { t: 'failed', id: 1, kind: 'stt' },
+      { t: 'failed', id: 2, kind: 'stt' },
+    ]);
     h.msg({ t: 'cancel', id: 3 });
     expect(allZero(h.buffers[2])).toBe(true);
-    expect(h.sent).toHaveLength(2);
+    expect(h.sent).toHaveLength(3);
     h.msg({ t: 'listen', id: 4, hint: [] });
     h.frame(4, 320, 0x4b51);
     h.msg({ t: 'end', id: 4 });
@@ -448,5 +457,35 @@ describe('Session: fix round 1 (review I1, M2)', () => {
     const late = encodeFrame(1, new Int16Array(8).fill(0x4b51));
     h.session.receive(late, true);
     expect(late.every((b) => b === 0)).toBe(true);
+  });
+});
+
+describe('Session: fix round 3 (N1 ruling): no utterance goes unanswered', () => {
+  test('an utterance replaced while being transcribed is answered failed stt at once, and its late result is never sent', async () => {
+    let finish!: (s: string) => void;
+    const slow: SttEngine = { model: 'slow', transcribe: () => new Promise<string>((r) => (finish = r)) };
+    const h = harness({ stt: slow });
+    h.msg({ t: 'listen', id: 1, hint: [] });
+    h.frame(1, 320);
+    h.msg({ t: 'end', id: 1 });
+    await until(() => typeof finish === 'function');
+    h.msg({ t: 'listen', id: 2, hint: [] });
+    expect(h.sent.slice(1)).toEqual([{ t: 'failed', id: 1, kind: 'stt' }]);
+    finish('late words');
+    await h.session.idle();
+    expect(h.sent.slice(1)).toEqual([{ t: 'failed', id: 1, kind: 'stt' }]);
+  });
+
+  test('an utterance replaced while still listening is answered failed stt; cancel and close stay silent (the API asked, or is gone)', async () => {
+    const h = harness();
+    h.msg({ t: 'listen', id: 1, hint: [] });
+    h.frame(1, 320);
+    h.msg({ t: 'listen', id: 2, hint: [] });
+    expect(h.sent.slice(1)).toEqual([{ t: 'failed', id: 1, kind: 'stt' }]);
+    h.msg({ t: 'cancel', id: 2 });
+    h.msg({ t: 'listen', id: 3, hint: [] });
+    h.session.close();
+    await h.session.idle();
+    expect(h.sent.slice(1)).toEqual([{ t: 'failed', id: 1, kind: 'stt' }]);
   });
 });

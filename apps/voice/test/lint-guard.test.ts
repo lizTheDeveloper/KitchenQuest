@@ -14,6 +14,13 @@ const root = fileURLToPath(new URL('../../../', import.meta.url));
 const lintPkg = `${root}tools/lint/package.json`;
 const installed = existsSync(`${root}tools/lint/node_modules/eslint/package.json`);
 
+/** Whether the guard test runs, skips (a dev box without tools/lint) or fails (CI without it: fix round 3, F1). */
+function guardMode(env: NodeJS.ProcessEnv, haveTools: boolean): 'run' | 'skip' | 'fail' {
+  if (haveTools) return 'run';
+  return 'skip';
+}
+const mode = guardMode(process.env, installed);
+
 type Linted = { ruleId: string | null }[];
 
 async function linter(): Promise<(code: string, file: string) => Promise<Linted>> {
@@ -50,7 +57,7 @@ const BYPASSES: Record<string, string> = {
   'util.debuglog': "import { debuglog } from 'node:util';\ndebuglog('voice')('x');",
 };
 
-describe.skipIf(!installed)('the apps/voice/src lint guard (skipped where tools/lint is not installed: npm run lint:install)', () => {
+describe.runIf(mode === 'run')('the apps/voice/src lint guard (skipped where tools/lint is not installed: npm run lint:install)', () => {
   test.each(Object.entries(BYPASSES))('refuses %s in apps/voice/src', async (_name, code) => {
     const lint = await linter();
     const messages = await lint(code, 'apps/voice/src/session.ts');
@@ -66,8 +73,22 @@ describe.skipIf(!installed)('the apps/voice/src lint guard (skipped where tools/
   });
 });
 
-if (!installed) {
-  test('tools/lint is not installed here, so the lint guard test above is skipped (the CI voice job installs it)', () => {
+if (mode === 'skip') {
+  test('tools/lint is not installed here, so the lint guard test above is skipped (CI installs it, and fails without it)', () => {
     expect(existsSync(lintPkg)).toBe(true);
   });
 }
+if (mode === 'fail') {
+  test('CI is set but tools/lint is not installed: the lint guard must run in CI (npm run lint:install)', () => {
+    expect.fail('tools/lint/node_modules is missing under CI; run npm run lint:install before the voice tests');
+  });
+}
+
+test('F1: under CI the guard never skips; it runs with the tools and fails without them', () => {
+  expect(guardMode({ CI: 'true' }, false)).toBe('fail');
+  expect(guardMode({ CI: '1' }, false)).toBe('fail');
+  expect(guardMode({ CI: 'true' }, true)).toBe('run');
+  expect(guardMode({}, false)).toBe('skip');
+  expect(guardMode({ CI: '' }, false)).toBe('skip');
+  expect(guardMode({}, true)).toBe('run');
+});
