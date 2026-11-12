@@ -104,19 +104,20 @@ export async function loadHistoryWithSnapshot(
 async function historyAndSeq(db: Reader, keyring: Keyring, userId: string, hash: string, log?: SnapshotLog) {
   const row = await snapshotRow(db, userId);
   let base: ProgressSnapshot | null = null;
+  let after: number | null = null;
   if (row !== undefined && row.catalogueHash === hash) {
     try {
       const opened = await openFor<unknown>(db, keyring, snapshotSealContext(userId), row.sealed);
       if (!isSnapshot(opened)) throw new Error('not a snapshot');
       base = opened;
+      after = row.uptoSeq;
     } catch {
       log?.warn({ progress: 'snapshot', failure: 'unseal' }, 'progress snapshot unreadable; rebuilding from the ledgers');
       await dropUnreadable(db, userId, row.uptoSeq);
     }
   }
-  const after = base === null ? null : row.uptoSeq;
   const { events, grants, lastSeq } = await loadHistoryAfter(db, keyring, userId, after);
-  return { history: { events, grants, base } satisfies ProgressHistory, lastSeq, uptoSeq: after };
+  return { history: { events, grants, base } satisfies ProgressHistory, lastSeq };
 }
 
 async function dropUnreadable(db: Reader, userId: string, uptoSeq: number): Promise<void> {
