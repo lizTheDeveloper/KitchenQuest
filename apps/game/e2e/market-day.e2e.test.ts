@@ -216,3 +216,56 @@ describe('market day (M6 Step 10)', () => {
     expect((await stored(p2)).progress.events.some((e) => e.kind === 'stall_round')).toBe(false);
   });
 });
+
+// Fix round 1 (m5): axe on every new panel, 320 px, and a keyboard-only pass over the stock control.
+describe('market day: accessibility (M6 Step 10, fix round 1 m5)', () => {
+  it('320 px, keyboard only: Out of stock? → a swap chip by Enter → Undo by Space; no horizontal scroll; axe-clean', async () => {
+    app = await openApp('/#/market', { reducedMotion: true, width: 320, seed: SEED });
+    const { page } = app;
+    await page.locator('.market-row[data-key="shallot"]').waitFor();
+    await expectNoHorizontalScroll(page);
+    const ask = page.locator('.market-row[data-key="shallot"] .stock-ask');
+    for (let i = 0; i < 80; i++) {
+      if (await ask.evaluate((el) => el === document.activeElement)) break;
+      await page.keyboard.press('Tab');
+    }
+    expect(await ask.evaluate((el) => el === document.activeElement)).toBe(true);
+    await page.keyboard.press('Enter');
+    expect(await ask.getAttribute('aria-expanded')).toBe('true');
+    // Focus moves into the offer; the first chip is the swap.
+    expect(await page.evaluate(() => (document.activeElement as HTMLElement | null)?.dataset.to)).toBe('onion');
+    await expectNoHorizontalScroll(page);
+    await expectNoA11yViolations(page, 'stock offer at 320 px');
+    await page.keyboard.press('Enter');
+    await page.locator('.market-row[data-key="stock:onion"]').waitFor();
+    // Focus stays on the row's control: its Undo.
+    await page.waitForFunction(() => document.activeElement?.classList.contains('stock-undo') === true);
+    await expectNoHorizontalScroll(page);
+    await expectNoA11yViolations(page, 'after the swap at 320 px');
+    await page.keyboard.press('Space');
+    await page.waitForFunction(() => document.querySelector('.market-row[data-key="stock:onion"]') === null);
+    expect(app.consoleErrors).toEqual([]);
+  });
+
+  it('the drill-first hint on the recipe and cook screens, and the rule form\'s which-kind choices, are axe-clean at 320 px', async () => {
+    app = await openApp(`/#/recipe/${PARIPPU}`, { reducedMotion: true, width: 320, seed: SEED });
+    const { page } = app;
+    await page.locator('.drill-first').waitFor();
+    expect(await page.locator('.cook-button').isDisabled()).toBe(false);
+    await expectNoHorizontalScroll(page);
+    await expectNoA11yViolations(page, 'recipe screen with drill-first');
+    await go(page, `#/cook/${PARIPPU}`);
+    await page.locator('.cook-head .drill-first').waitFor();
+    await expectNoA11yViolations(page, 'cook screen with drill-first');
+    await go(page, '#/rules');
+    await page.getByRole('button', { name: 'Add a rule' }).click();
+    await page.locator('#rule-search').fill('bean');
+    await page.locator('.rule-form-option', { hasText: /^bean$/ }).click();
+    await page.getByRole('button', { name: 'Fill in Form 27-B' }).click();
+    await page.locator('.rule-form-which [role="group"]').waitFor();
+    expect(await page.locator('.rule-form-choice').count()).toBeGreaterThan(1);
+    await expectNoHorizontalScroll(page);
+    await expectNoA11yViolations(page, 'rule form which-kind choices');
+    expect(app.consoleErrors).toEqual([]);
+  });
+});
