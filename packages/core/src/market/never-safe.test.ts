@@ -3,7 +3,7 @@
 // substitutions; no tip shown is for such an item; and no FAQ answer shown names one, unless it is the safety line.
 import fc from 'fast-check';
 import { describe, expect, test } from 'vitest';
-import { textMentions } from '../ingredients/mentions';
+import { pluralForms } from '../ingredients/mentions';
 import { check } from '../rules/check';
 import type { Rule, Severity } from '../rules/types';
 import { faqFor, stallBank, tipFor } from './bank';
@@ -30,7 +30,10 @@ const rulesArb = fc.array(ruleArb, { maxLength: 3 }).map((rs) =>
   })),
 );
 
-/** A question made of random graph names (and an unknown id now and then), in random places. */
+/** Over 2000 characters of words that name nothing, so a name placed after it sits far past any 500-character cap. */
+const PAD = 'Bram taps the chalkboard and talks for a while about the weather. '.repeat(31);
+
+/** A question made of random graph names (and an unknown id now and then), in random places, often at the end of a long text. */
 const nameArb = fc.oneof(fc.constantFrom(...ids).map(nameOf), fc.constant('a plain word'));
 const questionArb = fc
   .record({
@@ -40,21 +43,32 @@ const questionArb = fc
     options: fc.tuple(nameArb, nameArb, nameArb),
     reaction: nameArb,
     explain: nameArb,
+    long: fc.tuple(fc.boolean(), fc.boolean(), fc.boolean()),
   })
-  .map(({ n, contains, prompt, options, reaction, explain }): StallQuestion =>
+  .map(({ n, contains, prompt, options, reaction, explain, long }): StallQuestion =>
     question(`prop-${n}`, {
       contains,
-      prompt: `Which is ${prompt}?`,
-      options: options.map((text, k) => ({ text, correct: k === 0, reaction: k === 1 ? reaction : 'Not that.' })),
-      explain: `Because of ${explain}.`,
+      prompt: `${long[0] ? PAD : ''}Which is ${prompt}?`,
+      options: options.map((text, k) => ({ text, correct: k === 0, reaction: k === 1 ? `${long[1] ? PAD : ''}${reaction}` : 'Not that.' })),
+      explain: `${long[2] ? PAD : ''}Because of ${explain}.`,
     }),
   );
+
+/**
+ * The oracle's own scan, independent of textMentions: each text on its own, whole, lower-cased, word-bounded, with
+ * the same plural forms. It never caps, so it catches a scan that stops early.
+ */
+const KEYS = graph.labels().map((label) => ({ id: graph.resolve(label)!, forms: pluralForms(label.replace(/[^\p{L}\p{N}]+/gu, ' ').trim()) }));
+const scan = (text: string): string[] => {
+  const hay = ` ${text.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()} `;
+  return KEYS.filter((k) => k.forms[0] !== '' && k.forms.some((f) => hay.includes(` ${f} `))).map((k) => k.id);
+};
 
 /** Everything a question names: its contains, its options' contains, and every graph name in its text. */
 const named = (q: StallQuestion): string[] => [
   ...(q.contains ?? []),
   ...q.options.flatMap((o) => o.contains ?? []),
-  ...textMentions([q.prompt, ...q.options.flatMap((o) => [o.text, o.reaction]), q.explain], graph),
+  ...[q.prompt, ...q.options.flatMap((o) => [o.text, o.reaction]), q.explain].flatMap(scan),
 ];
 const aloneOk = (id: string, rules: Rule[]): boolean =>
   graph.has(id) &&
@@ -74,10 +88,10 @@ describe('never safe (spec §2.2): nothing a stall shows is ⛔ or ❓', () => {
         // FAQ: an answer that isn't the safety line names nothing that isn't ✅ alone.
         for (const f of faqFor(file, ctx)) {
           if (f.a === MEDICAL_LINE || f.a === ALLERGEN_LINE) continue;
-          for (const id of textMentions([f.a], graph)) expect(aloneOk(id, rules), `faq ${f.q} names ${id}`).toBe(true);
+          for (const id of scan(f.a)) expect(aloneOk(id, rules), `faq ${f.q} names ${id}`).toBe(true);
         }
       }),
       { numRuns: 300 },
     );
-  });
+  }, 60_000);
 });

@@ -183,4 +183,14 @@ describe('questionStatus and stallBank (spec §2.2, §3.5)', () => {
     expect(ids([phased])).not.toContain('bram-braise-cut');
     expect(ids([phased], BRAM, { date: '2026-12-05' })).toContain('bram-braise-cut');
   });
+
+  test('fix round 1, C1: a name past character 500 of the joined texts counts (the 572-character explain)', () => {
+    const explain = `${'Bram taps the chalkboard and talks about cost per serving for a long while. '.repeat(7)}Peanuts are the cheapest protein of all.`;
+    expect(explain.length).toBeGreaterThan(560);
+    const q = question('t-long', { explain });
+    expect(questionStatus(q, ctx([avoid('peanut')]))).toBe('blocked');
+    expect(stallBank({ ...BRAM, questions: [q] }, ctx([avoid('peanut')])).questions).toEqual([]);
+    expect(questionStatus(q, ctx([avoid('sesame')]))).toBe('ok');
+  });
 });
+

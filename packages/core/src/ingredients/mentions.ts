@@ -1,11 +1,15 @@
 // Which graph ingredients a piece of free text names (M5's margin-note scan, moved here in M6 Step 1 so the market's
 // stall questions are scanned the same way). Browser-safe: no I/O, no recipe parser.
-import { normalizeTurn } from '../mentor/intents';
+import { normalizeText } from '../mentor/intents';
 import type { RecipeIngredient } from '../recipe/types';
 import type { IngredientGraph } from './graph';
 
-/** Text as space-padded, normalised words (letters and digits only), so a word-bounded match is `includes(' x ')`. */
-export const words = (text: string): string => ` ${normalizeTurn(text).replace(/[^\p{L}\p{N}]+/gu, ' ').trim()} `;
+/**
+ * Text as space-padded, normalised words (letters and digits only), so a word-bounded match is `includes(' x ')`.
+ * The WHOLE text: no MAX_TEXT cap (M6 fix round 1, C1). The cap guards a player's turn input; a safety scan of
+ * written content or a stored note must read every word.
+ */
+export const words = (text: string): string => ` ${normalizeText(text).replace(/[^\p{L}\p{N}]+/gu, ' ').trim()} `;
 
 /** A bare recipe line naming `name`, with no amount: what the rules engine checks for an ingredient named in text. */
 export const lineOf = (name: string): RecipeIngredient => ({ name, displayName: null, quantity: null, unit: null, note: null });
