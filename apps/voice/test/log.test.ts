@@ -1,7 +1,7 @@
 // M7 Step 2: the service logs only enums and numbers (Global Constraints, Logs; C-18). D3: the type rule is checked
 // by tsc (typecheck runs tsconfig.test.json over this file) and again at runtime.
 import { expect, test } from 'vitest';
-import { createLogger, type LogKind } from '../src/log';
+import { createLogger, type LogKind, warningFields } from '../src/log';
 
 test('a string field is a compile error (// @ts-expect-error, checked by tsc in typecheck) and is dropped at runtime (D3)', () => {
   const lines: string[] = [];
@@ -34,7 +34,17 @@ test('non-finite numbers and odd field names are dropped too; every line is one 
   const log = createLogger((line) => lines.push(line));
   log('engine_error', { ms: Number.NaN, inf: Number.POSITIVE_INFINITY, 'with space': 1, ['a'.repeat(65)]: 2, stt: true });
   expect(lines).toEqual([JSON.stringify({ kind: 'engine_error', stt: true })]);
-  const kinds: LogKind[] = ['conn_open', 'conn_close', 'stt_done', 'tts_done', 'engine_error', 'bad_message', 'auth_fail', 'fatal'];
+  const kinds: LogKind[] = ['conn_open', 'conn_close', 'stt_done', 'tts_done', 'engine_error', 'bad_message', 'auth_fail', 'fatal', 'warning'];
   for (const k of kinds) log(k);
-  expect(lines).toHaveLength(9);
+  expect(lines).toHaveLength(10);
+});
+
+test('fix round 2 (N2): a warning is logged by name only; a free-text type is just `other`', () => {
+  const custom = new Error('zebrapeanut71');
+  custom.name = 'Zebrapeanut71Warning';
+  expect(warningFields(custom)).toEqual({ other: true });
+  const dep = new Error('deprecated zebrapeanut71');
+  dep.name = 'DeprecationWarning';
+  expect(warningFields(dep)).toEqual({ deprecation: true });
+  expect(warningFields('a string')).toEqual({ other: true });
 });

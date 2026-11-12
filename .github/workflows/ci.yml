@@ -72,6 +72,11 @@ jobs:
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            tools/lint/package-lock.json
       - run: npm ci
+      # The lint-guard test reads the real ESLint config from tools/lint (fix round 2, N6).
+      - run: npm run lint:install
       - run: npm run typecheck -w @kitchenquest/voice
       - run: npm test -w @kitchenquest/voice

@@ -20,8 +20,11 @@ const CLOSE_INTERNAL = 1011;
 const CLOSE_GOING_AWAY = 1001;
 /** A frame is 20 ms of PCM16 (644 bytes); a speak is at most a few KB of JSON. */
 const MAX_PAYLOAD = 64 * 1024;
-/** Above this many queued bytes the client is not reading: the speech stops (review M2). About 10 s of 24 kHz audio. */
-const MAX_BUFFERED = 512 * 1024;
+/**
+ * Above this many queued bytes the client is not reading: the socket is closed with 1011 and the speech stops (review
+ * M2, fix round 2 N4). About 10 s of 24 kHz audio; the API reads as fast as it forwards.
+ */
+export const MAX_BUFFERED = 512 * 1024;
 /** Step 3 binds a private address from the environment; until then, loopback only. */
 const HOST = '127.0.0.1';
 
@@ -45,6 +48,46 @@ function toBytes(data: RawData): Uint8Array {
   if (Array.isArray(data)) return Buffer.concat(data);
   if (data instanceof ArrayBuffer) return new Uint8Array(data);
   return data;
+}
+
+/** What socketIo needs of a WebSocket. */
+interface SendSocket {
+  readonly bufferedAmount: number;
+  send(data: string | Uint8Array, opts: { binary: boolean }): void;
+  close(code: number): void;
+}
+
+/**
+ * A session's sends over one socket, bounded (N4): once a send leaves more than MAX_BUFFERED queued, the client is not
+ * reading, so the socket is closed with 1011 and nothing more is queued. `frame` returns false from then on, which
+ * stops the speech.
+ */
+export function socketIo(ws: SendSocket): { json(msg: object): void; frame(bytes: Uint8Array): boolean; close(code: number): void } {
+  let shut = false;
+  const after = (): boolean => {
+    if (!shut && ws.bufferedAmount > MAX_BUFFERED) {
+      shut = true;
+      ws.close(CLOSE_INTERNAL);
+    }
+    return !shut;
+  };
+  return {
+    json: (msg) => {
+      if (shut) return;
+      ws.send(JSON.stringify(msg), { binary: false });
+      after();
+    },
+    frame: (bytes) => {
+      if (shut) return false;
+      ws.send(bytes, { binary: true });
+      return after();
+    },
+    close: (code) => {
+      if (shut) return;
+      shut = true;
+      ws.close(code);
+    },
+  };
 }
 
 export function createVoiceServer(opts: { config: VoiceConfig; stt: SttEngine; tts: TtsEngine; log: Logger }): {
@@ -108,14 +151,7 @@ export function createVoiceServer(opts: { config: VoiceConfig; stt: SttEngine; t
       cast: config.cast,
       cache,
       log,
-      io: {
-        json: (msg) => ws.send(JSON.stringify(msg)),
-        frame: (bytes) => {
-          ws.send(bytes, { binary: true });
-          return ws.bufferedAmount <= MAX_BUFFERED;
-        },
-        close: (code) => ws.close(code),
-      },
+      io: socketIo(ws),
     });
     ws.on('message', (data: RawData, binary: boolean) => {
       try {

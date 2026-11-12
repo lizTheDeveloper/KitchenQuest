@@ -1,7 +1,7 @@
 // M7 Step 2: the WebSocket server. Only the API may connect (a shared bearer token, compared in constant time); the
 // service knows no user and logs only enums and numbers.
+import { execFile } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
-import { connect as netConnect, type Socket } from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, test } from 'vitest';
@@ -125,49 +125,15 @@ test('P2: apps/voice/src never imports speechText or speechChunks; the API alone
 });
 
 describe('fix round 1 (review I1, I3)', () => {
-  // The reviewer's probe: 300 raw upgrades with a bad token, each then sending 5 × 60 KB and never answering a close.
-  // A socket that is upgraded (101) is kept open, so every refusal is concurrent with it; it is destroyed at the end.
+  // The reviewer's probe (test/fixtures/upgrade-probe.mjs), in a child process: memory measured here is the server's.
   async function probe(port: number, authorization: string, count = 300): Promise<{ closedWithin: number; statuses: Map<string, number> }> {
-    const junk = Buffer.alloc(60 * 1024, 0x4b);
-    const statuses = new Map<string, number>();
-    const upgraded: Socket[] = [];
-    const started = Date.now();
-    await Promise.all(
-      Array.from(
-        { length: count },
-        () =>
-          new Promise<void>((resolve) => {
-            const sock = netConnect(port, '127.0.0.1', () => {
-              sock.write(
-                'GET / HTTP/1.1\r\nHost: x\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\n' +
-                  `Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nAuthorization: ${authorization}\r\n\r\n`,
-              );
-              if (!authorization.includes(TEST_TOKEN)) for (let i = 0; i < 5; i++) sock.write(junk);
-            });
-            let head = '';
-            let done = false;
-            const finish = () => {
-              if (done) return;
-              done = true;
-              const status = /^HTTP\/1\.1 (\d{3})/.exec(head)?.[1] ?? 'none';
-              statuses.set(status, (statuses.get(status) ?? 0) + 1);
-              resolve();
-            };
-            sock.on('data', (d: Buffer) => {
-              if (head.length < 64) head += d.toString('latin1');
-              if (head.startsWith('HTTP/1.1 101')) {
-                upgraded.push(sock);
-                finish();
-              }
-            });
-            sock.on('error', () => {});
-            sock.on('close', finish);
-          }),
-      ),
-    );
-    const closedWithin = Date.now() - started;
-    for (const u of upgraded) u.destroy();
-    return { closedWithin, statuses };
+    const script = fileURLToPath(new URL('./fixtures/upgrade-probe.mjs', import.meta.url));
+    const junk = authorization.includes(TEST_TOKEN) ? '0' : '1';
+    const out = await new Promise<string>((resolve, reject) => {
+      execFile(process.execPath, [script, String(port), authorization, String(count), junk], { timeout: 20_000 }, (err, stdout) => (err ? reject(new Error(`upgrade probe failed: ${err.message}`)) : resolve(stdout)));
+    });
+    const r = JSON.parse(out) as { closedWithin: number; statuses: Record<string, number> };
+    return { closedWithin: r.closedWithin, statuses: new Map(Object.entries(r.statuses)) };
   }
 
   test('I3: 300 unauthenticated upgrades are refused with 401 and every socket is closed by the server within 3 s; memory stays bounded', async () => {
@@ -179,8 +145,8 @@ describe('fix round 1 (review I1, I3)', () => {
     expect(statuses.get('401')).toBe(300);
     expect(logs.filter(([k]) => k === 'auth_fail')).toHaveLength(300);
     expect(logs.some(([k]) => k === 'conn_open')).toBe(false);
-    // The server never reads the 1.5 MB per socket it was sent: growth far below 300 × 300 KB (~88 MB).
-    expect(after.heapUsed + after.arrayBuffers - (before.heapUsed + before.arrayBuffers)).toBeLessThan(30 * 1024 * 1024);
+    // The server never reads the 300 KB each socket sent (88 MB in all): it grows by far less than one socket's worth each.
+    expect(after.heapUsed + after.arrayBuffers - (before.heapUsed + before.arrayBuffers)).toBeLessThan(20 * 1024 * 1024);
   });
 
   test('I3: over capacity, pending upgrades count: 300 authorised upgrades against maxConnections 2 → 2 upgraded, 298 refused with 503, all closed', async () => {

@@ -2,13 +2,15 @@
 // answers `ready` with its cast. Audio travels as binary frames (protocol.ts `encodeFrame`). The service never gets a
 // user id (C-15), and speaks `chunks` verbatim: the API alone renders and chunks speech (P2). Browser-safe: no I/O.
 //
-// The one-at-a-time rule (M7 Step 2 fix round 1, for Step 5): a service session holds at most one utterance and one
-// speech. A `listen` replaces any earlier utterance, still listening or still being transcribed, and that one gets
-// NO reply: no `transcript` and no `failed`. A `speak` likewise replaces the speech in flight, which gets no
-// `audio_end`. `cancel` gets no reply either. The API must therefore stop waiting on an id the moment it sends a new
-// `listen` (or `speak`) or a `cancel`, and never wait on a superseded id. Also: an `end` with no audio, or a blank
-// transcript, is `failed` stt, and while an aborted transcription is still running in the engine a new `end` is
-// `failed` stt as well (at most one transcription in flight).
+// The one-at-a-time rule (M7 Step 2 fix rounds 1 and 2, for Step 5): a service session holds at most one live
+// utterance and one speech.
+// - A `listen` replaces an earlier utterance that is still listening or still being transcribed, and that one gets NO
+//   reply: no `transcript` and no `failed`. The API must stop waiting on an id the moment it sends a newer `listen`.
+// - Queueing: an utterance that ends while the engine is still finishing an earlier (aborted) call waits, and is
+//   transcribed as soon as that call settles: its `transcript` (or `failed`) comes later, never lost. At most one
+//   waits: a `listen` arriving while one waits answers the waiting one `failed` stt, explicitly.
+// - A `speak` replaces the speech in flight, which gets no `audio_end`. `cancel` gets no reply.
+// - An `end` with no audio, or a blank transcript, is `failed` stt.
 import { MAX_TEXT } from '../mentor/intents';
 import { HINT_MAX_WORDS, MAX_SPEAK_CHARS, MAX_SPEAK_ITEMS } from './constants';
 import { hasExactKeys, isBoundedText, isIndex, isShortString, isU32, plainObject } from './wire';

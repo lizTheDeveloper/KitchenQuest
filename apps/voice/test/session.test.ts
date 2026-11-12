@@ -420,7 +420,7 @@ describe('Session: fix round 1 (review I1, M2)', () => {
     }
     expect(h.sent.slice(1)).toEqual([{ t: 'failed', id: 2, kind: 'stt' }]);
     h.msg({ t: 'cancel', id: 3 });
-    expect(allZero(h.buffers[2]!)).toBe(true);
+    expect(allZero(h.buffers[2])).toBe(true);
     expect(h.sent).toHaveLength(2);
     h.msg({ t: 'listen', id: 4, hint: [] });
     h.frame(4, 320, 0x4b51);

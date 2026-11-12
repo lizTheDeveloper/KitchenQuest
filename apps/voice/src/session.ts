@@ -46,6 +46,8 @@ interface Utterance {
   buf: Int16Array;
   len: number;
   ended: boolean;
+  /** Ended, and queued until the engine lets go of an earlier (aborted) call (fix round 2, N1). */
+  waiting: boolean;
   abort: AbortController;
 }
 
@@ -193,8 +195,13 @@ export class Session {
   }
 
   private listen(id: number, hint: string[]): void {
-    this.dropUtterance(); // one utterance at a time: a new listen replaces the old, which gets no reply
-    this.utterance = { id, hint: hint.slice(0, HINT_MAX_WORDS), buf: this.alloc(MAX_SAMPLES), len: 0, ended: false, abort: new AbortController() };
+    const old = this.utterance;
+    if (old?.waiting) {
+      // A queued utterance replaced before it ever reached the engine is answered, never dropped silently (N1).
+      this.release(old);
+      this.send({ t: 'failed', id: old.id, kind: 'stt' });
+    } else this.dropUtterance(); // one utterance at a time: a new listen replaces one listening or transcribing, with no reply
+    this.utterance = { id, hint: hint.slice(0, HINT_MAX_WORDS), buf: this.alloc(MAX_SAMPLES), len: 0, ended: false, waiting: false, abort: new AbortController() };
   }
 
   private release(u: Utterance): void {
@@ -218,10 +225,15 @@ export class Session {
       return this.send({ t: 'failed', id: u.id, kind: 'stt' });
     }
     if (this.transcribing > 0) {
-      // The engine still holds an earlier (aborted) utterance: refuse rather than start a second call.
-      this.release(u);
-      return this.send({ t: 'failed', id: u.id, kind: 'stt' });
+      // The engine still holds an earlier (aborted) call, and a decode may not be interruptible: queue this one and
+      // start it when that call settles. At most one waits; the next listen replaces it with a `failed` (N1).
+      u.waiting = true;
+      return;
     }
+    this.transcribe(u);
+  }
+
+  private transcribe(u: Utterance): void {
     const started = Date.now();
     const samples = u.len;
     const signal = u.abort.signal;
@@ -251,6 +263,11 @@ export class Session {
         .finally(() => {
           this.transcribing--;
           this.release(u);
+          const next = this.utterance;
+          if (next?.waiting && !this.closed) {
+            next.waiting = false;
+            this.transcribe(next);
+          }
         }),
     );
   }

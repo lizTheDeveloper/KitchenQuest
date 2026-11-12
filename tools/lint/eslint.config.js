@@ -123,12 +123,12 @@ export default tseslint.config(
     rules: { '@typescript-eslint/require-await': 'off' },
   },
 
-  // M7 C-18: apps/voice logs only through its typed logger (log.ts), which keeps numbers and enums. No console, and no
-  // direct stdout or stderr anywhere else, so a stray `console.log(frame)` is a lint failure. main.ts writes a boot
-  // refusal (config only, before any session) to stderr.
+  // M7 C-18: apps/voice logs only through its typed logger (log.ts), which keeps numbers and enums, and writes nothing
+  // to disk. No console; no process.stdout or process.stderr, as members or as node:process imports; no fs writes
+  // (named, default, namespace or dynamic imports); no util.debuglog. log.ts is the one exception (fix round 2, N6).
   {
     files: ['apps/voice/src/**/*.ts'],
-    ignores: ['apps/voice/src/log.ts', 'apps/voice/src/main.ts'],
+    ignores: ['apps/voice/src/log.ts'],
     languageOptions: { globals: globals.node },
     rules: {
       'no-console': 'error',
@@ -137,12 +137,35 @@ export default tseslint.config(
         { object: 'process', property: 'stdout', message: 'apps/voice logs only through log.ts (C-18).' },
         { object: 'process', property: 'stderr', message: 'apps/voice logs only through log.ts (C-18).' },
       ],
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: ['process', 'node:process'].map((name) => ({
+            name,
+            importNames: ['stdout', 'stderr', 'default'],
+            message: 'apps/voice logs only through log.ts (C-18).',
+          })).concat(
+            ['fs', 'node:fs', 'fs/promises', 'node:fs/promises'].map((name) => ({
+              name,
+              importNames: ['writeFile', 'writeFileSync', 'appendFile', 'appendFileSync', 'write', 'writeSync', 'writev', 'writevSync', 'createWriteStream', 'open', 'openSync', 'cp', 'cpSync', 'copyFile', 'copyFileSync', 'mkdtemp', 'mkdtempSync', 'rename', 'renameSync', 'truncate', 'truncateSync', 'default'],
+              message: 'apps/voice never writes to disk (C-18).',
+            })),
+            ['util', 'node:util'].map((name) => ({ name, importNames: ['debuglog', 'debug'], message: 'apps/voice logs only through log.ts (C-18).' })),
+          ),
+        },
+      ],
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'ImportDeclaration[source.value=/^(node:)?(fs|fs\\/promises|process)$/] > ImportNamespaceSpecifier',
+          message: 'apps/voice: import only the names it needs from fs or process (C-18).',
+        },
+        {
+          selector: 'ImportExpression[source.value=/^(node:)?(fs|fs\\/promises|process|util)$/]',
+          message: 'apps/voice: no dynamic import of fs, process or util (C-18).',
+        },
+      ],
     },
-  },
-  {
-    files: ['apps/voice/src/log.ts', 'apps/voice/src/main.ts'],
-    languageOptions: { globals: globals.node },
-    rules: { 'no-console': 'error' },
   },
 
   // Scripts and one-shot CLIs: console output is their interface.

@@ -18,7 +18,11 @@ type Linted = { ruleId: string | null }[];
 
 async function linter(): Promise<(code: string, file: string) => Promise<Linted>> {
   const req = createRequire(lintPkg);
-  const { ESLint, Linter } = req('eslint') as typeof import('eslint');
+  // Typed by hand: eslint's own types live in tools/lint, outside this workspace's resolution.
+  const { ESLint, Linter } = req('eslint') as {
+    ESLint: new (o: { cwd: string }) => { calculateConfigForFile(f: string): Promise<unknown> };
+    Linter: new (o: { configType: 'flat' }) => { verify(code: string, config: unknown[], file: string): Linted };
+  };
   const tsParser = req('@typescript-eslint/parser') as object;
   const eslint = new ESLint({ cwd: root });
   const GUARD = ['no-console', 'no-restricted-properties', 'no-restricted-imports', 'no-restricted-syntax'];
