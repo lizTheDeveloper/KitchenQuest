@@ -1878,7 +1878,7 @@
       "isA": [
         "meat"
       ],
-      "source": "A category: beef in any cut. No single FDC record (cut, trim and bone vary), so no nutrition values."
+      "source": "Category; no single FDC record."
     },
     {
       "id": "chicken",
@@ -1886,7 +1886,7 @@
       "isA": [
         "meat"
       ],
-      "source": "A category: chicken in any part. No single FDC record (part and skin vary), so no nutrition values."
+      "source": "Category; no single FDC record."
     },
     {
       "id": "lamb",
@@ -1894,7 +1894,7 @@
       "isA": [
         "meat"
       ],
-      "source": "A category: lamb in any cut. No single FDC record (cut and trim vary), so no nutrition values."
+      "source": "Category; no single FDC record."
     },
     {
       "id": "chuck",
@@ -1906,7 +1906,7 @@
       "isA": [
         "beef"
       ],
-      "source": "Big Bram's braising cut. FDC lists chuck by trim and grade; none chosen, so no nutrition values."
+      "source": "No FDC record chosen (cut and trim vary)."
     },
     {
       "id": "short_rib",
@@ -1914,7 +1914,7 @@
       "isA": [
         "beef"
       ],
-      "source": "Beef short ribs (named with \"beef\": pork short ribs exist too). Bone share varies; no FDC record chosen, no nutrition values."
+      "source": "No FDC record chosen (cut and trim vary)."
     },
     {
       "id": "shank",
@@ -1922,7 +1922,7 @@
       "isA": [
         "beef"
       ],
-      "source": "Beef shank (named with \"beef\": lamb and pork shanks exist too). No FDC record chosen, no nutrition values."
+      "source": "No FDC record chosen (cut and trim vary)."
     },
     {
       "id": "strip_steak",
@@ -1933,7 +1933,7 @@
       "isA": [
         "beef"
       ],
-      "source": "Beef strip loin steak. FDC lists it by trim and grade; none chosen, so no nutrition values."
+      "source": "No FDC record chosen (cut and trim vary)."
     },
     {
       "id": "ribeye",
@@ -1946,7 +1946,7 @@
       "isA": [
         "beef"
       ],
-      "source": "Beef rib-eye steak. FDC lists it by trim and grade; none chosen, so no nutrition values."
+      "source": "No FDC record chosen (cut and trim vary)."
     },
     {
       "id": "flank_steak",
@@ -1954,7 +1954,7 @@
       "isA": [
         "beef"
       ],
-      "source": "Beef flank steak. FDC lists it by trim; none chosen, so no nutrition values."
+      "source": "No FDC record chosen (cut and trim vary)."
     },
     {
       "id": "brisket",
@@ -1962,7 +1962,7 @@
       "isA": [
         "beef"
       ],
-      "source": "Beef brisket. FDC lists it by trim and cut point; none chosen, so no nutrition values."
+      "source": "No FDC record chosen (cut and trim vary)."
     },
     {
       "id": "ground_beef",
@@ -1974,7 +1974,7 @@
       "isA": [
         "beef"
       ],
-      "source": "Ground beef. Its lean-to-fat ratio varies (FDC lists 70% to 97% lean); none chosen, so no nutrition values."
+      "source": "No FDC record chosen (cut and trim vary)."
     },
     {
       "id": "chicken_thigh",
@@ -1982,7 +1982,7 @@
       "isA": [
         "chicken"
       ],
-      "source": "Sold bone-in or boneless, with or without skin; no FDC record chosen, no nutrition values."
+      "source": "No FDC record chosen (cut and trim vary)."
     },
     {
       "id": "chicken_breast",
@@ -1990,7 +1990,7 @@
       "isA": [
         "chicken"
       ],
-      "source": "Sold bone-in or boneless, with or without skin; no FDC record chosen, no nutrition values."
+      "source": "No FDC record chosen (cut and trim vary)."
     },
     {
       "id": "whole_chicken",
@@ -1998,7 +1998,7 @@
       "isA": [
         "chicken"
       ],
-      "source": "A whole bird. No nutrition values (what is eaten varies)."
+      "source": "No FDC record chosen."
     },
     {
       "id": "pork_shoulder",
@@ -2010,7 +2010,7 @@
       "isA": [
         "pork"
       ],
-      "source": "Pork shoulder (Boston butt). No FDC record chosen (trim varies), no nutrition values."
+      "source": "No FDC record chosen (cut and trim vary)."
     },
     {
       "id": "pork_tenderloin",
@@ -2018,7 +2018,7 @@
       "isA": [
         "pork"
       ],
-      "source": "No FDC record chosen (trim varies), no nutrition values."
+      "source": "No FDC record chosen (cut and trim vary)."
     },
     {
       "id": "pork_chop",
@@ -2029,7 +2029,7 @@
       "isA": [
         "pork"
       ],
-      "source": "No FDC record chosen (cut, bone and trim vary), no nutrition values."
+      "source": "No FDC record chosen (cut and trim vary)."
     },
     {
       "id": "lamb_shoulder",
@@ -2037,13 +2037,13 @@
       "isA": [
         "lamb"
       ],
-      "source": "No FDC record chosen (trim and origin vary), no nutrition values."
+      "source": "No FDC record chosen (cut and trim vary)."
     },
     {
       "id": "bean",
       "name": "bean",
       "broad": true,
-      "source": "A category: beans of any kind (kidney, black, chickpea, pea, edamame, lupini, canned). No FDC record for the category, so no nutrition values. Broad: never a rule target; a rule naming it gets an ask for which kind. A \"beans\" line still reaches a rule on any kind through its isA kinds."
+      "source": "Category (broad); no FDC record."
     },
     {
       "id": "kidney_bean",
@@ -2108,7 +2108,7 @@
         "sodium_mg": 5
       },
       "fdcId": 170419,
-      "source": "FDC 170419 (Peas, green, raw). Raw green peas; frozen peas are close. No lupin edge: pea and lupin cross-reactivity is a clinical question, not a graph edge."
+      "source": "FDC 170419 (Peas, green, raw). No lupin edge."
     },
     {
       "id": "canned_bean",
@@ -2120,7 +2120,7 @@
         "bean"
       ],
       "labelDependent": true,
-      "source": "Canned or tinned beans of any kind. Label-dependent: the can may hold more than beans and water (salt, sugar, sauce, additives), so never verified under a restricting rule. No nutrition values."
+      "source": "Label-dependent: the can may hold more than beans. No FDC record."
     },
     {
       "id": "lentil",
@@ -2176,7 +2176,7 @@
         "sodium_mg": 17
       },
       "fdcId": 172436,
-      "source": "FDC 172436 (Pigeon peas (red gram), mature seeds, raw). FDC 172436 is whole pigeon peas; split, dehulled dal has somewhat less fibre."
+      "source": "FDC 172436 (Pigeon peas (red gram), mature seeds, raw). Whole seeds; split dal has less fibre."
     },
     {
       "id": "edamame",
@@ -2197,7 +2197,7 @@
         "sodium_mg": 6
       },
       "fdcId": 168410,
-      "source": "FDC 168410 (Edamame, frozen, unprepared). Young soybeans, so they contain soy."
+      "source": "FDC 168410 (Edamame, frozen, unprepared). Young soybeans: contains soy."
     },
     {
       "id": "tofu",
@@ -2209,7 +2209,7 @@
       "contains": [
         "soy"
       ],
-      "source": "A category: tofu of any firmness. It is made from soy milk, so it contains soy. No single FDC record (water content varies by style), so no nutrition values."
+      "source": "Category; made from soy milk, so contains soy. No single FDC record."
     },
     {
       "id": "silken_tofu",
@@ -2217,7 +2217,7 @@
       "isA": [
         "tofu"
       ],
-      "source": "Silken tofu (a kind of tofu, so it contains soy). FDC has only branded silken records; none used, no nutrition values."
+      "source": "Only branded FDC records; none used."
     },
     {
       "id": "soft_tofu",
@@ -2295,7 +2295,7 @@
         "sodium_mg": 16
       },
       "fdcId": 172451,
-      "source": "FDC 172451 (Tofu, fried). Fried tofu. The frying oil is not on every label."
+      "source": "FDC 172451 (Tofu, fried). Fried tofu."
     },
     {
       "id": "yuba",
@@ -2307,7 +2307,7 @@
       "contains": [
         "soy"
       ],
-      "source": "The skin lifted from heated soy milk, so it contains soy. No FDC record, no nutrition values."
+      "source": "Soy-milk skin, so contains soy. No FDC record."
     },
     {
       "id": "tempeh",
@@ -2323,7 +2323,7 @@
         "sodium_mg": 9
       },
       "fdcId": 174272,
-      "source": "FDC 174272 (Tempeh). Fermented whole soybeans, so it contains soy. Some tempeh adds grains (barley, rice, wheat); check the label."
+      "source": "FDC 174272 (Tempeh). Contains soy; some add grains."
     },
     {
       "id": "miso",
@@ -2342,7 +2342,7 @@
         "sodium_mg": 3728
       },
       "fdcId": 172442,
-      "source": "FDC 172442 (Miso). Fermented soybean paste, so it contains soy. Label-dependent: many miso pastes are made with barley or rice, and some have dashi (fish) added, so never verified under a restricting rule."
+      "source": "FDC 172442 (Miso). Contains soy; label-dependent (barley, rice, dashi)."
     },
     {
       "id": "seitan",
@@ -2353,7 +2353,7 @@
       "unsafeFor": [
         "soy"
       ],
-      "source": "Made from wheat gluten, so it contains wheat (and gluten). Shop seitan is often simmered in soy sauce, so it is treated as unsafe for a soy rule too. No FDC record (vital wheat gluten is the raw ingredient, not seitan), no nutrition values."
+      "source": "Wheat gluten, so contains wheat; unsafeFor soy (often simmered in soy sauce). No FDC record."
     },
     {
       "id": "paneer",
@@ -2361,7 +2361,7 @@
       "contains": [
         "milk"
       ],
-      "source": "A fresh cheese set from milk with acid, so it contains milk. No FDC record, no nutrition values."
+      "source": "Milk cheese, so contains milk. No FDC record."
     },
     {
       "id": "greek_yogurt",
@@ -2373,7 +2373,7 @@
       "contains": [
         "milk"
       ],
-      "source": "Strained yogurt, so it contains milk. FDC lists Greek yogurt by fat level; none chosen, no nutrition values."
+      "source": "Strained yogurt, so contains milk. FDC lists it by fat level; none chosen."
     },
     {
       "id": "avocado",
@@ -2439,7 +2439,7 @@
       "id": "berry",
       "name": "berry",
       "broad": true,
-      "source": "A category: berries of any kind. No FDC record for the category, so no nutrition values. Broad: never a rule target; a rule naming it gets an ask for which kind."
+      "source": "Category (broad); no FDC record."
     },
     {
       "id": "strawberry",
@@ -2603,7 +2603,7 @@
         "sodium_mg": 20
       },
       "fdcId": 169246,
-      "source": "FDC 169246 (Leeks, (bulb and lower leaf-portion), raw). An allium; filed under fodmap_fructan too, as onion, shallot and garlic are (the green tops are lower in fructans, but a leek line names the whole leek)."
+      "source": "FDC 169246 (Leeks, (bulb and lower leaf-portion), raw). An allium; filed under fodmap_fructan too."
     },
     {
       "id": "green_onion",
@@ -2626,12 +2626,12 @@
         "sodium_mg": 16
       },
       "fdcId": 170005,
-      "source": "FDC 170005 (Onions, spring or scallions (includes tops and bulb), raw). An allium; filed under fodmap_fructan too (the white bulb is high in fructans, the green tops lower; a line names the whole onion)."
+      "source": "FDC 170005 (Onions, spring or scallions (includes tops and bulb), raw). An allium; filed under fodmap_fructan too."
     },
     {
       "id": "mushroom",
       "name": "mushroom",
-      "source": "A category: fresh mushrooms of any kind (white, cremini, wild). No single FDC record, so no nutrition values."
+      "source": "Category; no single FDC record."
     },
     {
       "id": "lemon",
@@ -2701,12 +2701,12 @@
     {
       "id": "nettle",
       "name": "stinging nettle",
-      "source": "Young stinging nettles. FDC has only a blanched record (169819), not raw; none used, no nutrition values."
+      "source": "FDC has only a blanched record (169819); none used."
     },
     {
       "id": "coriander",
       "name": "coriander",
-      "source": "A category: the coriander plant, leaf (cilantro) and seed. A rule on coriander covers both; a rule on cilantro covers only the leaf. No FDC record for the category, so no nutrition values."
+      "source": "Category: leaf (cilantro) and seed; no FDC record."
     },
     {
       "id": "cilantro",
@@ -2801,7 +2801,7 @@
         "sodium_mg": 52
       },
       "fdcId": 169385,
-      "source": "FDC 169385 (Fennel, bulb, raw). The plant and its bulb. Fennel seed is filed under it, so a rule on fennel covers the seed."
+      "source": "FDC 169385 (Fennel, bulb, raw). Fennel seed is filed under it."
     },
     {
       "id": "chili",
@@ -2811,7 +2811,7 @@
         "chilli pepper",
         "chili pepper"
       ],
-      "source": "A category: chillies, fresh or dried, and ground chilli. The green, dried red and paprika nodes are filed under it. No FDC record for the category, so no nutrition values."
+      "source": "Category: fresh, dried and ground chillies; no FDC record."
     },
     {
       "id": "cumin",
@@ -2820,7 +2820,7 @@
         "jeera",
         "ground cumin"
       ],
-      "source": "A category: the spice, whole or ground. Cumin seed is filed under it (its FDC record, 170923, stays on cumin_seed), so no nutrition values here."
+      "source": "Category: whole or ground; the FDC record (170923) is on cumin_seed."
     },
     {
       "id": "coriander_seed",
@@ -2877,7 +2877,7 @@
         "sodium_mg": 10
       },
       "fdcId": 171320,
-      "source": "FDC 171320 (Spices, cinnamon, ground). Values are for ground cinnamon."
+      "source": "FDC 171320 (Spices, cinnamon, ground). Ground values."
     },
     {
       "id": "clove",
@@ -2895,7 +2895,7 @@
         "sodium_mg": 277
       },
       "fdcId": 171321,
-      "source": "FDC 171321 (Spices, cloves, ground). Values are for ground cloves."
+      "source": "FDC 171321 (Spices, cloves, ground). Ground values."
     },
     {
       "id": "black_pepper",
@@ -2936,7 +2936,7 @@
         "sodium_mg": 68
       },
       "fdcId": 171329,
-      "source": "FDC 171329 (Spices, paprika). Ground dried capsicum, filed under chilli so a chilli rule covers it."
+      "source": "FDC 171329 (Spices, paprika). Filed under chilli."
     },
     {
       "id": "fennel_seed",
@@ -2958,7 +2958,7 @@
     {
       "id": "star_anise",
       "name": "star anise",
-      "source": "No FDC record (anise seed, 171316, is a different plant), no nutrition values."
+      "source": "No FDC record (anise seed 171316 is another plant)."
     },
     {
       "id": "nutmeg",
@@ -2973,7 +2973,7 @@
         "sodium_mg": 16
       },
       "fdcId": 171326,
-      "source": "FDC 171326 (Spices, nutmeg, ground). A seed, not a tree nut; no tree-nut edge."
+      "source": "FDC 171326 (Spices, nutmeg, ground). A seed, not a tree nut."
     },
     {
       "id": "saffron",
@@ -3030,7 +3030,7 @@
       "unsafeFor": [
         "oregano"
       ],
-      "source": "Lippia graveolens (verbena family), a different plant from oregano (Origanum), sold and named as oregano, so treated as unsafe for an oregano rule. No FDC record, no nutrition values."
+      "source": "Lippia, not Origanum, but sold as oregano: unsafeFor oregano. No FDC record."
     },
     {
       "id": "asafoetida",
@@ -3042,13 +3042,13 @@
         "wheat"
       ],
       "labelDependent": true,
-      "source": "Ground (compounded) asafoetida is commonly cut with wheat flour, so it contains wheat. Label-dependent: a gluten-free version exists but can not be verified from here, so it is never verified under a restricting rule. No FDC record, no nutrition values."
+      "source": "Compounded with flour, often wheat: contains wheat; label-dependent. No FDC record."
     },
     {
       "id": "garam_masala",
       "name": "garam masala",
       "labelDependent": true,
-      "source": "A spice blend whose recipe varies by region and family. Label-dependent: never verified under a restricting rule. No FDC record, no nutrition values."
+      "source": "Blend; label-dependent. No FDC record."
     },
     {
       "id": "curry_powder",
@@ -3064,7 +3064,7 @@
         "sodium_mg": 52
       },
       "fdcId": 170924,
-      "source": "FDC 170924 (Spices, curry powder). A blend whose recipe varies. Label-dependent: never verified under a restricting rule."
+      "source": "FDC 170924 (Spices, curry powder). Blend; label-dependent."
     },
     {
       "id": "furikake",
@@ -3074,7 +3074,7 @@
         "fish"
       ],
       "labelDependent": true,
-      "source": "A Japanese rice seasoning, usually with sesame and bonito (fish). Label-dependent: many add soy, wheat or egg, so it is never verified under a restricting rule. No FDC record, no nutrition values."
+      "source": "Usually sesame and bonito; label-dependent. No FDC record."
     }
   ]
 }

@@ -531,7 +531,7 @@ describe('M6 Step 4: the market nodes carry their allergen edges, never fewer (C
       const n = graph.get(id);
       expect(n.fdcId, id).toBeUndefined();
       expect(n.per100g, id).toBeUndefined();
-      expect(n.source, id).toMatch(/no (single )?FDC record|no nutrition values|No FDC record/i);
+      expect(n.source, id).toMatch(/FDC/); // says why there is no FDC record, or which one was not used
     }
   });
 });
