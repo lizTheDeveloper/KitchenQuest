@@ -50,6 +50,7 @@ export function kqContent(opts: { repoRoot: string }): Plugin {
   const { repoRoot } = opts;
   let version: string | null = null;
   let marketVersion: string | null = null;
+  let command: 'build' | 'serve' = 'serve';
   const compile = (ctx: Rolldown.PluginContext): GameContent => {
     for (const path of [...contentPaths(repoRoot), PINS_PATH]) ctx.addWatchFile(join(repoRoot, path));
     try {
@@ -70,14 +71,21 @@ export function kqContent(opts: { repoRoot: string }): Plugin {
       /** The market module's version. It is in the market chunk's code, so the budget check can find that chunk. */
       marketVersion: () => marketVersion,
     },
+    configResolved(config) {
+      command = config.command;
+    },
     resolveId(id) {
       if (id === VIRTUAL_ID) return RESOLVED_ID;
       if (id === MARKET_VIRTUAL_ID) return RESOLVED_MARKET_ID;
       return undefined;
     },
     // Validate up front, so invalid content fails the build even before anything imports the module.
+    // In a production build the market module is always its own chunk, named `market`, even before a screen imports
+    // it: the service worker precaches it (practice works offline) and the budget check measures it. A screen's
+    // `import('virtual:kq-market')` (src/market/content.ts) loads that same chunk.
     buildStart() {
       compile(this);
+      if (command === 'build') this.emitFile({ type: 'chunk', id: MARKET_VIRTUAL_ID, name: 'market', preserveSignature: 'strict' });
     },
     load(id) {
       if (id === RESOLVED_ID) return contentModule(compile(this));
