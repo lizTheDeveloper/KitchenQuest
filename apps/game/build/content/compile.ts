@@ -58,7 +58,7 @@ import {
   substitutionsFile,
   techniquesFile,
 } from './schemas';
-import { pinProblems, type MarketPins } from './market';
+import { pinProblems, stallQuestions, type MarketPins } from './market';
 
 export class ContentError extends Error {
   problems: string[];
@@ -352,6 +352,8 @@ export function compileContent(files: Record<string, string>, opts: CompileOptio
   const roundForm = bureau && Object.hasOwn(bureau.forms, STALL_ROUND_FORM) ? bureau.forms[STALL_ROUND_FORM] : undefined;
   if (bureau && roundForm && roundForm.game === undefined) fail(BUREAU, `forms.${STALL_ROUND_FORM}.game is missing: it names every minigame a stall may use`);
   const knownGames = new Set(Object.keys(roundForm?.game ?? {}));
+  // A question id is unique across every stall too: events and pins name a question by id alone (Step 3 M4).
+  const questionAt = new Map<string, string>();
   for (const [id, stall] of Object.entries(stalls)) {
     const path = stallPathOf.get(id) ?? `content/market/${id}.yaml`;
     // Core's check (shared with the API boot, Step 6): ids in the graph, one correct of 3–4 options, games, country
@@ -360,6 +362,11 @@ export function compileContent(files: Record<string, string>, opts: CompileOptio
     // Ruling 9: Wen's seasonal questions agree with the table.
     if (seasonality) for (const p of seasonalAgrees(stall, seasonality)) fail(path, p);
     if (opts.pins) for (const p of pinProblems(stall, opts.pins)) fail(path, p);
+    for (const { at, q } of stallQuestions(stall)) {
+      const before = questionAt.get(q.id);
+      if (before !== undefined && !before.startsWith(`${path} `)) fail(path, `${at} (${q.id}): question id is also used at ${before}`);
+      else questionAt.set(q.id, `${path} ${at}`);
+    }
     // C19: each stall's safety lines exist, written only.
     const required = Object.hasOwn(REQUIRED_STALL_TRIGGERS, id) ? REQUIRED_STALL_TRIGGERS[id as keyof typeof REQUIRED_STALL_TRIGGERS] : [];
     for (const t of required) {

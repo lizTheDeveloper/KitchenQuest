@@ -403,6 +403,11 @@ describe('fix round 1, M2: category labels are player-facing copy, screened for 
     '3 days to go',
     'Rare this year!',
     'Scarce now',
+    // M6 Step 5: a countdown without a number.
+    'In season, but not for long',
+    'Here for not much longer',
+    'Almost over',
+    'Nearly finished',
   ];
   test.each(PRESSURE)('rejects %j', (label) => {
     expect(validateSeasonTable(withLabel(label), graph).join('\n')).toMatch(/label .*deadline or scarcity/);
