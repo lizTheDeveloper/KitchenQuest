@@ -250,3 +250,78 @@ describe('quest runner', () => {
     h.controller.abort();
   });
 });
+
+// M6 Step 10: an errand's stall question. It plays before the step goes on as in M5, and the step passes whatever is
+// answered: a right and a wrong answer complete it with identical events and grants.
+describe('errand stall question (M6 Step 10)', () => {
+  const ctxOf = (rules: Rule[] = []) => ({ rules, graph, subs: [...content.substitutions], date: TODAY, country: null });
+  const errandOf = (item: string, stall: string): Quest => ({
+    ...leela, id: 'fixture-errand-q',
+    steps: [{ type: 'errand', stall, item, lines: ['Go and fetch it.', 'Thank you.'] }, { type: 'talk', lines: ['Done.'] }],
+  });
+  const catFor = (): Catalogue => {
+    const base = catalogueOf();
+    return { ...base, quests: new Map([...base.quests, ['fixture-errand-q', { cook: 'leela', steps: 2, xp: 0, trust: 0, skills: [], requires: [] }]]) };
+  };
+
+  test('Marisol\'s black_bean errand matches an Okafor-Sato bean question; Leela\'s shallot errand matches none', async () => {
+    const { loadMarket } = await import('../market/content');
+    const { errandQuestionFor } = await import('./errand-question');
+    const m = await loadMarket();
+    const marisolErrand = marisol.steps.find((s) => s.type === 'errand');
+    const leelaErrand = leela.steps.find((s) => s.type === 'errand');
+    if (marisolErrand?.type !== 'errand' || leelaErrand?.type !== 'errand') throw new Error('errands');
+    expect([marisolErrand.item, marisolErrand.stall]).toEqual(['black_bean', 'okafor-sato']);
+    const q = errandQuestionFor('black_bean', m.stalls['okafor-sato'], ctxOf(), null, 11, m.seasonality, new Map(), graph);
+    expect(q).not.toBeNull();
+    expect(q!.contains).toContain('bean');
+    expect([leelaErrand.item, leelaErrand.stall]).toEqual(['shallot', 'wen']);
+    expect(errandQuestionFor('shallot', m.stalls.wen, ctxOf(), null, 11, m.seasonality, new Map(), graph)).toBeNull();
+    // Under a soy-and-beans-free rule set nothing about beans may be asked (stallBank keeps only ✅ questions).
+    const noBean: Rule = { id: 'r-b', target: { kind: 'ingredient', ids: ['bean'] }, type: 'avoid', severity: 'allergy' };
+    expect(errandQuestionFor('black_bean', m.stalls['okafor-sato'], ctxOf([noBean]), null, 11, m.seasonality, new Map(), graph)).toBeNull();
+  });
+
+  test('errand: right and wrong answers both complete the step with identical grants; no passing question → no question shown', async () => {
+    const { loadMarket } = await import('../market/content');
+    const { errandQuestionFor } = await import('./errand-question');
+    const m = await loadMarket();
+    const question = errandQuestionFor('black_bean', m.stalls['okafor-sato'], ctxOf(), null, 11, m.seasonality, new Map(), graph)!;
+    const q = errandOf('black_bean', 'okafor-sato');
+    const play = async (pickRight: boolean | null) => {
+      const h = harness(q, { cat: catFor() });
+      const recorded: { q: string; pick: number }[][] = [];
+      h.deps.errandQuestion = () => Promise.resolve(pickRight === null ? null : {
+        question, keeper: 'Okafor-Sato',
+        round: { gameName: () => null, keeperLine: () => null, panLine: () => null, itemArt: () => null, itemName: () => null, priceFootnote: '*Example prices.' },
+        record: (a) => { recorded.push(a); },
+      });
+      const seen: string[] = [];
+      const result = await drive(h.slot, runQuest(h.slot, q, h.deps), (panel) => {
+        const options = [...panel.querySelectorAll<HTMLButtonElement>('.stall-option')];
+        if (options.length > 0 && !options[0].classList.contains('is-answered')) {
+          const want = options.find((b) => (question.options[Number(b.dataset.pick)].correct === true) === pickRight)!;
+          return want.textContent ?? '';
+        }
+        if (panel.querySelector('.stall-next')) return 'Finish the round';
+        return "I've got it";
+      }, seen);
+      const shown = seen.some((t) => t.includes(question.prompt));
+      return { result, recorded, shown, events: h.events.map(({ id: _id, ...e }) => e), view: h.deps.progress() };
+    };
+    const right = await play(true);
+    const wrong = await play(false);
+    const none = await play(null);
+    for (const r of [right, wrong, none]) expect(r.result).toBe('done');
+    expect(right.shown && wrong.shown).toBe(true);
+    expect(none.shown).toBe(false);
+    expect(right.events).toEqual(wrong.events);
+    expect(right.events).toEqual(none.events);
+    expect({ xp: right.view.xp, steps: right.view.questSteps, done: right.view.questsDone }).toEqual({ xp: wrong.view.xp, steps: wrong.view.questSteps, done: wrong.view.questsDone });
+    // One answer each, kept as a one-answer stall_round by `record`; nothing when no question played.
+    expect(right.recorded).toHaveLength(1);
+    expect(right.recorded[0]).toHaveLength(1);
+    expect(wrong.recorded).toHaveLength(1);
+    expect(none.recorded).toEqual([]);
+  });
+});
