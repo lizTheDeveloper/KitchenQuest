@@ -1,5 +1,6 @@
 import { stockSwapsFor, type MarketRunView } from '@kitchenquest/core/engine';
 import type { ApiClient } from '../api/client';
+import { LOOKUP_TIMEOUT_MS, within } from '../shell/within';
 import type { PlayerState } from '../state/store';
 import { devicePlan, weekOf } from './context';
 import { rememberedWeek } from './memory';
@@ -7,8 +8,8 @@ import { rememberedRun, rememberRun } from './run-memory';
 
 /**
  * M6 Step 10 (Ruling 11): the plan week's market run as this device knows it, read only (nothing is opened or
- * written): signed out, the device run of the current plan week; signed in, the run the market screen last read for
- * this account (there is no read-only run route). Null when there is none, or it is another week's.
+ * written): signed out, the device run of the current plan week; signed in, the run last read for this account (by the
+ * market screen, a check-off or `loadKnownRun`). Null when there is none, or it is another week's.
  */
 export function knownRun(state: PlayerState, today: string): MarketRunView | null {
   const account = state.account?.email ?? null;
@@ -43,7 +44,8 @@ export async function loadKnownRun(state: PlayerState, client: Pick<ApiClient, '
   const account = state.account?.email ?? null;
   const known = knownRun(state, today);
   if (account === null || known !== null) return known;
-  const r = await client.currentRun(today).catch(() => null);
+  // Fix round 1 (I2): at most LOOKUP_TIMEOUT_MS; a stalled read is no run (no swap label, the plain check).
+  const r = await within(client.currentRun(today), LOOKUP_TIMEOUT_MS, null);
   if (r === null || !r.ok || r.data.run === null) return null;
   rememberRun(r.data.run, account);
   return r.data.run;

@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import { deriveProgress, frameOptions, type Catalogue, type ProgressEvent, type Quest, type Rule } from '@kitchenquest/core/engine';
 import { content, graph } from '../content';
+import { createStore } from '../state/store';
 import { catalogueOf, stepContextOf } from '../progress/catalogue';
 import { cookStepEvents, runQuest, type QuestRunnerDeps } from './quest-runner';
 import { standInFixture } from '../progress/stand-in.fixture';
@@ -323,5 +324,54 @@ describe('errand stall question (M6 Step 10)', () => {
     expect(right.recorded[0]).toHaveLength(1);
     expect(wrong.recorded).toHaveLength(1);
     expect(none.recorded).toEqual([]);
+  });
+});
+
+// Fix round 1 (I2): a stalled market chunk or profile read never holds an errand: no question, the M5 step at once.
+describe('errand stall question: a hung lookup (I2)', () => {
+  const step = { stall: 'okafor-sato', item: 'black_bean' };
+  const deps = (over: { load?: () => Promise<never>; getProfile?: () => Promise<never>; signedIn?: boolean }) => {
+    const store = createStore(null);
+    if (over.signedIn) store.update((s) => ({ ...s, account: { email: 'e@x.test' }, accountRules: [] }));
+    return {
+      store,
+      client: { getProfile: over.getProfile ?? (() => Promise.resolve({ ok: true, status: 200, data: { marketDays: [], mealsPerWeek: null, country: null, region: null, mealWindows: [] } })) } as never,
+      service: { record: () => Promise.resolve([]), view: () => deriveProgress({ events: [], grants: [], base: null }, catalogueOf()) },
+      today: () => TODAY,
+    };
+  };
+  const hung = () => new Promise<never>(() => {});
+
+  test('the market chunk hung, or the profile read hung → null by the 3 s limit', async () => {
+    const { errandQuestions } = await import('./errand-question');
+    const { LOOKUP_TIMEOUT_MS } = await import('../shell/within');
+    vi.useFakeTimers();
+    try {
+      const a = errandQuestions({ ...deps({}), load: hung })(step);
+      await vi.advanceTimersByTimeAsync(LOOKUP_TIMEOUT_MS);
+      expect(await a).toBeNull();
+      const { loadMarket } = await import('../market/content');
+      await loadMarket(); // the real chunk, so only the profile hangs below
+      const b = errandQuestions({ ...deps({ signedIn: true, getProfile: hung }) })(step);
+      await vi.advanceTimersByTimeAsync(LOOKUP_TIMEOUT_MS + 10);
+      expect(await b).toBeNull();
+    } finally { vi.useRealTimers(); }
+  });
+
+  test('the runner goes on to the M5 errand step (pantry or tap) when the lookup gives up', async () => {
+    const { errandQuestions } = await import('./errand-question');
+    const q: Quest = {
+      ...leela, id: 'fixture-errand-q',
+      steps: [{ type: 'errand', stall: 'okafor-sato', item: 'black_bean', lines: ['Go and fetch it.', 'Thank you.'] }, { type: 'talk', lines: ['Done.'] }],
+    };
+    const base = catalogueOf();
+    const cat: Catalogue = { ...base, quests: new Map([...base.quests, ['fixture-errand-q', { cook: 'leela', steps: 2, xp: 0, trust: 0, skills: [], requires: [] }]]) };
+    const h = harness(q, { cat });
+    h.deps.errandQuestion = errandQuestions({ ...deps({}), load: hung, timeoutMs: 30 });
+    const seen: string[] = [];
+    const result = await drive(h.slot, runQuest(h.slot, q, h.deps), (panel) => (panel.textContent?.includes('Fetch') ? "I've got it" : 'Not yet'), seen);
+    expect(result).toBe('done');
+    expect(seen.some((t) => t.includes('Fetch'))).toBe(true);
+    expect(h.slot.querySelector('.quest-errand-question')).toBeNull();
   });
 });

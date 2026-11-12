@@ -21,6 +21,7 @@ import type { ProgressService } from '../progress/service';
 import { activeRules } from '../recipes/rules';
 import { KEEPER_STALLS, type KeeperStall } from '../shell/router';
 import { partitionKey, type PlayerStore } from '../state/store';
+import { LOOKUP_TIMEOUT_MS, within } from '../shell/within';
 
 /** What the quest runner plays for an errand: the one question, its keeper and the round's lines; `record` keeps it. */
 export interface ErrandQuestion {
@@ -58,17 +59,22 @@ const isKeeper = (id: string): id is KeeperStall => (KEEPER_STALLS as readonly s
 export function errandQuestions(deps: {
   store: PlayerStore; client: Pick<ApiClient, 'getProfile'>; service: Pick<ProgressService, 'record' | 'view'>; today: () => string;
   load?: () => Promise<MarketContent>;
+  /** Fix round 1 (I2): the most the market load and the profile read may take (≤ 3 s); then no question. */
+  timeoutMs?: number;
 }): (step: { stall: string; item: string }) => Promise<ErrandQuestion | null> {
   const load = deps.load ?? loadMarket;
   return async (step) => {
     if (!isKeeper(step.stall)) return null;
     const stallId = step.stall;
     const partition = partitionKey(deps.store.get());
-    const market = await load().catch((err: unknown) => { console.error(err); return null; });
+    const wait = deps.timeoutMs ?? LOOKUP_TIMEOUT_MS;
+    // I2: a slow or stalled market chunk never holds the errand: no question, and the step goes on as in M5.
+    const market = await within(load(), wait, null);
     if (market === null) return null;
     withMarket(market);
     const stall: ClientStall = market.stalls[stallId];
-    const profile = await profileFor(deps.store.get(), deps.client);
+    const profile = await within(profileFor(deps.store.get(), deps.client), wait, null);
+    if (profile === null) return null;
     const ctxNow = (): MarketCtx | null => {
       const rules = activeRules(deps.store.get(), appGraph);
       return marketCtxFor(rules.status === 'ready' ? rules.rules : null, profile, deps.today(), appGraph, [...content.substitutions]);

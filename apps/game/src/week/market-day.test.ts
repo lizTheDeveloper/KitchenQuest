@@ -216,3 +216,20 @@ describe("The Season's Table (Ruling 10; data/seasonality.yaml)", () => {
     expect(bad.querySelectorAll('.season-note')).toHaveLength(0);
   });
 });
+
+describe('Fix round 1 (I2): loadKnownRun gives up on a stalled read', () => {
+  test('currentRun hung → null by the 3 s limit; nothing remembered', async () => {
+    const { loadKnownRun } = await import('./market-swaps');
+    const { rememberedRun } = await import('./run-memory');
+    const { LOOKUP_TIMEOUT_MS } = await import('../shell/within');
+    const { vi } = await import('vitest');
+    const s = store({ account: { email: 'slow@example.com' }, accountRules: [] });
+    vi.useFakeTimers();
+    try {
+      const got = loadKnownRun(s.get(), { currentRun: () => new Promise(() => {}) }, TODAY);
+      await vi.advanceTimersByTimeAsync(LOOKUP_TIMEOUT_MS);
+      expect(await got).toBeNull();
+      expect(rememberedRun('slow@example.com')).toBeNull();
+    } finally { vi.useRealTimers(); }
+  });
+});
