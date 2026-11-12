@@ -22,8 +22,8 @@ const tsxDir = dirname(require.resolve('tsx/package.json'));
 const tsxLoader = pathToFileURL(join(tsxDir, (JSON.parse(readFileSync(join(tsxDir, 'package.json'), 'utf8')) as { exports: { '.': string } }).exports['.'])).href;
 const preload = new URL('./fixtures/fault-preload.mjs', import.meta.url).href;
 /**
- * As `npm run dev` runs main. Fix round 2 (N2): `--disable-warning` drops only ExperimentalWarning (core's recipe parser
- * loads WebAssembly); `--no-warnings=X` would silence every warning. Every other warning reaches main's handler.
+ * As `npm run dev` runs main. main's own warning handler is what keeps stderr content-free (N2); the flag only spares
+ * the log line for core's WebAssembly ExperimentalWarning. `--no-warnings=X` would hide every other warning too.
  */
 const NODE_FLAGS = ['--disable-warning=ExperimentalWarning'];
 const mainTs = fileURLToPath(new URL('../src/main.ts', import.meta.url));

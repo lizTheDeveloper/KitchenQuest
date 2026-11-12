@@ -196,11 +196,13 @@ export class Session {
 
   private listen(id: number, hint: string[]): void {
     const old = this.utterance;
-    if (old?.waiting) {
-      // A queued utterance replaced before it ever reached the engine is answered, never dropped silently (N1).
-      this.release(old);
+    if (old !== null) {
+      // One utterance at a time, and none goes unanswered (fix round 3, N1 ruling): a listen replaces one still
+      // listening, waiting or transcribing, and answers it `failed` stt. A transcribing one is aborted, so its late
+      // result is never sent.
+      this.dropUtterance();
       this.send({ t: 'failed', id: old.id, kind: 'stt' });
-    } else this.dropUtterance(); // one utterance at a time: a new listen replaces one listening or transcribing, with no reply
+    }
     this.utterance = { id, hint: hint.slice(0, HINT_MAX_WORDS), buf: this.alloc(MAX_SAMPLES), len: 0, ended: false, waiting: false, abort: new AbortController() };
   }
 

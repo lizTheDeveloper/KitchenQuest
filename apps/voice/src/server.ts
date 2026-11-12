@@ -25,6 +25,11 @@ const MAX_PAYLOAD = 64 * 1024;
  * M2, fix round 2 N4). About 10 s of 24 kHz audio; the API reads as fast as it forwards.
  */
 export const MAX_BUFFERED = 512 * 1024;
+/**
+ * After a congested close, the socket is terminated this long later (fix round 3, F2): its 1011 close frame is queued
+ * behind data the peer is not reading, so waiting for ws's 30 s closeTimeout would keep it, and its buffers, alive.
+ */
+export const CONGESTED_GRACE_MS = 1000;
 /** Step 3 binds a private address from the environment; until then, loopback only. */
 const HOST = '127.0.0.1';
 
@@ -55,19 +60,25 @@ interface SendSocket {
   readonly bufferedAmount: number;
   send(data: string | Uint8Array, opts: { binary: boolean }): void;
   close(code: number): void;
+  terminate(): void;
 }
 
 /**
  * A session's sends over one socket, bounded (N4): once a send leaves more than MAX_BUFFERED queued, the client is not
- * reading, so the socket is closed with 1011 and nothing more is queued. `frame` returns false from then on, which
- * stops the speech.
+ * reading. The socket is then closed with 1011, `onShut` ends the session at once so no more engine work runs (F2),
+ * and the socket is terminated after CONGESTED_GRACE_MS. Nothing more is queued; `frame` returns false from then on.
  */
-export function socketIo(ws: SendSocket): { json(msg: object): void; frame(bytes: Uint8Array): boolean; close(code: number): void } {
+export function socketIo(
+  ws: SendSocket,
+  onShut: () => void = () => {},
+): { json(msg: object): void; frame(bytes: Uint8Array): boolean; close(code: number): void } {
   let shut = false;
   const after = (): boolean => {
     if (!shut && ws.bufferedAmount > MAX_BUFFERED) {
       shut = true;
       ws.close(CLOSE_INTERNAL);
+      setTimeout(() => ws.terminate(), CONGESTED_GRACE_MS).unref();
+      onShut();
     }
     return !shut;
   };
@@ -145,13 +156,14 @@ export function createVoiceServer(opts: { config: VoiceConfig; stt: SttEngine; t
     ws.on('error', () => {});
     open++;
     log('conn_open', { open });
-    const session = new Session({
+    // The session is ended at once if the socket congests (F2); the callback runs only after `session` exists.
+    const session: Session = new Session({
       stt,
       tts,
       cast: config.cast,
       cache,
       log,
-      io: socketIo(ws),
+      io: socketIo(ws, () => session.close()),
     });
     ws.on('message', (data: RawData, binary: boolean) => {
       try {

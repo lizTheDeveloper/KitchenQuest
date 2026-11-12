@@ -3,8 +3,8 @@
 // disk: console, process.stdout/stderr (as members and as node:process imports), fs writes (named, default and
 // namespace imports, and dynamic import) and util.debuglog. log.ts, the logger, is the one exception.
 //
-// The lint tools are a separate install (npm run lint:install). Where they are absent (the root CI test job) this
-// file says so and skips; the CI `voice` job installs them and runs it.
+// The lint tools are a separate install (npm run lint:install). On a dev box without them this file says so and skips;
+// under CI (process.env.CI) it fails instead (fix round 3, F1), and both CI jobs that run it install them first.
 import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
@@ -17,7 +17,7 @@ const installed = existsSync(`${root}tools/lint/node_modules/eslint/package.json
 /** Whether the guard test runs, skips (a dev box without tools/lint) or fails (CI without it: fix round 3, F1). */
 function guardMode(env: NodeJS.ProcessEnv, haveTools: boolean): 'run' | 'skip' | 'fail' {
   if (haveTools) return 'run';
-  return 'skip';
+  return env.CI ? 'fail' : 'skip';
 }
 const mode = guardMode(process.env, installed);
 

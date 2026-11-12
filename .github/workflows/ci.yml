@@ -43,8 +43,13 @@ jobs:
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            tools/lint/package-lock.json
       - run: npm ci
       - run: npm audit --omit=dev --audit-level=high
+      # apps/voice's lint-guard test reads tools/lint's ESLint and fails under CI without it (M7 Step 2, F1).
+      - run: npm run lint:install
       - run: npm run typecheck
       - run: npm test
   game:

@@ -4,11 +4,14 @@
 //
 // The one-at-a-time rule (M7 Step 2 fix rounds 1 and 2, for Step 5): a service session holds at most one live
 // utterance and one speech.
-// - A `listen` replaces an earlier utterance that is still listening or still being transcribed, and that one gets NO
-//   reply: no `transcript` and no `failed`. The API must stop waiting on an id the moment it sends a newer `listen`.
+// - No utterance goes unanswered (fix round 3). A `listen` replaces an earlier utterance that is still listening,
+//   waiting or being transcribed, and answers it `failed` stt at once; a transcribing one is aborted, so its late
+//   result is never sent. Only `cancel` (the API asked) and a closed socket end an utterance with no reply.
 // - Queueing: an utterance that ends while the engine is still finishing an earlier (aborted) call waits, and is
-//   transcribed as soon as that call settles: its `transcript` (or `failed`) comes later, never lost. At most one
-//   waits: a `listen` arriving while one waits answers the waiting one `failed` stt, explicitly.
+//   transcribed as soon as that call settles; its `transcript` (or `failed`) may come after the API's next message.
+//   At most one waits. Replies are matched by id.
+// - No deadline yet: a waiting utterance waits as long as the engine's aborted call does. Step 3's worker watchdog
+//   must settle a hung call, and Step 5 should keep its own reply timeout per id.
 // - A `speak` replaces the speech in flight, which gets no `audio_end`. `cancel` gets no reply.
 // - An `end` with no audio, or a blank transcript, is `failed` stt.
 import { MAX_TEXT } from '../mentor/intents';

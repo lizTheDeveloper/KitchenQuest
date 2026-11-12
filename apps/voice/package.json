@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "node --disable-warning=ExperimentalWarning --import tsx src/main.ts",
-    "test": "NODE_OPTIONS=--no-warnings=ExperimentalWarning vitest run",
+    "test": "NODE_OPTIONS=--disable-warning=ExperimentalWarning vitest run",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
     "bench": "node -e \"console.error('The latency benchmark (bench/run.ts) arrives in M7 Step 3.'); process.exit(1)\""
   },
