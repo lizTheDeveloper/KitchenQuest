@@ -168,6 +168,9 @@ describe('the two modules (M6 Step 5)', () => {
     expect(client.includes('Price per pound lies')).toBe(false);
     expect(client.includes('"fdcId"')).toBe(false);
     expect(client.includes('"source":"FDC')).toBe(false);
+    // No writer persona card ships in first paint either: not the Pan's, not the cooks'.
+    expect(client).not.toMatch(/"persona"/);
+    for (const cook of Object.values(content.cooks)) for (const p of cook.persona ?? []) expect(client.includes(JSON.stringify(p).slice(1, -1)), p).toBe(false);
     // The client still names the stalls (C11).
     expect(client).toMatch(/"stallNames":\{/);
     const mod = marketModule(market);

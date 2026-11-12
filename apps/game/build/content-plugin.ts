@@ -13,13 +13,17 @@ const MARKET_VIRTUAL_ID = 'virtual:kq-market';
 const RESOLVED_MARKET_ID = `\0${MARKET_VIRTUAL_ID}`;
 
 /**
- * What the first-paint module carries: no stalls and no Season's Table (both are in `virtual:kq-market`), and no
- * ingredient provenance (`source`, `fdcId`: no screen reads them; M6 Step 4 ruling, first paint).
+ * What the first-paint module carries: no stalls and no Season's Table (both are in `virtual:kq-market`), no
+ * ingredient provenance (`source`, `fdcId`) and no writer persona cards (the Pan's and the cooks'): no screen reads
+ * them (M6 Step 4 ruling, first paint).
  */
 function clientContent(content: GameContent): ClientContent {
   const { stalls: _stalls, seasonality: _seasonality, ...client } = content;
+  const { persona: _panPersona, ...pan } = client.pan;
   return {
     ...client,
+    pan,
+    cooks: Object.fromEntries(Object.entries(client.cooks).map(([id, { persona: _persona, ...cook }]) => [id, cook])),
     ingredients: {
       ...client.ingredients,
       ingredients: client.ingredients.ingredients.map(({ source: _source, fdcId: _fdcId, ...node }) => node),

@@ -1338,7 +1338,9 @@ triggers:
       item: "the item"
       category: "the region's category label, e.g. 'Well-travelled: shipped in from far away'"
     lines:
-      - "{item}: {category}."
+      # REVIEW: M6 Step 5: was "{item}: {category}.", which as a pattern matches nearly any "X: Y." line, so the in-page
+      # never-rules sweep could not tell a stall's storage tip from it. Same meaning, one word more. Content review.
+      - "{item} here: {category}."
       - "For {item} this month: {category}."
       - "A note on {item}: {category}. Good to know, nothing more."
       - "{item}, this month, here: {category}."

@@ -49,6 +49,7 @@ export interface LineTrigger {
   vars?: Record<string, string>;
 }
 export interface LineBank {
+  /** The writers' persona card: never shipped to the client (M6 Step 5); the model's prompt is the server's. */
   persona?: string[];
   triggers: Record<string, LineTrigger>;
 }
@@ -65,7 +66,8 @@ export interface CookFile {
   place: string;
   dish: string;
   recipe: string;
-  persona: string[];
+  /** The writers' persona card: required in the file (the build checks it), never shipped to the client (M6 Step 5). */
+  persona?: string[];
   intro: string[];
   story: string[];
   quest: Quest;
@@ -125,7 +127,8 @@ export interface GameContent {
  * They ship in their own lazy module, `virtual:kq-market` (`MarketContent`, loaded by `src/market/content.ts`), which
  * only the market screens import, so first paint stays under budget (M6 Step 5). The stalls' names reach the client
  * here as `stallNames` (C11), and every M5 field above with them (C35). The ingredient graph's provenance fields
- * (`source`, `fdcId`) are stripped too: nothing on the device reads them (M6 Step 4 ruling, first paint).
+ * (`source`, `fdcId`) are stripped too, and so are the Pan's and the cooks' writer persona cards: nothing on the device
+ * reads them (M6 Step 4 ruling, first paint; the stalls' personas are dropped the same way).
  */
 export type ClientContent = Omit<GameContent, 'stalls' | 'seasonality'>;
 

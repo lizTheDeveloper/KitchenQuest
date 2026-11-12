@@ -1,5 +1,3 @@
-import { fileURLToPath } from 'node:url';
-import { build, type Rolldown } from 'vite';
 import { describe, expect, test } from 'vitest';
 import { checkFirstPaintBudget, firstPaint, FIRST_PAINT_BUDGET_BYTES, FIRST_PAINT_TARGET_BYTES, marketChunk } from './budget-plugin';
 
@@ -109,38 +107,6 @@ describe('checkFirstPaintBudget', () => {
   });
 });
 
-describe('the real build (M6 Step 5)', () => {
-  test('the real build: first paint ≤ 360 KB and no first-paint chunk carries stall content; the market chunk is lazy and measured', async () => {
-    const root = fileURLToPath(new URL('..', import.meta.url));
-    const nodeEnv = process.env.NODE_ENV;
-    process.env.NODE_ENV = 'production'; // what `npm run build` ships (as e2e/setup.ts)
-    let out: Rolldown.RolldownOutput | Rolldown.RolldownOutput[];
-    try {
-      // The build's own kq-first-paint-budget plugin runs too, and would fail this build first.
-      out = (await build({ root, configLoader: 'runner', logLevel: 'silent', build: { write: false } })) as Rolldown.RolldownOutput | Rolldown.RolldownOutput[];
-    } finally {
-      if (nodeEnv === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = nodeEnv;
-    }
-    const output = (Array.isArray(out) ? out : [out]).flatMap((o) => o.output);
-    const b = Object.fromEntries(output.map((c) => [c.fileName, c.type === 'chunk' ? { ...c, type: 'chunk' as const } : { type: 'asset' as const }]));
-    const fp = firstPaint(b, 'index');
-    expect(fp).not.toBeNull();
-    expect(fp!.bytes).toBeLessThanOrEqual(FIRST_PAINT_TARGET_BYTES);
-    // Stall content: lines only a stall file has, and no first-paint chunk holds any of them.
-    const stallOnly = ['Price per pound lies; price per serving tells the truth.', 'That onion has made a wise career choice.', 'Local, stored from the autumn harvest'];
-    const firstPaintCode = output.filter((c) => c.type === 'chunk' && fp!.files.includes(c.fileName)).map((c) => (c.type === 'chunk' ? c.code : '')).join('\n');
-    for (const text of stallOnly) expect(firstPaintCode.includes(text), text).toBe(false);
-    // The market chunk exists, holds the stalls, and is not in first paint.
-    const market = output.find((c) => c.type === 'chunk' && c.name === 'market');
-    expect(market?.type).toBe('chunk');
-    if (market?.type !== 'chunk') return;
-    expect(fp!.files).not.toContain(market.fileName);
-    for (const text of stallOnly) expect(market.code.includes(text), text).toBe(true);
-    const kb = Buffer.byteLength(market.code) / 1024;
-    console.info(`first paint ${(fp!.bytes / 1024).toFixed(1)} KB; market chunk ${kb.toFixed(1)} KB`);
-    expect(kb).toBeGreaterThan(80);
-    expect(kb).toBeLessThan(200);
-    // And the bundle holds no fixture, test or raw data file.
-    expect(output.flatMap((c) => (c.type === 'chunk' ? c.moduleIds : [])).filter((id) => /fixture|\.test\.|\/data\/[^/]+\.(json|ya?ml)$/.test(id))).toEqual([]);
-  }, 120_000);
-});
+// The real build's check (first paint ≤ 360 KB, no stall content in it, the market chunk lazy and precached) is
+// e2e/budget.e2e.test.ts: it reads the dist/ that e2e/setup.ts builds, instead of a second build here that would
+// compete for CPU with the wall-clock tests in this suite.

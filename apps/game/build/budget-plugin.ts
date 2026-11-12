@@ -104,16 +104,21 @@ export function kqFirstPaintBudget(entry = 'index'): Plugin {
       const api = config.plugins.find((p) => p.name === 'kq-content')?.api as { marketVersion?: () => string | null } | undefined;
       marketVersion = api?.marketVersion ?? null;
     },
-    generateBundle(_opts, bundle) {
-      const marker = marketVersion?.() ?? null;
-      const problems = checkFirstPaintBudget(bundle, entry, { marketMarker: marker });
-      const market = marker === null ? null : marketChunk(bundle, marker);
-      if (marker === null) problems.push('the kq-content plugin gave no market version, so the market chunk cannot be checked');
-      else if (market === null) problems.push('no chunk carries the market module (virtual:kq-market)');
-      if (problems.length > 0) this.error(`First-paint budget: ${problems.join('; ')}`);
-      const fp = firstPaint(bundle, entry);
-      if (fp) this.info(`first paint: ${KB(fp.bytes)} KB JS in ${fp.files.length} chunks (target ${KB(FIRST_PAINT_TARGET_BYTES)} KB, hard budget ${KB(FIRST_PAINT_BUDGET_BYTES)} KB)`);
-      if (market) this.info(`market chunk (lazy): ${KB(market.bytes)} KB JS in ${market.files.join(', ')}`);
+    // Last, after Vite's own generateBundle work (its preload helper rewrites the chunks' code), so the bytes measured
+    // are the bytes shipped.
+    generateBundle: {
+      order: 'post',
+      handler(_opts, bundle) {
+        const marker = marketVersion?.() ?? null;
+        const problems = checkFirstPaintBudget(bundle, entry, { marketMarker: marker });
+        const market = marker === null ? null : marketChunk(bundle, marker);
+        if (marker === null) problems.push('the kq-content plugin gave no market version, so the market chunk cannot be checked');
+        else if (market === null) problems.push('no chunk carries the market module (virtual:kq-market)');
+        if (problems.length > 0) this.error(`First-paint budget: ${problems.join('; ')}`);
+        const fp = firstPaint(bundle, entry);
+        if (fp) this.info(`first paint: ${KB(fp.bytes)} KB JS in ${fp.files.length} chunks (target ${KB(FIRST_PAINT_TARGET_BYTES)} KB, hard budget ${KB(FIRST_PAINT_BUDGET_BYTES)} KB)`);
+        if (market) this.info(`market chunk (lazy): ${KB(market.bytes)} KB JS in ${market.files.join(', ')}`);
+      },
     },
   };
 }

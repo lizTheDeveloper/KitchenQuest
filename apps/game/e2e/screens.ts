@@ -111,7 +111,9 @@ function sourcesOf(rel: string): LineSource[] {
   return pairs.map(([where, text]) => ({ file: `content/${rel}`, where, text, re: lineMatcher(text) }));
 }
 const COOK_FILES = ['leela', 'marisol', 'haruka'].map((c) => `cooks/${c}.yaml`);
-export const LINE_SOURCES: readonly LineSource[] = ['dialogue/pan.yaml', 'bureau/forms.yaml', ...COOK_FILES].flatMap(sourcesOf);
+/** M6 Step 5: the market stalls ship (lazily) and are allowlisted by the same file and key path. */
+const STALL_FILES = ['wen', 'bram', 'okafor-sato', 'spice'].map((s) => `market/${s}.yaml`);
+export const LINE_SOURCES: readonly LineSource[] = ['dialogue/pan.yaml', 'bureau/forms.yaml', ...COOK_FILES, ...STALL_FILES].flatMap(sourcesOf);
 const ALLOWED_AT = new Set(VOICE_ALLOWLIST.map((a) => `${a.file}\0${a.where}\0${a.line}`));
 /** The filled-in words when `whole` is an allowlisted line at its own location (and at no other), else null. */
 export function allowlistedAt(whole: string): string[] | null {
