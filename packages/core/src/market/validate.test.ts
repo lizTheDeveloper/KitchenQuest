@@ -132,4 +132,18 @@ describe('validateStallFile (never throws; each problem names the stall, the key
     const odd = validateStallFile({ ...goodBram(), seasonal: { 'pnw-usa': { fallback: 'us-north', 11: [] } } }, graph, opts);
     expect(odd).toEqual(['bram: seasonal.pnw-usa.fallback: not a month 1–12']);
   });
+
+  test('fix round 1, M5: the agency check ignores case and knows FSS, FSAI and the full names', () => {
+    for (const text of ['The fsa says so.', 'Food Standards Scotland advises it.', 'FSS guidance.', 'The FSAI says so.', 'The Food Standards Agency says so.', 'Per the U.S. Food and Drug Administration.', 'The usda grades it.', 'The Food Safety Authority of Ireland says so.']) {
+      expect(with_((d) => { q(d, 'bram-thermometer').explain = text; }), text).toHaveLength(1);
+    }
+    expect(with_((d) => { const x = q(d, 'bram-thermometer'); x.explain = 'Food Standards Scotland advises it.'; x.countries = ['Scotland']; })).toEqual([]);
+    // Words that merely contain the letters are not agencies.
+    expect(with_((d) => { q(d, 'bram-thermometer').explain = 'Fussy fsaish nhsx words.'; })).toEqual([]);
+  });
+
+  test('fix round 1, M6: an unknown country name in countries is a problem', () => {
+    expect(with_((d) => { q(d, 'bram-usda-label').countries = ['Untied States']; })).toEqual(['bram: questions[4] (bram-usda-label): countries[0] "Untied States" is not a known country name']);
+    expect(with_((d) => { q(d, 'bram-usda-label').countries = ['USA', 'Scotland']; })).toEqual([]);
+  });
 });

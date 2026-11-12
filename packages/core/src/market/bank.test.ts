@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'vitest';
 import { check } from '../rules/check';
 import type { Rule } from '../rules/types';
-import { faqFor, questionStatus, stallBank, stallVariant, tipFor } from './bank';
-import { normalizeCountry } from './country';
+import { faqFor, questionStatus, questionVariant, stallBank, stallVariant, tipFor } from './bank';
+import { countryInScope, isKnownCountry, normalizeCountry } from './country';
 import { ALLERGEN_LINE, avoid, BRAM, ctx, DAY, graph, MEDICAL_LINE, NO_PORK, question, SEASONAL_STRAWBERRY, SPICE, subs, VEGAN, VEGETARIAN, WEN } from './fixtures';
 
 const ids = (rules: Rule[], stall = BRAM, over = {}) => stallBank(stall, ctx(rules, over)).questions.map((q) => q.id);
@@ -211,5 +211,42 @@ describe('questionStatus and stallBank (spec §2.2, §3.5)', () => {
     const sauce = { ...SPICE, faq: [{ q: ['can i use soy sauce'], a: 'Yes, a splash.' }] };
     expect(faqFor(sauce, ctx([])).map((f) => f.q)).toEqual(['can i use soy sauce']);
     expect(faqFor(sauce, ctx([avoid('peanut')]))).toEqual([]);
+  });
+
+  test('fix round 1, I2: the UK nations stay distinct, each inside "united kingdom"', () => {
+    for (const n of ['England', 'Scotland', 'Wales', 'Northern Ireland']) expect(normalizeCountry(n)).toBe(n.toLowerCase());
+    expect(normalizeCountry('UK')).toBe('united kingdom');
+    const uk = { ...BRAM, questions: [question('t-uk', { countries: ['United Kingdom'] })] };
+    const scot = { ...BRAM, questions: [question('t-fss', { countries: ['Scotland'] })] };
+    const gbOnly = { ...BRAM, questions: [question('t-ewni', { countries: ['England', 'Wales', 'Northern Ireland'] })] };
+    // A UK-scoped question shows in all four nations and to "UK".
+    for (const c of ['England', 'Scotland', 'Wales', 'Northern Ireland', 'UK', 'United Kingdom']) expect(ids([], uk, { country: c }), c).toEqual(['t-uk']);
+    // A Scotland-scoped one only in Scotland: not England, and not a player who only says "UK".
+    expect(ids([], scot, { country: 'Scotland' })).toEqual(['t-fss']);
+    for (const c of ['England', 'Wales', 'Northern Ireland', 'UK', 'United Kingdom']) expect(ids([], scot, { country: c }), c).toEqual([]);
+    // An FSA fact for England, Wales and Northern Ireland never reaches Scotland.
+    expect(ids([], gbOnly, { country: 'Wales' })).toEqual(['t-ewni']);
+    expect(ids([], gbOnly, { country: 'Scotland' })).toEqual([]);
+    expect(countryInScope(['united kingdom'], 'scotland')).toBe(true);
+    expect(countryInScope(['scotland'], 'united kingdom')).toBe(false);
+    expect(countryInScope(['United States'], null)).toBe(false);
+  });
+
+  test('fix round 1, M6: known country names', () => {
+    for (const c of ['United States', 'USA', 'Scotland', 'Côte d’Ivoire', 'The Gambia', 'Timor-Leste', 'Guinea-Bissau', 'México', 'Japan']) expect(isKnownCountry(c), c).toBe(true);
+    for (const c of ['Untied States', 'Narnia', '', 'Pacific Northwest']) expect(isKnownCountry(c), c).toBe(false);
+  });
+
+  test('fix round 1, M2: a Protein Counter question is known by the bank it is in, never by its id', () => {
+    expect(questionVariant(BRAM, 'bram-pc-lentils')).toBe('protein_counter');
+    expect(questionVariant(BRAM, 'bram-braise-cut')).toBe('base');
+    expect(questionVariant(BRAM, 'bram-pc-not-a-question')).toBeNull();
+    // An id that looks like a Protein Counter one but sits in the base bank is base; and the other way round.
+    const swapped = { ...BRAM, questions: [question('bram-pc-in-base')], variants: { protein_counter: { ...BRAM.variants!.protein_counter!, questions: [question('plain-id')] } } };
+    expect(questionVariant(swapped, 'bram-pc-in-base')).toBe('base');
+    expect(questionVariant(swapped, 'plain-id')).toBe('protein_counter');
+    expect(questionVariant(SPICE, 'spice-cumin')).toBe('base');
+    // Seasonal questions (Step 2 supplies them) belong to the base stall.
+    expect(questionVariant({ ...WEN, seasonal: { 'pnw-usa': { 6: [SEASONAL_STRAWBERRY] } } }, 'wen-pnw-6-strawberry')).toBe('base');
   });
 });

@@ -2,7 +2,7 @@
 // the round order, the option order and scoring. Browser-safe: no I/O, no recipe parser, no progress/ (rewards are
 // Step 3's, applied by the caller).
 export type { AnsweredMap, ItemTip, MarketCtx, StallFaq, StallFile, StallOption, StallQuestion, StallTrigger, StallVariant, StallVariantFile } from './types';
-export { faqFor, questionStatus, stallBank, stallVariant, tipFor } from './bank';
+export { faqFor, questionStatus, questionVariant, stallBank, stallVariant, tipFor } from './bank';
 export { MAX_ROUND_ANSWERS, nextRound, optionOrder, ROUND_SIZE, scoreAnswer } from './round';
 export { validateStallFile } from './validate';
-export { normalizeCountry } from './country';
+export { countryInScope, isKnownCountry, normalizeCountry } from './country';

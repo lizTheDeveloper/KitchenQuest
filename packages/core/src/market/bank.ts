@@ -5,7 +5,7 @@
 import { lineOf, textMentions } from '../ingredients/mentions';
 import type { ParsedRecipe } from '../recipe/types';
 import { check, type CheckStatus } from '../rules/check';
-import { normalizeCountry } from './country';
+import { countryInScope } from './country';
 import type { ItemTip, MarketCtx, StallFaq, StallFile, StallQuestion, StallTrigger, StallVariant, StallVariantFile } from './types';
 
 const RANK: Record<CheckStatus, number> = { ok: 0, swap: 1, unverified: 2, blocked: 3 };
@@ -64,17 +64,27 @@ function sideOf(stall: StallFile, variant: StallVariant): Pick<StallVariantFile,
   return variant === 'protein_counter' && pc !== undefined ? pc : stall;
 }
 
-/** Ruling 8: absent scope = everywhere; a scope shows only to a player whose (normalised) country is in it. */
+/** Ruling 8: absent scope = everywhere; a scope shows only to a player whose country is inside it (`countryInScope`). */
 function inScope(q: StallQuestion, country: string | null): boolean {
-  if (q.countries === undefined) return true;
-  const mine = normalizeCountry(country);
-  return mine !== null && q.countries.some((c) => normalizeCountry(c) === mine);
+  return q.countries === undefined || countryInScope(q.countries, country);
+}
+
+/**
+ * Which bank of the stall file a question id is in: 'protein_counter' for `variants.protein_counter.questions`,
+ * 'base' for the stall's own questions and its seasonal ones, null when the file has no such question. Fix round 1,
+ * M2: a Protein Counter round is health-revealing (Ruling 17), so callers decide by this, never by an id's prefix.
+ * The validator rejects a question id that appears in two banks, so the answer is unique.
+ */
+export function questionVariant(stall: StallFile, questionId: string): StallVariant | null {
+  if (stall.variants?.protein_counter?.questions.some((q) => q.id === questionId)) return 'protein_counter';
+  const seasonal = Object.values(stall.seasonal ?? {}).flatMap((months) => Object.values(months).flat());
+  return [...stall.questions, ...seasonal].some((q) => q.id === questionId) ? 'base' : null;
 }
 
 /**
  * The questions this player may see at this stall now: the variant's (or base) questions plus `seasonal` (Step 2
  * supplies them; [] until then), each kept only when questionStatus is 'ok' AND its `countries` scope is
- * absent or contains ctx.country (both sides through `normalizeCountry`). Dropped questions are counted, never named, so a screen can say the
+ * absent or contains ctx.country (`countryInScope`: both sides through `normalizeCountry`, a UK nation inside the UK). Dropped questions are counted, never named, so a screen can say the
  * bank is smaller without revealing why.
  */
 export function stallBank(

@@ -1,12 +1,35 @@
 // The build's and the API's check of a stall file (M6 Step 1; Step 5's compile and Step 6's boot refuse on any
 // problem). Never throws. Each problem names the stall, the key path and, for a question, its id.
 import type { IngredientGraph } from '../ingredients/graph';
+import { isKnownCountry } from './country';
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isText = (v: unknown): v is string => typeof v === 'string' && v.trim() !== '';
 
-/** Ruling 8: a question naming one of these agencies teaches one country's rule, so it needs a `countries:` scope. */
-const AGENCY = /\b(USDA|FSIS|FDA|FSA|NHS|FSANZ|CFIA|EFSA|FSSAI)\b/;
+/**
+ * Ruling 8: a question naming one of these agencies teaches one country's rule, so it needs a `countries:` scope. Any
+ * case, abbreviated or written out (fix round 1, M5: FSS and FSAI too).
+ */
+const AGENCY = new RegExp(
+  String.raw`\b(USDA|FSIS|FDA|FSA|FSS|FSAI|NHS|FSANZ|CFIA|EFSA|FSSAI|` +
+    [
+      'United States Department of Agriculture',
+      'Food Safety and Inspection Service',
+      'Food and Drug Administration',
+      'Food Standards Agency',
+      'Food Standards Scotland',
+      'Food Safety Authority of Ireland',
+      'National Health Service',
+      'Food Standards Australia New Zealand',
+      'Canadian Food Inspection Agency',
+      'European Food Safety Authority',
+      'Food Safety and Standards Authority of India',
+    ]
+      .map((n) => n.replace(/ /g, String.raw`\s+`))
+      .join('|') +
+    String.raw`)\b`,
+  'i',
+);
 /** Ruling 5: chalkboard prices are example numbers in no particular currency. */
 const CURRENCY = /[$£€¥₹₩₦₱¢]/;
 /** Ruling 5: a per-serving figure a reaction states ("÷ 6 = 3.75"). */
@@ -48,7 +71,8 @@ const round2 = (n: number): string => (Math.round(n * 100 + 1e-9) / 100).toFixed
  * - an unknown `game` for the stall (the file's own `games:` keys, each of which must be in `knownGames`);
  * - an `item_tips` key not in the graph;
  * - a duplicate question id across `questions`, `variants.*.questions` and `seasonal.*.*`;
- * - a question naming an agency with no `countries` (Ruling 8);
+ * - a question naming an agency (any case, abbreviated or in full) with no `countries`, or a scope naming an
+ *   unknown country (Ruling 8);
  * - Ruling 5's chalkboard arithmetic, a value question stating a price without a chalkboard, and a currency symbol in
  *   any question text;
  * - a `faq` entry with an empty `q`;
@@ -156,6 +180,11 @@ export function validateStallFile(d: unknown, graph: IngredientGraph, opts: { kn
       const texts = questionTexts(q);
       if (q.countries !== undefined && (!Array.isArray(q.countries) || q.countries.length === 0 || !q.countries.every(isText))) {
         bad('countries is not a non-empty list of country names');
+      } else if (Array.isArray(q.countries)) {
+        // Fix round 1, M6: a misspelt name would scope the question to nobody, silently.
+        q.countries.forEach((c: unknown, k: number) => {
+          if (!isKnownCountry(c as string)) bad(`countries[${k}] ${JSON.stringify(c)} is not a known country name`);
+        });
       }
       const agency = texts.find((t) => AGENCY.test(t.text));
       if (agency !== undefined && q.countries === undefined) bad(`${agency.at} names ${AGENCY.exec(agency.text)![1]} but has no countries scope`);
