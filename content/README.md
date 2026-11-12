@@ -424,21 +424,68 @@ Each line below was flagged during M5 (Steps 1–12, from the SDD ledger and the
 - [ ] Countdown rewordings (m14), so their allowlist entries are gone: `plan.saved[3]` ("only a guess" → "just a guess"), `plan.dish_unknown[1]` ("left it out" → "kept it out"), `frame.slot_empty[3]` ("left it unfilled … until you pick something you've checked" → "I haven't filled it … until you pick something I can check": the player's own label check never clears ❓).
 - [ ] The prompt's few-shot player lines (m3, not shown to players): "We're out of butter now.", "Breakfast around quarter past eight.", "For this week, put the stew on Thursday and the pasta on Saturday."
 
-**M6 Step 4: the market's content (read these first)**
-- [ ] **The 16 new Pan triggers** in the table above, `ai: never` ones first: `market.no_calendar`, `market.stall_wait`, `market.bank_small`, `market.no_swap`, `market.stock_swapped`, `season.now`, `season.other`, `market.checkoff_readback`, `market.checkoff_none`, `market.no_run`, `cook.drill_first`. Then `market.practice`, `market.round_done`, `market.leave_round`, `errand.question` and `stamp_earned.market_game`.
-- [ ] `market.cheer[5]`: "Right again. I'm almost impressed. Almost." → "Right. I'm almost impressed. Almost." `market.cheer` plays after any correct answer, the first included, and "again" counted a run of right answers (no-pressure rule, C18).
+**Founder decisions (not built)**
+- [x] **The drill-first hint (final review m9, Task 9 concern 7, Ruling 4).** Built in M6 (Ruling 16, Step 10) on its proposed shape: advisory, Cook stays enabled, none in Family Table. The founder may still defer or narrow it: see the M6 list below.
+
+## Content review for the founder: everything M6 flagged, in one place
+
+Each line below was flagged during M6 (Steps 1–11, from the SDD ledger and the step reports). None of them fails a scan: every one passes the voice scan (`voice-scan.test.ts`) and the M6 never-rules sweep (`never-rules.e2e.test.ts`, every market screen in standard and Family Table mode). They are listed because a person should read them before launch. Stall files are in `market/`, Pan triggers in `dialogue/pan.yaml`, forms in `bureau/forms.yaml`. "Chrome" means the words are written in code, not in `content/`.
+
+**Pan lines: `ai: never` first**
+- [ ] The market triggers in "The market's Pan triggers (Milestone 6)" above, `ai: never` ones first: `market.no_calendar`, `market.stall_wait`, `market.bank_small`, `market.no_swap`, `market.stock_swapped`, `season.now`, `season.other`, `market.checkoff_readback`, `market.checkoff_none`, `market.no_run`, `cook.drill_first`. Then `market.practice`, `market.round_done`, `market.leave_round`, `errand.question` and `stamp_earned.market_game`.
+- [ ] `intake.unavailable` (new, `ai: never`, Step 10): what the Pan says when Form 1-A's lazy module can't load. Nothing is lost; the next open tries again. Never said in a child conversation (Task 10 ruling I1).
+- [ ] `market.answer_right` (new, Step 9): the Pan's food-free line after a right stall answer when the keeper has none that is safe for the player's rules. `market.cheer` stays for check-offs.
+- [ ] `market.cheer[5]`: "Right again. I'm almost impressed. Almost." → "Right. I'm almost impressed. Almost." ("again" counted a run of right answers; no-pressure rule, C18).
+- [ ] `season.other[0]`: "{item}: {category}." → "{item} here: {category}." (Step 5: as a pattern the old line matched almost any "X: Y." sentence).
+- [ ] The stamp name **"A Stall Round, Played Through"** (`bureau/forms.yaml` `stamp_names.market_game`, Step 3).
+
+**Stall lines reworded by the scans (each carries a `# REVIEW:` in its stall file)**
+- [ ] The seven Step 5 voice-scan rewordings: Bram's `bram-thaw` reaction ("In a hurry" → "Short on time"); Bram's marbling FAQ `a` and `a_if_blocked` ("thin streaks of fat" → "thin flecks of fat"); Wen's November tomato reaction ("mealy and sad" → "mealy and dull"); `wen-squash-best` option and reaction ("green streaks" → "green stripes"; the option text is re-pinned in `market-pins.json`); `wen-carrot-tops` reaction ("soft and sad" → "soft and floppy"); Wen's `avocado.store` tip ("to hurry it" → "to speed it up"); and Bram's `ground_beef.pick` tip (below).
+- [ ] Bram's `ground_beef.pick` tip, reworded twice: "80/20 for juicy burgers" (the x/y pattern, Step 5) → "about 80% lean" → **"about four parts lean to one part fat for juicy burgers"** (Step 11: the M5 never-rules percentage pattern caught it on screen, and no line is excused from it).
+- [ ] The FAQ `a_if_blocked` that named "legumes", now "Small split ones" (Step 5 fix round 1), and Okafor-Sato's other `a_if_blocked` answers (Task 5 carry).
+
+**Questions the rules hide for some players (read the reactions)**
+- [ ] **Butternut.** Bare "butternut(s)" is ambiguous: the rule entry offers "butternut squash" or "butternut, the tree nut", never picks one, and the text scan treats it as both (Task 4 ruling). So Wen's butternut-squash questions are hidden for a tree-nut player (the safe side). The founder may reword them to say "winter squash" so they stay.
+- [ ] **Chile.** Wen's pear and blueberry reactions name Chile (the country) as where the fruit travels from, and "chile" is an alias of chilli (Task 4 fix round 2, N1), so those questions are hidden under a chilli rule. A reword ("from South America") would keep them.
+
+**The market list and the chalkboard**
+- [ ] **"some"** (`UNWRITTEN_AMOUNT`, core `week/amounts.ts`; chrome): a row where one dish's line has no quantity shows "2 + some" or "1 tsp + some", never an invented weight (Ruling 12, Step 3 fix round 1).
+- [ ] Bram's chalkboards (Ruling 5): no currency anywhere. The braise prices are unchanged (22.50, 38, 24, 60). The Protein Counter's were tweaked so each divides exactly, with no "≈": lentils 1.79 → 1.75 (0.25 a serving), tofu 2.79 → 2.80 (0.70), tempeh 3.49 → 3.50 (1.75); eggs stay 4.20 (0.70). The bean-yield reaction keeps 1.89 and 4 × 1.29 = 5.16 as example numbers. "Buy shank if the chuck's gone" became "Shank's the one to pick if the chuck's gone", and "the best few dollars you'll spend" became "the most useful little tool in a kitchen".
+- [ ] Form 14-S/STALL (`forms.stall_round`): title, title aside, the `game` labels ("Seasonal or well-travelled?" first), the buttons and both footnotes ("*Example prices in no particular currency. Your shop will differ." and "*No stall keeper will sell you anything. They are teachers with tables.").
+- [ ] **Form 9-Q/Practice Log's footnote** was rewritten to match Ruling 1 (Step 4 fix round 1, I2): one stall stamp a week for any round played through and 5 XP for each first correct answer; its "Correct answers" score field is gone. Two forms now describe stall rounds; the founder may retire 9-Q for 14-S.
+- [ ] Form 12-M's meat footnote lost "Example prices": the list shows no prices.
+
+**The market's content (Step 4)**
 - [ ] Each stall's new `out_of_stock_none` (four lines each, in the keeper's voice): no swap passes the player's rules; skip it this week.
 - [ ] The 26 new `a_if_blocked` answers (Wen 5, Bram 8, the Protein Counter 4, Okafor-Sato 4, the Spice Merchant 5): each says the same thing as its `a` without naming an ingredient.
 - [ ] The seasonal round is now **"Seasonal or well-travelled?"** (Ruling 6: its old name framed shipped food as a crime): Wen's `games.seasonal`, every seasonal prompt's closing question, and option C, now the table's own label "Well-travelled: shipped in from far away". The question ids are unchanged.
-- [ ] Bram's chalkboards (Ruling 5): no currency anywhere. The braise prices are unchanged (22.50, 38, 24, 60). The Protein Counter's were changed so each divides exactly, with no "≈": lentils 1.79 → 1.75 (0.25 a serving), tofu 2.79 → 2.80 (0.70), tempeh 3.49 → 3.50 (1.75); eggs stay 4.20 (0.70). The bean-yield reaction keeps 1.89 and 4 × 1.29 = 5.16 as example numbers. "Buy shank if the chuck's gone" became "Shank's the one to pick if the chuck's gone", and "the best few dollars you'll spend" became "the most useful little tool in a kitchen". The header's USD note is now the example-price note.
 - [ ] Bram's US-scoped label questions (Ruling 8): air-chilled (most US chicken is water-chilled; air-chilling is the EU norm), grass-finished, sell-by and no-hormones show only to players in the United States.
-- [ ] Form 14-S/STALL (`forms.stall_round`): title, title aside, the `game` labels, buttons and footnotes. Form 9-Q/Practice Log was rewritten to match Ruling 1 (fix round 1, I2): its purpose and footnote now say one stall stamp a week for any round played through and 5 XP for each first correct answer, and its "Correct answers" score field is gone. Two forms now describe stall rounds; the founder may retire 9-Q for 14-S.
 - [ ] **"Mr. Okafor-Sato"** (Ruling 23, carried from the file's own founder note): "Mr." is itself gendered, and a neutral display name ("Okafor-Sato") may fit better. M6 is the first milestone to put the name on screen. Kept as written until the founder rules.
 - [ ] The Season's Table (`data/seasonality.yaml`): Pacific Northwest only, November–February, `status: draft`. Its region phrases ("washington state", "western washington", "wa", "oregon", "portland oregon", "portland or", "seattle", "pacific northwest", "pnw"); a bare "Washington" or "Portland" gets no calendar. "Oregon" also names a few small towns in other states (Oregon, Ohio), which would get this calendar. Which regions come next is decided with the ROADMAP launch-region item (Ruling 9).
-- [ ] The market graph nodes, their allergen edges, their FDC values, the stall swaps, the bare names restored in fix round 1 and the Pan's everyday-word list (`EVERYDAY_WORDS`): every M6 `# REVIEW:` under "Data files" above.
 
-**Founder decisions (not built)**
-- [ ] **The drill-first hint (final review m9, Task 9 concern 7, Ruling 4).** Spec §6 says skill levels gate harder dishes; Ruling 4 made that advisory ("suggests the drill first"), and nothing suggests it yet. Every Cook button stays enabled, which is correct. Proposed shape: one `cook.drill_first` Pan line (`ai: never`, 4–6 lines, no ❗) on the recipe and cook screens when a recipe skill's `prereqs` aren't at Seen, with a chip to the cook's quest drill. Cook stays enabled, nothing is gated, nothing shows in Family Table. Or defer it to M10 with the basics lessons. Needs the founder's call and the copy.
+**Every `# REVIEW:` the M6 steps added (`grep -rn "# REVIEW:" content/ data/seasonality.yaml`; the JSON files' flags are under "Data files" above)**
+- [ ] The market graph nodes (88 in `data/ingredients.json`) and their FDC records, and the bare names restored in Step 4 fix round 1 and Step 5 fix round 1 (`chuck`, `squash`, `rice_grain`, `legume`, …), and the Pan's everyday-word list (`EVERYDAY_WORDS` in core `mentor/route.ts`), which the health gate's near-miss matching skips.
+- [ ] The allergen judgement edges: `asafoetida` → wheat, label-dependent (compounded hing is often cut with wheat flour); `leek` (and `green_onion`) → `allium` and `fodmap_fructan`; `tempeh` → soy and `unsafeFor` the wheat, gluten and barley rule targets (grain tempeh); `seitan` → wheat and `unsafeFor: [soy]`; `furikake` contains sesame, fish, soy and wheat, label-dependent for milk and egg; `miso` label-dependent; `butternut_nut` `unsafeFor: [walnut, pecan]`; moong and toor dal `isA bean`; the `legume` category over beans, peas, lentils, chickpeas, peanut, soy and lupin.
+- [ ] `pnw-usa`'s months (November–February only, `status: draft`), its sources, the November nettle and mushroom calls, and its region phrases. "oregon" also names small towns in other states (Oregon, Ohio), which would get this calendar; a bare "Washington" or "Portland" gets none.
+- [ ] The three stall swaps' notes (`data/substitutions.json`): half a small onion for three small shallots; one dried red chilli for each green chilli; the same amount of split red lentils for moong dal.
+- [ ] The `countries:` scopes: Bram's four US label questions; US territories are not inside the United States for a scope; the UK nations keep their own names, with "United Kingdom" containing all four.
+- [ ] The 52 new `VOICE_ALLOWLIST` entries and their reasons (`apps/game/src/content/voice-allowlist.ts`): 45 food-safety and ripening keep times, 5 cost-per-serving lines, 2 "Sold out of {item}" stock lines.
+
+**Chrome: words written in code**
+- [ ] The stall screen's own words (`market/stall-screen.ts`, `round-view.ts`): "Question n" (orientation only, never a count of right answers), the right-answer marks "(your pick, the right one)", "That is the round.", "Another round", "Leave the stall", "There are no questions for you at this stall today", the market-offline and "answers can't be kept" lines, and the Protein Counter's consent note.
+- [ ] The stock control (`week/stock-view.ts`): "Out of stock?", "(for {dishes})", the skip and undo words, and the list row's "stall swap for {dish}" and "(out of stock)"; cook mode's "swapped at the market: {swap} for {item}".
+- [ ] The check-off card's buttons and states ("Tick these", "Not now", "Undo", "(not ticked)"), including its "(not ticked)" wording for a row ticked earlier on screen (Task 10 re-review carry).
+
+**Open `[founder]` rulings (each built on its default; overridable)**
+- [ ] **Ruling 1:** 5 XP for each question's first right answer, and one stall stamp a week for any round played through, whatever the answers.
+- [ ] **Ruling 3:** the Fishmonger and Dairy & eggs stalls wait for M10 content; fish and dairy stay at the General Counter.
+- [ ] **Ruling 5:** chalkboard prices are example numbers in no particular currency.
+- [ ] **Ruling 6:** "Seasonal or smuggled?" is now "Seasonal or well-travelled?".
+- [ ] **Ruling 9:** only the Pacific Northwest calendar; every other region gets "no calendar yet". Which regions come next is decided with the ROADMAP launch-region item.
+- [ ] **Ruling 13:** a bare "no fennel" at check-off stays a health ask (one extra turn), never a stock note.
+- [ ] **Ruling 15:** the market is a hub (`#/stalls`) over the market scene, not one scrolling market.
+- [ ] **Ruling 16:** the drill-first hint, built advisory on the recipe and cook screens (defer to M10, or narrow to the recipe screen: only the strip hook in `cook/cook-screen.ts` changes).
+- [ ] **Ruling 23:** the keeper keeps the display name "Mr. Okafor-Sato" (listed above).
 
 ## Review flags
 
