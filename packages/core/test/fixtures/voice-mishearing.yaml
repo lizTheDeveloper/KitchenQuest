@@ -38,6 +38,9 @@ entries:
   - { group: non_word, said: "No nuts for me, I'm allergic", saidId: nut, heard: "No nots for me, I'm allergic", heardWord: nots, source: synthetic }
   - { group: non_word, said: "I can't eat nuts", saidId: nut, heard: "I can't eat nots", heardWord: nots, holdout: true, source: synthetic }
   - { group: non_word, said: "Allergic to celery and mustard", saidId: mustard, heard: "Allergic to salary and mustered", heardWord: mustered, source: synthetic }
+  # Fix round 3 (R1): a reaction report whose only other health-ish word is a meal word.
+  - { group: non_word, said: "I ate shellfish and got sick", saidId: shellfish, heard: "I ate selfish and got sick", heardWord: selfish, source: synthetic }
+  - { group: non_word, said: "I had nuts at lunch and felt awful", saidId: nut, heard: "I had nots at lunch and felt awful", heardWord: nots, source: synthetic }
   # Fix round 2 (N2): a short word right after the trigger, sounding exactly like an allergen.
   - { group: non_word, said: "I'm allergic to soy", saidId: soy, heard: "I'm allergic to so", heardWord: so, source: synthetic }
   - { group: non_word, said: "I can't eat soy", saidId: soy, heard: "I can't eat so", heardWord: so, source: synthetic }

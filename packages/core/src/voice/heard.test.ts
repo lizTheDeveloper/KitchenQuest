@@ -4,7 +4,7 @@ import { describe, expect, test } from 'vitest';
 import ingredients from '../../../../data/ingredients.json';
 import ruleTerms from '../../../../data/rule-terms.json';
 import { IngredientGraph } from '../ingredients/graph';
-import { MAX_TEXT } from '../mentor/intents';
+import { HEALTH_PATTERN, MAX_TEXT } from '../mentor/intents';
 import { ALLERGY_NEGATIONS, RULE_TRIGGER_PATTERN, SEVERITY_PATTERNS, severityFromText } from '../mentor/parse';
 import { isMajorAllergen } from '../mentor/route';
 import type { RuleTerm } from '../mentor/rule-terms';
@@ -394,5 +394,68 @@ describe('fix round 2: cook chatter without health wording gets no card (N5)', (
   test('a named food in chatter still gets a card, without spoken spelling; I1 still holds under health wording', () => {
     expect(check('I had peanuts for lunch')).toMatchObject({ speakSpelling: false, terms: [{ heard: 'peanuts', id: 'peanut' }] });
     expect(check("what's for dinner, I'm allergic to what")!.terms.map((t) => t.heard)).toContain('what');
+  });
+});
+
+// Fix round 3 (review-task1-fix2.md R1, N8, N9).
+describe('fix round 3: a symptom or reaction report is health wording, with or without a meal word (R1)', () => {
+  test.each([
+    ['I ate selfish and got sick', 'selfish', 'shellfish'],
+    ['we had selfish for dinner and he was ill', 'selfish', 'shellfish'],
+    ['I had a bad reaction at dinner to selfish', 'selfish', 'shellfish'],
+    ['I had nots at lunch and felt awful', 'nots', 'nut'],
+    ['eaten selfish, felt sick', 'selfish', 'shellfish'],
+    ['had selfish for lunch, my tongue swelled', 'selfish', 'shellfish'],
+    ['my son had selfish at lunch and reacted', 'selfish', 'shellfish'],
+    ['I ate nots and my lips went funny', 'nots', 'nut'],
+    ['she gets ill from selfish at lunch', 'selfish', 'shellfish'],
+    ['I ate selfish and threw up', 'selfish', 'shellfish'],
+    ['had selfish at dinner and I was wheezing', 'selfish', 'shellfish'],
+    ['ate selfish, now my stomach hurts', 'selfish', 'shellfish'],
+    ['selfish at dinner made me sick', 'selfish', 'shellfish'],
+    ['I had selfish and broke out in hives', 'selfish', 'shellfish'],
+    ['had selfish, then cramps all night', 'selfish', 'shellfish'],
+    ["ate selfish and couldn't breathe", 'selfish', 'shellfish'],
+  ])('"%s" → asks about "%s" with %s, spelling spoken', (text, heard, id) => {
+    const chk = check(text);
+    expect(chk, text).not.toBeNull();
+    expect(chk!.speakSpelling).toBe(true);
+    expect(chk!.terms.find((t) => t.heard === heard)?.alternatives.map((a) => a.id)).toContain(id);
+  });
+
+  test.each(["what's for dinner", 'what should I make for lunch', 'what did I have for lunch yesterday', "let's make dinner", 'I had toast for lunch', 'is lunch ready'])(
+    'chatter control: "%s" → null',
+    (text) => {
+      expect(check(text)).toBeNull();
+    },
+  );
+
+  test('the symptom words are the heard check\'s own: the shared mentor HEALTH_PATTERN is unchanged', () => {
+    expect(HEALTH_PATTERN.test('i ate selfish and got sick')).toBe(true); // via "ate", as before
+    expect(HEALTH_PATTERN.test('selfish made me sick')).toBe(false);
+    expect(hasHealthWording('selfish made me sick')).toBe(true);
+  });
+});
+
+describe('fix round 3: the short-word fail-safe runs along the whole list (N8)', () => {
+  test.each([
+    ['allergic to nuts and so', 'so', 'soy'],
+    ['allergic to soy and so', 'so', 'soy'],
+    ['allergic to nuts, so', 'so', 'soy'],
+    ['allergic to nuts, sesame and so', 'so', 'soy'],
+    ['allergic to nuts, sesame, and ok', 'ok', 'egg'],
+    ["I can't eat milk or it.", 'it', 'oats'],
+  ])('"%s" → a card for "%s" offering %s', (text, heard, id) => {
+    expect(check(text)?.terms.find((t) => t.heard === heard)?.alternatives.map((a) => a.id), text).toContain(id);
+  });
+
+  test('the list ends at the clause end: "allergic to nuts. so I cook" and "allergic to nuts and so I cook" stay silent on "so"', () => {
+    for (const text of ['allergic to nuts. so I cook', 'allergic to nuts and so I cook', 'allergic to nuts; so what']) expect(check(text)!.terms.map((t) => t.heard), text).not.toContain('so');
+  });
+});
+
+describe('fix round 3: meal stop words in allergy sentences (N9, sanctioned over-asking, pinned)', () => {
+  test('"I\'m allergic to peanuts at dinner" asks about peanuts and dinner', () => {
+    expect(check("I'm allergic to peanuts at dinner")!.terms.map((t) => t.heard)).toEqual(['peanuts', 'dinner']);
   });
 });
