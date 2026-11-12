@@ -208,11 +208,13 @@ export function mountMentor(
           if (services) services.intake = made;
           return made;
         });
-        intake.then((i) => { if (current?.panel === startedFor && panel.turn === turnAtOpen) i.start(); }, (err: unknown) => {
+        // Fix round 1 (I1, m-4/C-1): a conversation a child has spoken in gets no interview and no failure line,
+        // only the grown-up line it already had; the flag is read when the code lands, never when the open began.
+        intake.then((i) => { if (current?.panel === startedFor && panel.turn === turnAtOpen && !child.on) i.start(); }, (err: unknown) => {
           console.error(err);
           intake = null;
           // Only a player the interview would have met hears it (it starts only until Form 1-A is done).
-          if (current?.panel === startedFor && store.get().intake.step !== 'done') panel.say('intake.unavailable');
+          if (current?.panel === startedFor && store.get().intake.step !== 'done' && !child.on) panel.say('intake.unavailable');
         });
       });
     }

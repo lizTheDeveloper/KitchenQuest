@@ -406,7 +406,8 @@ export function createIntake(deps: {
   });
 
   function begin(fresh: boolean): void {
-    if (started || store.get().settings.familyTable || panel.mode !== 'standard') return;
+    // Fix round 1 (I1): never after a child turn in this conversation (m-4): no checklist, no question, no intercept.
+    if (started || store.get().settings.familyTable || panel.mode !== 'standard' || deps.child?.on === true) return;
     started = true;
     // Resumed on a later visit: the steps before this one were stamped or skipped then (ticks live in memory only).
     const at = INTAKE_ORDER.indexOf(current() as IntakeStep);

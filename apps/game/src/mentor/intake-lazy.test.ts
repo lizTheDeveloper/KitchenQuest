@@ -84,6 +84,62 @@ describe('the intake is lazy (Form 1-A)', () => {
     await vi.waitFor(() => { expect(m.panText().some((t) => opening.includes(t))).toBe(true); });
   });
 
+  // Fix round 1, I1: a conversation a child has spoken in gets no interview and no failure line, only child.grownup.
+  test('I1 scenario A: a child speaks while it loads; on a later open Form 1-A still never starts', async () => {
+    let resolve!: (m: IntakeModule) => void;
+    const real = await import('./intake');
+    const m = await mount(() => new Promise<IntakeModule>((r) => { resolve = r; }), { aiDisclosureSeen: true });
+    m.panel.open();
+    m.send("I'm 9 years old");
+    const grownup = content.pan.triggers['child.grownup'].lines;
+    await vi.waitFor(() => { expect(m.panText().some((t) => grownup.includes(t))).toBe(true); });
+    resolve(real);
+    await new Promise((r) => setTimeout(r, 20));
+    m.panel.close();
+    m.panel.open();
+    await new Promise((r) => setTimeout(r, 50));
+    const opening = [...content.pan.triggers['intake.open'].lines, ...content.pan.triggers['intake.market_day.ask'].lines];
+    expect(m.panText().some((t) => opening.includes(t))).toBe(false);
+    expect(document.querySelector('.intake-checklist')).toBeNull();
+    expect(m.panText().every((t) => grownup.includes(t))).toBe(true);
+  });
+
+  test('I1 scenario B: a child speaks, then the load fails: no intake.unavailable line, only child.grownup', async () => {
+    let reject!: (e: Error) => void;
+    const m = await mount(() => new Promise<IntakeModule>((_r, j) => { reject = j; }), { aiDisclosureSeen: true });
+    m.panel.open();
+    m.send("I'm 9 years old");
+    const grownup = content.pan.triggers['child.grownup'].lines;
+    await vi.waitFor(() => { expect(m.panText().some((t) => grownup.includes(t))).toBe(true); });
+    reject(new Error('offline'));
+    await new Promise((r) => setTimeout(r, 30));
+    const unavailable = content.pan.triggers['intake.unavailable'].lines;
+    expect(m.panText().some((t) => unavailable.includes(t))).toBe(false);
+    m.panel.close();
+    m.panel.open();
+    await new Promise((r) => setTimeout(r, 30));
+    expect(m.panText().some((t) => unavailable.includes(t))).toBe(false);
+  });
+
+  // m6: the other safety lines mid-load and on a failed load answer at once too.
+  test.each([
+    ['a medical question', 'what dose of antihistamine should I take', 'rule.medical_deflect'],
+    ['a child', "I'm 9 years old", 'child.grownup'],
+  ])('m6: %s mid-load (import hung) and after a failed load is answered within 50 ms', async (_name, text, trigger) => {
+    const lines = content.pan.triggers[trigger].lines;
+    for (const importIntake of [() => new Promise<IntakeModule>(() => {}), () => Promise.reject(new Error('offline'))]) {
+      const m = await mount(importIntake, { aiDisclosureSeen: true });
+      m.panel.open();
+      await new Promise((r) => setTimeout(r, 10));
+      const before = m.panText().length;
+      m.send(text);
+      const t0 = Date.now();
+      await vi.waitFor(() => { expect(m.panText().length).toBeGreaterThan(before); }, { timeout: 50, interval: 1 });
+      expect(Date.now() - t0).toBeLessThanOrEqual(50);
+      expect(m.panText().slice(before).some((t) => lines.includes(t))).toBe(true);
+    }
+  });
+
   test('Family Table never loads it', async () => {
     const importIntake = vi.fn(() => new Promise<IntakeModule>(() => {}));
     const m = await mount(importIntake, { ...READY, settings: { ...createStore(null).get().settings, familyTable: true, reducedMotion: 'on' } });
