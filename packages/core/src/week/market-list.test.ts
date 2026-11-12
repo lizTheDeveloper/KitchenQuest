@@ -63,7 +63,7 @@ describe('marketList', () => {
   test('an unresolved line is listed by name at the general stall with a stable name key; an unknown slug adds nothing', () => {
     const recipes = new Map([['test/odd', { ...planCtx().recipes.get(PARIPPU)!, ingredients: [{ name: 'Jasmine-ish Rice', displayName: null, quantity: 1, unit: null, note: null }] }]]);
     const list = marketList(plan([dishOn(0, 'test/odd'), dishOn(1, 'not/a-dish')]), planCtx({ recipes }), [], STALLS);
-    expect(list).toEqual([{ key: 'name:jasmine-ish rice', name: 'Jasmine-ish Rice', ingredientId: null, stall: 'general', forDishes: ['test/odd'], unverified: true, ticked: false }]);
+    expect(list).toEqual([{ key: 'name:jasmine-ish rice', name: 'Jasmine-ish Rice', ingredientId: null, stall: 'general', forDishes: ['test/odd'], unverified: true, amounts: [{ quantity: 0.67, unit: null, text: '0.67' }], ticked: false }]);
   });
 
   test('a stored M4 pantry row (no addedOn, no source) still matches by name or id', () => {

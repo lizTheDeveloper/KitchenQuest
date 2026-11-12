@@ -18,7 +18,7 @@ export * from './rules/types';
 export { validateRules, isActive, isValidDate } from './rules/active';
 export { check, DISCLAIMER, UNVERIFIABLE_TARGETS, validateSubstitutions } from './rules/check';
 export type { CheckStatus, Substitution, Finding, CheckResult } from './rules/check';
-export { toGrams } from './nutrition/units';
+export { toGrams, unitFamily, unitOf } from './nutrition/units';
 export { nutritionPerServing } from './nutrition/compute';
 export type { NutritionResult } from './nutrition/compute';
 export * from './mentor';

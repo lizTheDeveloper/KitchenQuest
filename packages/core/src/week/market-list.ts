@@ -1,10 +1,11 @@
-// Form 12-M, the market list (spec §3.2, Ruling 16): the plan's ingredients minus the pantry, grouped by stall. Names
-// only (M6 adds amounts). A blocked ingredient is never something to buy: a ⛔ dish adds nothing, and a line with a
-// rules-checked swap lists the swap.
+// Form 12-M, the market list (spec §3.2, Ruling 16): the plan's ingredients minus the pantry, grouped by stall, with
+// honest amounts (M6 Ruling 12, `amounts.ts`). A blocked ingredient is never something to buy: a ⛔ dish adds nothing,
+// and a line with a rules-checked swap lists the swap.
 import { normalizeName, type IngredientGraph } from '../ingredients/graph';
 import type { PantryItem } from '../mentor/cards';
 import { pantryMatcher } from '../mentor/route';
 import { check } from '../rules/check';
+import { listAmounts, type Amount } from './amounts';
 import { itemDate, type Plan, type PlanContext } from './plan';
 
 /** The content/market stall ids plus 'general' (C11); there is no 'dairy' stall. */
@@ -25,6 +26,16 @@ export interface ListItem {
   swappedFor?: string[];
   /** The rules engine can't verify it (unresolved, or check the label): Step 10 badges it ❓. Absent otherwise. */
   unverified?: true;
+  /**
+   * M6 Ruling 12: the amounts to buy, scaled to the plan's servings, summed only within one unit family. Absent when no
+   * line had a quantity (the row shows no amount, never "0") and on a row with a rules-engine swap (the swap's note
+   * gives its amount, so no total would be honest).
+   */
+  amounts?: Amount[];
+  /** M6 Ruling 11: the stall was out of it (`markOutOfStock`); never ticked while set. */
+  outOfStock?: true;
+  /** M6 Ruling 11: a stall swap's row (`takeStockSwap`), standing in for the row keyed `from`. */
+  stockSwap?: { from: string };
   ticked: boolean;
 }
 
@@ -72,11 +83,14 @@ const pushOnce = (list: string[], v: string): void => {
  * The market list for a plan's dish items (lessons add nothing). Each dish is checked on its own date: a ⛔ dish (or
  * one the canon doesn't hold) adds nothing, and shows in the plan with `plan.blocked_dish` instead (Step 10). A line
  * the rules hit but that has a rules-checked swap lists the swap, labelled with `swappedFor`, never the hit one.
- * What the pantry already has (`pantryMatcher`, by name or ingredient id) is left off. Amounts are not scaled by
- * servings (names only; M6 adds amounts). Sorted by stall (STALL_IDS order), then name. Every row starts unticked.
+ * What the pantry already has (`pantryMatcher`, by name or ingredient id) is left off. A sacred dish adds nothing
+ * (spec §10: it is never planned, and a stored plan holding one still lists nothing for it). Each row's `amounts` are
+ * its lines' quantities scaled by the item's servings ÷ the recipe's (`listAmounts`). Sorted by stall (STALL_IDS
+ * order), then name. Every row starts unticked.
  */
 export function marketList(plan: Plan, ctx: PlanContext, pantry: readonly PantryItem[], stallOf: StallMap): ListItem[] {
   const rows = new Map<string, ListItem>();
+  const lines = new Map<string, { quantity: number | null; unit: string | null; servingsFactor: number }[]>();
   const inPantry = (name: string): boolean => {
     const has = pantryMatcher([name], [], ctx.graph);
     return pantry.some((p) => has({ id: '', name: p.name, ingredientId: p.ingredientId }));
@@ -84,7 +98,8 @@ export function marketList(plan: Plan, ctx: PlanContext, pantry: readonly Pantry
   for (const item of plan.items) {
     if (item.kind !== 'dish') continue;
     const r = ctx.recipes.get(item.slug);
-    if (!r) continue;
+    if (!r || r.meta.sacred) continue;
+    const servingsFactor = item.servings / r.meta.servings;
     const result = check(r, ctx.rules, ctx.graph, ctx.subs, itemDate(plan, item));
     if (result.status === 'blocked') continue;
     for (const line of r.ingredients) {
@@ -109,8 +124,16 @@ export function marketList(plan: Plan, ctx: PlanContext, pantry: readonly Pantry
       // A listed swap is itself rules-checked; any other line with a ❓ finding is marked.
       const unsure = result.findings.some((f) => f.ingredient === line.name && (f.kind === 'label' || f.kind === 'unresolved'));
       if (!swap && unsure) row.unverified = true;
+      lines.set(key, [...(lines.get(key) ?? []), { quantity: line.quantity, unit: line.unit, servingsFactor }]);
       rows.set(key, row);
     }
+  }
+  for (const [key, row] of rows) {
+    // A rules-engine swap's amount is not the hit line's (the swap's note says how much), so a row with one shows no
+    // total at all: a partial sum would understate it.
+    if (row.swappedFor !== undefined) continue;
+    const amounts = listAmounts(lines.get(key) ?? []);
+    if (amounts.length > 0) row.amounts = amounts;
   }
   const order = (s: StallId): number => STALL_IDS.indexOf(s);
   const byText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
