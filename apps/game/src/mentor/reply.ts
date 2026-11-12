@@ -58,4 +58,6 @@ export interface CheckOffSlot {
   state: 'new' | 'applying' | 'pending' | 'applied' | 'undone'; trail?: PanelTrail | null; draw(): void;
   /** The row keys a local write actually ticked (fix round 1, m2); absent for a server card (the API ticked it). */
   ticked?: string[];
+  /** M6 final: the row keys that were already ticked before the card's write ("(already ticked)"). */
+  already?: string[] | undefined;
 }

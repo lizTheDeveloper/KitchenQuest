@@ -48,6 +48,13 @@ describe('check-off card states', () => {
     expect(state(server, 'moong_dal')).toBe(' (ticked)');
   });
 
+  test('final: a row ticked earlier (on screen) reads "(already ticked)", one the write stopped on "(not ticked)"', () => {
+    const el = draw({ state: 'applied', ticked: ['shallot'], already: ['moong_dal'], draw() {} });
+    expect(state(el, 'shallot')).toBe(' (ticked)');
+    expect(state(el, 'moong_dal')).toBe(' (already ticked)');
+    expect(draw({ state: 'applied', ticked: ['shallot'], already: [], draw() {} }).querySelector('[data-key="moong_dal"] .checkoff-state')!.textContent).toBe(' (not ticked)');
+  });
+
   test('undone: unticked, no buttons but the missing rows\' Out of stock?', () => {
     const el = draw({ state: 'undone', ticked: ['shallot'], draw() {} });
     expect(state(el, 'shallot')).toBe(' (unticked)');

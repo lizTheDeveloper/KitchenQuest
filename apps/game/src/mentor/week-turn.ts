@@ -117,7 +117,7 @@ export interface WeekTurn {
    */
   /** The check-off card's drawing (check-off-card.ts), here so it loads with the week's code, never at first paint. */
   drawCheckOff: typeof drawCheckOff;
-  writeCheckOff(card: CheckOffCard): Promise<{ ok: true; names: string[]; keys: string[]; undo: () => Promise<boolean> } | { ok: false; reason: 'consent_required' | 'network' | 'limited' | 'closed'; items: PanItem[] }>;
+  writeCheckOff(card: CheckOffCard): Promise<{ ok: true; names: string[]; keys: string[]; already: string[]; undo: () => Promise<boolean> } | { ok: false; reason: 'consent_required' | 'network' | 'limited' | 'closed'; items: PanItem[] }>;
 }
 
 const RANK: Record<CheckStatus, number> = { ok: 0, swap: 1, unverified: 2, blocked: 3 };
@@ -182,16 +182,19 @@ export function createWeekTurn(d: {
     return run !== null && run.id === runId ? run : null;
   };
 
-  const tickCheckOff = async (card: CheckOffCard): Promise<{ kind: 'ticked'; runId: string; keys: string[]; names: string[] } | { kind: 'refused'; failure: WeekFailure }> => {
+  const tickCheckOff = async (card: CheckOffCard): Promise<{ kind: 'ticked'; runId: string; keys: string[]; names: string[]; already: string[] } | { kind: 'refused'; failure: WeekFailure }> => {
     const who = account();
     let run = await runFor(card.runId);
     if (run === null) return { kind: 'refused', failure: { kind: 'closed' } };
     const keys: string[] = [];
     const names: string[] = [];
+    /** M6 final: rows already ticked (on screen, earlier): the card says "(already ticked)", not "(not ticked)". */
+    const already: string[] = [];
     for (const key of card.got) {
       const before = run.items.find((i) => i.key === key);
       // Ticked on screen since, out of stock, or gone: skipped, never ticked twice (the server's own rule).
-      if (before === undefined || before.ticked || before.outOfStock === true) continue;
+      if (before?.ticked === true) { already.push(key); continue; }
+      if (before === undefined || before.outOfStock === true) continue;
       const r = await source.tick(run, key, true, today());
       if (account() !== who) break;
       if (r.ok) {
@@ -205,7 +208,7 @@ export function createWeekTurn(d: {
       if (keys.length === 0) return { kind: 'refused', failure: r };
       break;
     }
-    return { kind: 'ticked', runId: run.id, keys, names };
+    return { kind: 'ticked', runId: run.id, keys, names, already };
   };
   const untickCheckOff = async (runId: string, keys: readonly string[]): Promise<{ kind: 'ok' } | { kind: 'failed' }> => {
     let run = await runFor(runId);
@@ -328,7 +331,7 @@ export function createWeekTurn(d: {
         if (f === 'limited') return { ok: false, reason: 'limited', items: [say({ trigger: 'write.daily_limit', vars: {} })] };
         return { ok: false, reason: 'closed', items: [say({ trigger: 'write.not_done', vars: {} })] };
       }
-      return { ok: true, names: t.names, keys: t.keys, undo: async () => (await untickCheckOff(t.runId, t.keys)).kind === 'ok' };
+      return { ok: true, names: t.names, keys: t.keys, already: t.already, undo: async () => (await untickCheckOff(t.runId, t.keys)).kind === 'ok' };
     },
 
     async prefetch() {

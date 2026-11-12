@@ -262,3 +262,26 @@ describe('Fix round 1 (m2): a partial tick is shown as partial', () => {
     expect(tick.mock.calls.filter((c) => c[2] === false).map((c) => c[1])).toEqual(['shallot']);
   });
 });
+
+describe('M6 final: a row already ticked on screen', () => {
+  test('a card tapped after one of its rows was ticked on the list: that row is reported already ticked, not ticked again', async () => {
+    const store = createStore(null);
+    store.update((s) => ({ ...s, account: { email: 'al@example.com' }, accountRules: [] }));
+    const tmp = createStore(null);
+    createWeekStore({ store: tmp }).savePlan(plan());
+    const fresh = createWeekStore({ store: tmp }).run(MON, TODAY)!;
+    const card = buildCheckOffCard(fresh, ['shallot', 'moong_dal'], [], 'model')!;
+    // Ticked on the list since the card was made.
+    let current = { ...fresh, items: fresh.items.map((i) => (i.key === 'moong_dal' ? { ...i, ticked: true } : i)) };
+    rememberRun(current, 'al@example.com');
+    const tick = vi.fn((_id: string, key: string, ticked: boolean) => {
+      current = { ...current, items: current.items.map((i) => (i.key === key ? { ...i, ticked } : i)) };
+      return Promise.resolve({ ok: true, status: 200, data: current });
+    });
+    const client = { tick } as unknown as ApiClient;
+    const turn = createWeekTurn({ store, client, now: () => NOW, dialogue: createDialogue(content.pan), recipes, cooks: {} });
+    const w = await turn.writeCheckOff(card);
+    expect(w).toMatchObject({ ok: true, keys: ['shallot'], already: ['moong_dal'] });
+    expect(tick.mock.calls.map((c) => c[1])).toEqual(['shallot']);
+  });
+});

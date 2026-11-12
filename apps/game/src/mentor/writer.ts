@@ -22,7 +22,7 @@ import type { CardView, PanItem } from './reply';
  */
 export type WriteOutcome =
   /** `ticked`: a check-off card's row keys actually ticked (M6 fix round 1, m2). */
-  | { ok: true; trail: TrailEntry; items: PanItem[]; ticked?: string[] }
+  | { ok: true; trail: TrailEntry; items: PanItem[]; ticked?: string[]; already?: string[] }
   /** `busy`: this card's write is already in flight (a tap and a typed yes at once); nothing to show, the first one answers. */
   /** `limited`: the daily write limit (the same for every plan, never sold): the card stays open, the line says so. */
   | { ok: false; reason: 'tap_required' | 'consent_required' | 'needs_account' | 'invalid' | 'closed' | 'network' | 'busy' | 'limited'; items: PanItem[] }
@@ -284,7 +284,7 @@ export function createCardWriter(deps: {
     if (!w.ok) return w;
     const id = crypto.randomUUID();
     undos.set(id, { kind: 'check_off', card, undo: w.undo });
-    return { ok: true, trail: trail(id, 'local', card), items: confirmedLines(card, w.names).map(say), ticked: w.keys };
+    return { ok: true, trail: trail(id, 'local', card), items: confirmedLines(card, w.names).map(say), ticked: w.keys, already: w.already };
   }
 
   /**

@@ -330,7 +330,7 @@ export function mountMentorPanel(root: HTMLElement, opts: {
     // A grammar check-off card that could not tick (no consent yet, offline) now waits for its tap: "Tick these".
     if (!out.ok && c.co && c.co.state !== 'pending') { c.co.state = 'pending'; c.co.draw(); }
     if (out.ok) {
-      if (c.co) c.co.ticked = out.ticked;
+      if (c.co) { c.co.ticked = out.ticked; c.co.already = out.already; }
       await toTrail(key, out.trail);
       renderItems(out.items, []);
       // Carry from Step 2: the intake follow-up only after a confirmed write.

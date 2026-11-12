@@ -46,6 +46,8 @@ function renderCheckOffCard(card: CheckOffCard, opts: {
   onTick(): void; onNotNow(): void; onUndo(): void;
   /** The keys a local write actually ticked (m2); absent: every got row (a server card the API applied). */
   ticked?: readonly string[];
+  /** M6 final: the keys that were already ticked before this card (said "(already ticked)", never "(not ticked)"). */
+  already?: readonly string[];
   /** Navigation is the panel's (a hash change): here only the row to open is handed over. */
   go?: (hash: string) => void;
 }): HTMLElement {
@@ -57,8 +59,8 @@ function renderCheckOffCard(card: CheckOffCard, opts: {
     h('span', { class: 'checkoff-mark', 'aria-hidden': 'true' }, ticked ? '✓ ' : '○ '),
     contentText('span', name(k)),
     // In words, never by the mark alone.
-    // An applied row that wasn't ticked (already ticked on screen, out of stock, or the write stopped) says so.
-    h('span', { class: 'checkoff-state' }, ticked ? ' (ticked)' : applied ? ' (not ticked)' : opts.state === 'undone' ? ' (unticked)' : ' (not ticked yet)')); });
+    // An applied row that wasn't ticked says why in words: already ticked earlier, or not ticked (out of stock, or the write stopped).
+    h('span', { class: 'checkoff-state' }, ticked ? ' (ticked)' : applied && opts.already?.includes(k) === true ? ' (already ticked)' : applied ? ' (not ticked)' : opts.state === 'undone' ? ' (unticked)' : ' (not ticked yet)')); });
   const missing = card.missing.map((k) => {
     const ask = h('button', { type: 'button', class: 'btn btn-secondary checkoff-stock' }, STOCK);
     ask.setAttribute('aria-label', `${STOCK} ${name(k)}`);
@@ -116,6 +118,7 @@ export function drawCheckOff(holder: HTMLElement, view: CardView, slot: CheckOff
     onTick: () => { void deps.tick(); }, onNotNow: () => { void deps.notNow(); },
     onUndo: () => { if (slot.trail) void deps.undo(slot.trail); },
     ...(slot.ticked === undefined ? {} : { ticked: slot.ticked }),
+    ...(slot.already === undefined ? {} : { already: slot.already }),
   }));
   if (!hadFocus) return;
   const next = holder.querySelector<HTMLElement>('button') ?? holder.querySelector<HTMLElement>('.bureau-title');

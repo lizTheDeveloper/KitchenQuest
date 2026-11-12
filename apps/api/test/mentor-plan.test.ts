@@ -635,6 +635,9 @@ describe('fix round 2: closed grammar only; health first', () => {
 
 // Fix round 4 (review-task8-fix2.md): every N6, N7, N9 and N11 probe through /mentor/turn, and one behaviour test
 // for each code-card exclusion gate (N10). The model makes no call in every probe, so any card is code's.
+/** M6 final M6: every N7 text over HTTP, twice 45 turns; a hang should fail, a busy machine should not. */
+const N7_TIMEOUT = 180_000;
+
 describe('fix round 4: the whole message, health first, a spelled age', () => {
   const HEALTH_LINES = ['rule.ask_keep_off', 'rule.ask_what_else', 'rule.unknown_term', 'rule.which_one', 'rule.which_kind'];
   const silent = (n: number) => fakeAi(Array.from({ length: n }, () => reply('')));
@@ -662,7 +665,9 @@ describe('fix round 4: the whole message, health first, a spelled age', () => {
   }
 
   // Fix round 1 (Task 9 review, flakes): every N6 and N7 text runs through the gate directly in mentor-gate.test.ts
-  // (no HTTP); these keep two /mentor/turn probes per gate as integration smoke.
+  // (no HTTP); the N6 test keeps two /mentor/turn probes as integration smoke. M6 final review M6: the two N7 tests run
+  // every N7 text over HTTP again (the emoji, Spanish and "type 2" texts with ai_health among them), in one app each,
+  // because the direct test calls its own copy of the gate; a long, explicit budget, not the default.
   test('N6 probes: a clause outside the closed grammar anywhere in the message → no code card, for either player', async () => {
     const texts = ['remind me to eat dinner at 6pm, no wait, 7pm', 'put parippu on monday, for my brother'];
     expect(N6_TEXTS).toEqual(expect.arrayContaining(texts));
@@ -683,17 +688,18 @@ describe('fix round 4: the whole message, health first, a spelled age', () => {
     expect(p.cards.map((c) => c.card.kind)).toEqual(['plan']); // two weekdays: no market card
   });
 
-  test('N7: health_data only → the text never reaches the model (needs_ai_health), no code card', async () => {
-    const texts = ["market's saturday, i get headaches", 'put parippu on monday, no beef'];
-    expect(N7_TEXTS).toEqual(expect.arrayContaining(texts));
+  test('N7: health_data only → the text never reaches the model (needs_ai_health), no code card', { timeout: N7_TIMEOUT }, async () => {
+    const texts = N7_TEXTS;
+    expect(texts.length).toBeGreaterThanOrEqual(44);
     const ai = silent(texts.length);
     await makeApp(ai);
     await eachFresh(['health_data'], texts, (r, text) => expect(r, text).toMatchObject({ route: 'scripted', notice: 'needs_ai_health', cards: [] }));
     expect(ai.requests).toHaveLength(0);
   });
 
-  test('N7: with ai_health the same texts get no code card and take the health path (an ask or a rule card)', async () => {
-    const texts = ["market's saturday, i get headaches", 'put parippu on monday, i have gout', 'remind me to eat dinner at 6pm, no beef'];
+  test('N7: with ai_health the same texts get no code card and take the health path (an ask or a rule card)', { timeout: N7_TIMEOUT }, async () => {
+    const texts = N7_TEXTS;
+    expect(texts).toEqual(expect.arrayContaining(['put parippu on monday. 🥜', 'put parippu on monday, sin cacahuetes', 'remind me to eat dinner at 6pm, type 2']));
     await makeApp(silent(texts.length));
     await eachFresh(['health_data', 'ai_health'], texts, (r, text) => {
       expect(r.route, text).toBe('ai');
