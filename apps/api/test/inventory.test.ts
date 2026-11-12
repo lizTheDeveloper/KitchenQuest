@@ -97,13 +97,126 @@ describe('column index parser (N-8)', () => {
   });
 });
 
-// M5 final review m13: each ROADMAP item id (C-n, N-n) names one item: no id is given to two checklist lines.
+// M6 Step 7 (Ruling 18): the progress snapshot table.
+describe('M6 Step 7 columns', () => {
+  it('progress_snapshots columns are in data-inventory §6 (U-6)', () => {
+    const doc = readFileSync(INVENTORY, 'utf8');
+    const index = columnIndex(doc);
+    for (const c of ['user_id', 'upto_seq', 'catalogue_hash', 'sealed', 'created_at']) {
+      expect(index.get('progress_snapshots')?.has(`progress_snapshots.${c}`), c).toBe(true);
+    }
+    expect(doc).toMatch(/^\| `progress_snapshots` \|.*\| U-6 \|$/m);
+    // One U-6 row in the inventory: the snapshot.
+    expect([...doc.matchAll(/^\| U-6 \|/gm)]).toHaveLength(1);
+    expect(doc).toMatch(/^\| U-6 \| Progress snapshot/m);
+  });
+});
+
+const ROADMAP = new URL('../../../docs/compliance/ROADMAP.md', import.meta.url);
+const COMPLIANCE = new URL('../../../docs/compliance/2026-11-09-health-data-compliance.md', import.meta.url);
+
+/** An id as the ROADMAP and the C-table write it: C-n or N-n, with an optional letter (C-10b). */
+const ID = String.raw`[CN]-\d+[a-z]?`;
+
+interface RoadmapItem {
+  id: string;
+  /** The "(x)" label of a split item ("M2 part", "partial"), or null for the whole item. */
+  part: string | null;
+  line: number;
+}
+
+/**
+ * The checklist items of a ROADMAP that carry an id (M5 m13; M6 Ruling 20, N3): `- [ ]`, `- [x]` or `- [~]`, then the id
+ * at the start of the line, bold (`**C-45**`) or not (`C-36`), with a letter suffix or not (`C-10b`). A split item
+ * names its part right after the id, inside the bold when bold: `**N-1 (M2 part)**`, `**N-3 (partial)**`,
+ * `C-36 (accounts part)`. A parenthesis after the bold (`**C-37** (CI part done…)`) is the whole item's text.
+ */
+function roadmapItems(doc: string): RoadmapItem[] {
+  const re = new RegExp(String.raw`^- \[[ x~]\] (?:\*\*(${ID})(?: \(([^)]+)\))?\*\*|(${ID})(?: \(([^)]+)\))?(?![\w-]))`);
+  const out: RoadmapItem[] = [];
+  doc.split('\n').forEach((text, i) => {
+    const m = re.exec(text);
+    if (m) out.push({ id: m[1] ?? m[3], part: m[2] ?? m[4] ?? null, line: i + 1 });
+  });
+  return out;
+}
+
+/** The ids of the compliance doc's §6 C-table: the first cell of each row, bold or not. */
+function cTable(doc: string): string[] {
+  const start = doc.search(/^## 6\. Engineering requirements/m);
+  if (start < 0) throw new Error('the compliance doc has no "## 6. Engineering requirements" section');
+  const rest = doc.slice(start).split('\n').slice(1);
+  const end = rest.findIndex((l) => /^## /.test(l));
+  return (end < 0 ? rest : rest.slice(0, end))
+    .map((l) => new RegExp(String.raw`^\| (?:\*\*)?(C-\d+[a-z]?)(?:\*\*)? \|`).exec(l)?.[1])
+    .filter((id): id is string => id !== undefined);
+}
+
+/** ROADMAP C-ids that need no row in the C-table, each with why. None today: C-46–C-48 got rows (M6 Step 7). */
+const ALLOWED_ROADMAP_ONLY: ReadonlyMap<string, string> = new Map();
+
+/** Every problem with the ids of `roadmap` against the C-table ids `table`; [] when they agree. */
+function roadmapIdProblems(roadmap: string, table: readonly string[]): string[] {
+  const items = roadmapItems(roadmap);
+  const problems: string[] = [];
+  const whole = items.filter((i) => i.part === null).map((i) => i.id);
+  for (const id of new Set(whole.filter((id, i) => whole.indexOf(id) !== i))) problems.push(`${id} is a whole item twice`);
+  const labels = new Map<string, string[]>();
+  for (const i of items.filter((x) => x.part !== null)) {
+    if (!whole.includes(i.id)) problems.push(`${i.id} (${i.part}) names no whole ${i.id} item (line ${i.line})`);
+    const seen = labels.get(i.id) ?? [];
+    if (seen.includes(i.part!)) problems.push(`${i.id} has two "(${i.part})" parts`);
+    labels.set(i.id, [...seen, i.part!]);
+  }
+  const roadmapC = new Set(items.map((i) => i.id).filter((id) => id.startsWith('C-')));
+  const tableC = new Set(table);
+  for (const id of roadmapC) if (!tableC.has(id) && !ALLOWED_ROADMAP_ONLY.has(id)) problems.push(`${id} is in the ROADMAP but not in the C-table`);
+  for (const id of tableC) if (!roadmapC.has(id)) problems.push(`${id} is in the C-table but not in the ROADMAP`);
+  for (const id of new Set(table.filter((id, i) => table.indexOf(id) !== i))) problems.push(`${id} is in the C-table twice`);
+  return problems;
+}
+
+// M5 final review m13, widened in M6 Step 7 (Ruling 20, M5 re-review N3): each ROADMAP item id names one item.
 describe('ROADMAP item ids', () => {
-  it('are unique', () => {
-    const roadmap = readFileSync(new URL('../../../docs/compliance/ROADMAP.md', import.meta.url), 'utf8');
-    // A split item names its part: "**N-1 (M2 part)**", "**N-1 (remainder)**". A bare "**C-45**" is the whole item.
-    const ids = [...roadmap.matchAll(/^- \[[ x~]\] \*\*([CN]-\d+)\*\*/gm)].map((m) => m[1]);
-    expect(ids.length).toBeGreaterThan(30);
-    expect(ids.filter((id, i) => ids.indexOf(id) !== i)).toEqual([]);
+  it('ROADMAP ids: suffixed (C-10b) and non-bold (C-36) ids are seen; whole ids unique; parts name a base; C-table cross-check', () => {
+    const roadmap = readFileSync(ROADMAP, 'utf8');
+    const compliance = readFileSync(COMPLIANCE, 'utf8');
+    const items = roadmapItems(roadmap);
+    expect(items.length).toBeGreaterThan(50);
+    expect(items).toContainEqual(expect.objectContaining({ id: 'C-10b', part: null }));
+    expect(items).toContainEqual(expect.objectContaining({ id: 'C-36', part: 'accounts part' }));
+    expect(items).toContainEqual(expect.objectContaining({ id: 'N-1', part: 'M2 part' }));
+    expect(items).toContainEqual(expect.objectContaining({ id: 'C-37', part: null }));
+    const table = cTable(compliance);
+    expect(table).toEqual(expect.arrayContaining(['C-1', 'C-10b', 'C-45', 'C-46', 'C-47', 'C-48']));
+    expect(roadmapIdProblems(roadmap, table)).toEqual([]);
+    for (const [id, why] of ALLOWED_ROADMAP_ONLY) expect(why.length, id).toBeGreaterThan(10);
+  });
+
+  it('the parser and checks catch each kind of slip', () => {
+    const doc = (...lines: string[]) => ['# R', '', ...lines, ''].join('\n');
+    expect(roadmapItems(doc('- [x] **C-1** a', '- [ ] C-2 b', '- [~] **C-3b** c', '- [ ] **N-4 (M2 part)** d', '- [ ] C-5 (x part) e', '- [ ] **C-6** (CI part) f', '- [ ] C7 no', '- [ ] C-12xy no', 'C-8 not a checklist line', '- [ ] **[lawyer]** g'))).toEqual([
+      { id: 'C-1', part: null, line: 3 },
+      { id: 'C-2', part: null, line: 4 },
+      { id: 'C-3b', part: null, line: 5 },
+      { id: 'N-4', part: 'M2 part', line: 6 },
+      { id: 'C-5', part: 'x part', line: 7 },
+      { id: 'C-6', part: null, line: 8 },
+    ]);
+    // A non-bold duplicate (the slip the M5 test missed), a part with no whole item, two parts with one label.
+    expect(roadmapIdProblems(doc('- [x] **C-1** a', '- [ ] C-1 b', '- [ ] **C-2 (a part)** c', '- [ ] **C-1 (a part)** d', '- [ ] **C-1 (a part)** e'), ['C-1', 'C-2'])).toEqual([
+      'C-1 is a whole item twice',
+      'C-2 (a part) names no whole C-2 item (line 5)',
+      'C-1 has two "(a part)" parts',
+    ]);
+    // A suffixed duplicate, and the two-way C-table check.
+    expect(roadmapIdProblems(doc('- [ ] **C-10b** a', '- [ ] C-10b b', '- [ ] **C-9** c'), ['C-10b', 'C-11', 'C-11'])).toEqual([
+      'C-10b is a whole item twice',
+      'C-9 is in the ROADMAP but not in the C-table',
+      'C-11 is in the C-table but not in the ROADMAP',
+      'C-11 is in the C-table twice',
+    ]);
+    const table = ['| Id | Requirement |', '|---|---|', '| **C-1** | a |', '| C-10b | b |'];
+    expect(cTable(['## 5. x', '| C-99 | no |', '## 6. Engineering requirements', '', ...table, '### 6.1 sub', '| C-2 | sub-table row counts |', '## 7. y', '| C-98 | no |'].join('\n'))).toEqual(['C-1', 'C-10b', 'C-2']);
   });
 });

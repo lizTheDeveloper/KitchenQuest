@@ -505,6 +505,7 @@ describe('GET /me/export', () => {
       mentor_proposals: 'proposals',
       progress_events: 'progress',
       reward_grants: 'progress',
+      progress_snapshots: 'progress',
       audit_events: 'auditEvents',
     };
     // Linked: a foreign key to users, or a column that holds a user id or an email.

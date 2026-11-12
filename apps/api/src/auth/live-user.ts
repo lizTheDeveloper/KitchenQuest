@@ -18,14 +18,15 @@ import type { Db } from '../types.js';
  * `book:<id>`, in that order; namespaces in `db/advisory-locks.ts`) → consent row (`lockConsentIn`, `consentHeldIn`) →
  * conversation row (`bumpTurn`, `appendMessages`, `forgetConversations`) → proposal row (`lockProposal`) → data rows
  * in table order: `rules` → `meal_logs` → `margin_notes` → `messages` → `mentor_proposals` (the `HEALTH_TABLES`
- * order), then `meal_plans` → `market_runs` → `shared_table` → `progress_events` → `reward_grants`.
+ * order), then `meal_plans` → `market_runs` → `shared_table` → `progress_events` → `reward_grants` → `progress_snapshots`.
  * Account delete takes its sign-in-email lock, then the user row, before anything else, so it still serializes
  * ahead. Consent withdraw-with-delete takes the user row, then `progress:` (its `meal_logs` delete cascades to
  * `meal_logged` progress events), then the consent row, then deletes rules, meals (and their progress events),
  * messages and proposals, which fits the order. A meal-log delete (`DELETE /meals/:id`, and the mentor's meal-card
  * confirm and undo in `mentor/writes.ts`) takes the user row, then `progress:`, then (a confirm only) the consent row,
  * then the meal log (a delete cascading to its progress event), then the proposal row. A progress post takes the user row, then `progress:`, then (for a
- * meal-log event) the `health_data` grant, then reads `meal_logs` and writes `progress_events` → `reward_grants`.
+ * meal-log event) the `health_data` grant, then reads `meal_logs` and writes `progress_events` → `reward_grants`, then (M6
+ * Step 7) `progress_snapshots`. Deleting any progress event deletes the player's snapshot by trigger, after the event.
  * A margin-note write (M5 Step 7) takes the user row, then `book:`, then the `health_data` grant, then counts and
  * writes `margin_notes`; a Shared Table write takes the user row, then `book:` (the shared daily write cap), then writes `shared_table`. A note or Shared
  * Table delete takes the user row, then deletes its own row.
