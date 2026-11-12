@@ -113,6 +113,23 @@ export function dropEvents(s: PlayerState, key: string | null, ids: Iterable<str
   });
 }
 
+/**
+ * M7 Step 7 fix round 2 (R1): remove events from partition `key` but keep their grants: the server refused them as
+ * `erased` (recorded, as far as it can tell, before a health_data delete), so the record goes, and XP never drops.
+ */
+export function dropEventsKeepGrants(s: PlayerState, key: string, ids: Iterable<string>): PlayerState {
+  const gone = new Set(ids);
+  const p = partitionOf(s, key);
+  if (!p.events.some((e) => gone.has(e.id))) return s;
+  return withPartition(s, key, {
+    events: p.events.filter((e) => !gone.has(e.id)),
+    grants: p.grants,
+    base: p.base,
+    pendingUpload: p.pendingUpload.filter((id) => !gone.has(id)),
+    epoch: (p.epoch ?? 0) + 1,
+  });
+}
+
 /** A grant key core's fold uses up for a stall round's weekly stamp (fold.ts `key('stall', …)`): it names the stall. */
 const STALL_KEY = '["stall",';
 

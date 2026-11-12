@@ -4,7 +4,7 @@ import {
 import type { ApiClient } from '../api/client';
 import type { ApiResult, ProgressPostResponse } from '../api/types';
 import { content } from '../content';
-import { applyServerErasure, dropEvents, partitionKey, partitionOf, withPartition, type PlayerState, type PlayerStore } from '../state/store';
+import { applyServerErasure, dropEvents, dropEventsKeepGrants, partitionKey, partitionOf, withPartition, type PlayerState, type PlayerStore } from '../state/store';
 import { catalogueOf } from './catalogue';
 import { appendEvents, historyOf, markUploaded } from './log';
 
@@ -181,7 +181,12 @@ export function createProgressSync(deps: ProgressSyncDeps): ProgressSync {
     const ids = sent.map((e) => e.id);
     // M6 Step 9 fix round 1 (M8): an event the server refused is never filed under the account; it and the device's
     // grants for it leave the partition (a refused Protein Counter round without consent, say).
-    const refused = Array.isArray(r.rejected) ? r.rejected.map((x) => x.clientId).filter((id) => ids.includes(id)) : [];
+    const rejected = Array.isArray(r.rejected) ? r.rejected.filter((x) => ids.includes(x.clientId)) : [];
+    // M7 Step 7 fix round 2 (R1): a round refused as `erased` (the server's erasure is newer than this device knew)
+    // leaves as a record but keeps its grants: XP never drops. Every other refusal drops the event and its grants.
+    const erased = rejected.filter((x) => Array.isArray(x.problems) && x.problems.includes('erased')).map((x) => x.clientId);
+    const refused = rejected.map((x) => x.clientId).filter((id) => !erased.includes(id));
+    if (from !== null && erased.length > 0) store.update((s) => dropEventsKeepGrants(s, from, erased));
     if (from !== null && refused.length > 0) store.update((s) => dropEvents(s, from, refused));
     // I2: a meal_logged waited here only until the server answered (accepted, duplicate or refused, unknown_meal_log
     // included); the server holds the record now, so it leaves the device at once (Task 9 minimisation).
@@ -242,7 +247,11 @@ export function createProgressSync(deps: ProgressSyncDeps): ProgressSync {
   async function learnErasure(as: string): Promise<boolean> {
     if (stopped || liveKey() !== as || !deps.online()) return false;
     const r = await client.getProgress();
-    if (!r.ok) return false;
+    if (!r.ok) {
+      // Fix round 2 (R3): the upload is retried later, with the post path's backoff (a 429's wait, else a minute).
+      scheduleRetry(retryAfterMs(r));
+      return false;
+    }
     keepView(as, r.data.view, r.data.healthErasure);
     return liveKey() === as;
   }
@@ -324,7 +333,19 @@ export function createProgressSync(deps: ProgressSyncDeps): ProgressSync {
       const timeout = new Promise<'late'>((resolve) => { setTimer(() => resolve('late'), liveWaitMs); });
       const r = await Promise.race([postLive(key, send), timeout]);
       if (r === 'late' || r === null || !r.ok) return said;
-      return r.data.accepted.filter((a) => ids.has(a.clientId)).flatMap((a) => a.grants);
+      const grants = r.data.accepted.filter((a) => ids.has(a.clientId)).flatMap((a) => a.grants);
+      // M7 Step 7 fix round 2 (R1): rounds refused as `erased` were recorded just now, after the erasure this device had
+      // not yet learned of (the answer's id is applied by now). They go back in, grants kept, and are posted once more
+      // under the new id; refused again, they leave as a record and keep their grants.
+      const erased = Array.isArray(r.data.rejected)
+        ? new Set(r.data.rejected.filter((x) => ids.has(x.clientId) && Array.isArray(x.problems) && x.problems.includes('erased')).map((x) => x.clientId))
+        : new Set<string>();
+      const again = send.filter((e) => erased.has(e.id));
+      if (again.length === 0 || liveKey() !== key) return grants;
+      appendEvents(store, key, again, [], { cat });
+      const r2 = await Promise.race([postLive(key, again), new Promise<'late'>((resolve) => { setTimer(() => resolve('late'), liveWaitMs); })]);
+      if (r2 === 'late' || r2 === null || !r2.ok) return grants;
+      return [...grants, ...r2.data.accepted.filter((a) => erased.has(a.clientId)).flatMap((a) => a.grants)];
     },
 
     uploadDeviceLog() {
