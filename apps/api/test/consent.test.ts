@@ -94,16 +94,16 @@ describe('consent ledger (C-1)', () => {
     const userId = await newUser();
     const t0 = new Date('2026-06-01T00:00:00Z');
     const t1 = new Date('2026-07-01T00:00:00Z');
-    await grantConsent(db, userId, 'voice', 'v1', sha('a'), 'tap', t0);
-    await grantConsent(db, userId, 'voice', 'v1', sha('a'), 'tap', t1);
+    await grantConsent(db, userId, 'pantry_location', 'v1', sha('a'), 'tap', t0);
+    await grantConsent(db, userId, 'pantry_location', 'v1', sha('a'), 'tap', t1);
     expect(await sql`select 1 from consents where user_id = ${userId}`).toHaveLength(1);
-    await grantConsent(db, userId, 'voice', 'v2', sha('b'), 'tap', t1);
+    await grantConsent(db, userId, 'pantry_location', 'v2', sha('b'), 'tap', t1);
     const rows = await sql`select notice_version, withdrawn_at from consents where user_id = ${userId} order by granted_at`;
     expect(rows.map((r) => [r.notice_version, r.withdrawn_at && new Date(r.withdrawn_at).getTime()])).toEqual([
       ['v1', t1.getTime()],
       ['v2', null],
     ]);
-    expect(await hasConsent(db, userId, 'voice', t1)).toBe(true);
+    expect(await hasConsent(db, userId, 'pantry_location', t1)).toBe(true);
   });
 
   it('grant, withdraw, grant again: consent is back, with full history', async () => {
@@ -121,9 +121,9 @@ describe('consent ledger (C-1)', () => {
 
   it('records why a grant ended: withdrawn or superseded', async () => {
     const userId = await newUser();
-    await grantConsent(db, userId, 'voice', 'v1', sha('a'), 'tap', new Date('2026-06-01T00:00:00Z'));
-    await grantConsent(db, userId, 'voice', 'v2', sha('b'), 'tap', new Date('2026-06-02T00:00:00Z'));
-    await withdrawConsent(db, userId, 'voice', new Date('2026-06-03T00:00:00Z'));
+    await grantConsent(db, userId, 'pantry_location', 'v1', sha('a'), 'tap', new Date('2026-06-01T00:00:00Z'));
+    await grantConsent(db, userId, 'pantry_location', 'v2', sha('b'), 'tap', new Date('2026-06-02T00:00:00Z'));
+    await withdrawConsent(db, userId, 'pantry_location', new Date('2026-06-03T00:00:00Z'));
     const rows = await sql`select notice_version, ended_reason from consents where user_id = ${userId} order by granted_at`;
     expect(rows.map((r) => [r.notice_version, r.ended_reason])).toEqual([
       ['v1', 'superseded'],
@@ -209,7 +209,7 @@ const NOTICE_TEXT = /<!-- notice-text:start -->\n\n([\s\S]*?)\n\n<!-- notice-tex
 describe('notice files', () => {
   it('every file in docs/compliance/notices declares the SHA-256 of its text, and is marked a draft (C-30)', () => {
     const files = readdirSync(NOTICE_DIR).filter((f) => f.endsWith('.md'));
-    expect(files).toEqual(expect.arrayContaining(['health_data-v1.md', 'health_data-v2.md', 'health_data-v3.md', 'ai_health-v1.md']));
+    expect(files).toEqual(expect.arrayContaining(['health_data-v1.md', 'health_data-v2.md', 'health_data-v3.md', 'ai_health-v1.md', 'voice-v1.md']));
     for (const f of files) {
       const doc = readFileSync(new URL(f, NOTICE_DIR), 'utf8');
       const text = NOTICE_TEXT.exec(doc)?.[1];
@@ -223,6 +223,7 @@ describe('notice files', () => {
   it.each([
     ['health_data', 'v3'],
     ['ai_health', 'v1'],
+    ['voice', 'v1'],
   ] as const)('%s is served from its %s file, with the hash declared there', (purpose, version) => {
     const doc = readFileSync(new URL(`${purpose}-${version}.md`, NOTICE_DIR), 'utf8');
     const notice = NOTICES[purpose]!;
@@ -277,6 +278,47 @@ describe('ai_health notice v1', () => {
     expect(notice.text).toMatch(/AI characters/);
     expect(notice.text).toMatch(/meals/);
     expect(notice.text).toMatch(/written script/);
+  });
+});
+
+describe('voice notice v1 (C-18, M7 Step 4)', () => {
+  const notice = NOTICES.voice!;
+
+  it('says plainly what the microphone is for, where the audio goes, and what is never made or kept', () => {
+    expect(notice.text).toMatch(/microphone to talk to the Pan/);
+    expect(notice.text).toMatch(/our own speech servers in the EU \(Hetzner\)/);
+    expect(notice.text).toMatch(/audio is never stored/);
+    expect(notice.text).toMatch(/no voiceprint is made/);
+    expect(notice.text).toMatch(/kept only as the text of your conversation, exactly as if you had typed it/);
+    expect(notice.text).toMatch(/Typing always works/);
+    expect(notice.text).toMatch(/Children never use the microphone/);
+  });
+
+  it('never claims HIPAA or medical-grade', () => {
+    expect(notice.text).not.toMatch(/HIPAA|medical-grade/i);
+    expect(readFileSync(new URL('voice-v1.md', NOTICE_DIR), 'utf8')).not.toMatch(/HIPAA|medical-grade/i);
+  });
+
+  it('GET /me/consents returns notices.voice at v1 from the file; a grant under 2026-11-09 is in needsReconsent', async () => {
+    const cookie = await signIn(app, mailer, `voice${++seq}@example.com`);
+    const cookies = { kq_session: cookie };
+    const userId = (await app.inject({ method: 'GET', url: '/me', cookies })).json().id as string;
+    const first = (await app.inject({ method: 'GET', url: '/me/consents', cookies })).json();
+    expect(first.notices.voice).toEqual({ version: 'v1', text: notice.text });
+    const doc = readFileSync(new URL('voice-v1.md', NOTICE_DIR), 'utf8');
+    expect(first.notices.voice.text).toBe(NOTICE_TEXT.exec(doc)![1]);
+
+    await grantConsent(db, userId, 'voice', '2026-11-09', sha('Use your microphone to talk to the cooks. ...'), 'tap', clock);
+    expect(await hasConsent(db, userId, 'voice', clock)).toBe(false);
+    const stale = (await app.inject({ method: 'GET', url: '/me/consents', cookies })).json();
+    expect(stale.needsReconsent).toEqual(['voice']);
+
+    clock = new Date(clock.getTime() + 60_000);
+    const regrant = await app.inject({ method: 'POST', url: '/me/consents', cookies, payload: { purpose: 'voice', noticeVersion: 'v1' } });
+    expect(regrant.statusCode).toBe(201);
+    expect(regrant.json().consent).toMatchObject({ noticeVersion: 'v1', noticeSha256: sha(notice.text).toString('hex'), current: true });
+    expect(await hasConsent(db, userId, 'voice', clock)).toBe(true);
+    expect((await app.inject({ method: 'GET', url: '/me/consents', cookies })).json().needsReconsent).toEqual([]);
   });
 });
 

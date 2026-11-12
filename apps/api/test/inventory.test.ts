@@ -112,6 +112,23 @@ describe('M6 Step 7 columns', () => {
   });
 });
 
+// M7 Step 4 (Ruling 6, C-19): the sealed accessibility need.
+describe('M7 Step 4 columns', () => {
+  it('voice_settings columns are in data-inventory §6 (P-5, built M7)', () => {
+    const doc = readFileSync(INVENTORY, 'utf8');
+    const index = columnIndex(doc);
+    for (const c of ['user_id', 'sealed', 'updated_at']) {
+      expect(index.get('voice_settings')?.has(`voice_settings.${c}`), c).toBe(true);
+    }
+    expect(doc).toMatch(/^\| `voice_settings` \|.*\| P-5 \|$/m);
+    // P-5 is built now: no "not in the current schema", and no plain profiles column named for it.
+    const p5 = doc.split('\n').find((l) => l.startsWith('| P-5 |'))!;
+    expect(p5).toContain('`voice_settings`');
+    expect(p5).not.toMatch(/not in the current schema|planned M2/);
+    expect(doc).not.toMatch(/profiles\.accessibility_voice/);
+  });
+});
+
 const ROADMAP = new URL('../../../docs/compliance/ROADMAP.md', import.meta.url);
 const COMPLIANCE = new URL('../../../docs/compliance/2026-11-09-health-data-compliance.md', import.meta.url);
 
