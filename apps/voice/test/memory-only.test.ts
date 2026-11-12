@@ -14,8 +14,8 @@ import type { SttEngine, TtsEngine } from '../src/engines/types';
 import { createLogger } from '../src/log';
 import { createVoiceServer } from '../src/server';
 import { connect, testConfig, type Client } from './helpers';
+import { PCM_WORD, pcmChecks, workerScale } from './leak-detectors';
 
-const PCM_WORD = 0x4b51;
 const STT_MARKER = 'zebrapeanut71';
 const TTS_MARKER = 'quagga-lentil-42';
 const pcmFrame = () => new Int16Array(320).fill(PCM_WORD);
@@ -199,6 +199,13 @@ const LEAKS: Record<string, { leak: (c: LeakContext) => void; fails: string[] }>
   },
   'bytes joined by spaces': { leak: (c) => console.log(Array.from(c.bytes.subarray(0, 8)).join(' ')), fails: ['noPcmBytes'] },
   'per-sample hex': { leak: (c) => console.log(Array.from(c.pcm.subarray(0, 4), (v) => v.toString(16)).join(' ')), fails: ['noPcmSampleHex'] },
+  // Step 3 (F3): the forms the worker bridge's real conversion makes (x / PCM_SCALE, read from the worker), and /32767.
+  'float32 hex (the worker scale)': { leak: (c) => console.log(Buffer.from(Float32Array.from(c.pcm.subarray(0, 8), (v) => v / workerScale()).buffer).toString('hex')), fails: ['noFloatHex'] },
+  'float64 hex': { leak: (c) => console.log(Buffer.from(Float64Array.from(c.pcm.subarray(0, 8), (v) => v / workerScale()).buffer).subarray(5).toString('hex')), fails: ['noFloatHex'] },
+  'float64 base64': { leak: (c) => console.log(Buffer.from(Float64Array.from(c.pcm.subarray(0, 8), (v) => v / workerScale()).buffer).subarray(3).toString('base64')), fails: ['noFloatPcmBase64'] },
+  'float32 base64, /32767': { leak: (c) => console.log(Buffer.from(Float32Array.from(c.pcm.subarray(0, 8), (v) => v / 32767).buffer).subarray(2).toString('base64')), fails: ['noFloatPcmBase64'] },
+  'float /32767 as a decimal': { leak: (c) => console.log(c.pcm[0] / 32767), fails: ['noFloatPcm'] },
+  'toFixed(4)': { leak: (c) => console.log((c.pcm[0] / workerScale()).toFixed(4)), fails: ['noFloatPcm'] },
 };
 
 const leakAll = (c: LeakContext) => {
@@ -282,21 +289,6 @@ async function runSession(e: { stt: SttEngine; tts: TtsEngine }): Promise<Eviden
 
 // --- the checks ------------------------------------------------------------------------------------------------------
 
-const sample = pcmBytes(new Int16Array(16).fill(PCM_WORD));
-const PCM_HEX = [sample.subarray(0, 8).toString('hex'), sample.subarray(1, 9).toString('hex')];
-const PCM_SPACED_HEX = /(51 4b 51 4b|4b 51 4b 51)/;
-/** The bytes as decimals, as inspect of a Uint8Array and a Buffer's JSON print them: 81, 75, 81, 75 (any spacing). */
-const PCM_BYTES = /(81[,\s]+75[,\s]+81[,\s]+75|75[,\s]+81[,\s]+75[,\s]+81)/;
-/** One sample per hex word (N5): 4b51 4b51. */
-const PCM_SAMPLE_HEX = /4b51[,\s]+4b51/;
-/** The PCM as float32 in [-1, 1) (N5): 19281 / 32768 = 0.588409423828125, printed to float32 or float64 precision. */
-const FLOAT_PCM = /0\.58840\d/;
-const floatBytes = Buffer.from(Float32Array.from({ length: 16 }, () => PCM_WORD / 32768).buffer);
-/** Every byte phase of the float32 run: base64 groups start at multiples of 3, the samples every 4 bytes. */
-const FLOAT_B64 = [0, 1, 2, 3].map((p) => floatBytes.subarray(p, p + 24).toString('base64').slice(0, 16));
-const PCM_B64 = [sample.subarray(0, 12).toString('base64'), sample.subarray(1, 13).toString('base64')];
-const PCM_DEC = String(PCM_WORD); // 19281, as inspect of an Int16Array prints it
-
 function checks(e: Evidence): Record<string, boolean> {
   const out = e.output.toLowerCase();
   return {
@@ -304,15 +296,8 @@ function checks(e: Evidence): Record<string, boolean> {
     noWriteSpyCall: e.writeCalls.length === 0,
     noMarker: !out.includes(STT_MARKER) && !out.includes(TTS_MARKER),
     noHint: !HINT.some((w) => out.includes(w)),
-    noPcmHex: !PCM_HEX.some((h) => out.includes(h)),
-    noPcmSpacedHex: !PCM_SPACED_HEX.test(out),
-    noPcmBytes: !PCM_BYTES.test(out),
-    noBufferJson: !out.includes('"type":"buffer"'),
-    noPcmBase64: !PCM_B64.some((b) => e.output.includes(b.slice(0, 12))),
-    noPcmDecimal: !out.includes(PCM_DEC),
-    noPcmSampleHex: !PCM_SAMPLE_HEX.test(out),
-    noFloatPcm: !FLOAT_PCM.test(out),
-    noFloatPcmBase64: !FLOAT_B64.some((b) => e.output.includes(b)),
+    // The PCM in every encoding test/leak-detectors.ts knows, the worker's own float conversion included (F3).
+    ...pcmChecks(e.output),
   };
 }
 const ALL_PASS = Object.fromEntries(Object.keys(checks({ before: [], after: [], writeCalls: [], output: '' } as unknown as Evidence)).map((k) => [k, true]));
