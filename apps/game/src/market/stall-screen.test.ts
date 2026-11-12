@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, expect, test } from 'vitest';
-import { optionOrder, type ProgressEvent, type ProgressView, type Rule } from '@kitchenquest/core/engine';
+import { keeperLines, optionOrder, type ProgressEvent, type ProgressView, type Rule } from '@kitchenquest/core/engine';
 import type { ApiClient } from '../api/client';
 import { content, graph } from '../content';
 import { catalogueOf, rulesContextOf, withMarket } from '../progress/catalogue';
@@ -175,6 +175,19 @@ describe('a stall (M6 Step 9)', async () => {
     expect(plan.round.filter((q) => q.game === 'seasonal').length).toBeGreaterThan(0);
     expect(stallPlan(market.stalls.wen, ctxOf([]), { country: null, region: null }, market.seasonality, solved).round.some((q) => q.game === 'seasonal')).toBe(false);
     expect(plan.round.every((q) => q.game !== 'seasonal' || seasonalIds.has(q.id))).toBe(true);
+  });
+
+  test('keeper lines only as core keeperLines keeps them: the greeting and the farewell are rules-checked lines', async () => {
+    const noBeef = [avoid('category', 'beef')];
+    const { el } = await open(store({ localRules: noBeef }), 'bram');
+    const greet = el.querySelector('.stall-greeting')?.textContent ?? null;
+    const kept = keeperLines(market.stalls.bram, 'greet', ctxOf(noBeef));
+    if (greet !== null) expect(kept).toContain(greet);
+    expect(market.stalls.bram.triggers.greet.lines.filter((l) => !kept.includes(l)).length).toBeGreaterThan(0); // some were dropped
+    playThrough(el);
+    const said = [...el.querySelectorAll('.stall-said')].map((p) => p.textContent);
+    const farewells = keeperLines(market.stalls.bram, 'farewell', ctxOf(noBeef)).map((l) => `Big Bram: ${l}`);
+    expect(said.some((t) => t !== null && farewells.includes(t))).toBe(farewells.length > 0);
   });
 
   test('rules null → market.stall_wait, no questions', async () => {

@@ -187,7 +187,10 @@ export function stallScreen(deps: StallScreenDeps): Screen {
             const again = h('button', { type: 'button', class: 'btn btn-primary stall-again' }, 'Another round');
             again.addEventListener('click', () => { appCtx.navigate(route); });
             const done = contentText('p', panLine('market.round_done', `${id}|${today}`), { class: 'stall-done', tabindex: -1 });
-            roundSlot.replaceChildren(done, h('div', { class: 'button-row' }, again, h('a', { class: 'btn btn-secondary', href: routeHref({ name: 'stalls' }) }, 'Back to the stalls')));
+            // The keeper's farewell, rules-checked like every keeper line (none safe → none shown).
+            const bye = pickLine(keeperLines(file, 'farewell', ctx), `${id}|farewell|${today}`);
+            const farewell = bye === null ? null : h('p', { class: 'stall-said' }, h('span', { class: 'stall-speaker' }, `${name}: `), contentText('span', bye));
+            roundSlot.replaceChildren(done, ...(farewell ? [farewell] : []), h('div', { class: 'button-row' }, again, h('a', { class: 'btn btn-secondary', href: routeHref({ name: 'stalls' }) }, 'Back to the stalls')));
             done.focus();
           },
         });

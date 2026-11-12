@@ -88,7 +88,8 @@ describe('the market (M6 Step 9)', () => {
         await page.locator('#view h1', { hasText: bram.variants.protein_counter.name }).waitFor();
         expect(await page.locator('.stall-sign').textContent()).toBe('Protein Counter');
         expect(await page.locator('.stall-round').getAttribute('data-question')).toMatch(/^bram-pc-/);
-        expect(app.consoleErrors).toEqual([]);
+        // With the canvas off the test aborts the Phaser chunk itself; that refusal is the only error allowed.
+        expect(app.consoleErrors.filter((e) => canvas || e !== 'Failed to load resource: net::ERR_FAILED')).toEqual([]);
       });
     }
   }
