@@ -41,9 +41,9 @@ export async function setAccessibility(db: Db, keyring: Keyring, userId: string,
 // voice/allowance.ts
 export async function voiceState(db: Db, keyring: Keyring, userId: string, now: Date): Promise<{ state: VoiceState; unmetered: boolean }>;
 //   1. everyone: voice_stt seconds in 24 h ≥ VOICE_ABUSE_SECONDS_PER_DAY → resting until (oldest counted row + 24 h):
-//      { kind: 'resting_today' } when that is the same UTC date as now, else { kind: 'resting', until } (B4)
+//      { kind: 'resting_today' } when that is the same player-local date as now (Step 4 fix round 1 ruling: local, not UTC), else { kind: 'resting', until } (B4)
 //   2. unmetered = accessibility || any GUILD_KINDS → available
-//   3. free: seconds in 30 days ≥ FREE_VOICE_SECONDS_PER_30_DAYS → resting until the UTC date enough old rows leave the window
+//   3. free: seconds in 30 days ≥ FREE_VOICE_SECONDS_PER_30_DAYS → resting until the player-local date enough old rows leave the window
 export async function recordVoice(db: Pick<Db, 'insert'>, userId: string, feature: 'voice_stt' | 'voice_tts', ms: number, now: Date): Promise<void>;
 //   units = ceil(ms / 1000); cost = units × VOICE_COST_MICROUSD_PER_SECOND; skipped at 0 ms
 // voice/status-routes.ts
