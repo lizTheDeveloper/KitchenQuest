@@ -56,6 +56,16 @@
         "@fontsource/pixelify-sans",
         "@fontsource/vt323"
       ]
+    },
+    "apps/voice": {
+      "entry": [
+        "test/**/*.test.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "test/**/*.ts",
+        "*.ts"
+      ]
     }
   }
 }

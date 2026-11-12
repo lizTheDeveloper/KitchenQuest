@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
 import { loadVoiceConfig } from '../src/config';
-import { ALLOWED_LICENCES, castable, loadManifest, parseManifest, type VoiceManifest } from '../src/models';
+import { ALLOWED_LICENCES, castable, type EngineEntry, loadManifest, parseManifest, type VoiceManifest } from '../src/models';
 
 const manifest = loadManifest();
 const NC_OR_ND = /(^|-)(NC|ND)(-|$)/;
@@ -54,7 +54,7 @@ describe('the voice licence manifest', () => {
   });
 
   test('every GPL engine is in-worker-process or separate-process; no in-process engine is GPL', () => {
-    const gpl = manifest.engines.filter((e) => /GPL/.test(e.licence));
+    const gpl: EngineEntry[] = manifest.engines.filter((e) => /GPL/.test(e.licence));
     expect(gpl.map((e) => e.id).sort()).toEqual(['espeak-ng', 'piper-tts']);
     for (const e of gpl) expect(['in-worker-process', 'separate-process'], e.id).toContain(e.boundary);
     for (const e of manifest.engines.filter((x) => x.boundary === 'in-process')) expect(e.licence, e.id).not.toMatch(/GPL/);
@@ -67,7 +67,7 @@ describe('the voice licence manifest', () => {
     const refused = manifest.models.filter((m) => m.status !== 'allowed');
     expect(refused.map((m) => m.id).sort()).toEqual(['piper-en_GB-alan-medium', 'piper-en_US-amy-medium', 'piper-en_US-lessac-medium', 'piper-en_US-ryan-high']);
     for (const m of refused) {
-      const voice = m.voices![0]!;
+      const voice = m.voices![0];
       const run = () => loadVoiceConfig(devEnv({ VOICE_TTS_MODEL: m.id, VOICE_PAN_VOICE: voice }), manifest);
       expect(run, m.id).toThrow(m.id);
       expect(run, m.id).toThrow(m.status);
@@ -81,7 +81,7 @@ describe('the voice licence manifest', () => {
     const env: NodeJS.ProcessEnv = {};
     for (const line of text.split('\n')) {
       const m = /^(VOICE_[A-Z0-9_]+)=(.*)$/.exec(line.trim());
-      if (m) env[m[1]!] = m[2]!;
+      if (m) env[m[1]] = m[2]!;
     }
     const modelKeys = Object.keys(env).filter((k) => k.endsWith('_MODEL'));
     expect(modelKeys.sort()).toEqual(['VOICE_STT_MODEL', 'VOICE_TTS_MODEL']);

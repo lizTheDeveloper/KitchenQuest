@@ -1,6 +1,10 @@
 // M7 Step 2: the WebSocket server. Only the API may connect (a shared bearer token, compared in constant time); the
 // service knows no user and logs only enums and numbers.
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, test } from 'vitest';
+import { boot } from '../src/boot';
 import { fakeStt, fakeTts } from '../src/engines/fake';
 import type { LogKind } from '../src/log';
 import { createVoiceServer } from '../src/server';
@@ -48,6 +52,7 @@ describe('createVoiceServer', () => {
     expect(await a.next()).toMatchObject({ kind: 'msg', msg: { t: 'ready', stt: 'fake-stt', tts: 'fake-tts', sampleRate: 22_050 } });
     a.ws.send('{not json');
     expect(await a.closed).toBe(4400);
+    await new Promise((r) => setTimeout(r, 20));
     expect(logs.map(([k]) => k)).toEqual(['conn_open', 'bad_message', 'conn_close']);
 
     // An unknown message shape and an undecodable frame are bad too.
@@ -87,4 +92,27 @@ describe('createVoiceServer', () => {
     expect(await c.closed).toBe(1001);
     await expect(connect(port)).rejects.toThrow();
   });
+});
+
+describe('boot (P11)', () => {
+  test('a dev env boots the fake engines on VOICE_PORT and answers hello; production refuses until the Step 3 bench gate exists', async () => {
+    const service = await boot({ VOICE_SERVICE_TOKEN: TEST_TOKEN, VOICE_PORT: '0', VOICE_ENGINE: 'fake' });
+    servers.push(service);
+    const c = await connect(service.port);
+    c.send({ t: 'hello', v: 1 });
+    expect(await c.next()).toMatchObject({ kind: 'msg', msg: { t: 'ready', stt: 'fake-stt', tts: 'fake-tts' } });
+    c.ws.close();
+    await c.closed;
+    await expect(boot({ VOICE_SERVICE_TOKEN: TEST_TOKEN, VOICE_PORT: '0', VOICE_ENGINE: 'worker' })).rejects.toThrow(/Step 3/);
+    // Production: refused by config first (fake engine, empty files), and by the gate even when config would pass.
+    await expect(boot({ NODE_ENV: 'production', VOICE_SERVICE_TOKEN: TEST_TOKEN, VOICE_ENGINE: 'fake' })).rejects.toThrow(/VOICE_ENGINE=fake/);
+    await expect(boot({ NODE_ENV: 'production', VOICE_SERVICE_TOKEN: TEST_TOKEN, VOICE_ENGINE: 'worker' })).rejects.toThrow(/files/);
+  });
+});
+
+test('P2: apps/voice/src never imports speechText or speechChunks; the API alone renders and chunks speech', () => {
+  const dir = fileURLToPath(new URL('../src/', import.meta.url));
+  const files = readdirSync(dir, { recursive: true, encoding: 'utf8' }).filter((f) => f.endsWith('.ts'));
+  expect(files).toContain('session.ts');
+  for (const f of files) expect(readFileSync(join(dir, f), 'utf8'), f).not.toMatch(/\bspeech(Text|Chunks)\b/);
 });

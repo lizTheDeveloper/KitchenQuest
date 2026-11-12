@@ -18,7 +18,7 @@ export function testConfig(over: Partial<VoiceConfig> = {}): VoiceConfig {
   };
 }
 
-export type Received = { kind: 'msg'; msg: UpstreamServerMsg; raw: unknown } | { kind: 'frame'; id: number; pcm: Int16Array };
+type Received = { kind: 'msg'; msg: UpstreamServerMsg; raw: unknown } | { kind: 'frame'; id: number; pcm: Int16Array };
 
 export interface Client {
   ws: WebSocket;
@@ -65,7 +65,7 @@ export function connect(port: number, authorization: string | null = `Bearer ${T
           setTimeout(r, 20);
         });
       }
-      return received[cursor++]!;
+      return received[cursor++];
     },
   };
   return new Promise((resolve, reject) => {

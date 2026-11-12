@@ -63,3 +63,15 @@ jobs:
       - run: npm test -w @kitchenquest/game
       - run: npm run build -w @kitchenquest/game
       - run: npm run test:e2e -w @kitchenquest/game
+  # M7: the voice service. Fake engines only: CI has no GPU, no microphone and no model weights.
+  voice:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck -w @kitchenquest/voice
+      - run: npm test -w @kitchenquest/voice

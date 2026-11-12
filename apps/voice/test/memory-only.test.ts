@@ -1,7 +1,7 @@
 // M7 C-18: "Audio is processed in memory and never stored": no disk, no logging of audio or transcripts. A full session
 // runs against the real server, then the service's filesystem and output are checked. D1: the same run with a
 // deliberately leaking fake must fail every check, so a check that can never fail cannot pass here.
-import * as fs from 'node:fs';
+import fs from 'node:fs';
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -44,7 +44,7 @@ beforeEach(() => {
   for (const d of dirs) mkdirSync(d);
   process.env.TMPDIR = dirs[0];
   process.env.HOME = dirs[1];
-  process.chdir(dirs[2]!);
+  process.chdir(dirs[2]);
 });
 
 afterEach(() => {
@@ -80,7 +80,7 @@ function installNets(): { writeCalls: string[]; output: string[]; restore(): voi
   const always = ['writeFile', 'writeFileSync', 'appendFile', 'appendFileSync', 'write', 'writeSync', 'writev', 'writevSync', 'createWriteStream', 'cp', 'cpSync', 'copyFile', 'copyFileSync', 'mkdtemp', 'mkdtempSync'] as const;
   const target = fs as unknown as Record<string, (...a: unknown[]) => unknown>;
   for (const name of always) {
-    const orig = target[name]!;
+    const orig = target[name];
     const spy = vi.spyOn(target, name).mockImplementation(function (this: unknown, ...args: unknown[]) {
       writeCalls.push(`fs.${name}`);
       return orig.apply(this, args);
@@ -88,7 +88,7 @@ function installNets(): { writeCalls: string[]; output: string[]; restore(): voi
     restores.push(() => spy.mockRestore());
   }
   for (const name of ['open', 'openSync'] as const) {
-    const orig = target[name]!;
+    const orig = target[name];
     const spy = vi.spyOn(target, name).mockImplementation(function (this: unknown, ...args: unknown[]) {
       if (forWrite(args[1])) writeCalls.push(`fs.${name}`);
       return orig.apply(this, args);
@@ -97,7 +97,7 @@ function installNets(): { writeCalls: string[]; output: string[]; restore(): voi
   }
   const promises = fs.promises as unknown as Record<string, (...a: unknown[]) => unknown>;
   for (const name of ['writeFile', 'appendFile', 'cp', 'copyFile', 'mkdtemp', 'open'] as const) {
-    const orig = promises[name]!;
+    const orig = promises[name];
     const spy = vi.spyOn(promises, name).mockImplementation(function (this: unknown, ...args: unknown[]) {
       if (name !== 'open' || forWrite(args[1])) writeCalls.push(`fs.promises.${name}`);
       return orig.apply(this, args);
@@ -198,9 +198,9 @@ async function runSession(e: { stt: SttEngine; tts: TtsEngine }): Promise<Eviden
     const t = await waitFor(a, (m) => m.t !== 'ready');
     ev.transcript = t.t === 'transcript' && t.text === STT_MARKER;
     a.send({ t: 'speak', id: 2, voice: 'pan', chunks: [{ text: TTS_MARKER, cache: false }] });
-    ev.audioEnd = (await waitFor(a, (m) => m.id === 2)).t === 'audio_end';
+    ev.audioEnd = (await waitFor(a, (m) => 'id' in m && m.id === 2)).t === 'audio_end';
     // speak, then cancel mid-chunk
-    a.send({ t: 'speak', id: 3, voice: 'pan', chunks: [{ text: Array.from({ length: 60 }, () => TTS_MARKER).join(' '), cache: true }] });
+    a.send({ t: 'speak', id: 3, voice: 'pan', chunks: [{ text: Array.from({ length: 30 }, () => TTS_MARKER).join(' '), cache: true }] });
     for (;;) if ((await a.next()).kind === 'frame') break;
     a.send({ t: 'cancel', id: 3 });
     // a second listen, closed mid-utterance
@@ -216,10 +216,10 @@ async function runSession(e: { stt: SttEngine; tts: TtsEngine }): Promise<Eviden
     b.send({ t: 'listen', id: 5, hint: ['boom'] });
     for (let i = 0; i < 5; i++) b.send(encodeFrame(5, pcmFrame()));
     b.send({ t: 'end', id: 5 });
-    const f = await waitFor(b, (m) => m.id === 5);
+    const f = await waitFor(b, (m) => 'id' in m && m.id === 5);
     ev.failedStt = f.t === 'failed' && f.kind === 'stt';
     b.send({ t: 'speak', id: 6, voice: 'pan', chunks: [{ text: `boom ${TTS_MARKER}`, cache: false }] });
-    const g = await waitFor(b, (m) => m.id === 6);
+    const g = await waitFor(b, (m) => 'id' in m && m.id === 6);
     ev.failedTts = g.t === 'failed' && g.kind === 'tts';
     b.ws.close();
     await b.closed;

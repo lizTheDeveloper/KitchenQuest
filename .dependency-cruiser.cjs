@@ -47,6 +47,29 @@ module.exports = {
       to: { path: '(^|/)@kitchenquest/api(/|$)' },
     },
     {
+      name: 'voice-no-api',
+      comment:
+        'M7: apps/voice (the voice service) never imports from apps/api or apps/game. It speaks core\'s upstream ' +
+        'protocol and knows no user (C-15); share code through packages/core.',
+      severity: 'error',
+      from: { path: '^apps/voice' },
+      to: { path: '^apps/(api|game)/|(^|/)@kitchenquest/(api|game)(/|$)' },
+    },
+    {
+      name: 'api-no-voice',
+      comment: 'M7: apps/api reaches the voice service over its WebSocket only, never by importing apps/voice.',
+      severity: 'error',
+      from: { path: '^apps/api' },
+      to: { path: '^apps/voice/|(^|/)@kitchenquest/voice(/|$)' },
+    },
+    {
+      name: 'game-no-voice',
+      comment: 'M7: apps/game never imports apps/voice; the device talks to the API, which talks to the voice service.',
+      severity: 'error',
+      from: { path: '^apps/game' },
+      to: { path: '^apps/voice/|(^|/)@kitchenquest/voice(/|$)' },
+    },
+    {
       name: 'c10-org-no-health-modules',
       comment:
         'Compliance C-10: org data is never joined to health data. Nothing under an org/ path ' +

@@ -126,16 +126,16 @@ describe('Session: listening', () => {
     // end
     h.msg({ t: 'listen', id: 1, hint: ['a'] });
     h.frame(1, 320, 0x4b51);
-    expect(allZero(h.buffers[0]!)).toBe(false);
-    expect(h.buffers[0]!.length).toBe(MAX_SAMPLES);
+    expect(allZero(h.buffers[0])).toBe(false);
+    expect(h.buffers[0].length).toBe(MAX_SAMPLES);
     h.msg({ t: 'end', id: 1 });
     await h.session.idle();
-    expect(allZero(h.buffers[0]!)).toBe(true);
+    expect(allZero(h.buffers[0])).toBe(true);
     // cancel
     h.msg({ t: 'listen', id: 2, hint: [] });
     h.frame(2, 320, 0x4b51);
     h.msg({ t: 'cancel', id: 2 });
-    expect(allZero(h.buffers[1]!)).toBe(true);
+    expect(allZero(h.buffers[1])).toBe(true);
     expect(h.session.inspect()).toEqual({ utterance: null, hintWords: 0, bufferedSamples: 0, speech: null });
     await h.session.idle();
     expect(h.sent).toHaveLength(2); // ready, transcript 1; nothing for the cancelled one
@@ -143,12 +143,12 @@ describe('Session: listening', () => {
     h.msg({ t: 'listen', id: 3, hint: [] });
     h.frame(3, 320, 0x4b51);
     h.msg({ t: 'listen', id: 4, hint: [] });
-    expect(allZero(h.buffers[2]!)).toBe(true);
+    expect(allZero(h.buffers[2])).toBe(true);
     // close mid-utterance
     h.frame(4, 320, 0x4b51);
     expect(h.session.inspect().bufferedSamples).toBe(320);
     h.session.close();
-    expect(allZero(h.buffers[3]!)).toBe(true);
+    expect(allZero(h.buffers[3])).toBe(true);
     expect(h.session.inspect()).toEqual({ utterance: null, hintWords: 0, bufferedSamples: 0, speech: null });
 
     // close while transcribing: the buffer is zeroed once the engine lets go, and nothing is sent after close.
@@ -161,27 +161,35 @@ describe('Session: listening', () => {
     t.session.close();
     release('late words');
     await t.session.idle();
-    expect(allZero(t.buffers[0]!)).toBe(true);
+    expect(allZero(t.buffers[0])).toBe(true);
     expect(t.sent).toHaveLength(1);
   });
 
   test('a throwing STT engine sends failed stt and logs engine_error with numbers only; messages before hello are bad', async () => {
-    const logs: [string, unknown][] = [];
-    const sent: UpstreamServerMsg[] = [];
-    const closed: number[] = [];
-    const session = new Session({
-      stt: { model: 'x', transcribe: () => Promise.reject(new Error('boom zebrapeanut71')) },
-      tts: fakeTts(),
-      cast: CAST,
-      cache: new SpeechCache(),
-      log: (kind, fields) => logs.push([kind, fields]),
-      io: { json: (m) => sent.push(m), frame: () => {}, close: (c) => closed.push(c) },
-    });
-    session.receive(JSON.stringify({ t: 'listen', id: 1, hint: [] }), false);
-    expect(closed).toEqual([4400]);
-    expect(logs).toEqual([['bad_message', undefined]]);
-    closed.length = 0;
-    logs.length = 0;
+    const make = () => {
+      const logs: [string, unknown][] = [];
+      const sent: UpstreamServerMsg[] = [];
+      const closed: number[] = [];
+      const session = new Session({
+        stt: { model: 'x', transcribe: () => Promise.reject(new Error('boom zebrapeanut71')) },
+        tts: fakeTts(),
+        cast: CAST,
+        cache: new SpeechCache(),
+        log: (kind, fields) => logs.push([kind, fields]),
+        io: { json: (m) => sent.push(m), frame: () => {}, close: (c) => closed.push(c) },
+      });
+      return { logs, sent, closed, session };
+    };
+    // Before hello: a listen and a frame are each bad_message, and the session is closed and ignores the rest.
+    for (const first of [[JSON.stringify({ t: 'listen', id: 1, hint: [] }), false], [encodeFrame(1, new Int16Array(4)), true]] as const) {
+      const early = make();
+      early.session.receive(first[0], first[1]);
+      early.session.receive(JSON.stringify({ t: 'hello', v: 1 }), false);
+      expect(early.closed).toEqual([4400]);
+      expect(early.logs).toEqual([['bad_message', undefined]]);
+      expect(early.sent).toEqual([]);
+    }
+    const { logs, sent, closed, session } = make();
     session.receive(JSON.stringify({ t: 'hello', v: 1 }), false);
     session.receive(JSON.stringify({ t: 'listen', id: 1, hint: [] }), false);
     session.receive(encodeFrame(1, new Int16Array(320)), true);
