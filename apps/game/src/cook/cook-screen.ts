@@ -13,7 +13,8 @@ import { catalogueOf, questsOf } from '../progress/catalogue';
 import { newEventId } from '../progress/log';
 import { cookStepEvents } from '../quests/quest-runner';
 import { plannedOn } from '../week/memory';
-import { stockSwapsNow } from '../week/market-swaps';
+import { loadKnownRun, stockSwapsNow } from '../week/market-swaps';
+import { getMentorServices } from '../mentor';
 import { runCookMode } from './cook-mode';
 import { afterCookThenKitchen, cookedEvent } from './finish';
 import { takeNotes } from './with-notes';
@@ -60,6 +61,13 @@ export function cookScreen(): Screen {
       const notes = takeNotes(slug, ctx.store.get().account?.email ?? null);
       const recipe: ParsedRecipe = notes === null ? content.recipes[slug] : applyNotes(content.recipes[slug], notes);
       const cook = content.cooks[recipe.meta.cook];
+      // Signed in after a reload: this week's run, read once (read only) so its stall swaps are checked and labelled.
+      if (ctx.store.get().account !== null) {
+        let client: Parameters<typeof loadKnownRun>[1] | null = null;
+        try { client = getMentorServices().client; } catch { /* no panel (a test mount): no run read */ }
+        if (client !== null) await loadKnownRun(ctx.store.get(), client, localDate(ctx.now()));
+        if (gone) return;
+      }
 
       const buildCard = () => {
         const state = ctx.store.get();

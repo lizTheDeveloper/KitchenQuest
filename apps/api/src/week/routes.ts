@@ -8,7 +8,7 @@ import { requireUser } from '../auth/session.js';
 import type { Catalog, LoopContent } from '../catalog.js';
 import { ApiError } from '../errors.js';
 import type { RecipeIndexSource } from '../recipes/recipe-index.js';
-import { finishRunIn, openRunIn, stockIn, tickIn } from './market-service.js';
+import { finishRunIn, openRunIn, openRunViewIn, stockIn, tickIn } from './market-service.js';
 import { checksFor, currentWeekStart, deletePlanIn, savePlanIn, type WeekDeps } from './plan-service.js';
 import { localToday } from './local-date.js';
 import { loadPlan, type Tx } from './store.js';
@@ -126,6 +126,24 @@ export async function weekRoutes(app: FastifyInstance, deps: WeekRouteDeps): Pro
     const weekStart = weekDate(WeekParam.parse(req.params).weekStart);
     await db.transaction((tx: Tx) => deletePlanIn(tx, req.user.id, weekStart, at, req.id));
     return reply.status(204).send();
+  });
+
+  /**
+   * M6 Step 10: `?today=` → `{ run: MarketRunView | null }`, the open run of the current plan week with its rows
+   * recomputed now (as an open does), or null when there is none or it is done. Read only: it opens nothing, writes
+   * nothing and needs no consent (a read of the player's own data, as `GET /plans/current`, M5 M2). The scripted Pan's
+   * check-off and cook mode's stall-swap label read it after a reload.
+   */
+  app.get('/market-runs/current', pre, async (req) => {
+    const at = now();
+    const userId = req.user.id;
+    const local = localToday(CurrentQuery.parse(req.query).today, at);
+    const run = await db.transaction(async (tx: Tx) => {
+      await lockLiveUser(tx, userId);
+      return openRunViewIn(tx, await weekDeps(tx), userId, local);
+    });
+    await countSelfRead(db, userId, 'plans', at);
+    return { run };
   });
 
   app.post('/market-runs', pre, async (req) => {

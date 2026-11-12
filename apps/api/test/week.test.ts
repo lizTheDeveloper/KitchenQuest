@@ -790,3 +790,42 @@ describe('M6 Step 6: amounts and stall swaps', () => {
     expect(logs.text()).not.toMatch(/parippu|onigiri|moong|lentil|soy|shallot|tofu|kerala|osaka|wen-|avocado|stall_round|"pick"/i);
   });
 });
+
+// M6 Step 10 (coordinator ruling 3): the current run, read only, for the scripted check-off and cook's swap label.
+describe('M6 Step 10: GET /market-runs/current', () => {
+  const currentRun = async (cookie: string) => {
+    const res = await call(cookie, { method: 'GET', url: `/market-runs/current?today=${TODAY}` });
+    expect(res.statusCode, res.body).toBe(200);
+    return res.json<{ run: MarketRunView | null }>().run;
+  };
+  const runRows = (userId: string) => db.select().from(marketRuns).where(eq(marketRuns.userId, userId));
+
+  it('no run → null and nothing opened; an open run → its rows (stall swaps included); done → null; signed out → 401', async () => {
+    const p = await player();
+    await put(p.cookie, planOf(MONDAY, [dish(PARIPPU, 0)]));
+    expect(await currentRun(p.cookie)).toBeNull();
+    expect(await runRows(p.id)).toEqual([]); // a read never opens one
+    const run = await open(p.cookie);
+    const swapped = await call(p.cookie, { method: 'POST', url: `/market-runs/${run.id}/stock`, payload: { key: 'shallot', action: 'take', toId: 'onion', today: TODAY } });
+    expect(swapped.statusCode, swapped.body).toBe(200);
+    const read = await currentRun(p.cookie);
+    expect(read?.id).toBe(run.id);
+    expect(read?.items.find((i) => i.key === 'shallot')).toMatchObject({ outOfStock: true });
+    expect(read?.items.find((i) => i.key === 'stock:onion')).toMatchObject({ ticked: true, stockSwap: { from: 'shallot' } });
+    const sealedBefore = (await runRows(p.id))[0].sealed;
+    await currentRun(p.cookie);
+    expect((await runRows(p.id))[0].sealed).toEqual(sealedBefore); // read only: the stored run is untouched
+    expect((await finish(p.cookie, run.id)).statusCode).toBe(200);
+    expect(await currentRun(p.cookie)).toBeNull();
+    expect((await call(null, { method: 'GET', url: `/market-runs/current?today=${TODAY}` })).statusCode).toBe(401);
+  });
+
+  it('a read needs no health_data consent (M5 M2): after a withdraw-and-keep the run still reads', async () => {
+    const p = await player();
+    await put(p.cookie, planOf(MONDAY, [dish(PARIPPU, 0)]));
+    const run = await open(p.cookie);
+    const w = await call(p.cookie, { method: 'DELETE', url: '/me/consents/health_data', payload: { healthData: 'keep' } });
+    expect(w.statusCode, w.body).toBeLessThan(300);
+    expect((await currentRun(p.cookie))?.id).toBe(run.id);
+  });
+});

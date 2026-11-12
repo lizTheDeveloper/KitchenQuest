@@ -118,6 +118,8 @@ export const REQUIRED_PAN_TRIGGERS: readonly string[] = [
   'thanks',
   'intake.ios_home_screen',
   'intake.ios_install',
+  // M6 Step 10: Form 1-A's code loads on first open (first paint); this is said when it can't.
+  'intake.unavailable',
   'voice.not_yet',
   'toolkit.rusty_invite',
   // M4: the mentor (server agent and scripted engine) emits these by id.

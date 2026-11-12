@@ -5,7 +5,7 @@ import {
 } from '@kitchenquest/core/engine';
 import type { ApiClient } from '../api/client';
 import { content, graph } from '../content';
-import { knownRun } from '../week/market-swaps';
+import { knownRun, loadKnownRun } from '../week/market-swaps';
 import { activeRules, localDate } from '../recipes/rules';
 import { routeHref } from '../shell/router';
 import type { PlayerStore } from '../state/store';
@@ -170,7 +170,7 @@ export function createWeekTurn(d: {
    * device's own open, which never creates a run that isn't there); signed in the run as last read this session.
    */
   const currentRun = async (): Promise<MarketRunView | null> => {
-    const known = knownRun(store.get(), today());
+    const known = account() === null ? knownRun(store.get(), today()) : await loadKnownRun(store.get(), d.client, today());
     if (known === null || known.doneAt !== null) return null;
     if (account() !== null) return known;
     const r = await source.openRun(known.weekStart, today());

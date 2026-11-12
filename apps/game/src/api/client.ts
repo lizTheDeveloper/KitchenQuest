@@ -72,6 +72,8 @@ export interface ApiClient {
    * no `confirmed`. Ids only in the body, never names (P-5). 400 `stock_invalid` when the change is not possible now.
    */
   stock(runId: string, action: StockAction, today: string): Promise<ApiResult<MarketRunResponse>>;              // POST /market-runs/:id/stock
+  /** M6 Step 10: the current plan week's open run, read only (opens nothing, no consent needed for a read), or null. */
+  currentRun(today: string): Promise<ApiResult<{ run: MarketRunResponse | null }>>;                              // GET /market-runs/current?today=
   /**
    * M5 Step 7, the Recipe Book. Margin notes are health data: a write is 403 `consent_required` without `health_data`,
    * 400 `too_many_notes` past MAX_NOTES_PER_RECIPE. `listNotes` takes no argument and its URL no query (P-5, C32): the
@@ -193,6 +195,7 @@ export function createApiClient(opts: { baseUrl?: string; fetch?: typeof fetch; 
     tick: (runId, key, ticked, today) => call('POST', `/market-runs/${enc(runId)}/ticks`, { key, ticked, today }),
     finishRun: (runId, today) => call('POST', `/market-runs/${enc(runId)}/finish`, { confirmed: true, today }),
     // StockAction is exactly the route's fields (a `toId` only on a take; the body schema is strict).
+    currentRun: (today) => call('GET', `/market-runs/current?today=${enc(today)}`),
     stock: (runId, a, today) => call('POST', `/market-runs/${enc(runId)}/stock`, { ...a, today }),
     listNotes: () => call('GET', '/notes'),
     createNote: (note, today) => call('POST', '/notes', { note, confirmed: true, today }),

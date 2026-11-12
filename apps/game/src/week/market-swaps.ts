@@ -1,8 +1,9 @@
 import { stockSwapsFor, type MarketRunView } from '@kitchenquest/core/engine';
+import type { ApiClient } from '../api/client';
 import type { PlayerState } from '../state/store';
 import { devicePlan, weekOf } from './context';
 import { rememberedWeek } from './memory';
-import { rememberedRun } from './run-memory';
+import { rememberedRun, rememberRun } from './run-memory';
 
 /**
  * M6 Step 10 (Ruling 11): the plan week's market run as this device knows it, read only (nothing is opened or
@@ -32,4 +33,18 @@ export function stockSwapsNow(state: PlayerState, slug: string, today: string): 
   const plan = account === null ? devicePlan(state, run.weekStart) : (rememberedWeek(account)?.plan ?? null);
   const planned = plan === null ? account !== null : plan.items.some((i) => i.kind === 'dish' && i.slug === slug);
   return planned ? stockSwapsFor(run, slug) : [];
+}
+
+/**
+ * The known run, loaded on demand signed in (coordinator ruling 3): the remembered one, else `GET /market-runs/current`
+ * (read only), remembered for this account. Signed out the device run. Null on any failure: nothing is guessed.
+ */
+export async function loadKnownRun(state: PlayerState, client: Pick<ApiClient, 'currentRun'>, today: string): Promise<MarketRunView | null> {
+  const account = state.account?.email ?? null;
+  const known = knownRun(state, today);
+  if (account === null || known !== null) return known;
+  const r = await client.currentRun(today).catch(() => null);
+  if (r === null || !r.ok || r.data.run === null) return null;
+  rememberRun(r.data.run, account);
+  return r.data.run;
 }
