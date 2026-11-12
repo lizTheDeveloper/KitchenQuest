@@ -163,7 +163,7 @@ describe('stall swaps (Ruling 11)', () => {
 
 describe("The Season's Table (Ruling 10; data/seasonality.yaml)", () => {
   const SEATTLE = { country: 'USA', region: 'Seattle' };
-  const ctx = (date: string, rules: Rule[] = [], profile = SEATTLE) => marketCtxFor(rules, profile, date, graph, [...content.substitutions])!;
+  const ctx = (date: string, rules: Rule[] = [], profile: { country: string | null; region: string | null } = SEATTLE) => marketCtxFor(rules, profile, date, graph, [...content.substitutions])!;
 
   test('pnw-usa November: cranberry is "in season where you are"; winter squash is stored (its own label); December kale is in season', async () => {
     const table = (await loadMarket()).seasonality;
