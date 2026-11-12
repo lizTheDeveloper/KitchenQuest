@@ -8,7 +8,7 @@
 # currency. Your shop will differ." A value question that compares prices carries a `chalkboard:` (one
 # { price, servings } per option, in file order), and the build checks the arithmetic: the correct option is the
 # cheapest per serving, and every "= N" in a reaction is that option's own per-serving figure. The numbers are
-# chosen so the division is exact: no "≈".
+# chosen so the division is exact: no "≈". # REVIEW: the Protein Counter numbers changed in M6 Step 4 (content review).
 # Label questions that teach one country's label or agency figure carry `countries:` (Ruling 8); the °C/°F
 # temperature questions are physics, not law, and stay unscoped.
 # Food-safety numbers follow USDA FSIS guidance (safe minimum internal temperatures,
@@ -73,6 +73,7 @@ triggers:
       - "No {item} today. Take {swap}; same method, same time, near enough. The Bureau adores a label, so it's labelled."
       - "Sold out of {item}. {swap} is the next best for that dish. Checked and labelled."
       - "No {item} left. Have {swap} instead — checked against your rules, labelled on the recipe."
+  # REVIEW: new in M6 Step 4 (content review): no swap passes the rules, so skip it this week.
   out_of_stock_none:
     ai: never
     when: "An item on the list isn't available and no swap passes the player's rules (Ruling 11): skip it this week."
@@ -193,6 +194,7 @@ questions:
   - id: bram-air-chilled
     game: label
     # Ruling 8: most US chicken is water-chilled; in the EU air-chilling is the norm, so the lesson is a US one.
+    # REVIEW: confirm the air-chilling norms per country before scoping it wider.
     countries: ["United States"]
     prompt: "A chicken label says 'AIR-CHILLED'. What does that mean?"
     contains: [chicken]
@@ -753,7 +755,7 @@ variants:
         a_if_blocked: "Enough is the word, and it varies by person. A protein food at most meals, whatever fits your rules, gets most people there. For a number that's right for you, ask a dietitian. Bram does chalkboards, not prescriptions."
       - q: ["is soy safe", "is tofu bad for you", "soy hormones"]
         a: "That's one for a doctor or dietitian if you've got a specific worry. What I can say: tofu, tempeh and edamame are everyday foods for a great many people. Unless soy's on your rules, they're excellent value."
-        a_if_blocked: "That's one for a doctor or dietitian if you've got a specific worry. Your rules come first at this counter: I only show you what fits them."
+        a_if_blocked: "That's one for a doctor or dietitian if you've got a specific worry. Your rules come first at this counter: what I show you fits them."
       - q: ["vegan b12", "b12", "nutritional yeast b12"]
         a: "Some nutritional yeast and plant milks are fortified with B12 — check the label, because not all are. For whether you need a supplement, ask a doctor or dietitian. I sell food, not diagnoses."
         a_if_blocked: "Some foods are fortified with B12; check the label, because not all are. For whether you need a supplement, ask a doctor or dietitian. I sell food, not diagnoses."

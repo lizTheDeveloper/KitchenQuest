@@ -61,6 +61,7 @@ triggers:
       - "Out of {item}, alas. {swap} will stand in. Labelled, checked, and slightly offended to be second choice."
       - "We're out of {item}. {swap} is your best stand-in. Labelled, and checked against your rules."
       - "No {item}, I'm afraid. Try {swap}. It's been checked against your rules."
+  # REVIEW: new in M6 Step 4 (content review): no swap passes the rules, so skip it this week.
   out_of_stock_none:
     ai: never
     when: "A spice isn't available and no substitute passes the player's rules (Ruling 11): skip it this week."

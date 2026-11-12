@@ -81,6 +81,7 @@ triggers:
       - "Out of {item}. Take {swap}. It's been checked. Your pan will want to see the label; it loves a label."
       - "Sold out of {item}. {swap} will do it. Labelled and checked, as the Bureau insists."
       - "No {item} left today; take {swap} instead. Checked against your rules."
+  # REVIEW: new in M6 Step 4 (content review): no swap passes the rules, so skip it this week.
   out_of_stock_none:
     ai: never
     when: "An item on the list isn't available and no swap passes the player's rules (Ruling 11): skip it this week."
@@ -857,7 +858,7 @@ faq:
     a_if_blocked: "Yes. Frozen vegetables are picked and frozen quickly and keep their goodness well. Choose the ones that suit your rules; the freezer has plenty."
   - q: ["do i need to wash produce", "how to wash vegetables", "wash fruit"]
     a: "Rinse under cool running water just before you use it, and rub firm things like potatoes with your hands or a brush. No soap or detergent. Pre-washed bagged salad that says 'ready to eat' doesn't need washing again."
-    a_if_blocked: "Rinse produce under the cold tap just before you use it, and scrub the firm things with your hands or a brush. No soap. A bag marked 'ready to eat' doesn't need washing again."
+    a_if_blocked: "Rinse produce under the cold tap just before you use it, and scrub the firm things with your hands or a brush. No soap. A bag marked 'ready to eat' is already washed."
   - q: ["what is ethylene", "fruits that ripen others", "keep fruit apart"]
     a: "A gas some fruit give off as they ripen: apples, bananas, avocados, pears, tomatoes. It speeds ripening nearby. Use it on purpose (avocado in a bag with a banana) and avoid it by accident (keep apples away from leafy greens)."
     a_if_blocked: "A gas some fruit give off as they ripen. It speeds up ripening nearby: handy on purpose, a nuisance by accident. Keep ripening fruit away from leafy greens."

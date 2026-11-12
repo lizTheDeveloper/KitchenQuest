@@ -64,6 +64,7 @@ triggers:
       - "Out of {item}. Take {swap}. It is a good employee. Labelled, and checked."
       - "We have no {item} today. {swap} will do the work. Checked and labelled."
       - "Out of {item}. {swap} instead. A good substitute, checked against your rules."
+  # REVIEW: new in M6 Step 4 (content review): no swap passes the rules, so skip it this week.
   out_of_stock_none:
     ai: never
     when: "An item isn't available and no substitute passes the player's rules (Ruling 11): skip it this week."
