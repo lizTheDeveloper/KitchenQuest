@@ -347,6 +347,18 @@ describe('fix round 1 (review-task9)', async () => {
     }
     const medical = market.stalls['okafor-sato'].triggers.medical.lines[0];
     expect(el.textContent).not.toContain(medical);
+    // Core falls back to the stall's safety line when an answer names something blocked and there is no a_if_blocked;
+    // that line is checked too. Okafor-Sato's `medical` line is not ✅ under a soy rule.
+    expect(safeText(medical, ctxOf([SOY]))).toBe(false);
+    const faq = [{ q: ['what is it pressed from'], a: 'Tofu is pressed from soy milk, the way cheese is pressed from curds.' }];
+    const synthetic = { ...market, stalls: { ...market.stalls, 'okafor-sato': { ...market.stalls['okafor-sato'], faq } } };
+    const screen = stallScreen({ client: client(), load: () => Promise.resolve(synthetic), progress: () => Promise.resolve({ record: () => Promise.resolve([]), view: () => EMPTY_VIEW }) });
+    const root = document.createElement('div');
+    document.body.replaceChildren(root);
+    await screen.mount(root, { name: 'stall', id: 'okafor-sato' }, { store: store({ localRules: [SOY] }), now: () => NOW, navigate: () => {} });
+    await flush();
+    expect(root.querySelector('.stall-faq-chip')).toBeNull();
+    expect(root.textContent).not.toContain(medical);
   });
 
   test('M4: a round is never recorded into another partition: an account switch mid-round drops it', async () => {
@@ -363,6 +375,7 @@ describe('fix round 1 (review-task9)', async () => {
     const { el, sent, screen } = await open(store(), 'wen');
     el.querySelector<HTMLButtonElement>('.stall-option')!.click();
     window.dispatchEvent(new Event('pagehide'));
+    expect(sent).toHaveLength(1); // recorded at the page hide, before any unmount
     window.dispatchEvent(new Event('pagehide'));
     screen.unmount?.();
     expect(sent).toHaveLength(1);
