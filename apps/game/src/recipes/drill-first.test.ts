@@ -6,8 +6,7 @@ import type { ParsedRecipe, ToolkitState } from '@kitchenquest/core/engine';
 import { content, graph } from '../content';
 import { buildRecipeCard } from './card-model';
 import { renderRecipeCard } from './card-view';
-import { drillFirstFor } from './drill-first';
-import { drillFirstHint } from './recipe-screen';
+import { drillFirstFor, drillFirstHint } from './drill-first';
 import { writtenLine } from '../week/plan-view';
 
 const PARIPPU = 'india/kerala/parippu';

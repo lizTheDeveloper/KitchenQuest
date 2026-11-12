@@ -108,3 +108,20 @@ describe('Fix round 1 (I2): a stalled run read never holds cook mode', () => {
     } finally { vi.useRealTimers(); runRead.hang = false; }
   });
 });
+
+describe('Fix round 1 (m1, Ruling 16): the drill-first hint on the cook screen too', () => {
+  test('parippu with heat control below Seen: the hint and its chip beside the steps; none in Family Table; Cook mode runs either way', async () => {
+    const { setToolkitSource } = await import('../week/memory');
+    setToolkitSource(() => ({ techniques: {} }));
+    const t = mount([]);
+    await t.run();
+    expect(t.el.querySelector('.cook-refusal')).toBeNull();
+    expect(t.el.querySelector('.drill-first a')?.getAttribute('href')).toBe('#/visit/marisol');
+    t.screen.unmount?.();
+    const ft = mount([]);
+    ft.store.update((s) => ({ ...s, settings: { ...s.settings, familyTable: true } }));
+    await ft.run();
+    expect(ft.el.querySelector('.drill-first')).toBeNull();
+    ft.screen.unmount?.();
+  });
+});

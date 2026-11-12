@@ -1,33 +1,15 @@
 import type { ToolkitState } from '@kitchenquest/core/engine';
 import { SCREEN_TITLES } from '../shell/titles';
-import { content, graph, techniqueName } from '../content';
+import { content, graph } from '../content';
 import { progressService } from '../progress';
-import { writtenLine } from '../week/plan-view';
 import { currentToolkit } from '../week/memory';
-import { drillFirstEl, drillFirstFor } from './drill-first';
+import { drillFirstHint } from './drill-first';
 import { RouteNotFound, type AppContext, type Screen } from '../shell/app';
 import { routeHref } from '../shell/router';
 import { h } from '../ui/dom';
 import { buildRecipeCard } from './card-model';
 import { renderRecipeCard } from './card-view';
 import { activeRules, cardInputsKey, localDate, watchLocalDate } from './rules';
-
-/**
- * M6 Ruling 16: the drill-first hint for a dish, or null: none in Family Table, for a sacred dish, while the toolkit is
- * still loading, or when every prereq the cooks' drills teach is at Seen. Advisory only.
- */
-export function drillFirstHint(slug: string, toolkit: ToolkitState | null, familyTable: boolean): HTMLElement | null {
-  if (familyTable || toolkit === null || !Object.hasOwn(content.recipes, slug)) return null;
-  const recipe = content.recipes[slug];
-  const hint = drillFirstFor(recipe, toolkit, content.techniques.techniques, Object.values(content.cooks).map((c) => c.quest));
-  if (hint === null || !Object.hasOwn(content.cooks, hint.cook)) return null;
-  const cook = content.cooks[hint.cook].name;
-  return drillFirstEl(writtenLine('cook.drill_first', { technique: techniqueName(hint.technique), cook }), {
-    // The `go` chip `{ to: 'visit', cook }`, in nav.offer's words for that place (core navPlace: "{cook}'s kitchen").
-    label: writtenLine('nav.offer', { place: `${cook}'s kitchen` }),
-    href: routeHref({ name: 'visit', cookId: hint.cook }),
-  });
-}
 
 function draw(el: HTMLElement, slug: string, ctx: AppContext, toolkit: ToolkitState | null): void {
   const state = ctx.store.get();

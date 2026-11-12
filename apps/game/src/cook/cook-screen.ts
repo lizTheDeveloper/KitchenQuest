@@ -3,6 +3,8 @@ import { applyNotes, type ParsedRecipe, type RecipeIngredient } from '@kitchenqu
 import { content, graph, techniqueName } from '../content';
 import { buildRecipeCard, type RecipeCard } from '../recipes/card-model';
 import { renderSafetyStrip } from '../recipes/card-view';
+import { drillFirstHint } from '../recipes/drill-first';
+import { currentToolkit } from '../week/memory';
 import { activeRules, cardInputsKey, localDate } from '../recipes/rules';
 import { RouteNotFound, type Screen } from '../shell/app';
 import { routeHref } from '../shell/router';
@@ -112,7 +114,13 @@ export function cookScreen(): Screen {
         title: notes === null ? card.title : `${card.title}, with your notes`,
         recipe,
         draft: card.draft,
-        strip: () => withStockLabels(renderSafetyStrip(card), card),
+        // M6 Ruling 16 (fix round 1, m1): the drill-first hint here too, advisory; never in Family Table.
+        strip: () => {
+          const strip = withStockLabels(renderSafetyStrip(card), card);
+          const hint = drillFirstHint(slug, currentToolkit(), ctx.store.get().settings.familyTable);
+          if (hint) strip.append(hint);
+          return strip;
+        },
         swapFor: (ing: RecipeIngredient) => card.findings.find((f) => f.ingredient === ing.name && f.swapLabel !== null)?.swapLabel ?? null,
         progressKey: slug,
         start: { trigger: 'cook.start', vars: { dish: cook.dish || card.title } },

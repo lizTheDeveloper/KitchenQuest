@@ -4,7 +4,10 @@
 // stays enabled and nothing is gated. Nothing shows in Family Table or for a sacred dish. Game-side on purpose: only the
 // game uses it, and core `toolkit/` is eval-hashed (Ruling 22).
 import type { ParsedRecipe, Quest, TechniqueNode, ToolkitState } from '@kitchenquest/core/engine';
+import { content, techniqueName } from '../content';
+import { routeHref } from '../shell/router';
 import { h } from '../ui/dom';
+import { writtenLine } from '../week/plan-view';
 
 /** A technique the player has reached at least Seen in. */
 const seen = (toolkit: ToolkitState, id: string): boolean => Object.hasOwn(toolkit.techniques, id);
@@ -36,3 +39,21 @@ export function drillFirstEl(text: string, chip: { label: string; href: string }
     h('p', { class: 'drill-first-line', 'data-content': '' }, text),
     h('a', { class: 'btn btn-secondary drill-first-go', href: chip.href, 'data-content': '' }, chip.label));
 }
+
+/**
+ * M6 Ruling 16: the drill-first hint for a dish, or null: none in Family Table, for a sacred dish, while the toolkit is
+ * still loading, or when every prereq the cooks' drills teach is at Seen. Advisory only.
+ */
+export function drillFirstHint(slug: string, toolkit: ToolkitState | null, familyTable: boolean): HTMLElement | null {
+  if (familyTable || toolkit === null || !Object.hasOwn(content.recipes, slug)) return null;
+  const recipe = content.recipes[slug];
+  const hint = drillFirstFor(recipe, toolkit, content.techniques.techniques, Object.values(content.cooks).map((c) => c.quest));
+  if (hint === null || !Object.hasOwn(content.cooks, hint.cook)) return null;
+  const cook = content.cooks[hint.cook].name;
+  return drillFirstEl(writtenLine('cook.drill_first', { technique: techniqueName(hint.technique), cook }), {
+    // The `go` chip `{ to: 'visit', cook }`, in nav.offer's words for that place (core navPlace: "{cook}'s kitchen").
+    label: writtenLine('nav.offer', { place: `${cook}'s kitchen` }),
+    href: routeHref({ name: 'visit', cookId: hint.cook }),
+  });
+}
+
