@@ -186,7 +186,8 @@ test.each(['I have no money, what can I cook', 'my mouse broke', 'what should I 
 );
 
 test('graph ancestors are the reverse of descendants', () => {
-  expect(graph.ancestors('peanut')).toEqual(['nut']);
+  expect(graph.ancestors('peanut')).toEqual(['nut', 'legume']); // Task 5 re-review N1: peanut is a legume too
+  expect(graph.descendants('legume')).toContain('peanut');
   expect(graph.ancestors('nut')).toEqual([]);
 });
 

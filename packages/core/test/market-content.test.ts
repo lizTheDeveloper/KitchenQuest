@@ -9,7 +9,7 @@ import { parse } from 'yaml';
 import { IngredientGraph, buildRuleCard, check, parseRecipe, validateRewards } from '../src/index';
 import type { IngredientData, Rule, Substitution } from '../src/index';
 import { textMentions } from '../src/ingredients/mentions';
-import { faqFor, questionStatus, stallBank, stallVariant, tipFor } from '../src/market/bank';
+import { faqFor, keeperLines, namedStatus, questionStatus, stallBank, stallVariant, tipFor } from '../src/market/bank';
 import { isKnownCountry, normalizeCountry } from '../src/market/country';
 import { seasonalAgrees, seasonalQuestions, seasonNote, seasonRegionFor, validateSeasonTable, type SeasonTable } from '../src/market/season';
 import type { MarketCtx, StallFile, StallQuestion } from '../src/market/types';
@@ -256,8 +256,8 @@ const NEW_NODE_EDGES: Record<string, { isA?: string[]; contains?: string[]; unsa
   chuck: { isA: ['beef'] }, short_rib: { isA: ['beef'] }, shank: { isA: ['beef'] }, strip_steak: { isA: ['beef'] }, ribeye: { isA: ['beef'] }, flank_steak: { isA: ['beef'] }, brisket: { isA: ['beef'] }, ground_beef: { isA: ['beef'] },
   chicken_thigh: { isA: ['chicken'] }, chicken_breast: { isA: ['chicken'] }, whole_chicken: { isA: ['chicken'] },
   pork_shoulder: { isA: ['pork'] }, pork_tenderloin: { isA: ['pork'] }, pork_chop: { isA: ['pork'] }, lamb_shoulder: { isA: ['lamb'] },
-  bean: { broad: true }, kidney_bean: { isA: ['bean'] }, chickpea: { isA: ['bean'] }, pea: { isA: ['bean'] }, canned_bean: { isA: ['bean'], labelDependent: true },
-  lentil: { isA: ['bean'] }, red_lentil: { isA: ['lentil'] }, toor_dal: { isA: ['bean'] }, edamame: { isA: ['bean'], contains: ['soy'] },
+  bean: { isA: ['legume'], broad: true }, kidney_bean: { isA: ['bean'] }, chickpea: { isA: ['bean', 'legume'] }, pea: { isA: ['bean', 'legume'] }, canned_bean: { isA: ['bean'], labelDependent: true },
+  lentil: { isA: ['bean', 'legume'] }, red_lentil: { isA: ['lentil'] }, toor_dal: { isA: ['bean', 'legume'] }, edamame: { isA: ['bean'], contains: ['soy'] },
   tofu: { contains: ['soy'] }, silken_tofu: { isA: ['tofu'] }, soft_tofu: { isA: ['tofu'] }, firm_tofu: { isA: ['tofu'] }, extra_firm_tofu: { isA: ['tofu'] }, tofu_puffs: { isA: ['tofu'] },
   yuba: { contains: ['soy'] }, tempeh: { contains: ['soy'], unsafeFor: ['wheat', 'gluten', 'barley'] }, miso: { contains: ['soy'], labelDependent: true }, seitan: { contains: ['wheat'], unsafeFor: ['soy'] }, paneer: { contains: ['milk'] }, greek_yogurt: { contains: ['milk'] },
   avocado: {}, apple: {}, pear: {}, banana: {}, berry: { broad: true }, strawberry: { isA: ['berry'] }, blueberry: { isA: ['berry'] }, cranberry: { isA: ['berry'] },
@@ -267,6 +267,8 @@ const NEW_NODE_EDGES: Record<string, { isA?: string[]; contains?: string[]; unsa
   butternut: { broad: true }, butternut_squash: { isA: ['winter_squash', 'butternut'] }, butternut_nut: { isA: ['tree_nut', 'butternut'], unsafeFor: ['walnut', 'pecan'] },
   // M6 Step 5 fix round 1 (Task 5 ruling 1): the categories bare stall words name, and Old Wen's plums.
   squash: {}, rice_grain: {}, tortilla: { labelDependent: true }, plum: {},
+  // Task 5 re-review N1: every legume and pulse, peanut, soy and lupin included (only adds edges).
+  legume: {},
   mexican_oregano: { unsafeFor: ['oregano'] }, asafoetida: { contains: ['wheat'], labelDependent: true }, garam_masala: { labelDependent: true }, curry_powder: { labelDependent: true }, furikake: { contains: ['sesame', 'fish', 'soy', 'wheat'], labelDependent: true },
 };
 
@@ -279,7 +281,7 @@ describe('the market graph nodes (data/ingredients.json, M6 Step 4)', () => {
     expect(graph.resolve('tortillas')).toBe('tortilla');
     expect(graph.get('corn_tortilla').isA).toEqual(['tortilla']);
     expect(graph.resolve('chuck')).toBe('chuck');
-    expect(graph.resolve('legumes')).toBe('bean');
+    expect(graph.resolve('legumes')).toBe('legume'); // re-review N1: the legume category, not bean
     expect(graph.resolve('plums')).toBe('plum');
   });
 
@@ -290,7 +292,7 @@ describe('the market graph nodes (data/ingredients.json, M6 Step 4)', () => {
       expect(got, id).toEqual({ isA: want.isA, contains: want.contains, unsafeFor: want.unsafeFor, labelDependent: want.labelDependent, broad: want.broad });
       expect(typeof n.source, id).toBe('string');
     }
-    expect(Object.keys(NEW_NODE_EDGES)).toHaveLength(92); // 85, the butternut ruling's three, and Step 5 fix round 1's four
+    expect(Object.keys(NEW_NODE_EDGES)).toHaveLength(93); // 85, the butternut ruling's three, Step 5 fix round 1's four, and legume (N1)
     // The existing nodes Step 4 touched: only new isA edges (stricter), and cumin_seed's bare "cumin" moved to `cumin`.
     expect(graph.get('cumin_seed').isA).toEqual(['cumin']);
     expect(graph.resolve('cumin')).toBe('cumin');
@@ -299,7 +301,7 @@ describe('the market graph nodes (data/ingredients.json, M6 Step 4)', () => {
     expect(graph.get('dried_red_chili').isA).toEqual(['chili']);
     expect(graph.get('black_bean').isA).toEqual(['bean']);
     expect(graph.get('lupin_bean').isA).toEqual(['lupin', 'bean']);
-    expect(graph.get('moong_dal').isA).toEqual(['bean']); // fix round 1, C2
+    expect(graph.get('moong_dal').isA).toEqual(['bean', 'legume']); // fix round 1, C2; re-review N1
   });
 
   test('every soy, wheat, milk, egg, sesame or fish product added from an item tip carries its edge (tempeh → soy, seitan → wheat, paneer → milk …); leek reaches fodmap_fructan; fennel_seed isA fennel', () => {
@@ -478,3 +480,51 @@ describe('butternut is ambiguous: the squash or the tree nut (binding ruling, fi
     expect(card.ok && card.card.rule.target.ids).toEqual(['butternut_squash']);
   });
 });
+
+describe('Task 5 re-review N1: "legumes" is a category over every legume, peanut, soy and lupin included', () => {
+  const PEANUT = rule(['peanut'], 'anaphylactic');
+  const SOY = rule(['soy']);
+  const LUPIN = rule(['lupin']);
+  const said = (text: string, rules: Rule[]) => namedStatus([], [text], ctx(rules));
+
+  test('the word "legumes" is ⛔ or ❓ under a peanut, soy or lupin rule, never ✅', () => {
+    for (const text of ['legumes', 'Legumes, tofu and tempeh.', 'pulses', 'a legume']) {
+      for (const r of [PEANUT, SOY, LUPIN]) expect(said(text, [r]), `${text} / ${r.id}`).not.toBe('ok');
+      expect(said(text, []), text).toBe('ok');
+    }
+    expect(graph.resolve('legumes')).toBe('legume');
+    expect(graph.resolve('pulses')).toBe('legume');
+    expect(graph.resolve('pulse')).toBe('legume');
+  });
+
+  test('the plurals are not labels of their own, so no near miss of them reads as health ("forget my rules")', () => {
+    const labels = graph.labels();
+    expect(labels).not.toContain('pulses');
+    expect(labels).not.toContain('legumes');
+  });
+
+  test("the Protein Counter's \"Legumes, tofu, tempeh …\" greeting is dropped for a peanut-allergic player", () => {
+    const greet = (rules: Rule[]) => keeperLines(bram, 'greet', ctx([term('vegetarian'), ...rules])).filter((l) => l.startsWith('Welcome to the Protein Counter! Legumes'));
+    expect(greet([])).toHaveLength(1);
+    expect(greet([PEANUT])).toEqual([]);
+    expect(greet([LUPIN])).toEqual([]);
+  });
+
+  test('a "no legumes" rule blocks peanut, soy and lentil (and what contains them)', () => {
+    const LEGUMES = rule(['legume']);
+    for (const id of ['peanut', 'soy', 'lentil', 'chickpea', 'pea', 'lupin', 'bean', 'kidney_bean', 'moong_dal', 'toor_dal', 'tofu', 'edamame']) {
+      expect(namedStatus([id], [], ctx([LEGUMES])), id).toBe('blocked');
+    }
+    expect(namedStatus(['rice'], [], ctx([LEGUMES]))).toBe('ok');
+  });
+
+  test('no existing path weakens: legume only adds edges', () => {
+    expect(graph.get('peanut').isA).toEqual(['nut', 'legume']);
+    expect(graph.get('bean').broad).toBe(true);
+    expect(graph.get('bean').aliases ?? []).not.toContain('legume');
+    for (const [from, to] of [['peanut', 'nut'], ['lupin_bean', 'lupin'], ['lupin_bean', 'bean'], ['edamame', 'soy'], ['tofu', 'soy'], ['red_lentil', 'lentil'], ['lentil', 'bean']] as const) {
+      expect(graph.pathTo(from, to), `${from} → ${to}`).not.toBeNull();
+    }
+  });
+});
+

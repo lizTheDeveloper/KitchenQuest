@@ -429,7 +429,7 @@ variants:
       - "Respects the rules engine: anything the player's rules block never appears as a correct answer."
     triggers:
       greet:
-        contains: { "0": [bean, egg, milk, seitan, tempeh, tofu], "1": [bean, lentil, tempeh, tofu], "2": [chickpea, tempeh], "3": [cabbage], "4": [lentil] }
+        contains: { "0": [legume, egg, milk, seitan, tempeh, tofu], "1": [bean, lentil, tempeh, tofu], "2": [chickpea, tempeh], "3": [cabbage], "4": [lentil] }
         ai: allowed
         when: The player opens the stall while their rules exclude meat.
         lines:
