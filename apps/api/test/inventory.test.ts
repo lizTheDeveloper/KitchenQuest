@@ -57,6 +57,13 @@ describe('data inventory (N-8)', () => {
   });
 });
 
+describe('M6 Step 6 columns', () => {
+  it('progress_events.sealed is in data-inventory §6', () => {
+    const index = columnIndex(readFileSync(INVENTORY, 'utf8'));
+    expect(index.get('progress_events')?.has('progress_events.sealed')).toBe(true);
+  });
+});
+
 describe('column index parser (N-8)', () => {
   /** A doc with `before` in §3.12, `index` as the §6 table body, and a later section after it. */
   const doc = (before: string, index: string) =>

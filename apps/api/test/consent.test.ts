@@ -420,6 +420,34 @@ describe('consent routes (C-1)', () => {
     ]);
   });
 
+  it('M6 Step 6: withdraw-with-delete erases every stall_round event (sealed, base and Protein Counter alike); keep erases none; grants stay', async () => {
+    const email = `route${++seq}@example.com`;
+    const cookies = { kq_session: await signIn(app, mailer, email) };
+    const [u] = await sql`select id from users where email = ${email}`;
+    const userId = u.id as string;
+    await app.inject({ method: 'POST', url: '/me/consents', cookies, payload: { purpose: 'health_data', noticeVersion: current.version } });
+    const today = clock.toISOString().slice(0, 10);
+    const events = [
+      { id: randomUUID(), kind: 'stall_round', at: today, stall: 'wen', answers: [{ q: 'wen-avocado-ripe', pick: 0 }] },
+      { id: randomUUID(), kind: 'stall_round', at: today, stall: 'spice', answers: [{ q: 'spice-sniff-cumin', pick: 1 }] },
+      { id: randomUUID(), kind: 'market_run', at: today, weekStart: today },
+    ];
+    const posted = await app.inject({ method: 'POST', url: '/progress/events', cookies, payload: { events } });
+    expect(posted.statusCode, posted.body).toBe(200);
+    expect(posted.json<{ accepted: unknown[] }>().accepted).toHaveLength(3);
+    const kinds = async () => (await sql<{ kind: string }[]>`select kind from progress_events where user_id = ${userId} order by seq`).map((r) => r.kind);
+    const grants = async () => sql`select id, kind, body from reward_grants where user_id = ${userId} order by id`;
+    const before = await grants();
+    expect(await kinds()).toEqual(['stall_round', 'stall_round', 'market_run']);
+    // Keep: nothing erased.
+    expect((await app.inject({ method: 'DELETE', url: '/me/consents/health_data', cookies, payload: { healthData: 'keep' } })).statusCode).toBe(204);
+    expect(await kinds()).toEqual(['stall_round', 'stall_round', 'market_run']);
+    // Delete (the Settings erase after a keep): every round goes, the market run stays, every grant stays.
+    expect((await app.inject({ method: 'DELETE', url: '/me/consents/health_data', cookies, payload: { healthData: 'delete' } })).statusCode).toBe(204);
+    expect(await kinds()).toEqual(['market_run']);
+    expect(await grants()).toEqual(before);
+  });
+
   it('withdraw health_data with delete removes messages and proposals', async () => {
     const email = `route${++seq}@example.com`;
     const cookies = { kq_session: await signIn(app, mailer, email) };

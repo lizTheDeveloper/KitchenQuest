@@ -230,6 +230,12 @@ describe('POST /progress/events and GET /progress', () => {
     expect(r.accepted.map((a) => a.clientId)).toEqual([good.id]);
     const stored = await rows(p.id);
     expect(stored.events.map((ev) => ev.clientId)).toEqual([good.id]);
+    // M6 Step 6: stall_round is a stored kind now (the Step 3 exclusion is gone), with its own strict shape.
+    const roundShape = { id: eid(), kind: 'stall_round', at: TODAY, stall: 'wen', answers: [{ q: 'wen-avocado-ripe', pick: 0 }] };
+    const roundForged = { ...roundShape, id: eid(), correct: 1 };
+    const rr = await post(p.cookie, [roundShape, roundForged]);
+    expect(rr.accepted.map((a) => a.clientId)).toEqual([roundShape.id]);
+    expect(rr.rejected).toEqual([{ clientId: roundForged.id, problems: ['bad_event'] }]);
     expect([...stored.events, ...stored.grants].flatMap((r) => Object.values(r.body as Record<string, unknown>))).not.toContain(999);
     expect(stored.grants.map((g) => g.body)).toEqual([expect.objectContaining({ amount: loop.rewards.xp.cook })]);
   });
@@ -664,6 +670,9 @@ describe('boot validation (C10)', () => {
     expect(c.quests.map((q) => q.id)).toEqual(['haruka-gluey-rice', 'leela-tempering', 'marisol-salt-question']);
     expect(c.frames.map((f) => f.id)).toEqual(['fried-rice', 'green-sauce', 'quick-tomato-sauce']);
     expect(c.stalls).toEqual(new Set(['bram', 'okafor-sato', 'spice', 'wen']));
+    // M6 Step 6: the stall files whole and the Season's Table, boot-checked.
+    expect([...c.market.stalls.keys()]).toEqual(['bram', 'okafor-sato', 'spice', 'wen']);
+    expect(Object.keys(c.market.seasonality)).toContain('pnw-usa');
     expect(c.thresholds).toEqual({ warmAfterDays: 42, rustyAfterDays: 120 });
   });
 
