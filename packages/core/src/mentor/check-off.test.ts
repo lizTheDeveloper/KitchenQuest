@@ -275,3 +275,16 @@ describe('navigation targets for the market scene', () => {
     expect(navPlace({ to: 'stall', stall: 'spice' }, null)).toBe('the stall');
   });
 });
+
+describe('M6 Step 10 carry (Step 8 re-review N1): the masked codeCardHealth line of the backstop is pinned', () => {
+  // check-off.ts:113 — `codeCardHealth([read.masked, ...rest].join(', '), …)`. In `checkOffShaped` it is the only check
+  // that sends an item phrase the graph can't name, holding a rule word, to the health path. The client gates on
+  // `checkOffShaped` as the server does (Step 10), so this line must never quietly go.
+  test('"got the peanut butter" (the graph names no peanut butter) is not check-off shaped: it goes to health', () => {
+    expect(graph.resolve('peanut butter')).toBeNull();
+    expect(checkOffShaped('got the peanut butter', graph, terms)).toBe(false);
+    expect(checkOffShaped('picked up the peanut butter and the onion', graph, terms)).toBe(false);
+    // The same shape with a plain food the graph names stays shaped (so the pin is about the rule word, not the form).
+    expect(checkOffShaped('got the onion', graph, terms)).toBe(true);
+  });
+});

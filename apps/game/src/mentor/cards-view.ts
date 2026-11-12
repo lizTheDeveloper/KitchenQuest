@@ -35,7 +35,7 @@ function formIdFor(card: ProposalCard): string {
     case 'profile': return 'profile';
     case 'pantry': return 'pantry';
     case 'plan': return 'plan'; // Form 7-W (M5 Step 8; Step 10 completes the view)
-    case 'check_off': return 'market_list'; // Form 12-M (M6 Step 8, minimal; Step 10 completes the card)
+    case 'check_off': return 'market_list'; // Form 12-M: the panel draws it with check-off-card.ts (M6 Step 10)
   }
 }
 
@@ -73,7 +73,7 @@ function valuesFor(card: ProposalCard): Partial<Record<string, string>> {
       // The day rows are drawn by plan-view.ts (below); the form's fields keep the summary and the hard week.
       return { dishes: card.summary, hard_week: card.hard ? 'Yes' : 'No' };
     case 'check_off':
-      // M6 Step 8 (minimal): the run's own row names, as code wrote them. Step 10 draws the rows and the stock chip.
+      // Never drawn here: the panel draws a check-off card with its rows and stock chips (check-off-card.ts, Step 10).
       return { item: card.summary };
   }
 }

@@ -1,4 +1,4 @@
-import { navPlace, type ToolkitState } from '@kitchenquest/core/engine';
+import type { ToolkitState } from '@kitchenquest/core/engine';
 import { SCREEN_TITLES } from '../shell/titles';
 import { content, graph, techniqueName } from '../content';
 import { progressService } from '../progress';
@@ -23,7 +23,8 @@ export function drillFirstHint(slug: string, toolkit: ToolkitState | null, famil
   if (hint === null || !Object.hasOwn(content.cooks, hint.cook)) return null;
   const cook = content.cooks[hint.cook].name;
   return drillFirstEl(writtenLine('cook.drill_first', { technique: techniqueName(hint.technique), cook }), {
-    label: writtenLine('nav.offer', { place: navPlace({ to: 'visit', cook: hint.cook }, cook) }),
+    // The `go` chip `{ to: 'visit', cook }`, in nav.offer's words for that place (core navPlace: "{cook}'s kitchen").
+    label: writtenLine('nav.offer', { place: `${cook}'s kitchen` }),
     href: routeHref({ name: 'visit', cookId: hint.cook }),
   });
 }

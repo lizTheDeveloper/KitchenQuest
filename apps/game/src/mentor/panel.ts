@@ -66,8 +66,11 @@ export interface MentorPanel {
   clearConversation(): void;
 }
 
-interface OpenCard { view: CardView; el: HTMLElement; li: HTMLElement }
-interface Trail { entry: TrailEntry; card: ProposalCard; li: HTMLElement }
+/** `co`: a check-off card's place (M6 Step 10), drawn by its own lazy renderer (check-off-card.ts). */
+interface OpenCard { view: CardView; el: HTMLElement; li: HTMLElement; co?: CheckOffSlot }
+export interface Trail { entry: TrailEntry; card: ProposalCard; li: HTMLElement; co?: CheckOffSlot }
+/** `applied`: done, with its Undo (`trail`); `new`: drawn by its view's own rule (a local grammar card is ticking). */
+export interface CheckOffSlot { state: 'new' | 'applying' | 'pending' | 'applied' | 'undone'; trail?: Trail | null; draw(): void }
 
 const keyOf = (c: CardView) => (c.origin === 'server' ? `server:${c.proposalId}` : `local:${c.localId}`);
 
@@ -191,7 +194,28 @@ export function mountMentorPanel(root: HTMLElement, opts: {
 
   function addCard(view: CardView): void {
     if (view.card.kind === 'plan') { addPlanCard(view); return; }
+    if (view.card.kind === 'check_off') { addCheckOffCard(view); return; }
     drawCard(view, addLi('pan-item pan-card-item'));
+  }
+
+  /**
+   * The check-off card (M6 Step 10, C31), drawn by the week's lazy code (check-off-card.ts). A grammar card is applied:
+   * from the scripted engine it ticks on the engine's confirm intent, with no "Tick these"; from the server its
+   * `confirmed` action comes in the same reply and turns it applied before it is ever drawn (Step 8 m6: never an open
+   * card a tap would 409 on). A model card waits for its tap.
+   */
+  function addCheckOffCard(view: CardView): void {
+    const li = addLi('pan-item pan-card-item');
+    const el = h('div');
+    li.append(el);
+    const co: CheckOffSlot = { state: 'new', draw() {} };
+    cards.set(keyOf(view), { view, el, li, co });
+    const startedIn = epoch;
+    void (opts.week?.() ?? Promise.reject(new Error('no week code'))).then((w) => {
+      if (destroyed || startedIn !== epoch) return;
+      co.draw = () => { w.drawCheckOff(el, view, co, { forms, store, now: opts.now, focus: () => (textBox ?? closeBtn).focus(), tick: () => confirm(view, 'tap'), notNow: () => reject(view), undo }); };
+      co.draw();
+    }, (err: unknown) => { console.error(err); cards.delete(keyOf(view)); li.remove(); sayLine('didnt_understand'); });
   }
 
   /** Draws a card into its place in the conversation; one that can't be drawn is never half-shown (didnt_understand). */
@@ -241,6 +265,14 @@ export function mountMentorPanel(root: HTMLElement, opts: {
     const c = cards.get(key);
     if (c === undefined) return;
     cards.delete(key);
+    const { co } = c;
+    if (co) {
+      // The check-off card itself is the record (C31): its rows show ticked, and its Undo is the trail's.
+      co.state = 'applied';
+      trail.push(co.trail = { entry, card: c.view.card, li: c.li, co });
+      co.draw();
+      return;
+    }
     if (!opts.reducedMotion()) {
       c.el.classList.add('is-stamping');
       await new Promise((r) => setTimeout(r, STAMP_MS));
@@ -297,6 +329,8 @@ export function mountMentorPanel(root: HTMLElement, opts: {
     if (cards.get(key) !== c) return; // cleared meanwhile
     // Another confirm of this card is answering (fix round 1, I1): nothing to show here.
     if (!out.ok && out.reason === 'busy') return;
+    // A grammar check-off card that could not tick (no consent yet, offline) now waits for its tap: "Tick these".
+    if (!out.ok && c.co && c.co.state !== 'pending') { c.co.state = 'pending'; c.co.draw(); }
     if (out.ok) {
       await toTrail(key, out.trail);
       renderItems(out.items, []);
@@ -378,7 +412,10 @@ export function mountMentorPanel(root: HTMLElement, opts: {
     }
     if (out.status === 'busy' || startedIn !== epoch) return out;
     // Carry from Step 8 fix round 1: drop the entry only when it was undone, or there is nothing left to undo.
-    if (out.status === 'undone' || out.status === 'nothing') dropTrail(t);
+    if (out.status === 'undone' || out.status === 'nothing') {
+      // A check-off card stays in the conversation, unticked, with no buttons left.
+      if (t.co) { trail.splice(trail.indexOf(t), 1); t.co.state = 'undone'; t.co.draw(); } else dropTrail(t);
+    }
     const note = t.li.querySelector<HTMLElement>('.trail-entry');
     if (out.status === 'failed' && note) setCardNote(note, UNDO_FAILED_TEXT);
     renderItems(out.items, []);

@@ -1,7 +1,8 @@
 import { stockSwapsFor, type MarketRunView } from '@kitchenquest/core/engine';
 import type { PlayerState } from '../state/store';
 import { devicePlan, weekOf } from './context';
-import { rememberedRun, rememberedWeek } from './memory';
+import { rememberedWeek } from './memory';
+import { rememberedRun } from './run-memory';
 
 /**
  * M6 Step 10 (Ruling 11): the plan week's market run as this device knows it, read only (nothing is opened or

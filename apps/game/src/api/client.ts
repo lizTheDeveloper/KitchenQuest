@@ -192,8 +192,8 @@ export function createApiClient(opts: { baseUrl?: string; fetch?: typeof fetch; 
     openRun: (weekStart, today) => call('POST', '/market-runs', { weekStart, today }),
     tick: (runId, key, ticked, today) => call('POST', `/market-runs/${enc(runId)}/ticks`, { key, ticked, today }),
     finishRun: (runId, today) => call('POST', `/market-runs/${enc(runId)}/finish`, { confirmed: true, today }),
-    // Exactly the route's fields: a `toId` only on a take (the body schema is strict).
-    stock: (runId, a, today) => call('POST', `/market-runs/${enc(runId)}/stock`, a.action === 'take' ? { key: a.key, action: 'take', toId: a.toId, today } : { key: a.key, action: a.action, today }),
+    // StockAction is exactly the route's fields (a `toId` only on a take; the body schema is strict).
+    stock: (runId, a, today) => call('POST', `/market-runs/${enc(runId)}/stock`, { ...a, today }),
     listNotes: () => call('GET', '/notes'),
     createNote: (note, today) => call('POST', '/notes', { note, confirmed: true, today }),
     deleteNote: (id) => call('DELETE', `/notes/${enc(id)}`),

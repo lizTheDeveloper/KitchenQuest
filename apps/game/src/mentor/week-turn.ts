@@ -1,20 +1,24 @@
 import {
-  blockedDishLine, buildPlanCard, checkPlan, markOffered, navIntent, navPlace, planBasis, planFlags, planIntent, rebasePlanCard,
-  normalizeTurn, type CheckStatus, type LineRef, type NavTarget, type Plan, type PlanCard, type PlanItem, type PlanRequest, type ProposalCard,
+  blockedDishLine, buildCheckOffCard, buildPlanCard, checkOffIntent, checkOffShaped, checkPlan, markOffered, navIntent, navPlace, planBasis, planFlags,
+  planIntent, rebasePlanCard, normalizeTurn,
+  type CheckOffCard, type CheckStatus, type LineRef, type MarketRunView, type NavTarget, type Plan, type PlanCard, type PlanItem, type PlanRequest, type ProposalCard,
 } from '@kitchenquest/core/engine';
 import type { ApiClient } from '../api/client';
-import { graph } from '../content';
+import { content, graph } from '../content';
+import { knownRun } from '../week/market-swaps';
 import { activeRules, localDate } from '../recipes/rules';
 import { routeHref } from '../shell/router';
 import type { PlayerStore } from '../state/store';
 import { blockedLinesFor, blockedSlugs } from '../week/blocked';
 import { canonRecipes, devicePlan, planCardContextOf, planContextFor, rulesOf } from '../week/context';
 import { currentToolkit, rememberedWeek, rememberWeek } from '../week/memory';
+import { rememberRun } from '../week/run-memory';
 import { renderPlanView, slotDay, weekdayName, writtenLine, type PlanRow } from '../week/plan-view';
 import { createWeekSource, type WeekFailure, type WeekSource } from '../week/source';
 import { isProposalCard } from './card-shape';
+import { drawCheckOff } from './check-off-card';
 import type { Dialogue } from './dialogue';
-import type { PanItem, PanReply } from './reply';
+import type { PanItem, PanReply, TurnContext } from './reply';
 
 /**
  * The week's turn code (M5 Step 10, Ruling 1), loaded on first use so first paint doesn't carry it: the scripted
@@ -97,6 +101,23 @@ export interface WeekTurn {
   restore(weekStart: string, previous: Plan | null): Promise<{ kind: 'ok' } | { kind: 'blocked'; lines: LineRef[] } | { kind: 'failed' }>;
   /** Signed in with no week read this session: read it once (a read), so a card is built on the right week (M3). */
   prefetch(): Promise<void>;
+  /**
+   * M6 Step 10 (Ruling 13, C30): the closed check-off grammar, run by the scripted engine after the fixed lines and the
+   * short replies and before the health check, exactly where the API runs it. Core `checkOffShaped` first (Step 8 N1:
+   * the client gates on it as the server does), then core `checkOffIntent` with the player's rule terms against the
+   * current run (device or account), read only. A claimed message → a local `check_off` card (`source: 'grammar'`) and
+   * a confirm intent, so it ticks at once with an Undo (C31). Null → the message goes on to the health path. Never in
+   * Family Table, on an allergies intake answer, or while a rule or meal card is open (any doubt is the health path's).
+   */
+  checkOff(text: string, ctx: Pick<TurnContext, 'turn' | 'intakeStep' | 'openCards'>): Promise<PanReply | null>;
+  /**
+   * Ticks a check-off card's got rows (device or API, with `today`), skipping rows no longer open (ticked on screen
+   * since, out of stock, gone); missing rows are never ticked. `names`: the rows ticked; `undo` unticks exactly those
+   * (false: it failed, try again). Refused (nothing ticked): signed in without health_data, the consent card.
+   */
+  /** The check-off card's drawing (check-off-card.ts), here so it loads with the week's code, never at first paint. */
+  drawCheckOff: typeof drawCheckOff;
+  writeCheckOff(card: CheckOffCard): Promise<{ ok: true; names: string[]; undo: () => Promise<boolean> } | { ok: false; reason: 'consent_required' | 'network' | 'limited' | 'closed'; items: PanItem[] }>;
 }
 
 const RANK: Record<CheckStatus, number> = { ok: 0, swap: 1, unverified: 2, blocked: 3 };
@@ -142,6 +163,61 @@ export function createWeekTurn(d: {
     const added: PlanItem[] = card.added.map((i) => ({ ...i, day: (i.day + shift) % 7 }));
     const rebuilt = rebasePlanCard({ ...card, added }, ctx);
     return 'none' in rebuilt ? { kind: 'reoffer', lines: rebuilt.none, card: null } : { kind: 'reoffer', lines: rebuilt.readback, card: rebuilt };
+  };
+
+  /**
+   * The current market run, read only: signed out the device's run for this plan week, its rows recomputed now (the
+   * device's own open, which never creates a run that isn't there); signed in the run as last read this session.
+   */
+  const currentRun = async (): Promise<MarketRunView | null> => {
+    const known = knownRun(store.get(), today());
+    if (known === null || known.doneAt !== null) return null;
+    if (account() !== null) return known;
+    const r = await source.openRun(known.weekStart, today());
+    return r.ok && r.value.doneAt === null ? r.value : null;
+  };
+  /** The run a card was built on, or null when it is another run now (a new week, another account). */
+  const runFor = async (runId: string): Promise<MarketRunView | null> => {
+    const run = await currentRun();
+    return run !== null && run.id === runId ? run : null;
+  };
+
+  const tickCheckOff = async (card: CheckOffCard): Promise<{ kind: 'ticked'; runId: string; keys: string[]; names: string[] } | { kind: 'refused'; failure: WeekFailure }> => {
+    const who = account();
+    let run = await runFor(card.runId);
+    if (run === null) return { kind: 'refused', failure: { kind: 'closed' } };
+    const keys: string[] = [];
+    const names: string[] = [];
+    for (const key of card.got) {
+      const before = run.items.find((i) => i.key === key);
+      // Ticked on screen since, out of stock, or gone: skipped, never ticked twice (the server's own rule).
+      if (before === undefined || before.ticked || before.outOfStock === true) continue;
+      const r = await source.tick(run, key, true, today());
+      if (account() !== who) break;
+      if (r.ok) {
+        run = r.value;
+        if (who !== null) rememberRun(run, who);
+        if (run.items.find((i) => i.key === key)?.ticked === true) { keys.push(key); names.push(before.name); }
+        continue;
+      }
+      if (r.kind === 'closed' || r.kind === 'invalid') continue;
+      // Consent, the write cap, offline: nothing more is tried; what was ticked stays (and is undone together).
+      if (keys.length === 0) return { kind: 'refused', failure: r };
+      break;
+    }
+    return { kind: 'ticked', runId: run.id, keys, names };
+  };
+  const untickCheckOff = async (runId: string, keys: readonly string[]): Promise<{ kind: 'ok' } | { kind: 'failed' }> => {
+    let run = await runFor(runId);
+    if (run === null) return { kind: 'ok' };
+    for (const key of keys) {
+      const r = await source.tick(run, key, false, today());
+      if (r.ok) { run = r.value; continue; }
+      if (r.kind === 'closed' || r.kind === 'invalid') continue;
+      return { kind: 'failed' };
+    }
+    if (account() !== null) rememberRun(run, account());
+    return { kind: 'ok' };
   };
 
   return {
@@ -222,6 +298,37 @@ export function createWeekTurn(d: {
         if (lines.length > 0) return { kind: 'blocked', lines };
       }
       return { kind: 'failed' };
+    },
+
+    async checkOff(text, ctx) {
+      if (store.get().settings.familyTable) return null;
+      if (ctx.intakeStep === 'allergies' || ctx.openCards.some((c) => c.card.kind === 'rule' || c.card.kind === 'meal')) return null;
+      const terms = content.ruleTerms;
+      if (!checkOffShaped(text, graph, terms)) return null;
+      const run = await currentRun();
+      const read = checkOffIntent(text, run, graph, terms);
+      const card = run === null || read === null ? null : buildCheckOffCard(run, read.got, read.missing, 'grammar');
+      if (card === null) return null;
+      const localId = crypto.randomUUID();
+      return {
+        items: card.readback.map(say), cards: [{ origin: 'local', localId, card, issuedTurn: ctx.turn }],
+        // A grammar card is applied at once (C31): the writer ticks its got rows, and the card shows its Undo.
+        intents: [{ kind: 'confirm', localId }], actions: [], notice: null,
+      };
+    },
+
+    drawCheckOff,
+
+    async writeCheckOff(card) {
+      const t = await tickCheckOff(card);
+      if (t.kind === 'refused') {
+        const f = t.failure.kind;
+        if (f === 'consent') return { ok: false, reason: 'consent_required', items: [say({ trigger: 'consent.health_first', vars: {} }), { kind: 'consent', purpose: 'health_data' }] };
+        if (f === 'network') return { ok: false, reason: 'network', items: [] };
+        if (f === 'limited') return { ok: false, reason: 'limited', items: [say({ trigger: 'write.daily_limit', vars: {} })] };
+        return { ok: false, reason: 'closed', items: [say({ trigger: 'write.not_done', vars: {} })] };
+      }
+      return { ok: true, names: t.names, undo: async () => (await untickCheckOff(t.runId, t.keys)).kind === 'ok' };
     },
 
     async prefetch() {
