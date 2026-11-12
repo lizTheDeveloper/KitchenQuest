@@ -30,7 +30,7 @@ describe('the shipped week data', () => {
 
 describe('validateKeeps, validateStallMap, validateFoodGroups', () => {
   it('name an id missing from the graph, a bad value and a non-mapping', () => {
-    expect(validateKeeps({ kale: 3 }, graph)).toEqual(['keeps: "kale" is not an ingredient id in the graph']);
+    expect(validateKeeps({ samphire: 3 }, graph)).toEqual(['keeps: "samphire" is not an ingredient id in the graph']);
     expect(validateKeeps({ tomato: 0, spinach: 2.5, herb: '4', lime: 400 }, graph)).toEqual([
       'keeps: "tomato" must keep a whole number of days from 1 to 365',
       'keeps: "spinach" must keep a whole number of days from 1 to 365',

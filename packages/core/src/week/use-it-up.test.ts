@@ -41,7 +41,7 @@ describe('rescueCandidate', () => {
   });
 
   test('at most one: the closest to its keep time, then the oldest purchase, then id', () => {
-    const herb = bought('h', 'coriander', '2026-11-08'); // coriander has no entry of its own: no guess from "herb"
+    const herb = bought('h', 'cilantro', '2026-11-08'); // cilantro has no entry of its own: no guess from "herb"
     const rice = bought('r', 'cooked rice', '2026-11-11'); // keeps 1 → 1 left
     const spinach = bought('s', 'spinach', '2026-11-07'); // 0 left
     const tomato = bought('t', 'tomato', '2026-11-08'); // 2 left

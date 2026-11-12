@@ -7,10 +7,9 @@ const KNOWN = new Set(['cut_match', 'value', 'label', 'safety', 'sniff', 'freshn
 const opts = { knownGames: KNOWN };
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 
-/** A Bram file that passes: the fixture without its tofu question (tofu isn't in the graph), plus a priced value question. */
+/** A Bram file that passes: the fixture (tofu is a graph node since M6 Step 4), plus a priced value question. */
 function goodBram(): StallFile {
   const d = clone(BRAM);
-  pc(d).questions = pc(d).questions.filter((q: StallQuestion) => q.id !== 'bram-pc-tofu');
   d.questions.push(clone(VALUE));
   return d;
 }
@@ -56,15 +55,15 @@ describe('validateStallFile (never throws; each problem names the stall, the key
     expect(with_((d) => { const o = q(d, 'bram-braise-cut').options; o.push(clone(o[1]), clone(o[2])); })).toEqual(['bram: questions[0] (bram-braise-cut): has 5 options, not 3–4']);
     // A contains id missing from the graph, at question and option level, in the base and the variant.
     expect(with_((d) => { q(d, 'bram-braise-cut').contains = ['beef', 'wagyu']; })).toEqual(['bram: questions[0] (bram-braise-cut): contains "wagyu" is not in the ingredient graph']);
-    expect(with_((d) => { q(d, 'bram-pc-lentils').options[2].contains = ['tofu']; })).toEqual(['bram: variants.protein_counter.questions[0] (bram-pc-lentils): options[2].contains "tofu" is not in the ingredient graph']);
-    expect(problems(BRAM)).toEqual(['bram: variants.protein_counter.questions[3] (bram-pc-tofu): contains "tofu" is not in the ingredient graph']);
+    expect(with_((d) => { q(d, 'bram-pc-lentils').options[2].contains = ['natto']; })).toEqual(['bram: variants.protein_counter.questions[0] (bram-pc-lentils): options[2].contains "natto" is not in the ingredient graph']);
+    expect(with_((d) => { q(d, 'bram-pc-tofu').contains = ['natto']; })).toEqual(['bram: variants.protein_counter.questions[3] (bram-pc-tofu): contains "natto" is not in the ingredient graph']);
     // An unknown game for the stall, and a game key nothing knows.
     expect(with_((d) => { q(d, 'bram-braise-cut').game = 'sniff'; })).toEqual(['bram: questions[0] (bram-braise-cut): game "sniff" is not one of this stall\'s games']);
     expect(with_((d) => { Reflect.deleteProperty(q(d, 'bram-braise-cut'), 'game'); })).toEqual(['bram: questions[0] (bram-braise-cut): game undefined is not one of this stall\'s games']);
     expect(with_((d) => { d.games.darts = 'Throw things.'; })).toEqual(['bram: games.darts: not a known game']);
     // An item_tips key not in the graph, in the base and the variant.
     expect(with_((d) => { d.item_tips.wagyu = { pick: 'Marbled.', store: 'Fridge.' }; })).toEqual(['bram: item_tips.wagyu: not in the ingredient graph']);
-    expect(with_((d) => { pc(d).item_tips.seitan = { pick: 'Springy.', store: 'Fridge.' }; })).toEqual(['bram: variants.protein_counter.item_tips.seitan: not in the ingredient graph']);
+    expect(with_((d) => { pc(d).item_tips.natto = { pick: 'Springy.', store: 'Fridge.' }; })).toEqual(['bram: variants.protein_counter.item_tips.natto: not in the ingredient graph']);
     // A duplicate question id across questions, variants and seasonal.
     expect(with_((d) => { q(d, 'bram-pc-lentils').id = 'bram-braise-cut'; })).toEqual(['bram: variants.protein_counter.questions[0] (bram-braise-cut): duplicate question id, also at questions[0]']);
     expect(with_((d) => { d.seasonal = { 'pnw-usa': { 11: [question('bram-thermometer', { game: 'safety' })] } }; })).toEqual(['bram: seasonal.pnw-usa.11[0] (bram-thermometer): duplicate question id, also at questions[5]']);

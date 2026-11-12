@@ -24,7 +24,9 @@ const EXTRA: IngredientNode[] = [
   { id: 'cabbage', name: 'cabbage' },
 ];
 
-export const graph = IngredientGraph.fromData({ ingredients: [...ingredients.ingredients, ...EXTRA] });
+/** Step 4 added real nodes with some of these ids: the real node wins, and the test-only one is dropped. */
+const REAL_IDS = new Set(ingredients.ingredients.map((n) => n.id));
+export const graph = IngredientGraph.fromData({ ingredients: [...ingredients.ingredients, ...EXTRA.filter((n) => !REAL_IDS.has(n.id))] });
 export const subs: Substitution[] = substitutions;
 
 export const DAY = '2026-11-12';
@@ -79,7 +81,7 @@ export const BRAM: StallFile = {
       questions: [
         question('bram-pc-lentils', { game: 'value', prompt: 'Cheapest protein per serving?', options: [opt('Dried lentils', true), opt('Tempeh'), opt('A block of cheese')] }),
         question('bram-pc-eggs', { game: 'label', prompt: 'What does a free-range egg box promise?', contains: ['egg'] }),
-        question('bram-pc-paneer', { game: 'cut_match', prompt: 'Which holds its shape in a hot pan?', options: [opt('Paneer', true), opt('Ricotta'), opt('Cottage cheese')] }),
+        question('bram-pc-paneer', { game: 'cut_match', prompt: 'Which holds its shape in a hot pan?', contains: ['milk'], options: [opt('Paneer', true), opt('Ricotta'), opt('Cottage cheese')] }),
         question('bram-pc-tofu', { game: 'cut_match', prompt: 'Which block for frying?', contains: ['tofu'] }),
         question('bram-pc-chickpeas', { game: 'value', prompt: 'One cup of dried chickpeas cooks up to about…', contains: ['chickpea'] }),
       ],

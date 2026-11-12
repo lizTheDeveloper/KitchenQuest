@@ -21,7 +21,9 @@ const EXTRA: IngredientNode[] = [
   { id: 'kale', name: 'kale' },
 ];
 
-export const graph = IngredientGraph.fromData({ ingredients: [...ingredients.ingredients, ...EXTRA] });
+/** Step 4 added real nodes with some of these ids: the real node wins, and the test-only one is dropped. */
+const REAL_IDS = new Set(ingredients.ingredients.map((n) => n.id));
+export const graph = IngredientGraph.fromData({ ingredients: [...ingredients.ingredients, ...EXTRA.filter((n) => !REAL_IDS.has(n.id))] });
 
 export const NOW = 'In season here, now';
 export const STORED = 'Local, stored from the autumn harvest';

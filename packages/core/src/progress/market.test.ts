@@ -113,8 +113,10 @@ describe('stall_round validation (Ruling 2, Review Focus 4)', () => {
     expect(one(ev.round('bram', MON, [['bram-pc-lentils', 0]])).problems).toEqual(['bad_event']);
     // A Protein Counter egg question under an egg rule: hidden (Review Focus 1).
     expect(one(ev.round('bram', MON, [['bram-pc-eggs', 0]]), EMPTY, rulesCtx([VEGETARIAN, { id: 'r-egg', target: { kind: 'ingredient', ids: ['egg'] }, type: 'avoid', severity: 'allergy' }])).problems).toEqual(['bad_event']);
-    // A question naming an id the graph doesn't know is ❓: never answerable.
-    expect(one(ev.round('bram', MON, [['bram-pc-tofu', 0]]), EMPTY, VEG).problems).toEqual(['bad_event']);
+    // A tofu question (tofu contains soy since M6 Step 4) under a soy rule: never answerable. An id the graph doesn't
+    // know is ❓ and never shown either (market/bank.test.ts).
+    expect(one(ev.round('bram', MON, [['bram-pc-tofu', 0]]), EMPTY, VEG).problems).toEqual([]);
+    expect(one(ev.round('bram', MON, [['bram-pc-tofu', 0]]), EMPTY, rulesCtx([VEGETARIAN, { id: 'r-soy', target: { kind: 'ingredient', ids: ['soy'] }, type: 'avoid', severity: 'allergy' }])).problems).toEqual(['bad_event']);
     // Without rules: rules_unknown, nothing granted or stored, and the device retries once rules load.
     const blind = grantsFor(ev.round('bram', MON, [['bram-thermometer', 0]]), EMPTY, MARKET_CAT, DATA, T);
     expect(blind.problems).toEqual(['rules_unknown']);

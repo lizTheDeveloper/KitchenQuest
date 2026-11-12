@@ -64,13 +64,19 @@ describe('questionStatus and stallBank (spec §2.2, §3.5)', () => {
   });
 
   test('an unknown contains id makes the question ❓, never ok', () => {
+    // M6 Step 4 made tofu a graph node (it contains soy), so the unknown id here is natto, which the graph doesn't know.
+    const natto = question('bram-pc-natto', { game: 'cut_match', prompt: 'Which one is sticky?', contains: ['natto'] });
+    expect(graph.has('natto')).toBe(false);
+    expect(questionStatus(natto, ctx([]))).toBe('unverified');
+    expect(questionStatus(natto, ctx([SOY]))).toBe('unverified');
+    const withNatto = { ...BRAM, variants: { protein_counter: { ...BRAM.variants!.protein_counter!, questions: [...BRAM.variants!.protein_counter!.questions, natto] } } };
+    expect(ids([VEGETARIAN], withNatto)).not.toContain('bram-pc-natto');
+    // Tofu is known now: a tofu question for a soy rule is ⛔, never shown (Review Focus 1).
     const tofu = BRAM.variants!.protein_counter!.questions.find((q) => q.id === 'bram-pc-tofu')!;
-    expect(graph.has('tofu')).toBe(false);
-    expect(questionStatus(tofu, ctx([]))).toBe('unverified');
-    expect(questionStatus(tofu, ctx([SOY]))).toBe('unverified'); // a tofu question for a soy rule, while tofu isn't in the graph
-    expect(ids([VEGETARIAN])).not.toContain('bram-pc-tofu');
+    expect(questionStatus(tofu, ctx([SOY]))).toBe('blocked');
+    expect(ids([SOY])).not.toContain('bram-pc-tofu');
     // An unknown id beside a blocked one is still at least ❓ (here ⛔, the worse).
-    expect(questionStatus(question('t-both', { contains: ['tofu', 'beef'] }), ctx([avoid('beef')]))).toBe('blocked');
+    expect(questionStatus(question('t-both', { contains: ['natto', 'beef'] }), ctx([avoid('beef')]))).toBe('blocked');
     // Nothing named at all is ✅.
     expect(questionStatus(BRAM.questions[5], ctx([VEGAN]))).toBe('ok');
   });
@@ -81,7 +87,7 @@ describe('questionStatus and stallBank (spec §2.2, §3.5)', () => {
     expect(stallVariant(BRAM, ctx([avoid('meat')]))).toBe('protein_counter'); // a custom rule covering all meat
     const veg = stallBank(BRAM, ctx([VEGETARIAN]));
     expect(veg.variant).toBe('protein_counter');
-    expect(veg.questions.map((q) => q.id)).toEqual(['bram-pc-lentils', 'bram-pc-eggs', 'bram-pc-paneer', 'bram-pc-chickpeas']);
+    expect(veg.questions.map((q) => q.id)).toEqual(['bram-pc-lentils', 'bram-pc-eggs', 'bram-pc-paneer', 'bram-pc-tofu', 'bram-pc-chickpeas']);
     // Bram's beef braise never reaches a vegetarian.
     expect(veg.questions.some((q) => q.id.startsWith('bram-') && !q.id.startsWith('bram-pc-'))).toBe(false);
 
@@ -96,7 +102,7 @@ describe('questionStatus and stallBank (spec §2.2, §3.5)', () => {
   test('vegan → protein_counter with egg and milk questions dropped', () => {
     const b = stallBank(BRAM, ctx([VEGAN]));
     expect(b.variant).toBe('protein_counter');
-    expect(b.questions.map((q) => q.id)).toEqual(['bram-pc-lentils', 'bram-pc-chickpeas']);
+    expect(b.questions.map((q) => q.id)).toEqual(['bram-pc-lentils', 'bram-pc-tofu', 'bram-pc-chickpeas']);
   });
 
   test('countries scope: a [United States] question shows for country "USA"/"United States", not for "UK" or null', () => {
@@ -134,7 +140,9 @@ describe('questionStatus and stallBank (spec §2.2, §3.5)', () => {
     expect(stallBank(WEN, ctx([]), [SEASONAL_STRAWBERRY]).questions.map((q) => q.id)).toContain('wen-pnw-6-strawberry');
     const b = stallBank(WEN, ctx([avoid('strawberry')]), [SEASONAL_STRAWBERRY]);
     expect(b.questions.map((q) => q.id)).not.toContain('wen-pnw-6-strawberry');
-    expect(b.dropped).toBe(2); // and the soy sauce question: label-dependent, ❓ under any rule
+    // And the soy sauce question (label-dependent, ❓ under any rule) and the berries one (a "berries" line could be
+    // strawberries: M6 Step 4 files strawberry under berry).
+    expect(b.dropped).toBe(3);
     expect(stallBank(WEN, ctx([])).questions).toHaveLength(WEN.questions.length);
   });
 
@@ -147,10 +155,12 @@ describe('questionStatus and stallBank (spec §2.2, §3.5)', () => {
     expect(tipFor(BRAM, 'cabbage', ctx([]))).not.toBeNull();
     expect(tipFor(BRAM, 'nothing_here', ctx([]))).toBeNull();
     expect(tipFor(SPICE, 'asafoetida', ctx([COELIAC]))).toBeNull();
-    expect(tipFor(SPICE, 'asafoetida', ctx([avoid('peanut')]))).not.toBeNull();
+    // M6 Step 4: asafoetida is label-dependent (compounded with flour), so ❓ under any restricting rule.
+    expect(tipFor(SPICE, 'asafoetida', ctx([avoid('peanut')]))).toBeNull();
+    expect(tipFor(SPICE, 'asafoetida', ctx([]))).not.toBeNull();
     // ❓: an item the graph doesn't know, and a label-dependent one under any rule.
-    const odd = { ...SPICE, item_tips: { tofu: { pick: 'Firm.', store: 'In water.' }, soy_sauce: { pick: 'Brewed.', store: 'Cupboard.' } } };
-    expect(tipFor(odd, 'tofu', ctx([]))).toBeNull();
+    const odd = { ...SPICE, item_tips: { natto: { pick: 'Sticky.', store: 'Fridge.' }, soy_sauce: { pick: 'Brewed.', store: 'Cupboard.' } } };
+    expect(tipFor(odd, 'natto', ctx([]))).toBeNull();
     expect(tipFor(odd, 'soy_sauce', ctx([avoid('peanut')]))).toBeNull();
     // The Protein Counter's own tips.
     expect(tipFor(BRAM, 'paneer', ctx([VEGETARIAN]))).toEqual(BRAM.variants!.protein_counter!.item_tips.paneer);

@@ -68,8 +68,9 @@ describe('buildRuleCard', () => {
   });
 
   test('a partial match is ambiguous and never auto-picked', () => {
-    const r = buildRuleCard({ term: 'pea', severity: null }, graph, terms);
-    expect(r).toMatchObject({ ok: false, reason: 'ambiguous', line: { trigger: 'rule.which_one', vars: { term: 'pea' } } });
+    // M6 Step 4: "pea" is a graph node now, so the partial match is "pean".
+    const r = buildRuleCard({ term: 'pean', severity: null }, graph, terms);
+    expect(r).toMatchObject({ ok: false, reason: 'ambiguous', line: { trigger: 'rule.which_one', vars: { term: 'pean' } } });
     expect(!r.ok && r.reason === 'ambiguous' && r.options.map((o) => o.id)).toContain('peanut');
     expect(!r.ok && r.reason === 'ambiguous' && r.options.length).toBeLessThanOrEqual(5);
   });
@@ -98,7 +99,7 @@ describe('buildRuleCard', () => {
     const c = card('plant based');
     expect(c.rule.target.ids).toEqual(expect.arrayContaining(['honey', 'gelatin', 'milk', 'egg']));
     // The term's own targets come first, so shellfish is never hidden behind its kinds (M1).
-    expect(c.display.covers).toBe('egg, fish, gelatine, honey, meat, milk, shellfish, anchovy and 20 more');
+    expect(c.display.covers).toBe('egg, fish, gelatine, honey, meat, milk, shellfish, anchovy and 38 more');
   });
 
   test('shrimp and prawns are shellfish (M7)', () => {
@@ -135,7 +136,7 @@ describe('buildRuleCard', () => {
   test('every built rule passes validateRules', () => {
     // A broad category ("herbs", C1 ruling) is never a rule target: its labels get the which-kind ask instead.
     const broad = data.ingredients.filter((n) => n.broad === true);
-    expect(broad.map((n) => n.id)).toEqual(['herb']);
+    expect(broad.map((n) => n.id)).toEqual(['herb', 'bean', 'berry']); // M6 Step 4 added bean and berry
     for (const label of broad.flatMap((n) => [n.name, ...(n.aliases ?? [])])) expect(buildRuleCard({ term: label, severity: null }, graph, terms)).toMatchObject({ ok: false, line: { trigger: 'rule.which_kind' } });
     const labels = [
       ...data.ingredients.filter((n) => n.broad !== true).flatMap((n) => [n.name, ...(n.aliases ?? [])]),
@@ -181,7 +182,7 @@ describe('other cards', () => {
 
     const p = buildPantryCard({ add: ['chickpeas', 'Spinach', 'dragon fruit', 'y'.repeat(100)], remove: ['milk'] }, graph);
     expect(p.add).toEqual([
-      { name: 'chickpeas', ingredientId: null },
+      { name: 'chickpeas', ingredientId: 'chickpea' }, // in the graph since M6 Step 4
       { name: 'Spinach', ingredientId: 'spinach' }, // in the graph since M5 Step 4 (C12)
       { name: 'dragon fruit', ingredientId: null },
       { name: 'y'.repeat(80), ingredientId: null },

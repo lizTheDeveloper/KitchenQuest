@@ -9,7 +9,8 @@ const DAY = '2026-11-11';
 describe('textMentions (moved from noteMentions, M6 Step 1)', () => {
   test('textMentions finds names, aliases and plurals; noteMentions results are unchanged on the M5 fixtures', () => {
     expect(textMentions(['a handful of berries'], graph)).toEqual(['berry']);
-    expect(textMentions(['two green chillies, three bay leaves'], graph)).toEqual(['bay_leaf', 'green_chili']);
+    // "chillies" names the chilli category too (M6 Step 4): stricter, never looser.
+    expect(textMentions(['two green chillies, three bay leaves'], graph)).toEqual(['bay_leaf', 'chili', 'green_chili']);
     expect(textMentions(['a splash of shoyu'], graph)).toEqual(['soy_sauce']); // an alias
     expect(textMentions(['Peanuts!', 'and some TOMATOES'], graph)).toEqual(['peanut', 'tomato']);
     expect(textMentions(['crumbs from two loaves', 'blunt knives'], graph)).toEqual(['loaf', 'test_knife']);
@@ -24,7 +25,7 @@ describe('textMentions (moved from noteMentions, M6 Step 1)', () => {
       { recipe: 'x', ops: [{ op: 'swap', from: 'lentils', to: 'chickpeas' }, { op: 'remove', name: 'onion' }], text: 'topped with berries and salted peanuts', at: DAY },
       { recipe: 'x', ops: [{ op: 'add', name: 'two green chillies' }], text: null, at: DAY },
     ];
-    expect(noteMentions(notes, graph)).toEqual(['berry', 'chickpea', 'green_chili', 'lentil', 'onion', 'peanut']);
+    expect(noteMentions(notes, graph)).toEqual(['berry', 'chickpea', 'chili', 'green_chili', 'lentil', 'onion', 'peanut']);
     expect(noteMentions(notes, graph)).toEqual(textMentions(['topped with berries and salted peanuts', 'lentils', 'chickpeas', 'onion', 'two green chillies'], graph));
     expect(noteMentions([], graph)).toEqual([]);
   });

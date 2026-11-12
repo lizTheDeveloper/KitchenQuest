@@ -30,12 +30,12 @@ describe('fillFrame', () => {
 
   test('fillFrame: never picks a blocked candidate; unresolved pantry name not auto-picked; picked → frame ❓; empty required slot reported', () => {
     // Blocked: peanut is a kind of nut, but the player avoids peanut; cashew fits and passes.
-    const sauce = fillFrame(greenSauce, [have('peanut'), have('cashew'), have('coriander'), have('lime'), have('sunflower oil')], ctx([PEANUT]));
+    const sauce = fillFrame(greenSauce, [have('peanut'), have('cashew'), have('cilantro'), have('lime'), have('sunflower oil')], ctx([PEANUT]));
     expect(sauce.fills.nut).toEqual({ name: 'cashew', ingredientId: 'cashew' });
     expect(sauce.check.status).toBe('ok');
     expect(sauce.emptyRequired).toEqual([]);
     // Even when the player picks it, a blocked filler is never used.
-    const picked = fillFrame(greenSauce, [have('peanut'), have('coriander'), have('lime'), have('sunflower oil')], ctx([PEANUT]), { nut: 'peanut' });
+    const picked = fillFrame(greenSauce, [have('peanut'), have('cilantro'), have('lime'), have('sunflower oil')], ctx([PEANUT]), { nut: 'peanut' });
     expect(picked.fills.nut).toBeNull();
     expect(picked.recipe.ingredients.map((i) => i.name)).not.toContain('peanut');
     expect(picked.check.status).toBe('ok');
@@ -75,16 +75,16 @@ describe('fillFrame', () => {
     expect(both.check.status).toBe('ok');
   });
 
-  test('fills: kinds of an accepted id fit (coriander for herb); earliest bought first; one item per slot; optional empty slots are null and their steps drop', () => {
+  test('fills: kinds of an accepted id fit (cilantro for herb); earliest bought first; one item per slot; optional empty slots are null and their steps drop', () => {
     const pantry = [
       have('parsley', { addedOn: '2026-11-10', source: 'market' }),
-      have('coriander', { addedOn: '2026-11-08', source: 'market' }),
+      have('cilantro', { addedOn: '2026-11-08', source: 'market' }),
       have('lime'),
       have('sunflower oil'),
     ];
     const f = fillFrame(greenSauce, pantry, ctx());
-    expect(f.fills).toEqual({ herb: { name: 'coriander', ingredientId: 'coriander' }, acid: { name: 'lime', ingredientId: 'lime' }, oil: { name: 'sunflower oil', ingredientId: 'neutral_oil' }, nut: null });
-    expect(f.recipe.steps.map((s) => stepPlainText(f.recipe, s))).toEqual(['Wash coriander, shake it dry and chop it fine.', 'Squeeze in lime and stir.', 'Beat in sunflower oil a spoonful at a time, so it thickens instead of splitting.']);
+    expect(f.fills).toEqual({ herb: { name: 'cilantro', ingredientId: 'cilantro' }, acid: { name: 'lime', ingredientId: 'lime' }, oil: { name: 'sunflower oil', ingredientId: 'neutral_oil' }, nut: null });
+    expect(f.recipe.steps.map((s) => stepPlainText(f.recipe, s))).toEqual(['Wash cilantro, shake it dry and chop it fine.', 'Squeeze in lime and stir.', 'Beat in sunflower oil a spoonful at a time, so it thickens instead of splitting.']);
     expect(f.recipe.meta).toMatchObject({ title: 'Green sauce', skills: ['emulsion'], sacred: false, status: 'draft' });
     // The player's pick wins for its slot.
     expect(fillFrame(greenSauce, pantry, ctx(), { herb: 'parsley' }).fills.herb?.name).toBe('parsley');
@@ -139,7 +139,7 @@ describe('validateFrames', () => {
     ]);
     expect(bad({ steps: ['Chop {herbs}.', '{acid} {oil}'] })).toEqual(['frame "green-sauce": step uses unknown slot "{herbs}"', 'frame "green-sauce": required slot "herb" is in no step']);
     expect(bad({ rescues: ['tomato', 'not_an_id'] })).toEqual(['frame "green-sauce": rescues "tomato", which no slot accepts', 'frame "green-sauce": rescues unknown ingredient "not_an_id"']);
-    expect(bad({ rescues: ['coriander'] })).toEqual([]); // a kind of an accepted id
+    expect(bad({ rescues: ['cilantro'] })).toEqual([]); // a kind of an accepted id
     expect(validateFrames([f, f], graph, TECHNIQUES)).toEqual(['frame "green-sauce": duplicate id']);
     for (const junk of [null, 'x', [null], [{}], [{ slots: [null], steps: [1], rescues: 'x' }]]) expect(() => validateFrames(junk as Frame[], graph, TECHNIQUES)).not.toThrow();
   });

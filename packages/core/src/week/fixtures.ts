@@ -30,7 +30,9 @@ const EXTRA: IngredientNode[] = [
   { id: 'test_knife', name: 'knife' },
 ];
 
-export const graph = IngredientGraph.fromData({ ingredients: [...ingredients.ingredients, ...EXTRA] });
+/** Step 4 added real nodes with some of these ids: the real node wins, and the test-only one is dropped. */
+const REAL_IDS = new Set(ingredients.ingredients.map((n) => n.id));
+export const graph = IngredientGraph.fromData({ ingredients: [...ingredients.ingredients, ...EXTRA.filter((n) => !REAL_IDS.has(n.id))] });
 
 const line = (name: string, quantity: number | null = 100, unit: string | null = 'g'): RecipeIngredient => ({ name, displayName: null, quantity, unit, note: null });
 const base = canon.get('india/kerala/parippu')!;
@@ -66,7 +68,7 @@ const FOOD_GROUPS: FoodGroups = {
   fish: 'protein',
   rice: 'grain',
   corn_tortilla: 'grain',
-  kale: 'veg_fruit', // not in the graph: counts for nothing
+  samphire: 'veg_fruit', // not in the graph: counts for nothing (kale was, until M6 Step 4 made it a node)
 };
 
 export const STALLS: StallMap = {
