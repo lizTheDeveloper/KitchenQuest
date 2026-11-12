@@ -6,6 +6,7 @@ import { applyPostChecks, claimsTickWithoutCard, severeTermsLeftOut } from './po
 import type { ToolArgs } from './tools.js';
 
 const { graph, ruleTerms } = defaultCatalog();
+const catalog = { graph, ruleTerms };
 const rule = (term: string, severity: Severity | null): ToolArgs => ({
   name: 'propose_rule',
   args: { term, severity },
@@ -227,6 +228,11 @@ describe('applyPostChecks, card-field smuggling (fix round 5)', () => {
     ["lunch was curry, it won't hurt", "curry, it won't hurt"],
     ['lunch was curry that never hurts me', 'curry that never hurts me'],
     ["lunch was curry, won't make me ill", "curry, won't make me ill"],
+    // M7 Step 7 (M6 final M16): a diet label is a claim about the dish too.
+    ['lunch was LOW FODMAP SOUP', 'LOW FODMAP SOUP'],
+    ['lunch was HALAL CHICKEN CURRY', 'HALAL CHICKEN CURRY'],
+    ['lunch was DOCTOR APPROVED STEW', 'DOCTOR APPROVED STEW'],
+    ['breakfast was keto bread', 'keto bread'],
   ])('%j: the meal description %j is dropped', (text, description) => {
     expect(post([meal(description)], text)).toEqual([]);
   });
@@ -305,9 +311,9 @@ describe('Step 12 ruling: a meal description joined from the player\'s own phras
 // M6 Step 8 fix round 1 (m4): the model's text talking of ticking the list, with no card, is write.not_done; the animal never is.
 describe('claimsTickWithoutCard', () => {
   test.each(["I've ticked the shallots off your list.", 'Ticked!', 'I checked them all off for you.', 'Crossed the dal off.'])('%j claims a tick', (t) =>
-    expect(claimsTickWithoutCard(t, 0)).toBe(true),
+    expect(claimsTickWithoutCard(t, 0, catalog)).toBe(true),
   );
-  test('never with a card on the turn', () => expect(claimsTickWithoutCard('Ticked!', 1)).toBe(false));
+  test('never with a card on the turn', () => expect(claimsTickWithoutCard('Ticked!', 1, catalog)).toBe(false));
   test.each([
     'A tick bite can cause alpha-gal; please talk to your doctor.',
     'Tick bites are worth checking with a doctor.',
@@ -315,7 +321,14 @@ describe('claimsTickWithoutCard', () => {
     'Being bitten by a tick can change what you can eat.',
     'Tick-borne illness is one for a doctor.',
     'Check yourself for ticks after a walk; check the dog off-lead too.',
-  ])('%j is not a tick claim', (t) => expect(claimsTickWithoutCard(t, 0)).toBe(false));
+  ])('%j is not a tick claim', (t) => expect(claimsTickWithoutCard(t, 0, catalog)).toBe(false));
+  // M7 Step 7 (M6 final M15): the lone star tick and a walk's ticks; a health sentence never claims a tick.
+  test.each([
+    'Alpha-gal from a lone star tick is one for your doctor.',
+    'Got ticks hiking? Check with a doctor.',
+    'A lone star tick can cause alpha-gal.',
+    'Ticks from camping can carry disease.',
+  ])('%j is not a tick claim (M15)', (t) => expect(claimsTickWithoutCard(t, 0, catalog)).toBe(false));
 });
 
 // M6 Step 8 fix round 2 (controller ruling, code wins): a model `dish` that is a multi-line pasted block (S19) keeps only

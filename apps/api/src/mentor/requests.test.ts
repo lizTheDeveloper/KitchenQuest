@@ -2,8 +2,8 @@ import { describe, expect, test } from 'vitest';
 import { defaultCatalog } from '../catalog.js';
 import { isWriteRequest as isWrite } from './requests.js';
 
-const { graph } = defaultCatalog();
-const isWriteRequest = (text: string) => isWrite(text, graph);
+const { graph, ruleTerms } = defaultCatalog();
+const isWriteRequest = (text: string) => isWrite(text, graph, ruleTerms);
 
 // Fix round 4 (R9): the player's own words ask for a record to change; with no card the turn says write.not_done.
 describe('isWriteRequest', () => {
@@ -44,4 +44,19 @@ describe('tick requests', () => {
     'ticks on the dog again',
     'deer ticks are everywhere',
   ])('%j is not a write request', (t) => expect(isWriteRequest(t)).toBe(false));
+});
+
+// M7 Step 7 (M6 final M15): the tick health contexts the M6 pattern still matched; a tick sentence that is health text
+// is never a tick request either.
+describe('tick health contexts (M6 final M15)', () => {
+  test.each([
+    'I got alpha-gal from a lone star tick',
+    'got ticks hiking',
+    'got ticks camping last weekend and now beef makes me ill',
+    'the itch came after a tick, could it be alpha-gal?',
+  ])('%j is not a write request', (t) => expect(isWriteRequest(t)).toBe(false));
+  // Positive controls: a tick of the list, also beside a health sentence, still is one.
+  test.each(['tick the shallots', 'tick the shallots. i am allergic to peanuts', 'ticked the eggs'])('%j is still a write request', (t) =>
+    expect(isWriteRequest(t)).toBe(true),
+  );
 });

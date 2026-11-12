@@ -23,7 +23,7 @@ import {
   type Severity,
 } from '@kitchenquest/core';
 import { filterReply, screenText, touchesHealth } from './filter.js';
-import { TICK_PATTERN } from './requests.js';
+import { tickSentence } from './requests.js';
 import type { ToolArgs } from './tools.js';
 
 /**
@@ -112,8 +112,13 @@ const shortName = (value: string | null, text: string): string | null => {
   const v = cardString(value, text);
   return v !== null && !/[,.;:!?]/.test(v) && v.trim().split(/\s+/).length <= 4 ? v : null;
 };
-/** Fix round 5: "a nut free brownie" names what a dish lacks, which is a claim; a meal card never carries one. */
-const MEAL_CLAIM = /\b[a-z]+[ -]free\b/i;
+/**
+ * Fix round 5: "a nut free brownie" names what a dish lacks, which is a claim; a meal card never carries one. M7 Step 7
+ * (M6 final M16): nor a diet label ("LOW FODMAP SOUP", "HALAL CHICKEN CURRY", "DOCTOR APPROVED STEW", "keto bread"), so a
+ * health or diet label is never stored as a dish title; the card is dropped and the turn asks instead.
+ */
+const MEAL_CLAIM =
+  /\b[a-z]+[ -]free\b|\b(?:low[- ]?fodmap|fodmap|halal|kosher|keto(?:genic)?|diabetic|diabetes[- ]friendly|(?:doctor|dr|gp|dietitian|dietician|nutritionist)[- ]approved)\b/i;
 const mealString = (value: string | null, text: string): string | null => {
   const v = cardString(value, text);
   return v !== null && !MEAL_CLAIM.test(screenText(v)) ? v : null;
@@ -389,8 +394,9 @@ export function applyPostChecks(
  * too (the line only says nothing was changed). Never the animal ("a tick bite", fix round 1 m4: `TICK_PATTERN`). M4's
  * other write claims keep their scripted lines (R9).
  */
-export function claimsTickWithoutCard(modelText: string, cards: number): boolean {
-  return cards === 0 && TICK_PATTERN.test(screenText(modelText));
+export function claimsTickWithoutCard(modelText: string, cards: number, catalog: { graph: IngredientGraph; ruleTerms: readonly RuleTerm[] }): boolean {
+  // M7 Step 7 (M6 final M15): read per sentence, and a health sentence ("a lone star tick can cause alpha-gal") never claims one.
+  return cards === 0 && screenText(modelText).split(/[.!?;\n]+/).some((s) => tickSentence(s, catalog.graph, catalog.ruleTerms));
 }
 
 /**

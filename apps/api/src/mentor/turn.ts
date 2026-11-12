@@ -398,7 +398,7 @@ async function lockConversation(tx: Tx, userId: string, conversationId: string):
 
 /**
  * Ingredient ids the turn accounts for: rule-card targets, ambiguous-term options, and the
- * non-allergen names a meal or pantry card carries. A meal or pantry card never covers a major
+ * non-allergen names a meal, pantry or (M7 Step 7) check-off card carries. A meal or pantry card never covers a major
  * allergen (fix round 1, C1): "peanut butter toast … allergic to peanuts" still asks about peanut.
  */
 export function coveredIds(reply: Reply, graph: IngredientGraph): string[] {
@@ -408,6 +408,10 @@ export function coveredIds(reply: Reply, graph: IngredientGraph): string[] {
   for (const c of reply.cards) {
     if (c.kind === 'meal') ids.push(...nonAllergenNamedIds(c.meal.item.kind === 'free' ? c.meal.item.description : c.summary, graph));
     if (c.kind === 'pantry') ids.push(...nonAllergenNamedIds([...c.add.map((a) => a.name), ...c.remove].join(', '), graph));
+    // M7 Step 7 (M6 final, the duplicate ask; eval C01): a check-off card's rows (its summary names them, from the run)
+    // are accounted for in the same way, so "got the shallots, I'm allergic to peanuts" asks about peanut once, never
+    // about the shallots the card covers. A major allergen on the card is still asked about.
+    if (c.kind === 'check_off') ids.push(...nonAllergenNamedIds(c.summary, graph));
   }
   ids.push(...reply.parts.flatMap((p) => (p.kind === 'choices' ? p.options.map((o) => o.id) : [])));
   // A which-kind ask ("herbs", C1) accounts for its broad category too: the ask is its answer, never a second ask.
@@ -480,6 +484,36 @@ interface FinishInput {
 }
 
 /**
+ * The code-card gate after the model (exported for mentor-gate.test.ts, M7 Step 7: M6 final M6, so a test can never
+ * pass on its own copy). M5 Step 8, fix round 2 (structural ruling): code builds a card itself only from a closed
+ * grammar that consumes the whole clause (core planWordsIn, reminderSlots, marketDayStated), and only when the model
+ * made no valid call of that kind (none, or one whose arguments didn't parse: a malformed call is never used) and the
+ * tool is offered (R4; rule help). Nothing at all on a message with a health term, symptom, severity, rule statement or
+ * diet cue (core codeCardHealth on the player's own words, checked FIRST): that message goes down M4's health path. A
+ * code card never suppresses its ask (`codeProfile` in finishTurn). Fix round 4: every clause of the message must be
+ * closed or neutral (N6, inside the core readers), and the health check is all of M4's gate except the bare meal-time
+ * words (N11, core codeCardHealth).
+ */
+export function codeCardGate(
+  raw: string,
+  dishes: readonly { slug: string; title: string }[],
+  catalog: Pick<Catalog, 'graph' | 'ruleTerms'>,
+  offered: ReadonlySet<string>,
+  calls: readonly ToolArgs[],
+): { words: ReturnType<typeof planWordsIn>; timed: ReturnType<typeof reminderSlots>; market: ReturnType<typeof marketDayStated> } {
+  const own = stripPageEvents(playerOwnWords(raw)).text;
+  if (codeCardHealth(own, catalog.graph, catalog.ruleTerms)) return { words: null, timed: [], market: null };
+  const graph = catalog.graph;
+  const words = offered.has('propose_plan') && !calls.some((c) => c.name === 'propose_plan') ? planWordsIn(raw, dishes, graph) : null;
+  const timed = offered.has('propose_profile') && !calls.some((c) => c.name === 'propose_profile') ? reminderSlots(raw, dishes, graph) : [];
+  const market =
+    offered.has('propose_profile') && !calls.some((c) => c.name === 'propose_profile' && c.args.market_days !== null && c.args.market_days.length > 0)
+      ? marketDayStated(raw, dishes, graph)
+      : null;
+  return { words, timed, market };
+}
+
+/**
  * Stages 7–9 in one transaction, in the README lock order: live user (a turn
  * racing an account delete is a 401, P5; the global cost and the player's usage
  * were already counted on their own, N6 and M-7) → consent row (share-locked; `persist` and the health cards are
@@ -503,24 +537,11 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
     deps.catalog.ruleTerms,
     { cooks: deps.week.loop.cooks, slugs: new Set(index.keys()) },
   ).filter((c) => !(c.name === 'propose_rule' && fine.has(graph.resolve(c.args.term) ?? '')));
-  // M5 Step 8, fix round 2 (structural ruling): code builds a card itself only from a closed grammar that consumes
-  // the whole clause (core planWordsIn, reminderSlots, marketDayStated), and only when the model made no valid call
-  // of that kind (none, or one whose arguments didn't parse: a malformed call is never used) and the tool is offered
-  // (R4; rule help). Nothing at all on a message with a health term, symptom, severity, rule statement or diet cue:
-  // that message goes down M4's health path first. A code card never suppresses its ask (`codeProfile` below).
-  // Fix round 4: every clause of the message must be closed or neutral (N6, inside the core readers), and the health
-  // check is all of M4's gate except the bare meal-time words (N11, core codeCardHealth).
-  const own = stripPageEvents(playerOwnWords(f.raw)).text;
-  const healthWords = codeCardHealth(own, graph, deps.catalog.ruleTerms);
+  // The code-card gate (`codeCardGate`): code's own plan and profile cards, only on a message with no health words.
   const dishes = [...index].map(([slug, r]) => ({ slug, title: r.meta.title }));
-  const words = !healthWords && offered.has('propose_plan') && !calls.some((c) => c.name === 'propose_plan') ? planWordsIn(f.raw, dishes, graph) : null;
+  const { words, timed, market } = codeCardGate(f.raw, dishes, deps.catalog, offered, calls);
   if (words !== null) calls.push({ name: 'propose_plan', args: { days: words.days, pick: words.pick, hard_week: words.hard, after: words.after } });
-  const timed = !healthWords && offered.has('propose_profile') && !calls.some((c) => c.name === 'propose_profile') ? reminderSlots(f.raw, dishes, graph) : [];
   if (timed.length > 0) calls.push({ name: 'propose_profile', args: { market_days: null, meals_per_week: null, region: null, country: null, meal_windows: timed } });
-  const market =
-    !healthWords && offered.has('propose_profile') && !calls.some((c) => c.name === 'propose_profile' && c.args.market_days !== null && c.args.market_days.length > 0)
-      ? marketDayStated(f.raw, dishes, graph)
-      : null;
   if (market !== null) {
     const profileCall = calls.find((c): c is Extract<ToolArgs, { name: 'propose_profile' }> => c.name === 'propose_profile');
     if (profileCall) profileCall.args.market_days = [WEEKDAY_NAMES[market]];
@@ -568,7 +589,7 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
     const persist = await consentHeldIn(tx, userId, 'health_data', now);
     const recipes = await tx.select({ slug: canonRecipes.slug, title: canonRecipes.title }).from(canonRecipes);
     const dishNamed = f.dishOnScreen || matchDish(f.stripped, recipes) !== null;
-    const writeRequest = isWriteRequest(f.stripped, graph);
+    const writeRequest = isWriteRequest(f.stripped, graph, deps.catalog.ruleTerms);
     let reply: Reply;
     // Read only when a removal needs resolving (no lock: the confirm locks the pantry and removes by id).
     const removes = calls.some((c) => c.name === 'propose_pantry_change' && c.args.remove.length > 0);
@@ -582,7 +603,7 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
     if (calls.length > 0) reply = cardsFromCalls(deps, calls, f.req, persist, recipes, pantry, saved, { planCtx, recipes: index, ...(checkOff ? { checkOff } : {}) });
     else if (f.mode === 'rule_help') reply = { parts: [], cards: [], toolTurn: false }; // R3: rule help only
     // M6 Step 8: a model that only SAID it ticked the list gets write.not_done too (its text is never shown).
-    else reply = scriptedReply(f.stripped, dishNamed, writeRequest || claimsTickWithoutCard(f.result.text, 0));
+    else reply = scriptedReply(f.stripped, dishNamed, writeRequest || claimsTickWithoutCard(f.result.text, 0, deps.catalog));
     // A bare "didn't understand" gives way to any ask that follows.
     const dropBareFallback = () => {
       if (reply.parts.length === 1 && reply.parts[0].kind === 'line' && reply.parts[0].line.trigger === 'didnt_understand') reply.parts = [];
@@ -590,7 +611,7 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
 
     // I5: a severe statement always ends with a rule outcome, naming the missed ingredient when code knows it.
     const keptRuleTerms = calls.flatMap((c) => (c.name === 'propose_rule' ? [c.args.term] : []));
-    // C1 over-ask: the non-allergen names a meal or pantry card carries are accounted for here too (never an allergen).
+    // C1 over-ask: the non-allergen names a meal, pantry or check-off card carries are accounted for here too (never an allergen).
     const mealNames = coveredIds({ ...reply, onFile: [], parts: [], cards: reply.cards.filter((c) => c.kind !== 'rule') }, graph).map((id) => graph.get(id).name);
     const ask = askForDroppedTerms(f.raw, [...keptRuleTerms, ...mealNames], hasRuleOutcome(reply), graph);
     if (ask !== null) {

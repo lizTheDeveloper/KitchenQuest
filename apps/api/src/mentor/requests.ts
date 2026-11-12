@@ -1,4 +1,4 @@
-import { normalizeTurn, parseRuleStatement, severityFromText, type IngredientGraph } from '@kitchenquest/core';
+import { isHealthText, normalizeTurn, parseRuleStatement, severityFromText, type IngredientGraph, type RuleTerm } from '@kitchenquest/core';
 
 /** A record the game keeps for the player: profile, pantry, rules or meals. */
 const RECORD =
@@ -15,10 +15,34 @@ const MOVE_ITEM = new RegExp(String.raw`\b(add|remove|put|take|cross|tick)\b[^.!
  * M6 Step 8: ticking the market list, in any tense: "tick the shallots", "tick off the onion", "ticked the eggs",
  * "cross the dal off", "checked them all off". Fix round 1 (m4): never the animal, a health context ("a tick bite",
  * "bitten by a tick", "tick-borne", "ticks on the dog", "deer ticks"): "tick" after a determiner or a preposition, or
- * before bite/bit/borne/fever/on/in, is a noun; "off" must stand alone ("off-lead" is not it).
+ * before bite/bit/borne/fever/on/in, is a noun; "off" must stand alone ("off-lead" is not it). M7 Step 7 (M6 final
+ * M15): also after "star" / "lone star" / "from a" / "after a" ("a lone star tick") and before hiking, camping or from
+ * ("got ticks hiking"); and the callers skip the tick test on a sentence that is health text.
  */
 export const TICK_PATTERN =
-  /(?<!\b(?:a|an|the|one|two|some|any|no|those|these|that|this|deer|dog|by|for|of|from|with|my|your)\s+)\btick(?:s|ed|ing)?\b(?![\s-]+(?:bites?|bit|bitten|biting|borne|fever|disease|on|in|off (?:me|him|her|them|the dog|the cat))\b)|\b(?:check|cross)(?:es|ed|ing)?\b(?:\s+[^\s.!?;]+){0,4}\s+off(?![\w-])/i;
+  /(?<!\b(?:a|an|the|one|two|some|any|no|those|these|that|this|deer|dog|by|for|of|from|with|my|your|star|lone star|from a|after a)\s+)\btick(?:s|ed|ing)?\b(?![\s-]+(?:bites?|bit|bitten|biting|borne|fever|disease|on|in|hiking|camping|from|off (?:me|him|her|them|the dog|the cat))\b)|\b(?:check|cross)(?:es|ed|ing)?\b(?:\s+[^\s.!?;]+){0,4}\s+off(?![\w-])/i;
+
+/**
+ * The sentence with every graph food name (and its plurals) blanked out, so a health test on it sees only what is said
+ * about the food: "tick the shallots" names a food, which alone is not health here.
+ */
+function withoutFoodNames(sentence: string, graph: IngredientGraph): string {
+  let t = ` ${normalizeTurn(sentence).replace(/[^\p{L}\p{N}'-]+/gu, ' ').trim()} `;
+  for (const label of graph.labels()) {
+    const key = normalizeTurn(label).replace(/[^\p{L}\p{N}'-]+/gu, ' ').trim();
+    if (key === '') continue;
+    for (const form of [key, `${key}s`, `${key}es`]) while (t.includes(` ${form} `)) t = t.replace(` ${form} `, ' ');
+  }
+  return t.trim();
+}
+
+/**
+ * A sentence that asks for a tick of the market list: `TICK_PATTERN`, and never a sentence that is health text once its
+ * food names are set aside (M7 Step 7, M6 final M15: "got ticks camping and now beef makes me ill").
+ */
+export function tickSentence(sentence: string, graph: IngredientGraph, ruleTerms: readonly RuleTerm[]): boolean {
+  return TICK_PATTERN.test(sentence) && !isHealthText(withoutFoodNames(sentence, graph), graph, ruleTerms);
+}
 
 /**
  * The player's own words ask the game to change one of their records (fix round 4,
@@ -26,7 +50,7 @@ export const TICK_PATTERN =
  * request is never met with silence or a made-up "done". Read per sentence. A change
  * verb with a rule statement or a severity cue counts too ("note that peanuts nearly killed me", fix round 5).
  */
-export function isWriteRequest(text: string, graph: IngredientGraph): boolean {
+export function isWriteRequest(text: string, graph: IngredientGraph, ruleTerms: readonly RuleTerm[]): boolean {
   return normalizeTurn(text)
     .split(/[.!?;\n]+/)
     .some(
@@ -34,6 +58,6 @@ export function isWriteRequest(text: string, graph: IngredientGraph): boolean {
         (CHANGE_VERB.test(s) && (RECORD_WORD.test(s) || severityFromText(s, graph) !== null || parseRuleStatement(s, graph) !== null)) ||
         MAKE_MY.test(s) ||
         MOVE_ITEM.test(s) ||
-        TICK_PATTERN.test(s),
+        tickSentence(s, graph, ruleTerms),
     );
 }
