@@ -698,6 +698,10 @@ describe('fix round 5: more openers; cook words after an opener make no terms; s
     },
   );
 
+  test('an opener list item that starts with an article still asks: "hold the so and the nots"', () => {
+    expect(check('hold the so and the nots')!.terms.map((t) => t.heard)).toEqual(['so', 'nots']);
+  });
+
   test('a food after an opener keeps its card, spelling spoken only under health wording', () => {
     expect(check('no salt please')).toMatchObject({ speakSpelling: false, terms: [{ heard: 'salt', id: 'salt' }] });
     expect(check('no selfish at dinner please')).toMatchObject({ speakSpelling: false });

@@ -10,6 +10,7 @@ import type { RuleTerm } from '../mentor/rule-terms';
 import { spell } from '../mentor/spell';
 import { MAX_ALTERNATIVES } from './constants';
 import { allergenEchoes, rankSoundAlikes, termId, type SoundAlike } from './phonetic';
+import { COMMAND_WORDS } from './commands';
 import { codePoints } from './wire';
 import type { HeardCheck, HeardTerm } from './heard-types';
 
@@ -81,6 +82,8 @@ const SYMPTOM_IN_CONTEXT: readonly RegExp[] = [
   // swell: after a body word, or "my/her/his ... swell up" (swelled and swollen count anywhere)
   new RegExp(`\\b${BODY}(?: \\w+){0,3} swell\\w*`),
   /\b(?:my|her|his|their|i|he|she|they|we|you)(?:'\w+)?(?: \w+)? swell(?:s|ing)? up\b/,
+  // fix round 5 (G1): "swell up after selfish" (after/from only: "the beans swell up when soaked" is chatter)
+  /\bswell(?:s|ing)? up (?:after|from)\b/,
   // break out in / after; come up in hives, a rash, spots, lumps or welts
   /\b(?:break|breaks|breaking|broke|broken) out (?:in|into|after|from|all over)\b/,
   /\b(?:came|come|comes|coming) up in (?:\w+ )?(?:hives|rash\w*|spots?|lumps?|welts?|bumps?|blotch\w*|blisters?)\b/,
@@ -88,7 +91,7 @@ const SYMPTOM_IN_CONTEXT: readonly RegExp[] = [
   // never "sick of"
   new RegExp(`\\b${BE_GET}\\s+${DEG}(?:sick|ill)\\b(?! of\\b)`),
   new RegExp(`${PERSON_IS}\\s+${DEG}(?:sick|ill)\\b(?! of\\b)`),
-  new RegExp(`\\b${CAUSE}(?:sick|ill)\\b`),
+  new RegExp(`\\b${CAUSE}(?:sick|ill)\\b(?! of\\b)`),
   /\b(?:sick|ill) (?:after|from|with|again|all night|all day)\b/,
   // reaction: (bad/allergic/a) reaction, or reaction to/after/from; react(ed) to/badly/after, or at a clause end
   /\b(?:bad|allergic|severe|serious|nasty|mild|big|awful|terrible|horrible|skin|another|a|an|same|my|his|her|their) reactions?\b/,
@@ -96,6 +99,11 @@ const SYMPTOM_IN_CONTEXT: readonly RegExp[] = [
   /\breact(?:s|ed|ing)?(?=\s+(?:to|badly|severely|strongly|after|from|again|really|terribly|straight|immediately|instantly)\b|\s*(?:[,.;:!?]|$))/,
   // faint: felt/went/almost faint (fainted counts anywhere); never "a faint smell"
   /\b(?:felt|feel|feels|feeling|went|go|goes|going|almost|nearly|might|could|would|gonna) (?:(?:a bit|a little|really|so|very) )?faint\b/,
+  // fix round 5 (G1): "selfish makes me faint"; "the selfish is making me dizzy" (a noun subject, never
+  // it/this/that/all: "it's making me dizzy, all this stirring"); "selfish leaves me feeling awful"
+  /\b(?:made|makes|make|making) (?:me|him|her|them|us) (?:feel )?(?:(?:a bit|really|so|very) )?faint\b/,
+  /\b(?!(?:it|this|that|all)\b)[a-z]+ (?:is|are|was|were|keeps|kept) making (?:me|him|her|them|us) (?:feel )?(?:(?:a bit|really|so|very) )?(?:dizzy|sick|ill|faint)\b(?! of\b)/,
+  /\b(?:leaves|left|leave|leaving) (?:me|him|her|them|us) (?:feeling )?(?:awful|bad|terrible|rough|sick|ill|dizzy|funny|horrible|faint)\b/,
   // itch: after a body word, or itch(ing) but never "itching to"
   new RegExp(`\\b${BODY}(?: \\w+){0,2} itch\\w*`),
   /\bitch(?:ing)?\b(?!\s+to\b)/,
@@ -222,6 +230,14 @@ const LIST_JOINS: ReadonlySet<string> = new Set(['and', 'or', 'plus']);
 const OPENER_LEADS: ReadonlySet<string> = new Set(['ok', 'okay', 'oh', 'and', 'but', 'so', 'please', 'yeah', 'yes', 'also', 'um', 'uh', 'well', 'actually', 'just']);
 const SUBJECTS: ReadonlySet<string> = new Set(['i', 'we', 'he', 'she', 'they']);
 
+/** Cook-mode words (the command phrases, plus kitchen kit and actions) that an opener never makes a term (G2). */
+const COOK_WORDS: ReadonlySet<string> = new Set([
+  ...[...COMMAND_WORDS].filter((w) => !isStop(w)),
+  ...'lid lids phone stir stirr stirring whisk chop chopping boil boiling simmer simmering heat pan pot oven hob timer timers alarm clock mic music radio rush hurry'.split(' '),
+]);
+
+const ARTICLES: ReadonlySet<string> = new Set(['the', 'a', 'an', 'any', 'some']);
+
 /** "no X" idioms that are never an exclusion of a food ("no problem", "no worries"). */
 const NO_IDIOMS: ReadonlySet<string> = new Set(
   'problem problems worries worry idea rush hurry clue chance bother matter need longer sense point doubt kidding joke wonder big deal fuss hassle luck difference change sign answer clue sir mate dear'.split(' '),
@@ -241,8 +257,9 @@ function openerEnd(toks: readonly Token[], i: number, echoes: (word: string) => 
   const k = SUBJECTS.has(w(base) ?? '') && (w(base + 1) === 'can' || w(base + 1) === 'cannot') ? base + 1 : base;
   let at = -1;
   let kind: 'no' | 'opener' = 'opener';
-  if (k === base && w(k) === 'no') [at, kind] = [k + 1, 'no'];
-  else if (k === base && w(k) === 'without') at = k + 1;
+  if (k === base && w(k) === 'no') [at, kind] = [w(k + 1) === 'more' ? k + 2 : k + 1, 'no'];
+  else if (k === base && w(k) === 'nope') [at, kind] = [k + 1, 'no'];
+  else if (k === base && w(k) === 'without') at = w(k + 1) === 'the' || w(k + 1) === 'any' ? k + 2 : k + 1;
   else if (k === base && w(k) === 'hold' && w(k + 1) === 'the') at = k + 2;
   else if (k === base && w(k) === 'leave' && w(k + 1) === 'out') at = w(k + 2) === 'the' ? k + 3 : k + 2;
   else if (w(k) === 'can' && w(k + 1) === 't' && w(k + 2) === 'do') at = k + 3;
@@ -250,6 +267,8 @@ function openerEnd(toks: readonly Token[], i: number, echoes: (word: string) => 
   else if (w(k) === 'can' && w(k + 1) === 'not' && w(k + 2) === 'do') at = k + 3;
   if (at < 0 || w(at) === undefined) return null;
   const word = toks[at].word;
+  // a cook word is never what an opener excludes ("no lid", "hold the phone", "no more timers": G2)
+  if (COOK_WORDS.has(word) || COOK_WORDS.has(word.replace(/(?:s|ing)$/, ''))) return null;
   if (kind === 'no' && (isStop(word) || NO_IDIOMS.has(word))) return null;
   // the others take a food-position word, or a short word that sounds exactly like an allergen ("hold the so")
   if (kind === 'opener' && isStop(word) && !([...word].length <= 2 && echoes(word))) return null;
@@ -274,6 +293,8 @@ function listPositions(toks: Token[], echoes: (word: string) => boolean): ('trig
     if (t.afterTrigger) [kind, joined] = ['trigger', false];
     else if (kind !== null && !LIST_JOINS.has(t.word) && (joined || t.brk === ',' || t.amp)) out[i] = kind;
     if (t.afterTrigger) out[i] = 'trigger';
+    // an item that starts with an article ("hold the so and the nots"): the word after it is in the term position too
+    if (out[i] !== null && ARTICLES.has(t.word) && i + 1 < toks.length && !toks[i + 1].broken) out[i + 1] = out[i];
     joined = kind !== null && LIST_JOINS.has(t.word);
     if (opener !== null && (kind === null || kind !== 'trigger')) {
       // the opener's own words were heard as what they are, as a trigger's are: never sound-alike terms
@@ -325,8 +346,10 @@ export function heardCheck(transcript: string, graph: IngredientGraph, terms: re
   if (codePoints(normal, MAX_TEXT) > MAX_TEXT) return blocked;
   const toks = tokensOf(normal);
   const listPos = listPositions(toks, (w) => allergenEchoes(w, graph).length > 0);
-  // A valid exclusion opener ("no selfish at dinner please") is health wording for the heard check (fix round 4).
-  const health = hasHealthWording(normal) || listPos.some((k) => k !== null && k !== 'trigger');
+  const health = hasHealthWording(normal);
+  // An exclusion opener's list positions take sound-alikes as health wording would (fix round 4), but only there,
+  // and the opener is no health wording: the spelling is not spoken for it (fix round 5, G2: "no salt please").
+  const opened = (i: number): boolean => listPos[i] === 'opener' || listPos[i] === 'no';
   const { map, longest } = phrasesOf(graph, terms);
   const rank = new Map<string, SoundAlike[]>();
   const ranked = (phrase: string): SoundAlike[] => {
@@ -354,7 +377,7 @@ export function heardCheck(transcript: string, graph: IngredientGraph, terms: re
   };
   /** Two words heard for one food, when they win over what their words name alone. */
   const pairAt = (i: number, exact: { len: number; id: string } | null): boolean => {
-    if (!health || i + 1 >= toks.length || toks[i + 1].broken || toks[i].exempt || toks[i + 1].exempt) return false;
+    if (!(health || opened(i)) || i + 1 >= toks.length || toks[i + 1].broken || toks[i].exempt || toks[i + 1].exempt) return false;
     const [a, b] = [toks[i].word, toks[i + 1].word];
     if (/\d/.test(a + b)) return false;
     const pair = ranked(`${a} ${b}`);
@@ -397,7 +420,7 @@ export function heardCheck(transcript: string, graph: IngredientGraph, terms: re
       found.push({ heard: toks.slice(i, i + exact.len).map((t) => t.word).join(' '), id: exact.id, at: i });
       i += exact.len;
     } else {
-      if (health && soundAt(i) !== undefined) found.push({ heard: toks[i].word, id: null, at: i });
+      if ((health || opened(i)) && soundAt(i) !== undefined) found.push({ heard: toks[i].word, id: null, at: i });
       i += 1;
     }
   }

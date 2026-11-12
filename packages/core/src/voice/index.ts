@@ -8,5 +8,5 @@ export { phoneticKey, KNOWN_CONFUSIONS, soundAlikes, isRuleTermId } from './phon
 export { heardCheck, tryHeardChoice, applyHeardChoice, heardConfirmed } from './heard';
 export type { HeardTerm, HeardCheck, HeardChoiceRefusal } from './heard';
 export * from './speech';
-export * from './commands';
+export { cookCommand, type CookCommand } from './commands';
 export * from './filler';

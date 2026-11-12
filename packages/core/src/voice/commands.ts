@@ -15,6 +15,9 @@ const PHRASES: Readonly<Record<CookCommand, readonly string[]>> = {
   stop_listening: ['stop listening', 'stop listening now', 'turn off the mic', 'turn the mic off', 'mic off', 'microphone off'],
 };
 
+/** Every word of the command phrases ("timer", "ingredients", "mic", ...): cook words, never foods (heard check, G2). */
+export const COMMAND_WORDS: ReadonlySet<string> = new Set(Object.values(PHRASES).flatMap((ps) => ps.flatMap((p) => p.split(' '))));
+
 const BY_PHRASE: ReadonlyMap<string, CookCommand> = new Map(
   (Object.entries(PHRASES) as [CookCommand, readonly string[]][]).flatMap(([command, phrases]) => phrases.map((p) => [p, command] as const)),
 );
