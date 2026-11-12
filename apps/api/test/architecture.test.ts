@@ -158,3 +158,15 @@ describe('progress is entitlement-blind (M5 Step 5, never rule 3)', () => {
     expect(bad).toEqual([]);
   });
 });
+
+// M7 Step 5 (P3, Ruling 17): the voice registry and recent replies are imported by mentor/turn.ts (Step 6), so they
+// join the eval closure: they import core types only, never Fastify, the mentor or the upstream.
+describe('voice registry and recent replies (P3)', () => {
+  it('voice/registry.ts and voice/recent-replies.ts import nothing but @kitchenquest/core (types and constants)', () => {
+    for (const rel of ['voice/registry.ts', 'voice/recent-replies.ts']) {
+      const specs = importsOf(SRC, join(SRC, rel));
+      expect(specs.length, rel).toBeGreaterThan(0);
+      expect(specs, rel).toEqual(specs.map(() => '@kitchenquest/core'));
+    }
+  });
+});

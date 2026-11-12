@@ -28,6 +28,13 @@ export interface FakeUpstreamOptions {
   ttsFrames?: number;
   /** Called with what the link saw, for the memory-only test's positive control. */
   onTranscript?: (text: string) => void;
+  /** Called with each forwarded frame's samples (the positive control's leak). */
+  onFrame?: (pcm: Int16Array) => void;
+  /**
+   * When `transcribe` throws, reject `end` with that very error (a careless adapter) instead of a content-free
+   * `stt` failure: the route must never read or log it.
+   */
+  rawErrors?: boolean;
 }
 
 export class FakeUpstream implements VoiceUpstream {
@@ -86,6 +93,7 @@ export class FakeUpstream implements VoiceUpstream {
         const e = utterances.get(id);
         if (!open || e === undefined || e.u.ended) return;
         if (pcm.length !== (SAMPLE_RATE_IN * FRAME_MS) / 1000) throw new Error('fake upstream: not a 20 ms frame');
+        fake.opts.onFrame?.(pcm);
         e.u.frames++;
       },
       end(id) {
@@ -103,11 +111,11 @@ export class FakeUpstream implements VoiceUpstream {
                 fake.opts.onTranscript?.(text);
                 resolve({ text });
               },
-              () => {
+              (err: unknown) => {
                 if (!utterances.has(id)) return;
                 utterances.delete(id);
                 // The error itself is never looked at, as the real service: it may hold the transcript.
-                reject(new VoiceUpstreamError('stt'));
+                reject(fake.opts.rawErrors ? (err as VoiceUpstreamError) : new VoiceUpstreamError('stt'));
               },
             );
         });

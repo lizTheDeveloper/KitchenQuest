@@ -29,6 +29,7 @@ import { countSelfRead } from '../audit/self-reads.js';
 import { requireUser } from '../auth/session.js';
 import type { Catalog } from '../catalog.js';
 import { hasConsent } from '../consent/ledger.js';
+import { ApiError } from '../errors.js';
 import type { PanBank } from '../mentor/lines.js';
 import type { RecipeIndexSource } from '../recipes/recipe-index.js';
 import { recordVoice, voiceState } from './allowance.js';
@@ -509,8 +510,10 @@ export async function voiceRoutes(app: FastifyInstance, deps: VoiceRouteDeps): P
     if (typeof origin !== 'string' || origin.toLowerCase() !== appOrigin) return { ok: false, reason: 'bad_origin' };
     try {
       await requireUser(req, reply);
-    } catch {
-      return { ok: false, reason: 'signed_out' };
+    } catch (e) {
+      // Only "no live session" is signed out; anything else (the database down) is a 500, logged by kind (app.ts).
+      if (e instanceof ApiError && e.status === 401) return { ok: false, reason: 'signed_out' };
+      throw e;
     }
     if (app.deps.config.voice === null) return { ok: false, reason: 'unavailable' };
     if (!(await hasConsent(app.deps.db, req.user.id, 'voice', app.deps.now()))) return { ok: false, reason: 'consent_required' };

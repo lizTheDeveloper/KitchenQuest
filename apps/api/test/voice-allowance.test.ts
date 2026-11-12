@@ -221,16 +221,18 @@ describe('voiceState (injected clock)', () => {
 describe('GET /voice/status', () => {
   const NUMBERS = /guild|upgrade|premium|subscri|second|minute|hour|left|remaining|used|limit|quota/i;
 
+  /** M7 Step 5 (P6): `enabled` is `config.voice !== null`; a voice config is VOICE_ENABLED=true (no service is reached). */
+  const voiceOn = testConfig({ VOICE_ENABLED: 'true', VOICE_SERVICE_URL: 'ws://127.0.0.1:9', VOICE_SERVICE_TOKEN: 'test-token' });
   async function statusApp(voiceEnabled?: boolean) {
     const mailer = new CaptureMailer();
-    app = await buildApp({ config, db, mailer, ai: null, now: () => NOW, logger: false, ...(voiceEnabled === undefined ? {} : { voiceEnabled }) });
+    app = await buildApp({ config: voiceEnabled ? voiceOn : config, db, mailer, ai: null, now: () => NOW, logger: false });
     const cookie = await signIn(app, mailer, `status${++seq}@example.com`);
     const userId = (await app.inject({ method: 'GET', url: '/me', cookies: { kq_session: cookie } })).json<{ id: string }>().id;
     const get = (query = '?localDate=2026-11-12&localTime=10:00') => app!.inject({ method: 'GET', url: `/voice/status${query}`, cookies: { kq_session: cookie } });
     return { cookie, userId, get };
   }
 
-  it('GET /voice/status → enabled false by default; true when Deps.voiceEnabled is true', async () => {
+  it('GET /voice/status → enabled false by default; true when config.voice is set (P6, Step 5); a Deps.voiceEnabled passed in is replaced', async () => {
     const off = await statusApp();
     const res = await off.get();
     expect(res.statusCode).toBe(200);
@@ -238,6 +240,10 @@ describe('GET /voice/status', () => {
     await app!.close();
     const on = await statusApp(true);
     expect((await on.get()).json()).toEqual({ state: { kind: 'available' }, accessibility: false, enabled: true });
+    await app!.close();
+    const mailer = new CaptureMailer();
+    app = await buildApp({ config, db, mailer, ai: null, now: () => NOW, logger: false, voiceEnabled: true });
+    expect(app.deps.voiceEnabled).toBe(false);
   });
 
   it('I1: dates the rest by the local date and time the game sends (Sydney 21:00 and UTC−10)', async () => {

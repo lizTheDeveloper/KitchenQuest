@@ -122,3 +122,38 @@ describe('log redaction (C-9)', () => {
     expect(e.name).toBe('ZodError');
   });
 });
+
+describe('the voice socket (M7 Step 5, C-9, Review Focus 2)', () => {
+  it('/voice logs its pattern, kinds and statuses only: an upgrade with a health term in its query, its cookie and a refused Origin leave no "peanut"; @fastify/websocket\'s raw `path` is censored', async () => {
+    const { WebSocket } = await import('ws');
+    const vlogs = captureLogs();
+    const t = await testDb();
+    const voiceConfig = testConfig({ VOICE_ENABLED: 'true', VOICE_SERVICE_URL: 'ws://127.0.0.1:9', VOICE_SERVICE_TOKEN: 'test-token' });
+    const vapp = await buildApp({ config: voiceConfig, db: t.db, mailer, ai: null, now: () => new Date('2026-06-01T12:00:00Z'), logger: vlogs.logger });
+    vapp.get('/test/plain', async () => ({ ok: true }));
+    try {
+      await vapp.listen({ port: 0, host: '127.0.0.1' });
+      const port = (vapp.server.address() as import('node:net').AddressInfo).port;
+      const open = (path: string, origin: string) =>
+        new Promise<number>((resolve) => {
+          const ws = new WebSocket(`ws://127.0.0.1:${port}${path}`, { headers: { origin, cookie: 'kq_session=peanut' } });
+          ws.on('close', (code) => resolve(code));
+          ws.on('unexpected-response', (_q, res) => resolve(res.statusCode ?? 0));
+          ws.on('error', () => {});
+        });
+      expect(await open('/voice?q=peanut', 'https://peanut.example')).toBe(4403);
+      expect(await open('/voice?q=peanut', 'http://localhost:5173')).toBe(4401);
+      // an upgrade to a route with no socket handler: the plugin logs its raw path, which pino censors
+      await open('/test/plain?q=peanut', 'http://localhost:5173');
+      await new Promise((r) => setTimeout(r, 100));
+      const text = vlogs.text();
+      expect(text).toContain('"url":"/voice"');
+      expect(text).toContain('"kind":"voice_refused_bad_origin","status":4403');
+      expect(text).toContain('"kind":"voice_refused_signed_out","status":4401');
+      expect(text).not.toMatch(/peanut/);
+    } finally {
+      await vapp.close();
+      await t.close();
+    }
+  });
+});

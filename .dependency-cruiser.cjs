@@ -57,10 +57,19 @@ module.exports = {
     },
     {
       name: 'api-no-voice',
-      comment: 'M7: apps/api reaches the voice service over its WebSocket only, never by importing apps/voice.',
+      comment:
+        'M7: apps/api reaches the voice service over its WebSocket only, never by importing apps/voice. The one ' +
+        'exception: the API\'s memory-only test uses the shared C-18 leak detectors (Step 5).',
       severity: 'error',
-      from: { path: '^apps/api' },
+      from: { path: '^apps/api', pathNot: '^apps/api/test/voice-memory-only\\.test\\.ts$' },
       to: { path: '^apps/voice/|(^|/)@kitchenquest/voice(/|$)' },
+    },
+    {
+      name: 'api-voice-leak-detectors-only',
+      comment: 'M7 Step 5: the API memory-only test may import apps/voice\'s shared leak detectors, and nothing else of apps/voice.',
+      severity: 'error',
+      from: { path: '^apps/api/test/voice-memory-only\\.test\\.ts$' },
+      to: { path: '^apps/voice/', pathNot: '^apps/voice/test/leak-detectors\\.ts$' },
     },
     {
       name: 'game-no-voice',
