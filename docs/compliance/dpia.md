@@ -43,7 +43,9 @@ Art. 35(3)(b) (large-scale special-category data) is the likely trigger **[lawye
 | Journeys, symptoms, meal logs, weekly view | H-5 to H-8, H-11 to H-15 | 6(1)(b) and 9(2)(a) | `health_data` |
 | Mentor and NPC conversation | I-1, I-4, I-6 | 6(1)(b) and 9(2)(a) | `health_data`, `ai_health` |
 | Send health fields to the AI | I-2 | 9(2)(a) | `ai_health` |
-| Voice conversation | V-1 to V-3 | 6(1)(b), 9(2)(a) | `voice` |
+| Voice conversation | V-1 to V-3 | 6(1)(b), 9(2)(a) | `voice` (notice v1, M7 Step 4) |
+| Voice accessibility need (unmetered voice) | P-5 | 6(1)(b) and 9(2)(a) **[lawyer: or "necessary for the service"]** | `health_data` (declining it means the free voice allowance) |
+| Voice allowance (content-free usage) | V-4 | 6(1)(b) | none |
 | Photo reaction and Recipe Book | F-1 to F-3 | 6(1)(b), 9(2)(a) | `health_data` (+ `ai_health` for the reaction) |
 | Neighborhood Pantry | N-1 to N-9 | 6(1)(b) | `pantry_location` |
 | Allowances and unit economics | U-1, U-2 | 6(1)(b) | none |
@@ -133,7 +135,7 @@ Map of measures to ROADMAP ids, with their state on 2026-11-09. "Built" means in
 | Complete export and delete | C-7, C-8 | Planned M2 |
 | Org and health separation | C-10 | Planned M2 (constraint) |
 | AI gateway minimisation, OpenRouter pinned, disclosure | C-13, C-14, C-16, C-22 | Built M4 (C-13, C-14 code part, C-16; see §6.1); C-22 planned M8 |
-| Voice privacy | C-18, C-19 | Planned M7 |
+| Voice privacy | C-18, C-19 | M7. Step 4: the `voice` notice v1; the accessibility need sealed under `health_data` (`voice_settings`, fixed sealed length, kept as a sealed `false`, exported and erased; the plain entitlement kind retired); voice usage content-free (seconds and cost). The rest of C-18 (memory-only audio, no voiceprints, the route) in Steps 2, 3 and 5 |
 | Photos, ingestion hardening | C-20, C-21 | Planned M8 |
 | Tracker sealed; notifications generic; household privacy; share links; low-intake | C-23 to C-27 | Planned M9 |
 | Pantry location and moderation | C-28, C-29 | Planned M11 |
@@ -206,6 +208,7 @@ Map of measures to ROADMAP ids, with their state on 2026-11-09. "Built" means in
 9. Art. 22 and EU AI Act Art. 50 transparency for the Pan. **[lawyer]**
 10. The M5 weekly loop: whether dish slugs in progress and meal-log dates need `health_data`; plans and market runs as consumer health data; grants kept after a `health_data` delete; the device-side wait of a signed-in meal log's day and minute (`ROADMAP.md`, M5 `[lawyer]` items). **[lawyer]**
 11. The M6 market: whether the `health_data` notice v3 must name stall rounds (a v4 means every player consents again); sealed Protein Counter rounds as health data, and their grants kept after a `health_data` delete; the progress snapshot as a derived cache under U-5's basis; signed-out device stall rounds kept without consent; the pending check-off card stored without `health_data`; the region field as coarse location (`ROADMAP.md`, M6 `[lawyer]` items). **[lawyer]**
+12. The M7 voice accessibility need: explicit consent (`health_data`) or "necessary for the service" as its basis, so that declining consent does not cost a disabled player unmetered voice; a self-declared need with no proof; the abuse ceiling applying to accessibility players too; the `voice` notice v1 wording (`ROADMAP.md`, M7 `[lawyer]` items). **[lawyer]**
 
 ## 8. Review plan
 

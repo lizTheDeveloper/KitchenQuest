@@ -8,7 +8,7 @@ import { voiceState } from './allowance.js';
 import { accessibilityInForce, setAccessibility } from './settings.js';
 
 /** Voice status and setting requests per player per minute: far above any real use (abuse only). */
-export const VOICE_STATUS_REQUESTS_PER_MINUTE = 60;
+const VOICE_STATUS_REQUESTS_PER_MINUTE = 60;
 
 const AccessibilityBody = z.object({ on: z.boolean() }).strict();
 

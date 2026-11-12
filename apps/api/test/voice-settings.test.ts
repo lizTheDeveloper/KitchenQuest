@@ -117,7 +117,7 @@ describe('PUT /voice/accessibility (C-19, Ruling 6)', () => {
   it('takes { on: boolean } only (zod-strict): any other body is 400 and writes nothing', async () => {
     const a = await player(true);
     for (const payload of [{}, { on: 'yes' }, { on: 1 }, { on: true, why: 'dyslexia' }, []]) {
-      const res = await call(a.cookie, { method: 'PUT', url: '/voice/accessibility', payload: payload as object });
+      const res = await call(a.cookie, { method: 'PUT', url: '/voice/accessibility', payload });
       expect(res.statusCode, JSON.stringify(payload)).toBe(400);
       expect(res.body).not.toContain('dyslexia');
     }

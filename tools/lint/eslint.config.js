@@ -118,9 +118,10 @@ export default tseslint.config(
   },
 
   // Fastify route plugins are `async function xRoutes(app)` by convention (the plugin contract
-  // is promise-returning) even when they only register handlers and never await.
+  // is promise-returning) even when they only register handlers and never await. M7 Step 4: also
+  // `*-routes.ts` (voice/status-routes.ts beside Step 5's voice/routes.ts).
   {
-    files: ['apps/api/src/**/routes.ts'],
+    files: ['apps/api/src/**/routes.ts', 'apps/api/src/**/*-routes.ts'],
     rules: { '@typescript-eslint/require-await': 'off' },
   },
 
