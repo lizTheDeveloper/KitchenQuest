@@ -70,7 +70,7 @@ export const MAX_UTTERANCES_PER_USER = 1;
 /** Fix round 1 (m10): voice socket opens per player per minute (a game opens one per session; abuse only). */
 export const VOICE_OPENS_PER_MINUTE = 30;
 /** Fix round 1 (m9): the heartbeat. A peer that has not answered the last ping by the next one is terminated. */
-export const VOICE_PING_MS = 30_000;
+const VOICE_PING_MS = 30_000;
 const MINUTE_MS = 60_000;
 /** Upstream failures that charge nothing: the service never finished hearing it (I2 ruling: down or a timeout). */
 const UNCHARGED: readonly (UpstreamFailure | 'other')[] = ['down', 'timeout', 'idle', 'bad_message', 'not_ready', 'busy', 'auth', 'misrouted', 'cancelled'];

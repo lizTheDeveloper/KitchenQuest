@@ -307,11 +307,12 @@ describe('ids, timeouts and usage (carries 2, 5, 7)', () => {
     expect(await c.next((m) => m.t !== 'ready')).toEqual({ t: 'transcript', id: 7, text: 'heard 1 frames' });
     release();
     await settle();
-    // the replaced utterance's late transcript is never sent, and only the answered one is recorded
+    // the replaced utterance's late transcript is never sent; both are charged once (fix round 1, I2: the first's end
+    // had gone upstream, so the service decoded it)
     expect(c.msgs.filter((m) => m.t === 'transcript')).toHaveLength(1);
     expect(upstream.utterances.map((u) => u.id)).toEqual([1, 2]);
     expect(upstream.utterances[0].cancelled).toBe(true);
-    expect((await speechOf(p.id)).map((r) => r.units)).toEqual([1]);
+    expect((await speechOf(p.id)).map((r) => r.units)).toEqual([1, 1]);
   });
 
   test('carry 5: a cancelled utterance is not recorded, an answered one exactly once; never more than MAX_UTTERANCES_PER_USER in flight', async () => {
