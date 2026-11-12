@@ -9,7 +9,9 @@ import { checkWithStockSwaps, markOutOfStock, MAX_STOCK_SWAPS_PER_RUN, stockSwap
 const PARIPPU = 'india/kerala/parippu';
 const FRIJOLES = 'mexico/oaxaca/frijoles-de-olla';
 const ONION: Substitution = { from: 'shallot', to: 'onion', note: 'Half an onion for three shallots.' };
-const SUBS: Substitution[] = [...subs, ONION];
+/** The real table without its own shallot swaps (M6 Step 4 added shallot → onion), so these tests pin their own entry. */
+const BASE: Substitution[] = subs.filter((x) => x.from !== 'shallot');
+const SUBS: Substitution[] = [...BASE, ONION];
 const plan = (items: PlanItem[]): Plan => ({ weekStart: MONDAY, items, hard: false, slot: 'unanswered' });
 const dishOn = (day: number, slug: string): PlanItem => ({ day, kind: 'dish', slug, servings: 3 });
 const ctxWith = (over: Partial<PlanContext> = {}) => planCtx({ subs: SUBS, ...over });
@@ -35,7 +37,7 @@ describe('stockSwaps (Ruling 11)', () => {
     // A rule on onion alone: the shallot dish is fine, but the swap isn't.
     expect(stockSwaps(row, PARIPPU_WEEK, ctxWith({ rules: [avoid('onion')] }))).toEqual([]);
     // Only from the curated table: none without the entry. The row's own id only, never an isA ancestor's swap.
-    expect(stockSwaps(row, PARIPPU_WEEK, ctxWith({ subs }))).toEqual([]);
+    expect(stockSwaps(row, PARIPPU_WEEK, ctxWith({ subs: BASE }))).toEqual([]);
     expect(stockSwaps(row, PARIPPU_WEEK, ctxWith({ subs: [{ from: 'allium', to: 'salt' }] }))).toEqual([]);
     // A rule active on any day the dish is planned: parippu twice, an onion rule from the second day.
     const twice = plan([dishOn(0, PARIPPU), dishOn(3, PARIPPU)]);

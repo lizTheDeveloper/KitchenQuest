@@ -3,23 +3,25 @@
 # Voice: docs/style/voice.md §5. Out-of-season produce is "well-travelled", never a crime.
 # Wen's pronouns are not established; write "Wen".
 #
-# SEASONALITY: how regions and months plug in
-#   seasonal:
-#     <region-id>:          # kebab-case, matches Profile.region, e.g. pnw-usa, kerala-india, oaxaca-mexico, kansai-japan, uk-south
-#       <month>:            # 1-12
-#         - <question>      # same question schema as `questions`, game: seasonal
-#   - The game looks up seasonal[profile.region][currentMonth]. If missing, it tries the
-#     region's `fallback` (e.g. a broader region: pnw-usa -> us-north), then skips the
-#     seasonal round entirely. The general ripeness/storage questions always run.
-#   - Each seasonal question uses the same four options (in season now / stored from the
-#     autumn harvest / shipped in / depends) so players learn the categories, not the trivia.
-#   - New regions need a reviewer who shops there; cite a local seasonal chart (an extension
-#     service, growers' board or farmers' market calendar) in a comment.
-#   - Written so far: pnw-usa for November-February. Everything else is TODO.
+# SEASONALITY: how a region plugs in (M6 Ruling 9)
+#   1. The region's entry goes in data/seasonality.yaml FIRST: its sources (an extension service, growers' board
+#      or farmers' market calendar), the match phrases for the player's country and region, its own categories,
+#      and the ingredient ids per month. It needs a reviewer who shops there. A region with no entry gets no
+#      seasonal round and no calendar note (the Pan says so plainly), never another region's or country's.
+#   2. Then Wen's questions for it go here:
+#        seasonal:
+#          <region-id>:        # the table's id, e.g. pnw-usa
+#            <month>:          # 1-12
+#              - <question>    # same schema as `questions`, game: seasonal
+#      Each option is one of that region's category labels, word for word, and the correct one is the category the
+#      table gives the question's own `contains[0]` for that month (the build cross-checks them). Players learn the
+#      categories, not the trivia. There is no `fallback` to another region.
+#   - The general ripeness and storage questions always run, region or not.
+#   - Written so far: pnw-usa for November-February. Everything else waits for a reviewer.
 #
-# Sources used for pnw-usa: Washington State University Extension and Oregon State
-# University Extension harvest calendars, WA Apple Commission / USA Pears storage notes,
-# general farmers' market calendars (Seattle, Portland). # REVIEW: spot-check each month.
+# Sources used for pnw-usa (also listed in data/seasonality.yaml): Washington State University Extension and Oregon
+# State University Extension harvest calendars, WA Apple Commission / USA Pears storage notes, general farmers'
+# market calendars (Seattle, Portland). # REVIEW: spot-check each month.
 
 id: wen
 name: "Old Wen"
@@ -79,6 +81,16 @@ triggers:
       - "Out of {item}. Take {swap}. It's been checked. Your pan will want to see the label; it loves a label."
       - "Sold out of {item}. {swap} will do it. Labelled and checked, as the Bureau insists."
       - "No {item} left today; take {swap} instead. Checked against your rules."
+  out_of_stock_none:
+    ai: never
+    when: "An item on the list isn't available and no swap passes the player's rules (Ruling 11): skip it this week."
+    vars:
+      item: "the missing item"
+    lines:
+      - "No {item} today, and nothing here I can check against your rules to stand in. Skip it this week; the dish will forgive you."
+      - "Out of {item}. I won't hand you a swap I can't check against your rules. Leave it off this week."
+      - "No {item}, and no stand-in I can vouch for against your rules. Skip it this week; there's always next week."
+      - "{item} isn't in today, and nothing on my table passes your rules in its place. Leave it out this week."
   farewell:
     ai: allowed
     when: The player leaves Wen's stall.
@@ -94,23 +106,22 @@ triggers:
       - "That one's for a doctor or a dietitian — I sell food, not diagnoses. What I can tell you is how to pick a good one of whatever they tell you to eat."
 
 games:
-  seasonal: "Seasonal or smuggled? Wen holds up an item; the player decides whether it's in season locally now, stored from the autumn harvest, shipped in, or depends."
+  seasonal: "Seasonal or well-travelled? Wen holds up an item; the player decides whether it's in season locally now, stored from the autumn harvest, well-travelled (shipped in from far away), or depends."
   ripeness: "Wen lays out three or four of one item; the player picks the one that's ready (or best for a stated use)."
   storage: "How do you keep it once it's home?"
 
 # ----------------------------------------------------------------------------
 # Seasonal questions, keyed by region + month.
-# Option texts are fixed across all seasonal questions for consistency:
+# Option texts are the region's category labels in data/seasonality.yaml, word for word:
 #   A "In season here, now"   B "Local, stored from the autumn harvest"
-#   C "Shipped in from far away"   D "Depends: ask the farmer"
+#   C "Well-travelled: shipped in from far away"   D "Depends: ask the farmer"
 # ----------------------------------------------------------------------------
 seasonal:
   pnw-usa:
-    fallback: us-north
     11:
       - id: wen-pnw-11-squash
         game: seasonal
-        prompt: "November, Pacific Northwest. Wen holds up a butternut squash. Where's it been?"
+        prompt: "November, Pacific Northwest. Wen holds up a butternut squash. Seasonal or well-travelled?"
         contains: [winter_squash]
         options:
           - text: "In season here, now"
@@ -119,7 +130,7 @@ seasonal:
           - text: "Local, stored from the autumn harvest"
             correct: true
             reaction: "Right. That squash has never been on a plane. It grew forty miles away, was harvested in September, and has the self-esteem to prove it."
-          - text: "Shipped in from far away"
+          - text: "Well-travelled: shipped in from far away"
             correct: false
             reaction: "Wen looks wounded on the squash's behalf. 'Grown two valleys over. Practically my cousin.'"
           - text: "Depends: ask the farmer"
@@ -129,7 +140,7 @@ seasonal:
 
       - id: wen-pnw-11-strawberry
         game: seasonal
-        prompt: "November. A punnet of strawberries, very red, labelled 'FRESH'. Where are they from?"
+        prompt: "November. A punnet of strawberries, very red, labelled 'FRESH'. Seasonal or well-travelled?"
         contains: [strawberry]
         options:
           - text: "In season here, now"
@@ -138,7 +149,7 @@ seasonal:
           - text: "Local, stored from the autumn harvest"
             correct: false
             reaction: "Strawberries don't store. A strawberry kept for two months isn't a strawberry; it's a science project."
-          - text: "Shipped in from far away"
+          - text: "Well-travelled: shipped in from far away"
             correct: true
             reaction: "Right. A November strawberry has driven up from California or Mexico and is mostly a red promise. Taste it; it'll confess."
           - text: "Depends: ask the farmer"
@@ -149,7 +160,7 @@ seasonal:
 
       - id: wen-pnw-11-cranberry
         game: seasonal
-        prompt: "November. A bag of fresh cranberries, glossy and firm. Local or not?"
+        prompt: "November. A bag of fresh cranberries, glossy and firm. Seasonal or well-travelled?"
         contains: [cranberry]
         options:
           - text: "In season here, now"
@@ -158,7 +169,7 @@ seasonal:
           - text: "Local, stored from the autumn harvest"
             correct: false
             reaction: "Reasonable guess, and they do keep well, but they're being harvested right now. Fresh off the bog."
-          - text: "Shipped in from far away"
+          - text: "Well-travelled: shipped in from far away"
             correct: false
             reaction: "Some are, from Wisconsin or Massachusetts. But the coast here grows them too. They're the region's quiet celebrities."
           - text: "Depends: ask the farmer"
@@ -169,7 +180,7 @@ seasonal:
 
       - id: wen-pnw-11-tomato
         game: seasonal
-        prompt: "November. A bright red slicing tomato, perfectly round. Where's it from?"
+        prompt: "November. A bright red slicing tomato, perfectly round. Seasonal or well-travelled?"
         contains: [tomato]
         options:
           - text: "In season here, now"
@@ -178,7 +189,7 @@ seasonal:
           - text: "Local, stored from the autumn harvest"
             correct: false
             reaction: "Tomatoes don't store for months. They go mealy and sad. Don't keep them in the fridge either; it's how they lose their will to live."
-          - text: "Shipped in from far away"
+          - text: "Well-travelled: shipped in from far away"
             correct: true
             reaction: "Correct. Field tomatoes here quit at the first frost. Pro move: canned tomatoes are picked ripe — better for November cooking than these."
           - text: "Depends: ask the farmer"
@@ -188,7 +199,7 @@ seasonal:
 
       - id: wen-pnw-11-cilantro
         game: seasonal
-        prompt: "November. A bunch of cilantro. Grown nearby, or shipped in?"
+        prompt: "November. A bunch of cilantro. Seasonal or well-travelled?"
         contains: [cilantro]
         options:
           - text: "In season here, now"
@@ -197,7 +208,7 @@ seasonal:
           - text: "Local, stored from the autumn harvest"
             correct: false
             reaction: "Cilantro stores for about a week, if you're kind to it. Not a season."
-          - text: "Shipped in from far away"
+          - text: "Well-travelled: shipped in from far away"
             correct: false
             reaction: "Usually, yes. But not always. Some local growers have it right now."
           - text: "Depends: ask the farmer"
@@ -208,7 +219,7 @@ seasonal:
     12:
       - id: wen-pnw-12-kale
         game: seasonal
-        prompt: "December. A bunch of curly kale, a little frost-nipped at the edges. Where's it from?"
+        prompt: "December. A bunch of curly kale, a little frost-nipped at the edges. Seasonal or well-travelled?"
         contains: [kale]
         options:
           - text: "In season here, now"
@@ -217,7 +228,7 @@ seasonal:
           - text: "Local, stored from the autumn harvest"
             correct: false
             reaction: "Kale doesn't store for months; it wilts. It doesn't need to. It's out there in the cold right now, being smug."
-          - text: "Shipped in from far away"
+          - text: "Well-travelled: shipped in from far away"
             correct: false
             reaction: "Some is, but kale is the Pacific Northwest's winter mascot. That one was cut this week."
           - text: "Depends: ask the farmer"
@@ -227,7 +238,7 @@ seasonal:
 
       - id: wen-pnw-12-satsuma
         game: seasonal
-        prompt: "December. A crate of satsuma mandarins, loose-skinned and fragrant. Local?"
+        prompt: "December. A crate of satsuma mandarins, loose-skinned and fragrant. Seasonal or well-travelled?"
         contains: [mandarin]
         options:
           - text: "In season here, now"
@@ -236,7 +247,7 @@ seasonal:
           - text: "Local, stored from the autumn harvest"
             correct: false
             reaction: "Citrus doesn't grow here commercially. It would need a coat."
-          - text: "Shipped in from far away"
+          - text: "Well-travelled: shipped in from far away"
             correct: true
             reaction: "Right — but don't feel bad buying them. Winter is citrus season in California and the South. 'In season somewhere sensible' is a perfectly good shopping rule."
           - text: "Depends: ask the farmer"
@@ -246,7 +257,7 @@ seasonal:
 
       - id: wen-pnw-12-apple
         game: seasonal
-        prompt: "December. A crisp Washington apple. Picked when?"
+        prompt: "December. A crisp Washington apple. Seasonal or well-travelled?"
         contains: [apple]
         options:
           - text: "In season here, now"
@@ -255,7 +266,7 @@ seasonal:
           - text: "Local, stored from the autumn harvest"
             correct: true
             reaction: "Right. Washington apples are picked from late summer to November and kept in cold, low-oxygen storage, which is why they're still crisp now. Basically hibernating."
-          - text: "Shipped in from far away"
+          - text: "Well-travelled: shipped in from far away"
             correct: false
             reaction: "Washington grows more apples than any other state. Shipping them in would be like importing rain."
           - text: "Depends: ask the farmer"
@@ -265,7 +276,7 @@ seasonal:
 
       - id: wen-pnw-12-zucchini
         game: seasonal
-        prompt: "December. A glossy zucchini. Where's it from?"
+        prompt: "December. A glossy zucchini. Seasonal or well-travelled?"
         contains: [zucchini]
         options:
           - text: "In season here, now"
@@ -274,7 +285,7 @@ seasonal:
           - text: "Local, stored from the autumn harvest"
             correct: false
             reaction: "Summer squash is the opposite of winter squash: it keeps about a week. That's why it's called summer."
-          - text: "Shipped in from far away"
+          - text: "Well-travelled: shipped in from far away"
             correct: true
             reaction: "Right. Summer squash ended with the frost. This one's from Mexico or Florida. Nothing wrong with it; just a long commute."
           - text: "Depends: ask the farmer"
@@ -285,7 +296,7 @@ seasonal:
     1:
       - id: wen-pnw-1-leek
         game: seasonal
-        prompt: "January. A fat leek, muddy at the root. Where's it from?"
+        prompt: "January. A fat leek, muddy at the root. Seasonal or well-travelled?"
         contains: [leek]
         options:
           - text: "In season here, now"
@@ -294,7 +305,7 @@ seasonal:
           - text: "Local, stored from the autumn harvest"
             correct: false
             reaction: "They don't need storing — they stay in the field until someone digs them. Freshest thing on the stall."
-          - text: "Shipped in from far away"
+          - text: "Well-travelled: shipped in from far away"
             correct: false
             reaction: "With that much local mud on it? It'd have to be very good at disguises."
           - text: "Depends: ask the farmer"
@@ -304,7 +315,7 @@ seasonal:
 
       - id: wen-pnw-1-asparagus
         game: seasonal
-        prompt: "January. A bundle of asparagus. Local?"
+        prompt: "January. A bundle of asparagus. Seasonal or well-travelled?"
         contains: [asparagus]
         options:
           - text: "In season here, now"
@@ -313,7 +324,7 @@ seasonal:
           - text: "Local, stored from the autumn harvest"
             correct: false
             reaction: "Asparagus barely keeps a week. Stored asparagus is called 'regret'."
-          - text: "Shipped in from far away"
+          - text: "Well-travelled: shipped in from far away"
             correct: true
             reaction: "Right. Washington asparagus is an April-to-June affair. January bundles usually fly in from Peru or Mexico. Lovely; just well-travelled."
           - text: "Depends: ask the farmer"
@@ -323,7 +334,7 @@ seasonal:
 
       - id: wen-pnw-1-potato
         game: seasonal
-        prompt: "January. A sack of russet potatoes. When were these dug?"
+        prompt: "January. A sack of russet potatoes. Seasonal or well-travelled?"
         contains: [potato]
         options:
           - text: "In season here, now"
@@ -332,7 +343,7 @@ seasonal:
           - text: "Local, stored from the autumn harvest"
             correct: true
             reaction: "Right. Dug in autumn, cured, kept cool and dark. Washington grows a mountain of potatoes. Possibly literally; I haven't checked."
-          - text: "Shipped in from far away"
+          - text: "Well-travelled: shipped in from far away"
             correct: false
             reaction: "From where? The Pacific Northwest is where potatoes go on holiday."
           - text: "Depends: ask the farmer"
@@ -342,7 +353,7 @@ seasonal:
 
       - id: wen-pnw-1-parsnip
         game: seasonal
-        prompt: "January. A knobbly parsnip. Where's it been?"
+        prompt: "January. A knobbly parsnip. Seasonal or well-travelled?"
         contains: [parsnip]
         options:
           - text: "In season here, now"
@@ -351,7 +362,7 @@ seasonal:
           - text: "Local, stored from the autumn harvest"
             correct: false
             reaction: "Some are, and that's not daft. But many are dug through the winter, straight from the cold ground. Both are local."
-          - text: "Shipped in from far away"
+          - text: "Well-travelled: shipped in from far away"
             correct: false
             reaction: "Parsnips don't travel unless they have to. This one hasn't had to."
           - text: "Depends: ask the farmer"
@@ -362,7 +373,7 @@ seasonal:
     2:
       - id: wen-pnw-2-pear
         game: seasonal
-        prompt: "February. A d'Anjou pear, green and firm. Picked when?"
+        prompt: "February. A d'Anjou pear, green and firm. Seasonal or well-travelled?"
         contains: [pear]
         options:
           - text: "In season here, now"
@@ -371,7 +382,7 @@ seasonal:
           - text: "Local, stored from the autumn harvest"
             correct: true
             reaction: "Right. Oregon and Washington grow most of America's pears, picked in autumn and kept in cold storage. Ripen it on the counter, then check the neck."
-          - text: "Shipped in from far away"
+          - text: "Well-travelled: shipped in from far away"
             correct: false
             reaction: "Some pears do come from Chile or Argentina in spring. But an Anjou in February is almost certainly from just up the road, out of storage."
           - text: "Depends: ask the farmer"
@@ -381,7 +392,7 @@ seasonal:
 
       - id: wen-pnw-2-blueberry
         game: seasonal
-        prompt: "February. Plump blueberries, a dusty bloom on each. Local?"
+        prompt: "February. Plump blueberries, a dusty bloom on each. Seasonal or well-travelled?"
         contains: [blueberry]
         options:
           - text: "In season here, now"
@@ -390,7 +401,7 @@ seasonal:
           - text: "Local, stored from the autumn harvest"
             correct: false
             reaction: "Frozen local blueberries, yes — frozen blueberries are a great buy. Fresh ones don't last months."
-          - text: "Shipped in from far away"
+          - text: "Well-travelled: shipped in from far away"
             correct: true
             reaction: "Right. It's summer in Chile and Peru, so that's where February blueberries come from. Local ones are July and August. Frozen local ones are excellent all year."
           - text: "Depends: ask the farmer"
@@ -400,7 +411,7 @@ seasonal:
 
       - id: wen-pnw-2-nettle
         game: seasonal
-        prompt: "Late February. A bag of young stinging nettles from a forager. In season?"
+        prompt: "Late February. A bag of young stinging nettles from a forager. Seasonal or well-travelled?"
         contains: [nettle]
         options:
           - text: "In season here, now"
@@ -409,7 +420,7 @@ seasonal:
           - text: "Local, stored from the autumn harvest"
             correct: false
             reaction: "Autumn nettles are tough and old. Young spring tips are the good ones, and they're just starting."
-          - text: "Shipped in from far away"
+          - text: "Well-travelled: shipped in from far away"
             correct: false
             reaction: "Nobody ships nettles. Nobody has to. They grow by every path here, uninvited."
           - text: "Depends: ask the farmer"
@@ -420,7 +431,7 @@ seasonal:
 
       - id: wen-pnw-2-mushroom
         game: seasonal
-        prompt: "February. A basket of cremini mushrooms. Local and in season?"
+        prompt: "February. A basket of cremini mushrooms. Seasonal or well-travelled?"
         contains: [mushroom]
         options:
           - text: "In season here, now"
@@ -429,7 +440,7 @@ seasonal:
           - text: "Local, stored from the autumn harvest"
             correct: false
             reaction: "Mushrooms last about a week. A stored mushroom is a slimy mushroom."
-          - text: "Shipped in from far away"
+          - text: "Well-travelled: shipped in from far away"
             correct: false
             reaction: "Some are, but there are mushroom farms in this region. Creminis grow happily in the dark, like teenagers."
           - text: "Depends: ask the farmer"
@@ -843,13 +854,18 @@ faq:
     a: "That's a choice about farming, taste and money, and reasonable people choose differently. For your cooking, the most important thing is that you buy vegetables and eat them. Fresh, frozen, organic or not: all better than none."
   - q: ["are frozen vegetables healthy", "frozen vs fresh", "is frozen veg ok"]
     a: "Yes. Frozen vegetables are picked and frozen quickly and keep their nutrients well. In winter they're often better than tired fresh ones. A bag of frozen peas is the best value in any shop."
+    a_if_blocked: "Yes. Frozen vegetables are picked and frozen quickly and keep their goodness well. Choose the ones that suit your rules; the freezer has plenty."
   - q: ["do i need to wash produce", "how to wash vegetables", "wash fruit"]
     a: "Rinse under cool running water just before you use it, and rub firm things like potatoes with your hands or a brush. No soap or detergent. Pre-washed bagged salad that says 'ready to eat' doesn't need washing again."
+    a_if_blocked: "Rinse produce under cool running water just before you use it, and scrub the firm things with your hands or a brush. No soap. A bag marked 'ready to eat' doesn't need washing again."
   - q: ["what is ethylene", "fruits that ripen others", "keep fruit apart"]
     a: "A gas some fruit give off as they ripen: apples, bananas, avocados, pears, tomatoes. It speeds ripening nearby. Use it on purpose (avocado in a bag with a banana) and avoid it by accident (keep apples away from leafy greens)."
+    a_if_blocked: "A gas some fruit give off as they ripen. It speeds up ripening nearby: handy on purpose, a nuisance by accident. Keep ripening fruit away from leafy greens."
   - q: ["how do i stop vegetables going off", "veg goes bad before i use it", "food waste"]
     a: "Eat the soft things first and the hard things last. Berries, herbs, salad and mushrooms early in the week; carrots, cabbage, squash, onions and apples later. Your pan will remind you. Your pan reminds everyone of everything."
+    a_if_blocked: "Eat the soft, delicate things early in the week and the hard, sturdy things later. Your pan will remind you. Your pan reminds everyone of everything."
   - q: ["is ugly produce ok", "wonky vegetables", "bruised fruit"]
     a: "A crooked carrot is a carrot that's lived a little. Shape doesn't matter. Cut away small bruises and eat the rest. Mould, slime or a bad smell: that's when it's done."
   - q: ["how much produce should i buy", "how many vegetables for a week"]
     a: "Buy for the dishes you've planned, plus one or two easy things for snacking: apples, carrots, a bag of frozen veg. Better to come back for more than to compost a fridge drawer."
+    a_if_blocked: "Enough for the dishes you've planned, plus one or two easy things to snack on. Coming back for more beats composting a fridge drawer."

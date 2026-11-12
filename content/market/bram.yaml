@@ -3,8 +3,14 @@
 # Big-hearted, precise, polishes his cleaver like a violin. Obsessed with cost per serving.
 # Voice: docs/style/voice.md §5. Eating meat or not is never a moral question here.
 #
-# Prices are EXAMPLE prices for the minigame (USD, 2026-ish, mid-range US supermarket) and
-# are shown with a footnote saying so. # REVIEW: localise prices per region before launch.
+# Chalkboard prices are EXAMPLE numbers in no particular currency (M6 Ruling 5): no currency symbol, never real,
+# never regional, never a claim about any shop. Form 14-S's footnote says so: "*Example prices in no particular
+# currency. Your shop will differ." A value question that compares prices carries a `chalkboard:` (one
+# { price, servings } per option, in file order), and the build checks the arithmetic: the correct option is the
+# cheapest per serving, and every "= N" in a reaction is that option's own per-serving figure. The numbers are
+# chosen so the division is exact: no "≈".
+# Label questions that teach one country's label or agency figure carry `countries:` (Ruling 8); the °C/°F
+# temperature questions are physics, not law, and stay unscoped.
 # Food-safety numbers follow USDA FSIS guidance (safe minimum internal temperatures,
 # refrigerator storage times). # REVIEW: re-check against the current FSIS charts at launch,
 # and swap in the national agency's guidance for non-US regions.
@@ -67,6 +73,16 @@ triggers:
       - "No {item} today. Take {swap}; same method, same time, near enough. The Bureau adores a label, so it's labelled."
       - "Sold out of {item}. {swap} is the next best for that dish. Checked and labelled."
       - "No {item} left. Have {swap} instead — checked against your rules, labelled on the recipe."
+  out_of_stock_none:
+    ai: never
+    when: "An item on the list isn't available and no swap passes the player's rules (Ruling 11): skip it this week."
+    vars:
+      item: "the missing item"
+    lines:
+      - "No {item} today, and nothing in my case I can check against your rules to take its place. Skip it this week."
+      - "Out of {item}. I'd rather send you home without a swap than with one I can't check against your rules. Leave it off this week."
+      - "No {item}, and no stand-in passes your rules either. Skip it this week. The chalkboard will be here next time."
+      - "Out of {item} today, sorry. Nothing here I can vouch for against your rules, so leave it out this week."
   farewell:
     ai: allowed
     when: The player leaves Bram's stall.
@@ -152,25 +168,32 @@ questions:
 
   - id: bram-value-braise
     game: value
-    prompt: "Best value for a three-hour braise for four. Bram slides the chalkboard over: chuck $22.50 for 6 servings; bone-in short ribs $38 for 4; bone-in shank $24 for 5; tenderloin $60 for 6."
+    prompt: "Best value for a three-hour braise for four. Bram slides the chalkboard over: chuck 22.50 for 6 servings; bone-in short ribs 38 for 4; bone-in shank 24 for 5; tenderloin 60 for 6."
     contains: [beef]
+    chalkboard:
+      - { price: 22.50, servings: 6 }
+      - { price: 38, servings: 4 }
+      - { price: 24, servings: 5 }
+      - { price: 60, servings: 6 }
     options:
       - text: "Chuck"
         correct: true
-        reaction: "Chuck: $22.50 ÷ 6 = $3.75 a serving, and it's the right cut for the job. Bones look cheap per pound, but you can't eat them (you can make stock from them, which is a separate lecture)."
+        reaction: "Chuck: 22.50 ÷ 6 = 3.75 a serving, and it's the right cut for the job. Bones look cheap per pound, but you can't eat them (you can make stock from them, which is a separate lecture)."
       - text: "Short ribs"
         correct: false
-        reaction: "Gorgeous braise, but half that weight is bone: $38 ÷ 4 = $9.50 a serving. A treat, not a value. Chuck is $3.75."
+        reaction: "Gorgeous braise, but half that weight is bone: 38 ÷ 4 = 9.50 a serving. A treat, not a value. Chuck is 3.75."
       - text: "Shank"
         correct: false
-        reaction: "Good thinking — shank braises beautifully. But with the bone it's $24 ÷ 5 = $4.80 a serving. Close second! Buy shank if the chuck's gone."
+        reaction: "Good thinking — shank braises beautifully. But with the bone it's 24 ÷ 5 = 4.80 a serving. Close second! Shank's the one to pick if the chuck's gone."
       - text: "Tenderloin"
         correct: false
-        reaction: "$10 a serving, and it's the wrong cut for a braise. That's paying more to get less. Bram looks physically pained."
+        reaction: "60 ÷ 6 = 10 a serving, and it's the wrong cut for a braise. That's paying more to get less. Bram looks physically pained."
     explain: "Compare cost per serving, not per pound: count the bone and the shrinkage, divide by how many people it really feeds, and match the cut to the method."
 
   - id: bram-air-chilled
     game: label
+    # Ruling 8: most US chicken is water-chilled; in the EU air-chilling is the norm, so the lesson is a US one.
+    countries: ["United States"]
     prompt: "A chicken label says 'AIR-CHILLED'. What does that mean?"
     contains: [chicken]
     options:
@@ -190,6 +213,7 @@ questions:
 
   - id: bram-grass-finished
     game: label
+    countries: ["United States"]   # Ruling 8: a US label claim
     prompt: "Beef labelled 'GRASS-FINISHED'. What does 'finished' tell you?"
     contains: [beef]
     options:
@@ -210,6 +234,7 @@ questions:
 
   - id: bram-use-by
     game: label
+    countries: ["United States"]   # Ruling 8: US "sell by" dating and the FSIS 1–2 day figure
     prompt: "This ground beef says 'SELL BY: Nov 14'. You bought it on the 13th. When should you cook or freeze it?"
     contains: [beef]
     options:
@@ -234,7 +259,7 @@ questions:
     options:
       - text: "74°C (165°F), measured in the thickest part."
         correct: true
-        reaction: "Right. Thermometer in the thickest bit, not touching bone. A cheap probe thermometer is the best few dollars you'll spend in a kitchen."
+        reaction: "Right. Thermometer in the thickest bit, not touching bone. A cheap probe thermometer is the most useful little tool in a kitchen."
       - text: "When the juices run clear."
         correct: false
         reaction: "Clear juices are a hint, not proof. Some safe chicken has pinkish juice and some unsafe chicken doesn't. Thermometer: 74°C (165°F)."
@@ -344,6 +369,7 @@ questions:
 
   - id: bram-no-hormones
     game: label
+    countries: ["United States"]   # Ruling 8: US federal rules on hormones in poultry and pork
     prompt: "A chicken label says 'NO HORMONES ADDED'. What does that tell you?"
     contains: [chicken]
     options:
@@ -451,21 +477,26 @@ variants:
 
       - id: bram-pc-cheapest
         game: value
-        prompt: "Protein for four, cheapest per serving? Chalkboard: dried lentils $1.79 a bag (7 servings); firm tofu $2.79 a block (4 servings); a dozen eggs $4.20 (6 servings of 2); tempeh $3.49 a pack (2 servings)."
+        prompt: "Protein for four, cheapest per serving? Chalkboard: dried lentils 1.75 a bag (7 servings); firm tofu 2.80 a block (4 servings); a dozen eggs 4.20 (6 servings of 2); tempeh 3.50 a pack (2 servings)."
+        chalkboard:
+          - { price: 1.75, servings: 7 }
+          - { price: 2.80, servings: 4 }
+          - { price: 4.20, servings: 6 }
+          - { price: 3.50, servings: 2 }
         options:
           - text: "Dried lentils"
             correct: true
-            reaction: "Lentils: $1.79 ÷ 7 ≈ 26¢ a serving. Tofu ≈ 70¢, eggs = 70¢, tempeh ≈ $1.75. Dried legumes are the quiet millionaires of the market."
+            reaction: "Lentils: 1.75 ÷ 7 = 0.25 a serving. Tofu and eggs come to 0.70 each, tempeh to 1.75. Dried legumes are the quiet millionaires of the market."
           - text: "Tofu"
             correct: false
-            reaction: "Good value at ≈ 70¢ a serving! But dried lentils are ≈ 26¢. Tofu is the fast option; lentils are the thrifty one."
+            reaction: "Good value at 2.80 ÷ 4 = 0.70 a serving! But dried lentils are 0.25. Tofu is the fast option; lentils are the thrifty one."
           - text: "Eggs"
             correct: false
             contains: [egg]
-            reaction: "70¢ a serving — fine value, and fast. But lentils are ≈ 26¢."
+            reaction: "4.20 ÷ 6 = 0.70 a serving — fine value, and fast. But lentils are 0.25."
           - text: "Tempeh"
             correct: false
-            reaction: "Tempeh is the priciest here: ≈ $1.75 a serving. Delicious, worth it sometimes. Lentils win on value at ≈ 26¢."
+            reaction: "Tempeh is the priciest here: 3.50 ÷ 2 = 1.75 a serving. Delicious, worth it sometimes. Lentils win on value at 0.25."
         explain: "Dried lentils and beans are almost always the cheapest protein per serving; divide the price by the servings, not the weight."
 
       - id: bram-pc-complete-protein
@@ -528,7 +559,7 @@ variants:
         options:
           - text: "About 6 cups — roughly triple."
             correct: true
-            reaction: "About 6 cups — that's what you'd get from 4 cans. Here: $1.89 dried vs 4 × $1.29 = $5.16 canned. Canned saves time; dried saves money and lets you season the broth."
+            reaction: "About 6 cups — that's what you'd get from 4 cans. Here: 1.89 dried vs 4 × 1.29 = 5.16 canned (example numbers). Canned saves time; dried saves money and lets you season the broth."
           - text: "About 2 cups — the same as dry."
             correct: false
             reaction: "Underestimating the bean! They roughly triple: 1 lb dried ≈ 6 cups cooked ≈ 4 cans. Which is why dried is so cheap per cup."
@@ -689,7 +720,7 @@ variants:
         explain: "Paneer (acid-set) and halloumi resist melting, so they can be pan-fried or grilled until browned and still hold their shape."
 
     item_tips:
-      lentils:
+      lentil:
         pick: "Bright, even colour, not dusty, no tiny holes. Buy from a shop that sells lots of them."
         store: "Airtight jar, cool cupboard, up to a year. Cooked: fridge 4–5 days."
       tofu:
@@ -701,10 +732,10 @@ variants:
       seitan:
         pick: "Check the label: wheat gluten base. Not for anyone avoiding gluten."
         store: "Fridge, in its liquid, about a week once opened."
-      eggs:
+      egg:
         pick: "Open the carton: no cracks. Check the date."
         store: "In the carton, in the fridge body, not the door — the door is the weather."
-      chickpeas:
+      chickpea:
         pick: "Dried: even, cream-coloured, not wrinkled. Canned: no dents or bulges."
         store: "Dried: airtight, up to a year. Soak overnight, then simmer 1–2 hours."
       greek_yogurt:
@@ -719,13 +750,17 @@ variants:
     faq:
       - q: ["how much protein do i need", "enough protein"]
         a: "Enough is the word, and it varies by person. A protein food at most meals — beans, lentils, tofu, eggs, dairy, whatever fits your rules — gets most people there. For a number that's right for you, ask a dietitian. Bram does chalkboards, not prescriptions."
+        a_if_blocked: "Enough is the word, and it varies by person. A protein food at most meals, whatever fits your rules, gets most people there. For a number that's right for you, ask a dietitian. Bram does chalkboards, not prescriptions."
       - q: ["is soy safe", "is tofu bad for you", "soy hormones"]
         a: "That's one for a doctor or dietitian if you've got a specific worry. What I can say: tofu, tempeh and edamame are everyday foods for a great many people. Unless soy's on your rules, they're excellent value."
+        a_if_blocked: "That's one for a doctor or dietitian if you've got a specific worry. Your rules come first at this counter: I only show you what fits them."
       - q: ["vegan b12", "b12", "nutritional yeast b12"]
         a: "Some nutritional yeast and plant milks are fortified with B12 — check the label, because not all are. For whether you need a supplement, ask a doctor or dietitian. I sell food, not diagnoses."
+        a_if_blocked: "Some foods are fortified with B12; check the label, because not all are. For whether you need a supplement, ask a doctor or dietitian. I sell food, not diagnoses."
         # REVIEW: deliberately non-prescriptive; confirm wording with a dietitian.
       - q: ["what's the cheapest protein", "cheap protein", "budget protein"]
         a: "Dried lentils and beans, by a mile. Then eggs and tofu. Canned beans are next, and they're fast. Tempeh and fancy meat substitutes are the treats."
+        a_if_blocked: "Whatever fits your rules, work it out per serving: divide the cost by how many it feeds. Dried things that cook up big usually win."
 
 item_tips:
   chuck:
@@ -777,28 +812,36 @@ item_tips:
 faq:
   - q: ["how much meat per person", "how much meat do i need", "meat per serving"]
     a: "For boneless meat, about 150–225 g (⅓–½ lb) raw per person, depending on appetite and what else is on the plate. Bone-in, buy more; bones are heavy and don't feed anyone. And make extra if you like leftovers."
+    a_if_blocked: "Plan a generous portion of protein per person, more for big appetites, and make extra if you like leftovers. Bone-in cuts need more; bones don't feed anyone."
   - q: ["can i refreeze meat", "refreeze thawed meat"]
     a: "If you thawed it in the fridge, yes, you can refreeze it raw (the texture suffers a bit). If you thawed it in cold water or the microwave, cook it first, then you can freeze the cooked dish."
+    a_if_blocked: "If it thawed in the fridge, it can go back in the freezer raw (the texture suffers a bit). If it thawed in cold water or the microwave, cook it first, then freeze the cooked dish."
     tags: [safety]
   - q: ["how long can i freeze meat", "freezer meat how long"]
     a: "It stays safe indefinitely frozen solid, but quality drops. Roughly: steaks and roasts 4–12 months, ground meat 3–4 months, chicken pieces about 9 months. Wrap it tightly to stop freezer burn and label it with the date."
+    a_if_blocked: "Frozen solid, food stays safe indefinitely, but quality fades. Wrap it tightly against freezer burn and write the date on it."
     tags: [storage]
     # REVIEW: FSIS freezer quality times (steaks 4-12 mo, ground 3-4 mo, poultry parts ~9 mo) — check current chart.
   - q: ["how do i marinate safely", "marinate on counter", "reuse marinade"]
     a: "Marinate in the fridge, never on the counter. Don't reuse marinade that touched raw meat as a sauce unless you boil it first. Better: set some aside before the meat goes in."
+    a_if_blocked: "Marinate in the fridge, never on the counter. Set some marinade aside for a sauce before anything raw goes in; marinade that touched raw food gets boiled first."
     tags: [safety]
   - q: ["is pink pork safe", "pork pink inside"]
     a: "Whole cuts of pork are safe at 63°C (145°F) with a three-minute rest, and they can still be a little pink. Ground pork needs 71°C (160°F). Use a thermometer and stop worrying about colour."
+    a_if_blocked: "Use a probe thermometer in the thickest part, and go by the number on the chart, not the colour."
     tags: [safety]
   - q: ["do i need a separate cutting board", "cross contamination", "cutting board for meat"]
     a: "Yes, ideally: one board for raw meat, one for everything else. Wash it in hot soapy water after use, and wash your hands and the knife too. Never put cooked food back on a plate that held raw meat."
+    a_if_blocked: "Yes, ideally: one board for raw foods, one for everything else. Hot soapy water after use, and wash your hands and the knife too."
     tags: [safety]
   - q: ["what is marbling", "why marbling"]
     a: "The thin streaks of fat inside the muscle. They melt as it cooks and keep the meat juicy and flavourful. More marbling usually means more tender and more expensive."
+    a_if_blocked: "The thin streaks of fat inside a cut. They melt as it cooks and keep it juicy and full of flavour."
   - q: ["what is the difference between pork loin and tenderloin", "loin vs tenderloin"]
     a: "Tenderloin is a small, narrow, very lean muscle — quick to cook. Loin is a much bigger, wider cut from along the back, sold as roasts or chops. Different sizes, different cooking times. Don't swap one for the other without adjusting."
   - q: ["what does sell by mean", "use by date", "best before meat"]
     a: "'Sell by' is for the shop. 'Use by' is the maker's quality suggestion. For you: ground meat and poultry within 1–2 days of buying, steaks, chops and roasts within 3–5, or freeze."
+    a_if_blocked: "'Sell by' is for the shop. 'Use by' is the maker's quality suggestion. For you: the more perishable the food, the sooner it is cooked or frozen. The label tells you how soon."
     tags: [safety, storage]
   - q: ["halal", "kosher", "is this halal", "is this kosher"]
     a: "I can tell you what the label says and who certified it. What counts for you is your community's call, not mine. Look for the certification mark you trust."
