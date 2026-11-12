@@ -15,6 +15,10 @@ import { ZodError } from 'zod';
  * - 400 `plan_invalid`: a weekly plan the server won't store (`details.problems`): its shape, more than
  *   MAX_PLAN_ITEMS items, a sacred or unknown slug, a `weekStart` that is not the player's plan-week start, or an
  *   item the player's rules block on its date (`blocked: <slug>`) (M5 Step 6).
+ * - 400 `stock_invalid`: a stall swap the core doesn't offer now with the player's rules, a row that can't be marked
+ *   out of stock, ticked or undone that way, or a run already at MAX_STOCK_SWAPS_PER_RUN (M6 Step 6). Stall-round
+ *   problems are not errors: they are per event in the 200 `rejected` list of POST /progress/events (`bad_event`,
+ *   `consent_required`, `rules_unknown`), as M5's C14.
  * - 400 `tap_required`: a severe card (anaphylactic or allergy) is confirmed
  *   only by a tap on it, never by a typed yes (spec §7.6).
  * - 401 `unauthorized`: no live session, or the account is gone.

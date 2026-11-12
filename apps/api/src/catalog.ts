@@ -3,13 +3,17 @@ import { join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   IngredientGraph,
+  marketCatalogue,
   parseRecipe,
+  seasonalAgrees,
   validateFoodGroups,
   validateFrames,
   validateKeeps,
   validateQuests,
   validateRewards,
   validateRuleTerms,
+  validateSeasonTable,
+  validateStallFile,
   validateStallMap,
   validateSubstitutions,
   validateTechniques,
@@ -22,6 +26,8 @@ import {
   type Quest,
   type RewardsData,
   type RuleTerm,
+  type SeasonTable,
+  type StallFile,
   type StallMap,
   type Substitution,
   type TechniqueNode,
@@ -119,6 +125,12 @@ export interface LoopContent {
   cookNames: ReadonlyMap<string, string>;
   /** The market stall ids: the `content/market/*.yaml` file names. */
   stalls: ReadonlySet<string>;
+  /**
+   * M6 Step 6: each stall file whole, by id (checked by core `validateStallFile`, deep-frozen), and The Season's Table
+   * (`data/seasonality.yaml`, `validateSeasonTable`, deep-frozen), which Wen's seasonal questions agree with
+   * (`seasonalAgrees`). `catalogueFor` builds `Catalogue.market` from the stalls.
+   */
+  market: { stalls: ReadonlyMap<string, StallFile>; seasonality: SeasonTable };
   /** The Pantry Frames (`content/frames/*.yaml`), sorted by id. */
   frames: Frame[];
   stallOf: StallMap;
@@ -178,6 +190,24 @@ function yamlFiles(dir: string): { id: string; path: string }[] {
   return files;
 }
 
+/** `v` and everything in it frozen, so boot-checked content can't be changed by a request (Step 2 carry). */
+function deepFreeze<T>(v: T): T {
+  if (typeof v === 'object' && v !== null && !Object.isFrozen(v)) {
+    Object.freeze(v);
+    for (const x of Object.values(v)) deepFreeze(x);
+  }
+  return v;
+}
+
+/** The minigames a stall may name (`forms.stall_round.game` in the Bureau's forms, as the game's build reads them). */
+function knownGamesOf(path: string): ReadonlySet<string> {
+  const doc = readYaml(path);
+  const form = isObj(doc) && isObj(doc.forms) ? doc.forms.stall_round : undefined;
+  const game = isObj(form) ? form.game : undefined;
+  if (!isObj(game) || Object.keys(game).length === 0) throw new Error(`Catalog: ${path}: forms.stall_round.game must name the market minigames`);
+  return new Set(Object.keys(game));
+}
+
 /** Every `*.cook` under `dir`, slug → recipe meta (cook, skills, sacred), for checking the quests (as the sync reads them). */
 function recipeMeta(dir: string): Map<string, { cook: string; skills: readonly string[]; sacred: boolean }> {
   let paths: string[];
@@ -201,7 +231,9 @@ function recipeMeta(dir: string): Map<string, { cook: string; skills: readonly s
 /**
  * Loads and validates, at boot, the weekly loop's data and content (C10): `data/rewards.yaml` (`validateRewards`),
  * `data/techniques.yaml` (`validateTechniques`, `validateThresholds`), the `content/cooks/*.yaml` quests and cook ids,
- * the `content/market/*.yaml` stall ids, `content/frames/*.yaml` (`validateFrames`), `data/stalls.json`,
+ * the `content/market/*.yaml` stall files (whole, M6: core `validateStallFile` with the minigames of
+ * `content/bureau/forms.yaml`, and `seasonalAgrees` with `data/seasonality.yaml`, itself `validateSeasonTable`d; one
+ * question id per stall and across stalls, as `marketCatalogue` requires), `content/frames/*.yaml` (`validateFrames`), `data/stalls.json`,
  * `data/food-groups.json` and `data/keeps.json`, every id checked against `catalog.graph`. `validateQuests` runs with
  * those cook and stall ids and the canon recipes under `recipesDir` (the files the recipe sync reads). Throws, naming
  * the file and its problems, on anything wrong: the server refuses to start on bad data, as it does for rule terms.
@@ -223,9 +255,22 @@ export function loadLoopContent(catalog: Catalog, dataDir: string = DATA_DIR, co
   const techniques = tech.techniques as TechniqueNode[];
   const techniqueIds = new Set(techniques.map((t) => t.id));
 
+  const seasonalityPath = join(dataDir, 'seasonality.yaml');
+  const seasonality = readYaml(seasonalityPath);
+  refuse(seasonalityPath, validateSeasonTable(seasonality, graph));
+  const knownGames = knownGamesOf(join(contentDir, 'bureau', 'forms.yaml'));
   const stallFiles = yamlFiles(join(contentDir, 'market'));
+  const stallMap = new Map<string, StallFile>();
   for (const { id, path } of stallFiles) {
-    withFileId(path, id, readYaml(path));
+    const file = withFileId(path, id, readYaml(path));
+    refuse(path, validateStallFile(file, graph, { knownGames }));
+    refuse(path, seasonalAgrees(file as unknown as StallFile, seasonality as SeasonTable));
+    stallMap.set(id, deepFreeze(file as unknown as StallFile));
+  }
+  try {
+    marketCatalogue([...stallMap.values()]);
+  } catch (e) {
+    throw new Error(`Catalog: ${join(contentDir, 'market')}: ${(e as Error).message}`);
   }
   const stalls: ReadonlySet<string> = new Set(stallFiles.map((s) => s.id));
 
@@ -274,6 +319,7 @@ export function loadLoopContent(catalog: Catalog, dataDir: string = DATA_DIR, co
     cooks,
     cookNames,
     stalls,
+    market: { stalls: stallMap, seasonality: deepFreeze(seasonality as SeasonTable) },
     frames: frames.sort(byId),
     stallOf: stallOf as StallMap,
     foodGroups: foodGroups as FoodGroups,

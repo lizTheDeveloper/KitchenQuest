@@ -204,10 +204,11 @@ async function buildExport(tx: Tx, config: Config, userId: string, now: Date, re
     decidedAt: iso(p.decidedAt),
   }));
 
-  // Progress (U-5): every event and grant as stored (erased meal-log events are gone; their grants stay), and the view.
+  // Progress (U-5): every event and grant as stored (erased meal-log and stall-round events are gone; their grants stay),
+  // and the view. A sealed stall round is shown whole, decrypted (M6 Step 6).
   // Unchecked: the export never fails on content (a player's data can always be downloaded).
   const catalogue = catalogueFor(await progressDeps.recipes.current(tx), progressDeps.loop, { check: false });
-  const progress = { ...(await loadProgressForExport(tx, userId)), view: await progressViewOf(tx, userId, catalogue) };
+  const progress = { ...(await loadProgressForExport(tx, config.keyring, userId)), view: await progressViewOf(tx, config.keyring, userId, catalogue) };
 
   const ents = await tx
     .select({

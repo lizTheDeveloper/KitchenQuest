@@ -442,6 +442,7 @@ export const PROGRESS_KINDS = [
   "market_run",
   "meal_logged",
   "imported",
+  "stall_round",
 ] as const;
 /** Core's `RewardGrant['kind']`, as stored (`progress/store.ts` checks the two agree). */
 export const GRANT_KINDS = ["xp", "stamp", "trust", "level", "certificate"] as const;
@@ -452,6 +453,10 @@ export const GRANT_KINDS = ["xp", "stamp", "trust", "level", "certificate"] as c
  * `ProgressEvent` as accepted by `grantsFor` (ids and numbers only, each checked against the catalogue, so no free
  * text lands in it). Plain, on the contract basis: not health data, though dish slugs reveal what was cooked
  * ([lawyer], inventory U-5). A `meal_logged` row is erased by a meal-log undo or a `health_data` delete; its grants stay.
+ * A `stall_round` row (M6 Step 6) is sealed: `body` is `{}` and `sealed` holds the whole body (the stall and every
+ * answer, each question id with its pick), S-U with AAD `{ table: 'progress_events', userId, rowId }` (Task 3 privacy
+ * ruling: every round, by kind, since answered ids can imply a rule over time). A `health_data` delete erases every
+ * `stall_round` row (Task 3 ruling I2); its grants stay.
  */
 export const progressEvents = pgTable(
   "progress_events",
@@ -471,6 +476,11 @@ export const progressEvents = pgTable(
      * undo, a `health_data` delete) cascades here, so the record of when they ate goes with it, server-side.
      */
     mealLogId: uuid("meal_log_id").references(() => mealLogs.id, { onDelete: "cascade" }),
+    /**
+     * M6 Step 6: a `stall_round`'s whole body, sealed per row (`progress/seal.ts`); set for that kind only and always
+     * for it (the check below), so no round's stall or question ids are ever stored in the clear.
+     */
+    sealed: bytea("sealed"),
     /** Set from the app's injected clock; defaultNow() is only a fallback. */
     createdAt: ts("created_at").notNull().defaultNow(),
   },
@@ -482,6 +492,7 @@ export const progressEvents = pgTable(
       .where(sql`${t.mealLogId} is not null`),
     check("progress_events_kind_check", sql`${t.kind} in (${inList(PROGRESS_KINDS)})`),
     check("progress_events_meal_log_check", sql`(${t.kind} = 'meal_logged') = (${t.mealLogId} is not null)`),
+    check("progress_events_sealed_check", sql`(${t.kind} = 'stall_round') = (${t.sealed} is not null)`),
   ],
 );
 

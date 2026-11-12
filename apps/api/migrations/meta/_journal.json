@@ -127,6 +127,13 @@
       "when": 1794430206978,
       "tag": "0017_reward_grants_append_only",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1794462993427,
+      "tag": "0018_natural_slapstick",
+      "breakpoints": true
     }
   ]
 }

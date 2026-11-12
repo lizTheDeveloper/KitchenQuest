@@ -86,6 +86,20 @@ export async function openFor<T>(db: Reader, keyring: Keyring, ctx: SealContext,
 }
 
 /**
+ * `openFor` for many blobs of one owner: the data key is loaded once (a player's whole progress history may hold many
+ * sealed rows). The returned function opens each blob under its own context, whose `userId` must be this owner.
+ * Throws, as `openFor` does, when the owner has no data key.
+ */
+export async function openerFor(db: Reader, keyring: Keyring, userId: string): Promise<<T>(ctx: SealContext, sealed: Buffer) => T> {
+  const key = await loadUserKey(db, keyring, userId);
+  if (!key) throw new Error('openFor: no data key for this user (deleted account?)');
+  return <T>(ctx: SealContext, sealed: Buffer): T => {
+    if (ctx.userId !== userId) throw new Error('openerFor: a blob of another user');
+    return open<T>(sealed, { [USER_KEY_ID]: key }, contextFor(ctx));
+  };
+}
+
+/**
  * Re-wraps every user key not yet under the active ring key (C-2 rekey), in
  * batches. Idempotent: a second run finds nothing to do. Each update matches
  * the old key id too, so a row changed concurrently is simply picked up again.

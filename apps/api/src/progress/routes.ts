@@ -37,7 +37,7 @@ export interface ProgressRouteDeps {
  * A meal-log undo needs no route here: deleting the meal log erases its event (I1 ruling).
  */
 export async function progressRoutes(app: FastifyInstance, deps: ProgressRouteDeps): Promise<void> {
-  const { db, now } = app.deps;
+  const { db, now, config } = app.deps;
   // Per app instance, in memory only (N-2).
   const limiter = new SlidingWindowLimiter(PROGRESS_REQUESTS_PER_MINUTE, 60_000);
   const stopSweeping = sweepPeriodically([limiter], () => now().getTime());
@@ -58,7 +58,7 @@ export async function progressRoutes(app: FastifyInstance, deps: ProgressRouteDe
   app.get('/progress', { preHandler: [requireUser, limited] }, async (req) => {
     // One snapshot (M1): the events and the grants come from the same moment.
     const view = await db.transaction(
-      async (tx: Tx) => progressViewOf(tx, req.user.id, catalogueFor(await deps.recipes.current(tx), deps.loop)),
+      async (tx: Tx) => progressViewOf(tx, config.keyring, req.user.id, catalogueFor(await deps.recipes.current(tx), deps.loop)),
       { isolationLevel: 'repeatable read' },
     );
     await countSelfRead(db, req.user.id, 'progress', now());
@@ -78,6 +78,7 @@ export async function progressRoutes(app: FastifyInstance, deps: ProgressRouteDe
     return db.transaction(async (tx: Tx) => {
       const recipes = await deps.recipes.current(tx);
       const progressDeps = {
+        keyring: config.keyring,
         catalogue: catalogueFor(recipes, deps.loop),
         rewards: deps.loop.rewards,
         thresholds: deps.loop.thresholds,

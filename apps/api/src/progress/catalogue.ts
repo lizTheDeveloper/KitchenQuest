@@ -1,4 +1,4 @@
-import { validateQuests, type Catalogue } from '@kitchenquest/core';
+import { marketCatalogue, validateQuests, type Catalogue } from '@kitchenquest/core';
 import type { LoopContent } from '../catalog.js';
 import type { RecipeIndex } from '../recipes/recipe-index.js';
 
@@ -6,7 +6,8 @@ const built = new WeakMap<RecipeIndex, WeakMap<LoopContent, { cat: Catalogue; ch
 
 /**
  * Core's `Catalogue` (what `grantsFor` validates events against): the canon recipes from the `RecipeIndex`, and the
- * quests, techniques and frames from the boot-validated `LoopContent`. Built once per index and content, so a recipe
+ * quests, techniques and frames from the boot-validated `LoopContent`, and (M6) the market stalls, every question
+ * with its bank (core `marketCatalogue` over the boot-checked stall files). Built once per index and content, so a recipe
  * sync (a new index, C7) gives the next request a new catalogue and an unchanged table reuses the last one.
  *
  * The quests are checked again against each new index (M5): boot checked them against the `recipes/` files, but
@@ -37,6 +38,7 @@ export function catalogueFor(recipes: RecipeIndex, loop: LoopContent, { check = 
     ),
     techniques,
     frames: new Map(loop.frames.map((f) => [f.id, { technique: f.technique }])),
+    market: marketCatalogue([...loop.market.stalls.values()]),
   };
   forIndex.set(loop, { cat, checked: check });
   return cat;
