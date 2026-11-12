@@ -6,6 +6,7 @@ import { mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } 
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { format } from 'node:util';
 import { encodeFrame, type UpstreamServerMsg } from '@kitchenquest/core';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { fakeStt, fakeTts } from '../src/engines/fake';
@@ -26,6 +27,8 @@ interface Evidence {
   audioEnd: boolean;
   failedStt: boolean;
   failedTts: boolean;
+  syncFailedStt: boolean;
+  badFrameClosed: boolean;
   before: Snapshot[];
   after: Snapshot[];
   writeCalls: string[];
@@ -114,7 +117,8 @@ function installNets(): { writeCalls: string[]; output: string[]; restore(): voi
   const err = vi.spyOn(process.stderr, 'write').mockImplementation(capture);
   restores.push(() => out.mockRestore(), () => err.mockRestore());
   for (const m of ['log', 'info', 'warn', 'error', 'debug', 'trace'] as const) {
-    const spy = vi.spyOn(console, m).mockImplementation((...args: unknown[]) => void capture(args.map(String).join(' ')));
+    // util.format, as console itself formats: a Buffer arrives as `<Buffer 51 4b …>`, not as its UTF-8 text.
+    const spy = vi.spyOn(console, m).mockImplementation((...args: unknown[]) => void capture(`${format(...args)}\n`));
     restores.push(() => spy.mockRestore());
   }
   return {
@@ -129,16 +133,26 @@ function installNets(): { writeCalls: string[]; output: string[]; restore(): voi
 
 // --- the engines -----------------------------------------------------------------------------------------------------
 
-/** Honest fakes. The hint word `boom` makes the STT throw, and the text `boom …` the TTS, each with a marker in the message. */
-function engines(): { stt: SttEngine; tts: TtsEngine } {
+const HINT = ['sesame', 'kiwi-hint-8'];
+
+/**
+ * Honest fakes, with markers in every error message. Hint `boom`: the STT rejects. Hint `sync`: the STT throws
+ * synchronously, before returning a promise (review I1), with the PCM as hex in the message. Text `boom …`: the TTS
+ * throws.
+ */
+function engines(leak: (ctx: LeakContext) => void = () => {}): { stt: SttEngine; tts: TtsEngine } {
   const base = fakeStt(() => STT_MARKER);
   const tts = fakeTts();
   return {
     stt: {
       model: base.model,
       transcribe: (pcm, hint, signal) => {
+        if (hint.includes('sync')) throw new Error(`stt threw on ${STT_MARKER} ${pcmBytes(pcm).toString('hex')}`);
         if (hint.includes('boom')) return Promise.reject(new Error(`stt crashed on ${STT_MARKER} ${pcmBytes(pcm).toString('hex')}`));
-        return base.transcribe(pcm, hint, signal);
+        return base.transcribe(pcm, hint, signal).then((text) => {
+          if (hint.length > 0) leak({ pcm, bytes: pcmBytes(pcm), hint, text });
+          return text;
+        });
       },
     },
     tts: {
@@ -152,24 +166,33 @@ function engines(): { stt: SttEngine; tts: TtsEngine } {
   };
 }
 
-/** The positive control: the same engines, except the STT writes the audio to TMPDIR and logs it and the transcript. */
-function leakingEngines(): { stt: SttEngine; tts: TtsEngine } {
-  const honest = engines();
-  return {
-    tts: honest.tts,
-    stt: {
-      model: honest.stt.model,
-      transcribe: async (pcm, hint, signal) => {
-        const text = await honest.stt.transcribe(pcm, hint, signal);
-        const bytes = pcmBytes(pcm);
-        writeFileSync(join(tmpdir(), 'utterance.pcm'), bytes);
-        console.log(`heard: ${text}`);
-        process.stderr.write(`debug pcm hex=${bytes.subarray(0, 16).toString('hex')} b64=${bytes.subarray(0, 24).toString('base64')} dec=${Array.from(pcm.subarray(0, 4)).join(',')}\n`);
-        return text;
-      },
-    },
-  };
+interface LeakContext {
+  pcm: Int16Array;
+  bytes: Buffer;
+  hint: readonly string[];
+  text: string;
 }
+
+/**
+ * The positive controls (D1, review I2): each leaks in one format, and the named checks must then fail. Together they
+ * cover the formats Node itself produces for audio: inspect of a Buffer, a Uint8Array and an Int16Array, a Buffer's
+ * JSON, hex and base64, and the hint words and transcript.
+ */
+const LEAKS: Record<string, { leak: (c: LeakContext) => void; fails: string[] }> = {
+  'a file in TMPDIR': { leak: (c) => writeFileSync(join(tmpdir(), 'utterance.pcm'), c.bytes), fails: ['identicalSnapshots', 'noWriteSpyCall'] },
+  'the transcript': { leak: (c) => console.log(`heard: ${c.text}`), fails: ['noMarker'] },
+  'the hint words': { leak: (c) => console.info('hint', c.hint), fails: ['noHint'] },
+  'console.log(Buffer)': { leak: (c) => console.log(c.bytes.subarray(0, 32)), fails: ['noPcmSpacedHex'] },
+  'console.log(Uint8Array)': { leak: (c) => console.warn(new Uint8Array(c.bytes.subarray(0, 32))), fails: ['noPcmBytes'] },
+  'JSON.stringify(Buffer)': { leak: (c) => void process.stderr.write(JSON.stringify({ frame: c.bytes.subarray(0, 16) })), fails: ['noBufferJson', 'noPcmBytes'] },
+  'hex': { leak: (c) => void process.stderr.write(c.bytes.subarray(0, 16).toString('hex')), fails: ['noPcmHex'] },
+  'base64': { leak: (c) => void process.stdout.write(c.bytes.subarray(1, 25).toString('base64')), fails: ['noPcmBase64'] },
+  'console.log(Int16Array)': { leak: (c) => console.error(c.pcm.subarray(0, 4)), fails: ['noPcmDecimal'] },
+};
+
+const leakAll = (c: LeakContext) => {
+  for (const { leak } of Object.values(LEAKS)) leak(c);
+};
 
 // --- one full session ------------------------------------------------------------------------------------------------
 
@@ -180,10 +203,12 @@ async function waitFor(c: Client, pred: (m: UpstreamServerMsg) => boolean): Prom
   }
 }
 
+const hasId = (id: number) => (m: UpstreamServerMsg) => 'id' in m && m.id === id;
+
 async function runSession(e: { stt: SttEngine; tts: TtsEngine }): Promise<Evidence> {
   const before = dirs.map((d) => snapshot(d));
   const nets = installNets();
-  const ev = { transcript: false, audioEnd: false, failedStt: false, failedTts: false };
+  const ev = { transcript: false, audioEnd: false, failedStt: false, failedTts: false, syncFailedStt: false, badFrameClosed: false };
   try {
     // The real logger, writing to the real (captured) stdout.
     const server = createVoiceServer({ config: testConfig(), stt: e.stt, tts: e.tts, log: createLogger() });
@@ -192,13 +217,13 @@ async function runSession(e: { stt: SttEngine; tts: TtsEngine }): Promise<Eviden
     const a = await connect(port);
     a.send({ t: 'hello', v: 1 });
     await waitFor(a, (m) => m.t === 'ready');
-    a.send({ t: 'listen', id: 1, hint: ['peanut', 'sesame'] });
+    a.send({ t: 'listen', id: 1, hint: HINT });
     for (let i = 0; i < 50; i++) a.send(encodeFrame(1, pcmFrame()));
     a.send({ t: 'end', id: 1 });
     const t = await waitFor(a, (m) => m.t !== 'ready');
     ev.transcript = t.t === 'transcript' && t.text === STT_MARKER;
     a.send({ t: 'speak', id: 2, voice: 'pan', chunks: [{ text: TTS_MARKER, cache: false }] });
-    ev.audioEnd = (await waitFor(a, (m) => 'id' in m && m.id === 2)).t === 'audio_end';
+    ev.audioEnd = (await waitFor(a, hasId(2))).t === 'audio_end';
     // speak, then cancel mid-chunk
     a.send({ t: 'speak', id: 3, voice: 'pan', chunks: [{ text: Array.from({ length: 30 }, () => TTS_MARKER).join(' '), cache: true }] });
     for (;;) if ((await a.next()).kind === 'frame') break;
@@ -209,20 +234,34 @@ async function runSession(e: { stt: SttEngine; tts: TtsEngine }): Promise<Eviden
     a.ws.terminate();
     await a.closed;
 
-    // the throwing engines, with markers in their messages
+    // the throwing engines, with markers in their messages: rejecting, throwing synchronously (I1), and the TTS
     const b = await connect(port);
     b.send({ t: 'hello', v: 1 });
     await waitFor(b, (m) => m.t === 'ready');
     b.send({ t: 'listen', id: 5, hint: ['boom'] });
     for (let i = 0; i < 5; i++) b.send(encodeFrame(5, pcmFrame()));
     b.send({ t: 'end', id: 5 });
-    const f = await waitFor(b, (m) => 'id' in m && m.id === 5);
+    const f = await waitFor(b, hasId(5));
     ev.failedStt = f.t === 'failed' && f.kind === 'stt';
+    b.send({ t: 'listen', id: 7, hint: ['sync'] });
+    for (let i = 0; i < 5; i++) b.send(encodeFrame(7, pcmFrame()));
+    b.send({ t: 'end', id: 7 });
+    const s7 = await waitFor(b, hasId(7));
+    ev.syncFailedStt = s7.t === 'failed' && s7.kind === 'stt';
     b.send({ t: 'speak', id: 6, voice: 'pan', chunks: [{ text: `boom ${TTS_MARKER}`, cache: false }] });
-    const g = await waitFor(b, (m) => 'id' in m && m.id === 6);
+    const g = await waitFor(b, hasId(6));
     ev.failedTts = g.t === 'failed' && g.kind === 'tts';
     b.ws.close();
     await b.closed;
+
+    // an undecodable frame mid-utterance: bad_message, closed, with audio buffered
+    const c = await connect(port);
+    c.send({ t: 'hello', v: 1 });
+    await waitFor(c, (m) => m.t === 'ready');
+    c.send({ t: 'listen', id: 8, hint: [] });
+    for (let i = 0; i < 5; i++) c.send(encodeFrame(8, pcmFrame()));
+    c.send(new Uint8Array([0, 0, 0, 8, 0x51]));
+    ev.badFrameClosed = (await c.closed) === 4400;
     await server.close();
   } finally {
     nets.restore();
@@ -234,8 +273,11 @@ async function runSession(e: { stt: SttEngine; tts: TtsEngine }): Promise<Eviden
 
 const sample = pcmBytes(new Int16Array(16).fill(PCM_WORD));
 const PCM_HEX = [sample.subarray(0, 8).toString('hex'), sample.subarray(1, 9).toString('hex')];
+const PCM_SPACED_HEX = /(51 4b 51 4b|4b 51 4b 51)/;
+/** The bytes as decimals, as inspect of a Uint8Array and a Buffer's JSON print them: 81, 75, 81, 75 (any spacing). */
+const PCM_BYTES = /(81,\s*75,\s*81,\s*75|75,\s*81,\s*75,\s*81)/;
 const PCM_B64 = [sample.subarray(0, 12).toString('base64'), sample.subarray(1, 13).toString('base64')];
-const PCM_DEC = String(PCM_WORD); // 19281
+const PCM_DEC = String(PCM_WORD); // 19281, as inspect of an Int16Array prints it
 
 function checks(e: Evidence): Record<string, boolean> {
   const out = e.output.toLowerCase();
@@ -243,32 +285,42 @@ function checks(e: Evidence): Record<string, boolean> {
     identicalSnapshots: JSON.stringify(e.before) === JSON.stringify(e.after),
     noWriteSpyCall: e.writeCalls.length === 0,
     noMarker: !out.includes(STT_MARKER) && !out.includes(TTS_MARKER),
+    noHint: !HINT.some((w) => out.includes(w)),
     noPcmHex: !PCM_HEX.some((h) => out.includes(h)),
+    noPcmSpacedHex: !PCM_SPACED_HEX.test(out),
+    noPcmBytes: !PCM_BYTES.test(out),
+    noBufferJson: !out.includes('"type":"buffer"'),
     noPcmBase64: !PCM_B64.some((b) => e.output.includes(b.slice(0, 12))),
     noPcmDecimal: !out.includes(PCM_DEC),
   };
 }
+const ALL_PASS = Object.fromEntries(Object.keys(checks({ before: [], after: [], writeCalls: [], output: '' } as unknown as Evidence)).map((k) => [k, true]));
+
+const flow = (e: Evidence) => [e.transcript, e.audioEnd, e.failedStt, e.failedTts, e.syncFailedStt, e.badFrameClosed];
 
 test('a full session (hello, listen, 50 frames, end, speak, cancel, a second listen closed mid-utterance, a throwing engine whose message holds "zebrapeanut71") reaches transcript and audio_end, then: identical snapshots, no write spy call, neither marker nor the PCM as hex/base64/decimal in captured output', async () => {
   const e = await runSession(engines());
-  expect({ transcript: e.transcript, audioEnd: e.audioEnd, failedStt: e.failedStt, failedTts: e.failedTts }).toEqual({
-    transcript: true,
-    audioEnd: true,
-    failedStt: true,
-    failedTts: true,
-  });
+  expect(flow(e)).toEqual([true, true, true, true, true, true]);
   // The logger did run (so output was captured), with numbers and enums only.
   expect(e.output).toContain('"kind":"stt_done"');
   expect(e.output).toContain('"kind":"engine_error"');
+  expect(e.output).toContain('"kind":"bad_message"');
   expect(e.after).toEqual(e.before);
   expect(e.writeCalls).toEqual([]);
-  expect(checks(e)).toEqual({ identicalSnapshots: true, noWriteSpyCall: true, noMarker: true, noPcmHex: true, noPcmBase64: true, noPcmDecimal: true });
+  expect(checks(e)).toEqual(ALL_PASS);
 });
 
 test('positive control: the same run with a deliberately leaking fake (writes the PCM to TMPDIR and logs the transcript) FAILS each assertion', async () => {
-  const e = await runSession(leakingEngines());
+  const e = await runSession(engines(leakAll));
   // The flow still reaches the same places, so the failures below are the leak's alone.
-  expect([e.transcript, e.audioEnd, e.failedStt, e.failedTts]).toEqual([true, true, true, true]);
+  expect(flow(e)).toEqual([true, true, true, true, true, true]);
   expect(e.after[0]).toHaveProperty('utterance.pcm');
-  expect(checks(e)).toEqual({ identicalSnapshots: false, noWriteSpyCall: false, noMarker: false, noPcmHex: false, noPcmBase64: false, noPcmDecimal: false });
+  expect(checks(e)).toEqual(Object.fromEntries(Object.keys(ALL_PASS).map((k) => [k, false])));
+});
+
+test.each(Object.entries(LEAKS))('positive control, one format at a time (review I2): a leak of %s fails its check', async (_name, { leak, fails }) => {
+  const e = await runSession(engines(leak));
+  expect(flow(e)).toEqual([true, true, true, true, true, true]);
+  const got = checks(e);
+  for (const k of fails) expect(got[k], k).toBe(false);
 });

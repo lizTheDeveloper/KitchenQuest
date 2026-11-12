@@ -44,6 +44,8 @@ describe('loadVoiceConfig', () => {
     expect(() => loadVoiceConfig(env({ VOICE_ENGINE: 'cloud' }), manifest)).toThrow(/VOICE_ENGINE/);
     expect(() => loadVoiceConfig(env({ VOICE_PORT: '70000' }), manifest)).toThrow(/VOICE_PORT/);
     expect(() => loadVoiceConfig(env({ VOICE_PORT: 'abc' }), manifest)).toThrow(/VOICE_PORT/);
+    // Fix round 1 (M8): port 0 is a random port the API could never find.
+    expect(() => loadVoiceConfig(env({ VOICE_PORT: '0' }), manifest)).toThrow(/VOICE_PORT/);
     expect(() => loadVoiceConfig(env({ VOICE_MAX_CONNECTIONS: '0' }), manifest)).toThrow(/VOICE_MAX_CONNECTIONS/);
     expect(() => loadVoiceConfig(env({ VOICE_STT_MODEL: 'kokoro-82m-v1.0' }), manifest)).toThrow(/kokoro-82m-v1\.0/);
     expect(() => loadVoiceConfig(env({ VOICE_TTS_MODEL: 'faster-whisper-base.en', VOICE_PAN_VOICE: 'x' }), manifest)).toThrow(/faster-whisper-base\.en/);

@@ -9,7 +9,7 @@ import { Session, SpeechCache } from '../src/session';
 const CAST = { model: 'piper-en_GB-northern_english_male-medium', voice: 'northern_english_male' };
 const MAX_SAMPLES = (MAX_UTTERANCE_MS * SAMPLE_RATE_IN) / 1000;
 
-function harness(opts: { stt?: SttEngine; tts?: TtsEngine; cache?: SpeechCache } = {}) {
+function harness(opts: { stt?: SttEngine; tts?: TtsEngine; cache?: SpeechCache; congestedAfter?: number } = {}) {
   const sent: UpstreamServerMsg[] = [];
   const frames: { id: number; pcm: Int16Array }[] = [];
   const closed: number[] = [];
@@ -22,7 +22,8 @@ function harness(opts: { stt?: SttEngine; tts?: TtsEngine; cache?: SpeechCache }
     log: () => {},
     io: {
       json: (m) => sent.push(m),
-      frame: (b) => frames.push(decodeFrame(b)!),
+      // false = the socket is congested (backpressure); the session must stop sending.
+      frame: (b) => frames.push(decodeFrame(b)!) < (opts.congestedAfter ?? Infinity),
       close: (code) => closed.push(code),
     },
     alloc: (n) => {
@@ -176,7 +177,7 @@ describe('Session: listening', () => {
         cast: CAST,
         cache: new SpeechCache(),
         log: (kind, fields) => logs.push([kind, fields]),
-        io: { json: (m) => sent.push(m), frame: () => {}, close: (c) => closed.push(c) },
+        io: { json: (m) => sent.push(m), frame: () => true, close: (c) => closed.push(c) },
       });
       return { logs, sent, closed, session };
     };
@@ -311,5 +312,84 @@ describe('Session: speaking', () => {
     h.msg({ t: 'speak', id: 2, voice: 'pan', chunks: [{ text: 'good', cache: false }] });
     await h.session.idle();
     expect(h.sent.at(-1)).toEqual({ t: 'audio_end', id: 2, audioMs: 20 });
+  });
+});
+
+describe('Session: fix round 1 (review I1, M2)', () => {
+  test('I1: a synchronously throwing STT engine gives failed stt and engine_error (no message); receive never throws, and the session keeps working', async () => {
+    const logs: [string, unknown][] = [];
+    const sent: UpstreamServerMsg[] = [];
+    let calls = 0;
+    const stt: SttEngine = {
+      model: 'sync-thrower',
+      transcribe: (pcm) => {
+        if (calls++ === 0) throw new Error(`sync crash zebrapeanut71 ${Buffer.from(pcm.buffer, pcm.byteOffset, 16).toString('hex')}`);
+        return Promise.resolve('second time lucky');
+      },
+    };
+    const session = new Session({ stt, tts: fakeTts(), cast: CAST, cache: new SpeechCache(), log: (k, f) => logs.push([k, f]), io: { json: (m) => sent.push(m), frame: () => true, close: () => {} } });
+    session.receive(JSON.stringify({ t: 'hello', v: 1 }), false);
+    for (const id of [1, 2]) {
+      session.receive(JSON.stringify({ t: 'listen', id, hint: [] }), false);
+      session.receive(encodeFrame(id, new Int16Array(320).fill(0x4b51)), true);
+      expect(() => session.receive(JSON.stringify({ t: 'end', id }), false)).not.toThrow();
+      await session.idle();
+    }
+    expect(sent.slice(1)).toEqual([
+      { t: 'failed', id: 1, kind: 'stt' },
+      { t: 'transcript', id: 2, text: 'second time lucky' },
+    ]);
+    expect(logs[0]).toEqual(['engine_error', { stt: true }]);
+    expect(JSON.stringify(logs)).not.toMatch(/zebrapeanut71|514b/);
+  });
+
+  test('I1: a TTS engine whose synthesize throws synchronously gives failed tts; receive never throws', async () => {
+    const tts: TtsEngine = {
+      model: 't',
+      sampleRate: 22_050,
+      synthesize: () => {
+        throw new Error('sync tts crash quagga-lentil-42');
+      },
+    };
+    const h = harness({ tts });
+    expect(() => h.msg({ t: 'speak', id: 1, voice: 'pan', chunks: [{ text: 'hi', cache: false }] })).not.toThrow();
+    await h.session.idle();
+    expect(h.sent.at(-1)).toEqual({ t: 'failed', id: 1, kind: 'tts' });
+  });
+
+  test('M2: at most one transcription in flight: while an engine ignores the abort, a later end is failed stt and the engine is not called again', async () => {
+    let calls = 0;
+    const stuck: SttEngine = { model: 'stuck', transcribe: () => (calls++, new Promise<string>(() => {})) };
+    const h = harness({ stt: stuck });
+    for (let id = 1; id <= 5; id++) {
+      h.msg({ t: 'listen', id, hint: [] });
+      h.frame(id, 320, 0x4b51);
+      h.msg({ t: 'end', id });
+    }
+    expect(calls).toBe(1);
+    expect(h.sent.slice(1)).toEqual([2, 3, 4, 5].map((id) => ({ t: 'failed', id, kind: 'stt' })));
+    // Every buffer but the one the stuck engine still holds is already zero; that one was zeroed when replaced.
+    expect(h.buffers.every(allZero)).toBe(true);
+  });
+
+  test('M2: backpressure: when the socket is congested the speech stops, with failed tts and no audio_end', async () => {
+    const h = harness({ congestedAfter: 3 });
+    h.msg({ t: 'speak', id: 1, voice: 'pan', chunks: [{ text: Array.from({ length: 40 }, () => 'word').join(' '), cache: false }] });
+    await h.session.idle();
+    expect(h.frames).toHaveLength(3);
+    expect(h.sent.slice(1)).toEqual([{ t: 'failed', id: 1, kind: 'tts' }]);
+    expect(h.session.inspect().speech).toBeNull();
+  });
+
+  test('M7: a frame after close or before hello is zeroed too', () => {
+    const early = new Session({ stt: fakeStt(() => 'x'), tts: fakeTts(), cast: CAST, cache: new SpeechCache(), log: () => {}, io: { json: () => {}, frame: () => true, close: () => {} } });
+    const raw = encodeFrame(1, new Int16Array(8).fill(0x4b51));
+    early.receive(raw, true);
+    expect(raw.every((b) => b === 0)).toBe(true);
+    const h = harness();
+    h.session.close();
+    const late = encodeFrame(1, new Int16Array(8).fill(0x4b51));
+    h.session.receive(late, true);
+    expect(late.every((b) => b === 0)).toBe(true);
   });
 });

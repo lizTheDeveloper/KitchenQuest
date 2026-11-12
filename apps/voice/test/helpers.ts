@@ -1,9 +1,23 @@
 // Shared test helpers: a config with no environment, and a plain `ws` client that queues what the server sends.
 import { decodeFrame, parseUpstreamServerMsg, type UpstreamServerMsg } from '@kitchenquest/core';
+import { request } from 'node:http';
+import { createServer } from 'node:net';
 import WebSocket from 'ws';
 import type { VoiceConfig } from '../src/config';
 
 export const TEST_TOKEN = 'test-token-0123456789-0123456789-abcdef';
+
+/** A port that was free a moment ago (VOICE_PORT refuses 0). */
+export function freePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const s = createServer();
+    s.once('error', reject);
+    s.listen(0, '127.0.0.1', () => {
+      const { port } = s.address() as { port: number };
+      s.close(() => resolve(port));
+    });
+  });
+}
 
 export function testConfig(over: Partial<VoiceConfig> = {}): VoiceConfig {
   return {
@@ -72,5 +86,30 @@ export function connect(port: number, authorization: string | null = `Bearer ${T
     ws.once('open', () => resolve(client));
     ws.once('error', reject);
     // A socket the server closes straight after the upgrade still opens first; a refused upgrade errors.
+  });
+}
+
+/**
+ * The HTTP status a raw WebSocket upgrade request gets: 101 when upgraded (the socket is then dropped), otherwise the
+ * refusal's status.
+ */
+export function upgradeStatus(port: number, headers: Record<string, string>): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const req = request({
+      host: '127.0.0.1',
+      port,
+      path: '/',
+      headers: { connection: 'Upgrade', upgrade: 'websocket', 'sec-websocket-version': '13', 'sec-websocket-key': 'dGhlIHNhbXBsZSBub25jZQ==', ...headers },
+    });
+    req.once('upgrade', (_res, socket) => {
+      socket.destroy();
+      resolve(101);
+    });
+    req.once('response', (res) => {
+      res.resume();
+      resolve(res.statusCode ?? 0);
+    });
+    req.once('error', reject);
+    req.end();
   });
 }
