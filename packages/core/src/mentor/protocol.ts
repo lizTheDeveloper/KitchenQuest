@@ -39,12 +39,16 @@ export interface TurnRequest {
 
 /**
  * Where a navigation chip goes (Ruling 15): a closed set, checked by code. `visit` names a cook id and `recipe` a
- * canon slug; anything else is never a target.
+ * canon slug; anything else is never a target. M6 Step 8: the market hub (`#/stalls`) and one keeper's stall
+ * (`#/stall/<id>`): core `StallId` without 'general', which has no keeper. Written out here, since `week/` imports
+ * `mentor/` (no cycle); `check-off.ts` checks the two agree.
  */
+export type KeeperStallId = 'wen' | 'bram' | 'okafor-sato' | 'spice';
 export type NavTarget =
-  | { to: 'kitchen' | 'map' | 'plan' | 'market' | 'book' }
+  | { to: 'kitchen' | 'map' | 'plan' | 'market' | 'book' | 'stalls' }
   | { to: 'visit'; cook: string }
-  | { to: 'recipe'; slug: string };
+  | { to: 'recipe'; slug: string }
+  | { to: 'stall'; stall: KeeperStallId };
 
 export type ReplyPart =
   | { kind: 'line'; line: LineRef }

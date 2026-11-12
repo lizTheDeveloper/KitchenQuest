@@ -11,3 +11,4 @@ export * from './outcomes';
 export * from './saved';
 export * from './protocol';
 export * from './plan-card';
+export * from './check-off';

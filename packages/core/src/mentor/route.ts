@@ -615,6 +615,14 @@ export const HARD_WEEK_PATTERN = new RegExp(`\\b${HARD_WORDS}\\b`);
  */
 const DIET_CUE =
   /\b(keto|paleo|vegan|vegetarian|pescatarian|plant[- ]based|halal|haram|kosher|jain|sattvic|satvik|fasting|fast day|ramadan|ramzan|iftar|suhoor|suhur|sehri|lent|lenten|passover|navratri|ekadashi|yom kippur|teetotal\w*|sober|alcohol\w*|spic(?:e|es|y|ier|iest|iness)|(?:low|lower|reduced|less|zero|high)[- ](?:carb|carbs|fat|fats|sugar|sugars|salt|sodium|cal\w*|fodmap|gi|spice|protein|cholesterol|iron|purine|potassium|phosphorus|lactose|gluten|residue|fibre|fiber|histamine|oxalate)|less (?:salt|salty|sugar|sugary|spicy|spice|fat|fatty|oil|oily|meat|dairy|sweet|carbs?)|minus|without|hold the|go easy on|easy on the|light on|reduced|free of|no added|cut(?:ting)? (?:out|down on|back on)|giv(?:e|ing) up|gave up|given up|\w+-free)\b/;
+/** The negated verbs of the restriction cue "can't / won't / don't … X" (M5 final I2). */
+const NEGATED_VERB = "(?:won'?t|will not|wouldn'?t|would not|can'?t|cannot|can not|don'?t|do not|never)";
+/**
+ * M6 Step 8 (N2, Ruling 19): what "can't do / manage / handle" may be followed by and still be a plan, not a
+ * restriction: a weekday (`(mon|tues|wednes|thurs|fri|satur|sun)days?`), "tonight", "the weekend", "that day", or a
+ * clock in letters ("noon", "midday", "midnight"; a clock in digits never starts the cue's word). A closed list.
+ */
+const SCHEDULING_OBJECT = '(?:(?:mon|tues|wednes|thurs|fri|satur|sun)days?|tonight|the weekend|that day|noon|midday|midnight)\\b';
 /**
  * Restriction forms on any word (N7): "no X", "X free", "sin X", "zero X", "not too X". The only exceptions are words
  * that are never food: "no thanks", "no problem", "no idea", "no money" (M4's "I have no money, what can I cook"),
@@ -628,10 +636,15 @@ const RESTRICTION_CUES: readonly RegExp[] = [
   // M5 final I2 (when in doubt, health): the restriction verbs and negators the N7 lists missed, on any word.
   // "i'm off sugar" (not "off to", "off out", "off work" …), "X doesn't agree with me", "stay away from X", "steer
   // clear of X", "won't touch X", "nothing with X", and non-English "pas de", "keine", "kein", "sem", "bez", "geen".
-  /\b(?:i'?m|im|i am|we'?re|we are|i'?ve gone|i went|been|i'?ll be|going)\s+off\s+(?!(?:to|out|now|home|for|on|work|today|tonight|tomorrow|soon|then|again|sick|shopping|duty)\b)\p{L}/u,
+  // M6 Step 8 (N2, Ruling 19): "off to / on / camping / work / out / away" is a plan, never a restriction ("off camping").
+  /\b(?:i'?m|im|i am|we'?re|we are|i'?ve gone|i went|been|i'?ll be|going)\s+off\s+(?!(?:to|out|now|home|for|on|work|today|tonight|tomorrow|soon|then|again|sick|shopping|duty|camping|away)\b)\p{L}/u,
   /\b(?:do|does|did)(?:n'?t| not)\s+agree\s+with\s+(?:me|us|him|her|them|my)\b/u,
   /\b(?:stay|stays|staying|stayed|keep|keeps|keeping|kept|steer|steers|steering|steered)\s+(?:well\s+)?(?:away\s+from|clear\s+of)\s+\p{L}/u,
-  /\b(?:won'?t|will not|wouldn'?t|would not|can'?t|cannot|can not|don'?t|do not|never)\s+(?:touch|do|go near|stomach|handle|tolerate|digest|manage)\s+\p{L}/u,
+  new RegExp(`\\b${NEGATED_VERB}\\s+(?:touch|go near|stomach|tolerate|digest)\\s+\\p{L}`, 'u'),
+  // M6 Step 8 (N2, Ruling 19): "can't do / manage / handle" stays a restriction ("can't do dairy", "don't do gluten")
+  // except right before a scheduling object: a weekday, "tonight", "the weekend", "that day" or a clock ("can't do
+  // monday", "won't manage tonight"). Only those; a weekday carries no food word, so no rule is lost.
+  new RegExp(`\\b${NEGATED_VERB}\\s+(?:do|handle|manage)\\s+(?!${SCHEDULING_OBJECT})\\p{L}`, 'u'),
   /\b(?:nothing|none|never)\s+(?:with|of|any|containing)\s+\p{L}/u,
   /\b(?:pas de|keine|kein|keinen|sem|bez|geen)\s+\p{L}|\bpas d'\p{L}/u,
 ];
@@ -702,8 +715,11 @@ const dayOf = (word: string): string => {
   return WEEKDAY_NAMES.find((n) => n === w || (w.length >= 3 && n.startsWith(w))) ?? w;
 };
 
-/** The player's own words, normalised, or null for a safety turn or text cut by the injection marker or a paste. */
-function ownClauseText(text: string): string | null {
+/**
+ * The player's own words, normalised, or null for a safety turn or text cut by the injection marker or a paste.
+ * Exported for the check-off grammar (M6 Step 8), which reads the whole message the same way (5a).
+ */
+export function ownClauseText(text: string): string | null {
   const whole = stripPageEvents(text).text;
   if (SAFETY_INTENTS.has(classifyTurn(whole))) return null;
   const own = normalizeTurn(ownWords(text));
@@ -759,7 +775,7 @@ export function planIntent(text: string, dishes: readonly { slug: string; title:
  * (parked m6): "idk" and "lol" are not fillers: they signal doubt, as "maybe" does, so a message with one gets no
  * code card.
  */
-const FILLER = /\s*\b(?:ok|okay|please|pls|thanks|thank you)\b\s*/;
+export const FILLER = /\s*\b(?:ok|okay|please|pls|thanks|thank you)\b\s*/;
 /** The clauses of the player's words for the closed readers: split at SEP and at the fillers, empty ones dropped. */
 const closedSplit = (own: string): string[] =>
   own
@@ -1124,7 +1140,7 @@ export function navIntent(text: string, ids: { cooks: ReadonlySet<string>; slugs
   return null;
 }
 
-/** The `{place}` of a chip's `nav.offer` line; `name` is the cook's or the dish's display name for those targets. */
+/** The `{place}` of a chip's `nav.offer` line; `name` is the cook's, the dish's or the stall keeper's display name for those targets. */
 export function navPlace(target: NavTarget, name: string | null): string {
   switch (target.to) {
     case 'kitchen':
@@ -1141,5 +1157,9 @@ export function navPlace(target: NavTarget, name: string | null): string {
       return `${name ?? target.cook}'s kitchen`;
     case 'recipe':
       return name ?? 'the recipe';
+    case 'stalls':
+      return 'the market stalls';
+    case 'stall':
+      return name === null ? 'the stall' : `${name}'s stall`;
   }
 }
