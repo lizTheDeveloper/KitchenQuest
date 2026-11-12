@@ -140,7 +140,10 @@ export function createProgressSync(deps: ProgressSyncDeps): ProgressSync {
       // I2: a meal undone while its event waited is never posted.
       const send = events.filter((e) => e.kind !== 'meal_logged' || e.mealLogId === undefined || !forgotten.has(e.mealLogId));
       if (send.length === 0) return null;
-      const r = await client.postProgressEvents(send, upload ? true : undefined);
+      // M7 Step 7 fix round 1 (I1): with the erasure id this device last acted on, so the server refuses (`erased`) any
+      // stall round or meal-log event recorded before a health_data delete this device has not yet applied.
+      const seen = Object.hasOwn(store.get().accountProgress, as) ? store.get().accountProgress[as].erasure ?? null : null;
+      const r = await client.postProgressEvents(send, upload ? true : undefined, seen);
       if (!r.ok && r.status === 429) {
         blockedUntil = now() + retryAfterMs(r);
         scheduleRetry(blockedUntil - now());
@@ -231,8 +234,22 @@ export function createProgressSync(deps: ProgressSyncDeps): ProgressSync {
   const postLive = (as: string, events: ProgressEvent[]) =>
     new Promise<ApiResult<ProgressPostResponse> | null>((resolve) => { buffer.push({ as, events, done: resolve }); void pump(); });
 
+  /**
+   * M7 Step 7 fix round 1 (I1): before any upload (sign-in, the retry after a 429 or a reconnect, the guest add), the
+   * account's current erasure id is read (GET /progress) and applied, so rounds recorded before a health_data delete on
+   * another device are erased here and never posted. False when the server can't be read: nothing is uploaded then.
+   */
+  async function learnErasure(as: string): Promise<boolean> {
+    if (stopped || liveKey() !== as || !deps.online()) return false;
+    const r = await client.getProgress();
+    if (!r.ok) return false;
+    keepView(as, r.data.view, r.data.healthErasure);
+    return liveKey() === as;
+  }
+
   /** Post partition `from`'s pending events as account `as`, in order, 100 at a time, as an upload. */
   async function uploadFrom(as: string, from: string | null): Promise<boolean> {
+    if (!(await learnErasure(as))) return false;
     // Fix round 1 (I1): the guest's health-revealing events go to an account only with its health_data consent.
     let held = new Set<string>();
     if (from === null) {

@@ -89,8 +89,11 @@ export function prunePartition(s: PlayerState, key: string): PlayerState {
   // Already minimal (a start-up sweep over a pruned partition): nothing to write.
   if (old.view === null && old.progress.base === null && events.length === old.progress.events.length) return s;
   const ids = new Set(events.map((e) => e.id));
+  // M7 Step 7 fix round 1 (m1): a grant whose event the partition no longer holds at all (a round erased before it was
+  // uploaded) stays too, so XP never drops; the shown view is the max with the server's, so a kept grant never counts twice.
+  const held = new Set(old.progress.events.map((e) => e.id));
   const progress: DeviceProgress = {
-    events, grants: old.progress.grants.filter((g) => ids.has(g.eventId)), base: null, pendingUpload: events.map((e) => e.id),
+    events, grants: old.progress.grants.filter((g) => ids.has(g.eventId) || !held.has(g.eventId)), base: null, pendingUpload: events.map((e) => e.id),
     epoch: (old.progress.epoch ?? 0) + 1,
   };
   return { ...s, accountProgress: { ...s.accountProgress, [key]: { progress, view: null, ...(old.erasure === undefined ? {} : { erasure: old.erasure }) } } };

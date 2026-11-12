@@ -327,6 +327,36 @@ describe('stall rounds (M6 Step 6)', () => {
     expect((await call(q.cookie, { method: 'GET', url: '/progress' })).json<{ healthErasure: string | null }>().healthErasure).toBeNull();
   });
 
+  it('M7 Step 7 fix round 1 (I1): a post from a device that has not seen the current erasure id gets its stall rounds refused as erased; nothing of them is stored', async () => {
+    const p = await player();
+    await addRule(p.cookie, NO_MEAT);
+    const postWith = (events: unknown[], erasure?: string | null) =>
+      call(p.cookie, { method: 'POST', url: '/progress/events', payload: { events, ...(erasure === undefined ? {} : { erasure }) } });
+    // Before any erasure, a post with no id (an older client, a new device) is accepted as before.
+    expect((await postWith([round('wen', [['wen-avocado-ripe', 0]])])).json<Posted>().rejected).toEqual([]);
+    // Device B, offline, plays a Protein Counter round and a base round; meanwhile device A deletes health data.
+    const pc = round('bram', [['bram-pc-parmesan', 0]]);
+    const base = round('wen', [['wen-pear-neck', 0]]);
+    const cooked = { id: randomUUID(), kind: 'cooked', at: TODAY, recipe: PARIPPU, planned: false };
+    expect((await withdraw(p.cookie, 'delete')).statusCode).toBe(204);
+    await consent(p.cookie);
+    const current = (await call(p.cookie, { method: 'GET', url: '/progress' })).json<{ healthErasure: string }>().healthErasure;
+    // B comes back and uploads with the id it last saw (none): the rounds are refused, content-free; the cook is kept.
+    for (const stale of [undefined, null, randomUUID()]) {
+      const res = await postWith([pc, base, cooked], stale);
+      expect(res.statusCode, res.body).toBe(200);
+      const body = res.json<Posted & { healthErasure: string }>();
+      expect(body.rejected).toEqual([{ clientId: pc.id, problems: ['erased'] }, { clientId: base.id, problems: ['erased'] }]);
+      expect(body.healthErasure).toBe(current);
+    }
+    expect((await eventRows(p.id)).map((r) => r.kind)).toEqual(['cooked']);
+    // With the current id (B has erased its copy and plays again), a round is accepted.
+    const fresh = round('wen', [['wen-lemon-juicy', 0]]);
+    expect((await postWith([fresh], current)).json<Posted>().accepted.map((a) => a.clientId)).toEqual([fresh.id]);
+    // The field is checked: anything but a string or null is a 400.
+    expect((await postWith([], 7 as unknown as string)).statusCode).toBe(400);
+  });
+
   it('Catalogue.market holds every boot-loaded stall, each question with its bank', () => {
     const loop = defaultLoopContent();
     expect([...loop.market.stalls.keys()].sort()).toEqual(['bram', 'okafor-sato', 'spice', 'wen']);

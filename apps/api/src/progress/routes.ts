@@ -84,17 +84,31 @@ export async function progressRoutes(app: FastifyInstance, deps: ProgressRouteDe
   });
 
   /**
-   * `{ events, upload?: true }`, at most 100 events (more → 400). 200 `{ accepted, duplicate, rejected, warnings, view,
-   * healthErasure }`,
+   * `{ events, upload?: true, erasure?: string | null }`, at most 100 events (more → 400). 200 `{ accepted, duplicate,
+   * rejected, warnings, view, healthErasure }`; a stall round or meal-log event from a device whose `erasure` is not the
+   * account's current one is rejected `erased` (M7 Step 7 fix round 1, I1),
    * also when some events are rejected (the daily event cap is a per-event problem, C14). `upload: true` marks the
    * sign-in upload of the device log (Ruling 8): older dates are accepted, and so are `imported` events.
    */
   app.post('/progress/events', { preHandler: [requireUser, limited] }, async (req) => {
     const at = now();
-    const { events, upload } = EventsBody.parse(req.body);
+    // M7 Step 7 fix round 1 (I1): `erasure`, the erasure id the posting device last acted on (null or absent if none),
+    // is read here and taken off before the body is parsed (EventsBody is strict).
+    const { erasure: seen, ...rest } = (typeof req.body === 'object' && req.body !== null ? req.body : {}) as Record<string, unknown>;
+    if (seen !== undefined && seen !== null && typeof seen !== 'string') throw new ApiError(400, 'bad_request', 'erasure must be a string or null');
+    const { events: posted, upload } = EventsBody.parse(rest);
     const userId = req.user.id;
     const today = at.toISOString().slice(0, 10);
     return db.transaction(async (tx: Tx) => {
+      // I1: a device that has not seen the account's current erasure id may still hold rounds and meal-log events
+      // recorded before that `health_data` delete. They are refused (`erased`, content-free) and never stored; the
+      // answer carries the current id, so the device erases its copy too. Other kinds go on as before.
+      const current = await deps.healthErasureFor(tx, userId);
+      const stale = current !== null && seen !== current;
+      const erased = (e: unknown): e is { id: unknown } =>
+        stale && typeof e === 'object' && e !== null && ((e as { kind?: unknown }).kind === 'stall_round' || (e as { kind?: unknown }).kind === 'meal_logged');
+      const refused = posted.filter(erased).flatMap((e) => (typeof e.id === 'string' ? [{ clientId: e.id, problems: ['erased'] }] : []));
+      const events = posted.filter((e) => !erased(e));
       const recipes = await deps.recipes.current(tx);
       const progressDeps = {
         keyring: config.keyring,
@@ -107,7 +121,7 @@ export async function progressRoutes(app: FastifyInstance, deps: ProgressRouteDe
         log: req.log,
       };
       const recorded = await recordEventsIn(tx, progressDeps, userId, events, today, at, { upload: upload === true }, req.id);
-      return { ...recorded, healthErasure: await deps.healthErasureFor(tx, userId) };
+      return { ...recorded, rejected: [...refused, ...recorded.rejected], healthErasure: current };
     });
   });
 }

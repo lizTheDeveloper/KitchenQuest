@@ -52,7 +52,8 @@ export interface ApiClient {
    * upload of the device log (Ruling 8): older dates and `imported` events are accepted. 429 `rate_limited` carries
    * `retryAfterSeconds`.
    */
-  postProgressEvents(events: ProgressEvent[], upload?: true): Promise<ApiResult<ProgressPostResponse>>;        // POST /progress/events
+  /** M7 Step 7 fix round 1 (I1): `erasure`, the account's erasure id this device last acted on (null: none yet). */
+  postProgressEvents(events: ProgressEvent[], upload?: true, erasure?: string | null): Promise<ApiResult<ProgressPostResponse>>; // POST /progress/events
   /**
    * M5 Step 6, the week. Every call sends `today`, the player's local date (I2): the server reads the plan week from it.
    * Plans and runs are health data (Step 6 ruling): writes are 403 `consent_required` without `health_data`.
@@ -187,7 +188,8 @@ export function createApiClient(opts: { baseUrl?: string; fetch?: typeof fetch; 
     getPantry: () => call('GET', '/pantry'),
     changePantry: (change, confirmed) => call('POST', '/pantry/changes', { ...change, confirmed }),
     getProgress: () => call('GET', '/progress', undefined, timeoutMs),
-    postProgressEvents: (events, upload) => call('POST', '/progress/events', upload ? { events, upload } : { events }, timeoutMs),
+    postProgressEvents: (events, upload, erasure) =>
+      call('POST', '/progress/events', { events, ...(upload ? { upload } : {}), ...(erasure === undefined ? {} : { erasure }) }, timeoutMs),
     getPlan: (today) => call('GET', `/plans/current?today=${enc(today)}`),
     putPlan: (plan, today) => call('PUT', `/plans/${enc(plan.weekStart)}`, { plan, confirmed: true, today }),
     deletePlan: (weekStart) => call('DELETE', `/plans/${enc(weekStart)}`),

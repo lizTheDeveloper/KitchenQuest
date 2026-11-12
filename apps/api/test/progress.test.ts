@@ -76,8 +76,8 @@ async function player(): Promise<{ cookie: string; id: string }> {
   return { cookie, id };
 }
 
-async function post(cookie: string, events: unknown[], upload?: true): Promise<Posted> {
-  const res = await call(cookie, { method: 'POST', url: '/progress/events', payload: { events, ...(upload ? { upload } : {}) } });
+async function post(cookie: string, events: unknown[], upload?: true, erasure?: string | null): Promise<Posted> {
+  const res = await call(cookie, { method: 'POST', url: '/progress/events', payload: { events, ...(upload ? { upload } : {}), ...(erasure === undefined ? {} : { erasure }) } });
   expect(res.statusCode, res.body).toBe(200);
   return res.json<Posted>();
 }
@@ -420,13 +420,16 @@ describe('nothing earned is taken back (spec §6)', () => {
     const viewAfter = await view(p.cookie);
     expect(viewAfter).toMatchObject({ xp: viewBefore.xp, level: viewBefore.level, stamps: viewBefore.stamps, trust: viewBefore.trust });
 
-    // After the withdrawal, a queued meal-log event (the old dinner log, or any) stores nothing (I1 c).
-    expect((await post(p.cookie, [meal(1200, dinnerLog)])).rejected).toEqual([expect.objectContaining({ problems: ['consent_required'] })]);
+    // After the withdrawal, a queued meal-log event (the old dinner log, or any) stores nothing (I1 c): from a device that
+    // has not seen the erasure it is `erased` (M7 Step 7 fix round 1); from one that has, `consent_required`.
+    expect((await post(p.cookie, [meal(1200, dinnerLog)])).rejected).toEqual([expect.objectContaining({ problems: ['erased'] })]);
+    const erasure = (await call(p.cookie, { method: 'GET', url: '/progress' })).json<{ healthErasure: string }>().healthErasure;
+    expect((await post(p.cookie, [meal(1200, dinnerLog)], undefined, erasure)).rejected).toEqual([expect.objectContaining({ problems: ['consent_required'] })]);
     expect((await rows(p.id)).events.filter((e) => e.kind === 'meal_logged')).toEqual([]);
 
     // With consent again, the day's nourishment cap still counts the erased logs' grants.
     await consent(p.cookie);
-    const later = await post(p.cookie, [meal(0, await logMeal(p.cookie)), meal(400, await logMeal(p.cookie))]);
+    const later = await post(p.cookie, [meal(0, await logMeal(p.cookie)), meal(400, await logMeal(p.cookie))], undefined, erasure);
     const nourished = later.accepted.flatMap((a) => a.grants).filter((g) => g.kind === 'xp' && g.reason === 'nourishment');
     expect(nourished).toHaveLength(loop.rewards.xp.nourishment.max_per_day - 2);
   });

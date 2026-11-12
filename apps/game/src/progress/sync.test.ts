@@ -123,6 +123,8 @@ describe('progress sync', () => {
     const store = createStore(null);
     const posts: ProgressEvent[][] = [];
     const client = {
+      // M7 Step 7 fix round 1 (I1): the add reads the erasure id first.
+      getProgress: () => Promise.resolve({ ok: true, status: 200, data: { view: VIEW } }),
       postProgressEvents: async (events: ProgressEvent[]) => {
         posts.push(events);
         await new Promise<void>((r) => { release = r; });
@@ -136,7 +138,7 @@ describe('progress sync', () => {
     const one = sync.addGuestProgress();
     const two = sync.addGuestProgress();
     expect(sync.guestOffer()).toBe(false);
-    await new Promise((r) => setTimeout(r, 0));
+    for (let i = 0; i < 20 && release === null; i++) await new Promise((r) => setTimeout(r, 0));
     release!();
     expect(await one).toBe(true);
     expect(await two).toBe(true);
@@ -448,7 +450,7 @@ describe('the guest → account move and health-revealing stall rounds (fix roun
     store.update((s) => ({ ...s, localRules: [VEG] }));
     const posts: Post[] = [];
     const held: (() => void)[] = [];
-    const client = { postProgressEvents: (events: ProgressEvent[], upload?: true) => { const p = { events, upload }; posts.push(p); return Promise.resolve(answer(p)); } } as unknown as ApiClient;
+    const client = { getProgress: () => Promise.resolve({ ok: true, status: 200, data: { view: VIEW } }), postProgressEvents: (events: ProgressEvent[], upload?: true) => { const p = { events, upload }; posts.push(p); return Promise.resolve(answer(p)); } } as unknown as ApiClient;
     const sync = createProgressSync({
       store, client, online: () => true, gapMs: 0, catalogue: catalogueOf(), context: () => rulesContextOf([VEG], [], TODAY),
       healthConsent: () => Promise.resolve(consent.granted), onHeldForConsent: (retry) => { held.push(retry); },
@@ -578,19 +580,54 @@ describe('M7 Step 7 (M6 fix review N1): another device\'s health_data delete rea
     sync.stop();
   });
 
-  test('a post\'s answer carries the signal too, and it never reaches another account\'s partition', async () => {
+  test('fix round 1 (I1): an offline device holding pre-erasure rounds learns the erasure before it uploads: the rounds are erased here and never posted; another account is untouched', async () => {
     const store = createStore(null);
     signIn(store, B);
     const keyB = accountKey(B);
-    store.update((s) => ({ ...s, accountProgress: { ...s.accountProgress, [keyB]: { progress: { events: [round('rb')], grants: [], base: null, pendingUpload: [] }, view: null } } }));
+    store.update((s) => ({ ...s, accountProgress: { ...s.accountProgress, [keyB]: { progress: { events: [round('rb')], grants: [], base: null, pendingUpload: ['rb'] }, view: null } } }));
     signOutOf(store);
     signIn(store);
-    const { sync } = setup({ store, answer: (p) => ok({ accepted: p.events.map((e) => ({ clientId: e.id, grants: [] })), healthErasure: E1 }) });
-    store.update((s) => ({ ...s, accountProgress: { ...s.accountProgress, [accountKey(A)]: { progress: { events: [round('ra')], grants: [], base: null, pendingUpload: ['ra'] }, view: null } } }));
+    const keyA = accountKey(A);
+    // Played offline before the player deleted health data on another device: still waiting to upload, with a lesson.
+    const les = lesson('2026-11-09');
+    store.update((s) => ({ ...s, accountProgress: { ...s.accountProgress, [keyA]: { progress: { events: [round('ra'), les], grants: [], base: null, pendingUpload: ['ra', les.id] }, view: null } } }));
+    const posts: { events: ProgressEvent[]; erasure: unknown }[] = [];
+    const client = {
+      getProgress: () => Promise.resolve({ ok: true, status: 200, data: { view: VIEW, healthErasure: E1 } }),
+      postProgressEvents: (events: ProgressEvent[], _upload?: true, erasure?: string | null) => {
+        posts.push({ events, erasure });
+        return Promise.resolve(ok({ accepted: events.map((e) => ({ clientId: e.id, grants: [] })), healthErasure: E1 }));
+      },
+    } as unknown as ApiClient;
+    const sync = createProgressSync({ store, client, online: () => true, gapMs: 0 });
     await sync.uploadDeviceLog();
-    expect(part(store, A).events).toEqual([]);
-    expect(store.get().accountProgress[accountKey(A)].erasure).toBe(E1);
+    // The server never gets the round: only the lesson goes up, sent with the erasure id the device now holds.
+    expect(posts.flatMap((p) => p.events.map((e) => e.kind))).toEqual(['lesson']);
+    expect(posts.map((p) => p.erasure)).toEqual([E1]);
+    expect(part(store, A).events.map((e) => e.kind)).toEqual(['lesson']);
+    expect(store.get().accountProgress[keyA].erasure).toBe(E1);
     expect(part(store, B).events.map((e) => e.id)).toEqual(['rb']);
+    sync.stop();
+  });
+
+  test('fix round 1 (I1): a live post carries the device\'s erasure id; the server\'s "erased" refusal and new id erase the device copy too', async () => {
+    const store = createStore(null);
+    signIn(store);
+    const keyA = accountKey(A);
+    store.update((s) => ({ ...s, accountProgress: { ...s.accountProgress, [keyA]: { progress: { events: [round('old')], grants: [], base: null, pendingUpload: [] }, view: null } } }));
+    const posts: { events: ProgressEvent[]; erasure: unknown }[] = [];
+    const client = {
+      getProgress: () => Promise.resolve({ ok: true, status: 200, data: { view: VIEW, healthErasure: null } }),
+      postProgressEvents: (events: ProgressEvent[], _upload?: true, erasure?: string | null) => {
+        posts.push({ events, erasure });
+        return Promise.resolve(ok({ rejected: events.map((e) => ({ clientId: e.id, problems: ['erased'] })), healthErasure: E1 }));
+      },
+    } as unknown as ApiClient;
+    const sync = createProgressSync({ store, client, online: () => true, gapMs: 0 });
+    await sync.record([lesson('2026-11-10')]);
+    expect(posts.map((p) => p.erasure)).toEqual([null]);
+    expect(part(store, A).events.map((e) => e.kind)).toEqual([]);
+    expect(store.get().accountProgress[keyA].erasure).toBe(E1);
     sync.stop();
   });
 });

@@ -703,6 +703,18 @@ describe('M7 Step 7 (M6 fix review N1): the server erase signal', () => {
     expect(createStore(memStorage({ [STORE_KEY]: JSON.stringify({ v: 1, accountProgress: { [key]: { progress: { events: [], grants: [], base: null, pendingUpload: [] }, view: null, erasure: 7 } } }) })).notice).toBe('corrupt');
   });
 
+  it('fix round 1 (m1): a grant of a round erased before it was uploaded survives the sign-out prune (XP never drops)', () => {
+    const pending = withPartition(seeded(), key, { events: [round, lesson], grants, pendingUpload: ['r1'], base: null }, view);
+    const erased = applyServerErasure(pending, key, E1);
+    expect(partitionOf(erased, key).grants).toEqual(grants);
+    const pruned = prunePartition(erased, key);
+    expect(partitionOf(pruned, key).grants).toEqual(grants);
+    expect(partitionOf(pruned, key).events).toEqual([]);
+    // A synced event's grant still goes with its event (the server holds both).
+    const synced = withPartition(seeded(), key, { events: [lesson], grants: [{ id: 'l1#0', eventId: 'l1', isoDay: at, kind: 'xp' as const, amount: 10, reason: 'lesson' as const }], pendingUpload: [], base: null }, view);
+    expect(partitionOf(prunePartition(synced, key), key).grants).toEqual([]);
+  });
+
   it('with no partition for the account: the id is recorded, nothing else changes', () => {
     const s = { ...createStore(null).get(), account: { email: 'cook@example.test' } };
     const t = applyServerErasure(s, key, E1);
