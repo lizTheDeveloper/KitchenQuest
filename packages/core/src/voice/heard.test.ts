@@ -459,3 +459,115 @@ describe('fix round 3: meal stop words in allergy sentences (N9, sanctioned over
     expect(check("I'm allergic to peanuts at dinner")!.terms.map((t) => t.heard)).toEqual(['peanuts', 'dinner']);
   });
 });
+
+// Fix round 4 (review-task1-fix3.md F1, F2, and the exclusion opener).
+describe('fix round 4: a symptom word with a cooking sense counts only in a body or self context (F2)', () => {
+  // The reviewer's 21-line cook-chatter set (review-task1-fix3.md F2), all null.
+  test.each([
+    'the dough will swell as it proves',
+    'break out the wok',
+    "I'll come up in a minute",
+    'Ill check the oven',
+    "that's the Maillard reaction, right",
+    'this sauce is sick',
+    'I feel bad, I burned it',
+    'my hands are numb from the cold',
+    "I'm itching to start",
+    "what's for dinner, I feel awful today",
+    'how do I react if it spits',
+    'the pan is sick hot',
+    "I'm sick of stirring",
+    "it's making me dizzy, all this stirring",
+    "I'll throw up the lid",
+    "let it rest, what's next",
+    'not yet, wait',
+    'can you say that again',
+    "I've been stirring for ages",
+  ])('cook chatter: "%s" → null', (text) => {
+    expect(check(text), JSON.stringify(check(text)?.terms.map((t) => t.heard))).toBeNull();
+  });
+
+  // Two lines of the set name a graph food. Ruling 4 cards every named food, so these keep that card, and only it:
+  // no symptom-word health wording, so no stop-word terms and no spoken spelling.
+  test.each([
+    ['a faint smell of garlic', 'garlic'],
+    ['the rice will swell up', 'rice'],
+  ])('cook chatter naming a food: "%s" → only "%s", spelling not spoken', (text, food) => {
+    expect(check(text)).toMatchObject({ speakSpelling: false, terms: [{ heard: food }] });
+    expect(check(text)!.terms).toHaveLength(1);
+  });
+
+  test.each([
+    ['my lips started to swell after selfish', 'selfish'],
+    ["he'll swell up from selfish", 'selfish'],
+    ['her face swelled up from selfish', 'selfish'],
+    ['he broke out in spots after selfish', 'selfish'],
+    ['I came up in lumps after selfish', 'selfish'],
+    ["I'm ill after selfish", 'selfish'],
+    ['selfish made me ill', 'selfish'],
+    ['I was sick after selfish', 'selfish'],
+    ['selfish makes her sick', 'selfish'],
+    ['he had an allergic reaction from selfish', 'selfish'],
+    ['she reacted badly after selfish', 'selfish'],
+    ['I felt faint after selfish', 'selfish'],
+    ['my mouth is itchy from selfish', 'selfish'],
+    ['my throat itched after selfish', 'selfish'],
+    ['my tongue went numb after selfish', 'selfish'],
+    ['selfish makes me throw up', 'selfish'],
+    ['I felt dizzy after selfish', 'selfish'],
+    ['selfish made me feel bad', 'selfish'],
+  ])('a body or self context still asks: "%s" → "%s" offers shellfish', (text, heard) => {
+    const chk = check(text);
+    expect(chk?.speakSpelling, text).toBe(true);
+    expect(chk!.terms.find((t) => t.heard === heard)?.alternatives.map((a) => a.id)).toContain('shellfish');
+  });
+
+  test.each(['I threw up', 'I vomited', 'hives', 'a rash', "I couldn't breathe", 'wheezing', 'I feel nauseous'])(
+    'an unambiguous symptom is health wording on its own: "%s"',
+    (text) => {
+      expect(hasHealthWording(text.toLowerCase())).toBe(true);
+    },
+  );
+});
+
+describe('fix round 4: the short-word list walk passes any item, named or not (F1)', () => {
+  test.each([
+    ['allergic to latex and so', 'so', 'soy'],
+    ['allergic to raw nuts and so', 'so', 'soy'],
+    ['allergic to nuts & so', 'so', 'soy'],
+  ])('"%s" → a card for "%s" offering %s', (text, heard, id) => {
+    expect(check(text)?.terms.find((t) => t.heard === heard)?.alternatives.map((a) => a.id), text).toContain(id);
+  });
+
+  test('the walk still stops at the clause end', () => {
+    for (const text of ['allergic to latex. so I cook', 'allergic to raw nuts and so I cook', 'allergic to latex; so what'])
+      expect(check(text)?.terms.map((t) => t.heard) ?? [], text).not.toContain('so');
+  });
+});
+
+describe('fix round 4: a clause-initial exclusion opener is a trigger for the heard check', () => {
+  test.each([
+    ['No selfish at dinner please', 'selfish', 'shellfish'],
+    ['without selfish please', 'selfish', 'shellfish'],
+    ['hold the selfish', 'selfish', 'shellfish'],
+    ['leave out the selfish', 'selfish', 'shellfish'],
+    ["I can't do selfish at dinner", 'selfish', 'shellfish'],
+    ['ok, no selfish or nots', 'nots', 'nut'],
+    ['hold the so', 'so', 'soy'],
+  ])('"%s" asks about "%s" offering %s', (text, heard, id) => {
+    const chk = check(text);
+    expect(chk, text).not.toBeNull();
+    expect(chk!.speakSpelling).toBe(true);
+    expect(chk!.terms.find((t) => t.heard === heard)?.alternatives.map((a) => a.id)).toContain(id);
+  });
+
+  test('the opener\'s own words are never terms; a lead word may come first', () => {
+    expect(check('leave out the selfish')!.terms.map((t) => t.heard)).toEqual(['selfish']);
+    expect(check('without selfish please')!.terms.map((t) => t.heard)).toEqual(['selfish']);
+    expect(check('ok no selfish')!.terms.map((t) => t.heard)).toEqual(['selfish']);
+  });
+
+  test.each(['no thanks', 'no, the other one', 'no not yet', 'no problem', 'no worries, what is next', 'there is no rush'])('a "no" without a food-position word gets no card: "%s"', (text) => {
+    expect(check(text), JSON.stringify(check(text)?.terms.map((t) => t.heard))).toBeNull();
+  });
+});
