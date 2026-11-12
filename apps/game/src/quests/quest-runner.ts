@@ -5,12 +5,14 @@ import {
 } from '@kitchenquest/core/engine';
 import { content } from '../content';
 import type { ClientContent } from '../content/types';
+import { renderRound, type RoundAnswer } from '../market/round-view';
 import { stepContextOf } from '../progress/catalogue';
 import { newEventId } from '../progress/log';
 import { routeHref } from '../shell/router';
 import { statusChip } from '../ui/chips';
 import { showDialogue } from '../ui/dialogue-box';
 import { contentText, h } from '../ui/dom';
+import type { ErrandQuestion } from './errand-question';
 
 export interface QuestRunnerDeps {
   /** What the game shows now (progress/view.ts `currentProgress`): read again after every record. */
@@ -29,6 +31,11 @@ export interface QuestRunnerDeps {
   reducedMotion?: boolean;
   newId?: () => string;
   content?: ClientContent;
+  /**
+   * M6 Step 10: an errand's stall question (errand-question.ts), played with the round view before the step goes on as
+   * in M5. Null, or no dep: no question. The step passes whatever is answered: the answer is never part of the step.
+   */
+  errandQuestion?: (step: { stall: string; item: string }) => Promise<ErrandQuestion | null>;
 }
 
 const own = <T>(r: Record<string, T>, k: string): T | undefined => (Object.hasOwn(r, k) ? r[k] : undefined);
@@ -120,6 +127,26 @@ export async function runQuest(slot: HTMLElement, q: Quest, deps: QuestRunnerDep
   };
   const landed = (r: AdvanceResult | 'not_saved'): r is AdvanceResult & { ok: true } => r !== 'not_saved' && r.ok;
 
+  /** One stall question in the round view, under the Pan's `errand.question` line; resolves its answers, or null on leaving. */
+  const playQuestion = (asked: ErrandQuestion, said: string): Promise<RoundAnswer[] | null> =>
+    new Promise((resolve) => {
+      if (aborted()) { resolve(null); return; }
+      const roundSlot = h('div', { class: 'quest-round' });
+      const panel = h('div', { class: 'quest-panel quest-errand-question', role: 'group', 'aria-label': `${asked.keeper}'s question` },
+        contentText('p', said, { class: 'quest-prompt' }), roundSlot);
+      const done = (a: RoundAnswer[] | null) => {
+        deps.signal.removeEventListener('abort', onAbort);
+        panel.remove();
+        resolve(a);
+      };
+      const onAbort = () => done(null);
+      deps.signal.addEventListener('abort', onAbort);
+      slot.append(panel);
+      // Leaving the question ('left') is fine too: the errand goes on either way.
+      renderRound(roundSlot, { ...asked.round, questions: [asked.question], keeper: asked.keeper, onEnd: (_how, a) => done(a) });
+      roundSlot.querySelector<HTMLElement>('.stall-option')?.focus();
+    });
+
   const rulesWait = async () => {
     const link = h('a', { href: routeHref({ name: 'rules' }), class: 'quest-rules-link' }, 'Open Your rules');
     await choose([h('p', null, "Your rules couldn't be read just now, so this step waits. ", link, ' to look them over.')], ['Later']);
@@ -201,6 +228,14 @@ export async function runQuest(slot: HTMLElement, q: Quest, deps: QuestRunnerDep
         const sending = step.lines.slice(0, -1);
         await say(sending);
         if (aborted()) return 'paused';
+        // M6 Step 10: the stall's question about the item, if one passes the rules; then the step exactly as in M5.
+        const asked = deps.errandQuestion === undefined ? null : await deps.errandQuestion(step).catch((err: unknown) => { console.error(err); return null; });
+        if (asked !== null) {
+          const itemName = deps.graph.has(step.item) ? deps.graph.get(step.item).name : step.item;
+          const answers = await playQuestion(asked, panText('errand.question', { stall: asked.keeper, item: itemName }));
+          if (answers === null || aborted()) return 'paused';
+          if (answers.length > 0) asked.record(answers);
+        }
         if (inPantry(step.item, deps.pantry(), deps.graph)) {
           const r = await go({ type: 'errand', have: 'pantry' }, ctx);
           if (!landed(r)) return 'paused';
