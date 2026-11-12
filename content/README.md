@@ -480,7 +480,7 @@ Each line below was flagged during M6 (Steps 1–11, from the SDD ledger and the
 - [ ] **Ruling 1:** 5 XP for each question's first right answer, and one stall stamp a week for any round played through, whatever the answers.
 - [ ] **Ruling 3:** the Fishmonger and Dairy & eggs stalls wait for M10 content; fish and dairy stay at the General Counter.
 - [ ] **Ruling 5:** chalkboard prices are example numbers in no particular currency.
-- [ ] **Ruling 6:** "Seasonal or smuggled?" is now "Seasonal or well-travelled?".
+- [ ] **Ruling 6:** the seasonal round is "Seasonal or well-travelled?" (its old name framed shipped food as a crime; listed above).
 - [ ] **Ruling 9:** only the Pacific Northwest calendar; every other region gets "no calendar yet". Which regions come next is decided with the ROADMAP launch-region item.
 - [ ] **Ruling 13:** a bare "no fennel" at check-off stays a health ask (one extra turn), never a stock note.
 - [ ] **Ruling 15:** the market is a hub (`#/stalls`) over the market scene, not one scrolling market.
