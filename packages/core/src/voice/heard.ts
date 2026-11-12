@@ -58,25 +58,81 @@ const MEAL_ONLY = /^(?:ate|eaten|had|breakfast|brekkie|lunch|dinner|supper|snack
 /**
  * Symptom and reaction words (fix round 3, R1): a closed list, the heard check's own (the shared mentor HEALTH_PATTERN
  * is unchanged). "I ate selfish and got sick" is a reaction report, never chatter, so it is health wording whatever
- * meal word it carries.
+ * meal word it carries. These are unambiguous: they count anywhere (threw up, vomit, hives, rash, couldn't breathe,
+ * wheezing, nauseous, ...).
  */
 const SYMPTOM_PATTERN =
-  /\b(?:sick(?:er|ness)?|ill(?:ness)?|unwell|poorly|nause\w*|queasy|rash(?:es)?|hives|itch\w*|swell\w*|swollen|tingl\w*|numb|reactions?|react(?:s|ed|ing)?|threw up|throw(?:s|ing)? up|thrown up|vomit\w*|puk(?:e|ed|es|ing)|(?:felt|feel|feels|feeling) (?:awful|bad|terrible|rough|funny|horrible|weird|ill|sick|unwell|off)|(?:couldn'?t|could not|can'?t|cannot) breathe?|breathless|short of breath|wheez\w*|stomach ?aches?|stomach (?:hurt\w*|pains?|cramps?)|tummy ?aches?|belly ?aches?|cramp(?:s|ed|ing)?|(?:lips?|tongue|throat|mouth|face) (?:(?:went|felt|got|was|were|is|are|goes) )?(?:funny|tingly|numb|swollen|itchy|weird|puffy)|(?:use|used|needed) (?:my|her|his|their|the) (?:pen|epi\w*|inhaler)|inhaler|diarrh\w*|dizz\w*|faint(?:ed|ing)?|(?:break|broke|breaks|breaking) out|(?:came|come|comes) up in)\b/;
+  /\b(?:sickness|illness|unwell|poorly|nause\w*|queasy|rash(?:es)?|hives|itch(?:y|ed|es|iness)|swelled|swollen|tingl\w*|threw up|thrown up|vomit\w*|puk(?:e|ed|es|ing)|(?:felt|feel|feels|feeling) (?:ill|sick|unwell|queasy|faint|dizzy)|felt (?:awful|terrible|rough|funny|horrible|weird|off)|(?:couldn'?t|could not|can'?t|cannot) breathe?|breathless|short of breath|wheez\w*|stomach ?aches?|stomach (?:hurt\w*|pains?|cramps?)|tummy ?aches?|belly ?aches?|cramp(?:s|ed|ing)?|(?:lips?|tongue|throat|mouth|face) (?:(?:went|felt|got|was|were|is|are|goes) )?(?:funny|tingly|numb|swollen|itchy|weird|puffy)|(?:use|used|needed) (?:my|her|his|their|the) (?:pen|epi\w*|inhaler)|inhaler|diarrh\w*|dizziness|dizzy spells?|faint(?:ed|ing))\b/;
+
+/** Body words a reaction shows on (not hands: "my hands are numb from the cold" is chatter). */
+const BODY = '(?:lips?|tongue|throat|mouth|face|eyes?|gums|cheeks?|skin|neck|ears?)';
+/** A modifier between a be, feel or get form and the symptom ("was really sick"). */
+const DEG = '(?:(?:so|very|really|quite|properly|violently|seriously|terribly|badly|a bit|a little|all)\\s+)?';
+const BE_GET = '(?:was|were|been|being|be|got|get|gets|getting|went|go|goes|going|fell|falls|felt|feel|feels|feeling|became|become|becomes|turned)';
+const PERSON_IS = "(?:i'?m|i am|he'?s|she'?s|they'?re|we'?re|you'?re|(?:he|she|they|we|you|son|daughter|kid|child|baby|wife|husband|partner|friend|mum|mom|dad) (?:is|are|am))";
+const CAUSE = '(?:made|makes|make|making)\\s+(?:me|him|her|them|us|you|my \\w+)\\s+(?:feel\\s+)?';
+
+/**
+ * Fix round 4 (F2): symptom words that also have a cooking sense ("the dough will swell", "break out the wok", "the
+ * Maillard reaction", "this sauce is sick", "a faint smell") count only in a body or self context. When in doubt a
+ * context counts: over-asking is safe.
+ */
+const SYMPTOM_IN_CONTEXT: readonly RegExp[] = [
+  // swell: after a body word, or "my/her/his ... swell up" (swelled and swollen count anywhere)
+  new RegExp(`\\b${BODY}(?: \\w+){0,3} swell\\w*`),
+  /\b(?:my|her|his|their|i|he|she|they|we|you)(?:'\w+)?(?: \w+)? swell(?:s|ing)? up\b/,
+  // break out in / after; come up in hives, a rash, spots, lumps or welts
+  /\b(?:break|breaks|breaking|broke|broken) out (?:in|into|after|from|all over)\b/,
+  /\b(?:came|come|comes|coming) up in (?:\w+ )?(?:hives|rash\w*|spots?|lumps?|welts?|bumps?|blotch\w*|blisters?)\b/,
+  // sick, ill: after a be, feel or get form, a person and is/am/are, a cause ("made me"), or before after/from;
+  // never "sick of"
+  new RegExp(`\\b${BE_GET}\\s+${DEG}(?:sick|ill)\\b(?! of\\b)`),
+  new RegExp(`${PERSON_IS}\\s+${DEG}(?:sick|ill)\\b(?! of\\b)`),
+  new RegExp(`\\b${CAUSE}(?:sick|ill)\\b`),
+  /\b(?:sick|ill) (?:after|from|with|again|all night|all day)\b/,
+  // reaction: (bad/allergic/a) reaction, or reaction to/after/from; react(ed) to/badly/after, or at a clause end
+  /\b(?:bad|allergic|severe|serious|nasty|mild|big|awful|terrible|horrible|skin|another|a|an|same|my|his|her|their) reactions?\b/,
+  /\breactions? (?:to|after|from)\b/,
+  /\breact(?:s|ed|ing)?(?=\s+(?:to|badly|severely|strongly|after|from|again|really|terribly|straight|immediately|instantly)\b|\s*(?:[,.;:!?]|$))/,
+  // faint: felt/went/almost faint (fainted counts anywhere); never "a faint smell"
+  /\b(?:felt|feel|feels|feeling|went|go|goes|going|almost|nearly|might|could|would|gonna) (?:(?:a bit|a little|really|so|very) )?faint\b/,
+  // itch: after a body word, or itch(ing) but never "itching to"
+  new RegExp(`\\b${BODY}(?: \\w+){0,2} itch\\w*`),
+  /\bitch(?:ing)?\b(?!\s+to\b)/,
+  // numb: after a body word, or went/felt/gets numb
+  new RegExp(`\\b${BODY}(?: \\w+){0,2} numb\\b`),
+  /\b(?:went|go|goes|gone|going|felt|feel|feels|feeling|got|gets|getting) (?:(?:all|really|a bit|so) )?numb\b/,
+  // throw up with no object after it ("I'll throw up the lid" is not)
+  /\bthrow(?:s|ing)? up\b(?!\s+(?:the|a|an|some|your|my|his|her|their|our|this|that|these|those|it|them|its)\b)/,
+  // dizzy: after a be, feel or get form, a person, a past or plain cause ("made me"), or before after/from
+  new RegExp(`\\b(?:${BE_GET}|am|is|i'?m|he'?s|she'?s|(?:made|makes|make) (?:me|him|her|them|us))\\s+${DEG}dizzy\\b`),
+  /\bdizzy (?:after|from|again)\b/,
+  // feel bad, awful, ...: with a cause, before after/from, or with eating in the text ("felt bad, I burned it" is not)
+  new RegExp(`\\b${CAUSE}(?:bad|awful|terrible|rough|funny|horrible|weird|off)\\b`),
+  /\b(?:felt|feel|feels|feeling) (?:bad|awful|terrible|rough|funny|horrible|weird|off) (?:after|from|since|when|whenever|every time)\b/,
+];
+/** A present-tense "feel awful" (and any "feel bad") is health wording when eating is in the text. */
+const FEEL_MOOD = /\b(?:felt|feel|feels|feeling) (?:bad|awful|terrible|rough|funny|horrible|weird|off)\b/;
+const EATING = /\b(?:ate|eaten|eat|eats|eating|had|having|drank|drunk|drink|drinking)\b/;
 
 /**
  * Health wording (Ruling 4), read on the normal form: the mentor's health, rule-trigger, diet and severity patterns,
- * plus symptom and reaction words (fix round 3, R1). A meal word alone ("what's for dinner", "I had toast") is not
- * health wording (fix round 2, N5), but a meal word with a symptom word is. Without health wording a transcript gets
- * a heard card only for a food or rule term it names.
+ * plus symptom and reaction words (fix round 3, R1; fix round 4, F2: a cooking-sense word in a body or self context
+ * only). A meal word alone ("what's for dinner", "I had toast") is not health wording (fix round 2, N5), but a meal
+ * word with a symptom word is. Without health wording a transcript gets a heard card only for a food or rule term it
+ * names (or after an exclusion opener: `heardCheck`).
  */
 export function hasHealthWording(normal: string): boolean {
   const health = new RegExp(HEALTH_PATTERN.source, 'g');
   return (
     SYMPTOM_PATTERN.test(normal) ||
+    SYMPTOM_IN_CONTEXT.some((p) => p.test(normal)) ||
+    (FEEL_MOOD.test(normal) && EATING.test(normal)) ||
     [...normal.matchAll(health)].some((m) => !MEAL_ONLY.test(m[0])) ||
     normal.search(RULE_TRIGGER_PATTERN) >= 0 ||
     normal.search(DIET_WORD_PATTERN) >= 0 ||
-    SEVERITY_PATTERNS.some(([p]) => p.test(normal))
+    // a bare "swell up" (the shared anaphylactic cue) is read in context above: "the rice will swell up" is chatter
+    SEVERITY_PATTERNS.some(([p]) => p.test(normal.replace(/\bswell(?:s|ing)? up\b/g, ' ')))
   );
 }
 
@@ -120,6 +176,8 @@ interface Token {
   broken: boolean;
   /** Which break: the last punctuation mark before this word, or null. A comma continues a list (N8). */
   brk: string | null;
+  /** An "&" comes before this word: it joins list items as "and" does (fix round 4, F1). */
+  amp: boolean;
 }
 
 function tokensOf(normal: string): Token[] {
@@ -127,13 +185,16 @@ function tokensOf(normal: string): Token[] {
   const triggerEnds = new Set([...normal.matchAll(new RegExp(RULE_TRIGGER_PATTERN.source, 'g'))].map((m) => m.index + m[0].length));
   const out: Token[] = [];
   let brk: string | null = null;
-  for (const m of normal.matchAll(/[\p{L}\p{N}]+|[,.;:!?]/gu)) {
+  let amp = false;
+  for (const m of normal.matchAll(/[\p{L}\p{N}]+|[,.;:!?&]/gu)) {
     // a sentence or clause end outranks a comma between the same two words
-    if (/^[,.;:!?]$/.test(m[0])) brk = brk !== null && brk !== ',' ? brk : m[0];
+    if (m[0] === '&') amp = true;
+    else if (/^[,.;:!?]$/.test(m[0])) brk = brk !== null && brk !== ',' ? brk : m[0];
     else {
       const [start, end] = [m.index, m.index + m[0].length];
-      out.push({ word: m[0], start, end, broken: brk !== null, brk, exempt: spans.some(([a, b]) => a < end && start < b), afterTrigger: triggerEnds.has(start) });
+      out.push({ word: m[0], start, end, broken: brk !== null, brk, amp, exempt: spans.some(([a, b]) => a < end && start < b), afterTrigger: triggerEnds.has(start) });
       brk = null;
+      amp = false;
     }
   }
   return out;
@@ -151,6 +212,78 @@ function exemptSpans(normal: string): [number, number][] {
   for (const p of patterns)
     for (const m of normal.matchAll(new RegExp(p.source, p.flags.includes('g') ? p.flags : `${p.flags}g`)))
       if (m[0].length > 0) out.push([m.index, m.index + m[0].length]);
+  return out;
+}
+
+/** Words that join the items of a list ("nuts and so", "nuts or it", "nuts plus so"); "&" is the token flag `amp`. */
+const LIST_JOINS: ReadonlySet<string> = new Set(['and', 'or', 'plus']);
+
+/** Words that may come before a clause-initial opener, and the subjects of "[I] can't do". */
+const OPENER_LEADS: ReadonlySet<string> = new Set(['ok', 'okay', 'oh', 'and', 'but', 'so', 'please', 'yeah', 'yes', 'also', 'um', 'uh', 'well', 'actually', 'just']);
+const SUBJECTS: ReadonlySet<string> = new Set(['i', 'we', 'he', 'she', 'they']);
+
+/** "no X" idioms that are never an exclusion of a food ("no problem", "no worries"). */
+const NO_IDIOMS: ReadonlySet<string> = new Set(
+  'problem problems worries worry idea rush hurry clue chance bother matter need longer sense point doubt kidding joke wonder big deal fuss hassle luck difference change sign answer clue sir mate dear'.split(' '),
+);
+
+/**
+ * Fix round 4: the clause-initial exclusion openers ("no", "without", "hold the", "leave out (the)", "[I] can't do"),
+ * as the index of the word after the opener, or -1. Clause-initial: the first word, or the first after a break.
+ * "no" counts only before a food-position word: not a stop word, not a break, not an idiom ("no thanks", "no, the
+ * other one", "no problem" are no opener). The others take the same, or a 1–2 letter allergen echo ("hold the so").
+ */
+function openerEnd(toks: readonly Token[], i: number, echoes: (word: string) => boolean): { from: number; at: number; kind: 'no' | 'opener' } | null {
+  if (i > 0 && !toks[i].broken) return null;
+  const w = (k: number): string | undefined => (k < toks.length && (k === i || !toks[k].broken) ? toks[k].word : undefined);
+  // a lead word may come first ("ok, no selfish", "ok no selfish", "and without selfish")
+  const base = OPENER_LEADS.has(w(i) ?? '') && w(i + 1) !== undefined ? i + 1 : i;
+  const k = SUBJECTS.has(w(base) ?? '') && (w(base + 1) === 'can' || w(base + 1) === 'cannot') ? base + 1 : base;
+  let at = -1;
+  let kind: 'no' | 'opener' = 'opener';
+  if (k === base && w(k) === 'no') [at, kind] = [k + 1, 'no'];
+  else if (k === base && w(k) === 'without') at = k + 1;
+  else if (k === base && w(k) === 'hold' && w(k + 1) === 'the') at = k + 2;
+  else if (k === base && w(k) === 'leave' && w(k + 1) === 'out') at = w(k + 2) === 'the' ? k + 3 : k + 2;
+  else if (w(k) === 'can' && w(k + 1) === 't' && w(k + 2) === 'do') at = k + 3;
+  else if (w(k) === 'cannot' && w(k + 1) === 'do') at = k + 2;
+  else if (w(k) === 'can' && w(k + 1) === 'not' && w(k + 2) === 'do') at = k + 3;
+  if (at < 0 || w(at) === undefined) return null;
+  const word = toks[at].word;
+  if (kind === 'no' && (isStop(word) || NO_IDIOMS.has(word))) return null;
+  // the others take a food-position word, or a short word that sounds exactly like an allergen ("hold the so")
+  if (kind === 'opener' && isStop(word) && !([...word].length <= 2 && echoes(word))) return null;
+  return { from: k, at, kind };
+}
+
+/**
+ * The term position of every word (N2, N8, fix round 4 F1): the word right after a rule trigger or an exclusion
+ * opener, and the first word of each later item of its list. An item is any word or words, a food or not ("allergic
+ * to latex and so", "raw nuts and so"); the next starts past "and", "or", "plus", "&" or a comma, and the list ends at
+ * a clause end. The value says what opened the list; a "no" list never takes the short-word fail-safe ("no it").
+ * An opener's own words are marked exempt here.
+ */
+function listPositions(toks: Token[], echoes: (word: string) => boolean): ('trigger' | 'opener' | 'no' | null)[] {
+  const out: ('trigger' | 'opener' | 'no' | null)[] = toks.map(() => null);
+  let kind: 'trigger' | 'opener' | 'no' | null = null;
+  let joined = false;
+  for (let i = 0; i < toks.length; i++) {
+    const t = toks[i];
+    if (t.brk !== null && t.brk !== ',') kind = null;
+    const opener = openerEnd(toks, i, echoes);
+    if (t.afterTrigger) [kind, joined] = ['trigger', false];
+    else if (kind !== null && !LIST_JOINS.has(t.word) && (joined || t.brk === ',' || t.amp)) out[i] = kind;
+    if (t.afterTrigger) out[i] = 'trigger';
+    joined = kind !== null && LIST_JOINS.has(t.word);
+    if (opener !== null && (kind === null || kind !== 'trigger')) {
+      // the opener's own words were heard as what they are, as a trigger's are: never sound-alike terms
+      for (let j = opener.from; j < opener.at; j++) toks[j].exempt = true;
+      out[opener.at] = opener.kind;
+      kind = opener.kind;
+      joined = false;
+      i = opener.at;
+    }
+  }
   return out;
 }
 
@@ -190,8 +323,10 @@ export function heardCheck(transcript: string, graph: IngredientGraph, terms: re
   if (transcript.length > HARD_MAX_UNITS) return blocked;
   const normal = normalizeText(stripPageEventsFull(transcript).text);
   if (codePoints(normal, MAX_TEXT) > MAX_TEXT) return blocked;
-  const health = hasHealthWording(normal);
   const toks = tokensOf(normal);
+  const listPos = listPositions(toks, (w) => allergenEchoes(w, graph).length > 0);
+  // A valid exclusion opener ("no selfish at dinner please") is health wording for the heard check (fix round 4).
+  const health = hasHealthWording(normal) || listPos.some((k) => k !== null && k !== 'trigger');
   const { map, longest } = phrasesOf(graph, terms);
   const rank = new Map<string, SoundAlike[]>();
   const ranked = (phrase: string): SoundAlike[] => {
@@ -237,37 +372,21 @@ export function heardCheck(transcript: string, graph: IngredientGraph, terms: re
 
   /**
    * Fix round 2 (N2), the short-word fail-safe: a word of 1–2 letters in the term position (right after a rule
-   * trigger, or a later item of its list: N8), then the end, a clause break, "and" or "or", that sounds exactly like
-   * an allergen ("allergic to so" / soy, "to it." / oat, "allergic to nuts and so").
+   * trigger or an exclusion opener, or a later item of its list: N8, F1), then the end, a clause break, "and", "or"
+   * or "&", that sounds exactly like an allergen ("allergic to so" / soy, "to it." / oat, "allergic to nuts and so").
    */
-  const shortAt = (i: number, termPosition: boolean): { id: string; name: string }[] => {
+  const shortAt = (i: number): { id: string; name: string }[] => {
     const t = toks[i];
-    if (!termPosition || [...t.word].length > 2 || /\d/.test(t.word)) return [];
+    if (!listPos[i] || listPos[i] === 'no' || [...t.word].length > 2 || /\d/.test(t.word)) return [];
     const next = toks.at(i + 1);
-    if (next !== undefined && !next.broken && next.word !== 'and' && next.word !== 'or') return [];
+    if (next !== undefined && !next.broken && !next.amp && !LIST_JOINS.has(next.word)) return [];
     return allergenEchoes(t.word, graph);
   };
 
-  /**
-   * Where the next item of a trigger's list starts, after an item found in the term position that ends at `j`: past
-   * "and"/"or", or a comma (", and" too); none at a clause end (N8: "allergic to nuts, sesame and so").
-   */
-  const nextItem = (j: number): number => {
-    const t = toks.at(j);
-    if (t === undefined || (t.brk !== null && t.brk !== ',')) return -1;
-    const after = toks.at(j + 1);
-    if ((t.word === 'and' || t.word === 'or') && after !== undefined && after.brk === null) return j + 1;
-    return t.brk === ',' ? j : -1;
-  };
-
   const found: { heard: string; id: string | null; at: number; echoes?: { id: string; name: string }[] }[] = [];
-  let listAt = -1;
   for (let i = 0; i < toks.length; ) {
-    const termPosition = toks[i].afterTrigger || i === listAt;
-    const before = found.length;
-    const start = i;
     const exact = exactAt(i);
-    const echoes = exact === null ? shortAt(i, termPosition) : [];
+    const echoes = exact === null ? shortAt(i) : [];
     if (echoes.length > 0) {
       found.push({ heard: toks[i].word, id: null, at: i, echoes });
       i += 1;
@@ -281,7 +400,6 @@ export function heardCheck(transcript: string, graph: IngredientGraph, terms: re
       if (health && soundAt(i) !== undefined) found.push({ heard: toks[i].word, id: null, at: i });
       i += 1;
     }
-    if (termPosition && found.length > before && start < i) listAt = nextItem(i);
   }
 
   const byHeard = new Map<string, HeardTerm>();
