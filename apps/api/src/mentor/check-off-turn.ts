@@ -88,7 +88,7 @@ export async function untickCheckOffIn(tx: Tx, deps: CheckOffDeps, userId: strin
 }
 
 /** No open market run: `market.no_run` and a chip to the market list (Ruling 14). Nothing is ticked or stored. */
-export function noRunParts(): ReplyPart[] {
+function noRunParts(): ReplyPart[] {
   const target: NavTarget = { to: 'market' };
   return [line('market.no_run'), { kind: 'go', target, line: { trigger: 'nav.offer', vars: { place: navPlace(target, null) } } }];
 }
