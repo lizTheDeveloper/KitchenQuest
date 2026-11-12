@@ -794,8 +794,9 @@ item_tips:
     pick: "A good layer of fat on top, flexible when you bend the package."
     store: "Fridge 3–5 days."
   ground_beef:
-    # REVIEW: M6 Step 5 voice scan: reworded from "80/20" (the x/y completion pattern). Content review.
-    pick: "Check the lean-to-fat ratio: about 80% lean for juicy burgers, leaner for sauces. Cold to the touch, no grey throughout."
+    # REVIEW: M6 Step 5 voice scan: reworded from "80/20" (the x/y completion pattern); M6 Step 11 sweep: reworded again
+    # from "about 80% lean" (the M5 never-rules percentage pattern, which no line is excused from). Content review.
+    pick: "Check the lean-to-fat ratio: about four parts lean to one part fat for juicy burgers, leaner for sauces. Cold to the touch, no grey throughout."
     store: "Cook or freeze within 1–2 days of buying. Cook to 71°C (160°F)."
   chicken_thigh:
     pick: "Plump, pink, no strong smell. Bone-in, skin-on is cheapest; boneless is fastest."
