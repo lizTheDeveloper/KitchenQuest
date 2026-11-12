@@ -49,7 +49,7 @@ This step also covers:
 
     **V05** is "i can't have shellfish", with `heardConfirmed: false`: `expect: { modelCalled: false, noCards: true, noWrite: true, parts: ['heard'] }`. Step 7 adds the `modelCalled` check to `checks.ts`.
 
-- [ ] **6.1 Write the failing tests.**
+- [x] **6.1 Write the failing tests.**
 ```ts
 // mentor-transcript.test.ts (real Postgres, fake AiProvider counting calls)
 test('a transcript naming an ingredient, no heard words → heard part + voice.heard_check_spelled; 0 model calls; no card, proposal or messages row', ...);
@@ -66,7 +66,7 @@ test('stored player messages carry spoken: true inside the seal only', ...);
 // eval/checks.test.ts (no network): the runner's request for V01 carries heard.words ['sesame']; for V05 it carries none
 ```
   Also run `npm test -w @kitchenquest/game -- content` (`required.test.ts` and `voice-scan.test.ts` pass with the new triggers) and `npm test -w @kitchenquest/api -- pan-lines`.
-- [ ] **6.2 Run** `npm test -w @kitchenquest/api -- mentor-transcript mentor-turn mentor-confirm pan-lines checks` → FAIL.
-- [ ] **6.3 Implement.** Then `npm run typecheck` at the root.
-- [ ] **6.4 Run** `npm test -w @kitchenquest/api` → only `eval-gate.test.ts` fails. `npm test -w @kitchenquest/game` and `npm test -w @kitchenquest/core` → PASS.
-- [ ] **6.5 Commit** `feat(mentor): transcript turns behind the heard gate, spoken yes, the voice block, recent replies, voice lines, transcript eval cases`
+- [x] **6.2 Run** `npm test -w @kitchenquest/api -- mentor-transcript mentor-turn mentor-confirm pan-lines checks` → FAIL.
+- [x] **6.3 Implement.** Then `npm run typecheck` at the root.
+- [x] **6.4 Run** `npm test -w @kitchenquest/api` → only `eval-gate.test.ts` fails. `npm test -w @kitchenquest/game` and `npm test -w @kitchenquest/core` → PASS.
+- [x] **6.5 Commit** `feat(mentor): transcript turns behind the heard gate, spoken yes, the voice block, recent replies, voice lines, transcript eval cases`
