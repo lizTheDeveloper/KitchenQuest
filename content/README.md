@@ -448,6 +448,17 @@ Each line below was flagged during M6 (Steps 1–11, from the SDD ledger and the
 - [ ] **Butternut.** Bare "butternut(s)" is ambiguous: the rule entry offers "butternut squash" or "butternut, the tree nut", never picks one, and the text scan treats it as both (Task 4 ruling). So Wen's butternut-squash questions are hidden for a tree-nut player (the safe side). The founder may reword them to say "winter squash" so they stay.
 - [ ] **Chile.** Wen's pear and blueberry reactions name Chile (the country) as where the fruit travels from, and "chile" is an alias of chilli (Task 4 fix round 2, N1), so those questions are hidden under a chilli rule. A reword ("from South America") would keep them.
 
+**Round order, art and what was not built (Task 9 and Task 11; M6 final review)**
+- [ ] **Wen's seasonal questions come after her 16 base ones.** Core `nextRound` offers unanswered questions in file order, base questions first, so a new Pacific Northwest player first meets "Seasonal or well-travelled?" in their fourth round at Wen's, though the hub names that game first. Built that way; the founder may reorder. A game-only change if wanted (hand `nextRound` the bank seasonal-first in `market/stall-screen.ts` `stallPlan`): the server checks that a question is in the bank, not its order, so no eval run is needed.
+- [ ] **The Spice Merchant has no sprite** (Task 9 deviation 1). The stall file says `art: null` ("never seen") and the art manifest keeps `spice_merchant.png` for a rare reveal, while Ruling 15 lists a sprite. The market scene uses an invisible hotspot, and the stall's HTML button names the stall. Showing the sprite is a one-line change.
+- [ ] **The Protein Counter reuses Big Bram's sprite** (Task 9 deviation 2). Its own name, sign ("Protein Counter"), greeting, questions, tips and FAQ are its own.
+- [ ] **Chrome: the chalkboard's price column is headed "On the board"** (Task 9 deviation 7): "price" is a banned chrome word in the never-rules sweep.
+- [ ] **Not built:** the Pan's `market.practice` line (it needs the week source) and each keeper's `idle` line (an idle trigger implies a timer, so it was left out on purpose). Both are written in the files and never shown.
+
+**Carried to M7's eval run (not fixed in M6; the game guards each)**
+- [ ] Core `faqFor`'s chip text and its fallback safety line are not checked line by line in core (`packages/core/src/market/bank.ts` is eval-hashed). The stall screen re-checks every answer it shows (`safeText`), so an answer naming a food that is ⛔ or ❓ for the player drops its chip.
+- [ ] Questions, tips and FAQ answers have no per-line `contains`, so a food named only indirectly (no graph word in the text) is not seen by the scan. The fix (`contains` on `StallFaq` and item tips, honoured in `faqFor` and `tipFor`, required by the validator wherever a food word is scanned) goes with the `faqFor` change in one eval run.
+
 **The market list and the chalkboard**
 - [ ] **"some"** (`UNWRITTEN_AMOUNT`, core `week/amounts.ts`; chrome): a row where one dish's line has no quantity shows "2 + some" or "1 tsp + some", never an invented weight (Ruling 12, Step 3 fix round 1).
 - [ ] Bram's chalkboards (Ruling 5): no currency anywhere. The braise prices are unchanged (22.50, 38, 24, 60). The Protein Counter's were tweaked so each divides exactly, with no "≈": lentils 1.79 → 1.75 (0.25 a serving), tofu 2.79 → 2.80 (0.70), tempeh 3.49 → 3.50 (1.75); eggs stay 4.20 (0.70). The bean-yield reaction keeps 1.89 and 4 × 1.29 = 5.16 as example numbers. "Buy shank if the chuck's gone" became "Shank's the one to pick if the chuck's gone", and "the best few dollars you'll spend" became "the most useful little tool in a kitchen".
@@ -474,7 +485,9 @@ Each line below was flagged during M6 (Steps 1–11, from the SDD ledger and the
 **Chrome: words written in code**
 - [ ] The stall screen's own words (`market/stall-screen.ts`, `round-view.ts`): "Question n" (orientation only, never a count of right answers), the right-answer marks "(your pick, the right one)", "That is the round.", "Another round", "Leave the stall", "There are no questions for you at this stall today", the market-offline and "answers can't be kept" lines, and the Protein Counter's consent note.
 - [ ] The stock control (`week/stock-view.ts`): "Out of stock?", "(for {dishes})", the skip and undo words, and the list row's "stall swap for {dish}" and "(out of stock)"; cook mode's "swapped at the market: {swap} for {item}".
-- [ ] The check-off card's buttons and states ("Tick these", "Not now", "Undo", "(not ticked)"), including its "(not ticked)" wording for a row ticked earlier on screen (Task 10 re-review carry).
+- [ ] The check-off card's buttons and states ("Tick these", "Not now", "Undo", "(ticked)", "(not ticked)"). M6 final: a row that was already ticked on the list before the card's write now reads "(already ticked)"; "(not ticked)" is only for a row the write stopped on (out of stock, or a refusal).
+- [ ] Cook mode's wait line while a signed-in reload reads this week's market run (at most 3 s): "Reading this week's market run…" (`cook/cook-screen.ts`, M6 final M9).
+- [ ] A stall swap's curated note (`data/substitutions.json`) now shows only when it names nothing ⛔ or ❓ for the player (M6 final M3); the swap chip stays either way.
 
 **Open `[founder]` rulings (each built on its default; overridable)**
 - [ ] **Ruling 1:** 5 XP for each question's first right answer, and one stall stamp a week for any round played through, whatever the answers.
