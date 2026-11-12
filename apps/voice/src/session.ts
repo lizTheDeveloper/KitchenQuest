@@ -10,6 +10,7 @@ import {
   MAX_UTTERANCE_MS,
   parseUpstreamClientMsg,
   SAMPLE_RATE_IN,
+  UPSTREAM_CLOSE,
   type UpstreamClientMsg,
   type UpstreamServerMsg,
 } from '@kitchenquest/core';
@@ -18,8 +19,8 @@ import type { Logger } from './log.js';
 
 /** The most samples one utterance may hold: MAX_UTTERANCE_MS at SAMPLE_RATE_IN. */
 const MAX_SAMPLES = (MAX_UTTERANCE_MS * SAMPLE_RATE_IN) / 1000;
-/** WebSocket close code for a message the protocol refuses. */
-const CLOSE_BAD_MESSAGE = 4400;
+/** WebSocket close code for a message the protocol refuses (core UPSTREAM_CLOSE, so the API maps it). */
+const CLOSE_BAD_MESSAGE = UPSTREAM_CLOSE.badMessage;
 
 interface SessionIo {
   json(msg: UpstreamServerMsg): void;
@@ -196,6 +197,9 @@ export class Session {
 
   private listen(id: number, hint: string[]): void {
     const old = this.utterance;
+    // Step 5 (G2): ids are fresh per listen (core upstream.ts). A listen reusing the live utterance's id would answer
+    // that id twice (`failed`, then the new transcript), so it is refused as a bad message instead.
+    if (old?.id === id) return this.bad();
     if (old !== null) {
       // One utterance at a time, and none goes unanswered (fix round 3, N1 ruling): a listen replaces one still
       // listening, waiting or transcribing, and answers it `failed` stt. A transcribing one is aborted, so its late

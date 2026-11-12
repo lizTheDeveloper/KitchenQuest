@@ -4,7 +4,20 @@ import { describe, expect, test } from 'vitest';
 import type { ReplyPart, TurnRequest, TurnResponse } from '../mentor/protocol';
 import { MAX_SPEAK_ITEMS } from './constants';
 import { MAX_TEXT } from '../mentor/intents';
-import { decodeFrame, encodeFrame, parseClientMsg, parseServerMsg, parseTurnInput, VOICE_PROTOCOL_VERSION, type ClientMsg, type ServerMsg, type SpeakItem } from './protocol';
+import {
+  decodeFrame,
+  encodeFrame,
+  parseClientMsg,
+  parseServerMsg,
+  parseTurnInput,
+  VOICE_CLOSE_CODES,
+  voiceCloseReason,
+  VOICE_PROTOCOL_VERSION,
+  type ClientMsg,
+  type ServerMsg,
+  type SpeakItem,
+  type VoiceCloseReason,
+} from './protocol';
 
 describe('audio frames', () => {
   test('encodeFrame/decodeFrame round-trip id and samples; < 4 bytes and odd PCM length → null', () => {
@@ -32,7 +45,7 @@ describe('audio frames', () => {
   });
 });
 
-const HELLO: ClientMsg = { t: 'hello', v: 1, conversationId: null, localDate: '2026-11-12', familyTable: false };
+const HELLO: ClientMsg = { t: 'hello', v: 1, conversationId: null, localDate: '2026-11-12', localTime: '09:30', familyTable: false };
 const ITEMS: SpeakItem[] = [
   { kind: 'line', trigger: 'voice.check_screen', index: 0 },
   { kind: 'reply', replyId: '4f1c2a8e-8a8b-4c39-9d3c-0d6a3c1e2b7f', part: 1 },
@@ -68,7 +81,14 @@ describe('parseClientMsg', () => {
       { t: 'end', id: -1 },
       { t: 'end', id: 2 ** 32 },
       { t: 'end', id: '1' },
-      { t: 'hello', v: 1, conversationId: null, localDate: '2026-11-12' },
+      { t: 'hello', v: 1, conversationId: null, localDate: '2026-11-12', localTime: '09:30' },
+      // M7 Step 5 (carry 4): the player's clock is a date and an HH:MM time, as GET /voice/status takes them
+      { t: 'hello', v: 1, conversationId: null, localDate: '2026-11-12', familyTable: false },
+      { ...HELLO, localTime: '9:30' },
+      { ...HELLO, localTime: '24:00' },
+      { ...HELLO, localTime: '09:60' },
+      { ...HELLO, localTime: '09:30:00' },
+      { ...HELLO, localTime: 930 },
       { ...HELLO, familyTable: 'false' },
       { ...HELLO, v: 2 },
       { ...HELLO, localDate: '2026-13-40' },
@@ -182,5 +202,31 @@ describe('fix round 1: transcripts are bounded, never truncated (I2)', () => {
       null,
     ];
     for (const b of bad) expect(parseTurnInput(b), JSON.stringify(b).slice(0, 80)).toBeNull();
+  });
+});
+
+describe('close codes (M7 Step 5, carry 1)', () => {
+  test('every VoiceCloseReason has its own application close code (4000–4999), and voiceCloseReason maps each code back', () => {
+    const reasons: VoiceCloseReason[] = ['signed_out', 'bad_origin', 'consent_required', 'child', 'family_table', 'unavailable', 'another_tab', 'bad_message'];
+    expect(Object.keys(VOICE_CLOSE_CODES).sort()).toEqual([...reasons].sort());
+    expect(VOICE_CLOSE_CODES).toEqual({
+      bad_message: 4400,
+      signed_out: 4401,
+      bad_origin: 4403,
+      another_tab: 4409,
+      consent_required: 4412,
+      child: 4451,
+      family_table: 4452,
+      unavailable: 4503,
+    });
+    const codes = Object.values(VOICE_CLOSE_CODES);
+    expect(new Set(codes).size).toBe(codes.length);
+    for (const r of reasons) {
+      expect(VOICE_CLOSE_CODES[r]).toBeGreaterThanOrEqual(4000);
+      expect(VOICE_CLOSE_CODES[r]).toBeLessThanOrEqual(4999);
+      expect(voiceCloseReason(VOICE_CLOSE_CODES[r])).toBe(r);
+    }
+    for (const code of [1000, 1001, 1006, 4000, 4408]) expect(voiceCloseReason(code), String(code)).toBeNull();
+    expect(Object.isFrozen(VOICE_CLOSE_CODES)).toBe(true);
   });
 });

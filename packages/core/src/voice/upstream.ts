@@ -15,6 +15,9 @@
 //   utterance is answered (`transcript` or `failed`). Step 5 should still keep its own reply timeout per id.
 // - A `speak` replaces the speech in flight, which gets no `audio_end`. `cancel` gets no reply.
 // - An `end` with no audio, or a blank transcript, is `failed` stt.
+// - Ids are fresh per listen (M7 Step 2 fix round 3, G2; Step 5): the API mints a new id for every listen and speak,
+//   so a reply is never taken for another utterance's. The service refuses a `listen` that reuses the id of its live
+//   utterance as a bad message (close UPSTREAM_CLOSE.badMessage), rather than answer one id twice.
 import { MAX_TEXT } from '../mentor/intents';
 import { HINT_MAX_WORDS, MAX_SPEAK_CHARS, MAX_SPEAK_ITEMS } from './constants';
 import { hasExactKeys, isBoundedText, isIndex, isShortString, isU32, plainObject } from './wire';
@@ -31,6 +34,34 @@ export type UpstreamServerMsg =
   | { t: 'transcript'; id: number; text: string }
   | { t: 'audio_end'; id: number; audioMs: number }
   | { t: 'failed'; id: number; kind: 'stt' | 'tts' };
+
+/**
+ * M7 Step 5 (carry 1): how the voice service closes an API socket. `badMessage`: the API sent something the protocol
+ * refuses (an API bug); `idle`: no hello in time, or no message either way for its idle limit (the API reconnects on
+ * its next need); `internal`: an error, or a congested socket; `goingAway`: the service is shutting down.
+ */
+export const UPSTREAM_CLOSE = Object.freeze({ badMessage: 4400, idle: 4408, internal: 1011, goingAway: 1001 } as const);
+/**
+ * And how it refuses an upgrade, as a bare HTTP status before any WebSocket exists: `unauthorized` (a wrong or missing
+ * bearer token), `origin` (a browser's Origin header: only the API may connect), `busy` (at maxConnections),
+ * `notWebSocket` (any plain HTTP request but `GET /ready`, whose 200/503 is the readiness check).
+ */
+export const UPSTREAM_REFUSAL = Object.freeze({ unauthorized: 401, origin: 403, busy: 503, notWebSocket: 426 } as const);
+
+/** What a close code means for the API: its own bug, an idle close (reconnect on demand), or the service down. */
+export function upstreamClose(code: number): 'bad_message' | 'idle' | 'down' {
+  if (code === UPSTREAM_CLOSE.badMessage) return 'bad_message';
+  if (code === UPSTREAM_CLOSE.idle) return 'idle';
+  return 'down';
+}
+
+/** What a refused upgrade means for the API: misconfigured auth, the service full, a wrong URL, or the service down. */
+export function upstreamRefusal(status: number): 'auth' | 'busy' | 'misrouted' | 'down' {
+  if (status === UPSTREAM_REFUSAL.unauthorized || status === UPSTREAM_REFUSAL.origin) return 'auth';
+  if (status === UPSTREAM_REFUSAL.busy) return 'busy';
+  if (status === UPSTREAM_REFUSAL.notWebSocket) return 'misrouted';
+  return 'down';
+}
 
 const NAME_MAX = 128;
 const HINT_WORD_MAX = 64;

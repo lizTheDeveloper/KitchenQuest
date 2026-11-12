@@ -26,7 +26,11 @@ export type SpeakItem =
   | { kind: 'step'; slug: string; step: number; localDate: string };
 
 export type ClientMsg =
-  | { t: 'hello'; v: 1; conversationId: string | null; localDate: string; familyTable: boolean }
+  /**
+   * `localDate` (YYYY-MM-DD) and `localTime` (HH:MM) are the player's clock (M7 Step 5, carry 4): the API checks them
+   * exactly as `GET /voice/status` does and dates the allowance by them. They never change whether voice is available.
+   */
+  | { t: 'hello'; v: 1; conversationId: string | null; localDate: string; localTime: string; familyTable: boolean }
   | { t: 'listen'; id: number; mode: VoiceMode }
   | { t: 'end'; id: number }
   | { t: 'cancel'; id: number }
@@ -35,7 +39,10 @@ export type ClientMsg =
 /** Ruling 5: a state, never a number. `until` is a YYYY-MM-DD. */
 export type VoiceState = { kind: 'available' } | { kind: 'resting'; until: string } | { kind: 'resting_today' };
 
-/** Why the API closed a voice socket. New close codes go here and in the doc comment on the API's `ApiError`. */
+/**
+ * Why the API closed a voice socket. New close codes go here, in VOICE_CLOSE_CODES and in the doc comment on the API's
+ * `ApiError`.
+ */
 export type VoiceCloseReason =
   | 'signed_out'
   | 'bad_origin'
@@ -61,6 +68,28 @@ const TRIGGER = /^[a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+$/;
 const SLUG = /^[a-z0-9-]+(?:\/[a-z0-9-]+)*$/;
 const SLUG_MAX = 200;
 const CLOSE_REASONS: readonly string[] = ['signed_out', 'bad_origin', 'consent_required', 'child', 'family_table', 'unavailable', 'another_tab', 'bad_message'];
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/**
+ * M7 Step 5 (carry 1): the WebSocket close code the API closes a voice socket with, after its `closed { reason }`
+ * message. Application codes (4000–4999), one per reason, so a client that missed the message still knows why.
+ */
+export const VOICE_CLOSE_CODES: Readonly<Record<VoiceCloseReason, number>> = Object.freeze({
+  bad_message: 4400,
+  signed_out: 4401,
+  bad_origin: 4403,
+  another_tab: 4409,
+  consent_required: 4412,
+  child: 4451,
+  family_table: 4452,
+  unavailable: 4503,
+});
+
+/** The reason a VOICE_CLOSE_CODES code stands for; null for any other close code. */
+export function voiceCloseReason(code: number): VoiceCloseReason | null {
+  for (const [reason, c] of Object.entries(VOICE_CLOSE_CODES)) if (c === code) return reason as VoiceCloseReason;
+  return null;
+}
 
 /** One binary frame: a u32 big-endian message id, then PCM16 little-endian mono samples. */
 export function encodeFrame(id: number, pcm: Int16Array): Uint8Array {
@@ -114,12 +143,14 @@ export function parseClientMsg(x: unknown): ClientMsg | null {
   if (!plainObject(x)) return null;
   switch (x.t) {
     case 'hello':
-      return hasExactKeys(x, ['t', 'v', 'conversationId', 'localDate', 'familyTable']) &&
+      return hasExactKeys(x, ['t', 'v', 'conversationId', 'localDate', 'localTime', 'familyTable']) &&
         x.v === VOICE_PROTOCOL_VERSION &&
         (x.conversationId === null || isShortString(x.conversationId, ID_MAX)) &&
         isDate(x.localDate) &&
+        typeof x.localTime === 'string' &&
+        HHMM.test(x.localTime) &&
         typeof x.familyTable === 'boolean'
-        ? { t: 'hello', v: 1, conversationId: x.conversationId, localDate: x.localDate, familyTable: x.familyTable }
+        ? { t: 'hello', v: 1, conversationId: x.conversationId, localDate: x.localDate, localTime: x.localTime, familyTable: x.familyTable }
         : null;
     case 'listen':
       return hasExactKeys(x, ['t', 'id', 'mode']) && isU32(x.id) && (x.mode === 'hold' || x.mode === 'handsFree') ? { t: 'listen', id: x.id, mode: x.mode } : null;

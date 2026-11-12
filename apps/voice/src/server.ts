@@ -9,6 +9,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { Duplex } from 'node:stream';
+import { UPSTREAM_CLOSE, UPSTREAM_REFUSAL } from '@kitchenquest/core';
 import { WebSocketServer, type RawData, type WebSocket } from 'ws';
 import type { VoiceConfig } from './config.js';
 import type { SttEngine, TtsEngine } from './engines/types.js';
@@ -16,8 +17,9 @@ import type { Logger } from './log.js';
 import { Session, SpeechCache } from './session.js';
 
 /** Closes an open session: an error escaped while handling a message (I1). */
-const CLOSE_INTERNAL = 1011;
-const CLOSE_GOING_AWAY = 1001;
+// The codes are core's (Step 5, carry 1), so the API maps the same numbers.
+const CLOSE_INTERNAL = UPSTREAM_CLOSE.internal;
+const CLOSE_GOING_AWAY = UPSTREAM_CLOSE.goingAway;
 /** A frame is 20 ms of PCM16 (644 bytes); a speak is at most a few KB of JSON. */
 const MAX_PAYLOAD = 64 * 1024;
 /**
@@ -48,12 +50,16 @@ const MAX_HEADER_BYTES = 8 * 1024;
  */
 const HELLO_TIMEOUT_MS = 5000;
 export const IDLE_TIMEOUT_MS = 11 * 60_000;
-const CLOSE_IDLE = 4408;
+const CLOSE_IDLE = UPSTREAM_CLOSE.idle;
 
 const digest = (b: Buffer) => createHash('sha256').update(b).digest();
 
 const REFUSE_MS = 500;
-const STATUS: Record<number, string> = { 401: 'Unauthorized', 403: 'Forbidden', 503: 'Service Unavailable' };
+const STATUS: Record<number, string> = {
+  [UPSTREAM_REFUSAL.unauthorized]: 'Unauthorized',
+  [UPSTREAM_REFUSAL.origin]: 'Forbidden',
+  [UPSTREAM_REFUSAL.busy]: 'Service Unavailable',
+};
 
 /**
  * A bare status line, then the socket is destroyed as soon as the line is flushed (at most REFUSE_MS later, for a
@@ -161,7 +167,7 @@ export function createVoiceServer(opts: {
         res.writeHead((opts.health ?? (() => true))() ? 200 : 503, { connection: 'close', 'content-length': '0' }).end();
         return;
       }
-      res.writeHead(426, { connection: 'close' }).end();
+      res.writeHead(UPSTREAM_REFUSAL.notWebSocket, { connection: 'close' }).end();
     },
   );
   // N3: count sockets until their upgrade request arrives (or they close); one over the cap is destroyed unread.
@@ -190,15 +196,15 @@ export function createVoiceServer(opts: {
     // Review M3: the API's Node client sends no Origin; one that does is a browser.
     if (req.headers.origin !== undefined) {
       log('auth_fail', { origin: true });
-      return refuse(socket, 403);
+      return refuse(socket, UPSTREAM_REFUSAL.origin);
     }
     if (!authorised(req)) {
       log('auth_fail');
-      return refuse(socket, 401);
+      return refuse(socket, UPSTREAM_REFUSAL.unauthorized);
     }
     if (open + pending >= config.maxConnections) {
-      log('conn_close', { code: 503, refused: true });
-      return refuse(socket, 503);
+      log('conn_close', { code: UPSTREAM_REFUSAL.busy, refused: true });
+      return refuse(socket, UPSTREAM_REFUSAL.busy);
     }
     pending++;
     let settled = false;

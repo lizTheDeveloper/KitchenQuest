@@ -489,3 +489,39 @@ describe('Session: fix round 3 (N1 ruling): no utterance goes unanswered', () =>
     expect(h.sent.slice(1)).toEqual([{ t: 'failed', id: 1, kind: 'stt' }]);
   });
 });
+
+describe('Session: Step 5 (G2): ids are fresh per listen', () => {
+  test('a listen reusing the live utterance id is a bad message (4400): no failed and no transcript for that id, the buffer zeroed', async () => {
+    const h = harness();
+    h.msg({ t: 'listen', id: 1, hint: [] });
+    h.frame(1, 320);
+    h.msg({ t: 'listen', id: 1, hint: [] });
+    h.frame(1, 320);
+    h.msg({ t: 'end', id: 1 });
+    await h.session.idle();
+    expect(h.closed).toEqual([4400]);
+    expect(h.sent.slice(1)).toEqual([]);
+    expect(h.buffers.every(allZero)).toBe(true);
+  });
+
+  test('the same while it is being transcribed; a fresh id still replaces it with failed stt as before', async () => {
+    let finish!: (s: string) => void;
+    const slow: SttEngine = { model: 'slow', transcribe: () => new Promise<string>((r) => (finish = r)) };
+    const h = harness({ stt: slow });
+    h.msg({ t: 'listen', id: 1, hint: [] });
+    h.frame(1, 320);
+    h.msg({ t: 'end', id: 1 });
+    await until(() => typeof finish === 'function');
+    h.msg({ t: 'listen', id: 1, hint: [] });
+    expect(h.closed).toEqual([4400]);
+    finish('late words');
+    await h.session.idle();
+    expect(h.sent.slice(1)).toEqual([]);
+
+    const k = harness();
+    k.msg({ t: 'listen', id: 1, hint: [] });
+    k.msg({ t: 'listen', id: 2, hint: [] });
+    expect(k.closed).toEqual([]);
+    expect(k.sent.slice(1)).toEqual([{ t: 'failed', id: 1, kind: 'stt' }]);
+  });
+});

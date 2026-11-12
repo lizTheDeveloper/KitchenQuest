@@ -4,7 +4,16 @@ import session from '../../test/fixtures/voice-upstream-session.json';
 import { MAX_TEXT } from '../mentor/intents';
 import { HINT_MAX_WORDS, MAX_SPEAK_CHARS } from './constants';
 import { decodeFrame, encodeFrame } from './protocol';
-import { parseUpstreamClientMsg, parseUpstreamServerMsg, type UpstreamClientMsg, type UpstreamServerMsg } from './upstream';
+import {
+  parseUpstreamClientMsg,
+  parseUpstreamServerMsg,
+  UPSTREAM_CLOSE,
+  UPSTREAM_REFUSAL,
+  upstreamClose,
+  upstreamRefusal,
+  type UpstreamClientMsg,
+  type UpstreamServerMsg,
+} from './upstream';
 
 type Entry = { from: string; msg?: unknown; frame?: { id: number; samples: number } };
 const entries = session.messages as Entry[];
@@ -74,5 +83,27 @@ describe('the upstream protocol', () => {
     const half = 'x'.repeat(MAX_SPEAK_CHARS / 2);
     expect(parseUpstreamClientMsg({ t: 'speak', id: 1, voice: 'pan', chunks: [{ text: half, cache: false }, { text: half, cache: false }] })).not.toBeNull();
     expect(parseUpstreamClientMsg({ t: 'speak', id: 1, voice: 'pan', chunks: [{ text: half, cache: false }, { text: `${half}x`, cache: false }] })).toBeNull();
+  });
+});
+
+describe('the service\'s close codes and refusals (M7 Step 5, carry 1)', () => {
+  test('the socket codes are 4400 bad message, 4408 idle, 1011 internal, 1001 going away; the HTTP refusals before the upgrade 401, 403, 503, 426', () => {
+    expect(UPSTREAM_CLOSE).toEqual({ badMessage: 4400, idle: 4408, internal: 1011, goingAway: 1001 });
+    expect(UPSTREAM_REFUSAL).toEqual({ unauthorized: 401, origin: 403, busy: 503, notWebSocket: 426 });
+    expect(Object.isFrozen(UPSTREAM_CLOSE) && Object.isFrozen(UPSTREAM_REFUSAL)).toBe(true);
+  });
+
+  test('upstreamClose and upstreamRefusal name what each code means for the API; anything else is `down`', () => {
+    expect(upstreamClose(4400)).toBe('bad_message');
+    expect(upstreamClose(4408)).toBe('idle');
+    expect(upstreamClose(1011)).toBe('down');
+    expect(upstreamClose(1001)).toBe('down');
+    expect(upstreamClose(1006)).toBe('down');
+    expect(upstreamClose(1000)).toBe('down');
+    expect(upstreamRefusal(401)).toBe('auth');
+    expect(upstreamRefusal(403)).toBe('auth');
+    expect(upstreamRefusal(503)).toBe('busy');
+    expect(upstreamRefusal(426)).toBe('misrouted');
+    expect(upstreamRefusal(500)).toBe('down');
   });
 });
