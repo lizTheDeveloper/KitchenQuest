@@ -259,7 +259,7 @@ export function validateSeasonTable(d: unknown, graph: IngredientGraph): string[
 
     if (r.parent !== undefined) {
       const parent = typeof r.parent === 'string' ? own(d, r.parent) : undefined;
-      if (typeof r.parent !== 'string' || !isObject(parent)) say(`parent "${String(r.parent)}" is not in the table`);
+      if (typeof r.parent !== 'string' || !isObject(parent)) say(`parent ${JSON.stringify(r.parent)} is not in the table`);
       else if (r.parent === key) say('parent is itself');
       else {
         const mine = matchable(r)?.match.countries;

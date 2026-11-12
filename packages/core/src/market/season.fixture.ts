@@ -84,7 +84,7 @@ export const WITH_CHILD: SeasonTable = Object.freeze({ ...TABLE, 'test-east-vale
 
 export const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 
-export const opt = (text: string, correct = false): StallOption => ({ text, correct, reaction: `${correct ? 'Right' : 'Not quite'}: ${text}.` });
+const opt = (text: string, correct = false): StallOption => ({ text, correct, reaction: `${correct ? 'Right' : 'Not quite'}: ${text}.` });
 
 /** A seasonal question in Wen's shape: one ingredient, the region's labels as options. */
 export function seasonal(id: string, ingredient: string, labels: readonly string[], correct: string): StallQuestion {
