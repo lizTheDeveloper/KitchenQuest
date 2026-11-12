@@ -1,8 +1,9 @@
 // M7 P1: the API <-> voice service protocol (types and strict parsers). The API speaks first (`hello`); the service
 // answers `ready` with its cast. Audio travels as binary frames (protocol.ts `encodeFrame`). The service never gets a
 // user id (C-15), and speaks `chunks` verbatim: the API alone renders and chunks speech (P2). Browser-safe: no I/O.
+import { MAX_TEXT } from '../mentor/intents';
 import { HINT_MAX_WORDS, MAX_SPEAK_CHARS, MAX_SPEAK_ITEMS } from './constants';
-import { hasExactKeys, isIndex, isShortString, isU32, plainObject } from './wire';
+import { hasExactKeys, isBoundedText, isIndex, isShortString, isU32, plainObject } from './wire';
 
 export type UpstreamClientMsg =
   | { t: 'hello'; v: 1 }
@@ -42,8 +43,12 @@ export function parseUpstreamClientMsg(x: unknown): UpstreamClientMsg | null {
       const raw = x.chunks as unknown[];
       if (raw.length === 0 || raw.length > MAX_CHUNKS) return null;
       const chunks: { text: string; cache: boolean }[] = [];
+      let total = 0;
       for (const c of raw) {
         if (!plainObject(c) || !hasExactKeys(c, ['text', 'cache']) || !isShortString(c.text, MAX_SPEAK_CHARS) || typeof c.cache !== 'boolean') return null;
+        // Fix round 1 (M6): MAX_SPEAK_CHARS bounds the whole rendered speak, not each chunk.
+        total += c.text.length;
+        if (total > MAX_SPEAK_CHARS) return null;
         chunks.push({ text: c.text, cache: c.cache });
       }
       return { t: 'speak', id: x.id, voice: x.voice, chunks };
@@ -66,7 +71,8 @@ export function parseUpstreamServerMsg(x: unknown): UpstreamServerMsg | null {
         ? { t: 'ready', stt: x.stt, tts: x.tts, sampleRate: x.sampleRate }
         : null;
     case 'transcript':
-      return hasExactKeys(x, ['t', 'id', 'text']) && isU32(x.id) && typeof x.text === 'string' ? { t: 'transcript', id: x.id, text: x.text } : null;
+      // Fix round 1 (I2): at most MAX_TEXT code points; a longer transcript is refused, never cut.
+      return hasExactKeys(x, ['t', 'id', 'text']) && isU32(x.id) && isBoundedText(x.text, MAX_TEXT) ? { t: 'transcript', id: x.id, text: x.text } : null;
     case 'audio_end':
       return hasExactKeys(x, ['t', 'id', 'audioMs']) && isU32(x.id) && isIndex(x.audioMs) ? { t: 'audio_end', id: x.id, audioMs: x.audioMs } : null;
     case 'failed':

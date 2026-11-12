@@ -1,6 +1,7 @@
 // M7 Step 1 (P1): the API <-> voice service protocol, and the shared scripted session both sides replay (Steps 2, 5).
 import { describe, expect, test } from 'vitest';
 import session from '../../test/fixtures/voice-upstream-session.json';
+import { MAX_TEXT } from '../mentor/intents';
 import { HINT_MAX_WORDS, MAX_SPEAK_CHARS } from './constants';
 import { decodeFrame, encodeFrame } from './protocol';
 import { parseUpstreamClientMsg, parseUpstreamServerMsg, type UpstreamClientMsg, type UpstreamServerMsg } from './upstream';
@@ -65,5 +66,13 @@ describe('the upstream protocol', () => {
       { t: 'transcript', id: 1, text: 5 },
     ];
     for (const m of bad) expect(parseUpstreamServerMsg(m), JSON.stringify(m)).toBeNull();
+  });
+
+  test('fix round 1: a transcript over MAX_TEXT is refused (I2); a speak over MAX_SPEAK_CHARS in total is refused (M6)', () => {
+    expect(parseUpstreamServerMsg({ t: 'transcript', id: 1, text: 'a'.repeat(MAX_TEXT) })).not.toBeNull();
+    expect(parseUpstreamServerMsg({ t: 'transcript', id: 1, text: 'a'.repeat(MAX_TEXT + 1) })).toBeNull();
+    const half = 'x'.repeat(MAX_SPEAK_CHARS / 2);
+    expect(parseUpstreamClientMsg({ t: 'speak', id: 1, voice: 'pan', chunks: [{ text: half, cache: false }, { text: half, cache: false }] })).not.toBeNull();
+    expect(parseUpstreamClientMsg({ t: 'speak', id: 1, voice: 'pan', chunks: [{ text: half, cache: false }, { text: `${half}x`, cache: false }] })).toBeNull();
   });
 });

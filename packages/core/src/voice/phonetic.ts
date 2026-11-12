@@ -1,6 +1,7 @@
 // M7 Ruling 4: phonetic keys and sound-alikes, so a heard card can offer the food a misheard word sounds like
 // ("selfish" → shellfish, "pea cans" → pecan). Browser-safe: no I/O.
 import { normalizeName, type IngredientGraph } from '../ingredients/graph';
+import { isMajorAllergen } from '../mentor/route';
 import type { RuleTerm } from '../mentor/rule-terms';
 import { MAX_ALTERNATIVES } from './constants';
 
@@ -156,8 +157,29 @@ interface Candidate {
 const graphCandidates = new WeakMap<IngredientGraph, Candidate[]>();
 const termCandidates = new WeakMap<readonly RuleTerm[], Candidate[]>();
 
-/** The id a rule term goes by in a heard card: it names no single graph ingredient. */
-export const termId = (term: RuleTerm): string => `term:${term.name}`;
+const TERM_PREFIX = 'term:';
+/** The id a rule term goes by in a heard card (`term:<name>`): it names no single graph ingredient. Internal. */
+export const termId = (term: RuleTerm): string => `${TERM_PREFIX}${term.name}`;
+/** A heard-card id that names a rule term, not a graph ingredient: never pass it to `IngredientGraph.get` (M5). */
+export const isRuleTermId = (id: string): boolean => id.startsWith(TERM_PREFIX);
+
+/**
+ * Graph ids a heard card treats as allergens (fix round 1, I1): core `isMajorAllergen` (the EU's 14 and the US's 9,
+ * their kinds and what contains them), plus bean.
+ */
+const allergenCache = new WeakMap<IngredientGraph, ReadonlySet<string>>();
+function allergenIds(graph: IngredientGraph): ReadonlySet<string> {
+  let s = allergenCache.get(graph);
+  if (s === undefined) {
+    const ids = new Set<string>();
+    for (const label of graph.labels()) {
+      const id = graph.resolve(label)!;
+      if (id === 'bean' || isMajorAllergen(id, graph)) ids.add(id);
+    }
+    allergenCache.set(graph, (s = ids));
+  }
+  return s;
+}
 
 function candidatesOf(graph: IngredientGraph, terms: readonly RuleTerm[]): Candidate[] {
   let g = graphCandidates.get(graph);
@@ -193,6 +215,11 @@ export interface SoundAlike {
   distance: number;
   /** Spelling distance over the longer length, to order equal phonetic distances. */
   spelling: number;
+  /**
+   * A major allergen the word is a phonetic neighbour of (fix round 1, I1): a known confusion, the same key, or one
+   * edit for a word of four letters or more. These rank first after known confusions, and keep a stop word a term.
+   */
+  allergen: boolean;
 }
 
 /** Every sound-alike of `word`, ranked, each id once, the word's own resolution left out. Internal to heard.ts. */
@@ -205,14 +232,17 @@ export function rankSoundAlikes(word: string, graph: IngredientGraph, terms: rea
   for (const term of terms) if (term.phrases.some((p) => normalizeName(p) === w)) own.add(termId(term));
 
   const best = new Map<string, SoundAlike>();
+  const allergens = allergenIds(graph);
+  const long = letters(w).length >= 4;
   const offer = (s: SoundAlike): void => {
     if (own.has(s.id)) return;
+    s.allergen = allergens.has(s.id) && (s.distance <= 0 || (s.distance === 1 && long));
     const cur = best.get(s.id);
     if (cur === undefined || s.distance < cur.distance || (s.distance === cur.distance && s.spelling < cur.spelling)) best.set(s.id, s);
   };
   const wordForms = forms(w);
   for (const c of KNOWN_CONFUSIONS) {
-    if (wordForms.includes(c.heard) && graph.has(c.id)) offer({ id: c.id, name: graph.get(c.id).name, distance: -1, spelling: 0 });
+    if (wordForms.includes(c.heard) && graph.has(c.id)) offer({ id: c.id, name: graph.get(c.id).name, distance: -1, spelling: 0, allergen: false });
   }
   const keys = [...new Set(wordForms.map((f) => phoneticKey(f)))].filter((k) => k !== '');
   const joined = letters(w);
@@ -226,14 +256,16 @@ export function rankSoundAlikes(word: string, graph: IngredientGraph, terms: rea
     }
     if (distance > 1) continue;
     const label = letters(cand.label);
-    offer({ id: cand.id, name: cand.name, distance, spelling: editDistance(joined, label) / Math.max(joined.length, label.length) });
+    offer({ id: cand.id, name: cand.name, distance, spelling: editDistance(joined, label) / Math.max(joined.length, label.length), allergen: false });
   }
-  return [...best.values()].sort((a, b) => a.distance - b.distance || a.spelling - b.spelling || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0) || (a.id < b.id ? -1 : 1));
+  const tier = (s: SoundAlike): number => (s.distance < 0 ? 0 : s.allergen ? 1 : 2);
+  return [...best.values()].sort((a, b) => tier(a) - tier(b) || a.distance - b.distance || a.spelling - b.spelling || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0) || (a.id < b.id ? -1 : 1));
 }
 
 /**
- * Foods (and rule terms) `word` sounds like, closest first, at most `max`: known confusions, then those whose phonetic
- * key is within one edit of the word's (or its singular's). The word's own food is never offered. A word under three
+ * Foods (and rule terms) `word` sounds like, closest first, at most `max`: known confusions, then major allergens it
+ * is a phonetic neighbour of, then the rest whose phonetic key is within one edit of the word's (or its singular's).
+ * A rule term comes as `term:<name>` (`isRuleTermId`), not a graph id. The word's own food is never offered. A word under three
  * letters has none.
  */
 export function soundAlikes(word: string, graph: IngredientGraph, terms: readonly RuleTerm[], max: number = MAX_ALTERNATIVES): { id: string; name: string }[] {

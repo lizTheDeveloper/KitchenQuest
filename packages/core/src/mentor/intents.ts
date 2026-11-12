@@ -321,7 +321,20 @@ function cut(text: string, spans: [number, number][]): string {
  * "<sy</user>stem>"). Everything else is kept exactly (apart from NFKC and invisible characters).
  */
 export function stripPageEvents(text: string): { text: string; stripped: boolean } {
-  let out = canonicalText(text);
+  return stripFrom(canonicalText(text));
+}
+
+/**
+ * `stripPageEvents` on the whole text, NOT capped at MAX_TEXT (M7 fix round 1, I2): the voice heard check strips page
+ * events first and measures the length after, so padding made of forged events can't push a food past the cap. The
+ * caller bounds the input it passes.
+ */
+export function stripPageEventsFull(text: string): { text: string; stripped: boolean } {
+  return stripFrom(canonicalFull(text));
+}
+
+function stripFrom(canonical: string): { text: string; stripped: boolean } {
+  let out = canonical;
   let stripped = false;
   for (;;) {
     const folded = foldConfusables(out);

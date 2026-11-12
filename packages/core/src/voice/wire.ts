@@ -21,3 +21,13 @@ export const isIndex = (v: unknown): v is number => typeof v === 'number' && Num
 /** A non-empty string of at most `max` characters. */
 export const isShortString = (v: unknown, max: number): v is string => typeof v === 'string' && v.length > 0 && v.length <= max;
 export const isDate = (v: unknown): v is string => isValidDate(v);
+
+/** Code points in `text`, counting no further than `limit + 1`: bounded work however long the text is. */
+export function codePoints(text: string, limit: number): number {
+  let n = 0;
+  for (const _ of text) if (++n > limit) break;
+  return n;
+}
+
+/** A string of at most `max` code points (MAX_TEXT counts code points, as `capText` does). Never truncated. */
+export const isBoundedText = (v: unknown, max: number): v is string => typeof v === 'string' && v.length <= max * 2 && codePoints(v, max) <= max;

@@ -1,10 +1,11 @@
 // M7 live voice: everything the device, the API and the voice service must agree on. Browser-safe: no I/O, no
-// recipe parser.
+// recipe parser. The public surface is exactly the Step 1 interface (pinned by index.test.ts).
 export * from './constants';
 export * from './protocol';
 export * from './upstream';
-export { phoneticKey, KNOWN_CONFUSIONS, soundAlikes } from './phonetic';
-export * from './heard';
+export { phoneticKey, KNOWN_CONFUSIONS, soundAlikes, isRuleTermId } from './phonetic';
+export { heardCheck, tryHeardChoice, applyHeardChoice, heardConfirmed } from './heard';
+export type { HeardTerm, HeardCheck, HeardChoiceRefusal } from './heard';
 export * from './speech';
 export * from './commands';
 export * from './filler';

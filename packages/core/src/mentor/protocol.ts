@@ -1,5 +1,5 @@
 import type { Severity } from '../rules/types';
-import type { HeardCheck } from '../voice/heard';
+import type { HeardCheck } from '../voice/heard-types';
 import type { LineRef, ProposalCard, ProposalKind } from './cards';
 
 /**

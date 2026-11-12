@@ -3,7 +3,8 @@
 import { describe, expect, test } from 'vitest';
 import type { ReplyPart, TurnRequest, TurnResponse } from '../mentor/protocol';
 import { MAX_SPEAK_ITEMS } from './constants';
-import { decodeFrame, encodeFrame, parseClientMsg, parseServerMsg, VOICE_PROTOCOL_VERSION, type ClientMsg, type ServerMsg, type SpeakItem } from './protocol';
+import { MAX_TEXT } from '../mentor/intents';
+import { decodeFrame, encodeFrame, parseClientMsg, parseServerMsg, parseTurnInput, VOICE_PROTOCOL_VERSION, type ClientMsg, type ServerMsg, type SpeakItem } from './protocol';
 
 describe('audio frames', () => {
   test('encodeFrame/decodeFrame round-trip id and samples; < 4 bytes and odd PCM length → null', () => {
@@ -141,10 +142,41 @@ describe('the mentor protocol carries voice (M7)', () => {
     const bare: TurnRequest['input'] = { kind: 'transcript', text: 'next step' };
     // @ts-expect-error: heard words travel only with a transcript
     const wrong: TurnRequest['input'] = { kind: 'text', text: 'hi', heard: { words: [] } };
-    const part: ReplyPart = { kind: 'heard', check: { terms: [{ heard: 'selfish', spelled: 'S-E-L-F-I-S-H', id: null, alternatives: [] }], speakSpelling: true } };
+    const part: ReplyPart = { kind: 'heard', check: { tooLong: false, terms: [{ heard: 'selfish', spelled: 'S-E-L-F-I-S-H', id: null, alternatives: [] }], speakSpelling: true } };
     // @ts-expect-error: every response carries a replyId (M7, Ruling 15)
     const noId: TurnResponse = { conversationId: null, route: 'scripted', parts: [], cards: [], actions: [], notice: null, toolTurn: false };
     const withId: TurnResponse = { ...noId, replyId: 'r-1' };
     expect([text.kind, spoken.kind, bare.kind, wrong.kind, part.kind, withId.replyId]).toEqual(['text', 'transcript', 'transcript', 'text', 'heard', 'r-1']);
+  });
+});
+
+describe('fix round 1: transcripts are bounded, never truncated (I2)', () => {
+  test('parseServerMsg refuses a transcript over MAX_TEXT code points and keeps one at MAX_TEXT whole', () => {
+    const at = 'é'.repeat(MAX_TEXT);
+    expect(parseServerMsg({ t: 'transcript', id: 1, text: at })).toEqual({ t: 'transcript', id: 1, text: at });
+    expect(parseServerMsg({ t: 'transcript', id: 1, text: `${at}x` })).toBeNull();
+    expect(parseServerMsg({ t: 'transcript', id: 1, text: 'x'.repeat(100_000) })).toBeNull();
+  });
+
+  test('parseTurnInput: text or transcript, strict, at most MAX_TEXT, heard words bounded; over-long is refused', () => {
+    expect(parseTurnInput({ kind: 'text', text: 'hi' })).toEqual({ kind: 'text', text: 'hi' });
+    expect(parseTurnInput({ kind: 'transcript', text: 'allergic to selfish' })).toEqual({ kind: 'transcript', text: 'allergic to selfish' });
+    const heard = { kind: 'transcript', text: 'allergic to selfish', heard: { words: ['selfish'] } };
+    expect(parseTurnInput(heard)).toEqual(heard);
+    const bad: unknown[] = [
+      { kind: 'transcript', text: 'x'.repeat(MAX_TEXT + 1) },
+      { kind: 'text', text: 'x'.repeat(MAX_TEXT + 1) },
+      { kind: 'transcript', text: '' },
+      { kind: 'transcript', text: '   ' },
+      { kind: 'text', text: 'hi', heard: { words: [] } },
+      { kind: 'transcript', text: 'a', heard: { words: ['x'.repeat(MAX_TEXT + 1)] } },
+      { kind: 'transcript', text: 'a', heard: { words: Array.from({ length: MAX_TEXT + 1 }, () => 'a') } },
+      { kind: 'transcript', text: 'a', heard: { words: [3] } },
+      { kind: 'transcript', text: 'a', heard: { words: ['a'], extra: 1 } },
+      { kind: 'transcript', text: 'a', extra: 1 },
+      { kind: 'voice', text: 'a' },
+      null,
+    ];
+    for (const b of bad) expect(parseTurnInput(b), JSON.stringify(b).slice(0, 80)).toBeNull();
   });
 });

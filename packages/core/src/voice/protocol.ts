@@ -3,8 +3,10 @@
 //
 // Ruling 15: a `speak` message names what to say by id or reference only. No SpeakItem carries text or variables; the
 // API renders every spoken line itself from server-held data.
+import { MAX_TEXT } from '../mentor/intents';
+import type { TurnRequest } from '../mentor/protocol';
 import { MAX_SPEAK_ITEMS } from './constants';
-import { hasExactKeys, isDate, isIndex, isShortString, isU32, plainObject } from './wire';
+import { hasExactKeys, isBoundedText, isDate, isIndex, isShortString, isU32, plainObject } from './wire';
 
 export const VOICE_PROTOCOL_VERSION = 1;
 
@@ -158,7 +160,8 @@ export function parseServerMsg(x: unknown): ServerMsg | null {
       return state === null ? null : { t: x.t, state };
     }
     case 'transcript':
-      return hasExactKeys(x, ['t', 'id', 'text']) && isU32(x.id) && typeof x.text === 'string' ? { t: 'transcript', id: x.id, text: x.text } : null;
+      // Fix round 1 (I2): at most MAX_TEXT code points; a longer transcript is refused (`too_long`), never cut.
+      return hasExactKeys(x, ['t', 'id', 'text']) && isU32(x.id) && isBoundedText(x.text, MAX_TEXT) ? { t: 'transcript', id: x.id, text: x.text } : null;
     case 'too_long':
     case 'audio_end':
       return hasExactKeys(x, ['t', 'id']) && isU32(x.id) ? { t: x.t, id: x.id } : null;
@@ -177,4 +180,22 @@ export function parseServerMsg(x: unknown): ServerMsg | null {
     default:
       return null;
   }
+}
+
+/**
+ * A mentor turn's `input`, strictly (fix round 1, I2): `{ kind: 'text', text }` or `{ kind: 'transcript', text, heard? }`,
+ * text non-blank and at most MAX_TEXT code points, heard words at most MAX_TEXT of them, each at most MAX_TEXT. An
+ * over-long input is refused, never truncated. For the API's turn route (Step 6).
+ */
+export function parseTurnInput(x: unknown): TurnRequest['input'] | null {
+  if (!plainObject(x) || !isBoundedText(x.text, MAX_TEXT) || x.text.trim() === '') return null;
+  if (x.kind === 'text') return hasExactKeys(x, ['kind', 'text']) ? { kind: 'text', text: x.text } : null;
+  if (x.kind !== 'transcript') return null;
+  if (hasExactKeys(x, ['kind', 'text'])) return { kind: 'transcript', text: x.text };
+  if (!hasExactKeys(x, ['kind', 'text', 'heard']) || !plainObject(x.heard) || !hasExactKeys(x.heard, ['words'])) return null;
+  const words = x.heard.words;
+  if (!Array.isArray(words) || words.length > MAX_TEXT) return null;
+  const list = words as unknown[];
+  if (!list.every((w): w is string => isBoundedText(w, MAX_TEXT))) return null;
+  return { kind: 'transcript', text: x.text, heard: { words: [...list] } };
 }
