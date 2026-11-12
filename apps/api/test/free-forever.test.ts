@@ -8,7 +8,7 @@ import type { FastifyInstance, InjectOptions } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { AiProvider } from '../src/ai/provider.js';
 import { buildApp } from '../src/app.js';
-import { defaultCatalog } from '../src/catalog.js';
+import { defaultCatalog, defaultLoopContent } from '../src/catalog.js';
 import { loadConfig } from '../src/config.js';
 import { NOTICES } from '../src/consent/notices.js';
 import { aiCostHours, auditEvents, usageEvents } from '../src/db/schema.js';
@@ -202,6 +202,82 @@ async function everyLoopFeature(cookie: string, ids: string[] = Array.from({ len
   return { plan: got.plan, view, grants };
 }
 
+// ---- M6 Step 11: the market is free forever (§16, never rules 3 and 7; X16) ----
+const loop = defaultLoopContent();
+type Q = { id: string; options: { correct?: boolean }[] };
+/** The written right answer's file index (Ruling 2: `pick` is the option's index in file order). */
+const right = (q: Q): number => q.options.findIndex((o) => o.correct === true);
+const stallQs = (stall: string, n: number): Q[] => loop.market.stalls.get(stall)!.questions.slice(0, n) as Q[];
+const pcQs = (n: number): Q[] => (loop.market.stalls.get('bram')!.variants!.protein_counter!.questions as Q[]).slice(0, n);
+const seasonalQ = (id: string): Q =>
+  Object.values(loop.market.stalls.get('wen')!.seasonal ?? {}).flatMap((m) => Object.values(m).flat()).find((q) => q.id === id) as Q;
+/** One right and one wrong answer when the question allows it, else the right one. */
+const answersFor = (qs: Q[]) => qs.map((q, i) => ({ q: q.id, pick: i === 1 ? (right(q) + 1) % q.options.length : right(q) }));
+const VEGETARIAN = { target: { kind: 'category', ids: ['meat', 'fish', 'shellfish', 'gelatin'] }, type: 'avoid', severity: 'preference' };
+
+/**
+ * Everything the M6 market keeps free, with no AI and no entitlement: a round at every stall (the seasonal round for
+ * a Washington, USA profile, and the Protein Counter under a vegetarian rule), the list with amounts, a stall swap,
+ * a check-off by the scripted grammar (at the cap, AI off or on), a tick by tap, finish, and the export. `ids` fixes
+ * the events' client ids, so two players can send identical events.
+ */
+async function everyMarketFeature(cookie: string, ids: string[] = Array.from({ length: 6 }, () => randomUUID())) {
+  const consents = (await call(cookie, { method: 'GET', url: '/me/consents' })).json<{ consents: { purpose: string; current: boolean }[] }>();
+  if (!consents.consents.some((c) => c.purpose === 'health_data' && c.current)) expect((await grant(cookie, 'health_data')).statusCode).toBe(201);
+  expect((await call(cookie, { method: 'PUT', url: '/profile', payload: { country: 'United States', region: 'Washington' } })).statusCode).toBe(200);
+  const plan: Plan = { weekStart: WEEK, hard: false, slot: 'declined', items: [{ day: 6, kind: 'dish', slug: PARIPPU, servings: 3 }] };
+  expect((await call(cookie, { method: 'PUT', url: `/plans/${WEEK}`, payload: { plan, confirmed: true, today: TODAY } })).statusCode).toBe(200);
+  const opened = await call(cookie, { method: 'POST', url: '/market-runs', payload: { weekStart: WEEK, today: TODAY } });
+  expect(opened.statusCode, opened.body).toBe(200);
+  const run = opened.json<MarketRunView>();
+  // List amounts, for free.
+  expect(run.items.find((i) => i.key === 'moong_dal')?.amounts).toEqual([{ quantity: 100, unit: 'g', text: '100 g' }]);
+  // A stall swap: the dal out of stock, red lentils taken (core's curated offer).
+  const swap = await call(cookie, { method: 'POST', url: `/market-runs/${run.id}/stock`, payload: { key: 'moong_dal', action: 'take', toId: 'red_lentil' } });
+  expect(swap.statusCode, swap.body).toBe(200);
+  expect(swap.json<MarketRunView>().items.some((i) => i.key === 'stock:red_lentil' && i.ticked)).toBe(true);
+  // Check-off by the scripted grammar: ticked at once (C31), whatever the AI allowance says.
+  const said = await turn(cookie, 'got the shallots');
+  expect(said.route).toBe('deterministic');
+  expect(said.cards.map((c) => c.card.kind)).toEqual(['check_off']);
+  expect(said.actions.map((a) => a.kind)).toEqual(['confirmed']);
+  // Check-off by tap, and the shop done.
+  const garlic = await call(cookie, { method: 'POST', url: `/market-runs/${run.id}/ticks`, payload: { key: 'garlic', ticked: true, today: TODAY } });
+  expect(garlic.statusCode, garlic.body).toBe(200);
+  const after = garlic.json<MarketRunView>();
+  expect(after.items.filter((i) => i.ticked).map((i) => i.key).sort()).toEqual(['garlic', 'shallot', 'stock:red_lentil']);
+  const done = await call(cookie, { method: 'POST', url: `/market-runs/${run.id}/finish`, payload: { confirmed: true, today: TODAY } });
+  expect(done.statusCode, done.body).toBe(200);
+
+  // A round at every stall: right and wrong answers alike, Wen's seasonal round for the PNW in November.
+  const rounds: ProgressEvent[] = [
+    { id: ids[0], kind: 'stall_round', at: TODAY, stall: 'wen', answers: [...answersFor(stallQs('wen', 2)), { q: 'wen-pnw-11-cranberry', pick: right(seasonalQ('wen-pnw-11-cranberry')) }] },
+    { id: ids[1], kind: 'stall_round', at: TODAY, stall: 'okafor-sato', answers: answersFor(stallQs('okafor-sato', 3)) },
+    { id: ids[2], kind: 'stall_round', at: TODAY, stall: 'spice', answers: answersFor(stallQs('spice', 3)) },
+    { id: ids[3], kind: 'stall_round', at: TODAY, stall: 'bram', answers: answersFor(stallQs('bram', 3)) },
+  ];
+  const posted = await call(cookie, { method: 'POST', url: '/progress/events', payload: { events: rounds } });
+  expect(posted.statusCode, posted.body).toBe(200);
+  const a = posted.json<{ accepted: { clientId: string; grants: RewardGrant[] }[]; rejected: unknown[] }>();
+  expect(a.rejected).toEqual([]);
+  // The Protein Counter, a full stall: a vegetarian rule, then its round (health_data granted above).
+  expect((await call(cookie, { method: 'POST', url: '/rules', payload: { rule: VEGETARIAN, confirmed: true } })).statusCode).toBe(201);
+  const pc: ProgressEvent = { id: ids[4], kind: 'stall_round', at: TODAY, stall: 'bram', answers: answersFor(pcQs(2)) };
+  const posted2 = await call(cookie, { method: 'POST', url: '/progress/events', payload: { events: [pc] } });
+  expect(posted2.statusCode, posted2.body).toBe(200);
+  const b = posted2.json<{ accepted: { clientId: string; grants: RewardGrant[] }[]; rejected: unknown[] }>();
+  expect(b.rejected).toEqual([]);
+
+  const view = (await call(cookie, { method: 'GET', url: '/progress' })).json<{ view: ProgressView }>().view;
+  const exported = await call(cookie, { method: 'GET', url: '/me/export' });
+  expect(exported.statusCode).toBe(200);
+  expect(exported.body).toContain('wen-pnw-11-cranberry');
+  expect(exported.body).toContain(pcQs(1)[0].id);
+  expect(exported.body).toContain('stock:red_lentil');
+  const grants = [...a.accepted, ...b.accepted].flatMap((x) => x.grants.map((g) => ({ ...g, id: g.id.replace(x.clientId, 'e'), eventId: 'e' })));
+  return { view, grants };
+}
+
 describe('free forever (§16)', () => {
   it('AI off and the global budget spent: every free feature works; the mentor is scripted (ai_off / needs_ai_health), never 402 or 403', async () => {
     await makeApp(null);
@@ -286,6 +362,50 @@ describe('free forever (§16)', () => {
     expect(a.grants.length).toBeGreaterThan(5);
   });
 
+  // ---- M6 Step 11: the market is free forever (§16, never rules 3 and 7; X16). ----
+
+  it('M6: AI off, capped, no entitlements: every stall (seasonal and Protein Counter), amounts, a stall swap, the grammar check-off, a tap, export and delete', async () => {
+    await makeApp(null);
+    const p = await cappedFreePlayer();
+    const m = await everyMarketFeature(p.cookie);
+    // Five rounds: 5 XP a right first answer, one stamp a stall a week (Bram's two variants are one stall).
+    expect(m.grants.filter((g) => g.kind === 'stamp').length).toBe(4);
+    expect(m.view.xp).toBeGreaterThanOrEqual(5 * 6);
+    expect(Object.keys(m.view.marketAnswered).length).toBeGreaterThan(0);
+    await deleteAccount(p.cookie);
+    expect((await call(p.cookie, { method: 'GET', url: '/progress' })).statusCode).toBe(401);
+  });
+
+  it('M6: AI on but capped (no ai_health): the grammar check-off still ticks, with no model call', async () => {
+    const ai = fakeAi([]);
+    await makeApp(ai);
+    const p = await cappedFreePlayer();
+    await everyMarketFeature(p.cookie);
+    expect(ai.requests).toHaveLength(0);
+    await deleteAccount(p.cookie);
+  });
+
+  it('M6: a Guild player earns exactly the grants a free, capped player earns for the same stall rounds (never rule 3)', async () => {
+    await makeApp(null);
+    const free = await cappedFreePlayer();
+    const guildCookie = await signIn(app, mailer, `guild${++seq}@example.com`);
+    const guildId = (await call(guildCookie, { method: 'GET', url: '/me' })).json<{ id: string }>().id;
+    await grantEntitlement(db, guildId, 'guild', 'manual', new Date(NOW.getTime() - HOUR));
+    const ids = Array.from({ length: 6 }, () => randomUUID());
+    const a = await everyMarketFeature(free.cookie, ids);
+    const b = await everyMarketFeature(guildCookie, ids);
+    expect(b.grants).toEqual(a.grants);
+    expect(b.view).toEqual(a.view);
+    expect(a.grants.length).toBeGreaterThan(5);
+  });
+
+  it('M6: the market code reads no entitlement (never rule 3)', () => {
+    for (const rel of ['../src/week/market-service.ts', '../src/progress/service.ts', '../src/progress/catalogue.ts', '../src/mentor/check-off-turn.ts']) {
+      const src = readFileSync(new URL(rel, import.meta.url), 'utf8');
+      expect(src, rel).not.toMatch(/entitlement|guild|subscri/i);
+    }
+  });
+
   it('no response body in this file sells (never rule 7), the export\'s processor register aside', () => {
     expect(allBodies.length).toBeGreaterThan(20);
     for (const { url, body } of allBodies) {
@@ -302,7 +422,7 @@ describe('free forever (§16)', () => {
   });
 
   it('no mentor response in this file sells (never rule 7)', () => {
-    expect(turnBodies.length).toBe(8);
+    expect(turnBodies.length).toBe(8 + 4);
     for (const b of turnBodies) expect(b).not.toMatch(SELLS);
   });
 });

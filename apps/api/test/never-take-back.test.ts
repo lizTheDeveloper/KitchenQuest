@@ -19,6 +19,7 @@ import {
   type RewardGrant,
   type RewardsData,
   type RulesContext,
+  SNAPSHOT_EVERY,
 } from '@kitchenquest/core';
 import fc from 'fast-check';
 import { eq } from 'drizzle-orm';
@@ -27,7 +28,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
 import { defaultCatalog, defaultLoopContent, type LoopContent } from '../src/catalog.js';
 import { NOTICES } from '../src/consent/notices.js';
-import { rewardGrants } from '../src/db/schema.js';
+import { progressSnapshots, rewardGrants } from '../src/db/schema.js';
 import { CaptureMailer } from '../src/mail/mailer.js';
 import { catalogueFor } from '../src/progress/catalogue.js';
 import { catalogueHash } from '../src/progress/snapshot.js';
@@ -195,6 +196,93 @@ describe('grants survive (spec §6)', () => {
     const again = await post(p.cookie, events, true);
     expect(again.accepted).toEqual([]);
     await step('device re-upload');
+  });
+});
+
+// M6 Step 11 (spec §6, Ruling 1, Ruling 17, Ruling 18): a stall round's grants are fixed when made. A rules change that
+// hides questions already answered (a vegetarian rule over Bram's beef; a soy rule over Okafor-Sato's tofu), a snapshot
+// rebuild, a health_data withdraw-with-delete that erases every stall round (Protein Counter rounds included), and a
+// rewards.yaml retune of market_game to lower amounts at a second boot lower nothing.
+describe('stall-round grants survive (M6 Step 11)', () => {
+  type Q = { id: string; contains?: string[]; options: { correct?: boolean }[] };
+  const loopC = defaultLoopContent();
+  const right = (q: Q) => q.options.findIndex((o) => o.correct === true);
+  const qs = (stall: string): Q[] => loopC.market.stalls.get(stall)!.questions as Q[];
+  const roundOf = (stall: string, list: Q[], at = TODAY): ProgressEvent => ({ id: eid(), kind: 'stall_round', at, stall, answers: list.map((q) => ({ q: q.id, pick: right(q) })) });
+  const VEGETARIAN = { target: { kind: 'category', ids: ['meat', 'fish', 'shellfish', 'gelatin'] }, type: 'avoid', severity: 'preference' };
+  const SOY = { target: { kind: 'ingredient', ids: ['soy'] }, type: 'avoid', severity: 'allergy' };
+  const addRule = async (cookie: string, rule: unknown) => {
+    const res = await call(cookie, { method: 'POST', url: '/rules', payload: { rule, confirmed: true } });
+    expect(res.statusCode, res.body).toBe(201);
+  };
+  const snapshotOf = async (userId: string) => (await db.select().from(progressSnapshots).where(eq(progressSnapshots.userId, userId)))[0];
+  const kinds = async (userId: string) => (await sql<{ kind: string }[]>`select kind from progress_events where user_id = ${userId}`).map((r) => r.kind);
+
+  it('a rules change hiding answered questions, a snapshot rebuild, a health_data delete of every round and a lower market_game retune keep every grant', async () => {
+    await boot();
+    const p = await player();
+    // Rounds at every base stall, the right answer each time: Bram's beef, Okafor-Sato's tofu among them.
+    const beef = qs('bram').filter((q) => (q.contains ?? []).some((c) => /beef|chuck/.test(c))).slice(0, 2);
+    const tofu = qs('okafor-sato').filter((q) => (q.contains ?? []).includes('tofu')).slice(0, 2);
+    expect(beef.length, 'Bram has beef questions').toBeGreaterThan(0);
+    expect(tofu.length, 'Okafor-Sato has tofu questions').toBeGreaterThan(0);
+    const first = await post(p.cookie, [roundOf('wen', qs('wen').slice(0, 3)), roundOf('bram', beef), roundOf('okafor-sato', tofu), roundOf('spice', qs('spice').slice(0, 2))]);
+    expect(first.rejected).toEqual([]);
+    const start = await view(p.cookie);
+    expect(start.xp).toBe(5 * (3 + beef.length + tofu.length + 2));
+    expect(start.stamps).toBe(4);
+    const grants = await grantRows(p.id);
+    let last = start;
+    const step = async (label: string) => {
+      const now = await view(p.cookie);
+      expectNoLower(start, now, label);
+      expectNoLower(last, now, label);
+      expect(await grantRows(p.id), `${label}: grant rows`).toEqual(grants);
+      last = now;
+    };
+
+    // A vegetarian rule hides Bram's beef (the Protein Counter now); a soy rule hides every tofu question.
+    await addRule(p.cookie, VEGETARIAN);
+    await step('vegetarian rule over answered beef questions');
+    // The Protein Counter, a full stall: its round earns as any other.
+    const pc = (loopC.market.stalls.get('bram')!.variants!.protein_counter!.questions as Q[]).slice(0, 3);
+    expect((await post(p.cookie, [roundOf('bram', pc)])).rejected).toEqual([]);
+    const withPc = await grantRows(p.id);
+    expect(withPc.length).toBeGreaterThan(grants.length);
+    grants.splice(0, grants.length, ...withPc);
+    last = await view(p.cookie);
+    await addRule(p.cookie, SOY);
+    await step('soy rule over answered tofu questions');
+    // The hidden questions are refused now (bad_event), and their earlier grants stay.
+    const hidden = await post(p.cookie, [roundOf('okafor-sato', tofu.slice(0, 1))]);
+    expect(hidden.rejected.map((r) => r.problems)).toEqual([['bad_event']]);
+    await step('a hidden question refused');
+    const peak = last;
+
+    // A snapshot (past SNAPSHOT_EVERY events), then dropped and rebuilt from the ledgers: the same view.
+    const filler = Array.from({ length: SNAPSHOT_EVERY + 1 }, (_, i): ProgressEvent => ({ id: eid(), kind: 'lesson', at: addDays(TODAY, -Math.floor(i / 150)), recipe: [PARIPPU, ONIGIRI, FRIJOLES][i % 3] }));
+    for (let i = 0; i < filler.length; i += 100) await post(p.cookie, filler.slice(i, i + 100));
+    expect(await snapshotOf(p.id), 'a snapshot was written').toBeDefined();
+    grants.splice(0, grants.length, ...(await grantRows(p.id)));
+    const cached = await view(p.cookie);
+    await sql`delete from progress_snapshots where user_id = ${p.id}`;
+    const rebuilt = await view(p.cookie);
+    expect(rebuilt).toEqual(cached);
+    last = cached;
+    await step('snapshot rebuild');
+
+    // health_data withdrawn with "delete": every stall round goes (the Protein Counter one too), the snapshot with them; grants stay.
+    expect((await call(p.cookie, { method: 'DELETE', url: '/me/consents/health_data', payload: { healthData: 'delete' } })).statusCode).toBe(204);
+    expect((await kinds(p.id)).filter((k) => k === 'stall_round')).toEqual([]);
+    expect(await snapshotOf(p.id)).toBeUndefined();
+    await step('health_data delete erasing every stall round');
+    expectNoLower(peak, await view(p.cookie), 'against the peak');
+
+    // A second boot with market_game retuned lower: grants fixed when made, nothing lowered.
+    const base = defaultLoopContent();
+    const lower: RewardsData = { ...base.rewards, xp: { ...base.rewards.xp, market_game: 1 }, stamps: { ...base.rewards.stamps, market_game: 0 } };
+    await boot({ ...base, rewards: lower });
+    await step('market_game retuned lower at a second boot');
   });
 });
 
