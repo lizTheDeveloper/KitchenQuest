@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { BRAM, graph, question, SPICE, WEN } from './fixtures';
-import type { StallQuestion } from './types';
+import type { StallFile, StallQuestion } from './types';
 import { validateStallFile } from './validate';
 
 const KNOWN = new Set(['cut_match', 'value', 'label', 'safety', 'sniff', 'freshness', 'substitute', 'ripeness', 'storage', 'seasonal']);
@@ -8,9 +8,9 @@ const opts = { knownGames: KNOWN };
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 
 /** A Bram file that passes: the fixture without its tofu question (tofu isn't in the graph), plus a priced value question. */
-function goodBram(): Record<string, any> {
-  const d = clone(BRAM) as Record<string, any>;
-  d.variants.protein_counter.questions = d.variants.protein_counter.questions.filter((q: StallQuestion) => q.id !== 'bram-pc-tofu');
+function goodBram(): StallFile {
+  const d = clone(BRAM);
+  pc(d).questions = pc(d).questions.filter((q: StallQuestion) => q.id !== 'bram-pc-tofu');
   d.questions.push(clone(VALUE));
   return d;
 }
@@ -29,15 +29,17 @@ const VALUE: StallQuestion = {
   chalkboard: [{ price: 22.5, servings: 6 }, { price: 38, servings: 4 }, { price: 24, servings: 5 }],
 };
 
+const pc = (d: StallFile) => d.variants!.protein_counter!;
 const problems = (d: unknown) => validateStallFile(d, graph, opts);
 /** The problems for a good Bram with one change made by `edit`. */
-function with_(edit: (d: Record<string, any>) => void): string[] {
+function with_(edit: (d: StallFile) => void): string[] {
   const d = goodBram();
   edit(d);
   return problems(d);
 }
-const q = (d: Record<string, any>, id: string): Record<string, any> =>
-  [...d.questions, ...d.variants.protein_counter.questions].find((x: StallQuestion) => x.id === id);
+const q = (d: StallFile, id: string): StallQuestion => [...d.questions, ...pc(d).questions].find((x) => x.id === id)!;
+/** The chalkboard of the priced value question. */
+const board = (d: StallFile) => q(d, 'bram-value-braise').chalkboard!;
 
 describe('validateStallFile (never throws; each problem names the stall, the key path and the id)', () => {
   test('the good fixtures pass', () => {
@@ -58,30 +60,30 @@ describe('validateStallFile (never throws; each problem names the stall, the key
     expect(problems(BRAM)).toEqual(['bram: variants.protein_counter.questions[3] (bram-pc-tofu): contains "tofu" is not in the ingredient graph']);
     // An unknown game for the stall, and a game key nothing knows.
     expect(with_((d) => { q(d, 'bram-braise-cut').game = 'sniff'; })).toEqual(['bram: questions[0] (bram-braise-cut): game "sniff" is not one of this stall\'s games']);
-    expect(with_((d) => { delete q(d, 'bram-braise-cut').game; })).toEqual(['bram: questions[0] (bram-braise-cut): game undefined is not one of this stall\'s games']);
+    expect(with_((d) => { Reflect.deleteProperty(q(d, 'bram-braise-cut'), 'game'); })).toEqual(['bram: questions[0] (bram-braise-cut): game undefined is not one of this stall\'s games']);
     expect(with_((d) => { d.games.darts = 'Throw things.'; })).toEqual(['bram: games.darts: not a known game']);
     // An item_tips key not in the graph, in the base and the variant.
     expect(with_((d) => { d.item_tips.wagyu = { pick: 'Marbled.', store: 'Fridge.' }; })).toEqual(['bram: item_tips.wagyu: not in the ingredient graph']);
-    expect(with_((d) => { d.variants.protein_counter.item_tips.seitan = { pick: 'Springy.', store: 'Fridge.' }; })).toEqual(['bram: variants.protein_counter.item_tips.seitan: not in the ingredient graph']);
+    expect(with_((d) => { pc(d).item_tips.seitan = { pick: 'Springy.', store: 'Fridge.' }; })).toEqual(['bram: variants.protein_counter.item_tips.seitan: not in the ingredient graph']);
     // A duplicate question id across questions, variants and seasonal.
     expect(with_((d) => { q(d, 'bram-pc-lentils').id = 'bram-braise-cut'; })).toEqual(['bram: variants.protein_counter.questions[0] (bram-braise-cut): duplicate question id, also at questions[0]']);
     expect(with_((d) => { d.seasonal = { 'pnw-usa': { 11: [question('bram-thermometer', { game: 'safety' })] } }; })).toEqual(['bram: seasonal.pnw-usa.11[0] (bram-thermometer): duplicate question id, also at questions[5]']);
     // An agency named with no countries scope (Ruling 8), in any text.
-    expect(with_((d) => { delete q(d, 'bram-usda-label').countries; })).toEqual(['bram: questions[4] (bram-usda-label): prompt names USDA but has no countries scope']);
+    expect(with_((d) => { Reflect.deleteProperty(q(d, 'bram-usda-label'), 'countries'); })).toEqual(['bram: questions[4] (bram-usda-label): prompt names USDA but has no countries scope']);
     expect(with_((d) => { q(d, 'bram-thermometer').explain = 'The FSA says to cool rice within an hour.'; })).toEqual(['bram: questions[5] (bram-thermometer): explain names FSA but has no countries scope']);
     expect(with_((d) => { q(d, 'bram-thermometer').options[1].reaction = 'FSIS charts say otherwise.'; })).toEqual(['bram: questions[5] (bram-thermometer): options[1].reaction names FSIS but has no countries scope']);
     expect(with_((d) => { q(d, 'bram-usda-label').countries = []; })).toEqual(['bram: questions[4] (bram-usda-label): countries is not a non-empty list of country names']);
     // A faq entry with an empty q, in the base and the variant.
     expect(with_((d) => { d.faq[0].q = []; })).toEqual(['bram: faq[0].q is empty: it needs at least one non-empty question']);
-    expect(with_((d) => { d.variants.protein_counter.faq[1].q = ['']; })).toEqual(['bram: variants.protein_counter.faq[1].q is empty: it needs at least one non-empty question']);
+    expect(with_((d) => { pc(d).faq[1].q = ['']; })).toEqual(['bram: variants.protein_counter.faq[1].q is empty: it needs at least one non-empty question']);
   });
 
   test('value question: correct option not the cheapest per serving → problem; a reaction "= 3.80" when the entry gives 3.75 → problem', () => {
-    expect(with_((d) => { q(d, 'bram-value-braise').chalkboard[0].price = 30; q(d, 'bram-value-braise').options[0].reaction = 'Chuck.'; })).toEqual([
+    expect(with_((d) => { board(d)[0].price = 30; q(d, 'bram-value-braise').options[0].reaction = 'Chuck.'; })).toEqual([
       'bram: questions[6] (bram-value-braise): options[0] is correct but is not the strict cheapest per serving',
     ]);
     // A tie is not a strict minimum: 24 ÷ 5 = 4.80, and 28.80 ÷ 6 = 4.80.
-    expect(with_((d) => { q(d, 'bram-value-braise').chalkboard[0].price = 28.8; q(d, 'bram-value-braise').options[0].reaction = 'Chuck.'; })).toEqual([
+    expect(with_((d) => { board(d)[0].price = 28.8; q(d, 'bram-value-braise').options[0].reaction = 'Chuck.'; })).toEqual([
       'bram: questions[6] (bram-value-braise): options[0] is correct but is not the strict cheapest per serving',
     ]);
     expect(with_((d) => { q(d, 'bram-value-braise').options[0].reaction = 'Chuck: 22.50 ÷ 6 = 3.80 a serving.'; })).toEqual([
@@ -94,11 +96,11 @@ describe('validateStallFile (never throws; each problem names the stall, the key
     // "≈" and figures with no "=" are not checked.
     expect(with_((d) => { q(d, 'bram-value-braise').options[1].reaction = 'About ≈ 9.5. Chuck is 3.75.'; })).toEqual([]);
     // Shape: one entry per option, positive numbers, and only on a value question.
-    expect(with_((d) => { q(d, 'bram-value-braise').chalkboard.pop(); })).toEqual(['bram: questions[6] (bram-value-braise): chalkboard needs one entry per option']);
-    expect(with_((d) => { q(d, 'bram-value-braise').chalkboard[2].servings = 0; })).toEqual(['bram: questions[6] (bram-value-braise): chalkboard[2] is not { price, servings } with positive numbers']);
+    expect(with_((d) => { board(d).pop(); })).toEqual(['bram: questions[6] (bram-value-braise): chalkboard needs one entry per option']);
+    expect(with_((d) => { board(d)[2].servings = 0; })).toEqual(['bram: questions[6] (bram-value-braise): chalkboard[2] is not { price, servings } with positive numbers']);
     expect(with_((d) => { q(d, 'bram-value-braise').game = 'label'; })).toEqual(['bram: questions[6] (bram-value-braise): has a chalkboard but is not a value question']);
     // A value question that states a price needs a chalkboard.
-    expect(with_((d) => { delete q(d, 'bram-value-braise').chalkboard; })).toEqual(['bram: questions[6] (bram-value-braise): prompt states a price but the question has no chalkboard']);
+    expect(with_((d) => { Reflect.deleteProperty(q(d, 'bram-value-braise'), 'chalkboard'); })).toEqual(['bram: questions[6] (bram-value-braise): prompt states a price but the question has no chalkboard']);
     expect(with_((d) => { q(d, 'bram-pc-lentils').options[1].reaction = 'Tempeh is 1.75 a serving.'; })).toEqual(['bram: variants.protein_counter.questions[0] (bram-pc-lentils): options[1].reaction states a price but the question has no chalkboard']);
     expect(with_((d) => { q(d, 'bram-pc-lentils').prompt = 'Lentils 1.79 a bag (7 servings): cheap?'; })).toEqual(['bram: variants.protein_counter.questions[0] (bram-pc-lentils): prompt states a price but the question has no chalkboard']);
   });

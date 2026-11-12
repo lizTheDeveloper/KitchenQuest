@@ -176,7 +176,7 @@ export function validateStallFile(d: unknown, graph: IngredientGraph, opts: { kn
           });
           const c = options.findIndex((o: unknown) => isObject(o) && o.correct === true);
           if (c >= 0 && per.every((p) => p !== null)) {
-            const nums = per as number[];
+            const nums = per; // every() narrowed it to number[]
             if (nums.some((p, k) => k !== c && !(nums[c] < p))) bad(`options[${c}] is correct but is not the strict cheapest per serving`);
             options.forEach((o: unknown, k: number) => {
               if (!isObject(o) || typeof o.reaction !== 'string') return;
