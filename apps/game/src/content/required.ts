@@ -42,6 +42,8 @@ export const M6_MARKET_TRIGGERS_AI = {
   'market.bank_small': 'never',
   'market.practice': 'allowed',
   'market.round_done': 'allowed',
+  // Fix round 1 (I4): the right-answer line at a stall (market.cheer is the check-off's).
+  'market.answer_right': 'allowed',
   'market.leave_round': 'allowed',
   'market.no_swap': 'never',
   'market.stock_swapped': 'never',

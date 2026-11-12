@@ -86,6 +86,18 @@ describe('the round view (M6 Step 9)', async () => {
     expect(none).toEqual([{ how: 'left', answers: [] }]);
   });
 
+  test('I3: the chalkboard rows follow the same fixed option order as the buttons (row 1 never gives the answer away)', () => {
+    for (const q of [braise, ...m.stalls.bram.variants!.protein_counter!.questions.filter((x) => x.chalkboard !== undefined)]) {
+      const el = mount();
+      renderRound(el, deps([q]));
+      const rows = [...el.querySelectorAll('.stall-chalkboard tbody tr')];
+      const order = optionOrder(q.id, q.options.length);
+      expect(rows.map((r) => r.querySelector('th')!.textContent)).toEqual(order.map((i) => q.options[i].text));
+      expect(rows.map((r) => r.querySelectorAll('td')[0].textContent)).toEqual(order.map((i) => boardNumber(q.chalkboard![i].price)));
+      expect(rows.map((r) => r.querySelector('th')!.textContent)).toEqual(options(el).map((b) => b.querySelector('span')!.textContent));
+    }
+  });
+
   test('a chalkboard question shows the board and the example-price footnote; no currency symbol in the DOM', () => {
     const el = mount();
     renderRound(el, deps([braise]));

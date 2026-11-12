@@ -428,3 +428,94 @@ describe('M5 Step 11 fix I2: a signed-in meal_logged waits in its own account un
     expect(meals(store, null)).toEqual([]);
   });
 });
+
+// M6 Step 9 fix round 1 (I1, M8): the review's scratch repro. A Protein Counter round reveals a meat-excluding rule
+// (Ruling 17), so the guest → account move holds it back until the account has health_data consent, and opens the
+// consent card. An event the server refuses is never filed under the account: it stays in the guest partition (not
+// offered again), and its grants are never shown with the account.
+describe('the guest → account move and health-revealing stall rounds (fix round 1, I1)', async () => {
+  const { loadMarket } = await import('../market/content');
+  const { catalogueOf, rulesContextOf, withMarket } = await import('./catalogue');
+  const market = await loadMarket();
+  withMarket(market);
+  const TODAY = '2026-11-12';
+  const VEG = { id: 'r-veg', target: { kind: 'category' as const, ids: ['meat', 'fish', 'shellfish', 'gelatin'] }, type: 'avoid' as const, severity: 'preference' as const };
+  const pcq = market.stalls.bram.variants!.protein_counter!.questions[0];
+  const pcRound = (): ProgressEvent => ({ id: newEventId(), kind: 'stall_round', at: TODAY, stall: 'bram', answers: [{ q: pcq.id, pick: pcq.options.findIndex((o) => o.correct) }] });
+
+  function guestWithRound(answer: (p: Post) => ApiResult<ProgressPostResponse>, consent: { granted: boolean }) {
+    const store = createStore(null);
+    store.update((s) => ({ ...s, localRules: [VEG] }));
+    const posts: Post[] = [];
+    const held: (() => void)[] = [];
+    const client = { postProgressEvents: (events: ProgressEvent[], upload?: true) => { const p = { events, upload }; posts.push(p); return Promise.resolve(answer(p)); } } as unknown as ApiClient;
+    const sync = createProgressSync({
+      store, client, online: () => true, gapMs: 0, catalogue: catalogueOf(), context: () => rulesContextOf([VEG], [], TODAY),
+      healthConsent: () => Promise.resolve(consent.granted), onHeldForConsent: (retry) => { held.push(retry); },
+    });
+    return { store, posts, held, sync };
+  }
+  const refuseStallRounds = (p: Post) => ok({
+    accepted: p.events.filter((e) => e.kind !== 'stall_round').map((e) => ({ clientId: e.id, grants: [] })),
+    rejected: p.events.filter((e) => e.kind === 'stall_round').map((e) => ({ clientId: e.id, problems: ['consent_required'] })),
+  });
+
+  test('no health_data: the round is held in the guest partition (its grants unshown with the account), the consent card is asked for, the rest moves', async () => {
+    const consent = { granted: false };
+    const { store, posts, held, sync } = guestWithRound(refuseStallRounds, consent);
+    const round = pcRound();
+    const local = await sync.record([round, lesson(TODAY)]);
+    expect(local.some((g) => g.kind === 'xp' && g.reason === 'market_game')).toBe(true);
+    signIn(store);
+    expect(await sync.addGuestProgress()).toBe(true);
+    expect(posts.flatMap((p) => p.events.map((e) => e.kind))).toEqual(['lesson']);
+    expect(held).toHaveLength(1);
+    expect(part(store, A).events.map((e) => e.kind)).toEqual(['lesson']);
+    expect(part(store, A).grants.some((g) => g.eventId === round.id)).toBe(false);
+    expect(part(store, null).events.map((e) => e.id)).toEqual([round.id]);
+    expect(part(store, null).pendingUpload).toEqual([round.id]); // still offered: it waits for consent
+    expect(currentProgress(store.get()).xp).toBe(part(store, A).grants.filter((g) => g.kind === 'xp').reduce((n, g) => n + (g.kind === 'xp' ? g.amount : 0), 0));
+  });
+
+  test('a refused round is never filed under the account: it stays with the guest, is not offered again, and shows no grant with the account', async () => {
+    const consent = { granted: true };
+    const { store, posts, held, sync } = guestWithRound(refuseStallRounds, consent);
+    const round = pcRound();
+    await sync.record([round]);
+    signIn(store);
+    await sync.addGuestProgress();
+    expect(posts.flatMap((p) => p.events.map((e) => e.id))).toEqual([round.id]);
+    expect(held).toEqual([]);
+    expect(part(store, A).events).toEqual([]);
+    expect(part(store, A).grants).toEqual([]);
+    expect(currentProgress(store.get()).xp).toBe(0);
+    expect(part(store, null).events.map((e) => e.id)).toEqual([round.id]);
+    expect(part(store, null).pendingUpload).toEqual([]);
+    expect(sync.guestOffer()).toBe(false);
+  });
+
+  test('with consent and an accepting server, the held round moves on the retry', async () => {
+    const consent = { granted: false };
+    const { store, posts, held, sync } = guestWithRound((p) => ok({ accepted: p.events.map((e) => ({ clientId: e.id, grants: [] })) }), consent);
+    const round = pcRound();
+    await sync.record([round]);
+    signIn(store);
+    await sync.addGuestProgress();
+    expect(posts).toEqual([]);
+    expect(held).toHaveLength(1);
+    consent.granted = true;
+    held[0]();
+    await expect.poll(() => part(store, A).events.map((e) => e.id)).toEqual([round.id]);
+    expect(part(store, null).events).toEqual([]);
+  });
+
+  test('M8: a live round the server refuses leaves the account partition, with its device grants', async () => {
+    const consent = { granted: true };
+    const { store, sync } = guestWithRound(refuseStallRounds, consent);
+    signIn(store);
+    const round = pcRound();
+    expect(await sync.record([round])).toEqual([]);
+    expect(part(store, A).events).toEqual([]);
+    expect(part(store, A).grants).toEqual([]);
+  });
+});

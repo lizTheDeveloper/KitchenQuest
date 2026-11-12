@@ -41,14 +41,17 @@ export function boardNumber(n: number): string {
   return Number.isInteger(n) ? String(n) : n.toFixed(2);
 }
 
-/** The chalkboard (Ruling 5): one row per option in file order, the option's own text naming it, and the footnote. */
-function chalkboard(q: StallQuestion, footnoteText: string): HTMLElement | null {
+/**
+ * The chalkboard (Ruling 5): one row per option, in the same fixed `optionOrder` as the buttons (I3: file order would
+ * put the answer on row 1), the option's own text naming it, its figures read from the file-order data, and the footnote.
+ */
+function chalkboard(q: StallQuestion, order: readonly number[], footnoteText: string): HTMLElement | null {
   const board = q.chalkboard;
   if (board === undefined || board.length !== q.options.length) return null;
-  const rows = board.map((b, i) => h('tr', null,
+  const rows = order.map((i) => h('tr', null,
     h('th', { scope: 'row' }, contentText('span', q.options[i].text)),
-    h('td', null, boardNumber(b.price)),
-    h('td', null, String(b.servings))));
+    h('td', null, boardNumber(board[i].price)),
+    h('td', null, String(board[i].servings))));
   return h('div', { class: 'stall-chalkboard' },
     h('table', null,
       h('caption', null, 'The chalkboard'),
@@ -147,7 +150,7 @@ export function renderRound(el: HTMLElement, deps: RoundDeps): RoundHandle {
       heading,
       promptArt,
       contentText('p', q.prompt, { class: 'stall-prompt' }),
-      chalkboard(q, deps.priceFootnote),
+      chalkboard(q, order, deps.priceFootnote),
       h('ul', { class: 'stall-options', 'aria-labelledby': headingId }, ...items),
       feedback,
       controls));
