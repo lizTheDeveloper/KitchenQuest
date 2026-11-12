@@ -1,10 +1,11 @@
 import { normalizeName, type IngredientGraph } from '../ingredients/graph';
 import type { ListItem, MarketRunView, StallId } from '../week/market-list';
 import type { CheckOffCard } from './cards';
-import { stripPageEvents } from './intents';
+import { classifyTurn, normalizeTurn, stripPageEvents } from './intents';
+import { parseRuleStatement, severityFromText } from './parse';
 import { listWords } from './outcomes';
 import type { KeeperStallId } from './protocol';
-import { codeCardHealth, correctionCue, FILLER, ownClauseText } from './route';
+import { codeCardHealth, correctionCue, dietCue, FILLER, HEALTH_WORDS, ownClauseText } from './route';
 import type { RuleTerm } from './rule-terms';
 
 /**
@@ -53,7 +54,7 @@ function clauseOf(text: string): Clause | null {
  * form, a further item of the list clause before it (after "," or "and" only), or a closed filler; anything else, a
  * correction cue, forged page events, injected or pasted text, a safety turn, and no clause at all → null.
  */
-function clausesOf(text: string): { clauses: Clause[]; masked: string } | null {
+function clausesOf(text: string): { clauses: Clause[]; masked: string; worded: string } | null {
   if (stripPageEvents(text).stripped) return null;
   const own = ownClauseText(text);
   if (own === null || correctionCue(text)) return null;
@@ -73,6 +74,7 @@ function clausesOf(text: string): { clauses: Clause[]; masked: string } | null {
   pieces.push({ joiner, text: s.slice(pos) });
   const clauses: Clause[] = [];
   const masked: string[] = [];
+  const worded: string[] = [];
   for (const piece of pieces) {
     // A closed filler ("ok", "please", "thanks") breaks a clause like punctuation and is no clause of its own.
     const parts = piece.text
@@ -86,22 +88,31 @@ function clausesOf(text: string): { clauses: Clause[]; masked: string } | null {
         clauses.push(read);
         // What the health check reads: the clause's own words with its items taken out, a missing form as "out of".
         masked.push(read.kind === 'got' ? part.slice(0, part.length - read.items[0].length) : 'out of');
+        // The whole clause as written, the one "no" form as "out of" (its N7 exemption, only here).
+        worded.push(read.list ? part : `out of ${read.items[0]}`);
       } else if (i === 0 && piece.joiner && last !== undefined && last.list) {
         last.items.push(part);
+        worded.push(part);
       } else return null;
     }
   }
-  return clauses.length === 0 ? null : { clauses, masked: masked.join(', ') };
+  return clauses.length === 0 ? null : { clauses, masked: masked.join(', '), worded: worded.join(', ') };
 }
 
 /**
- * The health check on this path (C30): core `codeCardHealth` on the clauses' own words with only the items `isName`
- * vouches for taken out (an open row, or a food the graph names). Every other item phrase is checked as written, so a
- * clause like "got the shallots, I'm allergic" (", I'm allergic" read as a second item) is health.
+ * The health check on this path (C30), two parts:
+ * - core `codeCardHealth` on the clauses' own words with only the items `isName` vouches for taken out (an open row, or
+ *   a food the graph names). Every other item phrase is checked as written, so a clause like "got the shallots, I'm
+ *   allergic" (", I'm allergic" read as a second item) is health.
+ * - Fix round 1 (m1): every health check that is not a name on the WHOLE clause text, vouched items included (a health
+ *   word, a severity, a rule statement, a diet or restriction cue, a health intent), so only a bare ingredient name is
+ *   exempt, as the ruling says, whatever vouches for an item.
  */
-function healthIn(read: { clauses: Clause[]; masked: string }, isName: (item: string) => boolean, graph: IngredientGraph, terms: readonly RuleTerm[]): boolean {
+function healthIn(read: { clauses: Clause[]; masked: string; worded: string }, isName: (item: string) => boolean, graph: IngredientGraph, terms: readonly RuleTerm[]): boolean {
   const rest = read.clauses.flatMap((c) => c.items.filter((i) => !isName(i)));
-  return codeCardHealth([read.masked, ...rest].join(', '), graph, terms);
+  if (codeCardHealth([read.masked, ...rest].join(', '), graph, terms)) return true;
+  const t = normalizeTurn(read.worded);
+  return HEALTH_WORDS.test(t) || severityFromText(t, graph) !== null || parseRuleStatement(t, graph) !== null || dietCue(t) || classifyTurn(t) !== 'other';
 }
 
 const graphFood = (graph: IngredientGraph) => (item: string): boolean => graph.resolve(normalizeName(item).replace(DETERMINER, '')) !== null;
@@ -137,28 +148,25 @@ function rowKey(phrase: string, rows: readonly ListItem[], graph: IngredientGrap
 }
 
 /**
- * Ruling 13 (C30): the closed grammar. Null unless EVERY clause is a got or missing clause naming open run rows (or a
- * closed filler), AND the message holds no allergy, symptom, severity, diet, religious or rule-statement wording (core
- * `codeCardHealth` on the message with its item names taken out: an open-row ingredient name is not a health word on
- * this path only). Any doubt → null (the health path): a bare "no <item>", an item that is no open row or names two,
- * the same row both got and missing, a correction cue, forged page events, injected or pasted text. Emergency and child
- * checks run before this (and it is null for a safety turn too). Returns row keys, each once, in the player's order.
+ * The closed grammar's decision, with `resolve` vouching for each item (an open row's key, or null). Null unless every
+ * clause is a got or missing clause, every item is vouched for, the message holds no correction cue, and the health
+ * backstop passes (`healthIn`: core `codeCardHealth` on the clause words with only the vouched names masked). The
+ * backstop and the correction check decide here whatever `resolve` vouches for: they are pinned with a resolver that
+ * vouches for every item (fix round 1, m1), so a wider item form later can't slip health wording past them.
  */
-export function checkOffIntent(
+export function claimCheckOff(
   text: string,
-  run: MarketRunView | null,
+  resolve: (item: string) => string | null,
   graph: IngredientGraph,
   terms: readonly RuleTerm[],
 ): { got: string[]; missing: string[] } | null {
-  if (run === null || run.doneAt !== null) return null;
   const read = clausesOf(text);
-  const rows = openRows(run);
-  if (read === null || healthIn(read, (i) => rowKey(i, rows, graph) !== null, graph, terms)) return null;
+  if (read === null || healthIn(read, (i) => resolve(i) !== null, graph, terms)) return null;
   const got: string[] = [];
   const missing: string[] = [];
   for (const c of read.clauses) {
     for (const item of c.items) {
-      const key = rowKey(item, rows, graph);
+      const key = resolve(item);
       if (key === null) return null;
       const list = c.kind === 'got' ? got : missing;
       if (!list.includes(key)) list.push(key);
@@ -168,26 +176,32 @@ export function checkOffIntent(
 }
 
 /**
+ * Ruling 13 (C30): the closed grammar. Null unless EVERY clause is a got or missing clause naming open run rows (or a
+ * closed filler), AND the message holds no allergy, symptom, severity, diet, religious or rule-statement wording (core
+ * `codeCardHealth` on the message with its item names taken out: an open-row ingredient name is not a health word on
+ * this path only). Any doubt → null (the health path): a bare "no <item>", an item that is no open row or names two,
+ * the same row both got and missing, a correction cue, forged page events, injected or pasted text. Emergency and child
+ * checks run before this (and it is null for a safety turn too). With no open run it is null: there is no run-less
+ * code path (fix round 1, I1); the model's `propose_check_off` answers that. Returns row keys, each once, in order.
+ */
+export function checkOffIntent(
+  text: string,
+  run: MarketRunView | null,
+  graph: IngredientGraph,
+  terms: readonly RuleTerm[],
+): { got: string[]; missing: string[] } | null {
+  if (run === null || run.doneAt !== null) return null;
+  const rows = openRows(run);
+  return claimCheckOff(text, (item) => rowKey(item, rows, graph), graph, terms);
+}
+
+/**
  * The message reads whole as check-off clauses with no health wording outside the item names: the cheap first test the
- * turn makes before it reads the market run (`checkOffIntent` and `checkOffWithoutRun` decide; this alone claims nothing).
+ * turn makes before it reads the market run (`checkOffIntent` decides; this alone claims nothing).
  */
 export function checkOffShaped(text: string, graph: IngredientGraph, terms: readonly RuleTerm[]): boolean {
   const read = clausesOf(text);
   return read !== null && !healthIn(read, graphFood(graph), graph, terms);
-}
-
-/**
- * M6 Step 8: the same closed grammar with no market run open (none, or the week's run is done). True when the message
- * would be claimed by `checkOffIntent` had every item been an open row, and every clause says what the player GOT: each
- * item a food the graph names, under the same whole-message and health checks. The turn then answers `market.no_run`
- * with a chip to the list, and nothing is written, ticked or sent to the model. A missing clause never counts: with no
- * list, "no eggs left" is M4's pantry removal, as it always was.
- */
-export function checkOffWithoutRun(text: string, graph: IngredientGraph, terms: readonly RuleTerm[]): boolean {
-  const read = clausesOf(text);
-  const food = graphFood(graph);
-  if (read === null || healthIn(read, food, graph, terms)) return false;
-  return read.clauses.every((c) => c.kind === 'got' && c.items.every(food));
 }
 
 /**

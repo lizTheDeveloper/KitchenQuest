@@ -2,7 +2,7 @@
 import { buildRuleCard, type Severity } from '@kitchenquest/core';
 import { describe, expect, test } from 'vitest';
 import { defaultCatalog } from '../catalog.js';
-import { applyPostChecks, severeTermsLeftOut } from './postchecks.js';
+import { applyPostChecks, claimsTickWithoutCard, severeTermsLeftOut } from './postchecks.js';
 import type { ToolArgs } from './tools.js';
 
 const { graph, ruleTerms } = defaultCatalog();
@@ -300,4 +300,20 @@ describe('Step 12 ruling: a meal description joined from the player\'s own phras
   test('rule terms are never joined', () => {
     expect(post([rule('peanuts and sesame', 'allergy')], "I'm allergic to peanuts. Sesame too")).toEqual([]);
   });
+});
+
+// M6 Step 8 fix round 1 (m4): the model's text talking of ticking the list, with no card, is write.not_done; the animal never is.
+describe('claimsTickWithoutCard', () => {
+  test.each(["I've ticked the shallots off your list.", 'Ticked!', 'I checked them all off for you.', 'Crossed the dal off.'])('%j claims a tick', (t) =>
+    expect(claimsTickWithoutCard(t, 0)).toBe(true),
+  );
+  test('never with a card on the turn', () => expect(claimsTickWithoutCard('Ticked!', 1)).toBe(false));
+  test.each([
+    'A tick bite can cause alpha-gal; please talk to your doctor.',
+    'Tick bites are worth checking with a doctor.',
+    'Sorry a tick bit you.',
+    'Being bitten by a tick can change what you can eat.',
+    'Tick-borne illness is one for a doctor.',
+    'Check yourself for ticks after a walk; check the dog off-lead too.',
+  ])('%j is not a tick claim', (t) => expect(claimsTickWithoutCard(t, 0)).toBe(false));
 });

@@ -11,9 +11,7 @@ import {
   buildCheckOffCard,
   checkOffIntent,
   checkOffShaped,
-  checkOffWithoutRun,
   classifyTurn,
-  confirmedLines,
   isSevereCard,
   isSuitabilityQuestion,
   broadKindsAsked,
@@ -82,7 +80,7 @@ import { appendMessages, bumpTurn, openConversation, recentMessages, type Stored
 import { isHealthText } from './health.js';
 import { line, listWords, type PanBank } from './lines.js';
 import type { MemoryFlags, MemoryHistory } from './memory.js';
-import { currentRun, modelCheckOff, noRunParts } from './check-off-turn.js';
+import { currentRun, modelCheckOff } from './check-off-turn.js';
 import { applyPostChecks, claimsTickWithoutCard } from './postchecks.js';
 import { buildPromptContext, minimiseHistory, renderMessages, type PanPrompt } from './prompt.js';
 import { createProposal, hasOpenHealthProposal, openProposalsOfConversation } from './proposals.js';
@@ -785,10 +783,11 @@ async function codeRoute(deps: TurnDeps, userId: string, raw: string, req: TurnR
  * applied in this turn through the write guard (`confirmProposalIn`, channel 'grammar'): each got row ticked into the
  * pantry dated the player's today, with an Undo (spec §7.0 "None (undoable)"); missing rows are never ticked. Without
  * health_data nothing ticks: the card is stored pending behind the consent card, and a tap after consent ticks it.
- * With no open run, the same grammar over foods the graph names answers `market.no_run` and a chip, writing nothing.
+ * With no open run it claims nothing (fix round 1, I1): the model's `propose_check_off` answers `market.no_run`.
  * It runs before the AI checks: with the AI off or at the cap the grammar still ticks (§16: the grammar is code).
  * Locks, in the README order: live user → `rules:` → `pantry:` → `plan:` (the run's rows can't change under the card)
- * → health_data (share) → conversation row → messages → mentor_proposals → (tickIn) market_runs.
+ * → health_data (share) → conversation row → mentor_proposals → (tickIn) market_runs; the messages are written last,
+ * under the conversation row and the consent share lock already held (m5).
  */
 async function checkOffRoute(deps: TurnDeps, userId: string, raw: string, req: TurnRequest, opened: Opened, now: Date, requestId: string): Promise<TurnResponse | null> {
   const graph = deps.catalog.graph;
@@ -796,7 +795,7 @@ async function checkOffRoute(deps: TurnDeps, userId: string, raw: string, req: T
   if (req.intakeStep === 'allergies' || opened.openHealthCard || !checkOffShaped(raw, graph, terms)) return null;
   const id = opened.conversationId;
   const run = await deps.db.transaction((tx) => currentRun(tx, deps, userId, req.localDate));
-  if (run === null) return checkOffWithoutRun(raw, graph, terms) ? respond(id, 'deterministic', noRunParts()) : null;
+  // Fix round 1 (I1): with no open run there is no code path; the message goes on to health exactly as in M4/M5.
   if (checkOffIntent(raw, run, graph, terms) === null) return null;
   try {
     return await deps.db.transaction(async (tx) => {
@@ -811,18 +810,24 @@ async function checkOffRoute(deps: TurnDeps, userId: string, raw: string, req: T
       const card = fresh === null || read === null ? null : buildCheckOffCard(fresh, read.got, read.missing, 'grammar');
       if (fresh === null || card === null) return null;
       const readback: ReplyPart[] = card.readback.map((l) => ({ kind: 'line', line: l }));
-      const ticking = card.got.flatMap((k) => fresh.items.find((i) => i.key === k)?.name ?? []);
-      const parts: ReplyPart[] = persist
-        ? [...readback, ...confirmedLines(card, ticking).map((l): ReplyPart => ({ kind: 'line', line: l }))]
-        : [...readback, line('consent.health_first'), { kind: 'consent', purpose: 'health_data' }];
       if (!(await lockConversation(tx, userId, id))) return respond(id, 'deterministic', [line('didnt_understand')]);
       const proposalId = randomUUID();
       const stripped = stripPageEvents(raw).text.trim();
-      await appendMessages(tx, deps.keyring, deps.memory, userId, id, [{ role: 'player', text: stripped }, { role: 'pan', parts, proposalIds: [proposalId] }], persist, now);
+      const store = (parts: ReplyPart[]) =>
+        appendMessages(tx, deps.keyring, deps.memory, userId, id, [{ role: 'player', text: stripped }, { role: 'pan', parts, proposalIds: [proposalId] }], persist, now);
       const server = await createProposal(tx, deps.keyring, { userId, conversationId: id, turnSeq: opened.turnSeq, card, id: proposalId }, now);
-      if (!persist) return respond(id, 'deterministic', parts, null, { cards: [server] });
+      if (!persist) {
+        const parts: ReplyPart[] = [...readback, line('consent.health_first'), { kind: 'consent', purpose: 'health_data' }];
+        await store(parts);
+        return respond(id, 'deterministic', parts, null, { cards: [server] });
+      }
       const done = await confirmProposalIn(tx, deps, userId, proposalId, 'grammar', undefined, now, requestId, undefined, req.localDate);
-      return respond(id, 'deterministic', [...readback, ...done.parts], null, { cards: [server], actions: [{ kind: 'confirmed', proposalId, trail: done.trail }] });
+      // Fix round 1 (m5): the transcript holds exactly what the player got, the lines naming only the rows actually
+      // ticked. It is written after the ticks: the turn still holds the conversation row and the health_data share
+      // lock, so neither a forget nor a withdraw-with-delete can reach these rows meanwhile.
+      const parts: ReplyPart[] = [...readback, ...done.parts];
+      await store(parts);
+      return respond(id, 'deterministic', parts, null, { cards: [server], actions: [{ kind: 'confirmed', proposalId, trail: done.trail }] });
     });
   } catch (e) {
     // The daily write cap, a full pantry: said plainly, and nothing of the turn is kept (the transaction rolled back).

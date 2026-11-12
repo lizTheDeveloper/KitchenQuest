@@ -5,7 +5,8 @@ import ingredients from '../../../../data/ingredients.json';
 import ruleTerms from '../../../../data/rule-terms.json';
 import { IngredientGraph } from '../ingredients/graph';
 import type { ListItem, MarketRunView } from '../week/market-list';
-import { buildCheckOffCard, checkOffIntent, checkOffShaped, checkOffWithoutRun, matchCheckOff } from './check-off';
+import * as checkOffModule from './check-off';
+import { buildCheckOffCard, checkOffIntent, checkOffShaped, claimCheckOff, matchCheckOff } from './check-off';
 import { classifyTurn } from './intents';
 import { dietCue, isHealthText, navPlace, planIntent } from './route';
 import type { RuleTerm } from './rule-terms';
@@ -78,7 +79,6 @@ describe('checkOffIntent: open row keys from the closed clauses', () => {
   test('bare "no fennel" / "no shallots" (even with an open row) is not consumed → health ask (N7)', () => {
     for (const t of ['no fennel', 'no shallots', 'No shallots.', 'no onion please', 'no curry leaves', 'got the onion, no shallots']) {
       expect(intent(t), t).toBeNull();
-      expect(checkOffWithoutRun(t, graph, terms), t).toBe(false);
       expect(isHealthText(t, graph, terms), t).toBe(true);
     }
   });
@@ -154,14 +154,25 @@ describe('checkOffIntent: open row keys from the closed clauses', () => {
   });
 });
 
-describe('checkOffWithoutRun: no open run', () => {
-  test('a got message naming foods the graph knows; never a missing clause, a health word or a non-food', () => {
-    expect(checkOffWithoutRun('got the shallots', graph, terms)).toBe(true);
-    expect(checkOffWithoutRun('bought the onion and the moong dal', graph, terms)).toBe(true);
-    expect(checkOffWithoutRun('got everything on my list', graph, terms)).toBe(false);
-    expect(checkOffWithoutRun('no eggs left', graph, terms)).toBe(false); // M4's pantry removal, as it always was
-    expect(checkOffWithoutRun('they were out of curry leaves', graph, terms)).toBe(false);
-    expect(checkOffWithoutRun("got the shallots, I'm allergic", graph, terms)).toBe(false);
+describe('no open run: no code path (fix round 1, I1)', () => {
+  test('with no run the grammar claims nothing, and core has no run-less claim at all: the model and M4/M5 paths decide', () => {
+    for (const t of ['got the shallots', 'I bought milk', 'got eggs, milk and rice', 'picked up some tofu']) expect(intent(t, null), t).toBeNull();
+    expect('checkOffWithoutRun' in checkOffModule).toBe(false);
+  });
+});
+
+describe('the grammar\'s own checks decide, whatever vouches for the items (fix round 1, m1)', () => {
+  // Every item vouched for as its own key: only the grammar's health backstop and correction check can refuse.
+  const vouchAll = (text: string) => claimCheckOff(text, (item) => item, graph, terms);
+  test('the health backstop: health wording in a clause is never claimed even when every item is vouched for', () => {
+    expect(vouchAll('got the shallots')).toEqual({ got: ['the shallots'], missing: [] });
+    for (const t of ["got the shallots, I'm allergic", 'got the shallots, peanut allergy', 'got the onion, it made me ill', 'got the dal, halal only', "got the shallots, I'm vegan now"]) {
+      expect(vouchAll(t), t).toBeNull();
+    }
+  });
+  test('a correction cue is never claimed even when every item is vouched for', () => {
+    expect(vouchAll('got the shallots, the onion')).toEqual({ got: ['the shallots', 'the onion'], missing: [] });
+    for (const t of ['got the shallots, i mean the onion', 'got the shallots, scratch that', 'got the shallots instead']) expect(vouchAll(t), t).toBeNull();
   });
 });
 

@@ -6,9 +6,14 @@ import type { FastifyInstance, InjectOptions } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'vitest';
 import type { AiProvider, AiRequest, AiResult } from '../src/ai/provider.js';
 import { buildApp } from '../src/app.js';
-import { defaultCatalog } from '../src/catalog.js';
+import { defaultCatalog, defaultLoopContent } from '../src/catalog.js';
 import { NOTICES } from '../src/consent/notices.js';
+import { lockLiveUser } from '../src/auth/live-user.js';
 import { usageEvents } from '../src/db/schema.js';
+import { recentMessages } from '../src/mentor/conversations.js';
+import { confirmProposalIn } from '../src/mentor/writes.js';
+import { createRecipeIndexSource } from '../src/recipes/recipe-index.js';
+import { tickIn } from '../src/week/market-service.js';
 import { CaptureMailer } from '../src/mail/mailer.js';
 import { RECIPES_DIR, syncCanon } from '../src/recipes/sync.js';
 import type { Db } from '../src/types.js';
@@ -308,17 +313,18 @@ describe('a check-off the model proposes waits for the tap (Ruling 14)', () => {
 
 describe('no run, the AI cap, consent', () => {
   test('no open run → `market.no_run` + go chip; at the AI cap the grammar still ticks; without health_data → nothing ticks, consent card first, for both sources', async () => {
-    // No open run: the line and a chip to the market list, nothing stored or ticked, no model call.
-    const ai = fakeAi([]);
+    // No open run (fix round 1, I1): no code path. The message goes to the health path and the model, exactly as in
+    // M4/M5; a model check-off then answers market.no_run and the chip (Ruling 14), with no card and nothing stored.
+    const ai = fakeAi([checkOff(['shallots'])]);
     await makeApp(ai);
     const none = await player(['health_data', 'ai_health'], { run: false });
     const r = await none.turn('got the shallots');
-    expect(r).toMatchObject({ route: 'deterministic', cards: [], actions: [] });
-    expect(r.parts).toEqual([
+    expect(r).toMatchObject({ route: 'ai', cards: [], actions: [] });
+    expect(r.parts.slice(0, 2)).toEqual([
       { kind: 'line', line: { trigger: 'market.no_run', vars: {} } },
       { kind: 'go', target: { to: 'market' }, line: { trigger: 'nav.offer', vars: { place: 'the market list' } } },
     ]);
-    expect(ai.requests).toHaveLength(0);
+    expect(ai.requests).toHaveLength(1);
     // At the AI cap: the grammar is code, free forever (§16).
     const capped = await player(['health_data', 'ai_health']);
     await seedUsage(capped.userId, 15);
@@ -326,7 +332,7 @@ describe('no run, the AI cap, consent', () => {
     expect(checkOffOf(c).card.source).toBe('grammar');
     expect(c.actions.map((a) => a.kind)).toEqual(['confirmed']);
     expect(await ticked(capped.cookie)).toEqual(['shallots']);
-    expect(ai.requests).toHaveLength(0);
+    expect(ai.requests).toHaveLength(1); // only the no-run turn above reached the model
     await app.close();
 
     // Without health_data (a "keep" withdrawal): the grammar card waits, pending, behind the consent card; a tap after consent ticks it.
@@ -417,5 +423,88 @@ describe('the prompt and the post-checks', () => {
     const r = await p.turn('tick off the chicken please');
     expect(r.cards).toEqual([]);
     expect(triggers(r)).toContain('write.not_done');
+  });
+});
+
+describe('fix round 1', () => {
+  test('I1: with no open run, "I bought milk", "got eggs, milk and rice" and "picked up some tofu" are pantry adds exactly as in M4/M5', async () => {
+    const texts = ['I bought milk', 'got eggs, milk and rice', 'picked up some tofu'];
+    const adds = [['milk'], ['eggs', 'milk', 'rice'], ['tofu']];
+    const ai = fakeAi(adds.map((add) => toolCall('propose_pantry_change', { add, remove: [] })));
+    await makeApp(ai);
+    const p = await player(['health_data', 'ai_health'], { run: false });
+    for (const [i, text] of texts.entries()) {
+      const r = await p.turn(text);
+      expect(r.route, text).toBe('ai');
+      expect(r.cards.map((c) => c.card.kind), text).toEqual(['pantry']);
+      expect(triggers(r), text).not.toContain('market.no_run');
+      expect(r.cards[0].card.kind === 'pantry' && r.cards[0].card.add.map((a) => a.name), text).toEqual(adds[i]);
+    }
+    expect(ai.requests).toHaveLength(3);
+    // Without ai_health: the health gate, as M4 (the scripted engine on the device takes it), never market.no_run.
+    await app.close();
+    await makeApp(null);
+    const q = await player(['health_data'], { run: false });
+    for (const text of texts) expect(await q.turn(text), text).toMatchObject({ route: 'scripted', notice: 'needs_ai_health', cards: [] });
+  });
+
+  test('I1: a pantry intake answer is never market.no_run, with or without a run', async () => {
+    await makeApp(null);
+    for (const run of [false, true]) {
+      const p = await player(['health_data'], { run });
+      const res = await call(p.cookie, {
+        method: 'POST',
+        url: '/mentor/turn',
+        payload: { conversationId: null, input: { kind: 'text', text: 'got eggs and rice' }, localDate: TODAY, localTime: '18:30', screen: null, intakeStep: 'pantry' },
+      });
+      const r = res.json<TurnResponse>();
+      expect(triggers(r)).not.toContain('market.no_run');
+      expect(r).toMatchObject({ route: 'scripted', notice: 'needs_ai_health', cards: [], actions: [] });
+    }
+  });
+
+  test("m2: channel 'grammar' applies only a grammar check-off card; a model card is refused and stays open", async () => {
+    await makeApp(fakeAi([checkOff(['shallots'])]));
+    const p = await player(['health_data', 'ai_health']);
+    const { proposalId } = checkOffOf(await p.turn('found the shallots'));
+    await expect(db.transaction((tx) => confirmProposalIn(tx, { keyring: config.keyring, catalog }, p.userId, proposalId, 'grammar', undefined, NOW))).rejects.toThrow(
+      /only a grammar check-off card/,
+    );
+    expect(await status(proposalId)).toBe('open');
+    expect(await ticked(p.cookie)).toEqual([]);
+  });
+
+  test('m2: the run is read again under the locks: a row ticked on screen between the two reads is never on the card', async () => {
+    await makeApp(null);
+    const p = await player();
+    const shallots = keyOf(p.run, 'shallots');
+    let turn: Promise<TurnResponse> | undefined;
+    await db.transaction(async (tx) => {
+      // Hold the user row and tick shallots, uncommitted: the turn's first read (no lock) still sees the row open,
+      // then the turn waits on the user row; it reads again once this commits.
+      await lockLiveUser(tx, p.userId);
+      const week = { keyring: config.keyring, catalog, loop: defaultLoopContent(), recipes: await createRecipeIndexSource().current(tx) };
+      await tickIn(tx, week, p.userId, p.run!.id, shallots, true, NOW, undefined, TODAY);
+      turn = p.turn('got the shallots and the onion');
+      for (let i = 0; i < 200; i++) {
+        const [w] = await sql<{ n: number }[]>`select count(*)::int as n from pg_stat_activity where wait_event_type = 'Lock' and datname = current_database()`;
+        if (w.n > 0) break;
+        await new Promise((r) => setTimeout(r, 25));
+      }
+    });
+    const r = await turn!;
+    // Shallots is no open row now, so the grammar claims nothing: the health path, no card.
+    expect(r.cards.filter((c) => c.card.kind === 'check_off')).toEqual([]);
+    expect(r).toMatchObject({ route: 'scripted', notice: 'needs_ai_health' });
+    expect(await ticked(p.cookie)).toEqual(['shallots']);
+  });
+
+  test('m5: the stored Pan message is exactly the reply the player got, built from the rows actually ticked', async () => {
+    await makeApp(null);
+    const p = await player();
+    const r = await p.turn('got the shallots and the onion');
+    const history = await recentMessages(db, config.keyring, app.mentor.memory, p.userId, r.conversationId!, true, NOW);
+    const pan = history.filter((m) => m.role === 'pan').at(-1);
+    expect(pan).toMatchObject({ role: 'pan', parts: r.parts, proposalIds: [checkOffOf(r).proposalId] });
   });
 });

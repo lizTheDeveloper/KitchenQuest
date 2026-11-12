@@ -22,6 +22,7 @@ import {
   type Severity,
 } from '@kitchenquest/core';
 import { filterReply, screenText, touchesHealth } from './filter.js';
+import { TICK_PATTERN } from './requests.js';
 import type { ToolArgs } from './tools.js';
 
 /**
@@ -359,17 +360,16 @@ export function applyPostChecks(
   );
 }
 
-/** A tick of the market list, in any tense ("ticked", "checked off", "crossed them off"). */
-const TICK_WORDS = /\b(tick(s|ed|ing)?|(check|cross)(es|ed|ing)?\b[^.!?]{0,30}\boff)\b/i;
 
 /**
  * M6 Step 8: the model's own text (never shown, R9) talks of ticking the market list ("I've ticked the shallots for
  * you", "checked them all off") on a turn that made no card: the reply is `write.not_done`, never a bare
  * `didnt_understand`, so a tick the model only said it made never looks done. Any tick wording counts, a negated one
- * too (the line only says nothing was changed). M4's other write claims keep their scripted lines (R9).
+ * too (the line only says nothing was changed). Never the animal ("a tick bite", fix round 1 m4: `TICK_PATTERN`). M4's
+ * other write claims keep their scripted lines (R9).
  */
 export function claimsTickWithoutCard(modelText: string, cards: number): boolean {
-  return cards === 0 && TICK_WORDS.test(screenText(modelText));
+  return cards === 0 && TICK_PATTERN.test(screenText(modelText));
 }
 
 /**
