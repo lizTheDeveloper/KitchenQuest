@@ -118,7 +118,8 @@ const INSIDE: Readonly<Record<string, string>> = Object.freeze({
  * Country names as `normalizeCountry` writes them: every ISO 3166-1 entry (249), by its short name in common English,
  * plus Kosovo (no ISO 3166-1 code). M6 Step 4 checked the list against ISO 3166-1 as published in the Debian
  * `iso-codes` package 4.16.0 (iso_3166-1.json, which tracks the ISO 3166 Maintenance Agency), and added the 47
- * dependent territories that were missing.
+ * dependent territories that were missing. Long official forms ("Republic of Kenya", "Kingdom of Spain") are not
+ * aliased: such a player sees only unscoped questions, the safe side.
  */
 const COUNTRIES: ReadonlySet<string> = new Set([
   'afghanistan', 'albania', 'algeria', 'andorra', 'angola', 'antigua and barbuda', 'argentina', 'armenia', 'australia',

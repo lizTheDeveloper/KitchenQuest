@@ -13,7 +13,7 @@ import type { StallFile, StallOption, StallQuestion } from './types';
 const EXTRA: IngredientNode[] = [
   { id: 'squash', name: 'squash' },
   { id: 'winter_squash', name: 'winter squash', isA: ['squash'] },
-  { id: 'butternut', name: 'butternut', isA: ['winter_squash'] },
+  { id: 'butternut', name: 'butternut pumpkin', isA: ['winter_squash'] }, // named apart from the real alias "butternut" (M6 Step 4 fix round 1)
   { id: 'cranberry', name: 'cranberry' },
   { id: 'strawberry', name: 'strawberry' },
   { id: 'mango', name: 'mango' },

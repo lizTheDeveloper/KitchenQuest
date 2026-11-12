@@ -170,6 +170,21 @@ const COMMON_WORDS: ReadonlySet<string> = new Set([
   'faster', 'marine', 'monster', 'monsters', 'mystery', 'badly', 'rarely', 'foster',
   'filter', 'vessel', 'vessels', 'outer', 'nail', 'poster', 'bare', 'suite', 'barrel', 'wallet', 'easter',
 ]);
+/**
+ * M6 Step 4 fix round 1 (ruling C1): everyday English words that are one or two edits from a market ingredient name
+ * ("dinner" from ginger, "love" from clove, "until" from lentil, "checked" from chicken, "Oregon" from oregano). They
+ * never count as a SLIP of a name: the near-miss check skips them. A closed list, each word checked not to be a graph
+ * label itself; an exact name or alias still always counts, and so does a compound ("chilling" holds "chilli").
+ */
+const EVERYDAY_WORDS: ReadonlySet<string> = new Set([
+  'dinner', 'dinners', 'longer', 'winter', 'finger', 'fingers', 'linger', 'lingers', 'gender', 'grinder', 'finer', 'bigger', 'danger',
+  'infer', 'hinge', 'love', 'loves', 'close', 'closes', 'glove', 'gloves', 'clone', 'until', 'pencil', 'mental', 'paper', 'papers',
+  'panel', 'panels', 'planner', 'planners', 'career', 'careers', 'banner', 'manner', 'manners', 'payers', 'parser', 'parsers', 'oregon',
+  'checked', 'checkin', 'checker', 'clicked', 'thicken', 'thickens', 'thicker', 'chucked', 'feel', 'feels', 'funnel', 'child', 'chilled',
+  'chill', 'chile', 'apply', 'applies', 'temp', 'temper', 'tamper', 'carry', 'carries', 'cannot', 'narrow', 'narrows', 'marrow', 'arrow',
+  'carton', 'worries', 'retries', 'series', 'little', 'gentle', 'kettle', 'settle', 'pestle', 'neatly', 'rattle', 'seattle', 'damage',
+  'damages', 'rotate', 'motto', 'parsing', 'colander', 'garbage', 'balances', 'canada', 'terry',
+]);
 /** The shortest word checked against the longer labels; shorter ones over-match too much. */
 const FUZZY_MIN = 4;
 /** Labels this long or longer allow two edits ("pnuts" for peanuts). */
@@ -260,7 +275,7 @@ export function mentionsHealthTerm(text: string, graph: IngredientGraph, terms: 
   const fuzzyNames = fuzzyLabels(graph, phrases);
   for (const word of new Set(joined)) {
     if (COMMON_WORDS.has(word)) continue; // "salty", "union", "shall": never a slip or a compound
-    if (nearMiss(word, fuzzyNames)) return true;
+    if (!EVERYDAY_WORDS.has(word) && nearMiss(word, fuzzyNames)) return true; // an everyday word is never a slip (M6 C1)
     for (let k = COMPOUND_MIN; k <= word.length - 1; k++) {
       if (isExactName(word.slice(0, k))) return true;
       if (word.length - k >= COMPOUND_MIN && isExactName(word.slice(k))) return true;

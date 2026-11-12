@@ -323,16 +323,15 @@ forms:
   practice_log:
     number: "9-Q"
     title: "Practice Log"
-    purpose: "Recorded when a stall minigame is completed; awards a stamp on first completion."
+    purpose: "Recorded when a stall round is played through (M6 Ruling 1): one market_game stamp per stall per ISO week for any finished round, whatever the answers, and 5 XP the first time each question is answered correctly. No score is shown."
     safety: false
     fields:
       - { key: stall, label: "Stall" }
       - { key: skill, label: "Skill practised" }
-      - { key: score, label: "Correct answers" }
     buttons: { confirm: "Noted" }
     stamp: practice
     footnotes:
-      - "*Practice rounds earn XP but not stamps. Stamps are for first completions. The Bureau has rationed the ink."
+      - "*One stall stamp a week for any round played through, practice included, and 5 XP the first time each question is answered correctly. Nothing earned is taken back."
       - "*Wrong answers carry no penalty. The Bureau is not a tax office, despite appearances."
 
   travel:

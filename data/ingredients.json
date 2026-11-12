@@ -192,6 +192,9 @@
         "mung dal",
         "split mung beans"
       ],
+      "isA": [
+        "bean"
+      ],
       "per100g": {
         "energy_kcal": 347,
         "protein_g": 23.86,
@@ -2124,7 +2127,13 @@
     },
     {
       "id": "lentil",
-      "name": "lentils",
+      "name": "lentil",
+      "aliases": [
+        "lentils"
+      ],
+      "isA": [
+        "bean"
+      ],
       "per100g": {
         "energy_kcal": 352,
         "protein_g": 24.63,
@@ -2166,6 +2175,9 @@
         "tuvar dal",
         "arhar dal",
         "split pigeon pea"
+      ],
+      "isA": [
+        "bean"
       ],
       "per100g": {
         "energy_kcal": 343,
@@ -2315,6 +2327,11 @@
       "contains": [
         "soy"
       ],
+      "unsafeFor": [
+        "wheat",
+        "gluten",
+        "barley"
+      ],
       "per100g": {
         "energy_kcal": 192,
         "protein_g": 20.29,
@@ -2357,7 +2374,10 @@
     },
     {
       "id": "paneer",
-      "name": "paneer cheese",
+      "name": "paneer",
+      "aliases": [
+        "paneer cheese"
+      ],
       "contains": [
         "milk"
       ],
@@ -2438,6 +2458,9 @@
     {
       "id": "berry",
       "name": "berry",
+      "aliases": [
+        "berries"
+      ],
       "broad": true,
       "source": "Category (broad); no FDC record."
     },
@@ -2506,7 +2529,10 @@
     },
     {
       "id": "carrot",
-      "name": "carrots",
+      "name": "carrot",
+      "aliases": [
+        "carrots"
+      ],
       "per100g": {
         "energy_kcal": 41,
         "protein_g": 0.93,
@@ -2539,7 +2565,8 @@
       "name": "winter squash",
       "aliases": [
         "butternut squash",
-        "acorn squash"
+        "acorn squash",
+        "butternut"
       ],
       "per100g": {
         "energy_kcal": 34,
@@ -2700,7 +2727,10 @@
     },
     {
       "id": "nettle",
-      "name": "stinging nettle",
+      "name": "nettle",
+      "aliases": [
+        "stinging nettle"
+      ],
       "source": "FDC has only a blanched record (169819); none used."
     },
     {
@@ -2766,11 +2796,12 @@
     },
     {
       "id": "ginger",
-      "name": "ginger root",
+      "name": "ginger",
       "aliases": [
         "fresh ginger",
         "root ginger",
-        "ground ginger"
+        "ground ginger",
+        "ginger root"
       ],
       "per100g": {
         "energy_kcal": 80,
@@ -2881,9 +2912,10 @@
     },
     {
       "id": "clove",
-      "name": "whole clove",
+      "name": "clove",
       "aliases": [
-        "ground clove"
+        "ground clove",
+        "whole clove"
       ],
       "per100g": {
         "energy_kcal": 274,
@@ -3008,9 +3040,10 @@
     },
     {
       "id": "oregano",
-      "name": "dried oregano",
+      "name": "oregano",
       "aliases": [
-        "oregano leaf"
+        "oregano leaf",
+        "dried oregano"
       ],
       "per100g": {
         "energy_kcal": 265,
@@ -3071,7 +3104,9 @@
       "name": "furikake",
       "contains": [
         "sesame",
-        "fish"
+        "fish",
+        "soy",
+        "wheat"
       ],
       "labelDependent": true,
       "source": "Usually sesame and bonito; label-dependent. No FDC record."

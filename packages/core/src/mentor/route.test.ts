@@ -282,3 +282,23 @@ describe('leftoverNamedIngredients (M4 Step 11 fix round 2: every named allergen
     expect(leftoverNamedIngredients('[Player tapped Stamp: sesame]', [], graph).left).toEqual([]);
   });
 });
+
+describe('M6 Step 4 fix round 1 (ruling C1): everyday words are never a slip of a market name', () => {
+  test.each([
+    "what's for dinner", 'I love it', 'until Tuesday', 'paper towels', 'I checked the fridge', 'I feel tired after work',
+    'my child is coming too', 'apply it to next week', 'the temp is low', 'she carries the bags', 'I cannot make Monday',
+    'a little more time', 'it takes longer in winter', 'close enough', 'no worries', 'the meal planner', 'I live in Oregon',
+    'we moved to Seattle', 'serve it chilled', 'I need a colander', 'take out the garbage',
+  ])('%j is not health', (text) => expect(mentionsHealthTerm(text, graph, terms)).toBe(false));
+
+  test.each([
+    'I have a ginger allergy', 'no ginger please', 'I am allergic to cloves', 'keep paneer off my plate', 'no carrots',
+    'oregano makes me ill', 'nettles', 'chicken', 'fennel', 'no chilli', 'I hate lentils', 'gingr', 'pnuts', 'chiken', 'feneel',
+  ])('%j is health: an exact name, a health word or a slip that is not an everyday word', (text) => expect(mentionsHealthTerm(text, graph, terms)).toBe(true));
+
+  test('no stoplisted word is itself a graph name or alias (an exact match always counts)', () => {
+    for (const word of ['dinner', 'love', 'until', 'paper', 'oregon', 'checked', 'feel', 'child', 'chilled', 'apply', 'temp', 'carries', 'little', 'worries', 'seattle']) {
+      expect(graph.resolve(word), word).toBeNull();
+    }
+  });
+});

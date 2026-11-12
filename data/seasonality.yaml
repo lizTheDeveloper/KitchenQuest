@@ -30,6 +30,8 @@ pnw-usa:
     countries: ["united states", "usa", "us", "united states of america"]
     # REVIEW: "oregon" also names a few small towns elsewhere in the US (Oregon, Ohio; Oregon, Wisconsin). A player
     # there who writes only "Oregon" would get this calendar. The matcher has no exclusions yet.
+    # REVIEW: "wa" matches any region text with the token "WA", and eastern Washington or eastern Oregon (high
+    # desert) get this western-leaning calendar through "washington state" and "oregon". Information only (Ruling 10).
     regions: ["washington state", "western washington", "wa", "oregon", "portland oregon", "portland or", "seattle", "pacific northwest", "pnw"]
   categories:
     - { id: now, label: "In season here, now" }

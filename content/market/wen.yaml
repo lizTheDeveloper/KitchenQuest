@@ -867,6 +867,7 @@ faq:
     a_if_blocked: "Eat the soft, delicate things early in the week and the hard, sturdy things later. Your pan will remind you. Your pan reminds everyone of everything."
   - q: ["is ugly produce ok", "wonky vegetables", "bruised fruit"]
     a: "A crooked carrot is a carrot that's lived a little. Shape doesn't matter. Cut away small bruises and eat the rest. Mould, slime or a bad smell: that's when it's done."
+    a_if_blocked: "Odd shapes have lived a little; shape doesn't matter. Cut away small bruises and eat the rest. Mould, slime or a bad smell: that's when it's done."
   - q: ["how much produce should i buy", "how many vegetables for a week"]
     a: "Buy for the dishes you've planned, plus one or two easy things for snacking: apples, carrots, a bag of frozen veg. Better to come back for more than to compost a fridge drawer."
     a_if_blocked: "Enough for the dishes you've planned, plus one or two easy things to snack on. Coming back for more beats composting a fridge drawer."

@@ -9,5 +9,5 @@
   {"from": "soy_sauce", "to": "coconut_aminos", "note": "Same amount; sweeter and less salty."},
   {"from": "shallot", "to": "onion", "note": "Stall swap: about half a small onion for every three small shallots, sliced thin. Onion is sharper; fry it a minute longer, until golden.", "unsafeFor": ["shallot"]},
   {"from": "green_chili", "to": "dried_red_chili", "note": "Stall swap: one dried red chilli for each green chilli, broken in. Similar heat, smokier and less fresh.", "unsafeFor": ["green_chili"]},
-  {"from": "moong_dal", "to": "red_lentil", "note": "Stall swap: the same amount of split red lentils (masoor dal). They cook a few minutes faster and break down softer."}
+  {"from": "moong_dal", "to": "red_lentil", "note": "Stall swap: the same amount of split red lentils (masoor dal). They cook a few minutes faster and break down softer.", "unsafeFor": ["moong_dal"]}
 ]

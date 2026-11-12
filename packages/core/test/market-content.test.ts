@@ -257,14 +257,14 @@ const NEW_NODE_EDGES: Record<string, { isA?: string[]; contains?: string[]; unsa
   chicken_thigh: { isA: ['chicken'] }, chicken_breast: { isA: ['chicken'] }, whole_chicken: { isA: ['chicken'] },
   pork_shoulder: { isA: ['pork'] }, pork_tenderloin: { isA: ['pork'] }, pork_chop: { isA: ['pork'] }, lamb_shoulder: { isA: ['lamb'] },
   bean: { broad: true }, kidney_bean: { isA: ['bean'] }, chickpea: { isA: ['bean'] }, pea: { isA: ['bean'] }, canned_bean: { isA: ['bean'], labelDependent: true },
-  lentil: {}, red_lentil: { isA: ['lentil'] }, toor_dal: {}, edamame: { isA: ['bean'], contains: ['soy'] },
+  lentil: { isA: ['bean'] }, red_lentil: { isA: ['lentil'] }, toor_dal: { isA: ['bean'] }, edamame: { isA: ['bean'], contains: ['soy'] },
   tofu: { contains: ['soy'] }, silken_tofu: { isA: ['tofu'] }, soft_tofu: { isA: ['tofu'] }, firm_tofu: { isA: ['tofu'] }, extra_firm_tofu: { isA: ['tofu'] }, tofu_puffs: { isA: ['tofu'] },
-  yuba: { contains: ['soy'] }, tempeh: { contains: ['soy'] }, miso: { contains: ['soy'], labelDependent: true }, seitan: { contains: ['wheat'], unsafeFor: ['soy'] }, paneer: { contains: ['milk'] }, greek_yogurt: { contains: ['milk'] },
+  yuba: { contains: ['soy'] }, tempeh: { contains: ['soy'], unsafeFor: ['wheat', 'gluten', 'barley'] }, miso: { contains: ['soy'], labelDependent: true }, seitan: { contains: ['wheat'], unsafeFor: ['soy'] }, paneer: { contains: ['milk'] }, greek_yogurt: { contains: ['milk'] },
   avocado: {}, apple: {}, pear: {}, banana: {}, berry: { broad: true }, strawberry: { isA: ['berry'] }, blueberry: { isA: ['berry'] }, cranberry: { isA: ['berry'] },
   carrot: {}, potato: {}, winter_squash: {}, zucchini: {}, kale: {}, leek: { isA: ['allium', 'fodmap_fructan'] }, green_onion: { isA: ['allium', 'fodmap_fructan'] }, mushroom: {}, lemon: {}, mandarin: {}, parsnip: {}, asparagus: {}, nettle: {},
   coriander: {}, cilantro: { isA: ['herb', 'coriander'] }, cabbage: {}, brussels_sprout: {}, ginger: {}, fennel: {}, chili: {},
   cumin: {}, coriander_seed: { isA: ['coriander'] }, cardamom: {}, cinnamon: {}, clove: {}, black_pepper: {}, paprika: { isA: ['chili'] }, fennel_seed: { isA: ['fennel'] }, star_anise: {}, nutmeg: {}, saffron: {}, bay_leaf: {}, oregano: {},
-  mexican_oregano: { unsafeFor: ['oregano'] }, asafoetida: { contains: ['wheat'], labelDependent: true }, garam_masala: { labelDependent: true }, curry_powder: { labelDependent: true }, furikake: { contains: ['sesame', 'fish'], labelDependent: true },
+  mexican_oregano: { unsafeFor: ['oregano'] }, asafoetida: { contains: ['wheat'], labelDependent: true }, garam_masala: { labelDependent: true }, curry_powder: { labelDependent: true }, furikake: { contains: ['sesame', 'fish', 'soy', 'wheat'], labelDependent: true },
 };
 
 describe('the market graph nodes (data/ingredients.json, M6 Step 4)', () => {
@@ -284,6 +284,7 @@ describe('the market graph nodes (data/ingredients.json, M6 Step 4)', () => {
     expect(graph.get('dried_red_chili').isA).toEqual(['chili']);
     expect(graph.get('black_bean').isA).toEqual(['bean']);
     expect(graph.get('lupin_bean').isA).toEqual(['lupin', 'bean']);
+    expect(graph.get('moong_dal').isA).toEqual(['bean']); // fix round 1, C2
   });
 
   test('every soy, wheat, milk, egg, sesame or fish product added from an item tip carries its edge (tempeh → soy, seitan → wheat, paneer → milk …); leek reaches fodmap_fructan; fennel_seed isA fennel', () => {
@@ -310,6 +311,7 @@ describe('the market graph nodes (data/ingredients.json, M6 Step 4)', () => {
     }
     expect(added.find((s) => s.from === 'shallot')!.unsafeFor).toEqual(['shallot']);
     expect(added.find((s) => s.from === 'green_chili')!.unsafeFor).toEqual(['green_chili']);
+    expect(added.find((s) => s.from === 'moong_dal')!.unsafeFor).toEqual(['moong_dal']); // fix round 1, I1
     // No curated swap for curry leaves: the stall says out_of_stock_none.
     expect(subs.some((s) => s.from === 'curry_leaf' || s.from === 'curry_leaf_sprig')).toBe(false);
   });
@@ -344,4 +346,80 @@ test('bram-thaw under "no pork": its explanation names meat (❓ under a partial
   expect(questionStatus(thaw, ctx([]))).toBe('ok');
   expect(questionStatus(thaw, ctx([term('no pork')]))).toBe('unverified');
   expect(stallBank({ ...bram, questions: [thaw] }, ctx([term('no pork')])).questions).toEqual([]);
+});
+
+describe('fix round 1 (review C1, C2, I1, I2; data check)', () => {
+  const recipe = (lines: string[]) =>
+    parseRecipe(`---\ntitle: T\ncountry: X\nregion: Y\ncredit: Z\ncook: Z\ndifficulty: 1\nskills: [stirring]\nservings: 1\nlicense: CC-BY-SA-4.0\nstatus: draft\n---\n\n${lines.map((l) => `Add @${l}{50%g}.`).join('\n')}\n`);
+  const statusOf = (line: string, rules: Rule[]) => check(recipe([line]), rules, graph, subs, DAY).status;
+
+  test('C1: the bare words resolve again, so textMentions sees them in stall text', () => {
+    const bare: Record<string, string> = { paneer: 'paneer', oregano: 'oregano', clove: 'clove', cloves: 'clove', carrot: 'carrot', carrots: 'carrot', ginger: 'ginger', nettle: 'nettle', nettles: 'nettle', lentil: 'lentil', lentils: 'lentil', berries: 'berry', butternut: 'winter_squash' };
+    for (const [word, id] of Object.entries(bare)) {
+      expect(graph.resolve(word), word).toBe(id);
+      expect(textMentions([`a little ${word} here`], graph), word).toContain(id);
+    }
+  });
+
+  test("C1: the reviewer's four leaks are hidden under a rule on the bare-named item", () => {
+    const q = (s: StallFile, id: string) => [...s.questions, ...(s.variants?.protein_counter?.questions ?? [])].find((x) => x.id === id)!;
+    expect(questionStatus(q(bram, 'bram-pc-paneer'), ctx([term('vegetarian'), rule(['paneer'])]))).not.toBe('ok');
+    expect(stallBank(bram, ctx([term('vegetarian'), rule(['paneer'])])).questions.map((x) => x.id)).not.toContain('bram-pc-paneer');
+    expect(stallBank(spice, ctx([rule(['oregano'])])).questions.map((x) => x.id)).not.toContain('spice-chili-powder');
+    expect(stallBank(spice, ctx([rule(['clove'])])).questions.map((x) => x.id)).not.toContain('spice-sniff-cumin');
+    const ugly = faqFor(wen, ctx([rule(['carrot'])])).find((f) => f.q === 'is ugly produce ok');
+    expect(ugly?.a ?? '').not.toMatch(/carrot/i);
+    // With no rule, each is shown as before.
+    expect(stallBank(spice, ctx([])).questions.map((x) => x.id)).toEqual(expect.arrayContaining(['spice-chili-powder', 'spice-sniff-cumin']));
+  });
+
+  test('C1: every stall question, tip or FAQ answer that names a graph item is caught: for each item it names, a rule on it hides it', () => {
+    for (const id of STALL_IDS) {
+      const s = stalls[id];
+      for (const q of allQuestions(s)) {
+        for (const named of textMentions(questionTexts(q), graph)) {
+          const rules = s.variants?.protein_counter?.questions.includes(q) ? [term('vegetarian'), rule([named])] : [rule([named])];
+          expect(questionStatus(q, ctx(rules)), `${q.id} names ${named}`).not.toBe('ok');
+        }
+      }
+      for (const f of [...s.faq, ...(s.variants?.protein_counter?.faq ?? [])]) {
+        for (const named of textMentions([f.a], graph)) expect(f.a_if_blocked, `${id} "${f.q[0]}" names ${named}`).toBeDefined();
+      }
+    }
+  });
+
+  test('C2: every dal, pulse and bean node is filed under bean, so a "beans" line is never ✅ under a rule on one', () => {
+    const pulses = graph.labels().filter((l) => /\b(beans?|dal|lentils?|peas?|chickpeas?|edamame|lupini)\b/.test(l)).map((l) => graph.resolve(l)!);
+    for (const id of new Set(pulses)) {
+      // "bean curd" (tofu) and "bean curd skin" (yuba) are soy-milk products, not pulses; they reach soy instead.
+      if (id === 'bean' || graph.pathTo(id, 'tofu') !== null || id === 'yuba') continue;
+      expect(graph.pathTo(id, 'bean'), id).not.toBeNull();
+    }
+    for (const id of ['moong_dal', 'toor_dal', 'red_lentil', 'lentil']) {
+      expect(statusOf('beans', [rule([id], 'anaphylactic')]), id).not.toBe('ok');
+      expect(stallBank(okaforSato, ctx([rule([id], 'anaphylactic')])).questions.map((x) => x.id), id).not.toContain('os-foam');
+      expect(tipFor(okaforSato, 'bean', ctx([rule([id], 'anaphylactic')])), id).toBeNull();
+    }
+  });
+
+  test('I1: parippu stays ⛔ under a moong-dal rule (the red-lentil swap is a stall swap only)', () => {
+    expect(statusOf('split moong dal', [rule(['moong_dal'], 'anaphylactic')])).toBe('blocked');
+    expect(statusOf('moong dal', [rule(['moong_dal'], 'preference')])).toBe('blocked');
+  });
+
+  test('I2: Form 9-Q matches Ruling 1 and shows no score', () => {
+    const forms = parse(read('content/bureau/forms.yaml')) as { forms: Record<string, { purpose: string; fields: { key: string }[]; footnotes: string[] }> };
+    const f = forms.forms.practice_log;
+    expect(f.fields.map((x) => x.key)).not.toContain('score');
+    expect(f.footnotes.join(' ')).toMatch(/stamp a week for any round played through/);
+    expect(f.footnotes.join(' ')).toMatch(/5 XP the first time each question is answered correctly/);
+    expect(f.footnotes.join(' ')).not.toMatch(/not stamps|first completions|rationed/);
+    expect(f.purpose).toMatch(/ISO week/);
+  });
+
+  test('data check: grain tempeh (wheat, gluten, barley) and furikake (soy, wheat)', () => {
+    for (const t of ['wheat', 'gluten', 'barley']) expect(statusOf('tempeh', [term('vegetarian'), rule([t])]), t).toBe('blocked');
+    expect(statusOf('tempeh', [rule(['rice'])])).toBe('ok'); // not label-dependent: tempeh still reaches other rule-holders
+    for (const t of ['soy', 'wheat', 'gluten', 'sesame', 'fish']) expect(statusOf('furikake', [rule([t])]), t).toBe('blocked');
+  });
 });
