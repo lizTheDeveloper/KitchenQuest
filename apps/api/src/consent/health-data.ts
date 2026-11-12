@@ -1,6 +1,7 @@
+import { randomUUID } from 'node:crypto';
 import { and, eq, isNotNull, or } from 'drizzle-orm';
 import { audit } from '../audit/audit.js';
-import { marginNotes, mealLogs, mealPlans, mentorProposals, messages, progressEvents, rules, voiceSettings } from '../db/schema.js';
+import { marginNotes, mealLogs, mealPlans, mentorProposals, messages, progressEvents, rules, users, voiceSettings } from '../db/schema.js';
 import type { Tx } from './ledger.js';
 
 /**
@@ -29,7 +30,8 @@ const HEALTH_TABLES = [rules, mealLogs, marginNotes, messages, mentorProposals, 
  * stamps stay (spec §6, I2 ruling; [lawyer] grants keep
  * kind, amount and day). `progress_events` comes after the health tables in the README's table order.
  * Writes a `health_data.delete` audit event when `withdrew` or any row was
- * deleted; a request that changed nothing leaves no event.
+ * deleted, and then gives the account a new `users.health_erasure` id (M7 Step 7, N1); a request that changed nothing
+ * leaves no event and no new id.
  */
 export async function deleteHealthDataIn(tx: Tx, userId: string, now: Date, withdrew: boolean, requestId?: string): Promise<number> {
   let deleted = 0;
@@ -49,6 +51,15 @@ export async function deleteHealthDataIn(tx: Tx, userId: string, now: Date, with
   ).length;
   if (withdrew || deleted > 0) {
     await audit(tx, { actorKind: 'user', actorId: userId, subjectUserId: userId, action: 'health_data.delete', requestId }, now);
+    // M7 Step 7 (M6 fix review N1): a new erasure id, so each of the account's signed-in devices drops its own copy of
+    // the erased stall rounds and meal-log events when it next syncs (`healthErasureOf`, GET /progress).
+    await tx.update(users).set({ healthErasure: randomUUID() }).where(eq(users.id, userId));
   }
   return deleted;
+}
+
+/** The account's current erasure id (null before its first `health_data` delete): content-free, no time and no count. */
+export async function healthErasureOf(tx: Pick<Tx, 'select'>, userId: string): Promise<string | null> {
+  const [row] = await tx.select({ id: users.healthErasure }).from(users).where(eq(users.id, userId));
+  return row?.id ?? null;
 }

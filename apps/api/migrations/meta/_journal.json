@@ -176,6 +176,13 @@
       "when": 1794517874645,
       "tag": "0024_tired_scorpion",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1794522494265,
+      "tag": "0025_simple_enchantress",
+      "breakpoints": true
     }
   ]
 }

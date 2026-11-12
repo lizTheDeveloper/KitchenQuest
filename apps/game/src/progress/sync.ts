@@ -4,7 +4,7 @@ import {
 import type { ApiClient } from '../api/client';
 import type { ApiResult, ProgressPostResponse } from '../api/types';
 import { content } from '../content';
-import { dropEvents, partitionKey, partitionOf, withPartition, type PlayerState, type PlayerStore } from '../state/store';
+import { applyServerErasure, dropEvents, partitionKey, partitionOf, withPartition, type PlayerState, type PlayerStore } from '../state/store';
 import { catalogueOf } from './catalogue';
 import { appendEvents, historyOf, markUploaded } from './log';
 
@@ -157,9 +157,15 @@ export function createProgressSync(deps: ProgressSyncDeps): ProgressSync {
     retryTimer = setTimer(() => { retryTimer = null; void sync.uploadDeviceLog(); }, ms);
   }
 
-  /** The account's view, cached with its own partition (M6), never another's. */
-  function keepView(as: string, view: unknown) {
-    if (!isProgressView(view) || liveKey() !== as) return;
+  /**
+   * The account's view, cached with its own partition (M6), never another's. M7 Step 7 (M6 fix review N1): first, the
+   * server's erasure id (`healthErasure`): one this device has not acted on means a `health_data` delete happened, here
+   * or on another device, so the partition's stall rounds and meal-log events go (`applyServerErasure`).
+   */
+  function keepView(as: string, view: unknown, erasure?: unknown) {
+    if (liveKey() !== as) return;
+    if (typeof erasure === 'string' && erasure !== '') store.update((s) => (partitionKey(s) !== as ? s : applyServerErasure(s, as, erasure)));
+    if (!isProgressView(view)) return;
     store.update((s) => (partitionKey(s) !== as ? s : withPartition(s, as, partitionOf(s, as), view)));
   }
 
@@ -189,7 +195,7 @@ export function createProgressSync(deps: ProgressSyncDeps): ProgressSync {
     // Every id sent was answered (accepted, duplicate or refused for good), so none is posted again.
     if (from !== null && liveKey() !== as) store.update((s) => dropEvents(s, from, ids));
     else markUploaded(store, from, ids);
-    keepView(as, r.view);
+    keepView(as, r.view, r.healthErasure);
     if (Array.isArray(r.warnings) && r.warnings.length > 0) deps.onWarnings?.(r.warnings);
   }
 
@@ -256,7 +262,7 @@ export function createProgressSync(deps: ProgressSyncDeps): ProgressSync {
         const ids = new Set([...sentIds].filter((id) => !refused.has(id)));
         const moved = events.filter((e) => ids.has(e.id));
         if (liveKey() === as) appendEvents(store, as, moved, g.grants.filter((x) => ids.has(x.eventId)), { pending: false, cat });
-        keepView(as, r.data.view);
+        keepView(as, r.data.view, r.data.healthErasure);
         if (Array.isArray(r.data.warnings) && r.data.warnings.length > 0) deps.onWarnings?.(r.data.warnings);
         markUploaded(store, null, sentIds); // never posted again, even if the removal below were undone
         store.update((st) => dropEvents(st, null, ids));
@@ -343,7 +349,7 @@ export function createProgressSync(deps: ProgressSyncDeps): ProgressSync {
       const as = liveKey();
       if (stopped || as === null || !deps.online()) return;
       const r = await client.getProgress();
-      if (r.ok) keepView(as, r.data.view);
+      if (r.ok) keepView(as, r.data.view, r.data.healthErasure);
     },
 
     stop() {

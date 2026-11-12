@@ -50,7 +50,8 @@ const retained = (s: PlayerState, today: string): PlayerState['localWeek'] => re
 
 /**
  * The run's rows now (the server's `recompute`, M6 Step 6 C23): ticked rows and stall-swap (`stock:`) rows kept
- * exactly, every other row from `marketList`; a fresh row the run had marked out of stock keeps the mark.
+ * exactly, every other row from `marketList`; a fresh row the run had marked out of stock keeps the mark, and so does
+ * a row a kept stall swap stands in for (M7 Step 7, M6 final M14).
  */
 function recompute(s: PlayerState, plan: Plan, existing: LocalRun | null): Pick<LocalRun, 'items' | 'pantryIds'> | null {
   const rules = rulesOf(s);
@@ -58,7 +59,11 @@ function recompute(s: PlayerState, plan: Plan, existing: LocalRun | null): Pick<
   const fresh = marketList(plan, planContextFor(plan.weekStart, rules), s.localPantry, content.stallOf);
   const kept = (existing?.items ?? []).filter((i) => i.ticked || i.stockSwap !== undefined);
   const keys = new Set(kept.map((i) => i.key));
-  const out = new Set((existing?.items ?? []).filter((i) => i.outOfStock === true).map((i) => i.key));
+  // M7 Step 7 (M6 final M14), as the server: a row a kept stall swap stands in for comes back out of stock beside it.
+  const out = new Set([
+    ...(existing?.items ?? []).filter((i) => i.outOfStock === true).map((i) => i.key),
+    ...kept.flatMap((i) => (i.stockSwap === undefined ? [] : [i.stockSwap.from])),
+  ]);
   const recomputed = fresh.filter((i) => !keys.has(i.key)).map((i): ListItem => (out.has(i.key) ? { ...i, outOfStock: true, ticked: false } : i));
   const items = [...kept, ...recomputed].sort(listOrder);
   const pantryIds = Object.fromEntries(Object.entries(existing?.pantryIds ?? {}).filter(([k]) => keys.has(k)));

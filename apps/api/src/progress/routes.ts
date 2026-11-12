@@ -25,6 +25,12 @@ export interface ProgressRouteDeps {
   healthConsentFor: (tx: Tx, userId: string, at: Date) => Promise<boolean>;
   /** The app's M4 daily write cap on 'progress.record' (429 `rate_limited` with `retryAfterSeconds`). */
   writeCapFor: (tx: Tx, userId: string, at: Date) => Promise<void>;
+  /**
+   * M7 Step 7 (M6 fix review N1): the account's current erasure id (`users.health_erasure`, new on every `health_data`
+   * delete; null before the first). Both routes return it as `healthErasure`, so a signed-in device that sees a new one
+   * erases its own copy of the stall rounds and meal-log events (the game's `applyServerErasure`).
+   */
+  healthErasureFor: (tx: Tx, userId: string) => Promise<string | null>;
 }
 
 /**
@@ -61,21 +67,25 @@ export async function progressRoutes(app: FastifyInstance, deps: ProgressRouteDe
   app.get('/progress', { preHandler: [requireUser, limited] }, async (req) => {
     // One snapshot (M1): the events and the grants come from the same moment. The sealed progress snapshot (M6 Step 7)
     // and the events after it are read in that same transaction.
-    const view = await db.transaction(
-      async (tx: Tx) =>
-        progressViewOf(tx, config.keyring, req.user.id, catalogueFor(await deps.recipes.current(tx), deps.loop), {
+    const { view, healthErasure } = await db.transaction(
+      async (tx: Tx) => ({
+        view: await progressViewOf(tx, config.keyring, req.user.id, catalogueFor(await deps.recipes.current(tx), deps.loop), {
           rewards: deps.loop.rewards,
           thresholds: deps.loop.thresholds,
           log: req.log,
         }),
+        // N1: read in the same snapshot as the view, so a view without the erased rounds always comes with its id.
+        healthErasure: await deps.healthErasureFor(tx, req.user.id),
+      }),
       { isolationLevel: 'repeatable read' },
     );
     await countSelfRead(db, req.user.id, 'progress', now());
-    return { view };
+    return { view, healthErasure };
   });
 
   /**
-   * `{ events, upload?: true }`, at most 100 events (more → 400). 200 `{ accepted, duplicate, rejected, warnings, view }`,
+   * `{ events, upload?: true }`, at most 100 events (more → 400). 200 `{ accepted, duplicate, rejected, warnings, view,
+   * healthErasure }`,
    * also when some events are rejected (the daily event cap is a per-event problem, C14). `upload: true` marks the
    * sign-in upload of the device log (Ruling 8): older dates are accepted, and so are `imported` events.
    */
@@ -96,7 +106,8 @@ export async function progressRoutes(app: FastifyInstance, deps: ProgressRouteDe
         writeCap: () => deps.writeCapFor(tx, userId, at),
         log: req.log,
       };
-      return recordEventsIn(tx, progressDeps, userId, events, today, at, { upload: upload === true }, req.id);
+      const recorded = await recordEventsIn(tx, progressDeps, userId, events, today, at, { upload: upload === true }, req.id);
+      return { ...recorded, healthErasure: await deps.healthErasureFor(tx, userId) };
     });
   });
 }

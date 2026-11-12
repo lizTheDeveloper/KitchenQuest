@@ -10,6 +10,7 @@ import { bookRoutes } from './book/routes.js';
 import { requireUser } from './auth/session.js';
 import { frameOptions } from '@kitchenquest/core';
 import { defaultCatalog, defaultLoopContent, type Catalog, type LoopContent } from './catalog.js';
+import { healthErasureOf } from './consent/health-data.js';
 import { consentHeldIn } from './consent/ledger.js';
 import { consentRoutes } from './consent/routes.js';
 import { mealRoutes } from './meals/routes.js';
@@ -157,6 +158,8 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
     healthConsentFor: (tx, userId, at) => consentHeldIn(tx, userId, 'health_data', at),
     // I4: the M4 daily write cap, the same for every player and plan; it counts recorded progress posts.
     writeCapFor: (tx, userId, at) => assertUnderWriteCap(tx, userId, ['progress.record'], at),
+    // M7 Step 7 (N1): the account's erasure id, so its other signed-in devices erase their stall rounds on the next sync.
+    healthErasureFor: (tx, userId) => healthErasureOf(tx, userId),
   };
   await progressRoutes(app, progress);
   // Step 6: plans and market runs, on the same recipe index and loop content.

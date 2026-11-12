@@ -547,3 +547,50 @@ describe('the guest → account move and health-revealing stall rounds (fix roun
     expect((await g.record([pcRound()])).some((x) => x.kind === 'xp')).toBe(true);
   });
 });
+
+describe('M7 Step 7 (M6 fix review N1): another device\'s health_data delete reaches this one on its next sync', () => {
+  const E1 = '11111111-1111-4111-8111-111111111111';
+  const round = (id: string): ProgressEvent => ({ id, kind: 'stall_round', at: '2026-11-09', stall: 'bram', answers: [{ q: 'bram-pc-most-protein', pick: 2 }] });
+
+  test('GET /progress with a new healthErasure erases the live partition\'s stall rounds; the same id again keeps rounds recorded since', async () => {
+    const store = createStore(null);
+    signIn(store);
+    const key = accountKey(A);
+    let erasure: string | null = null;
+    const client = {
+      getProgress: () => Promise.resolve({ ok: true, status: 200, data: { view: VIEW, healthErasure: erasure } }),
+      postProgressEvents: (events: ProgressEvent[]) => Promise.resolve(ok({ accepted: events.map((e) => ({ clientId: e.id, grants: [] })), healthErasure: erasure })),
+    } as unknown as ApiClient;
+    const sync = createProgressSync({ store, client, online: () => true, gapMs: 0 });
+    store.update((s) => ({ ...s, accountProgress: { ...s.accountProgress, [key]: { progress: { events: [round('r1'), lesson('2026-11-09')], grants: [], base: null, pendingUpload: [] }, view: null } } }));
+    // No erasure yet: nothing changes.
+    await sync.refreshAccountView();
+    expect(part(store, A).events.map((e) => e.kind)).toEqual(['stall_round', 'lesson']);
+    // The phone withdrew with delete: the laptop's next sync drops its copy.
+    erasure = E1;
+    await sync.refreshAccountView();
+    expect(part(store, A).events.map((e) => e.kind)).toEqual(['lesson']);
+    expect(JSON.stringify(store.get().accountProgress)).not.toContain('bram-pc');
+    // A round recorded since (synced): the same id on the next sync, and the round stays.
+    store.update((s) => ({ ...s, accountProgress: { ...s.accountProgress, [key]: { ...s.accountProgress[key], progress: { ...s.accountProgress[key].progress, events: [...s.accountProgress[key].progress.events, round('r2')] } } } }));
+    await sync.refreshAccountView();
+    expect(part(store, A).events.map((e) => e.kind)).toEqual(['lesson', 'stall_round']);
+    sync.stop();
+  });
+
+  test('a post\'s answer carries the signal too, and it never reaches another account\'s partition', async () => {
+    const store = createStore(null);
+    signIn(store, B);
+    const keyB = accountKey(B);
+    store.update((s) => ({ ...s, accountProgress: { ...s.accountProgress, [keyB]: { progress: { events: [round('rb')], grants: [], base: null, pendingUpload: [] }, view: null } } }));
+    signOutOf(store);
+    signIn(store);
+    const { sync } = setup({ store, answer: (p) => ok({ accepted: p.events.map((e) => ({ clientId: e.id, grants: [] })), healthErasure: E1 }) });
+    store.update((s) => ({ ...s, accountProgress: { ...s.accountProgress, [accountKey(A)]: { progress: { events: [round('ra')], grants: [], base: null, pendingUpload: ['ra'] }, view: null } } }));
+    await sync.uploadDeviceLog();
+    expect(part(store, A).events).toEqual([]);
+    expect(store.get().accountProgress[accountKey(A)].erasure).toBe(E1);
+    expect(part(store, B).events.map((e) => e.id)).toEqual(['rb']);
+    sync.stop();
+  });
+});

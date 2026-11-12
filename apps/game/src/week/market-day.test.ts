@@ -107,6 +107,28 @@ describe('stall swaps (Ruling 11)', () => {
     expect(w.run(MON, TODAY)!.items.find((i) => i.key === 'shallot')?.outOfStock).toBe(true);
   });
 
+  test('M7 Step 7 (M6 final M14): a dish blocked and unblocked again comes back beside its stall swap as swapped, as on the server', () => {
+    const s = store();
+    const w = createWeekStore({ store: s });
+    w.savePlan(plan([dish(0, PARIPPU)]));
+    w.run(MON, TODAY);
+    expect(w.stock(MON, { key: 'moong_dal', action: 'take', toId: 'red_lentil' }, TODAY).ok).toBe(true);
+    // Coconut blocks parippu: its unticked rows drop, the ticked stall-swap row stays.
+    const COCONUT: Rule = { id: 'r-coconut', target: { kind: 'ingredient', ids: ['coconut'] }, type: 'avoid', severity: 'allergy' };
+    s.update((x) => ({ ...x, localRules: [COCONUT] }));
+    const blocked = w.run(MON, TODAY)!;
+    expect(blocked.items.find((i) => i.key === 'moong_dal')).toBeUndefined();
+    expect(blocked.items.find((i) => i.key === 'stock:red_lentil')).toMatchObject({ ticked: true, stockSwap: { from: 'moong_dal' } });
+    s.update((x) => ({ ...x, localRules: [] }));
+    const back = w.run(MON, TODAY)!;
+    expect(back.items.find((i) => i.key === 'moong_dal')).toMatchObject({ outOfStock: true, ticked: false });
+    expect(w.tick(MON, 'moong_dal', true, TODAY)).toBeNull();
+    // Undo of the swap clears the mark; a fresh take works again.
+    expect(w.stock(MON, { key: 'stock:red_lentil', action: 'undo' }, TODAY).ok).toBe(true);
+    expect(w.run(MON, TODAY)!.items.find((i) => i.key === 'moong_dal')).not.toHaveProperty('outOfStock');
+    expect(w.stock(MON, { key: 'moong_dal', action: 'take', toId: 'red_lentil' }, TODAY).ok).toBe(true);
+  });
+
   test('Family Table: amounts shown, no stock control, nothing written', async () => {
     const s = store();
     createWeekStore({ store: s }).savePlan(plan([dish(0, PARIPPU)]));

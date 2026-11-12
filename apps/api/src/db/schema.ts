@@ -32,6 +32,12 @@ export const users = pgTable("users", {
   email: citext("email").notNull().unique(),
   ageConfirmedAt: ts("age_confirmed_at").notNull(),
   createdAt: ts("created_at").notNull().defaultNow(),
+  /**
+   * M7 Step 7 (M6 fix review N1): a random id, new on every `health_data` delete (`deleteHealthDataIn`), null before the
+   * first. Content-free (no time, no count): `GET /progress` and `POST /progress/events` return it as `healthErasure`, so
+   * each of the account's signed-in devices erases its own copy of the erased stall rounds when it next syncs.
+   */
+  healthErasure: uuid("health_erasure"),
 });
 
 export const loginTokens = pgTable(
@@ -498,6 +504,10 @@ export const progressEvents = pgTable(
     uniqueIndex("progress_events_meal_log_idx")
       .on(t.userId, t.mealLogId)
       .where(sql`${t.mealLogId} is not null`),
+    // M7 Step 7 (M6 final M12): `recordedFacts` reads a player's imported claims on every post, without a ledger scan.
+    index("progress_events_user_imported_idx")
+      .on(t.userId)
+      .where(sql`${t.kind} = 'imported'`),
     check("progress_events_kind_check", sql`${t.kind} in (${inList(PROGRESS_KINDS)})`),
     check("progress_events_meal_log_check", sql`(${t.kind} = 'meal_logged') = (${t.mealLogId} is not null)`),
     check("progress_events_sealed_check", sql`(${t.kind} = 'stall_round') = (${t.sealed} is not null)`),
@@ -526,6 +536,8 @@ export const rewardGrants = pgTable(
   },
   (t) => [
     index("reward_grants_user_id_idx").on(t.userId),
+    // M7 Step 7 (M6 final M12): `recordedFacts` finds a batch's client ids among the grants (`body->>'eventId'`).
+    index("reward_grants_user_event_idx").on(t.userId, sql`(${t.body}->>'eventId')`),
     check("reward_grants_kind_check", sql`${t.kind} in (${inList(GRANT_KINDS)})`),
   ],
 );
