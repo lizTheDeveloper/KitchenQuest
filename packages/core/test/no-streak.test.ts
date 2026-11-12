@@ -14,7 +14,7 @@ import { codeOnly, sourceFiles } from './code-only';
 
 const BANNED = /streak|consecutive|inARow|daysInARow|combo/i;
 const SRC = fileURLToPath(new URL('../src/', import.meta.url));
-const DIRS = ['progress', 'quests', 'toolkit', 'week', 'market'];
+const DIRS = ['progress', 'quests', 'toolkit', 'week', 'market', 'voice'];
 
 /** The identifiers in a file's code that use a banned word. */
 function streakIdentifiers(src: string): string[] {
