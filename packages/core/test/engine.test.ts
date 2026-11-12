@@ -27,6 +27,13 @@ describe('engine entry', () => {
       expect(name in engine, name).toBe(true);
   });
 
+  test('exports the whole market module (M6): the device and the server decide the same way', async () => {
+    const market = await import('../src/market/index');
+    for (const name of Object.keys(market)) expect(name in engine, name).toBe(true);
+    for (const name of ['stallBank', 'stallVariant', 'questionStatus', 'tipFor', 'faqFor', 'nextRound', 'optionOrder', 'scoreAnswer', 'validateStallFile', 'normalizeCountry', 'ROUND_SIZE', 'MAX_ROUND_ANSWERS', 'textMentions'])
+      expect(name in engine, name).toBe(true);
+  });
+
   test('exports equal index.ts exports minus parseRecipe', () => {
     const expected = Object.keys(index).filter((k) => k !== 'parseRecipe').sort();
     expect(Object.keys(engine).sort()).toEqual(expected);

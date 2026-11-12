@@ -18,7 +18,7 @@ const PER_SERVING = /=\s*(\d+(?:\.\d+)?)/g;
 const PRICE_TEXT: readonly RegExp[] = [
   /\bchalkboard\b\W+(?:[\p{L}'-]+\W+){0,4}?\d/iu,
   /\d\W+(?:[\p{L}'-]+\W+){0,4}?chalkboard\b/iu,
-  /\d+(?:[.,]\d+)?\s*(?:a|per|each)\s+serving/i,
+  /\d+(?:[.,]\d+)?\s*[$£€¥₹₩₦₱¢]?\s*(?:a|per|each)\s+serving/i,
   /\d+(?:[.,]\d+)?\s*(?:a|per|each)\s+(?:bag|block|pack|packet|dozen|tin|can|jar|box|bottle|bunch|tub|carton|loaf)\b/i,
   /\d+(?:[.,]\d+)?\s+for\s+\d+\s+servings?\b/i,
 ];

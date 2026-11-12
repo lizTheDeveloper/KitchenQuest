@@ -1,6 +1,6 @@
 // No streaks, by vocabulary (M5 Step 12, spec §2.3, never rule 8, C28). A fast-check property in
 // src/progress/never-rules.test.ts pins the behaviour (no reward depends on consecutive days); this pins the words: no function or identifier in the
-// non-test source of core progress/, quests/, toolkit/ or week/ names a streak, a run of days or a combo.
+// non-test source of core progress/, quests/, toolkit/, week/ or market/ (M6) names a streak, a run of days or a combo.
 //
 // Only `*.ts` files that are not `*.test.ts` are read. Comments, string literals, template text and regular
 // expression literals are stripped first and identifiers alone are matched, so a test title ("no streak term"), a
@@ -13,7 +13,7 @@ import { describe, expect, it } from 'vitest';
 
 const BANNED = /streak|consecutive|inARow|daysInARow|combo/i;
 const SRC = fileURLToPath(new URL('../src/', import.meta.url));
-const DIRS = ['progress', 'quests', 'toolkit', 'week'];
+const DIRS = ['progress', 'quests', 'toolkit', 'week', 'market'];
 
 /** A `/` here starts a regular expression literal, not a division (the previous significant token decides). */
 const REGEX_AFTER = /(^|[=(,:[!&|?{};+\-*%<>~^]|\breturn|\btypeof|\bcase|\bdo|\belse|\bin|\bof|\bvoid|\byield|\bawait)\s*$/;
@@ -93,7 +93,7 @@ function sourceFiles(dir: string): string[] {
   });
 }
 
-describe('no streak vocabulary in core progress/, quests/, toolkit/ and week/ (C28)', () => {
+describe('no streak vocabulary in core progress/, quests/, toolkit/, week/ and market/ (C28, M6)', () => {
   it('the scan bites: a planted streak function, identifier or combo is caught; words in comments, strings and regexes are not', () => {
     const planted = [
       'export function longestStreak(days: string[]): number { return days.length; }',
@@ -123,6 +123,7 @@ describe('no streak vocabulary in core progress/, quests/, toolkit/ and week/ (C
     expect(files.some((f) => f.endsWith('.test.ts'))).toBe(false);
     const bad = files.flatMap((f) => streakIdentifiers(readFileSync(f, 'utf8')).map((id) => `${f.slice(SRC.length)}: ${id}`));
     expect(bad).toEqual([]);
+    expect(files.some((f) => f.endsWith(join('market', 'round.ts')))).toBe(true);
   });
 
   it('stripping keeps the code: identifiers of a real file survive', () => {
