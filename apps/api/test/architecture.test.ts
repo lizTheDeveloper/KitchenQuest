@@ -10,8 +10,8 @@ const SRC = fileURLToPath(new URL('../src', import.meta.url));
 /** Modules that read or write health data, relative to src/ (a directory covers everything in it). */
 const HEALTH_MODULES = ['rules', 'consent', 'crypto/userkeys', 'journeys', 'symptoms', 'meals', 'mentor', 'voice', 'week', 'book'];
 /** Health tables: schema exports and SQL names. Extend both when a milestone adds one. */
-const HEALTH_SCHEMA_EXPORTS = ['rules', 'userKeys', 'consents', 'mealLogs', 'marginNotes', 'messages', 'mentorProposals', 'mealPlans', 'marketRuns'];
-const HEALTH_SQL_TABLES = ['rules', 'user_keys', 'consents', 'meal_logs', 'margin_notes', 'messages', 'mentor_proposals', 'meal_plans', 'market_runs'];
+const HEALTH_SCHEMA_EXPORTS = ['rules', 'userKeys', 'consents', 'mealLogs', 'marginNotes', 'messages', 'mentorProposals', 'mealPlans', 'marketRuns', 'voiceSettings'];
+const HEALTH_SQL_TABLES = ['rules', 'user_keys', 'consents', 'meal_logs', 'margin_notes', 'messages', 'mentor_proposals', 'meal_plans', 'market_runs', 'voice_settings'];
 
 interface Violation {
   file: string;

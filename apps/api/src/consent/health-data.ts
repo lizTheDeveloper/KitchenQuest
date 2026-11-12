@@ -1,6 +1,6 @@
 import { and, eq, isNotNull, or } from 'drizzle-orm';
 import { audit } from '../audit/audit.js';
-import { marginNotes, mealLogs, mealPlans, mentorProposals, messages, progressEvents, rules } from '../db/schema.js';
+import { marginNotes, mealLogs, mealPlans, mentorProposals, messages, progressEvents, rules, voiceSettings } from '../db/schema.js';
 import type { Tx } from './ledger.js';
 
 /**
@@ -10,7 +10,9 @@ import type { Tx } from './ledger.js';
  * planned, and the swaps on a market list, can reveal a diet, a religion or a rule, GDPR Art. 9, WA MHMDA; [lawyer]);
  * deleting a plan cascades to its `market_runs` row. `margin_notes` is one (M5 Step 7, Ruling 9: a note can show what
  * the player can't or won't eat); `shared_table` is not (Ruling 10: contract, fixed values, no health facts), so it
- * stays. Each later milestone that
+ * stays. `voice_settings` is one too (M7 Step 4, Ruling 6, C-19: the self-declared accessibility need implies a
+ * disability); keyed by `user_id` alone, it is deleted right after these (README table order: after `shared_table`,
+ * before `progress_events`). Each later milestone that
  * adds one (journeys, symptoms) must add it here; the C-10 architecture test
  * lists them too. Deleted in this order (README lock order):
  * `forgetConversations` deletes messages before mentor_proposals too.
@@ -32,6 +34,8 @@ const HEALTH_TABLES = [rules, mealLogs, marginNotes, messages, mentorProposals, 
 export async function deleteHealthDataIn(tx: Tx, userId: string, now: Date, withdrew: boolean, requestId?: string): Promise<number> {
   let deleted = 0;
   for (const t of HEALTH_TABLES) deleted += (await tx.delete(t).where(eq(t.userId, userId)).returning({ id: t.id })).length;
+  // The accessibility need (C-19): one row per player, by user id. Once gone, voice is the free allowance again.
+  deleted += (await tx.delete(voiceSettings).where(eq(voiceSettings.userId, userId)).returning({ userId: voiceSettings.userId })).length;
   deleted += (
     await tx
       .delete(progressEvents)

@@ -97,8 +97,8 @@ describe('voiceState (injected clock)', () => {
     await withAccessibility(access);
     const free = await newUser();
     for (const id of [guild, access, free]) {
-      // 10 rows of 5000 s, a day and a half apart: 50 000 s in 30 days, never 21 600 in 24 h.
-      for (let i = 0; i < 10; i++) await speech(id, 5000, new Date(NOW.getTime() - (1 + i * 1.5) * 86_400_000));
+      // 10 rows of 5000 s, a day and a half apart from 30 h ago: 50 000 s in 30 days, never 21 600 in 24 h, none in today's 24 h.
+      for (let i = 0; i < 10; i++) await speech(id, 5000, new Date(NOW.getTime() - (1.25 + i * 1.5) * 86_400_000));
     }
     expect(await voiceState(db, config.keyring, guild, NOW)).toEqual({ state: { kind: 'available' }, unmetered: true });
     expect(await voiceState(db, config.keyring, access, NOW)).toEqual({ state: { kind: 'available' }, unmetered: true });
@@ -126,7 +126,7 @@ describe('voiceState (injected clock)', () => {
     await withAccessibility(id);
     await speech(id, 4000, at('2026-11-01T00:00:00Z'));
     expect(await voiceState(db, config.keyring, id, NOW)).toEqual({ state: { kind: 'available' }, unmetered: true });
-    await sql`update consents set withdrawn_at = ${at('2026-11-02T00:00:00Z')}, ended_reason = 'withdrawn' where user_id = ${id}`;
+    await sql`update consents set withdrawn_at = ${'2026-11-02T00:00:00Z'}::timestamptz, ended_reason = 'withdrawn' where user_id = ${id}`;
     expect(await voiceState(db, config.keyring, id, NOW)).toEqual({ state: { kind: 'resting', until: '2026-12-01' }, unmetered: false });
   });
 
@@ -162,10 +162,11 @@ describe('voiceState (injected clock)', () => {
     await recordVoice(db, id, 'voice_tts', 2000, NOW);
     await recordVoice(db, id, 'voice_stt', 0, NOW);
     const rows = await sql<Record<string, unknown>[]>`
-      select * from usage_events where user_id = ${id} and created_at = ${NOW} order by id`;
-    expect(rows).toEqual([
-      { id: expect.anything(), user_id: id, feature: 'voice_stt', units: 2, cost_microusd: 2 * VOICE_COST_MICROUSD_PER_SECOND, created_at: NOW },
-      { id: expect.anything(), user_id: id, feature: 'voice_tts', units: 2, cost_microusd: 2 * VOICE_COST_MICROUSD_PER_SECOND, created_at: NOW },
+      select * from usage_events where user_id = ${id} and created_at = ${NOW.toISOString()}::timestamptz order by id`;
+    const iso = (v: unknown) => new Date(v as string).toISOString();
+    expect(rows.map((r) => ({ ...r, created_at: iso(r.created_at) }))).toEqual([
+      { id: expect.anything(), user_id: id, feature: 'voice_stt', units: 2, cost_microusd: 2 * VOICE_COST_MICROUSD_PER_SECOND, created_at: NOW.toISOString() },
+      { id: expect.anything(), user_id: id, feature: 'voice_tts', units: 2, cost_microusd: 2 * VOICE_COST_MICROUSD_PER_SECOND, created_at: NOW.toISOString() },
     ]);
     await expect(recordVoice(db, id, 'voice_stt', -1, NOW)).rejects.toThrow();
     await expect(recordVoice(db, id, 'voice_stt', Number.NaN, NOW)).rejects.toThrow();

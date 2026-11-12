@@ -55,7 +55,7 @@ async function player(withHealth: boolean): Promise<{ cookie: string; id: string
 }
 
 const rowsOf = (userId: string) =>
-  sql<{ sealed: Buffer; len: number; updated_at: Date }[]>`
+  sql<{ sealed: Buffer; len: number; updated_at: string }[]>`
     select sealed, octet_length(sealed)::int as len, updated_at from voice_settings where user_id = ${userId}`;
 
 describe('PUT /voice/accessibility (C-19, Ruling 6)', () => {
@@ -73,7 +73,7 @@ describe('PUT /voice/accessibility (C-19, Ruling 6)', () => {
     const raw = Buffer.from(row.sealed);
     expect(raw.toString('latin1')).not.toMatch(/accessib|true/i);
     expect(raw.toString('utf8')).not.toMatch(/accessib|true/i);
-    expect(row.updated_at.toISOString()).toBe(NOW.toISOString());
+    expect(new Date(row.updated_at).toISOString()).toBe(NOW.toISOString());
     expect(await readAccessibility(db, config.keyring, a.id)).toBe(true);
     expect((await status(a.cookie)).json()).toMatchObject({ accessibility: true });
 
@@ -122,6 +122,17 @@ describe('PUT /voice/accessibility (C-19, Ruling 6)', () => {
       expect(res.body).not.toContain('dyslexia');
     }
     expect(await rowsOf(a.id)).toHaveLength(0);
+  });
+
+  it('GET /voice/status counts a self-read of the setting (C-5) only while health_data is in force', async () => {
+    const reads = (id: string) => sql<{ resource: string; count: number }[]>`select resource, count from self_read_counts where user_id = ${id}`;
+    const none = await player(false);
+    expect((await status(none.cookie)).statusCode).toBe(200);
+    expect(await reads(none.id)).toEqual([]);
+    const a = await player(true);
+    expect((await status(a.cookie)).statusCode).toBe(200);
+    expect((await status(a.cookie)).statusCode).toBe(200);
+    expect(await reads(a.id)).toEqual([{ resource: 'voice', count: 2 }]);
   });
 
   it('needs a session', async () => {
@@ -241,7 +252,7 @@ describe('no value of the setting in audit events or logs', () => {
     expect(onLines.join('\n')).toContain('/voice/status');
     expect(leaksSetting(logs.text())).toBe(false);
     // On and off log the same lines, once ids and times are set aside.
-    const shape = (lines: string[]) => lines.map((l) => l.replace(/"(time|reqId|responseTime)":[^,}]+/g, '"$1":_'));
+    const shape = (lines: string[]) => lines.map((l) => l.replace(/"(time|reqId|responseTime)":[^,}]+/g, '"$1":_').replace(/"id":"req-\d+"/g, '"id":_'));
     expect(shape(offLines)).toEqual(shape(onLines));
 
     const events = await sql<{ action: string; target: string | null; actor_id: string | null; request_id: string | null }[]>`

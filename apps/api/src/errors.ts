@@ -22,7 +22,9 @@ import { ZodError } from 'zod';
  * - 400 `tap_required`: a severe card (anaphylactic or allergy) is confirmed
  *   only by a tap on it, never by a typed yes (spec §7.6).
  * - 401 `unauthorized`: no live session, or the account is gone.
- * - 403 `consent_required`: the write needs a current grant (`details.purpose`).
+ * - 403 `consent_required`: the write needs a current grant (`details.purpose`). `PUT /voice/accessibility` needs
+ *   `health_data` (M7 Step 4, C-19); the game then shows the consent form inline. The voice allowance is never an error:
+ *   `GET /voice/status` reports it as a state (`available`, `resting` until a date, `resting_today`), never 402 or 403.
  * - 404 `not_found`: no such route, or a row that is not the player's.
  * - 409 `rules_need_review`: saved rules no longer validate against the catalog.
  * - 409 `proposal_closed`: the mentor card is no longer open (confirmed,

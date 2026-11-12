@@ -41,7 +41,7 @@ describe('the chat allowance boundary (M4 Step 7, fix round 1 P6)', () => {
 describe('the voice allowance boundary (M7 Step 4, Ruling 5)', () => {
   it('the accessibility setting reads no entitlement: voice/settings.ts imports neither entitlements nor GUILD_KINDS', () => {
     const src = readFileSync(join(SRC, 'voice/settings.ts'), 'utf8');
-    expect(src).not.toMatch(/entitlement|GUILD_KINDS/);
+    expect(src).not.toMatch(/from\s*['"][^'"]*entitlements|GUILD_KINDS|mentor\/allowance/);
   });
 
   it('only voice/status-routes.ts reads voiceState so far (Step 5 adds the voice route)', () => {

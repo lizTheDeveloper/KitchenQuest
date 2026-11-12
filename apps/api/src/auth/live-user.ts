@@ -18,7 +18,8 @@ import type { Db } from '../types.js';
  * `book:<id>`, in that order; namespaces in `db/advisory-locks.ts`) → consent row (`lockConsentIn`, `consentHeldIn`) →
  * conversation row (`bumpTurn`, `appendMessages`, `forgetConversations`) → proposal row (`lockProposal`) → data rows
  * in table order: `rules` → `meal_logs` → `margin_notes` → `messages` → `mentor_proposals` (the `HEALTH_TABLES`
- * order), then `meal_plans` → `market_runs` → `shared_table` → `progress_events` → `reward_grants` → `progress_snapshots`.
+ * order), then `meal_plans` → `market_runs` → `shared_table` → `voice_settings` → `progress_events` → `reward_grants` →
+ * `progress_snapshots`.
  * Account delete takes its sign-in-email lock, then the user row, before anything else, so it still serializes
  * ahead. Consent withdraw-with-delete takes the user row, then `progress:` (its `meal_logs` delete cascades to
  * `meal_logged` progress events), then the consent row, then deletes rules, meals (and their progress events),
@@ -29,7 +30,9 @@ import type { Db } from '../types.js';
  * Step 7) `progress_snapshots`. Deleting any progress event deletes the player's snapshot by trigger, after the event.
  * A margin-note write (M5 Step 7) takes the user row, then `book:`, then the `health_data` grant, then counts and
  * writes `margin_notes`; a Shared Table write takes the user row, then `book:` (the shared daily write cap), then writes `shared_table`. A note or Shared
- * Table delete takes the user row, then deletes its own row.
+ * Table delete takes the user row, then deletes its own row. The voice accessibility setting (M7 Step 4) takes the user
+ * row, then the `health_data` grant, then upserts `voice_settings`; a withdraw-with-delete deletes it after the
+ * `HEALTH_TABLES`, before `progress_events`.
  * Each service accepts locks its caller already holds (advisory and row locks are re-entrant within one transaction).
  *
  * Outside the order on purpose: the global hourly AI cost row (`ai_cost_hours`,

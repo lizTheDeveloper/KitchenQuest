@@ -25,6 +25,7 @@ import { rulesRoutes } from './rules/routes.js';
 import { loadRules } from './rules/store.js';
 import { loadPantry } from './pantry/store.js';
 import { assertUnderWriteCap } from './usage/write-cap.js';
+import { voiceStatusRoutes } from './voice/status-routes.js';
 import { weekRoutes } from './week/routes.js';
 import type { Config } from './config.js';
 import { ApiError, loggableError } from './errors.js';
@@ -43,6 +44,11 @@ export interface Deps {
   catalog?: Catalog;
   /** The weekly loop's data and content (C10); defaults to `data/` and `content/`, checked against the catalog at boot. */
   loop?: LoopContent;
+  /**
+   * Whether this server offers live voice (M7): `GET /voice/status` reports it as `enabled`. Defaults to false; Step 5
+   * wires it to `config.voice !== null` (pre-flight P6). Text always works either way.
+   */
+  voiceEnabled?: boolean;
 }
 
 function body(code: string, message: string, details?: unknown) {
@@ -140,6 +146,8 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
   // Step 7: margin notes and Cooked for Someone, on the same recipe index and loop content.
   await bookRoutes(app, { catalog, loop, recipes });
   await accountRoutes(app, progress);
+  // M7 Step 4: the voice allowance as a state, and the sealed accessibility need (C-19).
+  await voiceStatusRoutes(app);
 
   return app;
 }

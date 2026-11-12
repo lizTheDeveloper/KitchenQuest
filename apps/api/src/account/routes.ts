@@ -32,6 +32,7 @@ import type { ProgressRouteDeps } from '../progress/routes.js';
 import { progressViewOf } from '../progress/service.js';
 import { loadSnapshotForExport } from '../progress/snapshot.js';
 import { loadProgressForExport } from '../progress/store.js';
+import { loadVoiceSettingsForExport } from '../voice/settings.js';
 import { loadRules } from '../rules/store.js';
 import { loadPlansForExport, loadRunsForExport } from '../week/store.js';
 import { loadNotesForExport } from '../book/notes-service.js';
@@ -216,6 +217,10 @@ async function buildExport(tx: Tx, config: Config, userId: string, now: Date, re
     snapshot: await loadSnapshotForExport(tx, config.keyring, userId),
   };
 
+  // The accessibility need (P-5, C-19, M7 Step 4), decrypted, or null when the player never touched the setting.
+  const voiceRow = await loadVoiceSettingsForExport(tx, config.keyring, userId);
+  const voice = voiceRow ? { accessibility: voiceRow.accessibility, updatedAt: iso(voiceRow.updatedAt) } : null;
+
   const ents = await tx
     .select({
       kind: entitlements.kind,
@@ -295,6 +300,7 @@ async function buildExport(tx: Tx, config: Config, userId: string, now: Date, re
     conversations: convs,
     proposals,
     progress,
+    voice,
     // With the C-45 subject columns (M5 Step 7: always 'user' and null until M13).
     consents: await consentHistory(tx, userId, { subjects: true }),
     entitlements: ents.map((e) => ({
@@ -392,7 +398,8 @@ export async function accountRoutes(app: FastifyInstance, progressDeps: Pick<Pro
     // One transaction, in this order: the delete event first (so it is pseudonymized
     // with the rest), then the user (cascading to sessions, profile, rules, meal logs, pantry, meal plans, market runs,
     // margin notes, Shared Table rows,
-    // conversations, messages, mentor proposals, progress events, reward grants, the progress snapshot, consents, user_keys, entitlements, usage,
+    // conversations, messages, mentor proposals, progress events, reward grants, the progress snapshot, the voice setting
+    // (voice_settings, M7), consents, user_keys, entitlements, usage,
     // self-read counts), then sign-in links by email,
     // then the audit trail, which the database pseudonymizes only once the user is gone.
     // A running export holds the user row, so the delete waits for it (see above).

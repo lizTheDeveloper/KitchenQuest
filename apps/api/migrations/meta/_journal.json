@@ -155,6 +155,20 @@
       "when": 1794470151293,
       "tag": "0021_gray_ink",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1794510817112,
+      "tag": "0022_retire_accessibility_voice",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1794511167002,
+      "tag": "0023_voice_settings",
+      "breakpoints": true
     }
   ]
 }
