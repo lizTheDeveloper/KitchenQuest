@@ -22,6 +22,13 @@ describe('parseRoute', () => {
     expect(parseRoute('#/plan/x')).toEqual({ name: 'notFound', hash: '#/plan/x' });
     expect(parseRoute('#/market/x')).toEqual({ name: 'notFound', hash: '#/market/x' });
   });
+  it('the market hub and its four stalls (M6 Step 9): #/stalls and #/stall/<id> parse; an unknown stall is notFound', () => {
+    expect(parseRoute('#/stalls')).toEqual({ name: 'stalls' });
+    for (const id of ['wen', 'bram', 'okafor-sato', 'spice'] as const) expect(parseRoute(`#/stall/${id}`)).toEqual({ name: 'stall', id });
+    for (const h of ['#/stall/fishmonger', '#/stall/general', '#/stall/', '#/stall', '#/stall/Wen', '#/stall/wen/x', '#/stalls/wen', '#/stall/__proto__', '#/stall/constructor']) {
+      expect(parseRoute(h), h).toEqual({ name: 'notFound', hash: h });
+    }
+  });
   it('ignores query strings', () => {
     expect(parseRoute('#/map?x=1')).toEqual({ name: 'map' });
   });
@@ -37,6 +44,7 @@ describe('routeHref', () => {
     { name: 'recipe', slug: 'india/kerala/parippu' }, { name: 'cook', slug: 'india/kerala/parippu' }, { name: 'settings' }, { name: 'rules' },
     { name: 'plan' }, { name: 'market' }, { name: 'frame', id: 'green-sauce' },
     { name: 'book', slug: null }, { name: 'book', slug: 'india/kerala/parippu' },
+    { name: 'stalls' }, { name: 'stall', id: 'wen' }, { name: 'stall', id: 'okafor-sato' },
   ];
   it.each(routes)('round-trips %j', (r) => {
     expect(parseRoute(routeHref(r))).toEqual(r);

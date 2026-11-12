@@ -3,10 +3,11 @@ import type { ApiClient } from '../api/client';
 import { graph } from '../content';
 import { getMentor } from '../mentor';
 import { activeRules, localDate } from '../recipes/rules';
-import type { PlayerState, PlayerStore } from '../state/store';
+import { partitionKey, partitionOf, type PlayerState, type PlayerStore } from '../state/store';
 import { announce } from '../ui/announce';
 import { announceGrants, showToast } from './announce';
-import { catalogueOf, rulesContextOf } from './catalogue';
+import { loadMarket } from '../market/content';
+import { catalogueOf, rulesContextOf, withMarket } from './catalogue';
 import { createProgressSync, type ProgressSync } from './sync';
 import { currentProgress } from './view';
 
@@ -48,6 +49,12 @@ export function createProgressService(deps: { client: ApiClient; store: PlayerSt
     },
   });
   store.subscribe(notify);
+  // C9 (M6 Step 9): the device catalogue gains `market` once the lazy market content loads. The stall screens load it
+  // before they record a round; here it is fetched only when the live log already holds a stall round, so its view
+  // (`marketAnswered`) is scored from the stall files. The fetch is after first paint, and the shopping list never waits on it.
+  if (cat.market === undefined && partitionOf(store.get(), partitionKey(store.get())).events.some((e) => e.kind === 'stall_round')) {
+    void loadMarket().then((m) => { withMarket(m); notify(); }, (err: unknown) => { console.warn('progress: the market content could not load', err); });
+  }
 
   return {
     sync,

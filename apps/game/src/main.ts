@@ -9,7 +9,7 @@ import { registerRulesScreen } from './rules';
 import { initProgress } from './progress';
 import { mountApp, registerScreen } from './shell/app';
 import { lazyScreen } from './shell/lazy';
-import { SCREEN_TITLES } from './shell/titles';
+import { SCREEN_TITLES, stallTitle } from './shell/titles';
 import { registerPlaceholderScreens } from './shell/screens';
 import { createStore, safeLocalStorage } from './state/store';
 
@@ -30,6 +30,9 @@ registerScreen('market', () => lazyScreen(SCREEN_TITLES.market, async () => (awa
 registerScreen('frame', () => lazyScreen(SCREEN_TITLES.frame, async () => (await import('./cook/cook-screen')).cookScreen()));
 // The Recipe Book (M5 Step 11): loads on first visit.
 registerScreen('book', () => lazyScreen(SCREEN_TITLES.book, async () => (await import('./book/book-screen')).bookScreen(api)));
+// The market (M6 Step 9): the hub and each stall load on first visit, with the market chunk; first paint carries neither.
+registerScreen('stalls', () => lazyScreen(SCREEN_TITLES.stalls, async () => (await import('./market/stalls-screen')).stallsScreen({ client: api })));
+registerScreen('stall', () => lazyScreen(stallTitle(window.location.hash), async () => (await import('./market/stall-screen')).stallScreen({ client: api })));
 const session = (() => { try { return window.sessionStorage; } catch { return null; } })();
 // Wiped by "Delete everything" in another tab: reload onto the fresh state, without bringing the worker back.
 const store = createStore(safeLocalStorage(), window, () => { skipServiceWorkerOnce(session); window.location.reload(); });

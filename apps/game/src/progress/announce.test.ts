@@ -36,6 +36,15 @@ describe('grant lines', () => {
     expect(introduced({ leela: 2 }).has('marisol')).toBe(false);
   });
 
+  test('M6 Step 9: a stall round\'s weekly stamp is stamp_earned.market_game, naming the keeper from the event\'s stall; its XP says nothing', () => {
+    const round = { id: 'r1', kind: 'stall_round', at: '2026-11-09', stall: 'okafor-sato', answers: [{ q: 'x', pick: 0 }] } as ProgressEvent;
+    expect(grantLines([g({ kind: 'xp', amount: 5, reason: 'market_game' }, 'r1'), g({ kind: 'stamp', stamp: 'market_game' }, 'r1')], [round])).toEqual([
+      { trigger: 'stamp_earned.market_game', vars: { stall: content.stallNames['okafor-sato'] } },
+    ]);
+    expect(grantLines([g({ kind: 'xp', amount: 5, reason: 'market_game' }, 'r1')], [round])).toEqual([]);
+    expect(Object.hasOwn(content.pan.triggers, 'stamp_earned.market_game')).toBe(true);
+  });
+
   test('XP alone says nothing', () => {
     expect(grantLines([g({ kind: 'xp', amount: 30, reason: 'cook' })], [ev('cooked')])).toEqual([]);
   });

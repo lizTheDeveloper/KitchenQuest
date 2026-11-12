@@ -59,7 +59,9 @@ export function marketScreen(api: ApiClient, source?: WeekSource): Screen {
         h('h1', { tabindex: -1 }, SCREEN_TITLES.market),
         h('p', { class: 'bureau-number' }, `PANTRY BUREAU · FORM ${form.number}`),
         status.el, body,
-        h('p', null, h('a', { href: routeHref({ name: 'plan' }) }, "This week's plan")),
+        h('p', null, h('a', { href: routeHref({ name: 'plan' }) }, "This week's plan"), ' · ',
+          // M6 Step 9: the stalls' practice rounds, any day. A plain link: the list never waits on them.
+          h('a', { href: routeHref({ name: 'stalls' }) }, 'Visit the stalls')),
         // The list carries names only (M6 adds amounts), so the footnote about prices and amounts isn't shown.
         ...(form.footnotes ?? []).filter((f) => !/price/i.test(f)).map(footnote));
 

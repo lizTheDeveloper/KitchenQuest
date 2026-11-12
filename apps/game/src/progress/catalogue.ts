@@ -1,8 +1,8 @@
 import {
-  frameOptions, type Catalogue, type FrameOption, type IngredientGraph, type PantryItem, type Quest, type Rule, type RulesContext, type StepContext,
+  frameOptions, marketCatalogue, type StallFile, type Catalogue, type FrameOption, type IngredientGraph, type PantryItem, type Quest, type Rule, type RulesContext, type StepContext,
 } from '@kitchenquest/core/engine';
 import { content, graph } from '../content';
-import type { ClientContent } from '../content/types';
+import type { ClientContent, MarketContent } from '../content/types';
 
 const built = new WeakMap<ClientContent, Catalogue>();
 
@@ -27,6 +27,19 @@ export function catalogueOf(c: ClientContent = content): Catalogue {
   };
   built.set(c, cat);
   return cat;
+}
+
+/**
+ * C9 (M6 Step 9): the device catalogue gains `market` (core `marketCatalogue` over the stall files) once the lazy
+ * market content has loaded. `ClientContent` carries no stalls, so until then every `stall_round` is `bad_event` on
+ * the device, never judged on a guess. The catalogue object is the one `catalogueOf(c)` hands out (the sync, the view
+ * and the log all hold it), so they all see the market from here on. Idempotent.
+ */
+export function withMarket(market: Pick<MarketContent, 'stalls'>, c: ClientContent = content): void {
+  const cat = catalogueOf(c);
+  if (cat.market !== undefined) return;
+  // ClientStall is StallFile minus the writers' persona cards, which marketCatalogue never reads.
+  cat.market = marketCatalogue(Object.values(market.stalls) as StallFile[]);
 }
 
 /** Every cook's quest, in cook-id order. */
