@@ -32,6 +32,11 @@ export interface PlanViewOpts {
   /** A per-day control (the screen's "Add a dish"). */
   dayExtra?: (day: number) => HTMLElement | null;
   offer?: SlotOfferView | null;
+  /**
+   * M6 Step 10 (Ruling 10): The Season's Table note under a dish, text only (season-note.ts `dishSeasonNote`): no
+   * reorder, no badge, no colour. Absent or null: no note.
+   */
+  seasonNote?: (item: PlanItem) => string | null;
 }
 
 export interface SlotOfferView {
@@ -86,6 +91,8 @@ function itemRow(row: PlanRow, o: PlanViewOpts): HTMLElement {
   const name = item.kind === 'lesson' ? `${titleOf(item.slug)} (practice)` : titleOf(item.slug);
   const li = h('li', { class: 'plan-item', 'data-status': status, 'data-slug': item.slug },
     h('span', { class: 'plan-dish' }, contentText('span', name)), ' ', statusChip(status));
+  const note = item.kind === 'dish' && status !== 'blocked' && status !== 'unverified' ? (o.seasonNote?.(item) ?? null) : null;
+  if (note !== null) li.append(contentText('p', note, { class: 'season-note' }));
   const shown = findings.filter((f) => f.status !== 'blocked' || status === 'blocked');
   if (shown.length > 0) li.append(h('ul', { class: 'plan-findings' }, ...shown.map((f) => h('li', null, findingText(f)))));
   if (status === 'blocked') {

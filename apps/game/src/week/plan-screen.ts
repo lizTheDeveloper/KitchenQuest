@@ -9,6 +9,10 @@ import type { Screen } from '../shell/app';
 import { routeHref } from '../shell/router';
 import { SCREEN_TITLES } from '../shell/titles';
 import { contentText, h } from '../ui/dom';
+import type { MarketContent } from '../content/types';
+import { loadMarket } from '../market/content';
+import { marketCtxFor, profileFor, seasonFor, type MarketProfile } from '../market/stall-context';
+import { dishSeasonNote } from './season-note';
 import { addDays, canonRecipes, emptyPlan, planContextFor, rulesOf, slotInputFor } from './context';
 import { rememberWeek } from './memory';
 import { blockedLinesFor, blockedSlugs } from './blocked';
@@ -90,6 +94,20 @@ export function planScreen(api: ApiClient, source?: WeekSource): Screen {
       remember(weekStart, saved);
       let toolkit: ToolkitState | null = null;
       void progressService().then((svc) => { toolkit = svc.view().toolkit; if (alive) draw(); }, () => undefined);
+      // M6 Step 10: The Season's Table under each dish, once the market content and the profile load (never waited on).
+      let season: { market: MarketContent; profile: MarketProfile } | null = null;
+      void Promise.all([loadMarket(), profileFor(ctx.store.get(), api)]).then(([market, profile]) => {
+        if (!alive || (ctx.store.get().account?.email ?? null) !== who) return;
+        season = { market, profile };
+        draw();
+      }, (err: unknown) => { console.error(err); });
+      const seasonNote = (item: PlanItem): string | null => {
+        const recipe = canonRecipes().get(item.slug);
+        const c = marketCtxFor(rulesOf(ctx.store.get()), season?.profile ?? { country: null, region: null }, today, graph, [...content.substitutions]);
+        if (season === null || recipe === undefined || c === null) return null;
+        const table = season.market.seasonality;
+        return dishSeasonNote(recipe, { regionId: seasonFor(season.profile, table, today).regionId, table }, c);
+      };
 
       const save = async (next: Plan, said: string | null): Promise<boolean> => {
         const r = await week.save(next, today);
@@ -132,7 +150,7 @@ export function planScreen(api: ApiClient, source?: WeekSource): Screen {
           }),
         };
         const view = renderPlanView({
-          weekStart, rows, line: writtenLine, allDays: true, flag: pc === null ? null : planFlags(draft, pc), offer: offerView,
+          weekStart, rows, line: writtenLine, allDays: true, flag: pc === null ? null : planFlags(draft, pc), offer: offerView, seasonNote,
           alternatives: (item) => (rules === null ? [] : alternativesOn(item.slug, addDays(weekStart, item.day), { rules, graph: pc!.graph, subs: pc!.subs, recipes: canonRecipes() })),
           ...(familyTable ? {} : {
             onCook: (item: PlanItem) => ctx.navigate({ name: 'cook', slug: item.slug }),

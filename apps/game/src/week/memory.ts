@@ -1,4 +1,4 @@
-import type { Plan, ToolkitState } from '@kitchenquest/core/engine';
+import type { MarketRunView, Plan, ToolkitState } from '@kitchenquest/core/engine';
 
 /**
  * The week's small in-memory facts (M5 Step 10), with no week code, so first paint can hold them: the player's
@@ -7,13 +7,32 @@ import type { Plan, ToolkitState } from '@kitchenquest/core/engine';
  */
 
 let known: { weekStart: string; plan: Plan | null; account: string | null } | null = null;
+let knownRun: { run: MarketRunView; account: string | null } | null = null;
 
 export function rememberWeek(weekStart: string, plan: Plan | null, account: string | null): void { known = { weekStart, plan, account }; }
 /** The remembered week of this account (null: signed out), if any. Another account's is never returned. */
 export const rememberedWeek = (account: string | null): { weekStart: string; plan: Plan | null } | null =>
   (known !== null && known.account === account ? known : null);
-/** A sign-out or an account change: the week remembered for the old session goes (M2). */
-export function forgetWeek(): void { known = null; }
+/** A sign-out or an account change: the week (and its market run) remembered for the old session goes (M2). */
+export function forgetWeek(): void { known = null; knownRun = null; }
+
+/**
+ * M6 Step 10: the market run as the market screen (or a check-off) last read or changed it, for the account it is
+ * for: the scripted Pan's check-off and cook mode's stall-swap label read it signed in (there is no read-only run
+ * route; a check-off ticks through the API, which re-reads the run under its locks). Signed out the device run is read.
+ */
+export function rememberRun(run: MarketRunView, account: string | null): void { knownRun = { run, account }; }
+export const rememberedRun = (account: string | null): MarketRunView | null =>
+  (knownRun !== null && knownRun.account === account ? knownRun.run : null);
+
+let stockAsk: string | null = null;
+/** The check-off card's "Out of stock?" (C31): the row whose stock control `#/market` opens and scrolls to, once. */
+export function askStock(key: string): void { stockAsk = key; }
+export function takeStockAsk(): string | null {
+  const k = stockAsk;
+  stockAsk = null;
+  return k;
+}
 
 const DAY_MS = 86_400_000;
 /**

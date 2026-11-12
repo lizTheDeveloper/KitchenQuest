@@ -1,7 +1,7 @@
 import { MENTOR_CLIENT_TIMEOUT_MS, type MarginNote, type Plan, type ProgressEvent, type Rule, type Severity, type SharedEntry, type SharedTally } from '@kitchenquest/core/engine';
 import type {
   ApiErrorBody, ApiResult, ConfirmRequest, ConfirmResponse, ConsentPurpose, Consents, ConsentRecord, CurrentPlanResponse, MarketRunResponse, MealEntry, Me,
-  NoteSaveResponse, NotesResponse, PantryItem, PlanSaveResponse, Profile, ProgressPostResponse, ProgressResponse, RecipeDetail, RecipeSummary, ReplyPart, TurnRequest, TurnResponse,
+  NoteSaveResponse, NotesResponse, PantryItem, PlanSaveResponse, Profile, ProgressPostResponse, ProgressResponse, RecipeDetail, RecipeSummary, ReplyPart, StockAction, TurnRequest, TurnResponse,
 } from './types';
 
 /**
@@ -66,6 +66,12 @@ export interface ApiClient {
   tick(runId: string, key: string, ticked: boolean, today: string): Promise<ApiResult<MarketRunResponse>>;      // POST /market-runs/:id/ticks
   /** "That's the shop done": a tap, so `confirmed: true`. */
   finishRun(runId: string, today: string): Promise<ApiResult<MarketRunResponse>>;                                // POST /market-runs/:id/finish
+  /**
+   * M6 Step 6, Ruling 11: mark a row out of stock, take a stall swap (`toId`, which the server re-checks with core
+   * `stockSwaps` and the player's rules now: the client's offer is never trusted) or undo both. §7.0 "None (undoable)":
+   * no `confirmed`. Ids only in the body, never names (P-5). 400 `stock_invalid` when the change is not possible now.
+   */
+  stock(runId: string, action: StockAction, today: string): Promise<ApiResult<MarketRunResponse>>;              // POST /market-runs/:id/stock
   /**
    * M5 Step 7, the Recipe Book. Margin notes are health data: a write is 403 `consent_required` without `health_data`,
    * 400 `too_many_notes` past MAX_NOTES_PER_RECIPE. `listNotes` takes no argument and its URL no query (P-5, C32): the
@@ -186,6 +192,8 @@ export function createApiClient(opts: { baseUrl?: string; fetch?: typeof fetch; 
     openRun: (weekStart, today) => call('POST', '/market-runs', { weekStart, today }),
     tick: (runId, key, ticked, today) => call('POST', `/market-runs/${enc(runId)}/ticks`, { key, ticked, today }),
     finishRun: (runId, today) => call('POST', `/market-runs/${enc(runId)}/finish`, { confirmed: true, today }),
+    // Exactly the route's fields: a `toId` only on a take (the body schema is strict).
+    stock: (runId, a, today) => call('POST', `/market-runs/${enc(runId)}/stock`, a.action === 'take' ? { key: a.key, action: 'take', toId: a.toId, today } : { key: a.key, action: a.action, today }),
     listNotes: () => call('GET', '/notes'),
     createNote: (note, today) => call('POST', '/notes', { note, confirmed: true, today }),
     deleteNote: (id) => call('DELETE', `/notes/${enc(id)}`),

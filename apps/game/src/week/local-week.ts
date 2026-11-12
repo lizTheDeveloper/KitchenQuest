@@ -1,6 +1,8 @@
 import {
-  checkPlan, marketList, normalizeName, STALL_IDS, validatePlan, type ListItem, type MarketRunView, type Plan,
+  checkPlan, markOutOfStock, marketList, normalizeName, STALL_IDS, stockSwaps, takeStockSwap, undoStock, validatePlan,
+  type ListItem, type MarketRunView, type Plan,
 } from '@kitchenquest/core/engine';
+import type { StockAction } from '../api/types';
 import { content } from '../content';
 import type { LocalRun, PlayerState, PlayerStore } from '../state/store';
 import { canonRecipes, devicePlan, planContextFor, retainedWeek, rulesOf } from './context';
@@ -25,6 +27,13 @@ export interface WeekStore {
   tick(weekStart: string, key: string, ticked: boolean, today: string): MarketRunView | null;
   /** "That's the shop done": sets doneAt once. Returns the run and whether this call finished it. */
   finish(weekStart: string, at: Date): { run: MarketRunView; finished: boolean } | null;
+  /**
+   * M6 Ruling 11, as the server's stock route (Step 6): `out` marks a row out of stock (a ticked row is unticked, its
+   * pantry row removed by id); `take` takes a swap core `stockSwaps` offers NOW for the row (with the rules as they are
+   * now, never the caller's offer) and ticks its added row into the pantry, dated `today`; `undo` puts both rows back
+   * (the swap's pantry row removed by id). `invalid`: core refused the change; `rules`: the rules can't be read.
+   */
+  stock(weekStart: string, action: StockAction, today: string): { ok: true; run: MarketRunView } | { ok: false; reason: 'closed' | 'invalid' | 'rules' };
 }
 
 const byText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
@@ -39,14 +48,19 @@ const storedPlan = devicePlan;
 /** Plans (and runs) whose week ended more than PLAN_RETENTION_WEEKS ago leave the device. */
 const retained = (s: PlayerState, today: string): PlayerState['localWeek'] => retainedWeek(s.localWeek, today);
 
-/** The run's rows now (the server's `recompute`): ticked rows kept exactly, every other row from `marketList`. */
+/**
+ * The run's rows now (the server's `recompute`, M6 Step 6 C23): ticked rows and stall-swap (`stock:`) rows kept
+ * exactly, every other row from `marketList`; a fresh row the run had marked out of stock keeps the mark.
+ */
 function recompute(s: PlayerState, plan: Plan, existing: LocalRun | null): Pick<LocalRun, 'items' | 'pantryIds'> | null {
   const rules = rulesOf(s);
   if (rules === null) return null;
   const fresh = marketList(plan, planContextFor(plan.weekStart, rules), s.localPantry, content.stallOf);
-  const ticked = (existing?.items ?? []).filter((i) => i.ticked);
-  const keys = new Set(ticked.map((i) => i.key));
-  const items = [...ticked, ...fresh.filter((i) => !keys.has(i.key))].sort(listOrder);
+  const kept = (existing?.items ?? []).filter((i) => i.ticked || i.stockSwap !== undefined);
+  const keys = new Set(kept.map((i) => i.key));
+  const out = new Set((existing?.items ?? []).filter((i) => i.outOfStock === true).map((i) => i.key));
+  const recomputed = fresh.filter((i) => !keys.has(i.key)).map((i): ListItem => (out.has(i.key) ? { ...i, outOfStock: true, ticked: false } : i));
+  const items = [...kept, ...recomputed].sort(listOrder);
   const pantryIds = Object.fromEntries(Object.entries(existing?.pantryIds ?? {}).filter(([k]) => keys.has(k)));
   return { items, pantryIds };
 }
@@ -115,6 +129,8 @@ export function createWeekStore(deps: { store: PlayerStore; newId?: () => string
         const index = rows.items.findIndex((i) => i.key === key);
         if (index < 0) return s;
         const row = rows.items[index];
+        // M6 (as the server): an out-of-stock row is never ticked, and a stall swap's row is undone, never unticked.
+        if ((ticked && row.outOfStock === true) || (!ticked && row.stockSwap !== undefined)) return s;
         const pantryIds = { ...rows.pantryIds };
         let pantry = s.localPantry;
         if (ticked && !row.ticked) {
@@ -131,6 +147,58 @@ export function createWeekStore(deps: { store: PlayerStore; newId?: () => string
         return { ...withRun(s, run), localPantry: pantry };
       });
       return view;
+    },
+
+    stock(weekStart, action, today) {
+      let out: { ok: true; run: MarketRunView } | { ok: false; reason: 'closed' | 'invalid' | 'rules' } = { ok: false, reason: 'closed' };
+      store.update((s) => {
+        const plan = storedPlan(s, weekStart);
+        const existing = runOf(s, weekStart);
+        if (plan === null || existing === null || existing.doneAt !== null) return s;
+        const rows = recompute(s, plan, existing);
+        if (rows === null) { out = { ok: false, reason: 'rules' }; return s; }
+        const rules = rulesOf(s);
+        if (rules === null) { out = { ok: false, reason: 'rules' }; return s; }
+        const view = viewOf({ ...existing, ...rows });
+        const pantryIds = { ...rows.pantryIds };
+        const removeIds: string[] = [];
+        const dropTick = (key: string) => {
+          if (Object.hasOwn(pantryIds, key)) removeIds.push(pantryIds[key]);
+          delete pantryIds[key];
+        };
+        let next: MarketRunView;
+        let added: ListItem | null = null;
+        try {
+          if (action.action === 'out') {
+            next = markOutOfStock(view, action.key);
+            dropTick(action.key);
+          } else if (action.action === 'take') {
+            const row = view.items.find((i) => i.key === action.key);
+            // The offer is core's, computed now with the rules as they are now: never the caller's.
+            const offer = row === undefined ? undefined : stockSwaps(row, plan, planContextFor(plan.weekStart, rules)).find((sw) => sw.toId === action.toId);
+            if (offer === undefined) { out = { ok: false, reason: 'invalid' }; return s; }
+            ({ run: next, added } = takeStockSwap(view, action.key, offer));
+            dropTick(action.key);
+          } else {
+            const undone = undoStock(view, action.key);
+            next = undone.run;
+            if (undone.removedKey !== null) dropTick(undone.removedKey);
+          }
+        } catch (e) {
+          if (e instanceof RangeError) { out = { ok: false, reason: 'invalid' }; return s; }
+          throw e;
+        }
+        let pantry = s.localPantry.filter((p) => !removeIds.includes(p.id));
+        if (added !== null) {
+          const id = newId();
+          pantry = [...pantry, { id, name: added.name, ingredientId: added.ingredientId, addedOn: today, source: 'market' }];
+          pantryIds[added.key] = id;
+        }
+        const run: LocalRun = { ...existing, items: [...next.items].sort(listOrder), pantryIds };
+        out = { ok: true, run: viewOf(run) };
+        return { ...withRun(s, run), localPantry: pantry };
+      });
+      return out;
     },
 
     finish(weekStart, at) {
