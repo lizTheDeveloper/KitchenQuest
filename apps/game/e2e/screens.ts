@@ -246,7 +246,8 @@ async function finishIntro(page: Page): Promise<void> {
   for (let i = 0; i < 60; i++) {
     if (await page.locator('.quest-panel').count()) { await page.locator('.quest-panel').getByRole('button', { name: 'Not yet' }).click(); continue; }
     if (await page.locator('.dialogue .dialogue-next').count()) { await page.locator('.dialogue .dialogue-next').click(); continue; }
-    if (await button(page, 'Carry on with the quest').count()) break;
+    // M6 Step 10: the errand may wait a moment on the market (its stall question): the bar is back only once enabled.
+    if (await button(page, 'Carry on with the quest').count() && await button(page, 'Carry on with the quest').isEnabled()) break;
     await page.waitForTimeout(50);
   }
   await button(page, 'See the recipe: Parippu').waitFor();

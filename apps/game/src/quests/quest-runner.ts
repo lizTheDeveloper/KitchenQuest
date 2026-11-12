@@ -225,11 +225,13 @@ export async function runQuest(slot: HTMLElement, q: Quest, deps: QuestRunnerDep
           }
           break;
         }
+        // M6 Step 10: the stall's question about the item, looked up while the cook speaks (the market loads lazily).
+        const asking = deps.errandQuestion === undefined ? Promise.resolve(null) : deps.errandQuestion(step).catch((err: unknown) => { console.error(err); return null; });
         const sending = step.lines.slice(0, -1);
         await say(sending);
         if (aborted()) return 'paused';
-        // M6 Step 10: the stall's question about the item, if one passes the rules; then the step exactly as in M5.
-        const asked = deps.errandQuestion === undefined ? null : await deps.errandQuestion(step).catch((err: unknown) => { console.error(err); return null; });
+        // If one passes the rules it is played; then the step goes on exactly as in M5.
+        const asked = await asking;
         if (asked !== null) {
           const itemName = deps.graph.has(step.item) ? deps.graph.get(step.item).name : step.item;
           const answers = await playQuestion(asked, panText('errand.question', { stall: asked.keeper, item: itemName }));
