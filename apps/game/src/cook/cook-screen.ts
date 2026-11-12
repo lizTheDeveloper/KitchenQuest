@@ -13,6 +13,7 @@ import { catalogueOf, questsOf } from '../progress/catalogue';
 import { newEventId } from '../progress/log';
 import { cookStepEvents } from '../quests/quest-runner';
 import { plannedOn } from '../week/memory';
+import { stockSwapsNow } from '../week/market-swaps';
 import { runCookMode } from './cook-mode';
 import { afterCookThenKitchen, cookedEvent } from './finish';
 import { takeNotes } from './with-notes';
@@ -27,6 +28,12 @@ function refusal(card: RecipeCard): HTMLElement {
     contentText('h1', card.title, { tabindex: -1 }),
     h('p', { class: 'not-cookable' }, refusalText(card)),
     h('p', null, h('a', { href: routeHref({ name: 'recipe', slug: card.slug }) }, 'Back to the recipe card')));
+}
+
+/** The strip with this week's stall-swap labels under it (M6 Ruling 11): "swapped at the market: Y for X". */
+export function withStockLabels(strip: HTMLElement, card: RecipeCard): HTMLElement {
+  if (card.stockSwapLabels.length > 0) strip.append(h('ul', { class: 'stock-labels' }, ...card.stockSwapLabels.map((t) => contentText('li', t, { class: 'stock-label' }))));
+  return strip;
 }
 
 /**
@@ -56,9 +63,12 @@ export function cookScreen(): Screen {
 
       const buildCard = () => {
         const state = ctx.store.get();
+        const today = localDate(ctx.now());
+        // M6 Step 10 (Ruling 11): this week's stall swaps for the dish, checked with the rules as they are now.
+        const stockSwaps = stockSwapsNow(state, slug, today);
         return buildRecipeCard({
-          slug, content, graph, rules: activeRules(state, graph), today: localDate(ctx.now()), showCalories: state.settings.showCalories,
-          ...(notes === null ? {} : { notes }),
+          slug, content, graph, rules: activeRules(state, graph), today, showCalories: state.settings.showCalories,
+          ...(notes === null ? {} : { notes }), ...(stockSwaps.length > 0 ? { stockSwaps } : {}),
         });
       };
       // The same card model as the recipe card, and the only safety check (§2.1). Runs on every mount, so a
@@ -94,7 +104,7 @@ export function cookScreen(): Screen {
         title: notes === null ? card.title : `${card.title}, with your notes`,
         recipe,
         draft: card.draft,
-        strip: () => renderSafetyStrip(card),
+        strip: () => withStockLabels(renderSafetyStrip(card), card),
         swapFor: (ing: RecipeIngredient) => card.findings.find((f) => f.ingredient === ing.name && f.swapLabel !== null)?.swapLabel ?? null,
         progressKey: slug,
         start: { trigger: 'cook.start', vars: { dish: cook.dish || card.title } },
@@ -116,7 +126,7 @@ export function cookScreen(): Screen {
           // the swaps it shows changed.
           return {
             strip: before.status !== card.status || before.severe !== card.severe || before.rulesError !== card.rulesError
-              || JSON.stringify(before.findings) !== JSON.stringify(card.findings),
+              || JSON.stringify(before.findings) !== JSON.stringify(card.findings) || JSON.stringify(before.stockSwapLabels) !== JSON.stringify(card.stockSwapLabels),
             swaps: swapsKey(before) !== swapsKey(card),
             announce: before.status !== card.status ? `Safety check now: ${statusLabel(card.status)}.` : null,
           };
