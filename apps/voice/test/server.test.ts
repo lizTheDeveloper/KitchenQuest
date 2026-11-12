@@ -356,6 +356,25 @@ describe('Step 3: slow headers, pre-upgrade sockets, silent sockets and the bind
     for (const s of idle) s.sock.destroy();
   });
 
+  test(`N3: the HTTP limits end at the upgrade: a live session outlasts REQUEST_TIMEOUT_MS and still works`, async () => {
+    const { port } = await startWith(undefined);
+    const c = await connect(port);
+    c.send({ t: 'hello', v: 1 });
+    await c.next();
+    await new Promise((r) => setTimeout(r, REQUEST_TIMEOUT_MS + 1000));
+    expect(c.ws.readyState).toBe(c.ws.OPEN);
+    c.send({ t: 'speak', id: 1, voice: 'pan', chunks: [{ text: 'still here', cache: false }] });
+    for (;;) {
+      const r = await c.next();
+      if (r.kind === 'msg') {
+        expect(r.msg).toEqual({ t: 'audio_end', id: 1, audioMs: 100 });
+        break;
+      }
+    }
+    c.ws.close();
+    await c.closed;
+  });
+
   test('review M2: a socket that never says hello, or goes silent after it, is closed with 4408; one that keeps talking stays open', async () => {
     expect(IDLE_TIMEOUT_MS).toBeGreaterThan(HANDS_FREE_IDLE_MS); // a hands-free cook can be quiet that long
     const { port, logs } = await startWith({ helloMs: 200, idleMs: 400 });

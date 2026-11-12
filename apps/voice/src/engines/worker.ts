@@ -119,6 +119,8 @@ class Worker {
   onReady: (() => void) | null = null;
   /** Killed: never ready again. */
   retired = false;
+  /** Answered its first ping: a worker that dies after this is replaced. */
+  everReady = false;
   private readonly reader = new FrameReader();
 
   constructor(
@@ -331,6 +333,7 @@ export class WorkerPool {
     if (header.op === 'pong') {
       if (w.ready || w.retired) return;
       w.ready = true;
+      w.everReady = true;
       if (typeof header.sampleRate === 'number') {
         w.sampleRate = header.sampleRate;
         this.sampleRateSeen ??= header.sampleRate;
@@ -362,8 +365,9 @@ export class WorkerPool {
       this.counters.crashes++;
       this.failRunning(w);
     }
-    if (this.closed || !this.started) return;
-    // Replace it, backing off while workers keep dying.
+    // Replace it, backing off while workers keep dying: once the pool has started, or for a worker that had loaded
+    // (a model that fails to load during start() fails start() instead).
+    if (this.closed || (!this.started && !w.everReady)) return;
     this.counters.restarts++;
     const delay = Math.min(RESTART_MAX_MS, RESTART_MIN_MS * 2 ** this.failures);
     this.failures++;
