@@ -7,6 +7,7 @@ import { GUILD_KINDS } from '../mentor/allowance.js';
 import type { Db } from '../types.js';
 import { recordUsage, usageSince } from '../usage/usage.js';
 import { FREE_VOICE_SECONDS_PER_30_DAYS, VOICE_ABUSE_SECONDS_PER_DAY, VOICE_COST_MICROUSD_PER_SECOND } from './constants.js';
+import { MAX_OFFSET_MINUTES, MIN_OFFSET_MINUTES } from './local-clock.js';
 import { accessibilityInForce } from './settings.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -35,15 +36,18 @@ async function liftAt(db: Db, userId: string, now: Date, windowMs: number, cap: 
   return null;
 }
 
-const utcDate = (t: number) => new Date(t).toISOString().slice(0, 10);
+const MINUTE_MS = 60_000;
+/** The player's calendar date of instant `t`, at UTC offset `offsetMinutes`. */
+const localDate = (t: number, offsetMinutes: number) => new Date(t + offsetMinutes * MINUTE_MS).toISOString().slice(0, 10);
 
 /**
- * A rest as the player sees it (B4): `resting_today` when it lifts later on `now`'s UTC date, never "until <today>";
- * otherwise `resting` until the UTC date it lifts. No time, number or countdown.
+ * A rest as the player sees it (B4; fix round 1, I1, controller ruling): dated by the **player's** calendar, at their
+ * UTC offset. `resting_today` when it lifts later on the player's local date of `now`, never "until <today>";
+ * otherwise `resting` until the player's local date it lifts. No time, number or countdown.
  */
-function restingUntil(lift: number, now: Date): VoiceState {
-  const until = utcDate(lift);
-  return until === utcDate(now.getTime()) ? { kind: 'resting_today' } : { kind: 'resting', until };
+function restingUntil(lift: number, now: Date, offsetMinutes: number): VoiceState {
+  const until = localDate(lift, offsetMinutes);
+  return until === localDate(now.getTime(), offsetMinutes) ? { kind: 'resting_today' } : { kind: 'resting', until };
 }
 
 /**
@@ -52,20 +56,33 @@ function restingUntil(lift: number, now: Date): VoiceState {
  *    24 hours, until enough of it is 24 hours old (never sold, C4);
  * 2. `unmetered` is the accessibility need (self-declared, sealed, counted only with `health_data` in force, C-19) or
  *    any Guild kind (fair use); it needs no entitlement;
- * 3. a free player rests at FREE_VOICE_SECONDS_PER_30_DAYS in a rolling 30 days, until the UTC date enough old rows
+ * 3. a free player rests at FREE_VOICE_SECONDS_PER_30_DAYS in a rolling 30 days, until the date enough old rows
  *    leave the window.
+ * The windows are rolling instants; only the date shown is the player's, at `offsetMinutes` east of UTC (the route
+ * derives it from the game's `localDate` and `localTime`, `localOffsetMinutes`; fix round 1, I1).
  * When both rests apply (a free player over the daily ceiling) the later lift is the one shown, so a free player is
  * never told "resting for today" while the 30-day rest outlasts it. Only the player's speech (`voice_stt`) counts; the
  * Pan's (`voice_tts`) is recorded and never counted. Read before an utterance; the one in flight always finishes.
- * The state never names the Guild (never rule 7).
+ * The state never names the Guild (never rule 7). `accessibility` is the need as counted here and `accessibilityRead`
+ * whether the sealed setting was read (`health_data` in force), so a caller reports and counts the same single read
+ * (fix round 1, m1).
  */
-export async function voiceState(db: Db, keyring: Keyring, userId: string, now: Date): Promise<{ state: VoiceState; unmetered: boolean }> {
+export async function voiceState(
+  db: Db,
+  keyring: Keyring,
+  userId: string,
+  now: Date,
+  offsetMinutes: number,
+): Promise<{ state: VoiceState; unmetered: boolean; accessibility: boolean; accessibilityRead: boolean }> {
+  if (!Number.isInteger(offsetMinutes) || offsetMinutes < MIN_OFFSET_MINUTES || offsetMinutes > MAX_OFFSET_MINUTES) {
+    throw new Error('voiceState: offsetMinutes must be a whole number of minutes from UTC−12 to UTC+14');
+  }
   const abuse = await liftAt(db, userId, now, DAY_MS, VOICE_ABUSE_SECONDS_PER_DAY);
-  const accessibility = (await accessibilityInForce(db, keyring, userId, now)).on;
-  const unmetered = accessibility || (await activeEntitlements(db, userId, now)).some((k) => GUILD_KINDS.includes(k));
+  const access = await accessibilityInForce(db, keyring, userId, now);
+  const unmetered = access.on || (await activeEntitlements(db, userId, now)).some((k) => GUILD_KINDS.includes(k));
   const free = unmetered ? null : await liftAt(db, userId, now, MONTH_MS, FREE_VOICE_SECONDS_PER_30_DAYS);
   const lift = abuse === null ? free : free === null ? abuse : Math.max(abuse, free);
-  return { state: lift === null ? { kind: 'available' } : restingUntil(lift, now), unmetered };
+  return { state: lift === null ? { kind: 'available' } : restingUntil(lift, now, offsetMinutes), unmetered, accessibility: access.on, accessibilityRead: access.read };
 }
 
 const VOICE_FEATURES = ['voice_stt', 'voice_tts'] as const;

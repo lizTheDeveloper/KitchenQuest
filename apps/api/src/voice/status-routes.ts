@@ -5,16 +5,21 @@ import { SlidingWindowLimiter, sweepPeriodically } from '../auth/rate-limit.js';
 import { requireUser } from '../auth/session.js';
 import { ApiError } from '../errors.js';
 import { voiceState } from './allowance.js';
-import { accessibilityInForce, setAccessibility } from './settings.js';
+import { localOffsetMinutes } from './local-clock.js';
+import { setAccessibility } from './settings.js';
 
 /** Voice status and setting requests per player per minute: far above any real use (abuse only). */
 const VOICE_STATUS_REQUESTS_PER_MINUTE = 60;
 
 const AccessibilityBody = z.object({ on: z.boolean() }).strict();
+/** The player's clock, as the mentor turn takes it (`localDate`, `localTime`), checked by `localOffsetMinutes`. */
+const StatusQuery = z.object({ localDate: z.string().max(10), localTime: z.string().max(5) }).strict();
 
 /**
  * The account side of voice (M7 Step 4):
- * - `GET /voice/status` → `{ state, accessibility, enabled }`: the allowance as a state only (`available`, `resting`
+ * - `GET /voice/status?localDate=YYYY-MM-DD&localTime=HH:MM` (required, checked as the mentor turn checks them; 400
+ *   `bad_request` otherwise) → `{ state, accessibility, enabled }`: the allowance as a state only, its date and "today"
+ *   on the player's own calendar (fix round 1, I1) (`available`, `resting`
  *   until a date, `resting_today`; Ruling 5: no number, countdown or Guild mention), whether the accessibility need is
  *   on and counted (it is read only while `health_data` is in force, and that read is counted per day as a self-read,
  *   resource `voice`, C-5), and whether this server offers voice at all
@@ -45,11 +50,14 @@ export async function voiceStatusRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/voice/status', pre, async (req) => {
     const at = now();
-    const { state } = await voiceState(db, config.keyring, req.user.id, at);
-    const accessibility = await accessibilityInForce(db, config.keyring, req.user.id, at);
-    // C-5: a read of the player's own health data (the sealed setting, opened only with health_data) is counted per day.
-    if (accessibility.read) await countSelfRead(db, req.user.id, 'voice', at);
-    return { state, accessibility: accessibility.on, enabled: app.deps.voiceEnabled ?? false };
+    const q = StatusQuery.safeParse(req.query);
+    if (!q.success) throw new ApiError(400, 'bad_request', 'Invalid request', { problems: ['query: expected exactly localDate and localTime'] });
+    const offset = localOffsetMinutes(q.data.localDate, q.data.localTime, at);
+    // One read of the setting (fix round 1, m1): voiceState reports what it counted.
+    const v = await voiceState(db, config.keyring, req.user.id, at, offset);
+    // C-5: the player's own health data is read while health_data is in force; that read is counted per day.
+    if (v.accessibilityRead) await countSelfRead(db, req.user.id, 'voice', at);
+    return { state: v.state, accessibility: v.accessibility, enabled: app.deps.voiceEnabled ?? false };
   });
 
   app.put('/voice/accessibility', pre, async (req, reply) => {

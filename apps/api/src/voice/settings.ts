@@ -31,15 +31,15 @@ function stored(accessibility: boolean): Stored {
 }
 
 async function opened(db: Pick<Db, 'select'>, keyring: Keyring, userId: string, sealed: Buffer): Promise<boolean> {
-  const v = await openFor<Partial<Stored>>(db, keyring, sealContext(userId), sealed);
+  const v = await openFor<Partial<Stored> | null>(db, keyring, sealContext(userId), sealed);
   if (typeof v?.accessibility !== 'boolean') throw new Error('voice_settings: the sealed value is malformed');
   return v.accessibility;
 }
 
 /** The stored setting; `false` when the player never touched it (no row). Throws on a blob that won't open. */
 export async function readAccessibility(db: Pick<Db, 'select'>, keyring: Keyring, userId: string): Promise<boolean> {
-  const [row] = await db.select({ sealed: voiceSettings.sealed }).from(voiceSettings).where(eq(voiceSettings.userId, userId));
-  return row ? opened(db, keyring, userId, row.sealed) : false;
+  const row = (await db.select({ sealed: voiceSettings.sealed }).from(voiceSettings).where(eq(voiceSettings.userId, userId))).at(0);
+  return row === undefined ? false : opened(db, keyring, userId, row.sealed);
 }
 
 /**
@@ -57,7 +57,10 @@ export async function accessibilityInForce(db: Pick<Db, 'select'>, keyring: Keyr
  * Turns the need on or off. One transaction in the README lock order: the live user (401 when the account is gone),
  * then the `health_data` grant, share-locked (403 `consent_required` without it; a concurrent withdraw-with-delete
  * then waits and erases this row too), then the row. The row is upserted with the value sealed, `false` included:
- * it is kept when off (B4), so its existence reveals nothing. The audit event `voice.accessibility` carries no value.
+ * it is kept when off (B4), so its existence reveals nothing. The audit event is the neutral `voice.settings`, with no
+ * value and no target (fix round 1, m5: the action name itself says nothing about a disability accommodation).
+ * Turning it off needs `health_data` too: after a "keep" withdrawal the kept row is not read anyway, and the way to
+ * remove it is a withdraw-with-delete (m8; Step 9's copy offers that, not an "off" toggle, in that state).
  */
 export async function setAccessibility(db: Db, keyring: Keyring, userId: string, on: boolean, now: Date, requestId: string): Promise<void> {
   await db.transaction(async (tx) => {
@@ -68,13 +71,13 @@ export async function setAccessibility(db: Db, keyring: Keyring, userId: string,
       .insert(voiceSettings)
       .values({ userId, sealed, updatedAt: now })
       .onConflictDoUpdate({ target: voiceSettings.userId, set: { sealed, updatedAt: now } });
-    await audit(tx, { actorKind: 'user', actorId: userId, subjectUserId: userId, action: 'voice.accessibility', requestId }, now);
+    await audit(tx, { actorKind: 'user', actorId: userId, subjectUserId: userId, action: 'voice.settings', requestId }, now);
   });
 }
 
 /** For the export (C-7): the setting decrypted with when it was last set, or null when the player never touched it. */
 export async function loadVoiceSettingsForExport(tx: Pick<Db, 'select'>, keyring: Keyring, userId: string): Promise<{ accessibility: boolean; updatedAt: Date } | null> {
-  const [row] = await tx.select({ sealed: voiceSettings.sealed, updatedAt: voiceSettings.updatedAt }).from(voiceSettings).where(eq(voiceSettings.userId, userId));
-  return row ? { accessibility: await opened(tx, keyring, userId, row.sealed), updatedAt: row.updatedAt } : null;
+  const row = (await tx.select({ sealed: voiceSettings.sealed, updatedAt: voiceSettings.updatedAt }).from(voiceSettings).where(eq(voiceSettings.userId, userId))).at(0);
+  return row !== undefined ? { accessibility: await opened(tx, keyring, userId, row.sealed), updatedAt: row.updatedAt } : null;
 }
 
