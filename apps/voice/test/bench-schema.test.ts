@@ -18,7 +18,7 @@ test('parseBenchRun rejects a missing field, a meetsTarget that disagrees with t
 
   // Every top-level field is required.
   for (const k of Object.keys(good).filter((k) => k !== 'manual')) {
-    const x = clone(good) as Record<string, unknown>;
+    const x = clone(good) as unknown as Record<string, unknown>;
     delete x[k];
     expect(() => parseBenchRun(x), k).toThrow(new RegExp(k));
   }

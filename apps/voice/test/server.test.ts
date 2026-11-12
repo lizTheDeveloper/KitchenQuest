@@ -375,6 +375,7 @@ describe('Step 3: slow headers, pre-upgrade sockets, silent sockets and the bind
     clearInterval(talk);
     expect(chatty.ws.readyState).toBe(chatty.ws.OPEN);
     expect(await chatty.closed).toBe(4408); // and once it stops, it goes too
+    await new Promise((r) => setTimeout(r, 50)); // the server's own close event, and its log line
     expect(logs.filter(([k, f]) => k === 'conn_close' && f?.code === 4408)).toHaveLength(3);
   });
 

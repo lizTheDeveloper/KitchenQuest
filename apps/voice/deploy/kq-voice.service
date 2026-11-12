@@ -1,0 +1,58 @@
+# Kitchen Quest voice service (apps/voice), M7 Step 3. Install as /etc/systemd/system/kq-voice.service.
+# See apps/voice/README.md ("Deploying" and "Host hardening"). Checked by apps/voice/test/deploy.test.ts.
+#
+# C-18: audio is processed in memory and never stored. This unit gives the service no writable filesystem at all
+# (ProtectSystem=strict, and nothing made writable again), no swap, no core dumps and no devices (so no microphone),
+# and runs it with tsx's compile cache off, so nothing lands in /tmp either.
+# C-38: the service binds VOICE_HOST, loopback by default; set it in voice.env to the private interface address when
+# the API runs on another box. Config refuses the wildcard, a public address and a hostname.
+
+[Unit]
+Description=Kitchen Quest voice service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kq-voice
+Group=kq-voice
+WorkingDirectory=/opt/kitchenquest/apps/voice
+# The secrets (VOICE_SERVICE_TOKEN) and box settings (VOICE_HOST, VOICE_PYTHON, VOICE_MODELS_DIR, VOICE_WORKERS)
+# live in this root-owned 0600 file, which overrides the defaults below.
+EnvironmentFile=/etc/kitchenquest/voice.env
+Environment=NODE_ENV=production
+Environment=VOICE_ENGINE=worker
+Environment=VOICE_WORKER_ENGINE=real
+Environment=VOICE_HOST=127.0.0.1
+Environment=VOICE_PORT=3100
+Environment=HF_HUB_OFFLINE=1
+Environment=TSX_DISABLE_CACHE=1
+# --disable-warning, never the blanket no-warnings flag: main.ts logs every warning by name, and its handler is what keeps stderr
+# content-free; on Node 22 this flag changes nothing there (see main.ts).
+ExecStart=/usr/bin/node --disable-warning=ExperimentalWarning --import tsx src/main.ts
+Restart=on-failure
+RestartSec=2
+
+# No core dumps (Review Focus 2, B3), no swap-backed buffers.
+LimitCORE=0
+MemorySwapMax=0
+# No writable filesystem.
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+UMask=0077
+# No devices, no privileges, nothing but IP and Unix sockets.
+PrivateDevices=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+LockPersonality=yes
+RestrictSUIDSGID=yes
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

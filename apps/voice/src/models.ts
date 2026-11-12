@@ -13,7 +13,17 @@ export interface ModelEntry {
   status: 'allowed' | 'excluded' | 'unverified';
   reason?: string;
   voices?: string[];
+  /** Paths relative to VOICE_MODELS_DIR, each pinned by the sha256 of the download (src/pins.ts verifies them). */
   files: { path: string; sha256: string }[];
+  /** Where the pinned files are downloaded from: a Hugging Face repo, its commit, and the folder in it (Step 3). */
+  fetch?: ModelFetch;
+}
+
+export interface ModelFetch {
+  repo: string;
+  revision: string;
+  /** The folder in the repo that holds the files (`<id>/<name>` comes from `<from>/<name>`); omitted for the root. */
+  from?: string;
 }
 
 export interface EngineEntry {
@@ -68,6 +78,13 @@ function parseModel(x: unknown, i: number): ModelEntry {
     if (!isObj(f) || !isStr(f.path) || typeof f.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(f.sha256)) bad(`${where}: files[${j}] needs a path and a sha256`);
     return { path: f.path, sha256: f.sha256 };
   });
+  let fetch: ModelFetch | undefined;
+  if (x.fetch !== undefined) {
+    const f = x.fetch;
+    if (!isObj(f) || !isStr(f.repo) || typeof f.revision !== 'string' || !/^[0-9a-f]{40}$/.test(f.revision) || (f.from !== undefined && !isStr(f.from)))
+      bad(`${where}: fetch needs a repo, a 40-hex revision and an optional folder`);
+    fetch = { repo: f.repo, revision: f.revision, ...(f.from === undefined ? {} : { from: f.from }) };
+  }
   return {
     id: x.id,
     kind: x.kind,
@@ -80,6 +97,7 @@ function parseModel(x: unknown, i: number): ModelEntry {
     ...(x.reason === undefined ? {} : { reason: x.reason }),
     ...(x.voices === undefined ? {} : { voices: [...x.voices] }),
     files,
+    ...(fetch === undefined ? {} : { fetch }),
   };
 }
 

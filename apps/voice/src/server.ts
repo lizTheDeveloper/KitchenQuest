@@ -30,8 +30,25 @@ export const MAX_BUFFERED = 512 * 1024;
  * behind data the peer is not reading, so waiting for ws's 30 s closeTimeout would keep it, and its buffers, alive.
  */
 export const CONGESTED_GRACE_MS = 1000;
-/** Step 3 binds a private address from the environment; until then, loopback only. */
-const HOST = '127.0.0.1';
+/**
+ * Step 3 (N3): a request must finish its headers within HEADERS_TIMEOUT_MS and its whole request within
+ * REQUEST_TIMEOUT_MS, checked every CHECK_INTERVAL_MS, so a client trickling its headers cannot hold a socket. At most
+ * MAX_PRE_UPGRADE sockets may wait before their upgrade (or refusal); one more is destroyed unread. The API is the only
+ * client and opens at most maxConnections.
+ */
+export const HEADERS_TIMEOUT_MS = 2000;
+export const REQUEST_TIMEOUT_MS = 3000;
+const CHECK_INTERVAL_MS = 250;
+export const MAX_PRE_UPGRADE = 64;
+const MAX_HEADER_BYTES = 8 * 1024;
+/**
+ * Review M2 (Step 3): an authenticated socket must say `hello` within HELLO_TIMEOUT_MS, and is closed with
+ * CLOSE_IDLE after IDLE_TIMEOUT_MS with no message either way. A hands-free cook may be quiet for HANDS_FREE_IDLE_MS
+ * (core) before hands-free turns itself off, so the idle limit is longer than that; the API reconnects when it needs to.
+ */
+export const HELLO_TIMEOUT_MS = 5000;
+export const IDLE_TIMEOUT_MS = 11 * 60_000;
+const CLOSE_IDLE = 4408;
 
 const digest = (b: Buffer) => createHash('sha256').update(b).digest();
 
@@ -101,11 +118,21 @@ export function socketIo(
   };
 }
 
-export function createVoiceServer(opts: { config: VoiceConfig; stt: SttEngine; tts: TtsEngine; log: Logger }): {
+export interface ServerLimits {
+  /** Sockets waiting before their upgrade (default MAX_PRE_UPGRADE). */
+  preUpgrade?: number;
+  helloMs?: number;
+  idleMs?: number;
+}
+
+export function createVoiceServer(opts: { config: VoiceConfig; stt: SttEngine; tts: TtsEngine; log: Logger; limits?: ServerLimits }): {
   listen(port: number): Promise<number>;
   close(): Promise<void>;
 } {
   const { config, stt, tts, log } = opts;
+  const maxPreUpgrade = opts.limits?.preUpgrade ?? MAX_PRE_UPGRADE;
+  const helloMs = opts.limits?.helloMs ?? HELLO_TIMEOUT_MS;
+  const idleMs = opts.limits?.idleMs ?? IDLE_TIMEOUT_MS;
   const expected = digest(config.token);
   const cache = new SpeechCache();
   let open = 0;
@@ -118,13 +145,34 @@ export function createVoiceServer(opts: { config: VoiceConfig; stt: SttEngine; t
     return timingSafeEqual(digest(Buffer.from(presented, 'utf8')), expected) && presented.length > 0;
   };
 
-  const http = createServer((_req, res) => {
-    res.writeHead(426, { connection: 'close' }).end();
+  const http = createServer(
+    { headersTimeout: HEADERS_TIMEOUT_MS, requestTimeout: REQUEST_TIMEOUT_MS, connectionsCheckingInterval: CHECK_INTERVAL_MS, maxHeaderSize: MAX_HEADER_BYTES },
+    (_req, res) => {
+      res.writeHead(426, { connection: 'close' }).end();
+    },
+  );
+  // N3: count sockets until their upgrade request arrives (or they close); one over the cap is destroyed unread.
+  let preUpgrade = 0;
+  const waiting = new WeakSet<Duplex>();
+  const leaveWaiting = (socket: Duplex) => {
+    if (waiting.delete(socket)) preUpgrade--;
+  };
+  http.on('connection', (socket: Duplex) => {
+    socket.on('error', () => {});
+    if (preUpgrade >= maxPreUpgrade) {
+      socket.destroy();
+      return;
+    }
+    preUpgrade++;
+    waiting.add(socket);
+    socket.once('close', () => leaveWaiting(socket));
   });
+  http.on('request', (req: IncomingMessage) => leaveWaiting(req.socket));
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_PAYLOAD, perMessageDeflate: false });
   wss.on('error', () => {});
 
   http.on('upgrade', (req: IncomingMessage, socket: Duplex, head: Buffer) => {
+    leaveWaiting(socket);
     socket.on('error', () => {}); // never logged: an error may carry message content
     // Review M3: the API's Node client sends no Origin; one that does is a browser.
     if (req.headers.origin !== undefined) {
@@ -156,6 +204,15 @@ export function createVoiceServer(opts: { config: VoiceConfig; stt: SttEngine; t
     ws.on('error', () => {});
     open++;
     log('conn_open', { open });
+    // Review M2 (Step 3): no first message within helloMs, then no message either way for idleMs, closes the socket
+    // with 4408. (A first message that is not a hello is refused by the session anyway.)
+    const shut = () => ws.close(CLOSE_IDLE);
+    let timer = setTimeout(shut, helloMs).unref();
+    let helloed = false;
+    const active = () => {
+      if (helloed) timer.refresh();
+    };
+    const io = socketIo(ws, () => session.close());
     // The session is ended at once if the socket congests (F2); the callback runs only after `session` exists.
     const session: Session = new Session({
       stt,
@@ -163,9 +220,24 @@ export function createVoiceServer(opts: { config: VoiceConfig; stt: SttEngine; t
       cast: config.cast,
       cache,
       log,
-      io: socketIo(ws, () => session.close()),
+      io: {
+        json: (msg) => {
+          active();
+          io.json(msg);
+        },
+        frame: (bytes) => {
+          active();
+          return io.frame(bytes);
+        },
+        close: (code) => io.close(code),
+      },
     });
     ws.on('message', (data: RawData, binary: boolean) => {
+      if (!helloed) {
+        helloed = true;
+        clearTimeout(timer);
+        timer = setTimeout(shut, idleMs).unref();
+      } else active();
       try {
         const bytes = toBytes(data);
         session.receive(binary ? bytes : Buffer.from(bytes).toString('utf8'), binary);
@@ -177,6 +249,7 @@ export function createVoiceServer(opts: { config: VoiceConfig; stt: SttEngine; t
       }
     });
     ws.once('close', (code: number) => {
+      clearTimeout(timer);
       session.close();
       open--;
       log('conn_close', { code, open });
@@ -187,7 +260,7 @@ export function createVoiceServer(opts: { config: VoiceConfig; stt: SttEngine; t
     listen: (port) =>
       new Promise((resolve, reject) => {
         http.once('error', reject);
-        http.listen(port, HOST, () => resolve((http.address() as AddressInfo).port));
+        http.listen(port, config.host, () => resolve((http.address() as AddressInfo).port));
       }),
     close: async () => {
       for (const ws of wss.clients) ws.close(CLOSE_GOING_AWAY);

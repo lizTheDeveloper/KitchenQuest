@@ -276,7 +276,9 @@ async function utter(c: Client, id: number, hint: string[]): Promise<void> {
 }
 
 /** A whole session through the real server and an echo pool, in fresh cwd, TMPDIR and HOME. */
-async function session(extraArgs: string[]): Promise<{ reached: boolean[]; before: object; after: object; stderrBytes: number }> {
+type Snaps = Record<'tmp' | 'cwd' | 'home', Record<string, number>>;
+
+async function session(extraArgs: string[]): Promise<{ reached: boolean[]; before: Snaps; after: Snaps; stderrBytes: number }> {
   process.env.TMPDIR = dirs.tmp;
   process.env.HOME = dirs.home;
   process.chdir(dirs.cwd);
