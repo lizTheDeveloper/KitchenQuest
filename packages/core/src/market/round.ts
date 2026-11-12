@@ -34,6 +34,13 @@ function fnv1a(text: string): number {
   return h >>> 0;
 }
 
+/** murmur3's 32-bit finaliser: spreads FNV-1a's bits, so ids that differ in one character get unrelated orders. */
+function mix(h: number): number {
+  h = Math.imul(h ^ (h >>> 16), 0x85ebca6b);
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+  return (h ^ (h >>> 16)) >>> 0;
+}
+
 /** A fixed sequence of 32-bit numbers from a seed (xorshift32); the seed is never 0. */
 function sequence(seed: number): () => number {
   let s = seed === 0 ? 0x9e3779b9 : seed;
@@ -55,9 +62,10 @@ function sequence(seed: number): () => number {
 export function optionOrder(questionId: string, n: number): number[] {
   const len = Number.isInteger(n) && n > 0 ? n : 0;
   const order = Array.from({ length: len }, (_, i) => i);
-  const next = sequence(fnv1a(questionId));
+  const next = sequence(mix(fnv1a(questionId)));
   for (let i = len - 1; i > 0; i--) {
-    const j = next() % (i + 1);
+    // The high bits pick: j = floor(x / 2^32 × (i + 1)).
+    const j = Math.floor((next() / 0x100000000) * (i + 1));
     [order[i], order[j]] = [order[j], order[i]];
   }
   return order;
