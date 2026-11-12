@@ -68,7 +68,8 @@ jobs:
       - run: npm test -w @kitchenquest/game
       - run: npm run build -w @kitchenquest/game
       - run: npm run test:e2e -w @kitchenquest/game
-  # M7: the voice service. Fake engines only: CI has no GPU, no microphone and no model weights.
+  # M7: the voice service. Fake engines and the worker's stdlib-only echo engine (python3 -I -S): CI has no GPU, no
+  # microphone and no model weights, never installs worker/requirements.txt and never runs the benchmark.
   voice:
     runs-on: ubuntu-latest
     steps:
@@ -83,5 +84,6 @@ jobs:
       - run: npm ci
       # The lint-guard test reads the real ESLint config from tools/lint (fix round 2, N6).
       - run: npm run lint:install
+      - run: python3 --version
       - run: npm run typecheck -w @kitchenquest/voice
       - run: npm test -w @kitchenquest/voice

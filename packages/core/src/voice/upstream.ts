@@ -10,8 +10,9 @@
 // - Queueing: an utterance that ends while the engine is still finishing an earlier (aborted) call waits, and is
 //   transcribed as soon as that call settles; its `transcript` (or `failed`) may come after the API's next message.
 //   At most one waits. Replies are matched by id.
-// - No deadline yet: a waiting utterance waits as long as the engine's aborted call does. Step 3's worker watchdog
-//   must settle a hung call, and Step 5 should keep its own reply timeout per id.
+// - Deadlines (M7 Step 3, F5): the service's worker pool fails an STT request 20 s after it was submitted, queue time
+//   included, and kills and replaces a worker still holding it, so an aborted call always settles and a waiting
+//   utterance is answered (`transcript` or `failed`). Step 5 should still keep its own reply timeout per id.
 // - A `speak` replaces the speech in flight, which gets no `audio_end`. `cancel` gets no reply.
 // - An `end` with no audio, or a blank transcript, is `failed` stt.
 import { MAX_TEXT } from '../mentor/intents';
