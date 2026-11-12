@@ -60,7 +60,7 @@ export async function recordVoice(db: Pick<Db, 'insert'>, userId: string, featur
 
   It never says "HIPAA".
 
-- [ ] **4.1 Write the failing tests.**
+- [x] **4.1 Write the failing tests.**
 ```ts
 // voice-settings.test.ts (real Postgres)
 test('PUT {on:true} without health_data → 403 consent_required; with it → 204; the bytea holds neither "accessibility" nor "true"; a row copied to another user fails to open (AAD)', ...);
@@ -81,7 +81,7 @@ test('zero entitlements + accessibility on: available after 10 h of speech in 30
 test('GET /me/consents returns notices.voice at v1 from the file; a grant under 2026-11-09 is in needsReconsent', ...);
 // inventory.test.ts (N-8): voice_settings columns listed
 ```
-- [ ] **4.2 Run** `npm test -w @kitchenquest/api -- voice-settings voice-allowance free-forever consent inventory account entitlements` → FAIL.
-- [ ] **4.3 Implement.** Generate the migration with `drizzle-kit generate`. Then write the inventory rows and the business-doc line.
-- [ ] **4.4 Run** `npm test -w @kitchenquest/api` → only `eval-gate.test.ts` fails. `npm run typecheck` → PASS.
-- [ ] **4.5 Commit** `feat(api): voice consent v1, the sealed accessibility need (C-19), voice allowance and usage`
+- [x] **4.2 Run** `npm test -w @kitchenquest/api -- voice-settings voice-allowance free-forever consent inventory account entitlements` → FAIL.
+- [x] **4.3 Implement.** Generate the migration with `drizzle-kit generate`. Then write the inventory rows and the business-doc line.
+- [x] **4.4 Run** `npm test -w @kitchenquest/api` → only `eval-gate.test.ts` fails. `npm run typecheck` → PASS.
+- [x] **4.5 Commit** `feat(api): voice consent v1, the sealed accessibility need (C-19), voice allowance and usage`
