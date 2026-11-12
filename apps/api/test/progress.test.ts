@@ -692,7 +692,7 @@ describe('boot validation (C10)', () => {
 
   it('refuses a stall id over 40 or a question id over 80 characters, the event caps (M6 Step 7, Task 6 review M2)', () => {
     const long = `wen-${'x'.repeat(77)}`; // 81
-    edit('content/market/wen.yaml', /^  - id: wen-avocado-ripe$/m, `  - id: ${long}`);
+    edit('content/market/wen.yaml', /^ {2}- id: wen-avocado-ripe$/m, `  - id: ${long}`);
     expect(load).toThrow(new RegExp(`content/market/wen\\.yaml: .*question id "${long}" is longer than 80 characters`));
     // 80 is still fine.
     edit('content/market/wen.yaml', `  - id: ${long}`, `  - id: ${long.slice(0, 80)}`);

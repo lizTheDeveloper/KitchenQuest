@@ -73,11 +73,11 @@ export function catalogueHash(cat: Catalogue, rewards: RewardsData, thresholds: 
 
 /** The snapshot row's plain columns (no unseal). */
 async function snapshotRow(db: Pick<Db, 'select'>, userId: string) {
-  const [row] = await db
+  const rows = await db
     .select({ uptoSeq: progressSnapshots.uptoSeq, catalogueHash: progressSnapshots.catalogueHash, sealed: progressSnapshots.sealed, createdAt: progressSnapshots.createdAt })
     .from(progressSnapshots)
     .where(eq(progressSnapshots.userId, userId));
-  return row;
+  return rows.length === 0 ? undefined : rows[0];
 }
 
 const isSnapshot = (v: unknown): v is ProgressSnapshot => typeof v === 'object' && v !== null && 'view' in v && 'facts' in v;
@@ -114,7 +114,7 @@ async function historyAndSeq(db: Reader, keyring: Keyring, userId: string, hash:
       await dropUnreadable(db, userId, row.uptoSeq);
     }
   }
-  const after = base === null ? null : row!.uptoSeq;
+  const after = base === null ? null : row.uptoSeq;
   const { events, grants, lastSeq } = await loadHistoryAfter(db, keyring, userId, after);
   return { history: { events, grants, base } satisfies ProgressHistory, lastSeq, uptoSeq: after };
 }

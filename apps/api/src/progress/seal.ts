@@ -6,7 +6,7 @@ import type { Db } from '../types.js';
  * The seal context of a `progress_events` row (C-3, M6 Step 6): bound to the table, owner and row, so a sealed round
  * copied to another row or another player's account fails to open.
  */
-export const eventSealContext = (userId: string, rowId: string): SealContext => ({ table: 'progress_events', userId, rowId });
+const eventSealContext = (userId: string, rowId: string): SealContext => ({ table: 'progress_events', userId, rowId });
 
 /**
  * Seals stall rounds' whole bodies (everything but the id, kind and date columns: the stall and each answered question

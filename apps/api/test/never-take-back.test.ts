@@ -270,7 +270,7 @@ describe('snapshot equivalence (M6 Step 7)', () => {
           fc.tuple(...qs.map((q) => fc.integer({ min: 0, max: q.options.length - 1 }).map((pick) => ({ q: q.id, pick })))),
         ),
       }),
-    ).chain((e) => fc.uuid().map((id) => ({ ...e, id }) as ProgressEvent));
+    ).chain((e) => fc.uuid().map((id) => ({ ...e, id })));
     const op = fc.oneof(
       { weight: 6, arbitrary: fc.record({ post: fc.array(event, { minLength: 1, maxLength: 6 }) }) },
       { weight: 2, arbitrary: fc.record({ erase: fc.nat() }) },

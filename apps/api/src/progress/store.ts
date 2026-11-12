@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { ProgressEvent, ProgressEventKind, ProgressHistory, RewardGrant } from '@kitchenquest/core';
-import { and, asc, eq, gt, inArray, isNotNull, max, or, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNotNull, or, sql } from 'drizzle-orm';
 import type { Keyring } from '../crypto/keyring.js';
 import { progressEvents, rewardGrants, type GRANT_KINDS, type PROGRESS_KINDS } from '../db/schema.js';
 import type { Db } from '../types.js';
@@ -19,7 +19,7 @@ void grantKindsAgree;
  * decides only their `health_data` consent). Its plain `body` is `{}`; `sealed` holds the whole body. The schema's
  * `progress_events_sealed_check` holds the database to the same rule.
  */
-export const SEALED_KINDS: ReadonlySet<ProgressEventKind> = new Set(['stall_round']);
+const SEALED_KINDS: ReadonlySet<ProgressEventKind> = new Set(['stall_round']);
 
 type Reader = Pick<Db, 'select'>;
 /** A transaction (the same type as `consent/ledger.ts`'s, declared here: progress/ imports nothing from consent/). */
@@ -116,7 +116,7 @@ export async function loadHistoryAfter(
   return {
     events: await eventsOf(db, keyring, userId, rows),
     grants: grants.map(grantOf).sort(byGrantId),
-    lastSeq: rows.at(-1)?.seq ?? afterSeq ?? 0,
+    lastSeq: rows.length > 0 ? rows[rows.length - 1].seq : (afterSeq ?? 0),
   };
 }
 
@@ -126,13 +126,7 @@ export async function countEventsAfter(db: Reader, userId: string, afterSeq: num
     .select({ n: sql<number>`count(*)::int` })
     .from(progressEvents)
     .where(afterSeq === null ? eq(progressEvents.userId, userId) : and(eq(progressEvents.userId, userId), gt(progressEvents.seq, afterSeq)));
-  return row?.n ?? 0;
-}
-
-/** The newest `seq` among the player's events (0 when there is none). */
-export async function lastEventSeq(db: Reader, userId: string): Promise<number> {
-  const [row] = await db.select({ seq: max(progressEvents.seq) }).from(progressEvents).where(eq(progressEvents.userId, userId));
-  return Number(row?.seq ?? 0);
+  return row.n;
 }
 
 /**

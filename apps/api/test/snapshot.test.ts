@@ -169,18 +169,18 @@ describe('progress snapshot (M6 Step 7, Ruling 18)', () => {
     const row = await snapshotRow(p.id);
     expect(row).toBeDefined();
     const [{ last }] = await sql<{ last: number }[]>`select max(seq)::int as last from progress_events where user_id = ${p.id}`;
-    expect(row!.uptoSeq).toBe(last);
-    expect(row!.catalogueHash).toBe(catalogueHash(await cat(), loop.rewards, loop.thresholds));
+    expect(row.uptoSeq).toBe(last);
+    expect(row.catalogueHash).toBe(catalogueHash(await cat(), loop.rewards, loop.thresholds));
     for (const word of ['parippu', 'onigiri', 'india/kerala', 'leela', 'bram', 'parmesan', 'wen-avocado', 'protein', 'cookedOn', 'marketAnswered', '"xp"']) {
       const [{ n }] = await sql<{ n: number }[]>`select count(*)::int as n from progress_snapshots r where position(${word} in r::text) > 0 or position(convert_to(${word}, 'UTF8') in r.sealed) > 0`;
       expect(n, word).toBe(0);
     }
     // Opened with the player's key under its own AAD, it is core's snapshot of the whole fold.
-    const opened = await openFor<{ view: ProgressView; facts: unknown }>(db, config.keyring, { table: 'progress_snapshots', userId: p.id, rowId: p.id }, row!.sealed);
+    const opened = await openFor<{ view: ProgressView; facts: unknown }>(db, config.keyring, { table: 'progress_snapshots', userId: p.id, rowId: p.id }, row.sealed);
     expect(opened.view).toEqual(await view(p.cookie));
     expect(opened.view.marketAnswered).toHaveProperty('bram-pc-parmesan');
     // Under another row's AAD (another player's id) it does not open.
-    await expect(openFor(db, config.keyring, { table: 'progress_snapshots', userId: p.id, rowId: randomUUID() }, row!.sealed)).rejects.toThrow();
+    await expect(openFor(db, config.keyring, { table: 'progress_snapshots', userId: p.id, rowId: randomUUID() }, row.sealed)).rejects.toThrow();
   });
 
   it('GET /progress with a snapshot reads only the tail (spy on the select) and returns the same view as a full read', async () => {
@@ -245,7 +245,7 @@ describe('progress snapshot (M6 Step 7, Ruling 18)', () => {
     expect(after).toEqual(deriveProgress(await loadFullHistory(db, config.keyring, p.id), await cat()));
     // The next post rebuilds it from the ledgers (more than SNAPSHOT_EVERY events since the start).
     await post(p.cookie, filler(1, 8));
-    const rebuilt = (await snapshotRow(p.id))!;
+    const rebuilt = (await snapshotRow(p.id));
     expect(rebuilt).toBeDefined();
     const c = await cat();
     const full = await loadFullHistory(db, config.keyring, p.id);
@@ -277,7 +277,7 @@ describe('progress snapshot (M6 Step 7, Ruling 18)', () => {
   it('a rewards.yaml retune changes catalogue_hash → snapshot ignored and rebuilt; no derived value drops', async () => {
     const p = await heavyPlayer();
     const before = await view(p.cookie);
-    const old = (await snapshotRow(p.id))!;
+    const old = (await snapshotRow(p.id));
     const retuned: LoopContent = { ...loop, rewards: { ...loop.rewards, xp: { ...loop.rewards.xp, lesson: loop.rewards.xp.lesson + 7, cook: 1 } } };
     await boot({ loop: retuned });
     const c = catalogueFor(await createRecipeIndexSource().current(db), retuned);
@@ -289,7 +289,7 @@ describe('progress snapshot (M6 Step 7, Ruling 18)', () => {
     expect(read).toEqual(before);
     // The next post rewrites it under the new hash; nothing drops.
     await post(p.cookie, filler(2, 9));
-    const fresh = (await snapshotRow(p.id))!;
+    const fresh = (await snapshotRow(p.id));
     expect(fresh.catalogueHash).toBe(hash);
     expect(fresh.uptoSeq).toBeGreaterThan(old.uptoSeq);
     const after = await view(p.cookie);
@@ -313,7 +313,7 @@ describe('progress snapshot (M6 Step 7, Ruling 18)', () => {
     expect(text).not.toMatch(/parippu|onigiri|bram|parmesan|wen-|leela/i);
     // A snapshot under another player's AAD (copied over) is unreadable too, on the post path as well.
     const q = await heavyPlayer();
-    const other = (await snapshotRow(q.id))!;
+    const other = (await snapshotRow(q.id));
     await post(q.cookie, filler(1, 10));
     await sql`update progress_snapshots set sealed = ${other.sealed} where user_id = ${q.id}`;
     const r = await heavyPlayer();
@@ -321,7 +321,7 @@ describe('progress snapshot (M6 Step 7, Ruling 18)', () => {
     const rBefore = deriveProgress(await loadFullHistory(db, config.keyring, r.id), await cat());
     expect((await post(r.cookie, filler(1, 11))).view.xp).toBeGreaterThanOrEqual(rBefore.xp);
     // Replaced on that post (a full read past the threshold), and it opens again.
-    const replaced = (await snapshotRow(r.id))!;
+    const replaced = (await snapshotRow(r.id));
     expect(replaced.sealed.equals(other.sealed)).toBe(false);
     await expect(openFor(db, config.keyring, { table: 'progress_snapshots', userId: r.id, rowId: r.id }, replaced.sealed)).resolves.toHaveProperty('view');
   });
@@ -330,7 +330,7 @@ describe('progress snapshot (M6 Step 7, Ruling 18)', () => {
     const empty = await player();
     expect((await call(empty.cookie, { method: 'GET', url: '/me/export' })).json<{ progress: { snapshot: unknown } }>().progress.snapshot).toBeNull();
     const p = await heavyPlayer();
-    const row = (await snapshotRow(p.id))!;
+    const row = (await snapshotRow(p.id));
     const x = (await call(p.cookie, { method: 'GET', url: '/me/export' })).json<{
       progress: { view: ProgressView; snapshot: { uptoSeq: number; catalogueHash: string; createdAt: string; view: ProgressView; facts: unknown } };
     }>();
