@@ -92,7 +92,7 @@ export async function sttHint(db: Db, keyring: Keyring, catalog: Catalog, userId
   8. **Upstream down** → `failed { kind: 'upstream' }`, and the socket stays open.
   9. **Close** → buffers and transcripts dropped, link closed, removed from the registry.
 
-- [ ] **5.1 Write the failing tests.**
+- [x] **5.1 Write the failing tests.**
 ```ts
 // voice-socket.test.ts (app.listen(0), a ws client, FakeUpstream)
 test('no cookie → signed_out; no Origin header → bad_origin; a cross-site Origin → bad_origin; no voice grant → consent_required', ...);
@@ -130,7 +130,7 @@ test('the Fastify error hook on /voice logs kind and status only (Review Focus 2
 // config.test.ts
 test('production refuses VOICE_ENABLED=true with ws:// to a public host, a short token, or hetzner\'s DPA not signed', ...);
 ```
-- [ ] **5.2 Run** `npm test -w @kitchenquest/api -- voice- config logging` → FAIL.
-- [ ] **5.3 Implement.** Forwarding keeps no reference to a frame. `registry.ts` and `recent-replies.ts` import only core types.
-- [ ] **5.4 Run** `npm test -w @kitchenquest/api` → only `eval-gate.test.ts` fails. `npm run typecheck`, `npm run lint` → PASS.
-- [ ] **5.5 Commit** `feat(api): the voice socket, the per-user voice block, server-side speak rendering`
+- [x] **5.2 Run** `npm test -w @kitchenquest/api -- voice- config logging` → FAIL.
+- [x] **5.3 Implement.** Forwarding keeps no reference to a frame. `registry.ts` and `recent-replies.ts` import only core types.
+- [x] **5.4 Run** `npm test -w @kitchenquest/api` → only `eval-gate.test.ts` fails. `npm run typecheck`, `npm run lint` → PASS.
+- [x] **5.5 Commit** `feat(api): the voice socket, the per-user voice block, server-side speak rendering`
