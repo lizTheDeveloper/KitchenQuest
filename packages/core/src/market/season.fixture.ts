@@ -43,7 +43,7 @@ export const VALE: SeasonRegion = {
   ],
   months: {
     '6': { now: ['strawberry'] },
-    '11': { now: ['cranberry', 'kale'], stored: ['winter_squash'], travelled: ['strawberry', 'mango'] },
+    '11': { now: ['cranberry', 'kale', 'garlic'], stored: ['winter_squash'], travelled: ['strawberry', 'mango'] },
     '12': { now: ['kale'], stored: ['winter_squash', 'cranberry'], travelled: ['strawberry'] },
   },
 };

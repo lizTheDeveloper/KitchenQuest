@@ -7,4 +7,4 @@ export { MAX_ROUND_ANSWERS, nextRound, optionOrder, ROUND_SIZE, scoreAnswer } fr
 export { validateStallFile } from './validate';
 export { countryInScope, isKnownCountry, normalizeCountry } from './country';
 export type { SeasonRegion, SeasonTable } from './season';
-export { dishSeason, monthOf, seasonalAgrees, seasonalQuestions, seasonOf, seasonRegionFor, validateSeasonTable } from './season';
+export { dishSeason, dishSeasonNote, monthOf, seasonalAgrees, seasonalQuestions, seasonNote, seasonOf, seasonRegionFor, validateSeasonTable } from './season';

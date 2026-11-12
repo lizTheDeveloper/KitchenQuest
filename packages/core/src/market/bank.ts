@@ -25,8 +25,9 @@ function itemsRecipe(ids: readonly string[], ctx: MarketCtx): ParsedRecipe {
 /**
  * The worst check status, with no substitutions, over the declared ids and every graph id the texts name. An id the
  * graph doesn't know is ❓, never "no ingredient". Nothing named at all is ✅. Never cached: rules change.
+ * Exported inside market/ only (season.ts's notes use it); not part of the package surface.
  */
-function namedStatus(declared: readonly string[], texts: readonly string[], ctx: MarketCtx): CheckStatus {
+export function namedStatus(declared: readonly string[], texts: readonly string[], ctx: MarketCtx): CheckStatus {
   const known = new Set<string>();
   let status: CheckStatus = 'ok';
   for (const id of declared) {

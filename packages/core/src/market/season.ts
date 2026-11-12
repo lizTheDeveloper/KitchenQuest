@@ -5,16 +5,18 @@
 // A region may name a broader `parent` only in the same country (Ruling 9), and only for its data.
 //
 // Information only (Ruling 10): these functions say what category an item is in. They never hide, lock or reorder
-// anything. They do not check the player's rules either: every seasonal question still goes through `stallBank`
-// (rules-checked, ✅ only), and a caller shows a Season's Table note only on an item its own `check` calls ✅
-// ("can't verify is never safe").
+// anything. `seasonOf` and `dishSeason` are the raw lookups and do not check the player's rules. Player-facing season
+// text comes ONLY from `seasonNote` and `dishSeasonNote` (fix round 1, I1), which take the player's MarketCtx and
+// give a note only for an item the rules engine calls ✅, with no substitutions, as `stallBank` does ("can't verify
+// is never safe"). Every seasonal question goes through `stallBank` too.
 //
 // Pure and browser-safe: no I/O, no recipe parser, no clock (the month comes from the player's local date).
 import type { IngredientGraph } from '../ingredients/graph';
 import type { ParsedRecipe } from '../recipe/types';
 import { isValidDate } from '../rules/active';
+import { namedStatus } from './bank';
 import { countryInScope, isKnownCountry, normalizeCountry } from './country';
-import type { StallFile, StallQuestion } from './types';
+import type { MarketCtx, StallFile, StallQuestion } from './types';
 
 type MonthKey = '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '10' | '11' | '12';
 
@@ -198,6 +200,25 @@ export function dishSeason(recipe: ParsedRecipe, regionId: string | null, month:
     if (id !== null && !out.includes(id) && seasonOf(id, regionId, month, table, graph)?.isNow === true) out.push(id);
   }
   return out;
+}
+
+/**
+ * The Season's Table note for one item, for the player: `seasonOf` for the month of ctx.date, but only when the item
+ * itself is ✅ under ctx.rules (core `check`, no substitutions: an item a recipe could swap is still the item the
+ * rules hit). ⛔, ❓ (including an id the graph doesn't know) and 🔁 items get null. Throws on a bad ctx.date.
+ */
+export function seasonNote(ingredientId: string | null, regionId: string | null, table: SeasonTable, ctx: MarketCtx): Season | null {
+  const season = seasonOf(ingredientId, regionId, monthOf(ctx.date), table, ctx.graph);
+  if (season === null || ingredientId === null) return null;
+  return namedStatus([ingredientId], [], ctx) === 'ok' ? season : null;
+}
+
+/**
+ * The plan view's note, for the player: `dishSeason` for the month of ctx.date, keeping only the ids that are ✅ under
+ * ctx.rules (no substitutions). [] for no region or a sacred dish.
+ */
+export function dishSeasonNote(recipe: ParsedRecipe, regionId: string | null, table: SeasonTable, ctx: MarketCtx): string[] {
+  return dishSeason(recipe, regionId, monthOf(ctx.date), table, ctx.graph).filter((id) => namedStatus([id], [], ctx) === 'ok');
 }
 
 /** A region as far as `accepts` needs it, when its match block has the right shape; else null. */

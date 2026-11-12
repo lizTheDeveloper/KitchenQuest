@@ -2,7 +2,8 @@ import { describe, expect, test } from 'vitest';
 import fc from 'fast-check';
 import { stallBank } from './bank';
 import { ctx as marketCtx, avoid } from './fixtures';
-import { dishSeason, monthOf, seasonalAgrees, seasonalQuestions, seasonOf, seasonRegionFor, validateSeasonTable, type SeasonRegion, type SeasonTable } from './season';
+import { check } from '../rules/check';
+import { dishSeason, dishSeasonNote, monthOf, seasonalAgrees, seasonalQuestions, seasonNote, seasonOf, seasonRegionFor, validateSeasonTable, type SeasonRegion, type SeasonTable } from './season';
 import { ALL_YEAR, clone, COAST, dish, EAST_VALE, graph, MONSOON, NOW, seasonal, STORED, TABLE, TRAVELLED, VALE, WEN, WITH_CHILD } from './season.fixture';
 import type { StallFile } from './types';
 
@@ -299,5 +300,54 @@ describe('seasonalAgrees', () => {
 
   test('seasonalAgrees: a stall with no seasonal block has nothing to disagree with', () => {
     expect(seasonalAgrees({ ...WEN, seasonal: undefined }, TABLE)).toEqual([]);
+  });
+});
+
+describe('seasonNote and dishSeasonNote (fix round 1, I1): season text only for items the rules engine calls ✅', () => {
+  const NOV = '2026-11-12';
+  const c = (rules: Parameters<typeof marketCtx>[0] = [], date = NOV) => marketCtx(rules, { graph, date });
+  const FRUCTAN = avoid('fodmap_fructan');
+
+  test('a ✅ item gets the note, with the month from ctx.date', () => {
+    expect(seasonNote('cranberry', 'test-vale', TABLE, c())).toEqual({ category: 'now', label: NOW, isNow: true });
+    expect(seasonNote('cranberry', 'test-vale', TABLE, c([], '2026-12-03'))).toEqual({ category: 'stored', label: STORED, isNow: false });
+    expect(seasonNote('cranberry', 'test-vale', TABLE, c([], '2026-03-03'))).toBeNull();
+    expect(seasonNote('cranberry', 'test-vale', TABLE, c([avoid('kale')]))?.isNow).toBe(true);
+    expect(seasonNote('cranberry', null, TABLE, c())).toBeNull();
+    expect(seasonNote(null, 'test-vale', TABLE, c())).toBeNull();
+    expect(() => seasonNote('cranberry', 'test-vale', TABLE, c([], '2026-13-01'))).toThrow();
+  });
+
+  test('a ⛔ item gets no note', () => {
+    expect(seasonOf('cranberry', 'test-vale', 11, TABLE, graph)).not.toBeNull();
+    expect(seasonNote('cranberry', 'test-vale', TABLE, c([avoid('cranberry')]))).toBeNull();
+  });
+
+  test('a ❓ item gets no note (winter squash could be butternut, which the rules avoid)', () => {
+    const rules = [avoid('butternut')];
+    expect(check(dish(['winter squash']), rules, graph, [], NOV).status).toBe('unverified');
+    expect(seasonOf('winter_squash', 'test-vale', 11, TABLE, graph)).not.toBeNull();
+    expect(seasonNote('winter_squash', 'test-vale', TABLE, c(rules))).toBeNull();
+    // An id the graph doesn't know is ❓ too, even if unvalidated data lists it.
+    const odd: SeasonTable = { 'test-vale': { ...clone(VALE), months: { '11': { now: ['not_in_graph'] } } } };
+    expect(seasonOf('not_in_graph', 'test-vale', 11, odd, graph)).not.toBeNull();
+    expect(seasonNote('not_in_graph', 'test-vale', odd, c())).toBeNull();
+  });
+
+  test('a 🔁 item gets no note: a recipe line could swap it, but the item itself is what the note names', () => {
+    const ctx = c([FRUCTAN]);
+    expect(check(dish(['garlic']), [FRUCTAN], graph, ctx.subs, NOV).status).toBe('swap');
+    expect(seasonOf('garlic', 'test-vale', 11, TABLE, graph)?.isNow).toBe(true);
+    expect(seasonNote('garlic', 'test-vale', TABLE, ctx)).toBeNull();
+  });
+
+  test('dishSeasonNote keeps only the ✅ now-ids of the dish', () => {
+    const d = dish(['cranberry', 'garlic', 'kale', 'winter squash', 'onion']);
+    expect(dishSeasonNote(d, 'test-vale', TABLE, c())).toEqual(['cranberry', 'garlic', 'kale']);
+    expect(dishSeasonNote(d, 'test-vale', TABLE, c([FRUCTAN]))).toEqual(['cranberry', 'kale']);
+    expect(dishSeasonNote(d, 'test-vale', TABLE, c([avoid('kale'), avoid('cranberry')]))).toEqual(['garlic']);
+    expect(dishSeasonNote(d, 'test-vale', TABLE, c([], '2026-03-01'))).toEqual([]);
+    expect(dishSeasonNote(d, null, TABLE, c())).toEqual([]);
+    expect(dishSeasonNote(dish(['cranberry'], true), 'test-vale', TABLE, c())).toEqual([]);
   });
 });

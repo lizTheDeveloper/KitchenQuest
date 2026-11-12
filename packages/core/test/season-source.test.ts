@@ -30,7 +30,7 @@ test('no exported function in season.ts declares a default parameter (source sca
   const exported = [...src.matchAll(/export\s+function\s+(\w+)\s*(?:<[^>]*>)?\s*\(/g)];
   const names = exported.map((m) => m[1]);
   // The scan must see the module's whole surface, or it would pass on nothing.
-  expect(names).toEqual(expect.arrayContaining(['seasonRegionFor', 'monthOf', 'seasonOf', 'seasonalQuestions', 'dishSeason', 'validateSeasonTable', 'seasonalAgrees']));
+  expect(names).toEqual(expect.arrayContaining(['seasonRegionFor', 'monthOf', 'seasonOf', 'seasonalQuestions', 'dishSeason', 'validateSeasonTable', 'seasonalAgrees', 'seasonNote', 'dishSeasonNote']));
   for (const m of exported) {
     const params = paramsAt(src, m.index + m[0].length - 1).replace(/=>/g, ' ');
     expect(params, `${m[1]}(${params})`).not.toMatch(/=/);
