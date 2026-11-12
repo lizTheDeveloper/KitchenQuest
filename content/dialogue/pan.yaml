@@ -1909,13 +1909,14 @@ triggers:
       - "It's on the screen; read it there."
       - "That one's on the screen. Have a look there."
 
-  # REVIEW: a canon step is read aloud only when the dish is ✅ with no swap (Ruling 11); otherwise this.
+  # REVIEW: a canon step is read aloud only when the dish is ✅ with no swap (Ruling 11); otherwise this. Neutral on
+  # purpose (Step 5 fix round 1, m6): it is also said for a ⛔ or ❓ dish and a margin note, so it names no reason.
   voice.step_on_screen:
     ai: never
-    when: Cook mode asked for a step to be read, but the dish has a swap or is not cleared today, so the step is shown, not spoken.
+    when: Cook mode asked for a step to be read, but the step is shown, not spoken (a swap, a rule finding, a margin note, or not cleared today).
     lines:
-      - "This step's on the screen. Read it there; it has your swaps in it."
-      - "Read this one on the screen. It changed for you, and I'd rather you saw it."
+      - "This step's on the screen. Read it there."
+      - "Read this step on the screen, please. I'd rather you saw it."
 
   # REVIEW: the heard card's spoken half. The words are as heard, never corrected; only a tap confirms them (Ruling 4).
   voice.heard_check:

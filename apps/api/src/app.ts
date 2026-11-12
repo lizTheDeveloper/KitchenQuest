@@ -59,6 +59,8 @@ export interface Deps {
   voiceEnabled?: boolean;
   /** The voice service (M7 Step 5); defaults to `wsUpstream` on `config.voice`. Tests pass a fake. */
   voiceUpstream?: VoiceUpstream;
+  /** The voice socket's heartbeat interval in ms (tests only; VOICE_PING_MS by default). */
+  voicePingMs?: number;
 }
 
 function body(code: string, message: string, details?: unknown) {
@@ -176,7 +178,7 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
       },
     });
     const upstream = deps.voiceUpstream ?? wsUpstream(voice.serviceUrl, voice.token);
-    await voiceRoutes(app, { catalog, recipes, bank: loadPanBank(), upstream });
+    await voiceRoutes(app, { catalog, recipes, bank: loadPanBank(), upstream, pingMs: deps.voicePingMs });
     await voiceFamilyRoutes(app);
   }
 

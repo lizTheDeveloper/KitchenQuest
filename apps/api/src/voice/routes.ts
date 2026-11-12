@@ -4,10 +4,16 @@
 // protocol with the STT hint; meters seconds into `usage_events`; and speaks only what renderSpeak makes from
 // server-held data (Ruling 15).
 //
+// Fix round 1 (I1): the session and the `voice` consent are checked again before every listen and speak, and
+// sign-out, account delete and consent withdrawals close every voice socket of the player (`voiceRegistry.closeUser`).
+//
 // C-18: audio lives in memory only, for as long as it is being forwarded: a frame is decoded, sent upstream and zeroed;
 // nothing keeps a reference to one. A transcript is kept in this socket's memory (the last TRANSCRIPTS_KEPT, for
 // `heard` speak items) and dropped on close. Nothing here logs a message body, frame, transcript or hint: only kinds
 // and statuses.
+//
+// This process holds the voice block, the utterance slots and the rate limits in memory: the API runs as exactly one
+// process while that is so (docs/compliance/ROADMAP.md, M7 deploy note; review m1).
 import { readFileSync } from 'node:fs';
 import {
   decodeFrame,
@@ -24,12 +30,16 @@ import {
   type VoiceState,
 } from '@kitchenquest/core';
 import type {} from '@fastify/websocket';
+import { and, eq, gt } from 'drizzle-orm';
 import type { FastifyBaseLogger, FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { RawData, WebSocket } from 'ws';
 import { countSelfRead } from '../audit/self-reads.js';
-import { requireUser } from '../auth/session.js';
+import { SlidingWindowLimiter, sweepPeriodically } from '../auth/rate-limit.js';
+import { requireUser, SESSION_COOKIE } from '../auth/session.js';
+import { hashToken, isTokenShaped } from '../auth/tokens.js';
 import type { Catalog } from '../catalog.js';
 import { hasConsent } from '../consent/ledger.js';
+import { sessions, users } from '../db/schema.js';
 import { ApiError } from '../errors.js';
 import type { PanBank } from '../mentor/lines.js';
 import type { RecipeIndexSource } from '../recipes/recipe-index.js';
@@ -46,18 +56,29 @@ export const MAX_CLIENT_PAYLOAD = 16 * 1024;
 const MAX_FRAMES = MAX_UTTERANCE_MS / FRAME_MS;
 /** How many of this socket's own transcripts it keeps for `heard` items. */
 export const TRANSCRIPTS_KEPT = 4;
-/**
- * Messages waiting while an earlier one is handled: a whole utterance of frames and some (about 1 MB at most). More,
- * and the client is not a game: it is closed `bad_message`.
- */
+/** Messages waiting while an earlier one is handled: a whole utterance of frames and some. More is no game. */
 const MAX_QUEUED = MAX_FRAMES + 100;
+/**
+ * Fix round 1 (m10): and at most this many bytes of them (a whole utterance is under 1 MB of frames), so a client
+ * cannot park MAX_QUEUED × MAX_CLIENT_PAYLOAD in memory while a listen waits on the database.
+ */
+const MAX_QUEUED_BYTES = 2 * 1024 * 1024;
 /** Above this many bytes queued to the browser, it is not reading: the speech stops (`failed tts`). */
 const MAX_BUFFERED = 512 * 1024;
 /** Carry 5: at most this many utterances in flight per player, on this server (one socket per player already). */
 export const MAX_UTTERANCES_PER_USER = 1;
+/** Fix round 1 (m10): voice socket opens per player per minute (a game opens one per session; abuse only). */
+export const VOICE_OPENS_PER_MINUTE = 30;
+/** Fix round 1 (m9): the heartbeat. A peer that has not answered the last ping by the next one is terminated. */
+export const VOICE_PING_MS = 30_000;
 const MINUTE_MS = 60_000;
+/** Upstream failures that charge nothing: the service never finished hearing it (I2 ruling: down or a timeout). */
+const UNCHARGED: readonly (UpstreamFailure | 'other')[] = ['down', 'timeout', 'idle', 'bad_message', 'not_ready', 'busy', 'auth', 'misrouted', 'cancelled'];
 
-/** The voice role the API names upstream: the manifest's `cast.pan` (data/voice-models.json), resolved by the service. */
+/**
+ * The voice role the API names upstream is the literal `pan`; the service resolves it to its cast (apps/voice
+ * session.ts). The manifest is read only to fail boot if it has no `cast.pan` for the service to resolve (m11).
+ */
 const MANIFEST = new URL('../../../../data/voice-models.json', import.meta.url);
 function panRole(): string {
   const doc = JSON.parse(readFileSync(MANIFEST, 'utf8')) as { cast?: Record<string, unknown> };
@@ -70,9 +91,11 @@ export interface VoiceRouteDeps {
   recipes: RecipeIndexSource;
   bank: PanBank;
   upstream: VoiceUpstream;
+  /** The heartbeat interval (tests only; VOICE_PING_MS by default). */
+  pingMs?: number;
 }
 
-type Auth = { ok: true; userId: string } | { ok: false; reason: VoiceCloseReason };
+type Auth = { ok: true; userId: string; token: string } | { ok: false; reason: VoiceCloseReason };
 
 /** Utterances in flight per player (carry 5). */
 const liveUtterances = new Map<string, number>();
@@ -99,8 +122,12 @@ interface Utterance {
   upId: number;
   frames: number;
   phase: 'listening' | 'ending';
-  /** `too_long` was sent for it (past MAX_UTTERANCE_MS); the transcript still follows. */
-  overLimit: boolean;
+  /** `too_long` was sent for it (m4: never twice). */
+  tooLongSent: boolean;
+  /** I2: its one charge, once `end` went upstream; started once, awaited before the next listen passes (m3). */
+  charge: Promise<void> | null;
+  /** Its utterance slot was given back. */
+  released: boolean;
 }
 
 interface Speech {
@@ -122,12 +149,17 @@ class VoiceSocket {
   private nextUpId = 1;
   private queue: Promise<void> = Promise.resolve();
   private queued = 0;
+  private queuedBytes = 0;
+  private alive = true;
+  private readonly heartbeat: NodeJS.Timeout;
   private readonly unregister: () => void;
 
   constructor(
     private readonly app: FastifyInstance,
     private readonly ws: WebSocket,
     private readonly userId: string,
+    /** The session cookie, in memory only, to re-check the session before every listen and speak (I1). */
+    private readonly token: string,
     private readonly deps: VoiceRouteDeps,
     private readonly role: string,
     private readonly log: FastifyBaseLogger,
@@ -137,17 +169,31 @@ class VoiceSocket {
     ws.on('message', (data: RawData, binary: boolean) => this.enqueue(data, binary));
     ws.on('close', () => this.teardown());
     ws.on('error', () => this.teardown());
+    // m9: a dead peer would otherwise keep its registry entry, slot and upstream link until TCP gives up.
+    ws.on('pong', () => (this.alive = true));
+    this.heartbeat = setInterval(() => {
+      if (!this.alive) {
+        logKind(this.log, 'voice_heartbeat_lost');
+        ws.terminate();
+        return this.teardown();
+      }
+      this.alive = false;
+      ws.ping();
+    }, deps.pingMs ?? VOICE_PING_MS);
+    this.heartbeat.unref();
   }
 
   // --- the queue: one message at a time, in order (frames wait for their listen) ----------------------------------
 
   private enqueue(data: RawData, binary: boolean): void {
     const bytes = Array.isArray(data) ? Buffer.concat(data) : data instanceof ArrayBuffer ? Buffer.from(data) : data;
+    this.alive = true;
     if (this.closed) {
       bytes.fill(0);
       return;
     }
-    if (++this.queued > MAX_QUEUED) {
+    const size = bytes.length;
+    if (++this.queued > MAX_QUEUED || (this.queuedBytes += size) > MAX_QUEUED_BYTES) {
       bytes.fill(0);
       return this.close('bad_message');
     }
@@ -164,15 +210,15 @@ class VoiceSocket {
       .catch(() => this.internal())
       .finally(() => {
         this.queued--;
+        this.queuedBytes -= size;
       });
   }
 
   private internal(): void {
-    // An unexpected error: its message may hold anything, so it is never read or logged (Review Focus 2).
-    logKind(this.log, 'voice_internal', 1011);
-    if (this.closed) return;
-    this.ws.close(1011);
-    this.teardown();
+    // An unexpected error: its message may hold anything, so it is never read or logged (Review Focus 2). The game is
+    // told, with a code it knows (m7): voice is unavailable for now.
+    logKind(this.log, 'voice_internal', VOICE_CLOSE_CODES.unavailable);
+    this.close('unavailable');
   }
 
   private send(msg: ServerMsg): void {
@@ -192,17 +238,47 @@ class VoiceSocket {
     this.teardown();
   }
 
-  /** Everything is dropped: the utterance, the speech, the transcripts and the upstream link. */
+  /** Everything is dropped: the utterance (charged if it was ending, I2), the speech, the transcripts and the link. */
   private teardown(): void {
     if (this.closed) return;
     this.closed = true;
+    clearInterval(this.heartbeat);
     this.abort.abort();
-    if (this.utter !== null) this.dropUtterance();
+    void this.dropUtterance();
     this.speech = null;
     this.transcripts.clear();
     this.link?.close();
     this.link = null;
     this.unregister();
+  }
+
+  // --- utterance bookkeeping (I2, m3) ------------------------------------------------------------------------------
+
+  /** The utterance's one charge (I2): its frames' seconds, recorded once whatever happens after. */
+  private charge(u: Utterance): Promise<void> {
+    const { db, now } = this.app.deps;
+    u.charge ??= recordVoice(db, this.userId, 'voice_stt', u.frames * FRAME_MS, now()).catch(() => logKind(this.log, 'voice_record_failed'));
+    return u.charge;
+  }
+
+  private release(u: Utterance): void {
+    if (u.released) return;
+    u.released = true;
+    releaseSlot(this.userId);
+  }
+
+  /**
+   * Drops the current utterance (cancel, replace, close). Upstream it is cancelled, so a late reply is never awaited.
+   * One still listening is not charged (a cancelled utterance is not recorded); one whose `end` went upstream is (I2:
+   * the service decodes it whatever we say), and the charge is written before the slot is given back (m3).
+   */
+  private async dropUtterance(): Promise<void> {
+    const u = this.utter;
+    if (u === null) return;
+    this.utter = null;
+    this.link?.cancel(u.upId);
+    if (u.phase === 'ending') await this.charge(u);
+    this.release(u);
   }
 
   // --- messages ----------------------------------------------------------------------------------------------------
@@ -220,7 +296,7 @@ class VoiceSocket {
       if (u === null || u.phase !== 'listening' || u.clientId !== frame.id) return;
       if (u.frames >= MAX_FRAMES) {
         // Past MAX_UTTERANCE_MS: `too_long`, then the transcript of what came (the utterance ends here).
-        u.overLimit = true;
+        u.tooLongSent = true;
         this.send({ t: 'too_long', id: u.clientId });
         return this.finish(u);
       }
@@ -267,6 +343,29 @@ class VoiceSocket {
     return true;
   }
 
+  /**
+   * I1: the session is still live (not signed out, revoked or expired; the account still there) and the `voice` grant
+   * still current; otherwise the socket closes with `signed_out` or `consent_required`. True when still allowed.
+   */
+  private async stillAllowed(): Promise<boolean> {
+    const { db, now } = this.app.deps;
+    const at = now();
+    const live = await db
+      .select({ id: users.id })
+      .from(sessions)
+      .innerJoin(users, eq(users.id, sessions.userId))
+      .where(and(eq(sessions.tokenHash, hashToken(this.token)), eq(sessions.userId, this.userId), gt(sessions.expiresAt, at)));
+    if (live.length === 0) {
+      this.close('signed_out');
+      return false;
+    }
+    if (!(await hasConsent(db, this.userId, 'voice', at))) {
+      this.close('consent_required');
+      return false;
+    }
+    return !this.isClosed();
+  }
+
   /** The allowance on the player's calendar (carry 4: the clock dates it, never decides it). */
   private async state(): Promise<VoiceState> {
     const { db, config, now } = this.app.deps;
@@ -275,6 +374,11 @@ class VoiceSocket {
     // C-5: the player's own health data (the sealed accessibility need) read while health_data is in force.
     if (v.accessibilityRead) await countSelfRead(db, this.userId, 'voice', at);
     return v.state;
+  }
+
+  /** The player's local date now, by hello's clock (m5: steps are checked on it, as the hint's run week is). */
+  private localToday(): string {
+    return new Date(this.app.deps.now().getTime() + this.offset * MINUTE_MS).toISOString().slice(0, 10);
   }
 
   private async hello(msg: Extract<ClientMsg, { t: 'hello' }>): Promise<void> {
@@ -293,7 +397,7 @@ class VoiceSocket {
     // Whatever the conversationId, null included: a child flag in any conversation, or a Family Table report, blocks.
     if (this.blockedNow()) return;
     const state = await this.state();
-    if (this.closed) return;
+    if (this.isClosed()) return;
     this.send({ t: 'ready', state });
   }
 
@@ -327,41 +431,33 @@ class VoiceSocket {
     this.send({ t: 'failed', id, kind: failure === 'stt' || failure === 'tts' ? failure : kind });
   }
 
-  private dropUtterance(): void {
-    const u = this.utter;
-    if (u === null) return;
-    this.utter = null;
-    this.link?.cancel(u.upId);
-    releaseSlot(this.userId);
-  }
-
   private async listen(id: number): Promise<void> {
     if (this.blockedNow()) return;
     // One utterance at a time, and none goes unanswered (carry 2): a replaced one is `failed stt` at once, and its
-    // upstream id is cancelled, so a late reply for it is never awaited.
+    // upstream id is cancelled, so a late reply for it is never awaited. Its charge (if its end went upstream) is
+    // written before this listen reads the allowance (m3).
     const old = this.utter;
     if (old !== null) {
-      this.dropUtterance();
       this.send({ t: 'failed', id: old.clientId, kind: 'stt' });
+      await this.dropUtterance();
     }
+    if (!(await this.stillAllowed())) return;
     // Carry 5: the allowance again before every utterance; the one in flight always finishes (Ruling 5).
     const state = await this.state();
-    if (this.closed) return;
+    if (this.isClosed()) return;
     if (state.kind !== 'available') return this.send({ t: 'state', state });
     if (!takeSlot(this.userId)) return this.send({ t: 'failed', id, kind: 'stt' });
     let slotHeld = true;
     try {
       const link = await this.ensureLink();
       const { db, config, now } = this.app.deps;
-      const at = now();
-      const today = new Date(at.getTime() + this.offset * MINUTE_MS).toISOString().slice(0, 10);
-      const hint = await sttHint(db, config.keyring, this.deps.catalog, this.userId, at, today);
+      const hint = await sttHint(db, config.keyring, this.deps.catalog, this.userId, now(), this.localToday());
       if (this.isClosed() || this.blockedNow()) return;
       // A fresh upstream id per listen (G2): the service never sees an id twice.
       const upId = this.nextUpId++;
       link.listen(upId, hint);
       hint.length = 0;
-      this.utter = { clientId: id, upId, frames: 0, phase: 'listening', overLimit: false };
+      this.utter = { clientId: id, upId, frames: 0, phase: 'listening', tooLongSent: false, charge: null, released: false };
       slotHeld = false;
     } catch (e) {
       this.upstreamFailed(id, e, 'upstream');
@@ -370,49 +466,49 @@ class VoiceSocket {
     }
   }
 
-  /** The utterance ends: wait for its transcript (by id), record its speech once, answer it once. */
+  /**
+   * The utterance ends and `end` goes upstream: from here it is charged once on any outcome but the service down or
+   * slow (I2). The charge is written before the answer is sent and before the slot is given back (m3). Every utterance
+   * is answered once (`too_long` at most once, m4).
+   */
   private finish(u: Utterance): void {
     u.phase = 'ending';
     const link = this.link;
-    const speechMs = u.frames * FRAME_MS;
-    const answered = link === null ? Promise.reject(new VoiceUpstreamError('down')) : link.end(u.upId);
+    const answered = link === null || !link.isOpen() ? Promise.reject(new VoiceUpstreamError('down')) : link.end(u.upId);
     void answered
       .then(
-        ({ text }) => {
-          if (this.utter !== u) return null; // replaced or cancelled: already answered, or the client asked
+        async ({ text }) => {
+          if (this.utter !== u) return; // replaced, cancelled or closed: that path answered and charged it
+          await this.charge(u);
+          if (this.utter !== u) return;
           this.utter = null;
-          releaseSlot(this.userId);
+          this.release(u);
           // Carry 7: what is sent must be a valid turn input (core parseTurnInput): over MAX_TEXT → too_long, never
-          // cut; blank → failed stt. Kept for `heard` items, never logged.
+          // cut; nothing readable → failed stt. Kept for `heard` items, never logged.
           const input = parseTurnInput({ kind: 'transcript', text });
           if (input === null) {
-            // Refused for its length (more code points than MAX_TEXT), or because nothing readable is left.
-            if ([...text].length > MAX_TEXT) this.send({ t: 'too_long', id: u.clientId });
-            else this.send({ t: 'failed', id: u.clientId, kind: 'stt' });
-            return speechMs;
+            if ([...text].length <= MAX_TEXT) this.send({ t: 'failed', id: u.clientId, kind: 'stt' });
+            else if (!u.tooLongSent) this.send({ t: 'too_long', id: u.clientId });
+            return;
           }
           this.keepTranscript(u.clientId, input.text);
           this.send({ t: 'transcript', id: u.clientId, text: input.text });
-          return speechMs;
         },
-        (e: unknown) => {
-          if (this.utter !== u) return null;
+        async (e: unknown) => {
+          if (this.utter !== u) return;
+          const failure: UpstreamFailure | 'other' = e instanceof VoiceUpstreamError ? e.kind : 'other';
+          if (!UNCHARGED.includes(failure)) {
+            await this.charge(u);
+            if (this.utter !== u) return;
+          }
           this.utter = null;
-          releaseSlot(this.userId);
-          if (e instanceof VoiceUpstreamError && e.kind === 'too_long') this.send({ t: 'too_long', id: u.clientId });
-          else this.upstreamFailed(u.clientId, e, 'upstream');
-          // The service heard it (an STT failure, a transcript too long to send): recorded. The service down, slow
-          // or gone: the player is not charged for speech it never processed.
-          return e instanceof VoiceUpstreamError && (e.kind === 'stt' || e.kind === 'too_long') ? speechMs : null;
+          this.release(u);
+          if (failure === 'too_long') {
+            if (!u.tooLongSent) this.send({ t: 'too_long', id: u.clientId });
+          } else this.upstreamFailed(u.clientId, e, 'upstream');
         },
       )
-      .then(async (ms) => {
-        // Carry 5: exactly once per answered utterance; a cancelled or replaced one is not recorded.
-        if (ms === null) return;
-        const { db, now } = this.app.deps;
-        await recordVoice(db, this.userId, 'voice_stt', ms, now());
-      })
-      .catch(() => logKind(this.log, 'voice_record_failed'));
+      .catch(() => logKind(this.log, 'voice_answer_failed'));
   }
 
   private keepTranscript(id: number, text: string): void {
@@ -421,29 +517,32 @@ class VoiceSocket {
     while (this.transcripts.size > TRANSCRIPTS_KEPT) this.transcripts.delete(this.transcripts.keys().next().value!);
   }
 
-  private cancel(id: number): void {
-    if (this.utter?.clientId === id) this.dropUtterance();
+  private async cancel(id: number): Promise<void> {
     if (this.speech?.clientId === id) {
       const s = this.speech;
       this.speech = null;
       this.link?.cancel(s.upId);
     }
+    if (this.utter?.clientId === id) await this.dropUtterance();
   }
 
   private async speak(id: number, items: Parameters<typeof renderSpeak>[0]): Promise<void> {
     if (this.blockedNow()) return;
+    if (!(await this.stillAllowed())) return;
     const state = await this.state();
-    if (this.closed) return;
+    if (this.isClosed()) return;
     if (state.kind !== 'available') return this.send({ t: 'state', state });
     const { db, config, now } = this.app.deps;
     const recipes = await this.deps.recipes.current(db);
+    const today = this.localToday();
     const ctx: SpeakContext = {
       userId: this.userId,
       bank: this.deps.bank,
       catalog: this.deps.catalog,
       lastTranscript: (utteranceId) => this.transcripts.get(utteranceId) ?? null,
       card: (proposalId) => cardReadback(db, config.keyring, this.userId, proposalId),
-      stepOk: (slug, _step, localDate) => stepCleared(db, { keyring: config.keyring, catalog: this.deps.catalog, recipes }, this.userId, slug, localDate, now()),
+      // m5: the socket's own date (hello's clock), not the one the item carries.
+      stepOk: (slug) => stepCleared(db, { keyring: config.keyring, catalog: this.deps.catalog, recipes }, this.userId, slug, today, now()),
       recipes,
       nowMs: now().getTime(),
     };
@@ -500,9 +599,11 @@ class VoiceSocket {
 /**
  * `GET /voice` (WebSocket). Before any message is read: no live session → `closed signed_out` (4401); a missing or
  * foreign Origin → `bad_origin` (4403), checked first, before the cookie is even looked up; no `voice` grant →
- * `consent_required`. Then the protocol (core ClientMsg / ServerMsg): `hello` (with the player's clock; a Family
- * Table report or the per-user block closes it), `listen` / frames / `end` → `transcript`, `cancel`, `speak` →
- * `audio_start` / frames / `audio_end`. The upstream down → `failed { kind: 'upstream' }`, and the socket stays open.
+ * `consent_required`; more than VOICE_OPENS_PER_MINUTE opens a minute → HTTP 429 before the upgrade. Then the
+ * protocol (core ClientMsg / ServerMsg): `hello` (with the player's clock; a Family Table report or the per-user block
+ * closes it), `listen` / frames / `end` → `transcript`, `cancel`, `speak` → `audio_start` / frames / `audio_end`. The
+ * session and the grant are re-checked before every listen and speak (I1). The upstream down → `failed { kind:
+ * 'upstream' }`, and the socket stays open.
  */
 export async function voiceRoutes(app: FastifyInstance, deps: VoiceRouteDeps): Promise<void> {
   const role = panRole();
@@ -513,6 +614,12 @@ export async function voiceRoutes(app: FastifyInstance, deps: VoiceRouteDeps): P
   }
   const auths = new WeakMap<FastifyRequest, Auth>();
   const appOrigin = originOf(app.deps.config.appOrigin);
+  const opens = new SlidingWindowLimiter(VOICE_OPENS_PER_MINUTE, 60_000);
+  const stopSweeping = sweepPeriodically([opens], () => app.deps.now().getTime());
+  app.addHook('onClose', (_app, done) => {
+    stopSweeping();
+    done();
+  });
 
   const authorise = async (req: FastifyRequest, reply: FastifyReply): Promise<Auth> => {
     const origin = req.headers.origin;
@@ -525,9 +632,18 @@ export async function voiceRoutes(app: FastifyInstance, deps: VoiceRouteDeps): P
       if (e instanceof ApiError && e.status === 401) return { ok: false, reason: 'signed_out' };
       throw e;
     }
+    const t = app.deps.now().getTime();
+    const wait = opens.waitMs(req.user.id, t);
+    if (wait > 0) {
+      reply.header('retry-after', String(Math.ceil(wait / 1000)));
+      throw new ApiError(429, 'rate_limited', 'Too many requests; try again shortly', { retryAfterSeconds: Math.ceil(wait / 1000) });
+    }
+    opens.hit(req.user.id, t);
     if (app.deps.config.voice === null) return { ok: false, reason: 'unavailable' };
     if (!(await hasConsent(app.deps.db, req.user.id, 'voice', app.deps.now()))) return { ok: false, reason: 'consent_required' };
-    return { ok: true, userId: req.user.id };
+    const token: unknown = req.cookies[SESSION_COOKIE];
+    if (!isTokenShaped(token)) return { ok: false, reason: 'signed_out' };
+    return { ok: true, userId: req.user.id, token };
   };
 
   app.get(
@@ -550,7 +666,7 @@ export async function voiceRoutes(app: FastifyInstance, deps: VoiceRouteDeps): P
         socket.close(VOICE_CLOSE_CODES[auth.reason]);
         return;
       }
-      new VoiceSocket(app, socket, auth.userId, deps, role, req.log);
+      new VoiceSocket(app, socket, auth.userId, auth.token, deps, role, req.log);
     },
   );
 }

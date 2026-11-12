@@ -51,7 +51,11 @@ import { ZodError } from 'zod';
  * - 4412 `consent_required`: no current `voice` grant.
  * - 4451 `child`, 4452 `family_table`: the per-user voice block (Ruling 17); sent at `hello`, `listen` or `speak`,
  *   and to every open socket of the player the moment the block is set.
- * - 4503 `unavailable`: voice is off, or the voice service refuses this server's credentials or address.
+ * - 4503 `unavailable`: voice is off, the voice service refuses this server's credentials or address, or an
+ *   unexpected error on the socket (fix round 1, m7).
+ * - Before the upgrade: 429 `rate_limited` past VOICE_OPENS_PER_MINUTE opens a minute per player (fix round 1, m10).
+ * The session and the `voice` grant are checked again before every `listen` and `speak` (fix round 1, I1); sign-out,
+ * account delete and a `voice` or `health_data` withdrawal close every voice socket of the player at once.
  * The voice service's own codes (core `UPSTREAM_CLOSE`, `UPSTREAM_REFUSAL`), which the API maps and never forwards:
  * socket 4400 (the API sent a bad message: `failed upstream`), 4408 (idle: reconnect on the next need), 1011 and 1001
  * (down: `failed upstream`, the player's socket stays open); HTTP before the upgrade 401 and 403 (`unavailable`), 503

@@ -12,12 +12,15 @@ import { join } from 'node:path';
 import { format } from 'node:util';
 import type { FastifyBaseLogger, FastifyInstance, InjectOptions } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
-import WebSocket from 'ws';
+import { createServer } from 'node:http';
+import { decodeFrame, encodeFrame } from '@kitchenquest/core';
+import WebSocket, { WebSocketServer } from 'ws';
 import { PCM_WORD, pcmChecks } from '../../voice/test/leak-detectors.js';
 import { buildApp } from '../src/app.js';
 import { NOTICES } from '../src/consent/notices.js';
 import { CaptureMailer } from '../src/mail/mailer.js';
 import { voiceErrorForLog } from '../src/logging/redact.js';
+import { wsUpstream } from '../src/voice/upstream.js';
 import type { Db } from '../src/types.js';
 import { signIn } from './helpers/auth.js';
 import { testConfig } from './helpers/config.js';
@@ -142,17 +145,62 @@ interface Evidence {
 /** Leaks the positive control can do: with the app's own logger, the TMPDIR, and the fake's view of audio. */
 type Leak = (log: FastifyBaseLogger) => Pick<FakeUpstreamOptions, 'onTranscript' | 'onFrame'>;
 
-async function runSession(leak?: Leak): Promise<Evidence> {
+/**
+ * Fix round 1 (m12): a local stand-in for apps/voice, so a run can go through the real `wsUpstream` (its parsing and
+ * error paths, over real ws buffers). It answers by the core protocol: an utterance of 3 frames fails STT, any other
+ * is transcribed as the marker and the hint word; a speak gets two frames of silence and its audio_end.
+ */
+async function fakeService(): Promise<{ url: URL; close(): Promise<void> }> {
+  const http = createServer((req, res) => res.writeHead(req.url === '/ready' ? 200 : 426).end());
+  const wss = new WebSocketServer({ noServer: true });
+  http.on('upgrade', (req, socket, head) => wss.handleUpgrade(req, socket, head, (ws) => {
+    const frames = new Map<number, number>();
+    ws.on('message', (data: Buffer, binary: boolean) => {
+      if (binary) {
+        const f = decodeFrame(new Uint8Array(data));
+        data.fill(0);
+        if (f) {
+          frames.set(f.id, (frames.get(f.id) ?? 0) + 1);
+          f.pcm.fill(0);
+        }
+        return;
+      }
+      const m = JSON.parse(data.toString('utf8')) as { t: string; id: number };
+      const reply = (msg: object) => ws.send(JSON.stringify(msg));
+      if (m.t === 'hello') reply({ t: 'ready', stt: 'fake-stt', tts: 'fake-tts', sampleRate: 22050 });
+      if (m.t === 'end') reply(frames.get(m.id) === 3 ? { t: 'failed', id: m.id, kind: 'stt' } : { t: 'transcript', id: m.id, text: `i ate ${MARKER} and ${HINT_WORD}` });
+      if (m.t === 'speak') {
+        for (let i = 0; i < 2; i++) ws.send(encodeFrame(m.id, new Int16Array(441)), { binary: true });
+        reply({ t: 'audio_end', id: m.id, audioMs: 40 });
+      }
+    });
+  }));
+  await new Promise<void>((r) => http.listen(0, '127.0.0.1', r));
+  const port = (http.address() as AddressInfo).port;
+  return {
+    url: new URL(`ws://127.0.0.1:${port}`),
+    close: async () => {
+      for (const ws of wss.clients) ws.terminate();
+      await new Promise<void>((r) => wss.close(() => r()));
+      http.closeAllConnections();
+      await new Promise<void>((r) => http.close(() => r()));
+    },
+  };
+}
+
+async function runSession(leak?: Leak, viaWs = false): Promise<Evidence> {
   const before = dirs.map((d) => snapshot(d));
   const nets = installNets();
   const logs = captureLogs();
   const ev = { transcript: false, audioEnd: false, failedStt: false, closedMidUtterance: false, upgrade500: false };
   let app: FastifyInstance | undefined;
   let failSelects = false;
+  let service: { url: URL; close(): Promise<void> } | null = null;
   try {
     let log: FastifyBaseLogger | null = null;
     const hooks = leak ? leak({ info: (...a: unknown[]) => (log as unknown as { info: (...b: unknown[]) => void }).info(...a) } as unknown as FastifyBaseLogger) : {};
-    const upstream = new FakeUpstream({
+    service = viaWs ? await fakeService() : null;
+    const fake = new FakeUpstream({
       transcribe: (u) => {
         // A throwing STT whose error holds the transcript and the audio (an engine's message may: Review Focus 2).
         if (u.frames === 3) throw new Error(`stt crashed on ${MARKER} ${Buffer.from(new Int16Array(8).fill(PCM_WORD).buffer).toString('hex')}`);
@@ -168,6 +216,7 @@ async function runSession(leak?: Leak): Promise<Evidence> {
         return Reflect.get(target, prop, receiver) as unknown;
       },
     });
+    const upstream = service === null ? fake : wsUpstream(service.url, Buffer.from('test-token'));
     app = await buildApp({ config, db: failing, mailer: new CaptureMailer(), ai: null, now: () => NOW, logger: logs.logger, voiceUpstream: upstream });
     log = app.log;
     await app.listen({ port: 0, host: '127.0.0.1' });
@@ -219,6 +268,7 @@ async function runSession(leak?: Leak): Promise<Evidence> {
   } finally {
     failSelects = false;
     await app?.close();
+    await service?.close();
     nets.restore();
   }
   // Every table, as text: no transcript, hint or audio in any row.
@@ -249,6 +299,15 @@ describe('C-18: the voice route keeps audio and transcripts in memory only', () 
     // The logger ran (so the check can fail): the route's kinds are there, and nothing else of the session.
     expect(e.output).toContain('"kind":"voice_upstream_other"');
     expect(e.output).toContain('"kind":"Error","status":500');
+    expect(e.after).toEqual(e.before);
+    expect(e.writeCalls).toEqual([]);
+    expect(checks(e)).toEqual(ALL_PASS);
+  });
+
+  test('fix round 1 (m12): the same session through the real wsUpstream, against a local stand-in service: the same flow and no leak', async () => {
+    const e = await runSession(undefined, true);
+    expect(flow(e)).toEqual([true, true, true, true, true]);
+    expect(e.output).toContain('"kind":"voice_upstream_stt"');
     expect(e.after).toEqual(e.before);
     expect(e.writeCalls).toEqual([]);
     expect(checks(e)).toEqual(ALL_PASS);

@@ -54,6 +54,15 @@ class VoiceRegistry {
     this.closeAll(userId, 'family_table');
   }
 
+  /**
+   * Fix round 1 (I1): closes every voice socket of the user with `reason`: sign-out and account delete
+   * (`signed_out`), a `voice` or `health_data` withdrawal (`consent_required`: a consent changed; the game re-opens and
+   * every check runs again). Sets no flag.
+   */
+  closeUser(userId: string, reason: VoiceCloseReason): void {
+    this.closeAll(userId, reason);
+  }
+
   /** Why the user may not use voice now: `child` (within CHILD_BLOCK_TTL_MS of the last flag), `family_table`, or null. */
   blocked(userId: string, nowMs: number): VoiceCloseReason | null {
     const at = this.child.get(userId);

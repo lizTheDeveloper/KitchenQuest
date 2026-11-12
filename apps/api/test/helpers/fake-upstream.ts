@@ -35,6 +35,8 @@ export interface FakeUpstreamOptions {
    * `stt` failure: the route must never read or log it.
    */
   rawErrors?: boolean;
+  /** open() waits for this first (a slow service), so messages queue up behind a listen. */
+  openGate?: Promise<void>;
 }
 
 export class FakeUpstream implements VoiceUpstream {
@@ -42,6 +44,7 @@ export class FakeUpstream implements VoiceUpstream {
   readonly speeches: FakeSpeech[] = [];
   opens = 0;
   isDown = false;
+  private gatePassed = false;
   private openFailure: UpstreamFailure = 'down';
   private readonly live = new Set<{ fail(kind: UpstreamFailure): void }>();
 
@@ -67,6 +70,13 @@ export class FakeUpstream implements VoiceUpstream {
     this.opens++;
     if (this.isDown) return Promise.reject(new VoiceUpstreamError(this.openFailure));
     if (signal.aborted) return Promise.reject(new VoiceUpstreamError('cancelled'));
+    if (this.opts.openGate !== undefined && !this.gatePassed) {
+      return this.opts.openGate.then(() => {
+        this.gatePassed = true;
+        this.opens--;
+        return this.open(signal);
+      });
+    }
     // The link's view of this fake (no `this` inside the link's own methods).
     const fake = { opts: this.opts, utterances: this.utterances, speeches: this.speeches, live: this.live };
     let open = true;

@@ -1,7 +1,7 @@
 // M7 Step 5, Ruling 15 (D4, B5, Ruling 11): what the Pan says aloud is rendered by the API alone, from server-held data.
 // The client names items by id only; every variable passes filterReply again; anything that can't be said safely is
 // spoken as voice.check_screen, never dropped. TTS takes only SpeakableText, which only renderSpeak makes.
-import { buildRuleCard, MAX_SPEAK_CHARS, SPEAK_VAR_MAX, type LineRef, type ReplyPart, type RuleCard, type SpeakItem } from '@kitchenquest/core';
+import { buildRuleCard, MAX_SPEAK_CHARS, speechChunks, SPEAK_VAR_MAX, type LineRef, type ReplyPart, type RuleCard, type SpeakItem } from '@kitchenquest/core';
 import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -270,6 +270,20 @@ describe('renderSpeak', () => {
     expect(said(await renderSpeak([item], ctx({ userId: stall.id, recipes, stepOk: cleared(stall.id) })))).toBe(STEP_ON_SCREEN);
   });
 
+  test('fix round 1, m8: a variable is spoken as the output filter screened it, never raw (an invisible character is gone)', async () => {
+    recentReplies.put('u-screen', 'r', [{ kind: 'line', line: { trigger: 'voice.heard_check', vars: { terms: 'pea\u200bnut' } } }], NOW.getTime());
+    const t = await renderSpeak([{ kind: 'reply', replyId: 'r', part: 0 }], ctx({ userId: 'u-screen', nowMs: NOW.getTime() }));
+    expect(said(t)).toBe("I heard peanut. Tap the card if that's right.");
+    expect(said(t)).not.toContain('\u200b');
+    recentReplies.clear('u-screen');
+  });
+
+  test('fix round 1, m6: voice.step_on_screen is neutral: it is said for ⛔, ❓ and margin notes too, so it never claims the step has swaps', () => {
+    for (let i = 0; bank.lineAt('voice.step_on_screen', i, {}) !== null; i++) {
+      expect(bank.lineAt('voice.step_on_screen', i, {})).not.toMatch(/swap|changed|safe/i);
+    }
+  });
+
   test('cache is per chunk: var-free chunks true, var-filled chunks false', async () => {
     recentReplies.put('u-cache', 'r', [{ kind: 'line', line: { trigger: 'voice.heard_check', vars: { terms: 'kiwi' } } }], NOW.getTime());
     const t = await renderSpeak(
@@ -285,8 +299,7 @@ describe('renderSpeak', () => {
       ['Have a look there.', true],
       ['I heard kiwi.', false],
       ["Tap the card if that's right.", false],
-      ["This step's on the screen.", true],
-      ["Read it there; it has your swaps in it.", true],
+      ...speechChunks(STEP_ON_SCREEN).map((text) => [text, true]),
     ]);
     recentReplies.clear('u-cache');
   });

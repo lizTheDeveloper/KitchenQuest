@@ -82,16 +82,26 @@ interface Piece {
   cache: boolean;
 }
 
-/** A server-held variable may be spoken: short, and it passes the output filter (Ruling 15). */
-const speakableVar = (v: string): boolean => v.length <= SPEAK_VAR_MAX && filterReply(v, { finish: 'stop' }).ok;
+/** A server-held variable as it may be spoken: short, and as the output filter screened it (Ruling 15); else null. */
+function screenedVar(v: unknown): string | null {
+  if (typeof v !== 'string' || v.length > SPEAK_VAR_MAX) return null;
+  const r = filterReply(v, { finish: 'stop' });
+  return r.ok && r.text.length <= SPEAK_VAR_MAX ? r.text : null;
+}
 
 /**
  * One written line with the server's variables: every variable checked, the first variant that fills them. Cacheable
  * only when the trigger takes no variables at all, so nothing personal is ever cached (B5). Null when it can't be said.
  */
 function refPiece(bank: PanBank, ref: LineRef): Piece | null {
-  if (!Object.values(ref.vars).every((v) => typeof v === 'string' && speakableVar(v))) return null;
-  const text = bank.firstLine(ref);
+  // Fix round 1 (m8): each variable is spoken as the filter screened it (canonical, invisible characters gone), never raw.
+  const vars: Record<string, string> = {};
+  for (const [k, v] of Object.entries(ref.vars)) {
+    const screened = screenedVar(v);
+    if (screened === null) return null;
+    vars[k] = screened;
+  }
+  const text = bank.firstLine({ trigger: ref.trigger, vars });
   if (text === '') return null;
   return { text, cache: Object.keys(ref.vars).length === 0 && bank.varsOf(ref.trigger).length === 0 };
 }
