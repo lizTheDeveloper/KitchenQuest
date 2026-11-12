@@ -1,5 +1,5 @@
 import {
-  check, checkWithNotes, DISCLAIMER, nutritionPerServing,
+  check, checkWithNotes, checkWithStockSwaps, DISCLAIMER, nutritionPerServing,
   type CheckStatus, type Finding, type IngredientGraph, type MarginNote, type Nutrient,
 } from '@kitchenquest/core/engine';
 import type { ClientContent } from '../content/types';
@@ -30,8 +30,13 @@ export interface RecipeCard {
   cookable: boolean; notCookableReason: 'blocked' | 'sacred' | null;
   /** M5 Step 11: true when this is "cook with my notes": checked by core `checkWithNotes`, never safer than the canon. */
   withNotes: boolean;
+  /** M6 Step 10 (Ruling 11): "swapped at the market: onion for shallots", one per stall swap this week's run made. */
+  stockSwapLabels: string[];
   nutrition: { rows: NutritionRow[]; estimated: boolean; missing: string[] };
 }
+
+/** Worse is higher: a check is never shown better than the worst one that applies. */
+const RANK: Readonly<Record<CheckStatus, number>> = { ok: 0, swap: 1, unverified: 2, blocked: 3 };
 
 const NUTRIENT_ROWS: { nutrient: Nutrient; label: string; unit: string }[] = [
   { nutrient: 'energy_kcal', label: 'Energy', unit: 'kcal' },
@@ -55,6 +60,12 @@ const NUTRIENT_ROWS: { nutrient: Nutrient; label: string; unit: string }[] = [
 export function buildRecipeCard(input: {
   slug: string; content: ClientContent; graph: IngredientGraph; rules: RulesState; today: string; showCalories: boolean;
   notes?: readonly MarginNote[];
+  /**
+   * M6 Step 10 (Ruling 11): this plan week's stall swaps for the dish (core `stockSwapsFor`). The status then comes
+   * from core `checkWithStockSwaps` with the rules NOW (a rule added since the market makes it ⛔ or ❓), and is never
+   * shown better than the check without them (the safe side).
+   */
+  stockSwaps?: readonly { from: string; to: string }[];
 }): RecipeCard {
   const { slug, content, graph, rules, today, showCalories } = input;
   const recipe = content.recipes[slug];
@@ -65,6 +76,7 @@ export function buildRecipeCard(input: {
   const skillName = (id: string) => content.techniques.techniques.find((t) => t.id === id)?.name ?? id;
   const myNotes = meta.sacred ? [] : (input.notes ?? []).filter((n) => n.recipe === slug);
   const withNotes = myNotes.length > 0;
+  const swaps = meta.sacred ? [] : [...(input.stockSwaps ?? [])];
 
   let status: CheckStatus;
   let findings: CardFinding[];
@@ -83,9 +95,11 @@ export function buildRecipeCard(input: {
     rulesError = rules.message; // player copy; core's problem strings never reach a card
     rulesLink = rules.reason !== 'account_not_loaded';
   } else {
-    const result = withNotes
+    const base = withNotes
       ? checkWithNotes(recipe, myNotes, rules.rules, graph, content.substitutions, today)
       : check(recipe, rules.rules, graph, content.substitutions, today);
+    const swapped = swaps.length === 0 ? null : checkWithStockSwaps(recipe, swaps, rules.rules, graph, content.substitutions, today);
+    const result = swapped === null || RANK[base.status] > RANK[swapped.status] ? base : swapped;
     const notes = new Map(rules.rules.map((r) => [r.id, r.note ?? null]));
     status = result.status;
     severe = result.severe;
@@ -117,6 +131,7 @@ export function buildRecipeCard(input: {
     draft: meta.status === 'draft', sacred,
     status, findings, severe, disclaimer, rulesChecked, rulesError, rulesLink,
     cookable, notCookableReason: sacred ? 'sacred' : status === 'blocked' ? 'blocked' : null, withNotes,
+    stockSwapLabels: swaps.map((sw) => `swapped at the market: ${sw.to} for ${sw.from}`),
     nutrition: { rows, estimated: n.estimated, missing: n.missing },
   };
 }

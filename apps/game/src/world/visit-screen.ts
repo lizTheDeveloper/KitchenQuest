@@ -16,6 +16,7 @@ import { questStatus, type PantryItem } from '@kitchenquest/core/engine';
 import { getMentor, getMentorServices } from '../mentor';
 import { progressService } from '../progress';
 import type { ProgressService } from '../progress/service';
+import { errandQuestions } from '../quests/errand-question';
 import { runQuest } from '../quests/quest-runner';
 import { trustLine } from './trust-lines';
 
@@ -154,6 +155,8 @@ export function visitScreen(): Screen {
           cook: { name: cook.name, portrait: assets[`char.${id}`] ?? null },
           pan: { portrait: assets['char.pan'] ?? null, line: (trigger, vars) => getMentor().say(trigger, vars).text },
           reducedMotion: isReducedMotion(ctx.store, win),
+          // M6 Step 10: the errand's stall question, from the market's own lazy content.
+          errandQuestion: errandQuestions({ store: ctx.store, client: getMentorServices().client, service, today: () => localDate(ctx.now()) }),
         });
         slot.remove();
         dialogueSlot = null;

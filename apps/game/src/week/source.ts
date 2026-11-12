@@ -1,6 +1,6 @@
 import type { MarketRunView, Plan } from '@kitchenquest/core/engine';
 import type { ApiClient } from '../api/client';
-import type { ApiResult } from '../api/types';
+import type { ApiResult, StockAction } from '../api/types';
 import { localDate, type PlayerStore } from '../state/store';
 import { weekOf } from './context';
 import { createWeekStore, type WeekStore } from './local-week';
@@ -32,6 +32,11 @@ export interface WeekSource {
   restore(weekStart: string, previous: Plan | null, today: string): Promise<WeekResult<null>>;
   openRun(weekStart: string, today: string): Promise<WeekResult<MarketRunView>>;
   tick(run: MarketRunView, key: string, ticked: boolean, today: string): Promise<WeekResult<MarketRunView>>;
+  /**
+   * M6 Ruling 11: an out-of-stock mark, a stall swap or the undo of both, on the device (`local-week.ts`, the same core
+   * functions) or through POST /market-runs/:id/stock with `today`. The swap is re-checked by core where it is written.
+   */
+  stock(run: MarketRunView, action: StockAction, today: string): Promise<WeekResult<MarketRunView>>;
   /** `finished`: this call finished the run (the first "That's the shop done"). */
   finish(run: MarketRunView, today: string, at: Date): Promise<WeekResult<{ run: MarketRunView; finished: boolean }>>;
 }
@@ -113,6 +118,17 @@ export function createWeekSource(deps: { store: PlayerStore; client: ApiClient; 
         return out === null ? fail({ kind: 'closed' }) : { ok: true, value: out };
       }
       const r = await client.tick(run.id, key, ticked, today);
+      return r.ok ? { ok: true, value: r.data } : refusal(r);
+    },
+
+    async stock(run, action, today) {
+      if (familyTable()) return fail({ kind: 'family_table' });
+      if (!signedIn()) {
+        const out = device.stock(run.weekStart, action, today);
+        if (out.ok) return { ok: true, value: out.run };
+        return fail(out.reason === 'rules' ? { kind: 'rules' } : out.reason === 'closed' ? { kind: 'closed' } : { kind: 'invalid', problems: ['stock_invalid'] });
+      }
+      const r = await client.stock(run.id, action, today);
       return r.ok ? { ok: true, value: r.data } : refusal(r);
     },
 

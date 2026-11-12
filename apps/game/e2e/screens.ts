@@ -27,6 +27,13 @@ export interface ScreenCase {
   countdown?: true;
   /** Runs in the page before the app (e.g. a fixed Math.random, so the Pan says one chosen variant of a line). */
   initScript?: string;
+  /**
+   * An M6 market screen (Step 11): held to LOOP_NEVER and M6_NEVER in chrome and content (the allowlist by location,
+   * content only), and to the structure rules: no timer, no <progress>, no <meter>, and a footnote under every chalkboard.
+   */
+  market?: true;
+  /** Cook mode (M3): its own cooking timers and "step n of m" are the recipe's, not a minigame's; exempt from those two rules. */
+  cookMode?: true;
 }
 
 // ---- Never rules: the banned-word lists. M4 extends these; keep them here, in one place. ----
@@ -85,6 +92,26 @@ export const LOOP_NEVER: Readonly<Record<string, RegExp>> = {
 };
 /** Audit M-4, never rule 5: no countdown on the rescue, market or plan screens. */
 export const COUNTDOWN = /\b(only|left|hurry|expires?|expiring)\b/i;
+/**
+ * M6 Step 11: the milestone's no-pressure, prices and selling rules on every market screen (step-11.md, verbatim where
+ * it gives the pattern). A keeper "offer" is the keeper selling their own goods in the app; shopping advice for the
+ * player's own shop ("buy whole, buy small", "buy from a busy shop") is the skill §3.5 teaches, so the bare word is
+ * not matched (C29). No pattern is weakened for a line: copy is fixed in content/ instead (M5 Ruling 24).
+ */
+export const M6_NEVER: Readonly<Record<string, RegExp>> = {
+  /** Never rules 3, 5, 7 (step-11.md's sells pattern). */
+  sells: /\b(guild|upgrade|subscri\w*|premium)\b|\$\s?\d/i,
+  /** Ruling 5: chalkboard numbers are in no currency; nothing anywhere names one. */
+  currency: /[$£€¥₹₩₦₱¢]/,
+  /** Ruling 6: nothing is smuggled. */
+  smuggled: /\bsmuggl\w*/i,
+  /** No score tally: no "x/y", no "x of y". */
+  tally: /\b\d+\s*\/\s*\d+\b|\b\d+\s+of\s+\d+\b/i,
+  /** No countdown (step-11.md). */
+  countdown: /\b\d+\s*(s|sec|seconds|min)\s*(left|remaining)\b/i,
+  /** In-app, nothing is for sale: a keeper never offers their goods. */
+  offer: /\bbuy (?:it |them |one |some )?(?:from me|here|now|today)\b|\bon sale\b|\bspecial price\b|\badd (?:it |them )?to (?:your |the )?(?:basket|cart)\b|\bfor sale\b|\bcheckout\b|\bbuy now\b|\bdiscount\w*\b|\bdeal of the day\b/i,
+};
 /**
  * The in-page allowlist, matched by location as well as text (Step 12 fix round 1, Minor 1). Every written line in
  * `content/` is a source with its file and key path (the paths VOICE_ALLOWLIST uses). A `[data-content]` element is
@@ -246,7 +273,8 @@ async function finishIntro(page: Page): Promise<void> {
   for (let i = 0; i < 60; i++) {
     if (await page.locator('.quest-panel').count()) { await page.locator('.quest-panel').getByRole('button', { name: 'Not yet' }).click(); continue; }
     if (await page.locator('.dialogue .dialogue-next').count()) { await page.locator('.dialogue .dialogue-next').click(); continue; }
-    if (await button(page, 'Carry on with the quest').count()) break;
+    // M6 Step 10: the errand may wait a moment on the market (its stall question): the bar is back only once enabled.
+    if (await button(page, 'Carry on with the quest').count() && await button(page, 'Carry on with the quest').isEnabled()) break;
     await page.waitForTimeout(50);
   }
   await button(page, 'See the recipe: Parippu').waitFor();
@@ -593,6 +621,296 @@ export const LOOP_SCREENS: ScreenCase[] = [
   { label: 'book page (Family Table)', loop: true, path: `/#/book/${PARIPPU}`, seed: { ...PAN_READY, ...ft }, beforeGoto: loopApi, open: (p) => p.locator('.book-techniques').waitFor(), primary: (p) => button(p, 'Download my book') },
 ];
 
+/**
+ * M6 Step 9: the market hub and each stall, standard and Family Table, for the a11y and never-rules sweeps. A stall
+ * shows its keeper's greeting and the round's first question; "Leave the stall" is its primary action.
+ * M6 Step 11: every M6 screen and state, in standard and Family Table mode (where Family Table has the state): the
+ * hub, each stall, the Protein Counter (consented and not), a round mid-question and after an answer, the chalkboard,
+ * the FAQ, the round's end, the Season's Table (the seasonal round, "no calendar yet", list notes), the market list
+ * with amounts, an open stock control and a swap taken, the check-off card (grammar and model), the drill-first hint
+ * and the market-day screens (the errand question, cook mode's swap label). Family Table has no FAQ, no consent card,
+ * no stock control and no check-off card (it records nothing and has no text box, C31): its cases show what it shows.
+ */
+const STALLS = ['wen', 'bram', 'okafor-sato', 'spice'] as const;
+const VEGETARIAN = { id: 'r-veg', target: { kind: 'category' as const, ids: ['meat', 'fish', 'shellfish', 'gelatin'] }, type: 'avoid' as const, severity: 'preference' as const };
+const stallOpen = (p: Page) => p.locator('.stall-option').first().waitFor();
+const m6 = { market: true as const, loop: true as const };
+/** Saturday 14 November 2026, mid-morning: the Pacific Northwest table has a November entry (Ruling 9). */
+const MARKET_NOW = new Date(2026, 10, 14, 10, 0, 0);
+const MARKET_MONDAY = '2026-11-09';
+const atMarketNow = (then?: (p: Page) => Promise<unknown>) => async (p: Page) => { await p.clock.install({ time: MARKET_NOW }); await p.clock.resume(); await then?.(p); };
+const PNW_PROFILE = { marketDays: [], mealsPerWeek: null, country: 'United States', region: 'Washington State', mealWindows: [] };
+const KERALA_PROFILE = { ...PNW_PROFILE, country: 'India', region: 'Kerala' };
+type StallYaml = { questions: { id: string; options: { correct?: boolean }[] }[] };
+const wenYaml = yaml<StallYaml>('market/wen.yaml');
+/** Every Wen base question answered right in October, so the November seasonal questions lead the round. */
+const WEN_SOLVED = {
+  events: [{ id: '00000000-0000-4000-8000-000000000901', kind: 'stall_round' as const, at: '2026-10-19', stall: 'wen', answers: wenYaml.questions.map((q) => ({ q: q.id, pick: q.options.findIndex((o) => o.correct === true) })) }],
+  grants: [], base: null, pendingUpload: [],
+};
+const AI_OFF = (familyTable: boolean) => ({ ...settings(familyTable), aiMentor: false });
+const PARIPPU_WEEK = { plans: [{ weekStart: MARKET_MONDAY, items: [{ day: 6, kind: 'dish' as const, slug: PARIPPU, servings: 3 }], hard: false, slot: 'unanswered' as const }], runs: [] };
+const row = (key: string, name: string, stall: 'wen' | 'okafor-sato' | 'spice' | 'general', extra: object = {}) => ({ key, name, ingredientId: key.replace(/^stock:/, ''), stall, forDishes: [PARIPPU], ticked: false, ...extra });
+/** A run where the shallots were out and onion taken (as Step 10's stall swap leaves it). */
+const SWAPPED_RUN = {
+  id: 'local-run', weekStart: MARKET_MONDAY, doneAt: null, pantryIds: {},
+  items: [
+    row('stock:onion', 'onion', 'wen', { stockSwap: { from: 'shallot' }, ticked: true }),
+    row('shallot', 'shallots', 'wen', { amounts: [{ quantity: 3, unit: null, text: '3' }], outOfStock: true }),
+    row('moong_dal', 'split moong dal', 'okafor-sato', { amounts: [{ quantity: 100, unit: 'g', text: '100 g' }] }),
+  ],
+};
+/**
+ * The Season's Table on the list. No canon dish uses the Pacific Northwest's November produce (Step 10 carry), so two
+ * ticked rows are seeded (a ticked row is kept exactly, C23): cranberries ("in season here, now") and winter squash
+ * (stored). The note itself is the screen's own, from core `seasonNote`.
+ */
+const SEASON_RUN = {
+  ...SWAPPED_RUN,
+  items: [...SWAPPED_RUN.items, row('cranberry', 'cranberries', 'wen', { ticked: true }), row('winter_squash', 'winter squash', 'wen', { ticked: true })],
+};
+const marketWeek = (familyTable: boolean, extra: Partial<PlayerState> = {}): Partial<PlayerState> => ({
+  ...PAN_READY, settings: AI_OFF(familyTable), localProfile: PNW_PROFILE, localWeek: PARIPPU_WEEK, ...extra,
+});
+/** Signed in with the account's rules and consents (the Protein Counter needs health_data, Ruling 17). */
+const stallApi = (opts: { health: boolean; rules: unknown[] }) => async (page: Page) => {
+  const consents = opts.health ? HEALTH_GRANTED : { consents: [], needsReconsent: [], notices: NOTICES };
+  await page.route((u) => u.pathname.startsWith('/api/'), (r) => {
+    const path = new URL(r.request().url()).pathname.replace(/^\/api/, '');
+    if (path === '/me') return r.fulfill(json(200, { id: 'u1', email: 'cook@example.com', entitlements: [] }));
+    if (path === '/me/consents') return r.fulfill(json(200, consents));
+    if (path === '/profile') return r.fulfill(json(200, { marketDays: [], mealsPerWeek: null, country: null, region: null, mealWindows: [] }));
+    if (path === '/rules') return r.fulfill(json(200, { rules: opts.rules }));
+    if (path === '/progress') return r.fulfill(json(200, { view: null }));
+    return r.fulfill(json(404, { error: { code: 'not_found', message: path } }));
+  });
+};
+/** Answer the round's questions (the first option) until `id` shows, or the round ends. */
+async function toQuestion(p: Page, id: string): Promise<void> {
+  await stallOpen(p);
+  for (let i = 0; i < 12 && (await p.locator('.stall-round').getAttribute('data-question')) !== id; i++) {
+    await p.locator('.stall-option').first().click();
+    await p.locator('.stall-next').click();
+  }
+  await p.locator(`.stall-round[data-question="${id}"]`).waitFor();
+}
+const answerFirst = async (p: Page) => { await p.locator('.stall-option').first().click(); await p.locator('.stall-feedback:not([hidden])').waitFor(); };
+async function playOut(p: Page): Promise<void> {
+  await stallOpen(p);
+  for (let i = 0; i < 12 && (await p.locator('.stall-round').count()) > 0; i++) { await answerFirst(p); await p.locator('.stall-next').click(); }
+  await p.locator('.stall-done').waitFor();
+}
+async function panSays(p: Page, text: string): Promise<void> {
+  await p.locator('#pan-button').click();
+  const before = await p.locator('#pan-panel .bubble.pan').count();
+  await p.locator('#pan-text').fill(text);
+  await p.keyboard.press('Enter');
+  await p.waitForFunction((n) => document.querySelectorAll('#pan-panel .bubble.pan').length > n, before);
+}
+const checkOffState = (state: string) => (p: Page) => p.waitForFunction((st) => [...document.querySelectorAll<HTMLElement>('.pan-checkoff-card')].at(-1)?.dataset.state === st, state);
+/** Signed in with the AI on: the server's run, and the model's propose_check_off card waiting for a tap (Ruling 14). */
+async function modelCheckOffApi(page: Page): Promise<void> {
+  const run = { id: 'run1', weekStart: MARKET_MONDAY, doneAt: null, items: [row('green_chili', 'green chillies', 'wen'), row('moong_dal', 'split moong dal', 'okafor-sato')] };
+  const card = {
+    kind: 'check_off', source: 'model', runId: 'run1', got: ['green_chili'], missing: [], summary: 'got green chillies',
+    readback: [{ trigger: 'market.checkoff_readback', vars: { summary: 'got green chillies' } }],
+  };
+  await page.route((u) => u.pathname.startsWith('/api/'), (r) => {
+    const path = new URL(r.request().url()).pathname.replace(/^\/api/, '');
+    if (path === '/me') return r.fulfill(json(200, { id: 'u1', email: 'cook@example.com', entitlements: [] }));
+    if (path === '/me/consents') return r.fulfill(json(200, BOTH_CONSENTS));
+    if (path === '/profile') return r.fulfill(json(200, { marketDays: [], mealsPerWeek: null, country: null, region: null, mealWindows: [] }));
+    if (path === '/rules') return r.fulfill(json(200, { rules: [] }));
+    if (path === '/pantry') return r.fulfill(json(200, { items: [] }));
+    if (path === '/progress') return r.fulfill(json(200, { view: null }));
+    if (path === '/plans/current') return r.fulfill(json(200, { plan: null, weekStart: MARKET_MONDAY, checks: [] }));
+    if (path === '/market-runs/current') return r.fulfill(json(200, { run }));
+    if (path === '/mentor/turn') {
+      return r.fulfill(json(200, {
+        conversationId: 'c1', route: 'ai', notice: null, toolTurn: true, actions: [],
+        parts: card.readback.map((l) => ({ kind: 'line', line: l })), cards: [{ proposalId: 'P2', expiresAt: inHalfAnHour(), card }],
+      }));
+    }
+    return r.fulfill(json(404, { error: { code: 'not_found', message: path } }));
+  });
+}
+const MARISOL_EVENTS = (() => {
+  const at = daysAgo(0);
+  const ev = (n: number, kind: string, extra: object) => ({ id: `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`, kind, at, ...extra });
+  return [
+    ...[1, 2, 3, 4, 5, 6].map((st) => ev(st, 'quest_step', { quest: 'leela-tempering', step: st })), ev(7, 'quest_done', { quest: 'leela-tempering' }),
+    ev(8, 'quest_step', { quest: 'marisol-salt-question', step: 1 }), ev(9, 'quest_step', { quest: 'marisol-salt-question', step: 2 }),
+  ];
+})();
+async function toErrandQuestion(p: Page): Promise<void> {
+  for (let i = 0; i < 160 && (await p.locator('.quest-errand-question .stall-option').count()) === 0; i++) {
+    const panel = p.locator('.quest-panel');
+    if (await panel.count()) {
+      const t = (await panel.textContent()) ?? '';
+      if (t.includes('Fetch')) { await panel.getByRole('button', { name: "I've got it", exact: true }).click(); continue; }
+      if (await p.locator('.quest-errand-question').count()) { await p.waitForTimeout(50); continue; }
+      await panel.getByRole('button', { name: 'Not yet', exact: true }).click();
+      continue;
+    }
+    if (await p.locator('.dialogue .dialogue-next').count()) { await p.locator('.dialogue .dialogue-next').click(); continue; }
+    await p.waitForTimeout(50);
+  }
+  await p.locator('.quest-errand-question .stall-option').first().waitFor();
+}
+
+export const MARKET_SCREENS: ScreenCase[] = [
+  // The hub.
+  { label: 'market hub', ...m6, path: '/#/stalls', seed: PAN_READY, open: (p) => p.locator('.stall-button-games', { hasText: /\S/ }).first().waitFor(), primary: (p) => p.locator('.stall-button').first() },
+  { label: 'market hub (Family Table)', ...m6, path: '/#/stalls', seed: { ...PAN_READY, ...ft }, open: (p) => p.locator('.stall-button').first().waitFor(), primary: (p) => p.locator('.stall-button').first() },
+  {
+    label: 'market hub: after leaving a round (market.leave_round)', ...m6, path: '/#/stall/spice', seed: PAN_READY,
+    open: async (p) => { await answerFirst(p); await button(p, 'Leave the stall').click(); await p.waitForFunction(() => (document.querySelector('.week-note')?.textContent ?? '').trim().length > 0); },
+    primary: (p) => p.locator('.stall-button').first(),
+  },
+  {
+    label: 'market hub (Family Table): after leaving a round', ...m6, path: '/#/stall/spice', seed: { ...PAN_READY, ...ft },
+    open: async (p) => { await answerFirst(p); await button(p, 'Leave the stall').click(); await p.locator('.stall-button').first().waitFor(); },
+    primary: (p) => p.locator('.stall-button').first(),
+  },
+  // Each stall, mid-question (its first question), with its tips and FAQ chips.
+  ...STALLS.flatMap((id): ScreenCase[] => [
+    { label: `stall ${id}`, ...m6, path: `/#/stall/${id}`, seed: PAN_READY, open: stallOpen, primary: (p) => button(p, 'Leave the stall') },
+    { label: `stall ${id} (Family Table)`, ...m6, path: `/#/stall/${id}`, seed: { ...PAN_READY, ...ft }, open: stallOpen, primary: (p) => button(p, 'Leave the stall') },
+    { label: `stall ${id}: a question answered`, ...m6, path: `/#/stall/${id}`, seed: PAN_READY, open: async (p) => { await stallOpen(p); await answerFirst(p); }, primary: (p) => p.locator('.stall-next') },
+    { label: `stall ${id} (Family Table): a question answered`, ...m6, path: `/#/stall/${id}`, seed: { ...PAN_READY, ...ft }, open: async (p) => { await stallOpen(p); await answerFirst(p); }, primary: (p) => p.locator('.stall-next') },
+  ]),
+  // The round's end: the done line and the keeper's farewell.
+  { label: 'stall okafor-sato: the round done', ...m6, path: '/#/stall/okafor-sato', seed: PAN_READY, open: playOut, primary: (p) => button(p, 'Another round') },
+  { label: 'stall okafor-sato (Family Table): the round done', ...m6, path: '/#/stall/okafor-sato', seed: { ...PAN_READY, ...ft }, open: playOut, primary: (p) => button(p, 'Another round') },
+  // The FAQ: a chip tapped, its written answer shown (none in Family Table: its stall cases above show the chips absent).
+  {
+    label: 'stall spice: a FAQ answer open', ...m6, path: '/#/stall/spice', seed: PAN_READY,
+    open: async (p) => { await stallOpen(p); await p.locator('.stall-faq-chip').first().click(); await p.locator('.stall-faq-answer p').waitFor(); },
+    primary: (p) => p.locator('.stall-faq-chip').first(),
+  },
+  // The chalkboard (Ruling 5): Big Bram's price question and the Protein Counter's, with the example-price footnote.
+  { label: 'stall bram: the chalkboard', ...m6, path: '/#/stall/bram', seed: PAN_READY, open: (p) => toQuestion(p, 'bram-value-braise'), primary: (p) => button(p, 'Leave the stall') },
+  { label: 'stall bram (Family Table): the chalkboard, answered', ...m6, path: '/#/stall/bram', seed: { ...PAN_READY, ...ft }, open: async (p) => { await toQuestion(p, 'bram-value-braise'); await answerFirst(p); }, primary: (p) => p.locator('.stall-next') },
+  // The Protein Counter: signed out (device rules, no consent needed on the device), signed in with and without health_data.
+  {
+    label: 'stall bram: the Protein Counter, a question answered', ...m6, path: '/#/stall/bram', seed: { ...PAN_READY, localRules: [VEGETARIAN] },
+    open: async (p) => { await stallOpen(p); await answerFirst(p); },
+    primary: (p) => p.locator('.stall-next'),
+  },
+  { label: 'stall bram: the Protein Counter\'s chalkboard', ...m6, path: '/#/stall/bram', seed: { ...PAN_READY, localRules: [VEGETARIAN] }, open: (p) => toQuestion(p, 'bram-pc-cheapest'), primary: (p) => button(p, 'Leave the stall') },
+  { label: 'stall bram (Family Table): the Protein Counter', ...m6, path: '/#/stall/bram', seed: { ...PAN_READY, ...ft, localRules: [VEGETARIAN] }, open: stallOpen, primary: (p) => button(p, 'Leave the stall') },
+  {
+    label: 'stall bram (signed in): the Protein Counter without health_data asks first', ...m6, mentor: true, path: '/#/stall/bram', seed: PAN_READY,
+    beforeGoto: stallApi({ health: false, rules: [{ ...VEGETARIAN, id: 's1' }] }),
+    open: (p) => p.locator('.stall-consent').waitFor(), primary: (p) => p.locator('.stall-consent'),
+  },
+  {
+    label: 'stall bram (signed in): the Protein Counter, consented', ...m6, path: '/#/stall/bram', seed: PAN_READY,
+    beforeGoto: stallApi({ health: true, rules: [{ ...VEGETARIAN, id: 's1' }] }),
+    open: stallOpen, primary: (p) => button(p, 'Leave the stall'),
+  },
+  {
+    label: 'stall bram (signed in, Family Table): the Protein Counter plays in practice, no consent card', ...m6, path: '/#/stall/bram', seed: { ...PAN_READY, ...ft },
+    beforeGoto: stallApi({ health: false, rules: [{ ...VEGETARIAN, id: 's1' }] }),
+    open: stallOpen, primary: (p) => button(p, 'Leave the stall'),
+  },
+  // The Season's Table: Wen's seasonal round for the Pacific Northwest, "no calendar yet" elsewhere, and list notes.
+  {
+    label: 'stall wen: the seasonal round (Pacific Northwest, November)', ...m6, path: '/#/stall/wen', seed: { ...PAN_READY, localProfile: PNW_PROFILE, progress: WEN_SOLVED },
+    beforeGoto: atMarketNow(), open: (p) => p.locator('.stall-round[data-question^="wen-pnw-11-"]').waitFor(), primary: (p) => button(p, 'Leave the stall'),
+  },
+  {
+    label: 'stall wen (Family Table): the seasonal round, answered', ...m6, path: '/#/stall/wen', seed: { ...PAN_READY, ...ft, localProfile: PNW_PROFILE, progress: WEN_SOLVED },
+    beforeGoto: atMarketNow(), open: async (p) => { await p.locator('.stall-round[data-question^="wen-pnw-11-"]').waitFor(); await answerFirst(p); }, primary: (p) => p.locator('.stall-next'),
+  },
+  {
+    label: 'stall wen: no calendar yet (Kerala, India)', ...m6, path: '/#/stall/wen', seed: { ...PAN_READY, localProfile: KERALA_PROFILE },
+    beforeGoto: atMarketNow(), open: async (p) => { await stallOpen(p); await p.locator('.stall-note').first().waitFor(); }, primary: (p) => button(p, 'Leave the stall'),
+  },
+  {
+    label: 'stall wen (Family Table): no calendar yet (Kerala, India)', ...m6, path: '/#/stall/wen', seed: { ...PAN_READY, ...ft, localProfile: KERALA_PROFILE },
+    beforeGoto: atMarketNow(), open: async (p) => { await stallOpen(p); await p.locator('.stall-note').first().waitFor(); }, primary: (p) => button(p, 'Leave the stall'),
+  },
+  {
+    label: 'market list: Season\'s Table notes (Pacific Northwest)', ...m6, countdown: true, path: '/#/market', seed: marketWeek(false, { localWeek: { ...PARIPPU_WEEK, runs: [SEASON_RUN] } }),
+    beforeGoto: atMarketNow(), open: async (p) => { await p.locator('.season-note').nth(1).waitFor(); }, primary: (p) => button(p, "That's the shop done"),
+  },
+  // The market list (Form 12-M): amounts, the stock control open, and a swap taken (the out-of-stock row marked).
+  {
+    label: 'market list: amounts, the stock control open on shallots', ...m6, countdown: true, path: '/#/market', seed: marketWeek(false), beforeGoto: atMarketNow(),
+    open: async (p) => {
+      await p.locator('.market-row[data-key="moong_dal"] .market-amount').waitFor();
+      await p.locator('.market-row[data-key="shallot"] .stock-ask').click();
+      await p.locator('.market-row[data-key="shallot"] .stock-swap').first().waitFor();
+    },
+    primary: (p) => button(p, "That's the shop done"),
+  },
+  {
+    label: 'market list: a stall swap taken, the shallots out of stock', ...m6, countdown: true, path: '/#/market', seed: marketWeek(false, { localWeek: { ...PARIPPU_WEEK, runs: [SWAPPED_RUN] } }), beforeGoto: atMarketNow(),
+    open: async (p) => { await p.locator('.market-row[data-key="stock:onion"]').waitFor(); await p.locator('.market-row[data-key="shallot"] .market-out').waitFor(); },
+    primary: (p) => button(p, "That's the shop done"),
+  },
+  {
+    // Family Table reads the list as core computes it now (no run is opened): amounts, and no stock control or box.
+    label: 'market list (Family Table): amounts, no stock control', ...m6, countdown: true, path: '/#/market', seed: marketWeek(true), beforeGoto: atMarketNow(),
+    open: async (p) => { await p.locator('.market-row[data-key="moong_dal"] .market-amount').waitFor(); },
+    primary: (p) => p.getByRole('link', { name: "This week's plan" }),
+  },
+  // The check-off card: the closed grammar's (ticked at once, with an Undo; and undone), and the model's (waits for a tap).
+  {
+    label: 'mentor panel: the grammar check-off card, applied', ...m6, mentor: true, path: '/#/market', seed: marketWeek(false), beforeGoto: atMarketNow(),
+    open: async (p) => { await p.locator('.market-row[data-key="moong_dal"]').waitFor(); await panSays(p, 'got the moong dal'); await checkOffState('applied')(p); },
+    primary: (p) => p.locator('.pan-checkoff-card').getByRole('button', { name: 'Undo' }),
+  },
+  {
+    label: 'mentor panel: the grammar check-off card, undone', ...m6, mentor: true, path: '/#/market', seed: marketWeek(false), beforeGoto: atMarketNow(),
+    open: async (p) => {
+      await p.locator('.market-row[data-key="moong_dal"]').waitFor();
+      await panSays(p, 'got the moong dal');
+      await checkOffState('applied')(p);
+      await p.locator('.pan-checkoff-card').getByRole('button', { name: 'Undo' }).click();
+      await checkOffState('undone')(p);
+    },
+    primary: (p) => p.locator('#pan-panel').getByRole('button', { name: 'Send', exact: true }),
+  },
+  {
+    label: 'mentor panel (signed in): a model-proposed check-off card waiting for its tap', ...m6, mentor: true, path: '/', seed: { ...PAN_READY, settings: settings(false) }, beforeGoto: modelCheckOffApi,
+    open: async (p) => { await accountLoaded(p); await panSays(p, 'I grabbed some of those green chilli things'); await checkOffState('pending')(p); },
+    primary: (p) => p.locator('.pan-checkoff-card').getByRole('button', { name: 'Tick these' }),
+  },
+  {
+    label: 'mentor panel (Family Table) on the market list: no text box, no check-off card', ...m6, mentor: true, path: '/#/market', seed: marketWeek(true), beforeGoto: atMarketNow(),
+    open: async (p) => { await p.locator('.market-row').first().waitFor(); await p.locator('#pan-button').click(); await p.locator('#pan-panel').waitFor(); },
+    primary: (p) => p.locator('#pan-panel .pan-close'),
+  },
+  // The drill-first hint (Ruling 16): the recipe and cook screens; none in Family Table.
+  { label: 'recipe card: the drill-first hint', ...m6, path: `/#/recipe/${PARIPPU}`, seed: PAN_READY, open: (p) => p.locator('.drill-first').waitFor(), primary: (p) => button(p, 'Cook it') },
+  { label: 'recipe card (Family Table): no drill-first hint', ...m6, path: `/#/recipe/${PARIPPU}`, seed: { ...PAN_READY, ...ft }, open: (p) => p.locator('.recipe-card').waitFor(), primary: (p) => button(p, 'Cook it') },
+  {
+    // From the recipe card, as a player meets it. (A direct load of #/cook shows no hint yet: reported as a Step 10 carry.)
+    label: 'cook mode: the drill-first hint', ...m6, cookMode: true, path: `/#/recipe/${PARIPPU}`, seed: PAN_READY,
+    open: async (p) => { await p.locator('.drill-first').waitFor(); await button(p, 'Cook it').click(); await p.locator('.cook-progress').waitFor(); await p.locator('.drill-first').waitFor(); },
+    primary: (p) => button(p, /Next step/),
+  },
+  // Market day: Marisol's errand plays an Okafor-Sato bean question; cook mode says what was swapped at the market.
+  {
+    label: 'visit marisol: the errand\'s stall question', ...m6, path: '/#/visit/marisol', seed: { ...PAN_READY, settings: AI_OFF(false), progress: { events: MARISOL_EVENTS as never, grants: [], base: null, pendingUpload: [] } },
+    open: toErrandQuestion, primary: (p) => p.locator('.quest-errand-question .stall-option').first(),
+  },
+  {
+    label: 'visit marisol (Family Table): the cook\'s lines, no errand', ...m6, path: '/#/visit/marisol', seed: { ...PAN_READY, ...ft, progress: { events: MARISOL_EVENTS as never, grants: [], base: null, pendingUpload: [] } },
+    open: (p) => p.locator('.dialogue .dialogue-text .typed-full').waitFor(), primary: (p) => p.locator('.dialogue .dialogue-next'),
+  },
+  {
+    label: 'cook mode: swapped at the market', ...m6, cookMode: true, path: `/#/cook/${PARIPPU}`, seed: marketWeek(false, { localWeek: { ...PARIPPU_WEEK, runs: [SWAPPED_RUN] } }), beforeGoto: atMarketNow(),
+    open: (p) => p.locator('.stock-label').waitFor(), primary: (p) => button(p, /Next step/),
+  },
+  {
+    label: 'cook mode (Family Table): swapped at the market', ...m6, cookMode: true, path: `/#/cook/${PARIPPU}`, seed: marketWeek(true, { localWeek: { ...PARIPPU_WEEK, runs: [SWAPPED_RUN] } }), beforeGoto: atMarketNow(),
+    open: (p) => p.locator('.cook-progress').waitFor(), primary: (p) => button(p, /Next step/),
+  },
+];
+
 export const SCREENS: ScreenCase[] = [
   { label: 'kitchen', path: '/', open: (p) => h1(p, 'Your kitchen'), primary: (p) => button(p, 'Go out to the world map') },
   {
@@ -748,6 +1066,7 @@ export const SCREENS: ScreenCase[] = [
     },
     primary: (p) => p.getByRole('link', { name: 'Back to the kitchen' }),
   },
+  ...MARKET_SCREENS,
   { label: 'not found', path: '/#/no-such-page', open: (p) => h1(p, 'Not found'), primary: (p) => p.getByRole('link', { name: 'Back to the kitchen' }) },
   ...LOOP_SCREENS,
 ];

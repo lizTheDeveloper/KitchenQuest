@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import { deriveProgress, frameOptions, type Catalogue, type ProgressEvent, type Quest, type Rule } from '@kitchenquest/core/engine';
 import { content, graph } from '../content';
+import { createStore } from '../state/store';
 import { catalogueOf, stepContextOf } from '../progress/catalogue';
 import { cookStepEvents, runQuest, type QuestRunnerDeps } from './quest-runner';
 import { standInFixture } from '../progress/stand-in.fixture';
@@ -248,5 +249,163 @@ describe('quest runner', () => {
     for (const b of buttons) { expect(b.type).toBe('button'); expect(b.tabIndex).not.toBe(-1); }
     expect(document.activeElement).toBe(buttons[0]);
     h.controller.abort();
+  });
+});
+
+// M6 Step 10: an errand's stall question. It plays before the step goes on as in M5, and the step passes whatever is
+// answered: a right and a wrong answer complete it with identical events and grants.
+describe('errand stall question (M6 Step 10)', () => {
+  const ctxOf = (rules: Rule[] = []) => ({ rules, graph, subs: [...content.substitutions], date: TODAY, country: null });
+  const errandOf = (item: string, stall: string): Quest => ({
+    ...leela, id: 'fixture-errand-q',
+    steps: [{ type: 'errand', stall, item, lines: ['Go and fetch it.', 'Thank you.'] }, { type: 'talk', lines: ['Done.'] }],
+  });
+  const catFor = (): Catalogue => {
+    const base = catalogueOf();
+    return { ...base, quests: new Map([...base.quests, ['fixture-errand-q', { cook: 'leela', steps: 2, xp: 0, trust: 0, skills: [], requires: [] }]]) };
+  };
+
+  test('Marisol\'s black_bean errand matches an Okafor-Sato bean question; Leela\'s shallot errand matches none', async () => {
+    const { loadMarket } = await import('../market/content');
+    const { errandQuestionFor } = await import('./errand-question');
+    const m = await loadMarket();
+    const marisolErrand = marisol.steps.find((s) => s.type === 'errand');
+    const leelaErrand = leela.steps.find((s) => s.type === 'errand');
+    if (marisolErrand?.type !== 'errand' || leelaErrand?.type !== 'errand') throw new Error('errands');
+    expect([marisolErrand.item, marisolErrand.stall]).toEqual(['black_bean', 'okafor-sato']);
+    const q = errandQuestionFor('black_bean', m.stalls['okafor-sato'], ctxOf(), null, 11, m.seasonality, new Map(), graph);
+    expect(q).not.toBeNull();
+    expect(q!.contains).toContain('bean');
+    expect([leelaErrand.item, leelaErrand.stall]).toEqual(['shallot', 'wen']);
+    expect(errandQuestionFor('shallot', m.stalls.wen, ctxOf(), null, 11, m.seasonality, new Map(), graph)).toBeNull();
+    // Under a soy-and-beans-free rule set nothing about beans may be asked (stallBank keeps only ✅ questions).
+    const noBean: Rule = { id: 'r-b', target: { kind: 'ingredient', ids: ['bean'] }, type: 'avoid', severity: 'allergy' };
+    expect(errandQuestionFor('black_bean', m.stalls['okafor-sato'], ctxOf([noBean]), null, 11, m.seasonality, new Map(), graph)).toBeNull();
+  });
+
+  test('errand: right and wrong answers both complete the step with identical grants; no passing question → no question shown', async () => {
+    const { loadMarket } = await import('../market/content');
+    const { errandQuestionFor } = await import('./errand-question');
+    const m = await loadMarket();
+    const question = errandQuestionFor('black_bean', m.stalls['okafor-sato'], ctxOf(), null, 11, m.seasonality, new Map(), graph)!;
+    const q = errandOf('black_bean', 'okafor-sato');
+    const play = async (pickRight: boolean | null) => {
+      const h = harness(q, { cat: catFor() });
+      const recorded: { q: string; pick: number }[][] = [];
+      h.deps.errandQuestion = () => Promise.resolve(pickRight === null ? null : {
+        question, keeper: 'Okafor-Sato',
+        round: { gameName: () => null, keeperLine: () => null, panLine: () => null, itemArt: () => null, itemName: () => null, priceFootnote: '*Example prices.' },
+        record: (a) => { recorded.push(a); },
+      });
+      const seen: string[] = [];
+      const result = await drive(h.slot, runQuest(h.slot, q, h.deps), (panel) => {
+        const options = [...panel.querySelectorAll<HTMLButtonElement>('.stall-option')];
+        if (options.length > 0 && !options[0].classList.contains('is-answered')) {
+          const want = options.find((b) => (question.options[Number(b.dataset.pick)].correct === true) === pickRight)!;
+          return want.textContent ?? '';
+        }
+        if (panel.querySelector('.stall-next')) return 'Finish the round';
+        return "I've got it";
+      }, seen);
+      const shown = seen.some((t) => t.includes(question.prompt));
+      return { result, recorded, shown, events: h.events.map(({ id: _id, ...e }) => e), view: h.deps.progress() };
+    };
+    const right = await play(true);
+    const wrong = await play(false);
+    const none = await play(null);
+    for (const r of [right, wrong, none]) expect(r.result).toBe('done');
+    expect(right.shown && wrong.shown).toBe(true);
+    expect(none.shown).toBe(false);
+    expect(right.events).toEqual(wrong.events);
+    expect(right.events).toEqual(none.events);
+    expect({ xp: right.view.xp, steps: right.view.questSteps, done: right.view.questsDone }).toEqual({ xp: wrong.view.xp, steps: wrong.view.questSteps, done: wrong.view.questsDone });
+    // One answer each, kept as a one-answer stall_round by `record`; nothing when no question played.
+    expect(right.recorded).toHaveLength(1);
+    expect(right.recorded[0]).toHaveLength(1);
+    expect(wrong.recorded).toHaveLength(1);
+    expect(none.recorded).toEqual([]);
+  });
+});
+
+// Fix round 1 (I2): a stalled market chunk or profile read never holds an errand: no question, the M5 step at once.
+describe('errand stall question: a hung lookup (I2)', () => {
+  const step = { stall: 'okafor-sato', item: 'black_bean' };
+  const deps = (over: { load?: () => Promise<never>; getProfile?: () => Promise<never>; signedIn?: boolean }) => {
+    const store = createStore(null);
+    if (over.signedIn) store.update((s) => ({ ...s, account: { email: 'e@x.test' }, accountRules: [] }));
+    return {
+      store,
+      client: { getProfile: over.getProfile ?? (() => Promise.resolve({ ok: true, status: 200, data: { marketDays: [], mealsPerWeek: null, country: null, region: null, mealWindows: [] } })) } as never,
+      service: { record: () => Promise.resolve([]), view: () => deriveProgress({ events: [], grants: [], base: null }, catalogueOf()) },
+      today: () => TODAY,
+    };
+  };
+  const hung = () => new Promise<never>(() => {});
+
+  test('the market chunk hung, or the profile read hung → null by the 3 s limit', async () => {
+    const { errandQuestions } = await import('./errand-question');
+    const { LOOKUP_TIMEOUT_MS } = await import('../shell/within');
+    vi.useFakeTimers();
+    try {
+      const a = errandQuestions({ ...deps({}), load: hung })(step);
+      await vi.advanceTimersByTimeAsync(LOOKUP_TIMEOUT_MS);
+      expect(await a).toBeNull();
+      const { loadMarket } = await import('../market/content');
+      await loadMarket(); // the real chunk, so only the profile hangs below
+      const b = errandQuestions({ ...deps({ signedIn: true, getProfile: hung }) })(step);
+      await vi.advanceTimersByTimeAsync(LOOKUP_TIMEOUT_MS + 10);
+      expect(await b).toBeNull();
+    } finally { vi.useRealTimers(); }
+  });
+
+  test('M8 (final): one deadline for both: a market chunk that takes 2.9 s, then a hung profile read → null by 3 s in all', async () => {
+    const { errandQuestions } = await import('./errand-question');
+    const { LOOKUP_TIMEOUT_MS } = await import('../shell/within');
+    const { loadMarket } = await import('../market/content');
+    const m = await loadMarket();
+    vi.useFakeTimers();
+    try {
+      const slow = () => new Promise<typeof m>((r) => { setTimeout(() => { r(m); }, LOOKUP_TIMEOUT_MS - 100); });
+      let done = false;
+      const a = errandQuestions({ ...deps({ signedIn: true, getProfile: hung }), load: slow })(step).then((v) => { done = true; return v; });
+      await vi.advanceTimersByTimeAsync(LOOKUP_TIMEOUT_MS + 10);
+      expect(done).toBe(true);
+      expect(await a).toBeNull();
+    } finally { vi.useRealTimers(); }
+  });
+
+  test('final I2: a question built in Family Table keeps nothing, even when Family Table is switched off before the answer', async () => {
+    const { errandQuestions } = await import('./errand-question');
+    const d = deps({});
+    d.store.update((s) => ({ ...s, settings: { ...s.settings, familyTable: true } }));
+    const sent: unknown[] = [];
+    const asked = await errandQuestions({ ...d, service: { ...d.service, record: (e) => { sent.push(e); return Promise.resolve([]); } } })(step);
+    expect(asked).not.toBeNull();
+    d.store.update((s) => ({ ...s, settings: { ...s.settings, familyTable: false } })); // another tab, say
+    asked!.record([{ q: asked!.question.id, pick: 0 }]);
+    expect(sent).toEqual([]);
+    // Built with Family Table off, the same answer is kept.
+    const plain = deps({});
+    const kept: unknown[] = [];
+    const b = await errandQuestions({ ...plain, service: { ...plain.service, record: (e) => { kept.push(e); return Promise.resolve([]); } } })(step);
+    b!.record([{ q: b!.question.id, pick: 0 }]);
+    expect(kept).toHaveLength(1);
+  });
+
+  test('the runner goes on to the M5 errand step (pantry or tap) when the lookup gives up', async () => {
+    const { errandQuestions } = await import('./errand-question');
+    const q: Quest = {
+      ...leela, id: 'fixture-errand-q',
+      steps: [{ type: 'errand', stall: 'okafor-sato', item: 'black_bean', lines: ['Go and fetch it.', 'Thank you.'] }, { type: 'talk', lines: ['Done.'] }],
+    };
+    const base = catalogueOf();
+    const cat: Catalogue = { ...base, quests: new Map([...base.quests, ['fixture-errand-q', { cook: 'leela', steps: 2, xp: 0, trust: 0, skills: [], requires: [] }]]) };
+    const h = harness(q, { cat });
+    h.deps.errandQuestion = errandQuestions({ ...deps({}), load: hung, timeoutMs: 30 });
+    const seen: string[] = [];
+    const result = await drive(h.slot, runQuest(h.slot, q, h.deps), (panel) => (panel.textContent?.includes('Fetch') ? "I've got it" : 'Not yet'), seen);
+    expect(result).toBe('done');
+    expect(seen.some((t) => t.includes('Fetch'))).toBe(true);
+    expect(h.slot.querySelector('.quest-errand-question')).toBeNull();
   });
 });

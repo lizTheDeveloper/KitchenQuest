@@ -34,15 +34,24 @@ function options(query: string, graph: IngredientGraph, ruleTerms: readonly Rule
   return [...terms, ...ingredients].slice(0, MAX_OPTIONS);
 }
 
-/** The card for a pick, exactly: never a wider or narrower reading of its name (the same check as `cardFromChoice`). */
-function cardFor(p: Pick, severity: Severity, graph: IngredientGraph, ruleTerms: readonly RuleTerm[]): RuleCard {
+/**
+ * The card for a pick, exactly: never a wider or narrower reading of its name (the same check as `cardFromChoice`).
+ * A broad item whose name core reads as more than one thing ("butternut", "bean", "berry", "herb": M6 Step 4 N3) is
+ * never auto-picked and never a thrown error: its which-kind choices come back for the player to pick from. Anything
+ * else that isn't the pick exactly gives no card (`none`), so nothing is filed on a guess.
+ */
+function cardFor(p: Pick, severity: Severity, graph: IngredientGraph, ruleTerms: readonly RuleTerm[]):
+  { kind: 'card'; card: RuleCard } | { kind: 'choices'; options: { id: string; name: string }[] } | { kind: 'none' } {
   const built = buildRuleCard({ term: p.kind === 'term' ? p.term.name : p.name, severity }, graph, ruleTerms);
-  if (!built.ok) throw new Error('rule form: the pick did not build a card');
+  if (!built.ok) return built.reason === 'ambiguous' && built.options.length > 0 ? { kind: 'choices', options: built.options } : { kind: 'none' };
   const want = p.kind === 'term' ? [...p.term.ids].sort() : [p.id];
   const got = [...built.card.rule.target.ids].sort();
-  if (want.length !== got.length || want.some((id, i) => id !== got[i])) throw new Error('rule form: the card is not the pick');
-  return built.card;
+  if (want.length !== got.length || want.some((id, i) => id !== got[i])) return { kind: 'none' };
+  return { kind: 'card', card: built.card };
 }
+
+const WHICH_ONE = 'Which one do you mean?';
+const NOT_FILED = "That one can't be filed from here exactly as picked. Try a more specific name.";
 
 let seq = 0;
 
@@ -53,6 +62,7 @@ export function mountRuleForm(el: HTMLElement, opts: { graph: IngredientGraph; r
   const list = h('ul', { class: 'rule-form-options', 'aria-label': 'Matches' });
   const found = h('p', { class: 'rule-form-found', role: 'status' });
   const chosen = h('p', { class: 'rule-form-chosen' });
+  const which = h('div', { class: 'rule-form-which' });
   const severity = h('select', { id: 'rule-severity', 'aria-describedby': `rule-severity-hint-${n}` },
     h('option', { value: '' }, 'Not chosen'),
     ...SEVERITIES.map((s) => h('option', { value: s.value }, s.label)));
@@ -75,6 +85,7 @@ export function mountRuleForm(el: HTMLElement, opts: { graph: IngredientGraph; r
       const b = h('button', { type: 'button', class: 'btn btn-secondary rule-form-option', 'aria-pressed': 'false' }, label);
       b.addEventListener('click', () => {
         picked = p;
+        which.replaceChildren();
         for (const x of list.querySelectorAll('button')) x.setAttribute('aria-pressed', 'false');
         b.setAttribute('aria-pressed', 'true');
         chosen.textContent = copy('ui.rules.chosen', { name: p.kind === 'term' ? p.term.name : p.name });
@@ -87,10 +98,28 @@ export function mountRuleForm(el: HTMLElement, opts: { graph: IngredientGraph; r
   };
   search.addEventListener('input', render);
 
+  const fillWith = (p: Pick) => {
+    const s = severity.value === '' ? defaultSeverity(p) : (severity.value as Severity);
+    const out = cardFor(p, s, graph, ruleTerms);
+    which.replaceChildren();
+    if (out.kind === 'card') { opts.onCard(out.card); return; }
+    if (out.kind === 'none') { which.append(h('p', { class: 'rule-form-found', role: 'status' }, NOT_FILED)); return; }
+    // The which-kind choices (the Pan's own `choices`): one tap files exactly that one, never a wider reading.
+    const buttons = out.options.map((o) => {
+      const b = h('button', { type: 'button', class: 'btn btn-secondary rule-form-choice' }, o.name);
+      b.addEventListener('click', () => {
+        picked = { kind: 'ingredient', id: o.id, name: o.name };
+        chosen.textContent = copy('ui.rules.chosen', { name: o.name });
+        fillWith(picked);
+      });
+      return b;
+    });
+    which.append(h('div', { class: 'button-row', role: 'group', 'aria-label': WHICH_ONE }, ...buttons));
+    buttons[0]?.focus();
+  };
   fill.addEventListener('click', () => {
     if (picked === null) return;
-    const s = severity.value === '' ? defaultSeverity(picked) : (severity.value as Severity);
-    opts.onCard(cardFor(picked, s, graph, ruleTerms));
+    fillWith(picked);
   });
 
   const form = h('div', { class: 'rule-form' },
@@ -102,7 +131,8 @@ export function mountRuleForm(el: HTMLElement, opts: { graph: IngredientGraph; r
     list,
     chosen,
     h('div', { class: 'field' }, h('label', { for: 'rule-severity' }, 'How serious'), severity, severityHint),
-    fill);
+    fill,
+    which);
   el.append(form);
   return () => { form.remove(); };
 }

@@ -10,7 +10,10 @@ import { createChildFlag } from './child-flag';
 import { lazyBackend } from './lazy-backend';
 import { createLocalSafety, newConversation, scriptedWhenUnavailable, type ConversationRef } from './outage';
 import { createDialogue, type Dialogue } from './dialogue';
-import { createIntake, type Intake } from './intake';
+import type { createIntake, Intake } from './intake';
+
+/** What the lazy Form 1-A module gives (M6 Step 10): its one factory. */
+export interface IntakeModule { createIntake: typeof createIntake }
 import { mountMentorPanel, type MentorPanel } from './panel';
 import type { PanReply } from './reply';
 import { createScriptedEngine, type ScriptedEngine } from './scripted';
@@ -24,6 +27,7 @@ export type { MentorPanel } from './panel';
 let mentor: MentorPanel | null = null;
 
 /** What the panel's own pieces are, for the screens that share them (the rules screen writes through the same writer). */
+/** `intake`: Form 1-A once its code has loaded (the panel's first open in standard mode), else null. */
 export interface MentorServices { client: ApiClient; dialogue: Dialogue; engine: ScriptedEngine; writer: CardWriter; intake: Intake | null }
 let services: MentorServices | null = null;
 
@@ -128,7 +132,16 @@ function stablePanel(cur: () => MentorPanel, onClear: () => void): MentorPanel {
 }
 
 /** Mount the panel once, with its line history kept in the player store and the backend chosen from the store. */
-export function mountMentor(doc: Document, store: PlayerStore, bank: LineBank, client: ApiClient = createApiClient()): MentorPanel {
+/**
+ * M6 Step 10 (coordinator ruling 1): Form 1-A's code loads when the panel first opens in standard mode, never at first
+ * paint. Nothing safety-related waits on it: an emergency, medical or child text goes to the backend's own device
+ * answer before any await (the panel never hands a safety text to the intake). A failed load says `intake.unavailable`
+ * and the scripted Pan answers as usual; the next open tries again. `importIntake` is a test seam.
+ */
+export function mountMentor(
+  doc: Document, store: PlayerStore, bank: LineBank, client: ApiClient = createApiClient(),
+  importIntake: () => Promise<IntakeModule> = () => import('./intake'),
+): MentorPanel {
   if (mentor) return mentor;
   const win = doc.defaultView!;
   const mql = win.matchMedia('(prefers-reduced-motion: reduce)');
@@ -178,17 +191,36 @@ export function mountMentor(doc: Document, store: PlayerStore, bank: LineBank, c
       reducedMotion: () => reducedMotion(store.get().settings.reducedMotion, mql),
       disclosure: content.bureau.disclaimers.ai_characters,
     });
-    // Form 1-A starts the first time the panel opens in standard mode (§19: Family Table never starts it).
-    const intake = panel.mode === 'standard'
-      ? createIntake({
-        panel, engine, ai: backend, store, client, dialogue, signedIn: () => store.get().account !== null,
-        graph, ruleTerms: content.ruleTerms, form: content.bureau.forms.intake, child,
-      })
-      : null;
-    if (intake) panel.onOpen(() => { intake.start(); });
+    // Form 1-A starts the first time the panel opens in standard mode (§19: Family Table never starts it), its code
+    // loaded then (lazy). Its `start()` is a no-op once begun or done, so a later open just shows it again.
+    let intake: Promise<Intake> | null = null;
+    if (panel.mode === 'standard') {
+      panel.onOpen(() => {
+        const startedFor = current?.panel;
+        // Form 1-A never cuts into a conversation already under way: if the player spoke while its code was loading,
+        // it waits for the next open (its lines never land after the Pan's answer to what they said).
+        const turnAtOpen = panel.turn;
+        intake ??= importIntake().then((m) => {
+          const made = m.createIntake({
+            panel, engine, ai: backend, store, client, dialogue, signedIn: () => store.get().account !== null,
+            graph, ruleTerms: content.ruleTerms, form: content.bureau.forms.intake, child,
+          });
+          if (services) services.intake = made;
+          return made;
+        });
+        // Fix round 1 (I1, m-4/C-1): a conversation a child has spoken in gets no interview and no failure line,
+        // only the grown-up line it already had; the flag is read when the code lands, never when the open began.
+        intake.then((i) => { if (current?.panel === startedFor && panel.turn === turnAtOpen && !child.on) i.start(); }, (err: unknown) => {
+          console.error(err);
+          intake = null;
+          // Only a player the interview would have met hears it (it starts only until Form 1-A is done).
+          if (current?.panel === startedFor && store.get().intake.step !== 'done' && !child.on) panel.say('intake.unavailable');
+        });
+      });
+    }
     // Preload the week's code when the panel opens, and read the signed-in week once (M3), so a plan turn rarely waits.
     panel.onOpen(() => { void week().then((w) => w.prefetch()).catch((err: unknown) => { console.error(err); }); });
-    services = { client, dialogue, engine, writer, intake };
+    services = { client, dialogue, engine, writer, intake: null };
     // Clearing is a new conversation on both sides: no server id, no child flag (fix round 4, G4).
     current = { panel, backend, familyTable, resetChild: () => { child.reset(); if (conversation) newConversation(conversation); } };
   };

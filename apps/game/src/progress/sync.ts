@@ -1,10 +1,10 @@
 import {
-  grantsForBatch, type Catalogue, type FreshnessThresholds, type ProgressEvent, type ProgressView, type RewardGrant, type RewardsData, type RulesContext,
+  grantsForBatch, isHealthRevealing, type Catalogue, type FreshnessThresholds, type ProgressEvent, type ProgressView, type RewardGrant, type RewardsData, type RulesContext,
 } from '@kitchenquest/core/engine';
 import type { ApiClient } from '../api/client';
 import type { ApiResult, ProgressPostResponse } from '../api/types';
 import { content } from '../content';
-import { dropEvents, partitionKey, partitionOf, withPartition, type PlayerStore } from '../state/store';
+import { dropEvents, partitionKey, partitionOf, withPartition, type PlayerState, type PlayerStore } from '../state/store';
 import { catalogueOf } from './catalogue';
 import { appendEvents, historyOf, markUploaded } from './log';
 
@@ -29,6 +29,13 @@ export interface ProgressSyncDeps {
   /** Accepted events with something set aside (core's or the server's warnings, e.g. `stand_in_dropped`). */
   onWarnings?: (w: { clientId: string; warnings: string[] }[]) => void;
   catalogue?: Catalogue;
+  /**
+   * M6 Step 9 fix round 1 (I1): whether the signed-in account holds `health_data` consent now. Without it (or without
+   * this), a health-revealing guest event (a Protein Counter round, core `isHealthRevealing`) is never moved.
+   */
+  healthConsent?: () => Promise<boolean>;
+  /** Called when the guest add held such events back: open the consent card; `retry` moves them once granted. */
+  onHeldForConsent?: (retry: () => void) => void;
   rewards?: RewardsData;
   thresholds?: FreshnessThresholds;
   now?: () => number;
@@ -66,6 +73,16 @@ export interface ProgressSync {
   /** Ask the account's view (GET /progress), when signed in; it is cached with that account's partition. */
   refreshAccountView(): Promise<void>;
   stop(): void;
+}
+
+/** Partition `key` with the server's grants in place of the device's for each accepted event listed (M6 final M1). */
+function adoptGrants(s: PlayerState, key: string, accepted: { clientId: string; grants: RewardGrant[] }[]): PlayerState {
+  const p = partitionOf(s, key);
+  const ids = new Set(accepted.map((a) => a.clientId).filter((id) => p.events.some((e) => e.id === id)));
+  if (ids.size === 0) return s;
+  const server = accepted.filter((a) => ids.has(a.clientId)).flatMap((a) => (Array.isArray(a.grants) ? a.grants : []));
+  // A deliberate removal of the device's grants: the epoch keeps a merge with an older copy from bringing them back.
+  return withPartition(s, key, { ...p, grants: [...p.grants.filter((g) => !ids.has(g.eventId)), ...server], epoch: (p.epoch ?? 0) + 1 });
 }
 
 const isObj = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x);
@@ -153,10 +170,22 @@ export function createProgressSync(deps: ProgressSyncDeps): ProgressSync {
    */
   function landed(as: string, from: string | null, sent: ProgressEvent[], r: ProgressPostResponse) {
     const ids = sent.map((e) => e.id);
+    // M6 Step 9 fix round 1 (M8): an event the server refused is never filed under the account; it and the device's
+    // grants for it leave the partition (a refused Protein Counter round without consent, say).
+    const refused = Array.isArray(r.rejected) ? r.rejected.map((x) => x.clientId).filter((id) => ids.includes(id)) : [];
+    if (from !== null && refused.length > 0) store.update((s) => dropEvents(s, from, refused));
     // I2: a meal_logged waited here only until the server answered (accepted, duplicate or refused, unknown_meal_log
     // included); the server holds the record now, so it leaves the device at once (Task 9 minimisation).
     const meals = sent.filter((e) => e.kind === 'meal_logged').map((e) => e.id);
     if (from !== null && meals.length > 0) store.update((s) => dropEvents(s, from, meals));
+    // M6 final M1: a stall round's grants are the server's. The device judged first-correct from its own history only,
+    // so a question first answered right on another device earned XP here that the server refused: the server's
+    // grants replace the device's for each stall round it accepted (the shown view is the max with the server's).
+    if (from !== null && Array.isArray(r.accepted)) {
+      const rounds = new Set(sent.filter((e) => e.kind === 'stall_round').map((e) => e.id));
+      const server = r.accepted.filter((a) => rounds.has(a.clientId));
+      if (server.length > 0) store.update((s) => adoptGrants(s, from, server));
+    }
     // Every id sent was answered (accepted, duplicate or refused for good), so none is posted again.
     if (from !== null && liveKey() !== as) store.update((s) => dropEvents(s, from, ids));
     else markUploaded(store, from, ids);
@@ -198,10 +227,21 @@ export function createProgressSync(deps: ProgressSyncDeps): ProgressSync {
 
   /** Post partition `from`'s pending events as account `as`, in order, 100 at a time, as an upload. */
   async function uploadFrom(as: string, from: string | null): Promise<boolean> {
+    // Fix round 1 (I1): the guest's health-revealing events go to an account only with its health_data consent.
+    let held = new Set<string>();
+    if (from === null) {
+      const g = partitionOf(store.get(), null);
+      const pendingIds = new Set(g.pendingUpload);
+      const revealing = g.events.filter((e) => pendingIds.has(e.id) && isHealthRevealing(e, cat)).map((e) => e.id);
+      if (revealing.length > 0 && !(await (deps.healthConsent?.() ?? Promise.resolve(false)).catch(() => false))) {
+        held = new Set(revealing);
+        deps.onHeldForConsent?.(() => { void sync.addGuestProgress(); });
+      }
+    }
     while (!stopped && liveKey() === as && deps.online() && blockedUntil <= now()) {
       const p = partitionOf(store.get(), from);
       const pending = new Set(p.pendingUpload);
-      const events = p.events.filter((e) => pending.has(e.id)).slice(0, EVENTS_PER_REQUEST);
+      const events = p.events.filter((e) => pending.has(e.id) && !held.has(e.id)).slice(0, EVENTS_PER_REQUEST);
       if (events.length === 0) return true;
       const r = await post(as, events, true);
       if (r === null || !r.ok) return false; // offline, switched account, 429 (a retry is scheduled) or a server error: kept
@@ -209,11 +249,16 @@ export function createProgressSync(deps: ProgressSyncDeps): ProgressSync {
         // N5: the guest's progress the player chose to add moves to the account: shown with it (while it is still
         // signed in), never posted again, and gone from the guest partition (the account's server holds it now).
         const g = partitionOf(store.get(), null);
-        const ids = new Set(events.map((e) => e.id));
-        if (liveKey() === as) appendEvents(store, as, events, g.grants.filter((x) => ids.has(x.eventId)), { pending: false, cat });
+        const sentIds = new Set(events.map((e) => e.id));
+        // Fix round 1 (I1): only what the server took (accepted or a duplicate) moves. A refused event stays with the
+        // guest, never filed under the account and never offered again.
+        const refused = new Set(Array.isArray(r.data.rejected) ? r.data.rejected.map((x) => x.clientId) : []);
+        const ids = new Set([...sentIds].filter((id) => !refused.has(id)));
+        const moved = events.filter((e) => ids.has(e.id));
+        if (liveKey() === as) appendEvents(store, as, moved, g.grants.filter((x) => ids.has(x.eventId)), { pending: false, cat });
         keepView(as, r.data.view);
         if (Array.isArray(r.data.warnings) && r.data.warnings.length > 0) deps.onWarnings?.(r.data.warnings);
-        markUploaded(store, null, ids); // never posted again, even if the removal below were undone
+        markUploaded(store, null, sentIds); // never posted again, even if the removal below were undone
         store.update((st) => dropEvents(st, null, ids));
       } else landed(as, from, events, r.data);
     }
@@ -242,16 +287,20 @@ export function createProgressSync(deps: ProgressSyncDeps): ProgressSync {
         appendEvents(store, key, meals, [], { cat });
       }
       const local = ok.flatMap((r) => r.grants);
-      if (key === null || !deps.online() || blockedUntil > now()) return local;
+      // M6 final M1: signed in, a stall round's XP is announced only from the server's grants. When the server can't
+      // answer in time, the device's stall XP is not said (its stamp and round lines still are).
+      const rounds = new Set(ok.filter((r) => r.event.kind === 'stall_round').map((r) => r.event.id));
+      const said = key === null ? local : local.filter((g) => !(g.kind === 'xp' && rounds.has(g.eventId)));
+      if (key === null || !deps.online() || blockedUntil > now()) return said;
 
       // Signed in: the server decides. An event the device already holds is not sent again here.
       const send = results.filter((r) => !r.problems.includes('duplicate_id')).map((r) => r.event);
-      if (send.length === 0) return local;
-      if (send.length > EVENTS_PER_REQUEST) { void sync.uploadDeviceLog(); return local; } // too many for one live post
+      if (send.length === 0) return said;
+      if (send.length > EVENTS_PER_REQUEST) { void sync.uploadDeviceLog(); return said; } // too many for one live post
       const ids = new Set(send.map((e) => e.id));
       const timeout = new Promise<'late'>((resolve) => { setTimer(() => resolve('late'), liveWaitMs); });
       const r = await Promise.race([postLive(key, send), timeout]);
-      if (r === 'late' || r === null || !r.ok) return local;
+      if (r === 'late' || r === null || !r.ok) return said;
       return r.data.accepted.filter((a) => ids.has(a.clientId)).flatMap((a) => a.grants);
     },
 

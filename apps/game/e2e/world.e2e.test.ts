@@ -53,7 +53,9 @@ async function pauseQuest(page: Page): Promise<void> {
   for (let i = 0; i < 60; i += 1) {
     if (await page.locator('.quest-panel').count()) { await page.locator('.quest-panel').getByRole('button', { name: 'Not yet' }).click(); continue; }
     if (await page.locator('.dialogue .dialogue-next').count()) { await page.locator('.dialogue .dialogue-next').click(); continue; }
-    if (await page.getByRole('button', { name: 'Carry on with the quest' }).count()) break;
+    // M6 Step 10: the errand may wait a moment on the market (its stall question): the bar is back only once enabled.
+    const carry = page.getByRole('button', { name: 'Carry on with the quest' });
+    if (await carry.count() && await carry.isEnabled()) break;
     await page.waitForTimeout(50);
   }
   await page.getByRole('button', { name: 'Carry on with the quest' }).waitFor();

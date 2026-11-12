@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { recordTechnique } from '@kitchenquest/core/engine';
-import { accountKey, accountViewOf, createStore, prunePartition, deleteDeviceData, importM3Toolkit, mergePartitions, mergeProgress, partitionKey, partitionOf, STORE_KEY, withPartition } from './store';
+import { accountKey, accountViewOf, createStore, eraseHealthEvents, prunePartition, deleteDeviceData, importM3Toolkit, mergePartitions, mergeProgress, partitionKey, partitionOf, STORE_KEY, withPartition } from './store';
 
 function memStorage(init: Record<string, string> = {}): Storage {
   const m = new Map(Object.entries(init));
@@ -611,5 +611,53 @@ describe('M5 final m11: rescue nudges are kept per partition', () => {
     expect(createStore(memStorage({ [STORE_KEY]: JSON.stringify({ v: 1, rescue: old }) })).get().rescue).toEqual({ guest: { on: '2026-11-11', itemId: 'spinach', answered: true } });
     expect(createStore(memStorage({ [STORE_KEY]: JSON.stringify({ v: 1, rescue: null }) })).get().rescue).toEqual({});
     expect(createStore(memStorage({ [STORE_KEY]: JSON.stringify({ v: 1, rescue: { guest: { on: 'x' } } }) })).notice).toBe('corrupt');
+  });
+});
+
+describe('M6 final review I1: a health_data withdraw-with-delete erases the device stall rounds', () => {
+  const key = accountKey('cook@example.test');
+  const at = '2026-11-09';
+  const round = { id: 'r1', kind: 'stall_round' as const, at, stall: 'bram', answers: [{ q: 'bram-pc-most-protein', pick: 2 }] };
+  const meal = { id: 'm1', kind: 'meal_logged' as const, at, minute: 600 };
+  const lesson = { id: 'l1', kind: 'lesson' as const, at, recipe: 'india/kerala/parippu' };
+  const grants = [
+    { id: 'r1#0', eventId: 'r1', isoDay: at, kind: 'xp' as const, amount: 5, reason: 'market_game' as const },
+    { id: 'r1#1', eventId: 'r1', isoDay: at, kind: 'stamp' as const, stamp: 'market_game' as const },
+    { id: 'l1#0', eventId: 'l1', isoDay: at, kind: 'xp' as const, amount: 10, reason: 'lesson' as const },
+  ];
+  const answered = { 'bram-pc-cheapest': { correct: true, lastAt: '2026-11-02' } };
+  const view = { xp: 15, level: 1, stamps: 1, trust: {}, toolkit: { techniques: {} }, questsDone: [], questSteps: {}, questStartedOn: {}, cookedOn: {}, framesCookedOn: {}, marketAnswered: answered };
+  const seeded = () => withPartition({ ...createStore(null).get(), account: { email: 'cook@example.test' } }, key, {
+    events: [round, meal, lesson], grants, pendingUpload: ['m1'],
+    base: { view, facts: { v: 1, ids: ['old'], keys: ['["stall","bram","2026-W45"]', '["lesson","x","2026-W45"]'] } },
+  }, view);
+
+  it('drops every stall_round and meal_logged event, the answered ids in the base and the cached view; grants stay', () => {
+    const s = eraseHealthEvents(seeded(), key);
+    const p = partitionOf(s, key);
+    expect(p.events.map((e) => e.id)).toEqual(['l1']);
+    expect(p.pendingUpload).toEqual([]);
+    expect(p.grants).toEqual(grants);
+    expect(p.base?.view.marketAnswered).toEqual({});
+    expect((p.base?.facts as { keys: string[] }).keys).toEqual(['["lesson","x","2026-W45"]']);
+    expect(accountViewOf(s, key)?.marketAnswered).toEqual({});
+    expect(accountViewOf(s, key)?.xp).toBe(15);
+    expect(JSON.stringify(s.accountProgress)).not.toContain('bram-pc');
+    expect(p.epoch).toBe(1);
+  });
+
+  it('the grants of erased events survive a merge with a copy of the same epoch (XP never drops), and the older copy loses', () => {
+    const erased = partitionOf(eraseHealthEvents(seeded(), key), key);
+    expect(mergeProgress(erased, { ...erased }).grants).toEqual(grants);
+    expect(mergeProgress(partitionOf(seeded(), key), erased).events.map((e) => e.id)).toEqual(['l1']);
+    // A grant whose event one copy still lists is kept only with that event (a skipped repeat import's grant goes).
+    const imp = (id: string) => ({ id, kind: 'imported' as const, at, technique: 't1', tier: 'tried' as const, firstAt: at, lastUsedAt: at, recipes: [] });
+    const g2 = { id: 'i2#0', eventId: 'i2', isoDay: at, kind: 'xp' as const, amount: 5, reason: 'lesson' as const };
+    expect(mergeProgress({ events: [imp('i1')], grants: [], base: null, pendingUpload: [] }, { events: [imp('i2')], grants: [g2], base: null, pendingUpload: [] }).grants).toEqual([]);
+  });
+
+  it('leaves an account with no partition alone', () => {
+    const s = createStore(null).get();
+    expect(eraseHealthEvents(s, key)).toBe(s);
   });
 });

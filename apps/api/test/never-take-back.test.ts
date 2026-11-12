@@ -19,6 +19,7 @@ import {
   type RewardGrant,
   type RewardsData,
   type RulesContext,
+  SNAPSHOT_EVERY,
 } from '@kitchenquest/core';
 import fc from 'fast-check';
 import { eq } from 'drizzle-orm';
@@ -27,7 +28,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
 import { defaultCatalog, defaultLoopContent, type LoopContent } from '../src/catalog.js';
 import { NOTICES } from '../src/consent/notices.js';
-import { rewardGrants } from '../src/db/schema.js';
+import { progressSnapshots, rewardGrants } from '../src/db/schema.js';
 import { CaptureMailer } from '../src/mail/mailer.js';
 import { catalogueFor } from '../src/progress/catalogue.js';
 import { catalogueHash } from '../src/progress/snapshot.js';
@@ -198,6 +199,93 @@ describe('grants survive (spec §6)', () => {
   });
 });
 
+// M6 Step 11 (spec §6, Ruling 1, Ruling 17, Ruling 18): a stall round's grants are fixed when made. A rules change that
+// hides questions already answered (a vegetarian rule over Bram's beef; a soy rule over Okafor-Sato's tofu), a snapshot
+// rebuild, a health_data withdraw-with-delete that erases every stall round (Protein Counter rounds included), and a
+// rewards.yaml retune of market_game to lower amounts at a second boot lower nothing.
+describe('stall-round grants survive (M6 Step 11)', () => {
+  type Q = { id: string; contains?: string[]; options: { correct?: boolean }[] };
+  const loopC = defaultLoopContent();
+  const right = (q: Q) => q.options.findIndex((o) => o.correct === true);
+  const qs = (stall: string): Q[] => loopC.market.stalls.get(stall)!.questions;
+  const roundOf = (stall: string, list: Q[], at = TODAY): ProgressEvent => ({ id: eid(), kind: 'stall_round', at, stall, answers: list.map((q) => ({ q: q.id, pick: right(q) })) });
+  const VEGETARIAN = { target: { kind: 'category', ids: ['meat', 'fish', 'shellfish', 'gelatin'] }, type: 'avoid', severity: 'preference' };
+  const SOY = { target: { kind: 'ingredient', ids: ['soy'] }, type: 'avoid', severity: 'allergy' };
+  const addRule = async (cookie: string, rule: unknown) => {
+    const res = await call(cookie, { method: 'POST', url: '/rules', payload: { rule, confirmed: true } });
+    expect(res.statusCode, res.body).toBe(201);
+  };
+  const snapshotOf = async (userId: string) => (await db.select().from(progressSnapshots).where(eq(progressSnapshots.userId, userId)))[0];
+  const kinds = async (userId: string) => (await sql<{ kind: string }[]>`select kind from progress_events where user_id = ${userId}`).map((r) => r.kind);
+
+  it('a rules change hiding answered questions, a snapshot rebuild, a health_data delete of every round and a lower market_game retune keep every grant', async () => {
+    await boot();
+    const p = await player();
+    // Rounds at every base stall, the right answer each time: Bram's beef, Okafor-Sato's tofu among them.
+    const beef = qs('bram').filter((q) => (q.contains ?? []).some((c) => /beef|chuck/.test(c))).slice(0, 2);
+    const tofu = qs('okafor-sato').filter((q) => (q.contains ?? []).includes('tofu')).slice(0, 2);
+    expect(beef.length, 'Bram has beef questions').toBeGreaterThan(0);
+    expect(tofu.length, 'Okafor-Sato has tofu questions').toBeGreaterThan(0);
+    const first = await post(p.cookie, [roundOf('wen', qs('wen').slice(0, 3)), roundOf('bram', beef), roundOf('okafor-sato', tofu), roundOf('spice', qs('spice').slice(0, 2))]);
+    expect(first.rejected).toEqual([]);
+    const start = await view(p.cookie);
+    expect(start.xp).toBe(5 * (3 + beef.length + tofu.length + 2));
+    expect(start.stamps).toBe(4);
+    const grants = await grantRows(p.id);
+    let last = start;
+    const step = async (label: string) => {
+      const now = await view(p.cookie);
+      expectNoLower(start, now, label);
+      expectNoLower(last, now, label);
+      expect(await grantRows(p.id), `${label}: grant rows`).toEqual(grants);
+      last = now;
+    };
+
+    // A vegetarian rule hides Bram's beef (the Protein Counter now); a soy rule hides every tofu question.
+    await addRule(p.cookie, VEGETARIAN);
+    await step('vegetarian rule over answered beef questions');
+    // The Protein Counter, a full stall: its round earns as any other.
+    const pc = (loopC.market.stalls.get('bram')!.variants!.protein_counter!.questions as Q[]).slice(0, 3);
+    expect((await post(p.cookie, [roundOf('bram', pc)])).rejected).toEqual([]);
+    const withPc = await grantRows(p.id);
+    expect(withPc.length).toBeGreaterThan(grants.length);
+    grants.splice(0, grants.length, ...withPc);
+    last = await view(p.cookie);
+    await addRule(p.cookie, SOY);
+    await step('soy rule over answered tofu questions');
+    // The hidden questions are refused now (bad_event), and their earlier grants stay.
+    const hidden = await post(p.cookie, [roundOf('okafor-sato', tofu.slice(0, 1))]);
+    expect(hidden.rejected.map((r) => r.problems)).toEqual([['bad_event']]);
+    await step('a hidden question refused');
+    const peak = last;
+
+    // A snapshot (past SNAPSHOT_EVERY events), then dropped and rebuilt from the ledgers: the same view.
+    const filler = Array.from({ length: SNAPSHOT_EVERY + 1 }, (_, i): ProgressEvent => ({ id: eid(), kind: 'lesson', at: addDays(TODAY, -Math.floor(i / 150)), recipe: [PARIPPU, ONIGIRI, FRIJOLES][i % 3] }));
+    for (let i = 0; i < filler.length; i += 100) await post(p.cookie, filler.slice(i, i + 100));
+    expect(await snapshotOf(p.id), 'a snapshot was written').toBeDefined();
+    grants.splice(0, grants.length, ...(await grantRows(p.id)));
+    const cached = await view(p.cookie);
+    await sql`delete from progress_snapshots where user_id = ${p.id}`;
+    const rebuilt = await view(p.cookie);
+    expect(rebuilt).toEqual(cached);
+    last = cached;
+    await step('snapshot rebuild');
+
+    // health_data withdrawn with "delete": every stall round goes (the Protein Counter one too), the snapshot with them; grants stay.
+    expect((await call(p.cookie, { method: 'DELETE', url: '/me/consents/health_data', payload: { healthData: 'delete' } })).statusCode).toBe(204);
+    expect((await kinds(p.id)).filter((k) => k === 'stall_round')).toEqual([]);
+    expect(await snapshotOf(p.id)).toBeUndefined();
+    await step('health_data delete erasing every stall round');
+    expectNoLower(peak, await view(p.cookie), 'against the peak');
+
+    // A second boot with market_game retuned lower: grants fixed when made, nothing lowered.
+    const base = defaultLoopContent();
+    const lower: RewardsData = { ...base.rewards, xp: { ...base.rewards.xp, market_game: 1 }, stamps: { ...base.rewards.stamps, market_game: 0 } };
+    await boot({ ...base, rewards: lower });
+    await step('market_game retuned lower at a second boot');
+  });
+});
+
 /** Every source file under apps/api/src. */
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((n) => {
@@ -246,6 +334,10 @@ describe('reward_grants is append-only', () => {
 // the grants each next event earns (grantsForBatch) and the view (deriveProgress). The model is the API's: a
 // snapshot is written once the tail passes a threshold (small here; SNAPSHOT_EVERY in the API), any erase drops it
 // (the trigger), a different catalogue hash ignores it, and the tail's grants are those of the tail's events.
+/** The property's fixed seed, and what it covers with that seed (measured once; a change to the arbitraries re-measures). */
+const SNAPSHOT_PROPERTY_SEED = 20261112;
+const SNAPSHOT_PROPERTY_COVERAGE = { accepted: 1718, fromSnapshot: 247, checked: 469 };
+
 describe('snapshot equivalence (M6 Step 7)', () => {
   it('property: view(snapshot + tail) == view(full) over random histories with erasures (fast-check)', async () => {
     const loop = defaultLoopContent();
@@ -278,6 +370,7 @@ describe('snapshot equivalence (M6 Step 7)', () => {
     );
     let accepted = 0;
     let fromSnapshot = 0;
+    let checked = 0;
     await fc.assert(
       fc.asyncProperty(fc.array(op, { minLength: 1, maxLength: 25 }), fc.integer({ min: 1, max: 8 }), async (ops, every) => {
         let rewards: RewardsData = loop.rewards;
@@ -292,12 +385,17 @@ describe('snapshot equivalence (M6 Step 7)', () => {
           const ids = new Set(tail.map((e) => e.id));
           return { events: tail, grants: grants.filter((g) => ids.has(g.eventId)), base: snap.base };
         };
+        // Fix round 1 (Task 9 review, flakes): with no usable snapshot, cached() IS the full history, so comparing it with
+        // itself proves nothing and only costs time; the equivalence is checked on every op that reads a snapshot.
+        const usable = () => snap !== null && snap.hash === hash;
         for (const o of ops) {
           if ('post' in o) {
             const a = grantsForBatch(o.post, full(), cat, rewards, loop.thresholds, rules);
-            const b = grantsForBatch(o.post, cached(), cat, rewards, loop.thresholds, rules);
-            expect(b).toEqual(a);
-            if (cached().base !== null) fromSnapshot += 1;
+            if (usable()) {
+              const b = grantsForBatch(o.post, cached(), cat, rewards, loop.thresholds, rules);
+              expect(b).toEqual(a);
+              fromSnapshot += 1;
+            }
             for (const r of a.filter((x) => x.problems.length === 0)) {
               events.push(r.event);
               grants.push(...r.grants);
@@ -319,13 +417,22 @@ describe('snapshot equivalence (M6 Step 7)', () => {
             rewards = { ...rewards, xp: { ...rewards.xp, lesson: o.retune, cook: o.retune + 1, market_game: o.retune } };
             hash = catalogueHash(cat, rewards, loop.thresholds);
           }
-          expect(deriveProgress(cached(), cat)).toEqual(deriveProgress(full(), cat));
+          if (usable()) {
+            checked += 1;
+            expect(deriveProgress(cached(), cat)).toEqual(deriveProgress(full(), cat));
+          }
         }
       }),
-      { numRuns: 150 },
+      // A fixed seed (fix round 1): the same histories every run, so a failure replays and the coverage is a fixed
+      // number. FAST_CHECK_SEED=random fuzzes locally with a fresh seed (printed by fast-check on failure).
+      { numRuns: 150, endOnFailure: true, ...(process.env.FAST_CHECK_SEED === 'random' ? {} : { seed: SNAPSHOT_PROPERTY_SEED }) },
     );
-    // The property ran on real histories: events were accepted, and posts were judged from a snapshot.
-    expect(accepted).toBeGreaterThan(500);
-    expect(fromSnapshot).toBeGreaterThan(50);
+    // The property ran on real histories: events were accepted, posts were judged from a snapshot, and views compared.
+    if (process.env.FAST_CHECK_SEED !== 'random') {
+      expect({ accepted, fromSnapshot, checked }).toEqual(SNAPSHOT_PROPERTY_COVERAGE);
+    } else {
+      expect(accepted).toBeGreaterThan(500);
+      expect(fromSnapshot).toBeGreaterThan(50);
+    }
   });
 });

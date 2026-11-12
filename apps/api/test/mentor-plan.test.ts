@@ -18,6 +18,7 @@ import type { Db } from '../src/types.js';
 import { signIn } from './helpers/auth.js';
 import { testConfig } from './helpers/config.js';
 import { testDb, type Sql } from './helpers/db.js';
+import { N6_TEXTS, N7_TEXTS } from './helpers/gate-texts.js';
 import { fakeAi, reply, toolCall } from './helpers/fake-ai.js';
 
 const config = testConfig();
@@ -491,7 +492,14 @@ describe('fix round 1', () => {
       });
       await isHeld;
       const confirming = tap(p.cookie, id);
-      await new Promise((res) => setTimeout(res, 300));
+      // Fix round 1 (Task 9 review): no wall-clock sleep. Wait until the confirm's backend is actually blocked on a
+      // lock (this file's own database), so the check below is never vacuous under load.
+      for (let i = 0; ; i++) {
+        const [w] = await sql<{ n: number }[]>`select count(*)::int as n from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock' and pid <> pg_backend_pid()`;
+        if (w.n > 0) break;
+        if (i > 2000) throw new Error(`${hold}: the confirm never waited on the held lock`);
+        await new Promise((res) => setTimeout(res, 5));
+      }
       // The confirm waits on the held lock, so it has not reached (locked) its proposal row yet.
       const free = await sql`select id from mentor_proposals where id = ${id} for update skip locked`;
       expect(free, hold).toHaveLength(1);
@@ -627,6 +635,9 @@ describe('fix round 2: closed grammar only; health first', () => {
 
 // Fix round 4 (review-task8-fix2.md): every N6, N7, N9 and N11 probe through /mentor/turn, and one behaviour test
 // for each code-card exclusion gate (N10). The model makes no call in every probe, so any card is code's.
+/** M6 final M6: every N7 text over HTTP, twice 45 turns; a hang should fail, a busy machine should not. */
+const N7_TIMEOUT = 180_000;
+
 describe('fix round 4: the whole message, health first, a spelled age', () => {
   const HEALTH_LINES = ['rule.ask_keep_off', 'rule.ask_what_else', 'rule.unknown_term', 'rule.which_one', 'rule.which_kind'];
   const silent = (n: number) => fakeAi(Array.from({ length: n }, () => reply('')));
@@ -653,39 +664,13 @@ describe('fix round 4: the whole message, health first, a spelled age', () => {
     }
   }
 
+  // Fix round 1 (Task 9 review, flakes): every N6 and N7 text runs through the gate directly in mentor-gate.test.ts
+  // (no HTTP); the N6 test keeps two /mentor/turn probes as integration smoke. M6 final review M6: the two N7 tests run
+  // every N7 text over HTTP again (the emoji, Spanish and "type 2" texts with ai_health among them), in one app each,
+  // because the direct test calls its own copy of the gate; a long, explicit budget, not the default.
   test('N6 probes: a clause outside the closed grammar anywhere in the message → no code card, for either player', async () => {
-    const texts = [
-      'remind me to eat dinner at 6pm, no wait, 7pm',
-      'remind me about dinner at 6pm, no, 7pm',
-      'remind me about dinner at 6pm, for my brother',
-      'remind me about dinner at 6pm, my son too',
-      'remind me about dinner at 6pm, for my daughter',
-      'remind me about dinner at 6pm, yesterday',
-      "remind me about dinner at 6pm, don't",
-      'remind me about dinner at 6pm, kidding',
-      'remind me about dinner at 6pm. never mind',
-      'remind me about dinner at 6pm, actually no',
-      'my market day is saturday, for my brother',
-      "my market day is saturday, my brother's",
-      'my market day is saturday, not mine',
-      'my market day is saturday, actually no',
-      'my market day is saturday, maybe',
-      'my market day is saturday, i think',
-      'my market day is saturday, used to be',
-      'my market day is saturday, last year',
-      "market's saturday, or not",
-      'put parippu on monday, actually tuesday',
-      'put parippu on monday, no wait',
-      'put parippu on monday, or not',
-      "put parippu on monday, don't",
-      'put parippu on monday, for my brother',
-      'put parippu on monday, last week',
-      'put parippu on monday, bitte',
-      'put parippu on monday, por favor',
-      'pick 2, no mushrooms',
-      'pick 2. i hate mushrooms',
-      'pick 2. no spicy',
-    ];
+    const texts = ['remind me to eat dinner at 6pm, no wait, 7pm', 'put parippu on monday, for my brother'];
+    expect(N6_TEXTS).toEqual(expect.arrayContaining(texts));
     await makeApp(silent(texts.length * 2));
     for (const purposes of [['health_data', 'ai_health'], ['health_data']] as Purpose[][]) {
       await eachFresh(purposes, texts, (r, text) => expect(codeCards(r), `${purposes.join('+')}: ${text}`).toEqual([]));
@@ -703,43 +688,18 @@ describe('fix round 4: the whole message, health first, a spelled age', () => {
     expect(p.cards.map((c) => c.card.kind)).toEqual(['plan']); // two weekdays: no market card
   });
 
-  test('N7: health_data only → the text never reaches the model (needs_ai_health), no code card', async () => {
-    const texts = [
-      "market's saturday, i get headaches",
-      "market's saturday, no beef",
-      'put parippu on monday, i have gout',
-      'put parippu on monday, no beef',
-      'pick 2, no mushrooms',
-      'put parippu on monday. 🥜',
-      'put parippu on monday, sin cacahuetes',
-      'remind me to eat dinner at 6pm, no beef',
-      'remind me to eat dinner at 6pm, or i get dizzy',
-      'remind me to eat dinner at 6pm, my blood sugar drops',
-      'remind me to eat dinner at 6pm, type 2',
-      'remind me to eat dinner at 6pm, sugar free',
-      ...[
-        'beef free', 'sugar free', 'no sugar', 'no alcohol', "i'm fasting", 'ramadan', "it's lent", 'type 2', 'i have gout',
-        'my cholesterol is high', 'high blood pressure', "i'm hypertensive", 'kidney disease', 'ckd', 'anemic', 'low iron',
-        "i'm breastfeeding", 'i get dizzy', 'i feel shaky after', 'my throat gets scratchy', 'no mushrooms', 'no rice',
-        'no lentils', 'no seaweed', 'no spice', 'not too spicy', 'nothing spicy', 'halal', 'kosher', 'low carb', '🦐', '🥛', '🌾',
-      ].map((x) => `put parippu on monday, ${x}`),
-    ];
+  test('N7: health_data only → the text never reaches the model (needs_ai_health), no code card', { timeout: N7_TIMEOUT }, async () => {
+    const texts = N7_TEXTS;
+    expect(texts.length).toBeGreaterThanOrEqual(44);
     const ai = silent(texts.length);
     await makeApp(ai);
     await eachFresh(['health_data'], texts, (r, text) => expect(r, text).toMatchObject({ route: 'scripted', notice: 'needs_ai_health', cards: [] }));
     expect(ai.requests).toHaveLength(0);
   });
 
-  test('N7: with ai_health the same texts get no code card and take the health path (an ask or a rule card)', async () => {
-    const texts = [
-      "market's saturday, i get headaches",
-      "market's saturday, no beef",
-      'put parippu on monday, i have gout',
-      'put parippu on monday, no beef',
-      'put parippu on monday. 🥜',
-      'remind me to eat dinner at 6pm, no beef',
-      'remind me to eat dinner at 6pm, type 2',
-    ];
+  test('N7: with ai_health the same texts get no code card and take the health path (an ask or a rule card)', { timeout: N7_TIMEOUT }, async () => {
+    const texts = N7_TEXTS;
+    expect(texts).toEqual(expect.arrayContaining(['put parippu on monday. 🥜', 'put parippu on monday, sin cacahuetes', 'remind me to eat dinner at 6pm, type 2']));
     await makeApp(silent(texts.length));
     await eachFresh(['health_data', 'ai_health'], texts, (r, text) => {
       expect(r.route, text).toBe('ai');

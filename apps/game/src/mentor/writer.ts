@@ -1,6 +1,6 @@
 import {
   confirmedLines, isSevereCard, pantryMatcher, rejectedLine, SEVERE, trailSummary, undoneLine, UNDO_WINDOW_MS, validateRules, withSeverity,
-  type CheckResult, type IngredientGraph, type LineRef, type MarginNote, type PantryItem, type Plan, type PlanCard, type ProposalCard, type ReplyPart,
+  type CheckOffCard, type CheckResult, type IngredientGraph, type LineRef, type MarginNote, type PantryItem, type Plan, type PlanCard, type ProposalCard, type ReplyPart,
   type Rule, type RuleTerm, type ServerCard, type Severity, type SharedEntry, type TrailEntry,
 } from '@kitchenquest/core/engine';
 import { localDate } from '../recipes/rules';
@@ -21,7 +21,8 @@ import type { CardView, PanItem } from './reply';
  * never written on a typed yes (§7.6), and each card is written at most once.
  */
 export type WriteOutcome =
-  | { ok: true; trail: TrailEntry; items: PanItem[] }
+  /** `ticked`: a check-off card's row keys actually ticked (M6 fix round 1, m2). */
+  | { ok: true; trail: TrailEntry; items: PanItem[]; ticked?: string[]; already?: string[] }
   /** `busy`: this card's write is already in flight (a tap and a typed yes at once); nothing to show, the first one answers. */
   /** `limited`: the daily write limit (the same for every plan, never sold): the card stays open, the line says so. */
   | { ok: false; reason: 'tap_required' | 'consent_required' | 'needs_account' | 'invalid' | 'closed' | 'network' | 'busy' | 'limited'; items: PanItem[] }
@@ -93,7 +94,9 @@ type Undo =
   | { kind: 'profile'; card: ProposalCard; where: 'account'; before: Partial<Profile> }
   | { kind: 'profile'; card: ProposalCard; where: 'device'; before: LocalProfile | null }
   | { kind: 'pantry'; card: ProposalCard; where: 'account' | 'device'; removed: Row[]; addedIds: string[] }
-  | { kind: 'plan'; card: ProposalCard; weekStart: string; previous: Plan | null };
+  | { kind: 'plan'; card: ProposalCard; weekStart: string; previous: Plan | null }
+  /** M6 Step 10: a check-off card's undo (the week's code unticks exactly the rows it ticked); false: try again. */
+  | { kind: 'check_off'; card: ProposalCard; undo: () => Promise<boolean> };
 
 /**
  * Reply parts as panel items. A `text` part is dropped: the model's free text is never shown (ruling R9).
@@ -268,9 +271,20 @@ export function createCardWriter(deps: {
       case 'plan':
         return writePlan(card);
       case 'check_off':
-        // M6 Step 8 (minimal): the scripted engine builds no check-off card yet; Step 10 writes it through the week source.
-        return { ok: false, reason: 'invalid', items: [line('write.not_done')] };
+        return writeCheckOff(card);
     }
+  }
+
+  /**
+   * A local check-off card (M6 Step 10, C31), ticked by the week's code (week-turn.ts `writeCheckOff`): its got rows
+   * through the week source (device, or the API with `today`), each skipped when no longer open; missing rows never.
+   */
+  async function writeCheckOff(card: CheckOffCard): Promise<WriteOutcome> {
+    const w = await (await weekTurn()).writeCheckOff(card);
+    if (!w.ok) return w;
+    const id = crypto.randomUUID();
+    undos.set(id, { kind: 'check_off', card, undo: w.undo });
+    return { ok: true, trail: trail(id, 'local', card), items: confirmedLines(card, w.names).map(say), ticked: w.keys, already: w.already };
   }
 
   /**
@@ -323,6 +337,8 @@ export function createCardWriter(deps: {
         return null;
       case 'plan': // undone by `undoPlan`, which says why when the week as it was can't be put back
         return null;
+      case 'check_off':
+        return (await u.undo()) ? [] : null;
       case 'meal':
         return goneIsFine(await client.deleteMeal(u.id)) ? [] : null;
       case 'profile':

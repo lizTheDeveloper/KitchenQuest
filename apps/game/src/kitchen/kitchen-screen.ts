@@ -113,6 +113,8 @@ function kitchenScreen(): Screen {
         // The Recipe Book on the shelf (Step 11): an HTML control now; its sprite slot is M10's.
         { id: 'book', label: 'Recipe Book', run: () => ctx.navigate({ name: 'book', slug: null }) },
         { id: 'week', label: 'This week', run: () => ctx.navigate({ name: 'plan' }) },
+        // The market hub (M6 Step 9): practice at the stalls, any day. Its screens load on first visit.
+        { id: 'market', label: 'The Market', run: () => ctx.navigate({ name: 'stalls' }) },
         { id: 'map', label: 'Go out to the world map', run: () => ctx.navigate({ name: 'map' }) },
       ]);
 

@@ -790,3 +790,65 @@ describe('M6 Step 6: amounts and stall swaps', () => {
     expect(logs.text()).not.toMatch(/parippu|onigiri|moong|lentil|soy|shallot|tofu|kerala|osaka|wen-|avocado|stall_round|"pick"/i);
   });
 });
+
+// M6 Step 10 (coordinator ruling 3): the current run, read only, for the scripted check-off and cook's swap label.
+describe('M6 Step 10: GET /market-runs/current', () => {
+  const currentRun = async (cookie: string) => {
+    const res = await call(cookie, { method: 'GET', url: `/market-runs/current?today=${TODAY}` });
+    expect(res.statusCode, res.body).toBe(200);
+    return res.json<{ run: MarketRunView | null }>().run;
+  };
+  const runRows = (userId: string) => db.select().from(marketRuns).where(eq(marketRuns.userId, userId));
+
+  it('no run → null and nothing opened; an open run → its rows (stall swaps included); done → null; signed out → 401', async () => {
+    const p = await player();
+    await put(p.cookie, planOf(MONDAY, [dish(PARIPPU, 0)]));
+    expect(await currentRun(p.cookie)).toBeNull();
+    expect(await runRows(p.id)).toEqual([]); // a read never opens one
+    const run = await open(p.cookie);
+    const swapped = await call(p.cookie, { method: 'POST', url: `/market-runs/${run.id}/stock`, payload: { key: 'shallot', action: 'take', toId: 'onion', today: TODAY } });
+    expect(swapped.statusCode, swapped.body).toBe(200);
+    const read = await currentRun(p.cookie);
+    expect(read?.id).toBe(run.id);
+    expect(read?.items.find((i) => i.key === 'shallot')).toMatchObject({ outOfStock: true });
+    expect(read?.items.find((i) => i.key === 'stock:onion')).toMatchObject({ ticked: true, stockSwap: { from: 'shallot' } });
+    const sealedBefore = (await runRows(p.id))[0].sealed;
+    await currentRun(p.cookie);
+    expect((await runRows(p.id))[0].sealed).toEqual(sealedBefore); // read only: the stored run is untouched
+    expect((await finish(p.cookie, run.id)).statusCode).toBe(200);
+    expect(await currentRun(p.cookie)).toBeNull();
+    expect((await call(null, { method: 'GET', url: `/market-runs/current?today=${TODAY}` })).statusCode).toBe(401);
+  });
+
+  it('m7: another player never reads my run; a bad or far-off today is 400; a read writes no audit event or run row', async () => {
+    const a = await player();
+    const b = await player();
+    await put(a.cookie, planOf(MONDAY, [dish(PARIPPU, 0)]));
+    const run = await open(a.cookie);
+    await put(b.cookie, planOf(MONDAY, [dish(ONIGIRI, 0)]));
+    expect(await currentRun(b.cookie)).toBeNull(); // B has a plan but no run: never A's
+    const bRun = await open(b.cookie);
+    expect((await currentRun(b.cookie))?.id).toBe(bRun.id);
+    expect((await currentRun(a.cookie))?.id).toBe(run.id);
+    for (const bad of ['2026-13-40', 'yesterday', '2026-11-13']) {
+      const res = await call(a.cookie, { method: 'GET', url: `/market-runs/current?today=${bad}` });
+      expect(res.statusCode, bad).toBe(400);
+    }
+    const audits = async () => (await db.select().from(auditEvents).where(eq(auditEvents.subjectUserId, a.id))).length;
+    const before = { audits: await audits(), runs: (await runRows(a.id)).length, sealed: (await runRows(a.id))[0].sealed };
+    await currentRun(a.cookie);
+    await currentRun(a.cookie);
+    expect(await audits()).toBe(before.audits);
+    expect((await runRows(a.id)).length).toBe(before.runs);
+    expect((await runRows(a.id))[0].sealed).toEqual(before.sealed);
+  });
+
+  it('a read needs no health_data consent (M5 M2): after a withdraw-and-keep the run still reads', async () => {
+    const p = await player();
+    await put(p.cookie, planOf(MONDAY, [dish(PARIPPU, 0)]));
+    const run = await open(p.cookie);
+    const w = await call(p.cookie, { method: 'DELETE', url: '/me/consents/health_data', payload: { healthData: 'keep' } });
+    expect(w.statusCode, w.body).toBeLessThan(300);
+    expect((await currentRun(p.cookie))?.id).toBe(run.id);
+  });
+});

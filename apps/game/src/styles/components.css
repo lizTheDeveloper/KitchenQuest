@@ -467,3 +467,27 @@ input[type="search"] {
 .frame-candidate label { overflow-wrap: anywhere; }
 .pan-go-item { list-style: none; }
 .pan-go { max-width: 100%; white-space: normal; text-align: left; }
+
+/* The market (M6 Step 9): the hub's stall list, a stall's keeper, its round and its FAQ chips. Readable at 320 px. */
+.stalls-list, .stall-options, .stall-faq-chips { list-style: none; padding: 0; margin: 0.75rem 0; display: grid; gap: 0.5rem; }
+.stall-button, .stall-option, .stall-faq-chip { width: 100%; max-width: 40rem; text-align: left; white-space: normal; overflow-wrap: anywhere; }
+.stall-button { display: grid; gap: 0.15rem; }
+.stall-button-name { font-family: var(--display); }
+.stall-button-games { font-size: 0.9em; }
+.stall-keeper { display: flex; gap: 0.75rem; align-items: flex-start; margin: 0.75rem 0; }
+.stall-portrait { width: 64px; height: 64px; image-rendering: pixelated; flex: none; }
+.stall-sign { display: inline-block; margin: 0 0 0.25rem; padding: 0.1rem 0.5rem; font-family: var(--display); background: var(--parchment); color: var(--parchment-ink); }
+.stall-keeper-text, .stall-round, .stall-feedback, .stall-note, .stall-tip { min-width: 0; overflow-wrap: anywhere; }
+.stall-round { max-width: 44rem; margin: 0.75rem 0; padding: 0.75rem 1rem; background: var(--parchment); color: var(--parchment-ink); box-shadow: 0 0 0 3px var(--parchment-ink), 0 0 0 6px var(--iron); }
+.stall-round h2 { margin: 0 0 0.25rem; color: var(--parchment-ink); }
+.stall-game { margin: 0; font-family: var(--mono); }
+.stall-option-item { display: flex; gap: 0.5rem; align-items: center; }
+.stall-option[aria-disabled="true"] { cursor: default; }
+.stall-option[data-picked="true"] { outline: 3px solid var(--parchment-ink); }
+.stall-item-art { width: 32px; height: 32px; image-rendering: pixelated; flex: none; }
+.stall-feedback:focus { outline: 3px dashed var(--parchment-ink); outline-offset: 2px; }
+.stall-reaction { font-style: italic; }
+.stall-speaker { font-weight: bold; }
+.stall-chalkboard { overflow-x: auto; max-width: 100%; }
+.stall-chalkboard table { border-collapse: collapse; }
+.stall-chalkboard th, .stall-chalkboard td { text-align: left; padding: 0.15rem 0.5rem; border-bottom: 1px solid var(--parchment-ink); }

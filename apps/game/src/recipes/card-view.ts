@@ -84,7 +84,11 @@ export function renderSafetyStrip(card: RecipeCard): HTMLElement {
 }
 
 /** A recipe card. Every string is a text node; status and cookability come from the model only. */
-export function renderRecipeCard(card: RecipeCard, opts: { onCook(): void; headingLevel: 1 | 2 }): HTMLElement {
+export function renderRecipeCard(card: RecipeCard, opts: {
+  onCook(): void; headingLevel: 1 | 2;
+  /** M6 Ruling 16: the drill-first hint beside the Cook button (drill-first.ts). Advisory: Cook stays as it is. */
+  drillFirst?: HTMLElement | null;
+}): HTMLElement {
   const parts: (Node | null)[] = [];
 
   parts.push(
@@ -132,6 +136,8 @@ export function renderRecipeCard(card: RecipeCard, opts: { onCook(): void; headi
     }, 'Cook it ', h('span', { 'aria-hidden': 'true' }, '▶'));
     if (card.cookable) button.addEventListener('click', () => opts.onCook());
     parts.push(h('div', { class: 'button-row' }, button));
+    // Only beside a Cook button that works: the hint is about practising first, never about whether it may be cooked.
+    if (card.cookable && opts.drillFirst) parts.push(opts.drillFirst);
     if (!card.cookable) parts.push(h('p', { class: 'not-cookable', id: reasonId }, BLOCKED_TEXT));
   }
 

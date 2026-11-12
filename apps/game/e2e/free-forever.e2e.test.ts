@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import type { ProgressView } from '@kitchenquest/core/engine';
 import { openApp, PAN_READY, type OpenedApp } from './helpers';
 import { NOW, PARIPPU, WEEK, fakeApi, newFake } from './loop-fake';
+import * as market from './market-fake';
 
 // M4 Step 12: free forever (§16, never rule 1). A signed-in player whose AI chat is capped
 // (`/api/mentor/turn` answers scripted + rate_limited) still files an allergy, logs a meal and gets
@@ -193,6 +194,57 @@ describe('free forever (§16)', () => {
     await page.getByRole('button', { name: 'Delete Kitchen Quest data on this device' }).click();
     await Promise.all([page.waitForEvent('load'), page.getByRole('button', { name: 'Delete everything' }).click()]);
     await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('kq.player.v1') ?? '{}') as { localWeek?: { plans: unknown[] } })).not.toMatchObject({ localWeek: { plans: [{}] } });
+    expect(app.consoleErrors).toEqual([]);
+  });
+
+  it('M6: capped, AI off, no entitlements: every stall and its rounds and rewards, the Season\'s Table, list amounts, a stall swap and check-off by tap; nothing sells', async () => {
+    const f = market.newServer();
+    const settings = { showCalories: false, reducedMotion: 'system' as const, familyTable: false, iosNoteDismissed: false, aiMentor: false, rescueNudges: false };
+    app = await openApp('/#/stalls', {
+      reducedMotion: true, seed: { ...PAN_READY, settings },
+      beforeGoto: async (page) => { await page.clock.install({ time: market.NOW }); await page.clock.resume(); await market.serverApi(page, f, { turn: 'capped' }); },
+    });
+    const { page } = app;
+    const go = async (hash: string) => { await page.evaluate((h) => { location.hash = h; }, hash); await page.waitForFunction((h) => location.hash === h, hash); };
+    const noSale = async (where: string) => { await page.waitForTimeout(150); const t = await bodyText(page); expect(t, where).not.toMatch(SELLS); expect(t, where).not.toMatch(/[$£€¥₹₩₦₱¢]/); };
+    await expect.poll(() => page.evaluate(() => (JSON.parse(localStorage.getItem('kq.player.v1') ?? '{}') as { account?: unknown }).account ?? null)).not.toBeNull();
+    await noSale('#/stalls');
+
+    // Every stall: a round played through, its rewards granted by the server (the same for every plan, never rule 3).
+    for (const id of ['wen', 'bram', 'okafor-sato', 'spice']) {
+      await go(`#/stall/${id}`);
+      await page.locator('.stall-option').first().waitFor();
+      // The Season's Table: Wen's seasonal round for the Pacific Northwest in November (every base question solved).
+      if (id === 'wen') expect(await page.locator('.stall-round').getAttribute('data-question')).toMatch(/^wen-pnw-11-/);
+      for (let i = 0; i < 12 && (await page.locator('.stall-round').count()) > 0; i++) {
+        const q = (await page.locator('.stall-round').getAttribute('data-question'))!;
+        await page.locator(`.stall-option[data-pick="${market.rightPick(q)}"]`).click();
+        await page.locator('.stall-next').click();
+      }
+      await page.locator('.stall-done').waitFor();
+      await noSale(`#/stall/${id}`);
+    }
+    await expect.poll(() => f.posted.filter((e) => e.kind === 'stall_round').length, { timeout: 20_000 }).toBe(4);
+    expect(f.granted.filter((g) => g.kind === 'stamp').length).toBe(4);
+    expect(f.granted.filter((g) => g.kind === 'xp').length).toBeGreaterThan(10);
+
+    // The list: amounts, a stall swap, check-off by tap, the shop done.
+    await go('#/market');
+    await page.locator('.market-row[data-key="moong_dal"] .market-amount').waitFor();
+    expect(await page.locator('.market-row[data-key="moong_dal"] .market-amount').textContent()).toBe('100 g');
+    const shallot = page.locator('.market-row[data-key="shallot"]');
+    await shallot.getByRole('button', { name: /Out of stock\? shallots/ }).click();
+    await shallot.locator('.stock-swap[data-to="onion"]').click();
+    await page.locator('.market-row[data-key="stock:onion"]').waitFor();
+    expect(f.calls).toContain('POST /market-runs/run1/stock');
+    await page.locator('.market-tick[data-key="garlic"]').click();
+    await expect.poll(() => f.run.items.find((i) => i.key === 'garlic')?.ticked).toBe(true);
+    await page.getByRole('button', { name: "That's the shop done" }).click();
+    await expect.poll(() => f.run.doneAt).not.toBeNull();
+    await noSale('#/market');
+    await go(`#/cook/${market.PARIPPU}`);
+    await page.locator('.stock-label').waitFor();
+    await noSale('cook mode');
     expect(app.consoleErrors).toEqual([]);
   });
 });

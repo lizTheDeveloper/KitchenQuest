@@ -7,7 +7,7 @@ import { VOICE_ALLOWLIST } from '../src/content/voice-allowlist';
 import type { PlayerState } from '../src/state/store';
 import { offOrigin, openApp, PAN_READY, type OpenedApp } from './helpers';
 import {
-  CHROME_BANNED, CONTENT_BANNED, COUNTDOWN, LOOP_NEVER, LOOP_SCREENS, MENTOR_BANNED, LINE_SOURCES, RESCUE_SEED, lineMatcher, RUSTY_SEED, SCREENS, WEEK_SEED, allowlistedAt, bannedPattern,
+  CHROME_BANNED, CONTENT_BANNED, COUNTDOWN, LOOP_NEVER, LOOP_SCREENS, M6_NEVER, MARKET_SCREENS, MENTOR_BANNED, LINE_SOURCES, RESCUE_SEED, lineMatcher, RUSTY_SEED, SCREENS, WEEK_SEED, allowlistedAt, bannedPattern,
   cookThrough, loopApi, openScreen,
 } from './screens';
 
@@ -64,6 +64,31 @@ function loopHits(r: { chrome: string[]; content: string[]; wholes: string[] }, 
   }
   return out;
 }
+
+/**
+ * M6 Step 11: the market's patterns (M6_NEVER) over UI chrome, with no allowlist, and over written content, where only
+ * an allowlisted line at its own location passes (and its filled-in words are still scanned). Cook mode's own
+ * "step n of m" is the recipe's, not a minigame tally, so `cookMode` screens skip the tally pattern only.
+ */
+function marketHits(r: { chrome: string[]; content: string[]; wholes: string[] }, cookMode: boolean): string[] {
+  const out: string[] = [];
+  for (const [name, re] of Object.entries(M6_NEVER)) {
+    if (cookMode && name === 'tally') continue;
+    for (const h of hits(r.chrome, re)) out.push(`${name} (chrome): ${h}`);
+    r.content.forEach((t, i) => { if (re.test(t) && !allowlisted(r.wholes[i], re)) out.push(`${name} (content): ${re.exec(t)![0]} in “${t}”`); });
+  }
+  return out;
+}
+/** No pressure by structure: no timer, no <progress>, no <meter>, no progressbar; and a footnote under every chalkboard. */
+async function marketStructure(page: Page, cookMode: boolean): Promise<{ pressure: string[]; boards: number; footnotes: string[] }> {
+  return page.evaluate((cook) => {
+    const pressure = cook ? [] : [...document.querySelectorAll('[role="timer"], [role="progressbar"], progress, meter, [aria-live="assertive"][data-countdown]')].map((e) => e.outerHTML.slice(0, 100));
+    const boards = [...document.querySelectorAll('.stall-chalkboard')];
+    return { pressure, boards: boards.length, footnotes: boards.map((b) => b.querySelector('.stall-price-note')?.textContent?.trim() ?? '') };
+  }, cookMode);
+}
+const PRICE_FOOTNOTE = (parse(readFileSync(fileURLToPath(new URL('../../../content/bureau/forms.yaml', import.meta.url)), 'utf8')) as { forms: { stall_round: { footnotes: string[] } } })
+  .forms.stall_round.footnotes.find((f) => /example prices/i.test(f))!;
 
 /** Written lines (with {vars} as X) against LOOP_NEVER, and COUNTDOWN when asked; excused only at an allowlisted location. */
 const ALLOWED_AT = new Set(VOICE_ALLOWLIST.map((a) => `${a.file}\0${a.where}\0${a.line}`));
@@ -133,6 +158,15 @@ describe('never rules, every screen', () => {
       expect(hits(content, CONTENT_BANNED), `${sc.label}: written content`).toEqual([]);
       if (sc.mentor) expect(hits(content, MENTOR_BANNED), `${sc.label}: mentor content (sells, voice.md §7)`).toEqual([]);
       if (sc.loop) expect(loopHits(r, sc.countdown === true), `${sc.label}: the M5 never rules`).toEqual([]);
+      if (sc.market) {
+        expect(marketHits(r, sc.cookMode === true), `${sc.label}: the M6 market rules (prices, selling, no pressure)`).toEqual([]);
+        const st = await marketStructure(page, sc.cookMode === true);
+        expect(st.pressure, `${sc.label}: no timer, progress or meter`).toEqual([]);
+        expect(st.footnotes, `${sc.label}: the example-price footnote under every chalkboard`).toEqual(Array.from({ length: st.boards }, () => PRICE_FOOTNOTE));
+        if (/Family Table/.test(sc.label)) {
+          expect(await page.locator('textarea, input[type="text"], #pan-text, .stall-faq-chip, .stock-ask, .stock-control, .pan-checkoff-card, .stall-consent, .market-tick').count(), `${sc.label}: Family Table records nothing (C31)`).toBe(0);
+        }
+      }
       expect(offOrigin(app.requests, inject('baseUrl')), `${sc.label}: requests off the app's origin`).toEqual([]);
       if (sc.label === 'mentor panel open (Family Table)') {
         expect(await page.locator('textarea, input[type="text"], #pan-talk').count(), 'Family Table: no text box').toBe(0);
@@ -363,5 +397,54 @@ describe('never rules, the weekly loop (M5 Step 12)', () => {
       await app.close();
       app = null;
     }
+  });
+});
+
+describe('never rules, the market (M6 Step 11)', () => {
+  it('the M6 scan bites: planted pressure, prices and offers are caught; shopping advice and the footnote pass', () => {
+    const planted: [string, string][] = [
+      ['sells', 'Join the Guild for more stalls'], ['sells', 'Only $3 today'], ['currency', 'Chuck: £4.50'], ['currency', 'Thighs 26¢'], ['currency', '₹120 a kilo'],
+      ['smuggled', 'Seasonal or smuggled?'], ['tally', '4/5 right'], ['tally', '3 of 5 answered'], ['countdown', '30 seconds left'], ['countdown', '2 min remaining'],
+      ['offer', 'Buy from me, love'], ['offer', 'Buy it here'], ['offer', 'On sale this week'], ['offer', 'A special price for you'], ['offer', 'Add to basket'], ['offer', 'Checkout'],
+    ];
+    for (const [name, text] of planted) {
+      expect(M6_NEVER[name].test(text), `${name}: ${text}`).toBe(true);
+      expect(marketHits({ chrome: [text], content: [], wholes: [] }, false).length, text).toBeGreaterThan(0);
+      expect(marketHits({ chrome: [], content: [text], wholes: [text] }, false).length, text).toBeGreaterThan(0);
+    }
+    // Shopping advice for the player's own shop is the skill §3.5 teaches, not an offer (C29).
+    for (const t of ['Buy whole, buy small.', 'Buy from a busy shop.', 'buy the dark ones', 'Question 2', 'swapped at the market: onion for shallots', '100 g', 'Leave the stall', PRICE_FOOTNOTE]) {
+      expect(marketHits({ chrome: [], content: [t], wholes: [t] }, false), t).toEqual([]);
+    }
+    expect(marketHits({ chrome: ['Step 2 of 7'], content: [], wholes: [] }, true)).toEqual([]);
+    expect(marketHits({ chrome: ['Step 2 of 7'], content: [], wholes: [] }, false).length).toBeGreaterThan(0);
+  });
+
+  it('every stall line, in every variant, carries no offer, price symbol or tally (the in-page scan sees one variant a load)', () => {
+    const stallLines = LINE_SOURCES.filter((src) => src.file.startsWith('content/market/') || src.file === 'content/bureau/forms.yaml' || /^triggers\.(market|season|stamp_earned\.market_game|errand|cook\.drill_first)/.test(src.where));
+    expect(stallLines.length).toBeGreaterThan(300);
+    const ALLOWED = new Set(VOICE_ALLOWLIST.map((a) => `${a.file}\0${a.where}\0${a.line}`));
+    const bad = stallLines.flatMap((l) => (ALLOWED.has(`${l.file}\0${l.where}\0${l.text}`) ? [] : Object.entries(M6_NEVER)
+      .filter(([, re]) => re.test(l.text.replace(/\{\w+\}/g, 'X'))).map(([name]) => `${l.file} ${l.where}: ${name}: ${l.text}`)));
+    expect(bad).toEqual([]);
+  });
+
+  it('every M6 screen and state is swept, in standard and in Family Table mode', () => {
+    const labels = MARKET_SCREENS.map((s) => s.label);
+    expect(MARKET_SCREENS.every((s) => s.market && s.loop)).toBe(true);
+    expect(SCREENS.filter((s) => s.market).length).toBe(MARKET_SCREENS.length);
+    const both = (part: string) => {
+      expect(labels.some((l) => l.includes(part) && !/Family Table/.test(l)), `${part}, standard`).toBe(true);
+      expect(labels.some((l) => l.includes(part) && /Family Table/.test(l)), `${part}, Family Table`).toBe(true);
+    };
+    for (const part of ['market hub', 'stall wen', 'stall bram', 'stall okafor-sato', 'stall spice', 'a question answered', 'the round done', 'the chalkboard',
+      'the Protein Counter', 'the seasonal round', 'no calendar yet', 'market list', 'amounts', 'drill-first hint', 'visit marisol', 'swapped at the market', 'after leaving a round']) both(part);
+    // States Family Table does not have (it records nothing and has no text box or FAQ, C31; its market list is core's
+    // list computed now, with no run, so no stall swap and no seeded Season's Table row): standard only.
+    for (const part of ['a FAQ answer open', 'the stock control open', 'a stall swap taken', 'Season\'s Table notes', 'the grammar check-off card, applied', 'the grammar check-off card, undone', 'a model-proposed check-off card',
+      'the Protein Counter without health_data asks first', 'the Protein Counter, consented', 'the errand\'s stall question']) {
+      expect(labels.some((l) => l.includes(part) && !/Family Table/.test(l)), part).toBe(true);
+    }
+    expect(labels.some((l) => /Family Table/.test(l) && l.includes('no text box, no check-off card'))).toBe(true);
   });
 });

@@ -123,6 +123,16 @@ describe('the strict stall checks on the real files (M6 Step 5)', () => {
     expectProblem(problemsOf(withEdit(BRAM, '      - "Price per pound lies;', '      - "Chuck is £4 today. Price per pound lies;')), BRAM, 'triggers.greet.lines[4] has a currency symbol (£)');
   });
 
+  test('final (Task 5 N3): a wrong figure in an option\'s text or a stray one in the prompt fails the build', () => {
+    const chuck = '      - { price: 60, servings: 6 }\n    options:\n      - text: "Chuck"\n';
+    const chuckAs = (t: string) => withEdit(BRAM, chuck, chuck.replace('"Chuck"', `"${t}"`));
+    expectProblem(problemsOf(chuckAs('Chuck, the 3.50 one')), BRAM, '(bram-value-braise)', 'options[0].text states 3.50');
+    expectProblem(problemsOf(withEdit(BRAM, 'tenderloin 60 for 6.', 'tenderloin 60 for 6, or 7.25 a serving.')), BRAM, '(bram-value-braise)', 'prompt states 7.25');
+    // Its own figures are fine (the real files pass the build above): only the option-order pin, which the new text
+    // changes, is reported for "Chuck (3.75 a serving)".
+    expect(problemsOf(chuckAs('Chuck (3.75 a serving)')).filter((p) => p.includes('chalkboard') || p.includes('states'))).toEqual([]);
+  });
+
   test('Wen seasonal disagreeing with data/seasonality.yaml → ContentError naming the question id', () => {
     // The table moves cranberry out of "now" in November; Wen's question still says it's in season.
     const moved = withEdit('data/seasonality.yaml', '      now: [cranberry]\n', '      now: []\n');

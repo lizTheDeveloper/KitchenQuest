@@ -231,10 +231,10 @@ export function createScriptedEngine(deps: {
       if (!deps.week) return Promise.resolve().then(() => parsed(text, stripped, ctx, null));
       // 3b. M5 Step 10: the week by code alone (§7.5): a plan in the closed grammar, else a navigation chip. If its
       // code can't load (offline, no worker) the turn goes on without it: never left unanswered.
-      return deps.week().then((w) => w, (err: unknown) => { console.error(err); return null; }).then((w) => {
-        const r = w?.intent(text, ctx.turn) ?? null;
-        return r ?? parsed(text, stripped, ctx, w);
-      });
+      return deps.week().then((w) => w, (err: unknown) => { console.error(err); return null; }).then(async (w) =>
+        // 3a. M6 Step 10 (Ruling 13, C30): the closed check-off grammar, a safe whole message only, before the health
+        // check, in the same place as the API (emergency and child first). Anything it doesn't claim goes on as before.
+        (w && await w.checkOff(text, ctx).catch((err: unknown) => { console.error(err); return null; })) ?? w?.intent(text, ctx.turn) ?? parsed(text, stripped, ctx, w));
     },
 
     cardFromChoice(id, severity, turn) {

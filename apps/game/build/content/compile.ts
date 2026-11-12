@@ -58,7 +58,7 @@ import {
   substitutionsFile,
   techniquesFile,
 } from './schemas';
-import { pinProblems, stallQuestions, type MarketPins } from './market';
+import { chalkboardFigures, pinProblems, stallQuestions, type MarketPins } from './market';
 
 export class ContentError extends Error {
   problems: string[];
@@ -364,6 +364,7 @@ export function compileContent(files: Record<string, string>, opts: CompileOptio
     // Ruling 9: Wen's seasonal questions agree with the table.
     if (seasonality) for (const p of seasonalAgrees(stall, seasonality)) fail(path, p);
     if (opts.pins) for (const p of pinProblems(stall, opts.pins)) fail(path, p);
+    for (const p of chalkboardFigures(stall)) fail(path, p);
     for (const { at, q } of stallQuestions(stall)) {
       const before = questionAt.get(q.id);
       if (before !== undefined && !before.startsWith(`${path} `)) fail(path, `${at} (${q.id}): question id is also used at ${before}`);

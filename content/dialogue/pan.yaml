@@ -258,6 +258,16 @@ triggers:
       - "Skipping is allowed. It's on the form. Box 7: 'Not now.'"
       - "No problem. We'll leave that one blank."
 
+  # REVIEW: new in M6 Step 10 (content review): Form 1-A's code is loaded on first open; this is said when it couldn't load.
+  intake.unavailable:
+    ai: never
+    when: "The intake interview (Form 1-A) couldn't load just now (offline before it was ever cached). Nothing is lost; the Pan still answers."
+    lines:
+      - "The intake form didn't arrive from the Bureau just now. Nothing's lost. Tell me anything you like, and I'll read it back before I keep it."
+      - "Form 1-A is stuck in the Bureau's post. We can do it another time. Allergies, recipes and the market all still work."
+      - "The intake papers didn't load. No matter: say what you'd like me to know, and I'll read it back first."
+      - "I can't open Form 1-A just now. The rest of me works. Tell me your allergies or diet rules any time and I'll read them back."
+
   intake.complete:
     ai: allowed
     when: All Form 1-A questions are answered or skipped.
@@ -873,6 +883,17 @@ triggers:
       - "No penalty. I'm a pan, not a tax office."
       - "Not that one. But now you'll never forget why."
       - "Close. Well. Not close. But brave."
+
+  # M6 Step 9 fix round 1 (I4): a stall minigame's right answer gets its own lines; market.cheer stays for check-offs.
+  # Food-free on purpose (a Pan line is still rules-checked before it is shown). No count, no "again". # REVIEW: content review.
+  market.answer_right:
+    ai: allowed
+    when: "After a right minigame answer, when the stall keeper has no line the player's rules allow."
+    lines:
+      - "Correct. Don't let it go to your head; it's a small head."
+      - "Right. I'm almost impressed. Almost."
+      - "Good. The Bureau will put that in a file. Several files."
+      - "That's the one. The keeper is trying not to look pleased."
 
   market.list_done:
     ai: allowed

@@ -79,6 +79,8 @@ export interface CurrentPlanResponse { plan: (Plan & { id: string }) | null; wee
 export interface PlanSaveResponse { plan: Plan & { id: string }; checks: PlanItemCheck[] }
 /** POST /market-runs, its ticks and its finish (Step 6): the run, its unticked rows recomputed now (C40). */
 export type MarketRunResponse = MarketRunView;
+/** POST /market-runs/:id/stock (M6 Step 6, Ruling 11): an out-of-stock mark, a stall swap (`toId`) or the undo of both. */
+export type StockAction = { key: string; action: 'out' } | { key: string; action: 'take'; toId: string } | { key: string; action: 'undo' };
 
 /** A margin note as the API stores it (Step 7): core's `MarginNote` and the row id. */
 type StoredNote = MarginNote & { id: string };

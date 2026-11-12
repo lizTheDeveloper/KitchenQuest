@@ -7,7 +7,18 @@ import { cookScreen } from './cook-screen';
 import { cookWithNotes } from './with-notes';
 
 // Cook mode speaks through the Pan; a silent stand-in is enough here.
-vi.mock('../mentor', () => ({ getMentor: () => ({ say: () => ({ text: '', trigger: '', ai: 'never' }) }) }));
+// M6 Step 10: signed in, cook mode reads this week's run on demand (GET /market-runs/current) through the panel's client.
+const runRead = vi.hoisted((): { run: unknown; calls: number; hang: boolean } => ({ run: null, calls: 0, hang: false }));
+vi.mock('../mentor', () => ({
+  getMentor: () => ({ say: () => ({ text: '', trigger: '', ai: 'never' }) }),
+  getMentorServices: () => ({ client: { currentRun: () => { runRead.calls++; return runRead.hang ? new Promise(() => {}) : Promise.resolve({ ok: true, status: 200, data: { run: runRead.run } }); } } }),
+}));
+
+// M6 final: the progress service, when a test gives one (else it is not initialised, as in a bare mount).
+const progressMock = vi.hoisted((): { p: Promise<unknown> | null } => ({ p: null }));
+vi.mock('../progress', () => ({
+  progressService: () => progressMock.p ?? Promise.reject(new Error('progress is not initialised')),
+}));
 
 const SLUG = 'india/kerala/parippu';
 const EMAIL = 'cook@example.test';
@@ -59,3 +70,107 @@ describe('cook mode with my notes (M5 Step 11, fix I3)', () => {
     t.screen.unmount?.();
   });
 });
+
+describe('M6 Step 10: a stall swap, signed in after a reload', () => {
+  test('the run is read on demand (read only); cook mode shows "swapped at the market" and checks with the swap; a new rule → refused', async () => {
+    const { forgetWeek } = await import('../week/memory');
+    forgetWeek();
+    runRead.calls = 0;
+    runRead.run = {
+      id: 'run-1', weekStart: '2026-11-09', doneAt: null,
+      items: [
+        { key: 'shallot', name: 'shallots', ingredientId: 'shallot', stall: 'wen', forDishes: [SLUG], outOfStock: true, ticked: false },
+        { key: 'stock:onion', name: 'onion', ingredientId: 'onion', stall: 'wen', forDishes: [SLUG], stockSwap: { from: 'shallot' }, ticked: true },
+      ],
+    };
+    const t = mount([]);
+    await t.run();
+    expect(runRead.calls).toBe(1);
+    expect(t.el.querySelector('.cook-refusal')).toBeNull();
+    expect(t.el.querySelector('.stock-label')?.textContent).toBe('swapped at the market: onion for shallots');
+    t.store.update((s) => ({ ...s, accountRules: [{ id: 'o1', target: { kind: 'ingredient', ids: ['onion'] }, type: 'avoid', severity: 'allergy' }] }));
+    expect(t.el.querySelector('.cook-refusal')).not.toBeNull();
+    t.screen.unmount?.();
+  });
+});
+
+describe('Fix round 1 (I2): a stalled run read never holds cook mode', () => {
+  test('GET /market-runs/current hung → cook mode draws by the 3 s limit, with the plain check and no swap label', async () => {
+    const { forgetWeek } = await import('../week/memory');
+    const { LOOKUP_TIMEOUT_MS } = await import('../shell/within');
+    forgetWeek();
+    const { rememberRun } = await import('../week/run-memory');
+    rememberRun({ id: '', weekStart: '', items: [], doneAt: null }, null); // nothing remembered from the test before
+    runRead.hang = true;
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const t = mount([]);
+      const done = t.run();
+      await vi.advanceTimersByTimeAsync(LOOKUP_TIMEOUT_MS);
+      await done;
+      expect(t.el.querySelector('.cook-step')).not.toBeNull();
+      expect(t.el.querySelector('.stock-label')).toBeNull();
+      t.screen.unmount?.();
+    } finally { vi.useRealTimers(); runRead.hang = false; }
+  });
+});
+
+describe('Fix round 1 (m1, Ruling 16): the drill-first hint on the cook screen too', () => {
+  test('parippu with heat control below Seen: the hint and its chip beside the steps; none in Family Table; Cook mode runs either way', async () => {
+    const { setToolkitSource } = await import('../week/memory');
+    setToolkitSource(() => ({ techniques: {} }));
+    const t = mount([]);
+    await t.run();
+    expect(t.el.querySelector('.cook-refusal')).toBeNull();
+    expect(t.el.querySelector('.drill-first a')?.getAttribute('href')).toBe('#/visit/marisol');
+    t.screen.unmount?.();
+    const ft = mount([]);
+    ft.store.update((s) => ({ ...s, settings: { ...s.settings, familyTable: true } }));
+    await ft.run();
+    expect(ft.el.querySelector('.drill-first')).toBeNull();
+    ft.screen.unmount?.();
+  });
+});
+
+describe('M6 final: a direct #/cook load', () => {
+  test('M9: while the run read waits, cook mode says so (a status line), then draws', async () => {
+    const { forgetWeek } = await import('../week/memory');
+    const { LOOKUP_TIMEOUT_MS } = await import('../shell/within');
+    forgetWeek();
+    const { rememberRun } = await import('../week/run-memory');
+    rememberRun({ id: '', weekStart: '', items: [], doneAt: null }, null); // nothing remembered from the tests before
+    runRead.hang = true;
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const t = mount([]);
+      const done = t.run();
+      await vi.advanceTimersByTimeAsync(10);
+      const wait = t.el.querySelector('[role="status"].cook-wait');
+      expect(wait?.textContent).toBe("Reading this week's market run…");
+      await vi.advanceTimersByTimeAsync(LOOKUP_TIMEOUT_MS);
+      await done;
+      expect(t.el.querySelector('.cook-wait')).toBeNull();
+      expect(t.el.querySelector('.cook-step')).not.toBeNull();
+      t.screen.unmount?.();
+    } finally { vi.useRealTimers(); runRead.hang = false; }
+  });
+
+  test('the drill-first hint appears once progress loads, though the toolkit was not in memory at mount', async () => {
+    const { setToolkitSource } = await import('../week/memory');
+    setToolkitSource(() => undefined as never); // a cold load: progress has not loaded yet
+    let release: () => void = () => undefined;
+    progressMock.p = new Promise((r) => { release = () => { r({ view: () => ({ toolkit: { techniques: {} } }) }); }; });
+    try {
+      const t = mount([]);
+      await t.run();
+      expect(t.el.querySelector('.cook-step')).not.toBeNull();
+      expect(t.el.querySelector('.drill-first')).toBeNull();
+      release();
+      await new Promise((r) => setTimeout(r, 0));
+      expect(t.el.querySelector('.drill-first a')?.getAttribute('href')).toBe('#/visit/marisol');
+      expect(t.el.querySelector('.cook-step')).not.toBeNull(); // cook mode runs on, the strip redrawn in place
+      t.screen.unmount?.();
+    } finally { progressMock.p = null; }
+  });
+});
+

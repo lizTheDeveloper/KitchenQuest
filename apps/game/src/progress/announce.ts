@@ -1,6 +1,7 @@
 import type { ProgressEvent, RewardGrant } from '@kitchenquest/core/engine';
 import { content, techniqueName } from '../content';
 import type { ClientContent } from '../content/types';
+import { catalogueOf } from './catalogue';
 
 /** A Pan line to say: a trigger in content/dialogue/pan.yaml and its variables. */
 export interface GrantLine { trigger: string; vars: Record<string, string> }
@@ -38,8 +39,9 @@ const cookName = (id: string, c: ClientContent) => (Object.hasOwn(c.cooks, id) ?
  * The Pan's lines for one event's grants, from grants only (never a guess on the client):
  * `level` → `levelup`; `trust` → `trust_up`, or at level 3 the introduction letter (`introduction_received`, the
  * friend's pin then reads "expecting you"); `certificate` → `certificate.technique`; `stamp` → `stamp_earned`, named
- * from `bureau.stamp_names` (C13). At most two lines, in that order. Nourishment earns no line (audit R4): a meal-log
- * event says nothing at all, whatever it earned, and XP alone is never announced.
+ * from `bureau.stamp_names` (C13); a stall round's `market_game` stamp → `stamp_earned.market_game`, naming the keeper
+ * (M6 Step 9). At most two lines, in that order. Nourishment earns no line (audit R4): a meal-log event says nothing at
+ * all, whatever it earned, and XP alone is never announced.
  */
 function linesForEvent(event: ProgressEvent | undefined, grants: readonly RewardGrant[], c: ClientContent = content): GrantLine[] {
   if (event?.kind === 'meal_logged' || grants.some((g) => g.kind === 'xp' && g.reason === 'nourishment')) return [];
@@ -56,7 +58,15 @@ function linesForEvent(event: ProgressEvent | undefined, grants: readonly Reward
   }
   for (const g of grants) if (g.kind === 'certificate') out.push({ trigger: 'certificate.technique', vars: { technique: techniqueName(g.technique) } });
   const stamp = grants.find((g) => g.kind === 'stamp');
-  if (stamp) {
+  if (stamp && stamp.stamp === 'market_game' && event?.kind === 'stall_round') {
+    // M6 Step 9: the weekly stall stamp names the keeper, from the event's own stall (`stallNames`, first paint).
+    const names: Readonly<Record<string, string>> = c.stallNames;
+    // Fix round 1 (M2): a Protein Counter round (its answers in that bank, by membership) names the counter itself.
+    const market = catalogueOf().market?.get(event.stall);
+    const pc = market?.file.variants?.protein_counter?.name;
+    const counter = pc !== undefined && event.answers.some((a) => market?.questions.get(a.q)?.variant === 'protein_counter');
+    out.push({ trigger: 'stamp_earned.market_game', vars: { stall: counter ? pc : Object.hasOwn(names, event.stall) ? names[event.stall] : 'the stall' } });
+  } else if (stamp) {
     const names = c.bureau.stamp_names;
     out.push({ trigger: 'stamp_earned', vars: { stamp: Object.hasOwn(names, stamp.stamp) ? names[stamp.stamp] : stamp.stamp } });
   }

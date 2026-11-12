@@ -42,6 +42,8 @@ export const M6_MARKET_TRIGGERS_AI = {
   'market.bank_small': 'never',
   'market.practice': 'allowed',
   'market.round_done': 'allowed',
+  // Fix round 1 (I4): the right-answer line at a stall (market.cheer is the check-off's).
+  'market.answer_right': 'allowed',
   'market.leave_round': 'allowed',
   'market.no_swap': 'never',
   'market.stock_swapped': 'never',
@@ -116,6 +118,8 @@ export const REQUIRED_PAN_TRIGGERS: readonly string[] = [
   'thanks',
   'intake.ios_home_screen',
   'intake.ios_install',
+  // M6 Step 10: Form 1-A's code loads on first open (first paint); this is said when it can't.
+  'intake.unavailable',
   'voice.not_yet',
   'toolkit.rusty_invite',
   // M4: the mentor (server agent and scripted engine) emits these by id.

@@ -66,3 +66,26 @@ describe('mountRuleForm', () => {
     expect(m.el.querySelector('#rule-search')).toBeNull();
   });
 });
+
+describe('M6 Step 4 N3 carry: a broad pick shows the which-kind choices, never a thrown error', () => {
+  for (const [query, broad, pick] of [['butternut', 'butternut', 'butternut squash'], ['bean', 'bean', 'dried black bean'], ['berr', 'berry', 'cranberry'], ['herb', 'fresh herbs', 'curry leaf']] as const) {
+    test(`"${broad}" → choices; one tap files exactly that one`, () => {
+      const m = mount();
+      m.type(query);
+      const opt = m.options().find((b) => b.textContent === broad);
+      expect(opt, broad).toBeDefined();
+      opt!.click();
+      expect(() => m.fill().click()).not.toThrow();
+      expect(m.onCard).not.toHaveBeenCalled();
+      const choices = [...m.el.querySelectorAll<HTMLButtonElement>('.rule-form-choice')];
+      expect(choices.length).toBeGreaterThan(1);
+      const chosen = choices.find((c) => c.textContent === pick)!;
+      expect(chosen, pick).toBeDefined();
+      chosen.click();
+      expect(m.onCard).toHaveBeenCalledTimes(1);
+      const card = m.onCard.mock.calls[0][0];
+      expect(card.rule.target.ids).toEqual([graph.resolve(pick)]);
+      m.stop();
+    });
+  }
+});

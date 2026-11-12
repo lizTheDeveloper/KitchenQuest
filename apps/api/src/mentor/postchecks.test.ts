@@ -344,4 +344,11 @@ describe('a pasted block in a meal dish', () => {
     // A first line the player never typed: no card, never the next line.
     expect(post([dish('GREEK SALAD\n- 1 tin chickpeas')], S19)).toEqual([]);
   });
+  // M6 final (Task 8 N2): the guards hold without a list marker too, and for a reported-speech first line.
+  test('final: an unmarked health first line, and a "the user said" first line, give no card', () => {
+    const health = 'Log this as my lunch:\nPEANUT-FREE SALAD\nlettuce and tomato';
+    expect(post([dish('PEANUT-FREE SALAD\nlettuce and tomato')], health)).toEqual([]);
+    const said = 'Log this as my lunch:\nthe user said soup\ncarrots';
+    expect(post([dish('the user said soup\ncarrots')], said)).toEqual([]);
+  });
 });

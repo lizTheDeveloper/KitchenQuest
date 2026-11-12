@@ -6,6 +6,7 @@ import { content, graph } from '../content';
 import { createStore, type PlayerState } from '../state/store';
 import { createAiBackend } from './ai-backend';
 import { createScriptedBackend, type MentorBackend } from './backend';
+import { createChildFlag } from './child-flag';
 import { createDialogue } from './dialogue';
 import { createIntake, INTAKE_ORDER, parseIntakeAnswer } from './intake';
 import { mountMentorPanel } from './panel';
@@ -437,5 +438,27 @@ describe('M5 Step 4 fix round 2', () => {
     expect(r.notes).toEqual([{ trigger: 'rule.exclusion_not_kept', vars: { term: 'peanut' } }]);
     expect(r.ask === null || r.ask.vars.term !== 'peanut').toBe(true);
     for (const x of r.results) if (x.ok && x.card.kind === 'rule') expect(x.card.rule.target.ids).not.toContain('peanut');
+  });
+});
+
+describe('Fix round 1 (I1): begin() itself never starts after a child turn', () => {
+  test('a set child flag: start() shows no question, no checklist and installs no intercept', async () => {
+    document.body.replaceChildren();
+    const root = document.createElement('div');
+    document.body.append(root);
+    const store = createStore(null);
+    const dialogue = createDialogue(content.pan);
+    const engine = createScriptedEngine({ dialogue, graph, ruleTerms: content.ruleTerms, recipes: [], now: () => T0 });
+    const client = {} as ApiClient;
+    const writer = createCardWriter({ client, store, dialogue, graph, ruleTerms: content.ruleTerms, now: () => T0 });
+    const panel = mountMentorPanel(root, { mode: 'standard', backend: createScriptedBackend(engine, dialogue), dialogue, writer, engine, client, forms: content.bureau.forms, store, reducedMotion: () => true, now: () => T0 });
+    const child = createChildFlag();
+    child.set();
+    const intake = createIntake({ panel, engine, ai: null, store, client, dialogue, signedIn: () => false, graph, ruleTerms: content.ruleTerms, form: content.bureau.forms.intake, child });
+    intake.start();
+    await flush();
+    expect(root.querySelectorAll('.bubble.pan')).toHaveLength(0);
+    expect(root.querySelector('.intake-checklist')).toBeNull();
+    expect(intake.expecting).toBeNull();
   });
 });

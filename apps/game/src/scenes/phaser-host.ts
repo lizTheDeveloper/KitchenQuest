@@ -5,7 +5,7 @@
 import type * as PhaserGame from './phaser-game';
 import type { GameHandle } from './phaser-game';
 
-export type SceneKey = 'Kitchen' | 'Map' | 'CookKitchen';
+export type SceneKey = 'Kitchen' | 'Map' | 'CookKitchen' | 'Market';
 
 let loading: Promise<typeof PhaserGame | null> | null = null;
 let game: GameHandle | null = null;

@@ -23,6 +23,8 @@ export interface CookModeSource {
   recipe: ParsedRecipe;
   draft: boolean;
   strip(): HTMLElement;
+  /** Hands the source a way to redraw the strip itself (the toolkit arrives after first draw, M6 final). */
+  onStripStale?(redraw: () => void): void;
   swapFor(ing: RecipeIngredient): string | null;
   /** The cook-mode resume point's key (a canon slug), or null: frames don't resume. */
   progressKey: string | null;
@@ -271,6 +273,12 @@ export function runCookMode(el: HTMLElement, ctx: AppContext, src: CookModeSourc
     if (r.swaps) redrawStep();
     if (r.announce !== null) announce(announcer, r.announce);
   };
+  src.onStripStale?.(() => {
+    if (finished || stopped) return;
+    const fresh = src.strip();
+    strip.replaceWith(fresh);
+    strip = fresh;
+  });
   let key = src.inputsKey(ctx.store.get());
   const unsubscribe = ctx.store.subscribe((s) => {
     const k = src.inputsKey(s);

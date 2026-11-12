@@ -27,6 +27,7 @@ npm run test:e2e   # builds the game, then drives Chromium against `vite preview
 | `npm run preview`   | Serve the production build locally        |
 | `npm run typecheck` | Run the TypeScript compiler, no output    |
 | `npm test`          | Run unit tests with Vitest                |
+| `npm run content:pin -w @kitchenquest/game` | Pin new stall questions' option order (M6) |
 
 ## Running the API
 
@@ -77,6 +78,22 @@ Plan the week, shop it, cook it, keep it. Every part works with the AI off and s
 - **Data files:** `data/rewards.yaml`, `data/techniques.yaml` (`adjacent`, `prereqs`), `data/stalls.json`, `data/food-groups.json`, `data/keeps.json`; content in `content/frames/` and each cook's `quest`. The API loads and checks them at boot and refuses to start on a bad file, naming it.
 - M5 adds no environment variable and no script.
 
+## The gamified market (M6)
+
+The market is a place to practise shopping, never a shop. Nothing is for sale, nothing is timed, and nothing gates the shopping list (§3.5, §16 never rules 3–8). Every part works with the AI off and signed out, and a capped player with no entitlements gets every stall, round and reward: `apps/api/test/free-forever.test.ts` and `apps/game/e2e/free-forever.e2e.test.ts` pin it.
+
+- **The hub** (`#/stalls`): the market scene, with the four keepers as canvas hotspots over an HTML list that carries everything without the canvas. **Each stall** (`#/stall/<id>`: `wen`, `bram`, `okafor-sato`, `spice`) has a short round of written questions (`content/market/*.yaml`). Every question, option, tip, FAQ answer and keeper line is checked by the rules engine first, and only ✅ is shown. Rounds have no timer, no score, no lives and no "in a row". A wrong answer gets the keeper's explanation and costs nothing, and you can leave at any question. Rewards come from `data/rewards.yaml` (`market_game`): 5 XP the first time each question is answered right, and one stall stamp a week for any round played through. A rules change, a delete or a retune never takes them back.
+- **The Protein Counter:** Big Bram's own stall for a player whose rules exclude meat. It is a full stall. Its rounds are health data, so signed in they need the `health_data` consent, which is asked first.
+- **The Season's Table** (`data/seasonality.yaml`): a curated table by region and month. It is information only, and never hides, locks or reorders a dish. Only the Pacific Northwest (US) is written so far. Every other region, or no region, gets "no calendar yet" and no seasonal round: there is no default region and no fallback to another country's calendar. The region is matched by code on the device and never added to a prompt.
+- **Form 12-M** (`#/market`) gains amounts (scaled to the plan's servings, summed only within one unit family), "Out of stock?" with a stall swap from `data/substitutions.json` (re-checked against every dish it serves), and cook mode's "swapped at the market" label. Bram's chalkboard prices are example numbers in no particular currency. The list shows no prices.
+- **Check-off from the Pan:** "got the moong dal" ticks the row at once, with an Undo (a closed grammar, run only on a whole safe message). A bare "no fennel" is treated as a health statement, not a stock note. A check-off the model proposes (`propose_check_off`) ticks only when tapped.
+- **The drill-first hint:** when a recipe's skills aren't yet at Seen, the recipe and cook screens suggest the cook's drill. Cook stays enabled.
+- **Family Table mode** can play stall rounds by tapping, in practice. It shows written lines only, with no FAQ, no text box and no check-off, and it records nothing.
+- **API routes** (all need a session): `GET /market-runs/current`, `POST /market-runs/:id/stock` (`{ key, action: 'out' | 'take' | 'undo', toId?, today }`; 400 `stock_invalid` for a swap core doesn't offer). Stall rounds go through `POST /progress/events` as `stall_round` events: the server decides each answer from the stall files and the player's rules, and seals every round. `GET /progress` reads from a sealed **progress snapshot** (`progress_snapshots`), a cache of the event fold that is rewritten every 500 events, and dropped by a database trigger whenever an event is erased. See `docs/compliance/data-inventory.md` (U-5, U-6, H-11, L-5, P-1).
+- **The market chunk is lazy.** The stalls, the Season's Table, the minigame panel and the check-off card load on first use, and the service worker precaches them for offline practice. `npm run build` reports the first-paint size (hard budget 400 KB) and the lazy market chunk.
+- **New script:** `npm run content:pin -w @kitchenquest/game` pins each stall question's option order (`apps/game/build/content/market-pins.json`), because a saved answer is an option index. Run it when you add a question. A deliberate rewording of an existing option re-pins only that question: `-- --repin <question id>`. The build never writes the file, and it fails on an unpinned or re-ordered question.
+- M6 adds no environment variable.
+
 ## Deploying the API
 
 A checklist for every production deploy:
@@ -112,7 +129,8 @@ apps/game/                # Phaser game + HTML overlays, a PWA (@kitchenquest/ga
   src/world/              # world map, travel permit, cook visits
   src/quests/             # the quest runner (M5)
   src/progress/           # the progress log, sync and the account/device views (M5)
-  src/week/               # the plan, the market list, Use-It-Up (M5)
+  src/week/               # the plan, the market list, Use-It-Up (M5); amounts, stock swaps, season notes (M6)
+  src/market/             # the market hub, the stalls and their rounds (M6, a lazy chunk)
   src/book/               # the Recipe Book, margin notes, the after-cook slips (M5)
   src/pwa/                # service worker and install prompts
   src/api/                # M2 API client
