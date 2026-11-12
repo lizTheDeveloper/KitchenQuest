@@ -427,7 +427,7 @@ describe('M5 Step 4 fix round 2', () => {
     const asks = results.filter((x) => !x.ok && x.line.trigger === 'rule.which_kind');
     expect(asks).toHaveLength(1);
     const ask = asks[0];
-    if (!ask.ok && ask.reason === 'ambiguous') expect(ask.options.map((o) => o.id)).toEqual(['curry_leaf', 'epazote']);
+    if (!ask.ok && ask.reason === 'ambiguous') expect(ask.options.map((o) => o.id)).toEqual(['cilantro', 'curry_leaf', 'epazote']); // cilantro since M6 Step 4
   });
 
   test.each(['I\'m allergic to sesame but not peanuts', 'allergic to milk but not peanuts'])('"%s": the excluded name gets only rule.exclusion_not_kept, never an ask', (text) => {

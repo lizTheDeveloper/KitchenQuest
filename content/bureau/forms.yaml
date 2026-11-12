@@ -223,8 +223,41 @@ forms:
     stamp: received
     footnotes:
       - "*The Pantry Bureau reminds you that all market transactions must be witnessed by at least one (1) vegetable."
-      - "*About ½ lb (225 g) of boneless raw meat per person. Example prices."
+      # M6 Step 4 (Ruling 5, C15): "Example prices" dropped: the list shows no prices. Form 14-S carries that footnote.
+      - "*About ½ lb (225 g) of boneless raw meat per person."
       - "*Substitutes are labelled and re-checked against your rules. The Bureau adores a label."
+
+  stall_round:
+    number: "14-S/STALL"
+    title: "Stall Round"
+    title_aside: "Practice of the Choosing Arts, any day of the week."
+    purpose: "The stall minigame panel (M6 Steps 9-10): a stall keeper's round of written questions, each checked against the player's rules before it is shown. No timer, no score tally, no lives; leaving costs nothing; the shopping list never waits on it. The chalkboard numbers are example numbers in no particular currency (Ruling 5)."
+    safety: false
+    fields:
+      - { key: stall, label: "Stall" }
+      - { key: round, label: "Round" }
+      - { key: question, label: "Question" }
+      - { key: explain, label: "Why" }
+    # The minigame names the panel shows, by the stall files' `games:` keys.
+    game:
+      seasonal: "Seasonal or well-travelled?"
+      ripeness: "Ripe today?"
+      storage: "Keeping it at home"
+      cut_match: "The right cut"
+      value: "Chalkboard maths"
+      label: "Reading the label"
+      safety: "Safe temperatures and storage"
+      tofu_match: "The right tofu for the job"
+      legume_lore: "Legume lore"
+      blind_sniff: "The blind sniff"
+      freshness: "Fresh or faded?"
+      substitution: "What stands in?"
+    buttons: { confirm: "Next", decline: "Step away" }
+    stamp: practice
+    footnotes:
+      - "*Example prices in no particular currency. Your shop will differ."
+      - "*No stall keeper will sell you anything. They are teachers with tables."
+      - "*Wrong answers carry no penalty. The Bureau is not a tax office, despite appearances."
 
   margin_note:
     number: "2-M/MARGIN"

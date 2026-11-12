@@ -28,9 +28,9 @@ export interface VoiceAllowance {
 export const VOICE_ALLOWLIST: readonly VoiceAllowance[] = [
   {
     file: 'content/bureau/forms.yaml',
-    where: 'forms.market_list.footnotes[1]',
-    line: '*About ½ lb (225 g) of boneless raw meat per person. Example prices.',
-    reason: "Form 12-M footnote: Big Bram teaches cost per serving (spec §3.5). 'Example prices' says the figures are examples; nothing is sold.",
+    where: 'forms.stall_round.footnotes[0]',
+    line: '*Example prices in no particular currency. Your shop will differ.',
+    reason: "Form 14-S footnote (M6 Ruling 5): Big Bram's chalkboard teaches cost per serving with example numbers in no currency; the footnote says they are examples, not any shop's prices. Nothing is sold. (Form 12-M dropped its 'Example prices' in M6 Step 4: the list shows no prices.)",
   },
   {
     file: 'content/bureau/forms.yaml',
