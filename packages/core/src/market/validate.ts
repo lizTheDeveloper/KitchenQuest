@@ -104,7 +104,9 @@ function checkChalkboard(
     const opt = /^options\[(\d+)\]\.text$/.exec(t.at);
     if (t.at === 'prompt' || opt !== null) {
       const figures = (es: readonly { price: number; servings: number }[]) => es.flatMap((e) => [cents(e.price), e.servings * 100, cents(e.price) / e.servings]);
-      const allowed = opt === null ? figures(board) : figures(board[Number(opt[1])] === undefined ? [] : [board[Number(opt[1])]]);
+      // An option index past the board was already reported ("one entry per option"); it allows no figure.
+      const own = opt === null ? undefined : board.at(Number(opt[1]));
+      const allowed = opt === null ? figures(board) : figures(own === undefined ? [] : [own]);
       const what = opt === null ? 'is no chalkboard price, servings or price per serving' : 'is not its own chalkboard price, servings or price per serving';
       for (const m of t.text.matchAll(NUMBER)) if (!allowed.some((x) => Math.abs(x - Number(m[0]) * 100) < 1e-6)) bad(`${t.at} states ${m[0]}, which ${what}`);
       continue;

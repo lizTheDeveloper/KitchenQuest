@@ -60,6 +60,6 @@ export async function deleteHealthDataIn(tx: Tx, userId: string, now: Date, with
 
 /** The account's current erasure id (null before its first `health_data` delete): content-free, no time and no count. */
 export async function healthErasureOf(tx: Pick<Tx, 'select'>, userId: string): Promise<string | null> {
-  const [row] = await tx.select({ id: users.healthErasure }).from(users).where(eq(users.id, userId));
-  return row?.id ?? null;
+  const rows = await tx.select({ id: users.healthErasure }).from(users).where(eq(users.id, userId));
+  return rows.at(0)?.id ?? null;
 }

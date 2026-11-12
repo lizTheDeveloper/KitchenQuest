@@ -80,18 +80,21 @@ export async function startStubApi(transcript: string = SELFTEST_TRANSCRIPT): Pr
       }
       const body = JSON.parse(raw) as Record<string, unknown>;
       const input = parseTurnInput(body.input);
+      if (input?.kind !== 'transcript') {
+        problems.push(`POST /mentor/turn without a transcript input: ${raw.slice(0, 200)}`);
+        return send(400, { error: { code: 'bad_request' } });
+      }
       const shaped =
-        input?.kind === 'transcript' &&
         (body.conversationId === null || typeof body.conversationId === 'string') &&
         typeof body.localDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.localDate) &&
         typeof body.localTime === 'string' && /^\d{2}:\d{2}$/.test(body.localTime) &&
         body.screen === null && body.intakeStep === null;
-      if (!shaped || input === null) {
+      if (!shaped) {
         problems.push(`POST /mentor/turn with a body the API refuses: ${raw.slice(0, 200)}`);
         return send(400, { error: { code: 'bad_request' } });
       }
       const check = heardCheck(input.text, graph, terms);
-      if (check !== null && !heardConfirmed(check, input.kind === 'transcript' ? input.heard?.words : undefined)) {
+      if (check !== null && !heardConfirmed(check, input.heard?.words)) {
         return send(200, respond([{ kind: 'heard', check }, { kind: 'line', line: heardLine(check) }]));
       }
       const r = respond([{ kind: 'line', line: { trigger: 'rule.readback', vars: {} } }, { kind: 'line', line: { trigger: 'mentor.check_card', vars: {} } }]);

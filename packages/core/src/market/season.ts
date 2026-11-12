@@ -302,8 +302,9 @@ export function validateSeasonTable(d: unknown, graph: IngredientGraph): string[
             say(`match.exclude: phrase ${JSON.stringify(ph)} is empty once normalised`);
             continue;
           }
-          const own = (Array.isArray(regions) ? regions : []).find((x) => typeof x === 'string' && wholeWordPart(normalizePhrase(ph), normalizePhrase(x)));
-          if (own !== undefined) say(`match.exclude: "${ph}" would exclude the region's own phrase "${own as string}"`);
+          const own: unknown[] = Array.isArray(regions) ? regions : [];
+          const cancelled = own.find((x): x is string => typeof x === 'string' && wholeWordPart(normalizePhrase(ph), normalizePhrase(x)));
+          if (cancelled !== undefined) say(`match.exclude: "${ph}" would exclude the region's own phrase "${cancelled}"`);
         }
     }
 

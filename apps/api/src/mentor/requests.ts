@@ -19,7 +19,7 @@ const MOVE_ITEM = new RegExp(String.raw`\b(add|remove|put|take|cross|tick)\b[^.!
  * M15): also after "star" / "lone star" / "from a" / "after a" ("a lone star tick") and before hiking, camping or from
  * ("got ticks hiking"); and the callers skip the tick test on a sentence that is health text.
  */
-export const TICK_PATTERN =
+const TICK_PATTERN =
   /(?<!\b(?:a|an|the|one|two|some|any|no|those|these|that|this|deer|dog|by|for|of|from|with|my|your|star|lone star|from a|after a)\s+)\btick(?:s|ed|ing)?\b(?![\s-]+(?:bites?|bit|bitten|biting|borne|fever|disease|on|in|hiking|camping|from|off (?:me|him|her|them|the dog|the cat))\b)|\b(?:check|cross)(?:es|ed|ing)?\b(?:\s+[^\s.!?;]+){0,4}\s+off(?![\w-])/i;
 
 /**

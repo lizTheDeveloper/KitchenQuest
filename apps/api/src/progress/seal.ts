@@ -23,7 +23,7 @@ export async function eventBodySealer(db: Pick<Db, 'select' | 'insert'>, keyring
  * round, MAX_ROUND_ANSWERS = 10), so a blob's length never tells a Protein Counter round (longer `bram-pc-*` ids) from a
  * base one in a database dump. The pad is a `_pad` string of spaces, dropped again on open.
  */
-export const SEALED_BUCKET_BYTES = 1024;
+const SEALED_BUCKET_BYTES = 1024;
 const PAD = '_pad';
 
 function padded(body: Record<string, unknown>): Record<string, unknown> {

@@ -94,7 +94,8 @@ async function main(): Promise<void> {
 }
 
 // Run only as the CLI (`npm run bench`), never on import.
-if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+const invoked = process.argv.at(1);
+if (invoked !== undefined && resolve(invoked) === fileURLToPath(import.meta.url)) {
   main().catch((e: unknown) => {
     process.stderr.write(`${e instanceof Error ? e.message : 'bench failed'}\n`);
     process.exit(1);
