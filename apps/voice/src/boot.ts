@@ -9,8 +9,8 @@ import { loadVoiceConfig, type VoiceConfig } from './config.js';
 import { fakeStt, fakeTts } from './engines/fake.js';
 import type { SttEngine, TtsEngine } from './engines/types.js';
 import { WorkerPool, workerStt, workerTts, type WorkerEngineName } from './engines/worker.js';
-import { createLogger } from './log.js';
-import { allowedModel, castable, loadManifest, type VoiceManifest } from './models.js';
+import { createLogger, type Logger } from './log.js';
+import { allowedModel, castable, loadManifest, type ModelEntry, type VoiceManifest } from './models.js';
 import { verifyPins } from './pins.js';
 import { createVoiceServer } from './server.js';
 
@@ -26,12 +26,15 @@ function ttsWorkerEngine(engine: string): WorkerEngineName {
   throw new Error(`voice: no worker engine runs ${engine}`);
 }
 
-async function workerEngines(config: VoiceConfig, manifest: VoiceManifest): Promise<{ stt: SttEngine; tts: TtsEngine; pools: WorkerPool[] }> {
+async function workerEngines(config: VoiceConfig, manifest: VoiceManifest, log: Logger): Promise<{ stt: SttEngine; tts: TtsEngine; pools: WorkerPool[] }> {
   const echo = config.workerEngine === 'echo';
-  const base = { python: config.python, modelsDir: config.modelsDir, size: config.workers };
+  const base = { python: config.python, modelsDir: config.modelsDir, size: config.workers, log };
+  const sttEntry = allowedModel(manifest, config.sttModel, 'stt');
   const ttsEntry = castable(manifest, config.cast.model, config.cast.voice);
-  const sttPool = new WorkerPool({ ...base, engine: echo ? 'echo' : 'whisper', model: config.sttModel });
-  const ttsPool = new WorkerPool({ ...base, engine: echo ? 'echo' : ttsWorkerEngine(ttsEntry.engine), model: config.cast.model, voice: config.cast.voice });
+  // M5 (fix round 1): a replacement worker reloads the model, so its pins are checked again first.
+  const verify = (entry: ModelEntry) => (echo ? undefined : () => verifyPins(entry, config.modelsDir));
+  const sttPool = new WorkerPool({ ...base, role: 'stt', engine: echo ? 'echo' : 'whisper', model: config.sttModel, verify: verify(sttEntry) });
+  const ttsPool = new WorkerPool({ ...base, role: 'tts', engine: echo ? 'echo' : ttsWorkerEngine(ttsEntry.engine), model: config.cast.model, voice: config.cast.voice, verify: verify(ttsEntry) });
   const started = await Promise.allSettled([sttPool.start(), ttsPool.start()]);
   const failed = started.find((r): r is PromiseRejectedResult => r.status === 'rejected');
   if (failed) {
@@ -57,6 +60,7 @@ export async function boot(env: NodeJS.ProcessEnv, opts: BootOptions = {}): Prom
   let stt: SttEngine;
   let tts: TtsEngine;
   let pools: WorkerPool[] = [];
+  const log = createLogger();
   if (config.engine === 'fake') {
     stt = fakeStt(() => 'this is the fake voice engine');
     tts = fakeTts();
@@ -65,9 +69,9 @@ export async function boot(env: NodeJS.ProcessEnv, opts: BootOptions = {}): Prom
       await verifyPins(allowedModel(manifest, config.sttModel, 'stt'), config.modelsDir);
       await verifyPins(castable(manifest, config.cast.model, config.cast.voice), config.modelsDir);
     }
-    ({ stt, tts, pools } = await workerEngines(config, manifest));
+    ({ stt, tts, pools } = await workerEngines(config, manifest, log));
   }
-  const server = createVoiceServer({ config, stt, tts, log: createLogger() });
+  const server = createVoiceServer({ config, stt, tts, log, health: () => pools.every((p) => p.ready) });
   let port: number;
   try {
     port = await server.listen(config.port);

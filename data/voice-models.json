@@ -1,5 +1,5 @@
 {
-  "$comment": "M7 voice: every speech model and engine the voice service may load, with its licence (spec §7.7, Rulings 2 and 14). apps/voice/test/licences.test.ts enforces it, and loadVoiceConfig refuses any model that is not `allowed`. `files` (Step 3) are paths relative to VOICE_MODELS_DIR, each pinned by its sha256, taken from the Hugging Face repo and commit in `fetch` (`<id>/<name>` is `<from>/<name>` there); src/pins.ts verifies them before a worker loads them, and production refuses a model with none. The Kokoro files are kokoro-onnx's v1.0 release files (the Apache-2.0 hexgrad/Kokoro-82M weights, converted), mirrored byte-identical at fastrtc/kokoro-onnx. Excluded and unverified models are never pinned. `verify: true` marks a licence still to be re-checked against the published package.",
+  "$comment": "M7 voice: every speech model and engine the voice service may load, with its licence (spec §7.7, Rulings 2 and 14). apps/voice/test/licences.test.ts enforces it, and loadVoiceConfig refuses any model that is not `allowed`. `files` (Step 3) are paths relative to VOICE_MODELS_DIR, each pinned by its sha256, taken from the Hugging Face repo and commit in `fetch` (`<id>/<name>` is `<from>/<name>` there); src/pins.ts verifies them before a worker loads them, and production refuses a model with none. The Kokoro files are kokoro-onnx's v1.0 release files (the Apache-2.0 hexgrad/Kokoro-82M weights, converted), mirrored at fastrtc/kokoro-onnx (voices-v1.0.bin checked against the release download; the operator confirms kokoro-v1.0.onnx against the release on first fetch). Excluded and unverified models are never pinned. `verify: true` marks a licence still to be re-checked against the published package (espeakng-loader ships blank licence metadata and bundles espeak-ng, GPL). phonemizer is GPL-3.0-or-later and patched by the worker (Step 3 fix round 1, M8).",
   "models": [
     {
       "id": "faster-whisper-tiny.en",
@@ -241,6 +241,17 @@
       "id": "espeak-ng",
       "licence": "GPL-3.0-or-later",
       "boundary": "in-worker-process"
+    },
+    {
+      "id": "phonemizer",
+      "licence": "GPL-3.0-or-later",
+      "boundary": "in-worker-process"
+    },
+    {
+      "id": "espeakng-loader",
+      "licence": "NOASSERTION",
+      "boundary": "in-worker-process",
+      "verify": true
     },
     {
       "id": "piper-tts",

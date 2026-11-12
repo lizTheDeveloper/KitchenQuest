@@ -1,8 +1,8 @@
 // M7 Step 3: a model's files must match their sha256 pins in data/voice-models.json before a worker loads them, so a
 // swapped, truncated or tampered file (or another voice under the same name) never runs. Reads only.
 import { createHash } from 'node:crypto';
-import { createReadStream } from 'node:fs';
-import { isAbsolute, normalize, resolve, sep } from 'node:path';
+import { createReadStream, readdirSync } from 'node:fs';
+import { dirname, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
 import type { ModelEntry } from './models.js';
 
 function sha256(file: string): Promise<string | null> {
@@ -28,5 +28,16 @@ export async function verifyPins(entry: ModelEntry, modelsDir: string): Promise<
     const got = await sha256(resolve(root, f.path));
     if (got === null) throw new Error(`voice model ${entry.id}: ${f.path} is missing from VOICE_MODELS_DIR (${root})`);
     if (got !== f.sha256) throw new Error(`voice model ${entry.id}: ${f.path} does not match its sha256 pin in data/voice-models.json`);
+  }
+  // Fix round 1 (M5): nothing else in the model's directories. An engine may read files it finds there (faster-whisper
+  // reads preprocessor_config.json if present), so an unpinned file is refused like a changed one.
+  const pinned = new Set(entry.files.map((f) => resolve(root, f.path)));
+  for (const dir of new Set([...pinned].map((f) => dirname(f)))) {
+    for (const name of readdirSync(dir, { recursive: true, encoding: 'utf8' }).sort()) {
+      const full = join(dir, name);
+      const isPinnedOrItsFolder = pinned.has(full) || [...pinned].some((p) => p.startsWith(full + sep));
+      if (!isPinnedOrItsFolder)
+        throw new Error(`voice model ${entry.id}: ${relative(root, full)} is not pinned in data/voice-models.json; remove it from VOICE_MODELS_DIR`);
+    }
   }
 }

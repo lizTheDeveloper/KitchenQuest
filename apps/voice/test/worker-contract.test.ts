@@ -209,7 +209,7 @@ describe('WorkerPool', () => {
   });
 
   test('F5: a hung STT job fails at its deadline and the worker is replaced; a hung TTS stream fails at its gap deadline; neither hangs the caller', async () => {
-    const p = pool([], { sttMs: 400, ttsGapMs: 400 });
+    const p = pool([], { sttMs: 400, ttsFirstMs: 400, ttsGapMs: 400 });
     await p.start();
     const stt = workerStt(p, 'echo-stt');
     const t0 = Date.now();

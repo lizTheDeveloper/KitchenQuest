@@ -316,7 +316,12 @@ class Whisper:
     def stt(self, pcm, hint, job_id):
         import numpy as np
 
-        audio = np.frombuffer(bytes(pcm), dtype="<i2").astype(np.float32) / np.float32(PCM_SCALE)
+        # Fix round 1 (M10): a view over the job's own bytearray (zeroed by run_job), one float32 copy divided in
+        # place and zeroed below; no intermediate copy is left to be dropped unzeroed.
+        view = np.frombuffer(pcm, dtype="<i2")
+        audio = view.astype(np.float32)
+        audio /= np.float32(PCM_SCALE)
+        del view
         try:
             segments, _info = self.model.transcribe(
                 audio,
@@ -624,6 +629,7 @@ def main():
         os._exit(1)
 
     jobs = []
+    current = [None]  # the id of the job running now
     ready = threading.Condition()
     stdin = sys.stdin.buffer
 
@@ -641,8 +647,14 @@ def main():
             if op == "ping":
                 send({"op": "pong", "engines": [engine.name], "sampleRate": getattr(engine, "sample_rate", None)})
             elif op == "cancel":
-                with _cancel_lock:
-                    _cancelled.add(header.get("id"))
+                # M7 (fix round 1): only for a job that is queued or running. A cancel that arrives after its job
+                # ended (a barge-in race) is dropped, so the set never grows and never cancels a later job.
+                job_id = header.get("id")
+                with ready:
+                    known = job_id == current[0] or any(h.get("id") == job_id for h, _ in jobs)
+                    if known:
+                        with _cancel_lock:
+                            _cancelled.add(job_id)
             elif op in ("stt", "tts"):
                 with ready:
                     jobs.append((header, payload))
@@ -657,7 +669,13 @@ def main():
             while not jobs:
                 ready.wait()
             header, payload = jobs.pop(0)
+            current[0] = header.get("id")
         run_job(engine, header, payload)
+        with ready:
+            # Under the reader's lock: a cancel is either seen as known before this, or dropped after it.
+            current[0] = None
+            with _cancel_lock:
+                _cancelled.discard(header.get("id"))
 
 
 if __name__ == "__main__":

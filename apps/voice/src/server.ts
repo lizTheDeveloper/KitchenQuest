@@ -125,7 +125,15 @@ export interface ServerLimits {
   idleMs?: number;
 }
 
-export function createVoiceServer(opts: { config: VoiceConfig; stt: SttEngine; tts: TtsEngine; log: Logger; limits?: ServerLimits }): {
+export function createVoiceServer(opts: {
+  config: VoiceConfig;
+  stt: SttEngine;
+  tts: TtsEngine;
+  log: Logger;
+  limits?: ServerLimits;
+  /** Fix round 1 (I2): GET /ready answers 200 while this holds (every worker pool has a ready worker), else 503. */
+  health?: () => boolean;
+}): {
   listen(port: number): Promise<number>;
   close(): Promise<void>;
 } {
@@ -147,7 +155,12 @@ export function createVoiceServer(opts: { config: VoiceConfig; stt: SttEngine; t
 
   const http = createServer(
     { headersTimeout: HEADERS_TIMEOUT_MS, requestTimeout: REQUEST_TIMEOUT_MS, connectionsCheckingInterval: CHECK_INTERVAL_MS, maxHeaderSize: MAX_HEADER_BYTES },
-    (_req, res) => {
+    (req, res) => {
+      // Readiness, for a systemd or load-balancer check and the API (I2): a status only, no body, no auth, no log.
+      if (req.method === 'GET' && req.url === '/ready') {
+        res.writeHead((opts.health ?? (() => true))() ? 200 : 503, { connection: 'close', 'content-length': '0' }).end();
+        return;
+      }
       res.writeHead(426, { connection: 'close' }).end();
     },
   );

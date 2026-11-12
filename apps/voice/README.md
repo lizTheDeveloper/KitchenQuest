@@ -34,13 +34,23 @@ also verifies the models' sha256 pins; only production runs the latency gate.
   the worker's header comment.
 - **Processes**: `VOICE_WORKERS` processes per engine (STT and TTS each; default one per CPU), each one job at a time.
   The spike measured about one core-second of STT per utterance, so one job per core is the right shape.
-- **Deadlines** (F5): an STT request fails 20 s after it was submitted, queue time included, and a TTS stream after
-  10 s without a message. A worker still holding a failed request is killed and replaced, as is one that crashes, so a
-  hung engine answers `failed` and never hangs an utterance.
+- **Deadlines** (F5), all counted from submission, queue time included: an STT request has 20 s to answer; a TTS
+  stream 30 s to its first message (Kokoro sends a whole chunk at once), then 10 s between messages. A job still queued
+  at its deadline fails and never reaches a worker; a worker still holding one is killed and replaced, as is one that
+  crashes, so a hung engine answers `failed` and never hangs an utterance. Step 5's own per-id reply timeout should
+  allow at least these.
+- **Restarts and readiness**: each worker slot is kept filled forever. A worker that dies, cannot be spawned (a venv
+  rebuilt mid-deploy, fork pressure) or fails to load is retried with backoff (0.1 s doubling to 2 s), each failure a
+  content-free `worker_down` log line; a replacement re-verifies the model's pins first. When a pool has no ready
+  worker it logs `pool_empty` and fails utterances at once (not at their deadline) until a worker is back
+  (`pool_ready`). `GET /ready` answers 200 while every pool has a ready worker and 503 otherwise (no body, no auth):
+  point the API's health check or a systemd timer at it. At boot each worker gets 5 attempts; if none of a pool's
+  workers starts, boot fails and the process exits 1, so systemd restarts it.
 - **Output**: fds 1 and 2 of the worker point at `/dev/null`. The protocol uses a private copy of stdout, and stderr
   carries only fixed words (`kq-voice-worker: crash`, …) through a private copy of fd 2. Node counts stderr bytes and
   never reads them. Python logging is at CRITICAL, warnings are ignored, and tracebacks never print.
-- **No files**: models load offline (`HF_HUB_OFFLINE=1`), `-B` stops `.pyc` writes, `ORT_DISABLE_TELEMETRY=1` stops
+- **No files**: the worker's `HOME` is a path that does not exist, so a library writing under it fails rather than
+  writes; models load offline (`HF_HUB_OFFLINE=1`), `-B` stops `.pyc` writes, `ORT_DISABLE_TELEMETRY=1` stops
   onnxruntime 1.31 writing a device id under `HOME` and a `.ses` file in `TMPDIR`, and each job's buffers are zeroed or
   dropped when it ends. Kokoro: phonemizer would copy the espeak-ng library into a temporary directory and write each
   phonemised line to a temporary file (the Pan's text, which can read back the player's words). The worker loads the
@@ -73,7 +83,8 @@ also verifies the models' sha256 pins; only production runs the latency gate.
    }' | sh
    ```
    Fetch only the cast you run if you like (base.en and Piper on CPU; Kokoro on GPU). The service verifies every pinned
-   file of the configured STT and TTS models at boot and refuses to start on a missing or changed one.
+   file of the configured STT and TTS models at boot (and again before replacing a worker), and refuses to start on a
+   missing or changed one, or on any file in a model's directory that is not pinned: put nothing else there.
 4. **The secrets and box settings** in `/etc/kitchenquest/voice.env` (root-owned, mode 0600):
    ```sh
    VOICE_SERVICE_TOKEN=<openssl rand -base64 32; the same value the API has>
@@ -85,7 +96,14 @@ also verifies the models' sha256 pins; only production runs the latency gate.
 5. **The unit**: copy `apps/voice/deploy/kq-voice.service` to `/etc/systemd/system/`, then
    `systemctl daemon-reload && systemctl enable --now kq-voice`. It runs `node --disable-warning=ExperimentalWarning
    --import tsx src/main.ts` with `TSX_DISABLE_CACHE=1` (tsx would otherwise write its compile cache to `/tmp`), the
-   same command as `npm start`.
+   same command as `npm start`. `NODE_ENV=production`, the real worker engine, offline models, onnxruntime telemetry
+   off and the cache setting are on the `ExecStart` line itself, so nothing in `voice.env` can switch them off.
+   The unit allows IP to loopback only. When the API runs on another box, add a drop-in allowing its private address
+   (`systemctl edit kq-voice`):
+   ```ini
+   [Service]
+   IPAddressAllow=10.0.0.3
+   ```
 6. **The benchmark** (next section) must have passed on this box, and its `bench/latest.json` been committed, or the
    service refuses to start.
 
@@ -100,13 +118,17 @@ also verifies the models' sha256 pins; only production runs the latency gate.
 - **Private interface only** (C-38): the service binds `VOICE_HOST`, loopback by default. Config refuses `0.0.0.0`,
   `::`, a public address and a hostname. When the API runs on another box, set `VOICE_HOST` to the private interface
   address, and firewall `VOICE_PORT` to the API host alone.
-- The unit also gives the service no writable filesystem (`ProtectSystem=strict`, `ProtectHome=yes`, a private `/tmp`,
-  nothing made writable again), no devices (so no microphone), no new privileges, and IP and Unix sockets only.
+- **Firewall `VOICE_PORT` to the API host alone; this is required, not optional.** Any host that can reach the port can
+  hold its 64 pre-upgrade slots open in 2 s rounds and starve the API's upgrades.
+- The unit also gives the service a read-only filesystem except a private `/tmp` (`ProtectSystem=strict`,
+  `ProtectHome=yes`, `PrivateTmp=yes`; nothing else made writable), no devices (so no microphone), no new privileges,
+  IP to loopback only (plus the API's drop-in), a `@system-service` syscall filter, no namespaces and no realtime.
 
 ### Limits the service enforces
 
 - HTTP: headers within 2 s, the whole request within 3 s, at most 64 sockets waiting before their upgrade (one more is
   destroyed unread), 8 KB of headers. Origin header: 403. Bad token: 401. Over `VOICE_MAX_CONNECTIONS`: 503.
+  `GET /ready`: 200 or 503 (above). Anything else: 426.
 - WebSocket: a socket that sends nothing within 5 s, or nothing either way for 11 minutes, is closed with **4408**
   (longer than core's `HANDS_FREE_IDLE_MS`, so a quiet hands-free cook is not cut off; the API reconnects). Other close
   codes: 4400 (a message the protocol refuses), 1011 (a handler error, or a client too slow to read), 1001 (shutdown).
@@ -144,7 +166,7 @@ strictly (a test checks them all), and recomputes `meetsTarget`, so a hand-edite
 
 | Field | Meaning |
 |---|---|
-| `date` | The run's date, `YYYY-MM-DD`. `VOICE_ACCEPT_LATENCY_MISS` names a run by it. |
+| `date` | The run's date, `YYYY-MM-DD`. With `box` and a hash of the run it makes the run id `VOICE_ACCEPT_LATENCY_MISS` names. |
 | `box` | The box's name (lowercase, digits, hyphens); it names the results file. |
 | `cpu`, `gpu` | The hardware, as text; `gpu` is `null` on a CPU box. |
 | `stack.stt`, `stack.tts`, `stack.voice` | The model ids and voice measured. The gate refuses a run of another stack than the service is configured with. |
@@ -174,9 +196,15 @@ they are kept there), and deleted after the run.
 
 ### Reading a miss
 
-Production refuses to start on a miss (Ruling 3). The founder reads it, then either sets
-`VOICE_ACCEPT_LATENCY_MISS=<that run's date>` to accept it, or a change is made and the benchmark run again. The spike's
-fallbacks, in order of cost:
+Production refuses to start on a miss (Ruling 3). The founder reads it, then either sets `VOICE_ACCEPT_LATENCY_MISS` to
+the run id the refusal prints (`<date>-<box>-<8 hex>`: a hash of that exact run, so an acceptance never carries over to
+a rerun committed with the same date and box), or a change is made and the benchmark run again.
+
+What the gate does not check: that `box` is this host, how old the run is, and the LLM or providers (`replyAudio`
+includes the LLM turn, so a model or provider change means running the benchmark again). Re-run it after any change to
+the box, the stack or the API's model routing.
+
+The spike's fallbacks, in order of cost:
 
 1. **Mask the latency**: the filler line within about 0.3 s of the end of speech (`firstAudio` shows whether it lands).
 2. **Prefer scripted lines**: pre-rendered audio for common replies has no STT, LLM or TTS delay.

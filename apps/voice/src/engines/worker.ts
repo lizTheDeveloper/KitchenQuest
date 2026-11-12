@@ -9,12 +9,14 @@
 // - The PCM is sent as PCM16 little-endian bytes. The frame that carries it is zeroed once written; the session zeroes
 //   its own buffer when the call settles.
 //
-// F5 (Step 2 fix round 3): every request has a deadline. STT: STT_DEADLINE_MS from submission, queue time included.
-// TTS: TTS_GAP_MS between messages. A request past its deadline fails (the session answers `failed`), and a worker
-// still holding it is killed and restarted, so a hung engine can never hang an utterance. A worker that crashes
-// mid-job fails that job the same way and is restarted.
+// F5 (Step 2 fix round 3; fix round 1 I1 and M9): every request has a deadline counted from its submission, queue time
+// included: STT_DEADLINE_MS for an STT answer, TTS_FIRST_MS for a TTS stream's first message and then TTS_GAP_MS
+// between messages. A job still queued at its deadline fails and is never dispatched; one running fails, and its worker
+// is killed and replaced, so a hung engine can never hang an utterance. A worker that crashes mid-job fails that job
+// the same way. See WorkerPool for restarts and an empty pool (I2).
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import type { Logger } from '../log.js';
 import type { SttEngine, TtsEngine } from './types.js';
 
 export type WorkerEngineName = 'echo' | 'whisper' | 'kokoro' | 'piper';
@@ -24,12 +26,16 @@ export const WORKER_SCRIPT = fileURLToPath(new URL('../../worker/kq_voice_worker
 const START_TIMEOUT_MS = 120_000;
 /** One utterance (at most MAX_UTTERANCE_MS of audio) from submission to transcript, queue time included. */
 const STT_DEADLINE_MS = 20_000;
-/** The longest silence between two messages of one TTS job. */
+/** A TTS job's first message, from submission (queue time included): Kokoro sends a whole chunk at once (M9). */
+const TTS_FIRST_MS = 30_000;
+/** The longest silence between two messages of one TTS job, after its first. */
 const TTS_GAP_MS = 10_000;
+/** I2: how many times start() tries each worker before it gives up on it (and rejects if none started). */
+export const START_ATTEMPTS = 5;
 const MAX_HEADER = 64 * 1024;
 const MAX_PAYLOAD = 4 * 1024 * 1024;
 const RESTART_MIN_MS = 100;
-const RESTART_MAX_MS = 5000;
+const RESTART_MAX_MS = 2000;
 const CLOSE_GRACE_MS = 2000;
 
 type Header = Record<string, unknown>;
@@ -77,10 +83,14 @@ export class FrameReader {
 /**
  * The worker's environment: an allowlist, so it never sees VOICE_SERVICE_TOKEN or any other secret. Models load
  * offline, and onnxruntime's telemetry is off (1.31 otherwise writes a device id under HOME and a .ses file in TMPDIR).
+ * Fix round 1 (M4): HOME is a path that does not exist, so a library that writes under it fails instead of writing.
+ * TMPDIR is passed through: Python's tempfile would fall back to /tmp anyway, so the C-18 tests snapshot the TMPDIR it
+ * really uses, and in production the unit's private /tmp confines it.
  */
+const WORKER_HOME = '/nonexistent/kq-voice-worker';
 export function workerEnv(parent: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { HF_HUB_OFFLINE: '1', HF_HUB_DISABLE_TELEMETRY: '1', ORT_DISABLE_TELEMETRY: '1', OMP_NUM_THREADS: '1', LANG: 'C.UTF-8' };
-  for (const k of ['PATH', 'HOME', 'TMPDIR', 'LD_LIBRARY_PATH'] as const) if (parent[k] !== undefined) env[k] = parent[k];
+  const env: NodeJS.ProcessEnv = { HOME: WORKER_HOME, HF_HUB_OFFLINE: '1', HF_HUB_DISABLE_TELEMETRY: '1', ORT_DISABLE_TELEMETRY: '1', OMP_NUM_THREADS: '1', LANG: 'C.UTF-8' };
+  for (const k of ['PATH', 'TMPDIR', 'LD_LIBRARY_PATH'] as const) if (parent[k] !== undefined) env[k] = parent[k];
   return env;
 }
 
@@ -89,11 +99,11 @@ interface Job {
   payload: Uint8Array | null;
   /** A message for this job; returns true when it was the job's last. */
   onMessage(header: Header, payload: Buffer): boolean;
-  /** The worker crashed or hung, the deadline passed, or the pool closed. Called at most once, never after the last message. */
+  /**
+   * The worker crashed or hung, the deadline passed, the pool is empty, or the pool closed. Called at most once, never
+   * after the last message.
+   */
   onFail(): void;
-  deadlineMs: number;
-  /** TTS: the deadline restarts with every message. */
-  gap: boolean;
 }
 
 interface Handle {
@@ -103,6 +113,14 @@ interface Handle {
   running(): boolean;
 }
 
+interface Queued {
+  id: number;
+  job: Job;
+  /** performance.now() by which the job must have its (first) answer: submission plus its deadline (I1). */
+  due: number;
+  timer: NodeJS.Timeout;
+}
+
 interface Running {
   id: number;
   job: Job;
@@ -110,27 +128,46 @@ interface Running {
   cancelSent: boolean;
 }
 
+/** One place in the pool: it always holds, or is about to hold, one worker process. */
+interface Slot {
+  worker: Worker | null;
+  /** Consecutive failed starts, for the backoff. */
+  failures: number;
+  /** Attempts before the slot first became ready (START_ATTEMPTS at most count for start()). */
+  attempts: number;
+  initial: 'pending' | 'ready' | 'failed';
+  launched: boolean;
+  timer: NodeJS.Timeout | null;
+}
+
 class Worker {
   readonly child: ChildProcessWithoutNullStreams;
   running: Running | null = null;
   ready = false;
   dead = false;
-  sampleRate: number | null = null;
-  onReady: (() => void) | null = null;
+  /** The process was created (its `spawn` event fired). An `error` before that is a spawn failure. */
+  spawned = false;
   /** Killed: never ready again. */
   retired = false;
-  /** Answered its first ping: a worker that dies after this is replaced. */
+  /** Answered its ping at least once. */
   everReady = false;
+  sampleRate: number | null = null;
+  startTimer: NodeJS.Timeout | null = null;
+  private gone = false;
   private readonly reader = new FrameReader();
 
   constructor(
     private readonly pool: WorkerPool,
+    readonly slot: Slot,
     command: string,
     args: string[],
     env: NodeJS.ProcessEnv,
   ) {
     this.child = spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'], env, cwd: process.cwd() });
     this.child.stdin.on('error', () => {});
+    this.child.stdout.on('error', () => {});
+    this.child.stderr.on('error', () => {});
+    this.child.once('spawn', () => (this.spawned = true));
     this.child.stdout.on('data', (chunk: Buffer) => {
       let msgs: { header: Header; payload: Buffer }[];
       try {
@@ -147,13 +184,21 @@ class Worker {
       this.pool.counters.stderrBytes += chunk.length;
       chunk.fill(0);
     });
-    this.child.once('exit', () => {
-      this.dead = true;
-      this.pool.onExit(this);
-    });
+    // I2 (fix round 1): a spawn failure (ENOENT, EACCES, EAGAIN, EMFILE…) emits `error` and never `exit`; it is an
+    // exit like any other. An `error` after the spawn (a failed kill) is followed by the real exit.
+    this.child.once('exit', (code, signal) => this.end({ spawn: false, code, signal }));
     this.child.once('error', () => {
-      this.dead = true;
+      if (!this.spawned) this.end({ spawn: true, code: null, signal: null });
     });
+  }
+
+  private end(how: { spawn: boolean; code: number | null; signal: NodeJS.Signals | null }): void {
+    if (this.gone) return;
+    this.gone = true;
+    this.dead = true;
+    this.ready = false;
+    if (this.startTimer) clearTimeout(this.startTimer);
+    this.pool.onGone(this, how);
   }
 
   write(frame: Buffer): void {
@@ -178,34 +223,55 @@ export interface WorkerPoolOptions {
   model: string;
   modelsDir: string;
   size: number;
+  /** What the pool serves, for its log lines; default from the engine (whisper and echo: stt). */
+  role?: 'stt' | 'tts';
   /** TTS: the cast voice (kokoro serves one language per process and warms up with it). */
   voice?: string;
   /** Extra worker arguments: tests only (`--leak-for-test`). */
   extraArgs?: string[];
   /** Deadlines in ms; tests shorten them. */
-  deadlines?: { sttMs?: number; ttsGapMs?: number; startMs?: number };
+  deadlines?: { sttMs?: number; ttsFirstMs?: number; ttsGapMs?: number; startMs?: number };
+  /** Content-free log lines: a worker that went down, the pool going empty and ready again. */
+  log?: Logger;
+  /** M5 (fix round 1): re-checks the model files (their sha256 pins) before every replacement worker starts. */
+  verify?: () => Promise<void>;
 }
 
-/** A fixed number of worker processes for one engine and model, with a queue, deadlines and restarts. */
+/**
+ * A fixed number of worker processes for one engine and model, with a queue, deadlines and restarts.
+ *
+ * I2 (fix round 1): each slot keeps one worker alive forever. A worker that dies, cannot be spawned or fails to load
+ * is retried with capped backoff (RESTART_MIN_MS doubling to RESTART_MAX_MS), each failure logged as a content-free
+ * `worker_down`. start() resolves once every slot has a worker or has failed START_ATTEMPTS times, and rejects when
+ * none started, so boot fails and main exits non-zero for systemd to restart. Once started, a pool with no ready
+ * worker is empty: it fails queued and new jobs at once (not at their deadline) and `ready` is false.
+ */
 export class WorkerPool {
   /** Counts only (C-18): what the workers wrote to stderr, and why workers were replaced. */
-  readonly counters = { stderrBytes: 0, restarts: 0, crashes: 0, deadlines: 0, protocol: 0 };
-  private readonly workers = new Set<Worker>();
-  private readonly queue: { id: number; job: Job; timer: NodeJS.Timeout }[] = [];
+  readonly counters = { stderrBytes: 0, restarts: 0, crashes: 0, deadlines: 0, protocol: 0, dispatched: 0, spawnFailures: 0, startFailures: 0, verifyFailures: 0 };
+  private readonly slots: Slot[];
+  private readonly queue: Queued[] = [];
   private nextId = 1;
   private closed = false;
   private started = false;
-  private failures = 0;
+  private empty = false;
   private sampleRateSeen: number | null = null;
   private readonly sttMs: number;
+  private readonly ttsFirstMs: number;
   private readonly ttsGapMs: number;
   private readonly startMs: number;
+  private readonly role: 'stt' | 'tts';
+  private settleStart: (() => void) | null = null;
+  private readonly exits = new Set<Promise<void>>();
 
   constructor(private readonly opts: WorkerPoolOptions) {
     if (!Number.isInteger(opts.size) || opts.size < 1) throw new Error('WorkerPool: size must be a positive whole number');
     this.sttMs = opts.deadlines?.sttMs ?? STT_DEADLINE_MS;
+    this.ttsFirstMs = opts.deadlines?.ttsFirstMs ?? TTS_FIRST_MS;
     this.ttsGapMs = opts.deadlines?.ttsGapMs ?? TTS_GAP_MS;
     this.startMs = opts.deadlines?.startMs ?? START_TIMEOUT_MS;
+    this.role = opts.role ?? (opts.engine === 'whisper' || opts.engine === 'echo' ? 'stt' : 'tts');
+    this.slots = Array.from({ length: opts.size }, () => ({ worker: null, failures: 0, attempts: 0, initial: 'pending' as const, launched: false, timer: null }));
   }
 
   /** The TTS sample rate the workers reported in `pong` (null for STT). */
@@ -213,53 +279,67 @@ export class WorkerPool {
     return this.sampleRateSeen;
   }
 
-  get deadlines(): { sttMs: number; ttsGapMs: number } {
-    return { sttMs: this.sttMs, ttsGapMs: this.ttsGapMs };
+  get deadlines(): { sttMs: number; ttsFirstMs: number; ttsGapMs: number } {
+    return { sttMs: this.sttMs, ttsFirstMs: this.ttsFirstMs, ttsGapMs: this.ttsGapMs };
   }
 
-  /** Live workers, for tests. */
+  /** Live worker processes, for tests. */
   get size(): number {
-    return [...this.workers].filter((w) => !w.dead).length;
+    return this.slots.filter((s) => s.worker !== null && !s.worker.dead).length;
   }
 
-  /** Spawns every worker and waits for each one's `pong`; rejects (and stops them all) if any fails to load. */
+  /** I2: at least one worker is loaded and taking jobs (the service's GET /ready). */
+  get ready(): boolean {
+    return !this.closed && this.readyCount() > 0;
+  }
+
+  /** Spawns every worker; resolves once each has answered `ping` or failed START_ATTEMPTS times; rejects if none started. */
   async start(): Promise<void> {
-    try {
-      await Promise.all(Array.from({ length: this.opts.size }, () => this.spawnOne()));
-    } catch (e) {
+    const settled = new Promise<void>((resolve) => (this.settleStart = resolve));
+    for (const slot of this.slots) void this.launch(slot);
+    this.checkStart();
+    await settled;
+    if (this.closed) throw new Error(`voice worker (${this.opts.engine} ${this.opts.model}) did not start: the pool was closed`);
+    if (!this.slots.some((s) => s.initial === 'ready')) {
       await this.close();
-      throw e;
+      throw new Error(`voice worker (${this.opts.engine} ${this.opts.model}) did not start after ${START_ATTEMPTS} attempts: the interpreter, the engine or its model failed to load`);
     }
     this.started = true;
+    if (this.readyCount() === 0) this.goneEmpty();
   }
 
   async close(): Promise<void> {
     this.closed = true;
+    this.settleStart?.();
     for (const q of this.queue.splice(0)) {
       clearTimeout(q.timer);
       dropPayload(q.job);
       q.job.onFail();
     }
-    const exits: Promise<void>[] = [];
-    for (const w of this.workers) {
+    for (const slot of this.slots) {
+      if (slot.timer) clearTimeout(slot.timer);
+      slot.timer = null;
+      const w = slot.worker;
+      if (w === null) continue;
       if (w.running) this.failRunning(w);
       if (w.dead) continue;
-      exits.push(new Promise<void>((resolve) => w.child.once('exit', () => resolve())));
       w.child.stdin.end();
       setTimeout(() => w.kill(), CLOSE_GRACE_MS).unref();
     }
-    await Promise.all(exits);
+    await Promise.all([...this.exits]);
   }
 
-  /** Queues a job; it runs on the next idle worker. */
+  /** Queues a job; it runs on the next idle worker. An empty pool fails it at once (I2). */
   submit(job: Job): Handle {
     const id = this.nextId++;
     if (this.nextId > 0xffffffff) this.nextId = 1;
-    if (this.closed) {
+    if (this.closed || (this.started && this.readyCount() === 0)) {
       dropPayload(job);
       queueMicrotask(() => job.onFail());
       return { cancel: () => {}, running: () => false };
     }
+    // I1: the deadline counts from now, queue time included. A job still queued when it passes fails, never dispatched.
+    const ms = job.header.op === 'stt' ? this.sttMs : this.ttsFirstMs;
     const timer = setTimeout(() => {
       const i = this.queue.findIndex((q) => q.id === id);
       if (i < 0) return;
@@ -267,12 +347,11 @@ export class WorkerPool {
       this.counters.deadlines++;
       dropPayload(job);
       job.onFail();
-    }, job.deadlineMs);
-    timer.unref();
-    this.queue.push({ id, job, timer });
+    }, ms).unref();
+    this.queue.push({ id, job, due: performance.now() + ms, timer });
     this.dispatch();
     return {
-      running: () => [...this.workers].some((w) => w.running?.id === id),
+      running: () => this.slots.some((s) => s.worker?.running?.id === id),
       cancel: () => {
         const i = this.queue.findIndex((q) => q.id === id);
         if (i >= 0) {
@@ -281,8 +360,9 @@ export class WorkerPool {
           dropPayload(job);
           return;
         }
-        for (const w of this.workers) {
-          if (w.running?.id === id && !w.running.cancelSent) {
+        for (const s of this.slots) {
+          const w = s.worker;
+          if (w?.running?.id === id && !w.running.cancelSent) {
             w.running.cancelSent = true;
             w.write(encodeWorkerFrame({ op: 'cancel', id }));
           }
@@ -301,83 +381,96 @@ export class WorkerPool {
     return [...flags, WORKER_SCRIPT, '--engine', engine, '--model', model, '--models-dir', modelsDir, ...(voice === undefined ? [] : ['--voice', voice]), ...extraArgs];
   }
 
-  private spawnOne(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const w = new Worker(this, this.opts.python, this.args(), workerEnv(process.env));
-      this.workers.add(w);
-      let settled = false;
-      const timer = setTimeout(() => fail(), this.startMs);
-      timer.unref();
-      const fail = () => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        w.kill();
-        reject(new Error(`voice worker (${this.opts.engine} ${this.opts.model}) did not start: the engine or its model failed to load`));
-      };
-      w.child.once('error', fail);
-      w.child.once('exit', fail);
-      const ping = encodeWorkerFrame({ op: 'ping' });
-      w.write(ping);
-      w.onReady = () => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        resolve();
-      };
-    });
+  private log(kind: 'worker_down' | 'pool_empty' | 'pool_ready', fields: Record<string, number | boolean> = {}): void {
+    this.opts.log?.(kind, { [this.role]: true, ...fields });
   }
 
-  /** @internal */
-  onMessage(w: Worker, header: Header, payload: Buffer): void {
-    if (header.op === 'pong') {
-      if (w.ready || w.retired) return;
-      w.ready = true;
-      w.everReady = true;
-      if (typeof header.sampleRate === 'number') {
-        w.sampleRate = header.sampleRate;
-        this.sampleRateSeen ??= header.sampleRate;
+  private isClosed(): boolean {
+    return this.closed;
+  }
+
+  private readyCount(): number {
+    return this.slots.filter((s) => s.worker !== null && s.worker.ready && !s.worker.retired && !s.worker.dead).length;
+  }
+
+  private async launch(slot: Slot): Promise<void> {
+    slot.timer = null;
+    if (this.closed) return;
+    if (slot.launched && this.opts.verify) {
+      try {
+        await this.opts.verify();
+      } catch {
+        this.counters.verifyFailures++;
+        this.log('worker_down', { verify: true });
+        return this.retry(slot);
       }
-      w.onReady?.();
-      this.dispatch();
-      return;
+      if (this.isClosed()) return; // close() may have run while verify was awaited
     }
-    if (header.op === 'error' && header.id === null) return; // a model that failed to load; the exit follows
-    const r = w.running;
-    if (r === null || header.id !== r.id) {
-      payload.fill(0); // a late message for a job already failed: dropped
-      return;
+    slot.launched = true;
+    let w: Worker;
+    try {
+      w = new Worker(this, slot, this.opts.python, this.args(), workerEnv(process.env));
+    } catch {
+      this.counters.spawnFailures++;
+      this.log('worker_down', { spawn: true });
+      return this.retry(slot);
     }
-    if (r.job.gap) r.timer.refresh();
-    const last = r.job.onMessage(header, payload);
-    if (last) {
-      clearTimeout(r.timer);
-      w.running = null;
-      this.failures = 0;
-      this.dispatch();
+    slot.worker = w;
+    this.exits.add(new Promise<void>((resolve) => w.child.once('close', () => resolve())));
+    w.startTimer = setTimeout(() => w.kill(), this.startMs);
+    w.startTimer.unref();
+    w.write(encodeWorkerFrame({ op: 'ping' }));
+  }
+
+  /** The slot failed to get a worker (or lost one): try again after the backoff, forever, until close(). */
+  private retry(slot: Slot): void {
+    if (this.closed) return;
+    if (slot.initial === 'pending') {
+      slot.attempts++;
+      if (slot.attempts >= START_ATTEMPTS) {
+        slot.initial = 'failed';
+        this.checkStart();
+      }
+    }
+    const delay = Math.min(RESTART_MAX_MS, RESTART_MIN_MS * 2 ** slot.failures);
+    slot.failures++;
+    this.counters.restarts++;
+    // Not unref'd: while start() waits on a retry, this timer is all that keeps the process alive. close() clears it.
+    slot.timer = setTimeout(() => void this.launch(slot), delay);
+  }
+
+  private checkStart(): void {
+    if (this.slots.every((s) => s.initial !== 'pending')) this.settleStart?.();
+  }
+
+  private goneEmpty(): void {
+    if (this.empty || !this.started || this.closed) return;
+    this.empty = true;
+    this.log('pool_empty');
+    for (const q of this.queue.splice(0)) {
+      clearTimeout(q.timer);
+      dropPayload(q.job);
+      q.job.onFail();
     }
   }
 
   /** @internal */
-  onExit(w: Worker): void {
-    this.workers.delete(w);
+  onGone(w: Worker, how: { spawn: boolean; code: number | null; signal: NodeJS.Signals | null }): void {
+    const slot = w.slot;
+    if (slot.worker === w) slot.worker = null;
     if (w.running) {
-      this.counters.crashes++;
+      if (!how.spawn) this.counters.crashes++;
       this.failRunning(w);
     }
-    // Replace it, backing off while workers keep dying: once the pool has started, or for a worker that had loaded
-    // (a model that fails to load during start() fails start() instead).
-    if (this.closed || (!this.started && !w.everReady)) return;
-    this.counters.restarts++;
-    const delay = Math.min(RESTART_MAX_MS, RESTART_MIN_MS * 2 ** this.failures);
-    this.failures++;
-    setTimeout(() => {
-      if (!this.closed) this.spawnOne().catch(() => this.onRespawnFailed());
-    }, delay).unref();
-  }
-
-  private onRespawnFailed(): void {
-    // spawnOne killed it; its exit already scheduled the next attempt (onExit), with a longer delay.
+    if (how.spawn) {
+      this.counters.spawnFailures++;
+      this.log('worker_down', { spawn: true });
+    } else {
+      if (!w.everReady) this.counters.startFailures++;
+      this.log('worker_down', how.code === null ? { exit: true, killed: true } : { exit: true, code: how.code });
+    }
+    if (this.readyCount() === 0) this.goneEmpty();
+    this.retry(slot);
   }
 
   private failRunning(w: Worker): void {
@@ -388,21 +481,77 @@ export class WorkerPool {
     r.job.onFail();
   }
 
+  /** @internal */
+  onMessage(w: Worker, header: Header, payload: Buffer): void {
+    if (header.op === 'pong') {
+      if (w.ready || w.retired || w.dead) return;
+      if (w.startTimer) clearTimeout(w.startTimer);
+      w.ready = true;
+      w.everReady = true;
+      w.slot.failures = 0;
+      if (typeof header.sampleRate === 'number') {
+        w.sampleRate = header.sampleRate;
+        this.sampleRateSeen ??= header.sampleRate;
+      }
+      if (w.slot.initial === 'pending') {
+        w.slot.initial = 'ready';
+        this.checkStart();
+      }
+      if (this.empty) {
+        this.empty = false;
+        this.log('pool_ready');
+      }
+      this.dispatch();
+      return;
+    }
+    if (header.op === 'error' && header.id === null) return; // a model that failed to load; the exit follows
+    const r = w.running;
+    if (r === null || header.id !== r.id) {
+      payload.fill(0); // a late message for a job already failed: dropped
+      return;
+    }
+    // M9: a TTS stream gets its first message by its first deadline, then TTS_GAP_MS between messages.
+    if (r.job.header.op === 'tts') {
+      clearTimeout(r.timer);
+      r.timer = this.hungAfter(w, r.id, this.ttsGapMs);
+    }
+    const last = r.job.onMessage(header, payload);
+    if (last) {
+      clearTimeout(r.timer);
+      w.running = null;
+      this.dispatch();
+    }
+  }
+
+  /** A timer that fails the running job and kills its worker (replaced on exit) if it is still running then. */
+  private hungAfter(w: Worker, id: number, ms: number): NodeJS.Timeout {
+    return setTimeout(() => {
+      if (w.running?.id !== id) return;
+      this.counters.deadlines++;
+      this.failRunning(w);
+      w.kill();
+      if (this.readyCount() === 0) this.goneEmpty();
+    }, ms).unref();
+  }
+
   private dispatch(): void {
     if (this.closed) return;
-    for (const w of this.workers) {
+    for (const s of this.slots) {
+      const w = s.worker;
       if (this.queue.length === 0) return;
-      if (!w.ready || w.dead || w.running !== null) continue;
+      if (w === null || !w.ready || w.dead || w.retired || w.running !== null) continue;
       const q = this.queue.shift()!;
       clearTimeout(q.timer);
-      const timer = setTimeout(() => {
-        if (w.running?.id !== q.id) return;
+      // I1: only what is left of the job's deadline, never a fresh one.
+      const left = q.due - performance.now();
+      if (left <= 0) {
         this.counters.deadlines++;
-        this.failRunning(w);
-        w.kill(); // a hung worker: replaced by onExit
-      }, q.job.deadlineMs);
-      timer.unref();
-      w.running = { id: q.id, job: q.job, timer, cancelSent: false };
+        dropPayload(q.job);
+        q.job.onFail();
+        continue;
+      }
+      this.counters.dispatched++;
+      w.running = { id: q.id, job: q.job, timer: this.hungAfter(w, q.id, left), cancelSent: false };
       const frame = encodeWorkerFrame({ ...q.job.header, id: q.id }, q.job.payload ?? undefined);
       q.job.payload = null; // the session owns (and zeroes) its buffer; our frame copy is zeroed once written
       w.write(frame);
@@ -434,8 +583,6 @@ export function workerStt(pool: WorkerPool, model: string): SttEngine {
         const handle = pool.submit({
           header: { op: 'stt', sampleRate: 16_000, hint: [...hint] },
           payload: bytes,
-          deadlineMs: pool.deadlines.sttMs,
-          gap: false,
           onMessage: (h) => {
             if (h.op === 'stt' && typeof h.text === 'string') {
               const text = h.text;
@@ -478,8 +625,6 @@ export function workerTts(pool: WorkerPool, model: string, sampleRate: number): 
       const handle = pool.submit({
         header: { op: 'tts', voice, text },
         payload: null,
-        deadlineMs: pool.deadlines.ttsGapMs,
-        gap: true,
         onMessage: (h, payload) => {
           if (h.op === 'pcm') {
             if (h.sampleRate !== sampleRate || payload.byteLength % 2 !== 0) {

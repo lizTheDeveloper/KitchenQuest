@@ -36,7 +36,7 @@ test('non-finite numbers and odd field names are dropped too; every line is one 
   expect(lines).toEqual([JSON.stringify({ kind: 'engine_error', stt: true })]);
   const kinds: LogKind[] = ['conn_open', 'conn_close', 'stt_done', 'tts_done', 'engine_error', 'bad_message', 'auth_fail', 'fatal', 'warning', 'worker_down', 'pool_empty', 'pool_ready'];
   for (const k of kinds) log(k);
-  expect(lines).toHaveLength(10);
+  expect(lines).toHaveLength(1 + kinds.length);
 });
 
 test('fix round 2 (N2): a warning is logged by name only; a free-text type is just `other`', () => {

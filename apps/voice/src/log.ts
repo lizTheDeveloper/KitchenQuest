@@ -5,10 +5,24 @@
  * `fatal` (fix round 1, I1): an error escaped a handler or the process; its message, stack and data are never read.
  * `warning` (fix round 2, N2): a process warning, by name only (warningFields).
  */
-export type LogKind = 'conn_open' | 'conn_close' | 'stt_done' | 'tts_done' | 'engine_error' | 'bad_message' | 'auth_fail' | 'fatal' | 'warning';
+export type LogKind =
+  | 'conn_open'
+  | 'conn_close'
+  | 'stt_done'
+  | 'tts_done'
+  | 'engine_error'
+  | 'bad_message'
+  | 'auth_fail'
+  | 'fatal'
+  | 'warning'
+  /** Step 3 fix round 1 (I2): a worker went down or could not start ({stt|tts, spawn|exit|verify, code?|killed?}). */
+  | 'worker_down'
+  /** No worker of that pool is ready: utterances fail at once and GET /ready answers 503. */
+  | 'pool_empty'
+  | 'pool_ready';
 export type Logger = (kind: LogKind, fields?: Record<string, number | boolean>) => void;
 
-const KINDS: ReadonlySet<string> = new Set<LogKind>(['conn_open', 'conn_close', 'stt_done', 'tts_done', 'engine_error', 'bad_message', 'auth_fail', 'fatal', 'warning']);
+const KINDS: ReadonlySet<string> = new Set<LogKind>(['conn_open', 'conn_close', 'stt_done', 'tts_done', 'engine_error', 'bad_message', 'auth_fail', 'fatal', 'warning', 'worker_down', 'pool_empty', 'pool_ready']);
 const FIELD = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
 
 /** One JSON line per event. `write` is looked up per call, so a test can capture stdout. */

@@ -26,7 +26,7 @@ export interface VoiceConfig {
   python: string;
   /** VOICE_WORKERS: worker processes per engine (STT and TTS each). */
   workers: number;
-  /** VOICE_ACCEPT_LATENCY_MISS: the date of a benchmark miss the founder accepted (Ruling 3). */
+  /** VOICE_ACCEPT_LATENCY_MISS: the run id (bench-gate runId) of a benchmark miss the founder accepted (Ruling 3). */
   acceptLatencyMiss: string | undefined;
 }
 
@@ -102,7 +102,8 @@ export function loadVoiceConfig(env: NodeJS.ProcessEnv, manifest: VoiceManifest)
   const python = value(env, 'VOICE_PYTHON') ?? 'python3';
   const workers = intVar(env, 'VOICE_WORKERS', Math.min(MAX_WORKERS, availableParallelism()), 1, MAX_WORKERS);
   const acceptLatencyMiss = value(env, 'VOICE_ACCEPT_LATENCY_MISS');
-  if (acceptLatencyMiss !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(acceptLatencyMiss)) throw new Error('VOICE_ACCEPT_LATENCY_MISS must be the YYYY-MM-DD date of the benchmark run it accepts');
+  if (acceptLatencyMiss !== undefined && !/^\d{4}-\d{2}-\d{2}-[a-z0-9-]+-[0-9a-f]{8}$/.test(acceptLatencyMiss))
+    throw new Error('VOICE_ACCEPT_LATENCY_MISS must be the run id the bench gate printed for the run it accepts (<date>-<box>-<8 hex>)');
 
   return { production, port, token, engine, sttModel, cast, maxConnections, host, workerEngine, modelsDir, python, workers, acceptLatencyMiss };
 }
