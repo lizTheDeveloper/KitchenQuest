@@ -55,7 +55,10 @@ describe('the voice licence manifest', () => {
 
   test('every GPL engine is in-worker-process or separate-process; no in-process engine is GPL', () => {
     const gpl: EngineEntry[] = manifest.engines.filter((e) => /GPL/.test(e.licence));
-    expect(gpl.map((e) => e.id).sort()).toEqual(['espeak-ng', 'piper-tts']);
+    // Fix round 1 (M8): phonemizer (GPL-3.0-or-later, patched by the worker) and espeakng-loader run in the worker too.
+    expect(gpl.map((e) => e.id).sort()).toEqual(['espeak-ng', 'phonemizer', 'piper-tts']);
+    expect(manifest.engines.find((e) => e.id === 'phonemizer')).toEqual({ id: 'phonemizer', licence: 'GPL-3.0-or-later', boundary: 'in-worker-process' });
+    expect(manifest.engines.find((e) => e.id === 'espeakng-loader')).toMatchObject({ boundary: 'in-worker-process', verify: true });
     for (const e of gpl) expect(['in-worker-process', 'separate-process'], e.id).toContain(e.boundary);
     for (const e of manifest.engines.filter((x) => x.boundary === 'in-process')) expect(e.licence, e.id).not.toMatch(/GPL/);
     expect(manifest.engines.find((e) => e.id === 'piper-tts')!.boundary).toBe('separate-process');

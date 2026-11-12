@@ -34,7 +34,7 @@ test('non-finite numbers and odd field names are dropped too; every line is one 
   const log = createLogger((line) => lines.push(line));
   log('engine_error', { ms: Number.NaN, inf: Number.POSITIVE_INFINITY, 'with space': 1, ['a'.repeat(65)]: 2, stt: true });
   expect(lines).toEqual([JSON.stringify({ kind: 'engine_error', stt: true })]);
-  const kinds: LogKind[] = ['conn_open', 'conn_close', 'stt_done', 'tts_done', 'engine_error', 'bad_message', 'auth_fail', 'fatal', 'warning'];
+  const kinds: LogKind[] = ['conn_open', 'conn_close', 'stt_done', 'tts_done', 'engine_error', 'bad_message', 'auth_fail', 'fatal', 'warning', 'worker_down', 'pool_empty', 'pool_ready'];
   for (const k of kinds) log(k);
   expect(lines).toHaveLength(10);
 });

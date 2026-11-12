@@ -29,7 +29,8 @@
 #   message or value ever reaches any output. Core dumps are off (RLIMIT_CORE 0), as LimitCORE=0 is in the unit.
 #
 # Test triggers for the stdlib-only `echo` engine (B3): the hint word "__kq_crash__" makes the process exit mid-job,
-# the hint word or text "__kq_hang__" never answers, and the text "__kq_long__" streams 10 s of PCM.
+# the hint word or text "__kq_hang__" never answers, "__kq_slow__" takes 0.4 s before its first answer, and the text
+# "__kq_long__" streams 10 s of PCM.
 
 import array
 import json
@@ -227,6 +228,8 @@ class Echo:
         if "__kq_hang__" in hint:
             while True:
                 time.sleep(3600)
+        if "__kq_slow__" in hint:
+            time.sleep(0.4)
         floats = pcm16_to_float(pcm)  # the conversion the whisper engine makes, so the leak controls are real
         n = len(floats)
         text = "echo " + str(n)
@@ -239,6 +242,8 @@ class Echo:
         if "__kq_hang__" in text:
             while True:
                 time.sleep(3600)
+        if "__kq_slow__" in text:
+            time.sleep(0.4)  # a slow first piece, as Kokoro's single call is
         if "__kq_long__" in text:
             # 10 s of PCM in 100 ms pieces, paced at about 10x real time, so a cancel lands mid-stream.
             piece = self._tone(ECHO_RATE // 10, 0)

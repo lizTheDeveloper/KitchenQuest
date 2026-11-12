@@ -37,6 +37,12 @@ test('verifyPins accepts matching sha256 and names the first mismatching or miss
   // A changed byte is a mismatch.
   writeFileSync(join(dir, 'm/a.bin'), 'alphA');
   await expect(verifyPins(entry([a, b]), dir)).rejects.toThrow(/m\/a\.bin does not match/);
+  // Fix round 1 (M5): a file in the model's directory that is not pinned is refused too (an engine may read extras).
+  writeFileSync(join(dir, 'm/a.bin'), 'alpha');
+  writeFileSync(join(dir, 'm/preprocessor_config.json'), '{}');
+  await expect(verifyPins(entry([a, b]), dir)).rejects.toThrow(/^voice model m: m\/preprocessor_config\.json is not pinned/);
+  rmSync(join(dir, 'm/preprocessor_config.json'));
+  await expect(verifyPins(entry([a, b]), dir)).resolves.toBeUndefined();
   // No pins at all, or a path that leaves the models directory, is refused before any read.
   await expect(verifyPins(entry([]), dir)).rejects.toThrow(/no files/);
   for (const path of ['../m/a.bin', '/etc/passwd', 'm/../../x', ''])

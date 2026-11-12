@@ -398,6 +398,24 @@ describe('Step 3: slow headers, pre-upgrade sockets, silent sockets and the bind
     expect(logs.filter(([k, f]) => k === 'conn_close' && f?.code === 4408)).toHaveLength(3);
   });
 
+  test('fix round 1 (I2): GET /ready answers 200 while health() holds and 503 when it does not, with no body and no auth; anything else is still 426', async () => {
+    let healthy = true;
+    const logs: [LogKind, Record<string, number | boolean> | undefined][] = [];
+    const server = createVoiceServer({ config: testConfig(), stt: fakeStt(() => 'x'), tts: fakeTts(), log: (k, f) => logs.push([k, f]), health: () => healthy });
+    servers.push(server);
+    const port = await server.listen(0);
+    const get = async (path: string, method = 'GET') => {
+      const r = await fetch(`http://127.0.0.1:${port}${path}`, { method });
+      return { status: r.status, body: await r.text() };
+    };
+    expect(await get('/ready')).toEqual({ status: 200, body: '' });
+    healthy = false;
+    expect(await get('/ready')).toEqual({ status: 503, body: '' });
+    expect((await get('/ready', 'POST')).status).toBe(426);
+    expect((await get('/')).status).toBe(426);
+    expect(logs).toEqual([]);
+  });
+
   test('C-38: the server binds config.host only (127.0.0.2 here): the same port on 127.0.0.1 refuses the connection', async () => {
     const { port } = await startWith(undefined, testConfig({ host: '127.0.0.2' }));
     const ok = await connect(port, `Bearer ${TEST_TOKEN}`, '127.0.0.2');

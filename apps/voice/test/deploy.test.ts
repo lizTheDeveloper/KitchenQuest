@@ -13,20 +13,47 @@ describe('deploy/kq-voice.service', () => {
 
   test('kq-voice.service sets LimitCORE=0 and HF_HUB_OFFLINE=1 and binds VOICE_PORT on a private address variable', () => {
     expect(settings.get('LimitCORE')).toEqual(['0']);
-    expect(env.HF_HUB_OFFLINE).toBe('1');
-    expect(env.ORT_DISABLE_TELEMETRY).toBe('1'); // onnxruntime 1.31 writes a device id and a .ses file otherwise
-    expect(env.NODE_ENV).toBe('production');
+    const all = { ...env, ...unitExecStart(settings).env };
+    expect(all.HF_HUB_OFFLINE).toBe('1');
+    expect(all.ORT_DISABLE_TELEMETRY).toBe('1'); // onnxruntime 1.31 writes a device id and a .ses file otherwise
+    expect(all.NODE_ENV).toBe('production');
     // The bind address is a variable the service reads (VOICE_HOST), private by default, and config refuses anything
     // that is not loopback or private (C-38); the unit never sets the wildcard.
     expect(env.VOICE_HOST).toBe('127.0.0.1');
     expect(env.VOICE_PORT).toMatch(/^\d+$/);
-    const config = loadVoiceConfig({ ...env, VOICE_SERVICE_TOKEN: 'p'.repeat(32), VOICE_ENGINE: 'worker' }, loadManifest());
+    const config = loadVoiceConfig({ ...all, VOICE_SERVICE_TOKEN: 'p'.repeat(32) }, loadManifest());
     expect(config.host).toBe('127.0.0.1');
     expect(config.port).toBe(Number(env.VOICE_PORT));
     expect(readFileSync(UNIT_FILE, 'utf8')).not.toMatch(/0\.0\.0\.0|VOICE_HOST=::/);
     // Secrets come from a root-owned file, never the unit.
     expect(settings.get('EnvironmentFile')).toEqual(['/etc/kitchenquest/voice.env']);
     expect(env.VOICE_SERVICE_TOKEN).toBeUndefined();
+  });
+
+  test('fix round 1 (M1): no network but loopback (the API reaches it through a drop-in); M2: syscall, namespace and kernel hardening', () => {
+    expect(settings.get('IPAddressDeny')).toEqual(['any']);
+    expect(settings.get('IPAddressAllow')).toEqual(['localhost']);
+    for (const [k, v] of [
+      ['SystemCallFilter', '@system-service'],
+      ['SystemCallArchitectures', 'native'],
+      ['ProtectKernelLogs', 'yes'],
+      ['ProtectClock', 'yes'],
+      ['ProtectHostname', 'yes'],
+      ['RestrictNamespaces', 'yes'],
+      ['RestrictRealtime', 'yes'],
+      ['ProtectProc', 'invisible'],
+      ['RemoveIPC', 'yes'],
+    ] as const)
+      expect(settings.get(k), k).toEqual([v]);
+    // The comment no longer claims more than the unit does: /tmp is private, and writable.
+    expect(readFileSync(UNIT_FILE, 'utf8')).not.toMatch(/no writable filesystem at all/);
+  });
+
+  test('fix round 1 (M3): the security-relevant values are set on the command line, which voice.env cannot override', () => {
+    const { env: cmdline } = unitExecStart(settings);
+    expect(cmdline).toEqual({ NODE_ENV: 'production', VOICE_ENGINE: 'worker', VOICE_WORKER_ENGINE: 'real', HF_HUB_OFFLINE: '1', ORT_DISABLE_TELEMETRY: '1', TSX_DISABLE_CACHE: '1' });
+    // None of them is left as an overridable Environment= default.
+    for (const k of Object.keys(cmdline)) expect(unitEnvironment(settings)[k], k).toBeUndefined();
   });
 
   test('C-18 hardening: no swap, no writable filesystem, a private /tmp, no devices (no microphone), no new privileges', () => {
@@ -49,7 +76,7 @@ describe('deploy/kq-voice.service', () => {
     expect(flags).toEqual(['--disable-warning=ExperimentalWarning', '--import', 'tsx']);
     expect(entry).toBe('src/main.ts');
     expect(readFileSync(UNIT_FILE, 'utf8')).not.toMatch(/--no-warnings/);
-    expect(env.TSX_DISABLE_CACHE).toBe('1');
+    expect(unitExecStart(settings).env.TSX_DISABLE_CACHE).toBe('1');
     expect(settings.get('WorkingDirectory')).toEqual(['/opt/kitchenquest/apps/voice']);
   });
 

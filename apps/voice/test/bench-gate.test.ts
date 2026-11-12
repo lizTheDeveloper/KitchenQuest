@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { encodeFrame } from '@kitchenquest/core';
 import { afterEach, expect, test } from 'vitest';
-import { benchGate, loadLatestRun } from '../src/bench-gate';
+import { benchGate, loadLatestRun, runId } from '../src/bench-gate';
 import { boot } from '../src/boot';
 import { benchRun } from './bench-fixture';
 import { connect, freePort, testConfig, TEST_TOKEN } from './helpers';
@@ -30,9 +30,17 @@ test("no run → refused; another stack → refused; a miss → refused unless V
 
   const m = benchGate(cfg, miss, undefined);
   expect(m.ok).toBe(false);
-  expect(!m.ok && m.why).toMatch(/2026-12-01.*p50 1720 ms.*p90 2900 ms.*VOICE_ACCEPT_LATENCY_MISS=2026-12-01/s);
+  // Fix round 1 (M6): a miss is accepted by its run id (date, box and a hash of the run), never by its date alone, so an
+  // acceptance cannot carry over to another (worse) run committed with the same date and box.
+  const id = runId(miss);
+  expect(id).toMatch(/^2026-12-01-ccx33-fsn1-[0-9a-f]{8}$/);
+  expect(!m.ok && m.why).toMatch(new RegExp(`2026-12-01.*p50 1720 ms.*p90 2900 ms.*VOICE_ACCEPT_LATENCY_MISS=${id}`, 's'));
   expect(benchGate(cfg, miss, '2026-11-30').ok).toBe(false);
-  expect(benchGate(cfg, miss, '2026-12-01')).toEqual({ ok: true });
+  expect(benchGate(cfg, miss, '2026-12-01').ok).toBe(false);
+  expect(benchGate(cfg, miss, id)).toEqual({ ok: true });
+  const worse = benchRun({ ms: { ...benchRun().ms, replyAudio: { p50: 2400, p90: 3900, p95: 4100 } }, meetsTarget: false });
+  expect(runId(worse)).not.toBe(id);
+  expect(benchGate(cfg, worse, id).ok).toBe(false);
   // A pass needs no acceptance, and an acceptance of another date changes nothing.
   expect(benchGate(cfg, benchRun(), undefined)).toEqual({ ok: true });
   expect(benchGate(cfg, benchRun(), '2020-01-01')).toEqual({ ok: true });
@@ -62,7 +70,9 @@ test('boot({ NODE_ENV: "production", … }) rejects with the gate\'s reason; dev
   await expect(boot(prod, { latestRun: () => miss })).rejects.toThrow(/missed the latency target/);
   // Past the gate, the pins are checked next: CI has no weights, so a pass stops there, naming the first file.
   await expect(boot(prod, { latestRun: () => benchRun() })).rejects.toThrow(/voice model faster-whisper-base\.en: faster-whisper-base\.en\/\S+ is missing/);
-  await expect(boot({ ...prod, VOICE_ACCEPT_LATENCY_MISS: '2026-12-01' }, { latestRun: () => miss })).rejects.toThrow(/is missing/);
+  // Another run's id accepts nothing (M6).
+  await expect(boot({ ...prod, VOICE_ACCEPT_LATENCY_MISS: '2026-12-01-ccx33-fsn1-00000000' }, { latestRun: () => miss })).rejects.toThrow(/missed the latency target/);
+  await expect(boot({ ...prod, VOICE_ACCEPT_LATENCY_MISS: runId(miss) }, { latestRun: () => miss })).rejects.toThrow(/is missing/);
 
   // Development: the echo worker engine, no run, no pins.
   const port = await freePort();
@@ -77,4 +87,6 @@ test('boot({ NODE_ENV: "production", … }) rejects with the gate\'s reason; dev
   expect(await c.next(8000)).toMatchObject({ kind: 'msg', msg: { t: 'transcript', id: 1, text: 'echo 320' } });
   c.ws.close();
   await c.closed;
+  // I2: readiness, for systemd checks and the API: 200 while every pool has a live worker.
+  expect((await fetch(`http://127.0.0.1:${port}/ready`)).status).toBe(200);
 });

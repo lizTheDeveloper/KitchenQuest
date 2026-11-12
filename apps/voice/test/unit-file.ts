@@ -29,10 +29,22 @@ export function unitEnvironment(settings = serviceSettings()): Record<string, st
   return Object.fromEntries((settings.get('Environment') ?? []).map((e) => [e.slice(0, e.indexOf('=')), e.slice(e.indexOf('=') + 1)]));
 }
 
-/** ExecStart split into the Node flags before the entry point and the entry point itself. */
-export function unitExecStart(settings = serviceSettings()): { node: string; flags: string[]; entry: string } {
+/**
+ * ExecStart split into the variables set on the command line (`/usr/bin/env K=V …`, fix round 1 M3: these win over
+ * EnvironmentFile), the Node binary, its flags before the entry point, and the entry point itself.
+ */
+export function unitExecStart(settings = serviceSettings()): { env: Record<string, string>; node: string; flags: string[]; entry: string } {
   const exec = settings.get('ExecStart') ?? [];
   if (exec.length !== 1) throw new Error('kq-voice.service needs exactly one ExecStart');
-  const [node, ...rest] = exec[0].split(/\s+/);
-  return { node, flags: rest.slice(0, -1), entry: rest.at(-1)! };
+  let words = exec[0].split(/\s+/);
+  const env: Record<string, string> = {};
+  if (words[0] === '/usr/bin/env') {
+    words = words.slice(1);
+    while (words.length > 0 && /^[A-Z_][A-Z0-9_]*=/.test(words[0])) {
+      const [k, ...v] = words.shift()!.split('=');
+      env[k] = v.join('=');
+    }
+  }
+  const [node, ...rest] = words;
+  return { env, node, flags: rest.slice(0, -1), entry: rest.at(-1)! };
 }

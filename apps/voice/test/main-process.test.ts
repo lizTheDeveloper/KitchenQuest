@@ -11,12 +11,12 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { encodeFrame, type UpstreamServerMsg } from '@kitchenquest/core';
 import { afterEach, beforeEach, expect, test } from 'vitest';
 import { connect, freePort, TEST_TOKEN, type Client } from './helpers';
-import { unitEnvironment, unitExecStart } from './unit-file';
+import { unitExecStart } from './unit-file';
 
 const MARKER = 'zebrapeanut71';
 const HINT_WORD = 'sesame';
 const PCM_HEX = /514b514b|4b514b51/i;
-const KINDS = ['conn_open', 'conn_close', 'stt_done', 'tts_done', 'engine_error', 'bad_message', 'auth_fail', 'fatal', 'warning'];
+const KINDS = ['conn_open', 'conn_close', 'stt_done', 'tts_done', 'engine_error', 'bad_message', 'auth_fail', 'fatal', 'warning', 'worker_down', 'pool_empty', 'pool_ready'];
 
 const require = createRequire(import.meta.url);
 const tsxDir = dirname(require.resolve('tsx/package.json'));
@@ -30,7 +30,7 @@ const preload = new URL('./fixtures/fault-preload.mjs', import.meta.url).href;
  */
 const UNIT = unitExecStart();
 const NODE_FLAGS = UNIT.flags.filter((f, i, all) => f !== '--import' && all[i - 1] !== '--import');
-const UNIT_TSX_DISABLE_CACHE = unitEnvironment().TSX_DISABLE_CACHE;
+const UNIT_TSX_DISABLE_CACHE = UNIT.env.TSX_DISABLE_CACHE;
 const mainTs = fileURLToPath(new URL('../src/main.ts', import.meta.url));
 
 let root = '';
@@ -225,4 +225,23 @@ test('Step 3: run as the unit runs it, main leaves TMPDIR untouched; positive co
   await cached.exited;
   expect(snapshot(dirs[0])).not.toEqual(before);
   expect(Object.keys(snapshot(dirs[0])).some((k) => k.startsWith('tsx-'))).toBe(true);
+});
+
+test('fix round 1 (I2): with no worker able to start (VOICE_PYTHON missing), main exits non-zero after its attempts, printing only the boot refusal', async () => {
+  const port = await freePort();
+  let err = '';
+  let out = '';
+  const child = spawn(process.execPath, [...NODE_FLAGS, '--import', tsxLoader, mainTs], {
+    cwd: dirs[2],
+    env: { TSX_DISABLE_CACHE: UNIT_TSX_DISABLE_CACHE, PATH: process.env.PATH, TMPDIR: dirs[0], HOME: dirs[1], VOICE_SERVICE_TOKEN: TEST_TOKEN, VOICE_PORT: String(port), VOICE_ENGINE: 'worker', VOICE_WORKER_ENGINE: 'echo', VOICE_WORKERS: '1', VOICE_PYTHON: join(dirs[2], 'no-such-python') },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  child.stdout.on('data', (d: Buffer) => (out += d.toString('utf8')));
+  child.stderr.on('data', (d: Buffer) => (err += d.toString('utf8')));
+  const code = await new Promise<number | null>((resolve) => child.once('exit', (c) => resolve(c)));
+  expect(code).toBe(1);
+  expect(err).toMatch(/^voice: voice worker \(echo [^)]+\) did not start[^\n]*\n$/);
+  // stdout: content-free log lines only, one worker_down per failed attempt.
+  const lines = out.split('\n').filter((l) => l !== '').map((l) => JSON.parse(l) as Record<string, unknown>);
+  expect(lines.filter((l) => l.kind === 'worker_down').length).toBeGreaterThanOrEqual(2);
 });

@@ -74,14 +74,16 @@ describe('Step 3: the worker variables (P11) and the private bind address', () =
     expect(loadVoiceConfig(env({ VOICE_WORKERS: '' }), manifest).workers).toBe(availableParallelism());
   });
 
-  test('values: echo, a relative models dir is under the repo root, an absolute one is kept, workers 1..64, a YYYY-MM-DD accepted miss', () => {
-    const c = loadVoiceConfig(env({ VOICE_WORKER_ENGINE: 'echo', VOICE_MODELS_DIR: 'x/models', VOICE_PYTHON: '/opt/venv/bin/python', VOICE_WORKERS: '3', VOICE_ACCEPT_LATENCY_MISS: '2026-12-01' }), manifest);
-    expect(c).toMatchObject({ workerEngine: 'echo', modelsDir: join(repo, 'x/models'), python: '/opt/venv/bin/python', workers: 3, acceptLatencyMiss: '2026-12-01' });
+  test('values: echo, a relative models dir is under the repo root, an absolute one is kept, workers 1..64, an accepted miss named by its run id', () => {
+    const c = loadVoiceConfig(env({ VOICE_WORKER_ENGINE: 'echo', VOICE_MODELS_DIR: 'x/models', VOICE_PYTHON: '/opt/venv/bin/python', VOICE_WORKERS: '3', VOICE_ACCEPT_LATENCY_MISS: '2026-12-01-ccx33-fsn1-0123abcd' }), manifest);
+    expect(c).toMatchObject({ workerEngine: 'echo', modelsDir: join(repo, 'x/models'), python: '/opt/venv/bin/python', workers: 3, acceptLatencyMiss: '2026-12-01-ccx33-fsn1-0123abcd' });
     expect(loadVoiceConfig(env({ VOICE_MODELS_DIR: '/srv/models' }), manifest).modelsDir).toBe('/srv/models');
     expect(() => loadVoiceConfig(env({ VOICE_WORKER_ENGINE: 'gpu' }), manifest)).toThrow(/VOICE_WORKER_ENGINE/);
     expect(() => loadVoiceConfig(env({ VOICE_WORKERS: '0' }), manifest)).toThrow(/VOICE_WORKERS/);
     expect(() => loadVoiceConfig(env({ VOICE_WORKERS: '65' }), manifest)).toThrow(/VOICE_WORKERS/);
     expect(() => loadVoiceConfig(env({ VOICE_ACCEPT_LATENCY_MISS: 'yes' }), manifest)).toThrow(/VOICE_ACCEPT_LATENCY_MISS/);
+    // Fix round 1 (M6): the run id the gate prints, not a bare date.
+    expect(() => loadVoiceConfig(env({ VOICE_ACCEPT_LATENCY_MISS: '2026-12-01' }), manifest)).toThrow(/VOICE_ACCEPT_LATENCY_MISS/);
   });
 
   test('production refuses the echo worker engine', () => {

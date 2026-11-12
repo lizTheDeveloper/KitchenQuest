@@ -3,12 +3,12 @@
 // hung job (F5), and that the worker writes nothing and prints nothing but fixed words (C-18, Review Focus 2). It fails,
 // never skips, when python3 is missing.
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { encodeFrame, type UpstreamServerMsg } from '@kitchenquest/core';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
-import { encodeWorkerFrame, FrameReader, WORKER_SCRIPT, workerEnv, WorkerPool, workerStt, workerTts } from '../src/engines/worker';
+import { encodeWorkerFrame, FrameReader, START_ATTEMPTS, WORKER_SCRIPT, workerEnv, WorkerPool, workerStt, workerTts, type WorkerPoolOptions } from '../src/engines/worker';
 import type { LogKind } from '../src/log';
 import { createVoiceServer } from '../src/server';
 import { connect, testConfig, type Client } from './helpers';
@@ -121,6 +121,11 @@ test('ping → pong; stt echoes "echo <n samples>"; tts streams pcm then done; c
   }
   expect(n).toBeLessThan(100); // 10 s is 100 pieces: the cancel stopped it early
 
+  // Fix round 1 (M7): a cancel for an id that is neither queued nor running is dropped, so it cannot cancel a later job.
+  w.send({ op: 'cancel', id: 9 });
+  w.send({ op: 'stt', id: 9, sampleRate: 16_000, hint: [] }, pcm(16));
+  expect((await w.next()).header).toEqual({ op: 'stt', id: 9, text: 'echo 16' });
+
   // A wrong sample rate is an engine error: the kind, and nothing else.
   w.send({ op: 'stt', id: 4, sampleRate: 8000, hint: ['zebrapeanut71'] }, pcm(160));
   const e = await w.next();
@@ -152,10 +157,19 @@ afterEach(async () => {
   await Promise.all(pools.splice(0).map((p) => p.close()));
 });
 
-function pool(extraArgs: string[] = [], deadlines?: { sttMs?: number; ttsGapMs?: number }): WorkerPool {
-  const p = new WorkerPool({ python: PYTHON, engine: 'echo', model: 'echo', modelsDir: dirs.home, size: 1, extraArgs, deadlines });
+function pool(extraArgs: string[] = [], deadlines?: WorkerPoolOptions['deadlines'], over: Partial<WorkerPoolOptions> = {}): WorkerPool {
+  const p = new WorkerPool({ python: PYTHON, engine: 'echo', model: 'echo', modelsDir: dirs.home, size: 1, extraArgs, deadlines, ...over });
   pools.push(p);
   return p;
+}
+
+/** Fix round 1 (I2): an empty pool fails jobs at once, so a test that crashes a worker waits for its replacement. */
+async function ready(p: WorkerPool, timeoutMs = 8000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!p.ready) {
+    if (Date.now() > deadline) throw new Error('the pool did not become ready');
+    await new Promise((r) => setTimeout(r, 20));
+  }
 }
 
 const never = new AbortController().signal;
@@ -169,6 +183,7 @@ describe('WorkerPool', () => {
     expect(await stt.transcribe(samples(160), [], never)).toBe('echo 160');
     await expect(stt.transcribe(samples(160), ['__kq_crash__'], never)).rejects.toThrow();
     expect(p.counters.crashes).toBe(1);
+    await ready(p);
     expect(await stt.transcribe(samples(480), [], never)).toBe('echo 480');
     expect(p.counters.restarts).toBe(1);
     expect(p.counters.stderrBytes).toBe('kq-voice-worker: crash\n'.length);
@@ -183,6 +198,7 @@ describe('WorkerPool', () => {
     await waitFor(c, (m) => m.t === 'ready');
     await utter(c, 1, ['__kq_crash__']);
     expect(await waitFor(c, hasId(1))).toEqual({ t: 'failed', id: 1, kind: 'stt' });
+    await ready(p);
     await utter(c, 2, []);
     expect(await waitFor(c, hasId(2))).toEqual({ t: 'transcript', id: 2, text: 'echo 3200' });
     c.ws.close();
@@ -200,6 +216,7 @@ describe('WorkerPool', () => {
     await expect(stt.transcribe(samples(160), ['__kq_hang__'], never)).rejects.toThrow();
     expect(Date.now() - t0).toBeLessThan(2000);
     expect(p.counters.deadlines).toBe(1);
+    await ready(p);
     expect(await stt.transcribe(samples(160), [], never)).toBe('echo 160');
     expect(p.counters.restarts).toBe(1);
 
@@ -211,6 +228,7 @@ describe('WorkerPool', () => {
       })(),
     ).rejects.toThrow();
     expect(p.counters.deadlines).toBe(2);
+    await ready(p);
     expect(await stt.transcribe(samples(320), [], never)).toBe('echo 320');
 
     // An aborted STT that the worker is running settles only when the worker answers: the engine is never asked twice
@@ -253,14 +271,141 @@ describe('WorkerPool', () => {
 
   test('the worker environment is an allowlist: no token or other variable passes; models offline and onnxruntime telemetry off', () => {
     const env = workerEnv({ PATH: '/bin', HOME: '/h', TMPDIR: '/t', VOICE_SERVICE_TOKEN: 'secret', OPENROUTER_API_KEY: 'k', NODE_OPTIONS: '--x', PYTHONPATH: '/evil' });
-    expect(env).toEqual({ PATH: '/bin', HOME: '/h', TMPDIR: '/t', HF_HUB_OFFLINE: '1', HF_HUB_DISABLE_TELEMETRY: '1', ORT_DISABLE_TELEMETRY: '1', OMP_NUM_THREADS: '1', LANG: 'C.UTF-8' });
+    // Fix round 1 (M4): HOME points nowhere, so a library that writes under it fails instead of writing.
+    expect(env).toEqual({ PATH: '/bin', HOME: '/nonexistent/kq-voice-worker', TMPDIR: '/t', HF_HUB_OFFLINE: '1', HF_HUB_DISABLE_TELEMETRY: '1', ORT_DISABLE_TELEMETRY: '1', OMP_NUM_THREADS: '1', LANG: 'C.UTF-8' });
   });
 
   test('start() refuses a worker whose engine cannot load, naming only the engine and model', async () => {
+    // Fix round 1 (M12): an empty models directory, so the model fails to load whatever the host's Python has installed.
     const p = new WorkerPool({ python: PYTHON, engine: 'whisper', model: 'faster-whisper-base.en', modelsDir: dirs.home, size: 1, deadlines: { startMs: 20_000 } });
-    // -I -B without the operator's venv: faster_whisper cannot be imported here, so the model fails to load.
     await expect(p.start()).rejects.toThrow(/voice worker \(whisper faster-whisper-base\.en\) did not start/);
     expect(p.size).toBe(0);
+    // Each attempt failed with the `model` fault word and nothing else (START_ATTEMPTS of them, I2).
+    const word = 'kq-voice-worker: model\n'.length;
+    expect(p.counters.stderrBytes % word).toBe(0);
+    expect(p.counters.stderrBytes / word).toBe(p.counters.spawnFailures + p.counters.startFailures);
+  });
+
+  test('fix round 1 (I1): the STT deadline counts from submission: a job that waited in the queue gets only what is left of it', async () => {
+    const p = pool([], { sttMs: 700 });
+    await p.start();
+    const stt = workerStt(p, 'echo-stt');
+    const t0 = Date.now();
+    const first = stt.transcribe(samples(160), ['__kq_slow__'], never); // runs 0–400 ms
+    const second = stt.transcribe(samples(160), ['__kq_slow__'], never); // queued at 0, runs 400–800 ms: past 700
+    expect(await first).toBe('echo 160');
+    await expect(second).rejects.toThrow();
+    expect(Date.now() - t0).toBeLessThan(780); // failed at its deadline, not 700 ms after it reached a worker
+    expect(p.counters.deadlines).toBe(1);
+  });
+
+  test('fix round 1 (I1): a job still queued past its deadline gets failed and is never dispatched', async () => {
+    const p = pool([], { sttMs: 300, ttsFirstMs: 5000 });
+    await p.start();
+    const tts = workerTts(p, 'echo-tts', 22_050);
+    const busy = (async () => {
+      let n = 0;
+      for await (const _ of tts.synthesize('__kq_slow__ one', 'pan', never)) n++;
+      return n;
+    })();
+    const t0 = Date.now();
+    await expect(workerStt(p, 'echo-stt').transcribe(samples(160), [], never)).rejects.toThrow();
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(280);
+    expect(Date.now() - t0).toBeLessThan(400);
+    expect(await busy).toBe(2);
+    expect(p.counters.dispatched).toBe(1); // only the TTS job ever reached the worker
+  });
+
+  test('fix round 1 (M9): a TTS stream has a first-message deadline from submission, then the gap deadline between messages', async () => {
+    const p = pool([], { ttsGapMs: 200, ttsFirstMs: 2000 });
+    await p.start();
+    const tts = workerTts(p, 'echo-tts', 22_050);
+    let n = 0;
+    for await (const _ of tts.synthesize('__kq_slow__ two words', 'pan', never)) n++; // 400 ms before the first piece
+    expect(n).toBe(3);
+    expect(p.counters.deadlines).toBe(0);
+  });
+
+  test('fix round 1 (M5): before replacing a worker the pool re-runs its verify step; a failing one is a failed start, retried', async () => {
+    let ok = true;
+    let calls = 0;
+    const p = pool([], undefined, {
+      verify: async () => {
+        calls++;
+        if (!ok) throw new Error('pins');
+      },
+    });
+    await p.start();
+    expect(calls).toBe(0); // boot verified the pins already
+    ok = false;
+    await expect(workerStt(p, 'echo-stt').transcribe(samples(10), ['__kq_crash__'], never)).rejects.toThrow();
+    await new Promise((r) => setTimeout(r, 400));
+    expect(calls).toBeGreaterThanOrEqual(2);
+    expect(p.ready).toBe(false);
+    expect(p.counters.verifyFailures).toBe(calls);
+    ok = true;
+    await ready(p);
+    expect(await workerStt(p, 'echo-stt').transcribe(samples(10), [], never)).toBe('echo 10');
+  });
+});
+
+describe('fix round 1 (I2): a worker that cannot be spawned', () => {
+  /** A python3 that can vanish and come back: a symlink the test removes and restores. */
+  function vanishingPython(present: boolean): { path: string; restore(): void; remove(): void } {
+    const path = join(root, 'bin', 'python3');
+    mkdirSync(join(root, 'bin'), { recursive: true });
+    const real = spawnSync(PYTHON, ['-c', 'import sys; print(sys.executable)'], { encoding: 'utf8' }).stdout.trim();
+    const restore = () => symlinkSync(real, path);
+    const remove = () => unlinkSync(path);
+    if (present) restore();
+    return { path, restore, remove };
+  }
+
+  test('at start: a missing python is retried with backoff, and start() resolves once it appears', async () => {
+    const py = vanishingPython(false);
+    const logs: [LogKind, Record<string, number | boolean> | undefined][] = [];
+    const p = pool([], undefined, { python: py.path, log: (k, f) => logs.push([k, f]) });
+    setTimeout(py.restore, 300);
+    await p.start();
+    expect(p.ready).toBe(true);
+    expect(p.counters.spawnFailures).toBeGreaterThan(0);
+    expect(logs).toContainEqual(['worker_down', { stt: true, spawn: true }]);
+    expect(await workerStt(p, 'echo-stt').transcribe(samples(10), [], never)).toBe('echo 10');
+  });
+
+  test(`at start: no worker within START_ATTEMPTS attempts rejects start(), so boot fails and main exits non-zero`, async () => {
+    const py = vanishingPython(false);
+    const p = pool([], undefined, { python: py.path });
+    const t0 = Date.now();
+    await expect(p.start()).rejects.toThrow(/did not start/);
+    expect(Date.now() - t0).toBeLessThan(6000);
+    expect(p.counters.spawnFailures).toBe(START_ATTEMPTS);
+  });
+
+  test('at run time: the pool keeps retrying forever, fails utterances at once while empty, reports not ready, and recovers when python returns', async () => {
+    const py = vanishingPython(true);
+    const logs: [LogKind, Record<string, number | boolean> | undefined][] = [];
+    const p = pool([], undefined, { python: py.path, log: (k, f) => logs.push([k, f]) });
+    await p.start();
+    expect(p.ready).toBe(true);
+    py.remove();
+    const stt = workerStt(p, 'echo-stt');
+    await expect(stt.transcribe(samples(10), ['__kq_crash__'], never)).rejects.toThrow();
+    // Empty: refused at once, not at the 20 s deadline.
+    const t0 = Date.now();
+    await expect(stt.transcribe(samples(10), [], never)).rejects.toThrow();
+    expect(Date.now() - t0).toBeLessThan(100);
+    expect(p.ready).toBe(false);
+    expect(logs).toContainEqual(['pool_empty', { stt: true }]);
+    // Retried with backoff, a content-free line each time; well past START_ATTEMPTS.
+    await new Promise((r) => setTimeout(r, 6000));
+    expect(p.counters.spawnFailures).toBeGreaterThan(START_ATTEMPTS);
+    expect(logs.filter(([k, f]) => k === 'worker_down' && f?.spawn === true).length).toBe(p.counters.spawnFailures);
+    py.restore();
+    await ready(p, 10_000);
+    expect(logs.at(-1)).toEqual(['pool_ready', { stt: true }]);
+    expect(await stt.transcribe(samples(20), [], never)).toBe('echo 20');
+    for (const [, f] of logs) for (const v of Object.values(f ?? {})) expect(['number', 'boolean']).toContain(typeof v);
   });
 });
 
