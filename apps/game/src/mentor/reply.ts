@@ -54,4 +54,8 @@ export interface PanelTrail { entry: TrailEntry; card: ProposalCard; li: HTMLEle
  * A check-off card's place in the panel (M6 Step 10), drawn by check-off-card.ts. `applied`: done, with its Undo
  * (`trail`); `new`: not drawn yet (a local grammar card is ticking, any other waits for its tap).
  */
-export interface CheckOffSlot { state: 'new' | 'applying' | 'pending' | 'applied' | 'undone'; trail?: PanelTrail | null; draw(): void }
+export interface CheckOffSlot {
+  state: 'new' | 'applying' | 'pending' | 'applied' | 'undone'; trail?: PanelTrail | null; draw(): void;
+  /** The row keys a local write actually ticked (fix round 1, m2); absent for a server card (the API ticked it). */
+  ticked?: string[];
+}

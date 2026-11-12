@@ -235,3 +235,30 @@ describe('a model-proposed card and consent (C31)', () => {
     expect(cardEl(m.root)!.dataset.state).toBe('applied');
   });
 });
+
+describe('Fix round 1 (m2): a partial tick is shown as partial', () => {
+  test('signed in, the daily cap after the first tick: only that row reads "(ticked)"; Undo unticks only it', async () => {
+    const store = createStore(null);
+    store.update((s) => ({ ...s, account: { email: 'cap@example.com' }, accountRules: [] }));
+    const tmp = createStore(null);
+    createWeekStore({ store: tmp }).savePlan(plan());
+    const local = createWeekStore({ store: tmp }).run(MON, TODAY)!;
+    rememberRun(local, 'cap@example.com');
+    let ticks = 0;
+    const tick = vi.fn((_id: string, key: string, ticked: boolean) => {
+      ticks++;
+      if (ticked && ticks > 1) return Promise.resolve({ ok: false, status: 429, error: { code: 'write_cap', message: '', details: { scope: 'day' } } });
+      return Promise.resolve({ ok: true, status: 200, data: { ...local, items: local.items.map((i) => (i.key === key ? { ...i, ticked } : i)) } });
+    });
+    const client = { tick, consents: () => Promise.resolve({ ok: true, status: 200, data: { consents: [], needsReconsent: [], notices: {} } }) } as unknown as ApiClient;
+    const m = mountPanel(store, client);
+    await m.send('got the shallots and the moong dal');
+    const el = cardEl(m.root)!;
+    expect(el.dataset.state).toBe('applied');
+    expect(el.querySelector('[data-key="shallot"] .checkoff-state')!.textContent).toBe(' (ticked)');
+    expect(el.querySelector('[data-key="moong_dal"] .checkoff-state')!.textContent).toBe(' (not ticked)');
+    button(el, 'Undo')!.click();
+    await flush();
+    expect(tick.mock.calls.filter((c) => c[2] === false).map((c) => c[1])).toEqual(['shallot']);
+  });
+});

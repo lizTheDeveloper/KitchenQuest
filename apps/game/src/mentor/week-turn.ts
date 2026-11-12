@@ -117,7 +117,7 @@ export interface WeekTurn {
    */
   /** The check-off card's drawing (check-off-card.ts), here so it loads with the week's code, never at first paint. */
   drawCheckOff: typeof drawCheckOff;
-  writeCheckOff(card: CheckOffCard): Promise<{ ok: true; names: string[]; undo: () => Promise<boolean> } | { ok: false; reason: 'consent_required' | 'network' | 'limited' | 'closed'; items: PanItem[] }>;
+  writeCheckOff(card: CheckOffCard): Promise<{ ok: true; names: string[]; keys: string[]; undo: () => Promise<boolean> } | { ok: false; reason: 'consent_required' | 'network' | 'limited' | 'closed'; items: PanItem[] }>;
 }
 
 const RANK: Record<CheckStatus, number> = { ok: 0, swap: 1, unverified: 2, blocked: 3 };
@@ -328,7 +328,7 @@ export function createWeekTurn(d: {
         if (f === 'limited') return { ok: false, reason: 'limited', items: [say({ trigger: 'write.daily_limit', vars: {} })] };
         return { ok: false, reason: 'closed', items: [say({ trigger: 'write.not_done', vars: {} })] };
       }
-      return { ok: true, names: t.names, undo: async () => (await untickCheckOff(t.runId, t.keys)).kind === 'ok' };
+      return { ok: true, names: t.names, keys: t.keys, undo: async () => (await untickCheckOff(t.runId, t.keys)).kind === 'ok' };
     },
 
     async prefetch() {

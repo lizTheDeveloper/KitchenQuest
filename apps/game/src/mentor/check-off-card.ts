@@ -44,16 +44,21 @@ function rowName(key: string, store: PlayerStore, now: () => Date): string {
 function renderCheckOffCard(card: CheckOffCard, opts: {
   form: BureauForm; state: CheckOffState; store: PlayerStore; now: () => Date;
   onTick(): void; onNotNow(): void; onUndo(): void;
+  /** The keys a local write actually ticked (m2); absent: every got row (a server card the API applied). */
+  ticked?: readonly string[];
   /** Navigation is the panel's (a hash change): here only the row to open is handed over. */
   go?: (hash: string) => void;
 }): HTMLElement {
   const name = (k: string) => rowName(k, opts.store, opts.now);
-  const ticked = opts.state === 'applied';
-  const got = card.got.map((k) => h('li', { class: 'checkoff-row', 'data-key': k, 'data-ticked': String(ticked) },
+  const applied = opts.state === 'applied';
+  const isTicked = (k: string) => applied && (opts.ticked === undefined || opts.ticked.includes(k));
+  const anyTicked = card.got.some(isTicked);
+  const got = card.got.map((k) => { const ticked = isTicked(k); return h('li', { class: 'checkoff-row', 'data-key': k, 'data-ticked': String(ticked) },
     h('span', { class: 'checkoff-mark', 'aria-hidden': 'true' }, ticked ? '✓ ' : '○ '),
     contentText('span', name(k)),
     // In words, never by the mark alone.
-    h('span', { class: 'checkoff-state' }, ticked ? ' (ticked)' : opts.state === 'undone' ? ' (unticked)' : ' (not ticked yet)')));
+    // An applied row that wasn't ticked (already ticked on screen, out of stock, or the write stopped) says so.
+    h('span', { class: 'checkoff-state' }, ticked ? ' (ticked)' : applied ? ' (not ticked)' : opts.state === 'undone' ? ' (unticked)' : ' (not ticked yet)')); });
   const missing = card.missing.map((k) => {
     const ask = h('button', { type: 'button', class: 'btn btn-secondary checkoff-stock' }, STOCK);
     ask.setAttribute('aria-label', `${STOCK} ${name(k)}`);
@@ -73,7 +78,7 @@ function renderCheckOffCard(card: CheckOffCard, opts: {
     no.addEventListener('click', () => { opts.onNotNow(); });
     if (card.got.length > 0) buttons.push(tick);
     buttons.push(no);
-  } else if (opts.state === 'applied' && card.got.length > 0) {
+  } else if (applied && anyTicked) {
     const undo = h('button', { type: 'button', class: 'btn btn-secondary checkoff-undo' }, UNDO);
     undo.addEventListener('click', () => { opts.onUndo(); });
     buttons.push(undo);
@@ -110,6 +115,7 @@ export function drawCheckOff(holder: HTMLElement, view: CardView, slot: CheckOff
     form, state: slot.state, store: deps.store, now: deps.now, ...(deps.go ? { go: deps.go } : {}),
     onTick: () => { void deps.tick(); }, onNotNow: () => { void deps.notNow(); },
     onUndo: () => { if (slot.trail) void deps.undo(slot.trail); },
+    ...(slot.ticked === undefined ? {} : { ticked: slot.ticked }),
   }));
   if (!hadFocus) return;
   const next = holder.querySelector<HTMLElement>('button') ?? holder.querySelector<HTMLElement>('.bureau-title');
