@@ -1672,12 +1672,13 @@ describe('fix round 4: R9 — no model text reaches any player', () => {
   });
 
   test.each([
-    ['we ran out of rice', 'Rice is out of your pantry.', [] as Purpose[]],
-    ['we ran out of rice', "I've binned the rice.", AI_HEALTH],
+    // M6 Step 5 fix round 1: bare "rice" is a graph name now (a health word, like "milk"), so this pins "flour".
+    ['we ran out of flour', 'Flour is out of your pantry.', [] as Purpose[]],
+    ['we ran out of flour', "I've binned the flour.", AI_HEALTH],
   ])('L3: %j with %j makes a pantry card from the player\'s words, and no model text', async (q, text, purposes) => {
     await makeApp(fakeAi([reply(text)]));
     const p = await player(purposes);
-    await seedPantry(p.cookie, ['rice']);
+    await seedPantry(p.cookie, ['flour']);
     const r = await turn(p.cookie, q);
     seesNoModelText(r, text);
     expect(r.cards.map((c) => c.card.kind)).toEqual(['pantry']);
