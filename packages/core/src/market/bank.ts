@@ -82,8 +82,9 @@ export function questionVariant(stall: StallFile, questionId: string): StallVari
 }
 
 /**
- * The questions this player may see at this stall now: the variant's (or base) questions plus `seasonal` (Step 2
- * supplies them; [] until then), each kept only when questionStatus is 'ok' AND its `countries` scope is
+ * The questions this player may see at this stall now: the variant's (or base) questions plus `seasonal` (Wen's
+ * `seasonalQuestions(stall, regionId, month, table)` for the player's own region and month; [] for every other stall and
+ * for a player with no seasonal region), each kept only when questionStatus is 'ok' AND its `countries` scope is
  * absent or contains ctx.country (`countryInScope`: both sides through `normalizeCountry`, a UK nation inside the UK). Dropped questions are counted, never named, so a screen can say the
  * bank is smaller without revealing why.
  */
