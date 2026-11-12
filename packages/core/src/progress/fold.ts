@@ -1,5 +1,11 @@
 // The one fold over a progress history. grantsFor, deriveProgress and compactHistory all read it, so the device
 // and the API, compacted or not, see the same facts. Internal to progress/: not exported from the package.
+//
+// FOLD_VERSION (M6 Step 7 review I1): bump it with ANY change to what the fold computes or to the shape of
+// `ProgressView` or `Facts` (a new field, a changed rule for a tier, a step, a key). The API's snapshot hash includes
+// it, so every stored snapshot (a base folded by older code) is ignored and rebuilt from the ledgers instead of
+// carrying the old fold forward. `fold-version.test.ts` pins the shape: it fingerprints a full fold and compares it
+// with FOLD_SHAPES[FOLD_VERSION]; a shape change fails until a NEW version is added (old entries are never edited).
 import { scoreAnswer } from '../market/round';
 import { isValidDate } from '../rules/active';
 import { EMPTY_TOOLKIT, toolkitFromEvents } from '../toolkit/toolkit';
@@ -7,8 +13,17 @@ import type { ToolkitState } from '../toolkit/types';
 import type { Catalogue, ProgressEvent, ProgressHistory, ProgressSnapshot, ProgressView, RewardGrant } from './types';
 import { isoWeek } from './week';
 
+/** The fold's version (see the header). Exported from the package: the API's snapshot hash reads it. */
+export const FOLD_VERSION = 1;
+
+/**
+ * The shape fingerprint of the view and facts at each FOLD_VERSION (`fold-version.test.ts` computes it). Append a new
+ * version's entry when the shape changes; never edit an old one.
+ */
+export const FOLD_SHAPES: Readonly<Record<number, string>> = { 1: '4e3185af' };
+
 /** The JSON-safe facts a snapshot carries beside its view (C15). */
-interface Facts {
+export interface Facts {
   v: 1;
   /** Every event id seen, for the duplicate check. */
   ids: string[];

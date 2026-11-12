@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { compactHistory, deriveProgress, SNAPSHOT_EVERY, type ProgressEvent, type ProgressView, type RewardGrant } from '@kitchenquest/core';
+import { compactHistory, deriveProgress, FOLD_VERSION, SNAPSHOT_EVERY, type ProgressEvent, type ProgressView, type RewardGrant } from '@kitchenquest/core';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance, InjectOptions } from 'fastify';
@@ -274,6 +274,24 @@ describe('progress snapshot (M6 Step 7, Ruling 18)', () => {
     expect(after.stamps).toBe(before.stamps);
   });
 
+  it('erasing only stall rounds (no meal-log event in the ledger) drops the snapshot (review m3)', async () => {
+    const p = await player();
+    await addRule(p.cookie, NO_MEAT);
+    await post(p.cookie, [round('bram', [['bram-pc-parmesan', 0]]), round('wen', [['wen-avocado-ripe', 0]])]);
+    await postAll(p.cookie, filler(SNAPSHOT_EVERY - 1));
+    expect(await snapshotRow(p.id)).toBeDefined();
+    const [{ meals }] = await sql<{ meals: number }[]>`select count(*)::int as meals from progress_events where user_id = ${p.id} and kind = 'meal_logged'`;
+    expect(meals).toBe(0);
+    const before = await view(p.cookie);
+    // The health_data delete erases the two rounds and nothing else: the trigger fires on those rows alone.
+    expect((await call(p.cookie, { method: 'DELETE', url: '/me/consents/health_data', payload: { healthData: 'delete' } })).statusCode).toBe(204);
+    expect(await eventCount(p.id)).toBe(SNAPSHOT_EVERY - 1);
+    expect(await snapshotRow(p.id)).toBeUndefined();
+    const after = await view(p.cookie);
+    expectNoLower(before, after);
+    expect(after.marketAnswered).toEqual({});
+  });
+
   it('a rewards.yaml retune changes catalogue_hash → snapshot ignored and rebuilt; no derived value drops', async () => {
     const p = await heavyPlayer();
     const before = await view(p.cookie);
@@ -297,6 +315,11 @@ describe('progress snapshot (M6 Step 7, Ruling 18)', () => {
     expect(after).toEqual(deriveProgress(await loadFullHistory(db, config.keyring, p.id), c));
     // The thresholds are in the hash too.
     expect(catalogueHash(c, retuned.rewards, { ...retuned.thresholds, rustyAfterDays: 121 })).not.toBe(hash);
+    // And core's fold version (review I1): a fold made by other code is never reused.
+    expect(catalogueHash(c, retuned.rewards, retuned.thresholds, FOLD_VERSION)).toBe(hash);
+    expect(catalogueHash(c, retuned.rewards, retuned.thresholds, FOLD_VERSION + 1)).not.toBe(hash);
+    await sql`update progress_snapshots set catalogue_hash = ${catalogueHash(c, retuned.rewards, retuned.thresholds, FOLD_VERSION - 1)} where user_id = ${p.id}`;
+    expect((await loadHistoryWithSnapshot(db, config.keyring, p.id, c, hash)).base).toBeNull();
   });
 
   it('a snapshot that fails to unseal is deleted and the full read is used', async () => {

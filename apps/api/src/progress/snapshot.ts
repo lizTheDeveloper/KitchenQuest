@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import {
   compactHistory,
+  FOLD_VERSION,
   SNAPSHOT_EVERY,
   type Catalogue,
   type FreshnessThresholds,
@@ -50,24 +51,25 @@ function canonical(v: unknown): unknown {
 }
 const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
-const hashes = new WeakMap<Catalogue, { rewards: RewardsData; thresholds: FreshnessThresholds; hash: string }>();
+const hashes = new WeakMap<Catalogue, { rewards: RewardsData; thresholds: FreshnessThresholds; fold: number; hash: string }>();
 
 /**
  * What a snapshot was folded under: sha256 over the canonical JSON of the catalogue (every recipe, quest, technique and
  * frame id with the fields the fold reads, and each stall's questions with their bank and answer, since a pick is
- * scored from the file), `data/rewards.yaml` and the freshness thresholds. Any change gives another hash, so a snapshot
+ * scored from the file), `data/rewards.yaml`, the freshness thresholds and core's `FOLD_VERSION` (review I1: a base
+ * folded by older core code is never reused; `fold` is a parameter only so a test can show it bites). Any change gives another hash, so a snapshot
  * folded under the old content is ignored and rebuilt: a retune is never "baked in" by a stale fold, and since grants
  * are fixed when made, a rebuild lowers nothing (§6). Memoized per catalogue object (built once per recipe index).
  */
-export function catalogueHash(cat: Catalogue, rewards: RewardsData, thresholds: FreshnessThresholds): string {
+export function catalogueHash(cat: Catalogue, rewards: RewardsData, thresholds: FreshnessThresholds, fold: number = FOLD_VERSION): string {
   const memo = hashes.get(cat);
-  if (memo && memo.rewards === rewards && memo.thresholds === thresholds) return memo.hash;
+  if (memo && memo.rewards === rewards && memo.thresholds === thresholds && memo.fold === fold) return memo.hash;
   const market = cat.market === undefined ? null : new Map([...cat.market].map(([stall, s]) => [stall, s.questions]));
   const text = JSON.stringify(
-    canonical({ v: 1, recipes: cat.recipes, quests: cat.quests, techniques: cat.techniques, frames: cat.frames, market, rewards, thresholds }),
+    canonical({ v: 1, fold, recipes: cat.recipes, quests: cat.quests, techniques: cat.techniques, frames: cat.frames, market, rewards, thresholds }),
   );
   const hash = createHash('sha256').update(text).digest('hex');
-  hashes.set(cat, { rewards, thresholds, hash });
+  hashes.set(cat, { rewards, thresholds, fold, hash });
   return hash;
 }
 

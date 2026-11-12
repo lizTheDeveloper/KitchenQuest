@@ -15,3 +15,4 @@ export { MAX_PROGRESS_EVENTS_PER_DAY, grantsFor, grantsForBatch, isHealthReveali
 export type { GrantResult, ProgressProblem, ProgressWarning } from './rewards';
 export { SNAPSHOT_EVERY, compactHistory, deriveProgress, eraseEvents, levelFor, trustLevel } from './derive';
 export { isoWeek, planWeekStart } from './week';
+export { FOLD_VERSION } from './fold';
