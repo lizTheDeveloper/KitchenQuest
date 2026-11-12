@@ -16,7 +16,7 @@ export interface SeasonView { regionId: string | null; table: SeasonTable }
  * out of stock, or whenever core's `seasonNote` gives none (the item isn't ✅, or the month has no entry).
  */
 export function seasonNoteFor(row: ListItem, season: SeasonView, ctx: MarketCtx): string | null {
-  if (season.regionId === null || row.unverified === true || row.outOfStock === true) return null;
+  if (season.regionId === null || row.unverified === true || row.outOfStock === true || row.swappedFor !== undefined) return null;
   const s = seasonNote(row.ingredientId, season.regionId, season.table, ctx);
   if (s === null) return null;
   return s.isNow ? writtenLine('season.now', { item: row.name }) : writtenLine('season.other', { item: row.name, category: s.label });
