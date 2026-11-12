@@ -169,6 +169,8 @@ const COMMON_WORDS: ReadonlySet<string> = new Set([
   'taking', 'along', 'among', 'alone', 'spent', 'sister', 'sisters', 'master', 'masters', 'cash', 'missed', 'valley',
   'faster', 'marine', 'monster', 'monsters', 'mystery', 'badly', 'rarely', 'foster',
   'filter', 'vessel', 'vessels', 'outer', 'nail', 'poster', 'bare', 'suite', 'barrel', 'wallet', 'easter',
+  // M6 Step 8 over-catch review: "corner" starts with the exact name "corn" (a compound, not a slip).
+  'corner', 'corners',
 ]);
 /**
  * M6 Step 4 fix round 1 (ruling C1): everyday English words that are one or two edits from a market ingredient name
@@ -184,14 +186,18 @@ const EVERYDAY_WORDS: ReadonlySet<string> = new Set([
   'chill', 'apply', 'applies', 'temp', 'temper', 'tamper', 'carry', 'carries', 'cannot', 'narrow', 'narrows', 'arrow',
   'carton', 'worries', 'retries', 'series', 'little', 'gentle', 'kettle', 'settle', 'pestle', 'neatly', 'rattle', 'seattle', 'damage',
   'damages', 'rotate', 'motto', 'parsing', 'colander', 'garbage', 'balances', 'canada', 'terry',
+  // M6 Step 8 (the Task 4 ruling's over-catch review, of the eval texts and of ordinary chat): "case" (cashew, casein),
+  // "hill" (chilli), "plant" (peanut), "same" (sesame), "while" (chile), "money's" (honey). Left OUT on the safe side,
+  // as plausible slips of an allergen or a diet word: "daily" (dairy), "began" (vegan, b and v are neighbours).
+  'case', 'cases', 'hill', 'hills', 'plant', 'plants', 'same', 'while', 'moneys',
 ]);
 /**
  * M6 Step 5 fix round 1 (Task 5 ruling 1): market names added so stall lines can be rules-checked, which are a slip
- * away from very common words ("chuck"/"check", "squash"/"square", "tortilla"/"gorilla", "legume"/"league") or start
- * them ("plumber", "chuckle", "squashed", "ricer"). They count only as exact whole words: never as a near miss, never
+ * away from very common words ("chuck"/"check", "squash"/"square", "tortilla"/"gorilla", "legume"/"league", and M6
+ * Step 8's "pulse"/"purse", "pulsed") or start them ("plumber", "chuckle", "squashed", "ricer", "pulsing"). They count only as exact whole words: never as a near miss, never
  * as part of a compound. An exact "chuck", "rice" or "plums" is still always health.
  */
-const EXACT_ONLY: ReadonlySet<string> = new Set(['chuck', 'squash', 'rice', 'tortilla', 'plum', 'legume']);
+const EXACT_ONLY: ReadonlySet<string> = new Set(['chuck', 'squash', 'rice', 'tortilla', 'plum', 'legume', 'pulse']);
 
 /** The shortest word checked against the longer labels; shorter ones over-match too much. */
 const FUZZY_MIN = 4;

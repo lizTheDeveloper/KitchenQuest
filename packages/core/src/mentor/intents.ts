@@ -40,11 +40,11 @@ const HELP_ALLERGEN =
 
 /**
  * Fix round 3 (E6, structural, the primary net): a strong symptom word anywhere is an emergency, with no verb
- * or subject needed. Over-catches on purpose: "I'm anaphylactic to cashews and carry an epipen" and "a swell
+ * or subject needed. M6 Step 8: "chest pain" too ("got the onions, chest pain" is an emergency before any check-off). Over-catches on purpose: "I'm anaphylactic to cashews and carry an epipen" and "a swell
  * dinner" are accepted on the safe side (the rule path still follows the emergency line, E2).
  */
 export const STRONG_SYMPTOM =
-  /\b(anaphyla\w*|epi[- ]?pens?|adrenalin\w*|auto-?injectors?|hives?|hivs|welts?|wheez\w*|can'?t breathe?|cannot breathe?|(struggling|trouble|hard) (to )?breath\w*|not breathing|throat (is |'?s |feels )?(tight|clos\w*|swell\w*)|swell\w*|swollen|tingl\w*|puff\w* up|numb|collaps\w*|faint\w*|vomit\w*|throwing up|passed out|turning blue|(lips?|face) (is |are |went |going |gone |turned )?blue|blue lips|chest (is |'?s |feels )?tight|chok\w*|can'?t stop cough\w*|(hard|trouble) to swallow|can'?t swallow|anafila\w*|urticar\w*|atemnot)\b/;
+  /\b(anaphyla\w*|epi[- ]?pens?|adrenalin\w*|auto-?injectors?|hives?|hivs|welts?|wheez\w*|can'?t breathe?|cannot breathe?|(struggling|trouble|hard) (to )?breath\w*|not breathing|throat (is |'?s |feels )?(tight|clos\w*|swell\w*)|swell\w*|swollen|tingl\w*|puff\w* up|numb|collaps\w*|faint\w*|vomit\w*|throwing up|passed out|turning blue|(lips?|face) (is |are |went |going |gone |turned )?blue|blue lips|chest (is |'?s |feels )?tight|chest pains?|chok\w*|can'?t stop cough\w*|(hard|trouble) to swallow|can'?t swallow|anafila\w*|urticar\w*|atemnot)\b/;
 /** Weaker words on a body part ("my mouth is tingling", "her eyes went all red"). */
 export const BODY_PART_SYMPTOM =
   /\b(mouth|lips?|tongue|face|eyes?|throat)('?s)? (is |are |feels? |went |gone |going |turned |looks? )?([a-z']+ ){0,2}(red|funny|weird|burning|itch\w*|tingl\w*)\b/;

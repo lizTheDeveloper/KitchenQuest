@@ -327,3 +327,27 @@ describe('M6 Step 5 fix round 1 (Task 5 ruling 1): the new market names are exac
     for (const w of ['chuck', 'squash', 'rice', 'tortilla', 'plum', 'legume']) expect(graph.resolve(w), w).not.toBeNull();
   });
 });
+
+describe('M6 Step 8 (detector carries): "pulse" is exact-only, and the over-catch review grows the stoplists', () => {
+  test.each(['pulse', 'pulses', 'no pulses please', 'I am allergic to pulses'])('%j is health: an exact name always counts', (text) =>
+    expect(mentionsHealthTerm(text, graph, terms)).toBe(true),
+  );
+  test.each(['my purse is empty', 'I pulsed it in the blender', 'the pulsing music next door'])('%j is not health: no slip or compound of "pulse"', (text) =>
+    expect(mentionsHealthTerm(text, graph, terms)).toBe(false),
+  );
+  test.each([
+    'in any case I went out', 'two cases of that', 'up the hill to the shop', 'we walked the hills', 'I moved the plant',
+    'the plants need sun', 'the same as last week', 'wait a while', "my money's tight", 'the shop on the corner', 'round the corners',
+  ])('%j is not health: an everyday word from the over-catch review', (text) => expect(mentionsHealthTerm(text, graph, terms)).toBe(false));
+  test.each(['no cashews', 'sesame', 'no chilli', 'peanut', 'corn', 'no corn please', 'honey', 'I am vegan', 'no dairy'])('%j is still health', (text) =>
+    expect(mentionsHealthTerm(text, graph, terms)).toBe(true),
+  );
+  test('kept OFF the stoplist on the safe side: plausible slips of an allergen or a diet word', () => {
+    expect(mentionsHealthTerm('daily', graph, terms)).toBe(true); // dairy
+    expect(mentionsHealthTerm('began', graph, terms)).toBe(true); // vegan (b and v are neighbours)
+  });
+  test('no new stoplisted word is itself a graph name or alias', () => {
+    for (const word of ['case', 'cases', 'hill', 'hills', 'plant', 'plants', 'same', 'while', 'moneys', 'corner', 'corners']) expect(graph.resolve(word), word).toBeNull();
+    expect(graph.resolve('pulse')).not.toBeNull();
+  });
+});

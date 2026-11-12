@@ -91,6 +91,18 @@ function clausesOf(text: string): { clauses: Clause[]; masked: string } | null {
   return clauses.length === 0 ? null : { clauses, masked: masked.join(', ') };
 }
 
+/**
+ * The health check on this path (C30): core `codeCardHealth` on the clauses' own words with only the items `isName`
+ * vouches for taken out (an open row, or a food the graph names). Every other item phrase is checked as written, so a
+ * clause like "got the shallots, I'm allergic" (", I'm allergic" read as a second item) is health.
+ */
+function healthIn(read: { clauses: Clause[]; masked: string }, isName: (item: string) => boolean, graph: IngredientGraph, terms: readonly RuleTerm[]): boolean {
+  const rest = read.clauses.flatMap((c) => c.items.filter((i) => !isName(i)));
+  return codeCardHealth([read.masked, ...rest].join(', '), graph, terms);
+}
+
+const graphFood = (graph: IngredientGraph) => (item: string): boolean => graph.resolve(normalizeName(item).replace(DETERMINER, '')) !== null;
+
 /** The run's rows a player may tick now: not ticked and not marked out of stock. */
 const openRows = (run: MarketRunView): ListItem[] => run.items.filter((i) => !i.ticked && i.outOfStock !== true);
 
@@ -137,8 +149,8 @@ export function checkOffIntent(
 ): { got: string[]; missing: string[] } | null {
   if (run === null || run.doneAt !== null) return null;
   const read = clausesOf(text);
-  if (read === null || codeCardHealth(read.masked, graph, terms)) return null;
   const rows = openRows(run);
+  if (read === null || healthIn(read, (i) => rowKey(i, rows, graph) !== null, graph, terms)) return null;
   const got: string[] = [];
   const missing: string[] = [];
   for (const c of read.clauses) {
@@ -158,7 +170,7 @@ export function checkOffIntent(
  */
 export function checkOffShaped(text: string, graph: IngredientGraph, terms: readonly RuleTerm[]): boolean {
   const read = clausesOf(text);
-  return read !== null && !codeCardHealth(read.masked, graph, terms);
+  return read !== null && !healthIn(read, graphFood(graph), graph, terms);
 }
 
 /**
@@ -170,8 +182,9 @@ export function checkOffShaped(text: string, graph: IngredientGraph, terms: read
  */
 export function checkOffWithoutRun(text: string, graph: IngredientGraph, terms: readonly RuleTerm[]): boolean {
   const read = clausesOf(text);
-  if (read === null || codeCardHealth(read.masked, graph, terms)) return false;
-  return read.clauses.every((c) => c.kind === 'got' && c.items.every((item) => graph.resolve(normalizeName(item).replace(DETERMINER, '')) !== null));
+  const food = graphFood(graph);
+  if (read === null || healthIn(read, food, graph, terms)) return false;
+  return read.clauses.every((c) => c.kind === 'got' && c.items.every(food));
 }
 
 /**
