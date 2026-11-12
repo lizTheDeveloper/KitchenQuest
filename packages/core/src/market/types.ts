@@ -32,6 +32,11 @@ export interface StallTrigger {
   ai: 'never' | 'allowed';
   lines: string[];
   vars?: Record<string, string>;
+  /**
+   * Fix round 1 (Task 5 ruling 1): per line, by its index ("0", "1", ...), the graph ids the line names. The build
+   * fails a line whose text names a graph food it doesn't declare; `keeperLines` checks the declared ids and the scan.
+   */
+  contains?: Record<string, string[]>;
   when?: string;
   notes?: string;
 }

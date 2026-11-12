@@ -185,6 +185,14 @@ const EVERYDAY_WORDS: ReadonlySet<string> = new Set([
   'carton', 'worries', 'retries', 'series', 'little', 'gentle', 'kettle', 'settle', 'pestle', 'neatly', 'rattle', 'seattle', 'damage',
   'damages', 'rotate', 'motto', 'parsing', 'colander', 'garbage', 'balances', 'canada', 'terry',
 ]);
+/**
+ * M6 Step 5 fix round 1 (Task 5 ruling 1): market names added so stall lines can be rules-checked, which are a slip
+ * away from very common words ("chuck"/"check", "squash"/"square", "tortilla"/"gorilla", "legume"/"league") or start
+ * them ("plumber", "chuckle", "squashed", "ricer"). They count only as exact whole words: never as a near miss, never
+ * as part of a compound. An exact "chuck", "rice" or "plums" is still always health.
+ */
+const EXACT_ONLY: ReadonlySet<string> = new Set(['chuck', 'squash', 'rice', 'tortilla', 'plum', 'legume']);
+
 /** The shortest word checked against the longer labels; shorter ones over-match too much. */
 const FUZZY_MIN = 4;
 /** Labels this long or longer allow two edits ("pnuts" for peanuts). */
@@ -194,7 +202,7 @@ const TWO_EDIT_MIN = 6;
 function fuzzyLabels(graph: IngredientGraph, phrases: ReadonlySet<string>): string[] {
   const labels = new Set<string>();
   for (const p of phrases) if (!p.includes(' ') && p.length >= 5) labels.add(p);
-  for (const label of graph.labels()) if (!label.includes(' ') && label.length >= 5) labels.add(label);
+  for (const label of graph.labels()) if (!label.includes(' ') && label.length >= 5 && !EXACT_ONLY.has(label)) labels.add(label);
   return [...labels];
 }
 
@@ -267,6 +275,8 @@ export function mentionsHealthTerm(text: string, graph: IngredientGraph, terms: 
   );
   const isExactName = (part: string): boolean => {
     if (phrases.has(part)) return true;
+    // Only the compound check calls this: an exact-only name is never part of a longer word.
+    if (pluralForms(part).some((f) => EXACT_ONLY.has(f))) return false;
     const id = graph.resolve(part);
     if (id === null) return false;
     const node = graph.get(id);

@@ -555,8 +555,17 @@
       "source": "FDC 169398; the record has no sugars value, set to 0."
     },
     {
+      "id": "tortilla",
+      "name": "tortilla",
+      "labelDependent": true,
+      "source": "Category: corn or flour (often wheat; some with lard); label-dependent; no FDC record. Bare 'tortilla' names it (M6 Step 5 fix round 1)."
+    },
+    {
       "id": "corn_tortilla",
       "name": "corn tortilla",
+      "isA": [
+        "tortilla"
+      ],
       "contains": [
         "corn"
       ],
@@ -574,12 +583,20 @@
       "fdcId": 175036
     },
     {
+      "id": "rice_grain",
+      "name": "rice",
+      "source": "Category: any rice (short-grain, long-grain, brown, ...); no FDC record. Bare 'rice' names it (M6 Step 5 fix round 1), never one kind."
+    },
+    {
       "id": "rice",
       "name": "short-grain white rice",
       "aliases": [
         "japanese short-grain rice",
         "short-grain rice",
         "sushi rice"
+      ],
+      "isA": [
+        "rice_grain"
       ],
       "per100g": {
         "energy_kcal": 358,
@@ -1904,7 +1921,8 @@
       "name": "beef chuck",
       "aliases": [
         "chuck roast",
-        "chuck steak"
+        "chuck steak",
+        "chuck"
       ],
       "isA": [
         "beef"
@@ -2045,8 +2063,11 @@
     {
       "id": "bean",
       "name": "bean",
+      "aliases": [
+        "legume"
+      ],
       "broad": true,
-      "source": "Category (broad); no FDC record."
+      "source": "Category (broad); no FDC record. Alias legume (M6 Step 5 fix round 1: the Protein Counter says 'legumes')."
     },
     {
       "id": "kidney_bean",
@@ -2441,6 +2462,11 @@
       "source": "FDC 169118 (Pears, raw)."
     },
     {
+      "id": "plum",
+      "name": "plum",
+      "source": "No FDC values recorded: named by Old Wen's greet (M6 Step 5 fix round 1); values to add from FDC 169949 (Plums, raw) on review."
+    },
+    {
       "id": "banana",
       "name": "banana",
       "per100g": {
@@ -2561,10 +2587,18 @@
       "source": "FDC 170026 (Potatoes, flesh and skin, raw)."
     },
     {
+      "id": "squash",
+      "name": "squash",
+      "source": "Category: winter and summer squash; no FDC record. Bare 'squash' names it (M6 Step 5 fix round 1), never one kind."
+    },
+    {
       "id": "winter_squash",
       "name": "winter squash",
       "aliases": [
         "acorn squash"
+      ],
+      "isA": [
+        "squash"
       ],
       "per100g": {
         "energy_kcal": 34,
@@ -2583,6 +2617,9 @@
       "name": "zucchini",
       "aliases": [
         "courgette"
+      ],
+      "isA": [
+        "squash"
       ],
       "per100g": {
         "energy_kcal": 17,

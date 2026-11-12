@@ -283,4 +283,18 @@ describe('questionStatus and stallBank (spec §2.2, §3.5)', () => {
     expect(keeperLines(stall, 'greet', ctx([]))).toEqual(['Morning!']);
     expect(keeperLines(stall, 'idle', ctx([VEGETARIAN]))).toEqual(['Take your time.']);
   });
+
+  test('fix round 1, I1 (Task 5 ruling 1): the real keeper lines the graph could not see are dropped for the rule they break', () => {
+    const say = (line: string, contains?: Record<string, string[]>) => ({ ...BRAM, triggers: { idle: { ai: 'allowed' as const, lines: [line, 'Take your time.'], ...(contains ? { contains } : {}) } } });
+    const CHUCK = "Take your time. The chuck isn't going anywhere. It's had a very hard-working life and it's resting.";
+    expect(keeperLines(say(CHUCK), 'idle', ctx([avoid('beef')]))).toEqual(['Take your time.']);
+    const RICE = 'Beans on the left. Tofu in the middle. Tortillas on the shelf, because Doña Marisol asked nicely. Rice in the sack, because Haruka did not ask nicely.';
+    expect(keeperLines(say(RICE), 'idle', ctx([avoid('rice')]))).toEqual(['Take your time.']);
+    expect(keeperLines(say('The squash are in a good mood.'), 'idle', ctx([avoid('butternut_squash')]))).toEqual(['Take your time.']);
+    expect(keeperLines(say('The plums think they are special.'), 'idle', ctx([avoid('plum')]))).toEqual(['Take your time.']);
+    // A line's declared contains counts as well as the scan: a word the graph can't read is still checked.
+    expect(keeperLines(say('The cleaver gleams.', { '0': ['beef'] }), 'idle', ctx([avoid('beef')]))).toEqual(['Take your time.']);
+    expect(keeperLines(say('The cleaver gleams.', { '0': ['beef'] }), 'idle', ctx([]))).toEqual(['The cleaver gleams.', 'Take your time.']);
+  });
 });
+

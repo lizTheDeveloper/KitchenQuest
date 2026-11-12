@@ -312,3 +312,17 @@ describe('M6 Step 4 fix round 2 (re-review N1, N4): food words are never on the 
     for (const w of ['chile', 'chiles', 'red chile']) expect(graph.resolve(w), w).toBe('chili');
   });
 });
+
+describe('M6 Step 5 fix round 1 (Task 5 ruling 1): the new market names are exact-only', () => {
+  test.each(['chuck', 'no chuck please', 'squash', 'I am allergic to squash', 'rice', 'no rice', 'tortillas', 'plums', 'legumes'])(
+    '%j is health: an exact name always counts',
+    (text) => expect(mentionsHealthTerm(text, graph, terms)).toBe(true),
+  );
+  test.each([
+    'check the label', 'can you check my week', 'a chunk of time', 'chuckle', 'I chucked it out', 'a square meal',
+    'I squashed the box', 'the plumber is coming', 'what is the price', 'he is a gorilla fan', 'the league starts Monday',
+  ])('%j is not health: no slip or compound of an exact-only name', (text) => expect(mentionsHealthTerm(text, graph, terms)).toBe(false));
+  test('the exact-only names are graph labels', () => {
+    for (const w of ['chuck', 'squash', 'rice', 'tortilla', 'plum', 'legume']) expect(graph.resolve(w), w).not.toBeNull();
+  });
+});

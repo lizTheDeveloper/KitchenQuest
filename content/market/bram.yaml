@@ -29,6 +29,7 @@ persona:
 
 triggers:
   greet:
+    contains: { "1": [meat], "3": [beef] }
     ai: allowed
     when: The player opens Bram's butcher stall.
     lines:
@@ -55,6 +56,7 @@ triggers:
       - "Not that one. Here's the thing —"
       - "Close-ish. In the way that Tuesday is close-ish to Friday."
   idle:
+    contains: { "1": [chuck], "2": [meat] }
     ai: allowed
     when: The player lingers at the stall.
     lines:
@@ -85,6 +87,7 @@ triggers:
       - "No {item}, and no stand-in passes your rules either. Skip it this week. The chalkboard will be here next time."
       - "Out of {item} today, sorry. Nothing here I can vouch for against your rules, so leave it out this week."
   farewell:
+    contains: { "1": [meat], "2": [meat] }
     ai: allowed
     when: The player leaves Bram's stall.
     lines:
@@ -426,6 +429,7 @@ variants:
       - "Respects the rules engine: anything the player's rules block never appears as a correct answer."
     triggers:
       greet:
+        contains: { "0": [bean, egg, milk, seitan, tempeh, tofu], "1": [bean, lentil, tempeh, tofu], "2": [chickpea, tempeh], "3": [cabbage], "4": [lentil] }
         ai: allowed
         when: The player opens the stall while their rules exclude meat.
         lines:
@@ -435,6 +439,7 @@ variants:
           - "Bram, Protein Counter. Same cleaver, mostly for cabbages now. It doesn't mind. It's a professional."
           - "Price per serving tells the truth here too. And the truth is: lentils."
       correct:
+        contains: { "1": [bean] }
         ai: allowed
         when: Correct answer at the Protein Counter.
         lines:
@@ -451,6 +456,7 @@ variants:
           - "Close-ish. Bram taps the chalkboard thoughtfully."
           - "No, but good thinking. Here's the real story —"
       farewell:
+        contains: { "0": [bean], "1": [tofu], "2": [lentil] }
         ai: allowed
         when: The player leaves the Protein Counter.
         lines:

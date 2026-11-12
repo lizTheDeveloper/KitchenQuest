@@ -20,6 +20,7 @@ persona:
 
 triggers:
   greet:
+    contains: { "0": [tofu], "1": [tofu], "2": [lentil], "3": [bean, rice_grain, tofu, tortilla], "4": [bean], "5": [tofu] }
     ai: allowed
     when: The player opens the stall.
     lines:
@@ -30,6 +31,7 @@ triggers:
       - "Ask me about beans. I've been waiting all day."
       - "Good. A shopper with a plan. Or without one. Both are welcome. One leaves with the right tofu."
   correct:
+    contains: { "0": [tofu], "3": [tofu] }
     ai: allowed
     when: Correct answer at the stall.
     lines:
@@ -38,6 +40,7 @@ triggers:
       - "Yes. You may have a sample."
       - "Good. That tofu will be very happy in your kitchen."
   wrong:
+    contains: { "3": [tofu] }
     ai: allowed
     when: Wrong answer at the stall.
     lines:
@@ -46,6 +49,7 @@ triggers:
       - "Not that one. Let me explain."
       - "Not that one. The tofu would have resigned."
   idle:
+    contains: { "0": [bean, tofu], "2": [tortilla], "3": [tofu] }
     ai: allowed
     when: The player lingers.
     lines:
@@ -76,6 +80,7 @@ triggers:
       - "We have no {item} today, and no stand-in that passes your rules. Skip it this week."
       - "No {item}. No honest substitute either, checked against your rules. This week, leave it out."
   farewell:
+    contains: { "0": [firm_tofu, tofu], "1": [bean, kidney_bean, lentil], "2": [tortilla], "3": [tofu, water] }
     ai: allowed
     when: The player leaves.
     lines:
@@ -84,6 +89,7 @@ triggers:
       - "Come back. Bring Doña Marisol's regards. Take some tortillas."
       - "Goodbye. Change the tofu's water daily. It notices."
   medical:
+    contains: { "0": [bean] }
     ai: never
     when: Medical or diet-therapy question.
     lines:
@@ -477,7 +483,8 @@ faq:
     a: "Both are good. Canned saves time and is already cooked; rinse it. Dried costs much less per serving and gives you a broth. Keep both. That is the merchant's answer and also the correct one."
   - q: ["do i need to soak beans", "soak beans", "soaking"]
     a: "Lentils and split peas: no. Whole beans: soaking shortens cooking and helps them cook evenly, but black beans and pinto beans can cook from dry if you have time. Red kidney beans: soak, then boil hard for 10 minutes. Always."
-    a_if_blocked: "Small split legumes: no. Whole dried ones: soaking shortens the cooking and helps them cook evenly. Some must be boiled hard after soaking; the packet will say. Check it against your rules first."
+    # REVIEW: M6 Step 5 fix round 1: "legumes" is a graph name now, and the blocked answer names nothing; was "Small split legumes". Content review.
+    a_if_blocked: "Small split ones: no. Whole dried ones: soaking shortens the cooking and helps them cook evenly. Some must be boiled hard after soaking; the packet will say. Check it against your rules first."
     tags: [safety]
   - q: ["can i freeze cooked beans", "freeze beans"]
     a: "Yes. Cool them, then freeze in their cooking liquid in portions. They keep well for a few months. Thaw in the fridge or straight into a pot."

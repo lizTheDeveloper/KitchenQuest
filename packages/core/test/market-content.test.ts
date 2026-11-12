@@ -261,14 +261,28 @@ const NEW_NODE_EDGES: Record<string, { isA?: string[]; contains?: string[]; unsa
   tofu: { contains: ['soy'] }, silken_tofu: { isA: ['tofu'] }, soft_tofu: { isA: ['tofu'] }, firm_tofu: { isA: ['tofu'] }, extra_firm_tofu: { isA: ['tofu'] }, tofu_puffs: { isA: ['tofu'] },
   yuba: { contains: ['soy'] }, tempeh: { contains: ['soy'], unsafeFor: ['wheat', 'gluten', 'barley'] }, miso: { contains: ['soy'], labelDependent: true }, seitan: { contains: ['wheat'], unsafeFor: ['soy'] }, paneer: { contains: ['milk'] }, greek_yogurt: { contains: ['milk'] },
   avocado: {}, apple: {}, pear: {}, banana: {}, berry: { broad: true }, strawberry: { isA: ['berry'] }, blueberry: { isA: ['berry'] }, cranberry: { isA: ['berry'] },
-  carrot: {}, potato: {}, winter_squash: {}, zucchini: {}, kale: {}, leek: { isA: ['allium', 'fodmap_fructan'] }, green_onion: { isA: ['allium', 'fodmap_fructan'] }, mushroom: {}, lemon: {}, mandarin: {}, parsnip: {}, asparagus: {}, nettle: {},
+  carrot: {}, potato: {}, winter_squash: { isA: ['squash'] }, zucchini: { isA: ['squash'] }, kale: {}, leek: { isA: ['allium', 'fodmap_fructan'] }, green_onion: { isA: ['allium', 'fodmap_fructan'] }, mushroom: {}, lemon: {}, mandarin: {}, parsnip: {}, asparagus: {}, nettle: {},
   coriander: {}, cilantro: { isA: ['herb', 'coriander'] }, cabbage: {}, brussels_sprout: {}, ginger: {}, fennel: {}, chili: {},
   cumin: {}, coriander_seed: { isA: ['coriander'] }, cardamom: {}, cinnamon: {}, clove: {}, black_pepper: {}, paprika: { isA: ['chili'] }, fennel_seed: { isA: ['fennel'] }, star_anise: {}, nutmeg: {}, saffron: {}, bay_leaf: {}, oregano: {},
   butternut: { broad: true }, butternut_squash: { isA: ['winter_squash', 'butternut'] }, butternut_nut: { isA: ['tree_nut', 'butternut'], unsafeFor: ['walnut', 'pecan'] },
+  // M6 Step 5 fix round 1 (Task 5 ruling 1): the categories bare stall words name, and Old Wen's plums.
+  squash: {}, rice_grain: {}, tortilla: { labelDependent: true }, plum: {},
   mexican_oregano: { unsafeFor: ['oregano'] }, asafoetida: { contains: ['wheat'], labelDependent: true }, garam_masala: { labelDependent: true }, curry_powder: { labelDependent: true }, furikake: { contains: ['sesame', 'fish', 'soy', 'wheat'], labelDependent: true },
 };
 
 describe('the market graph nodes (data/ingredients.json, M6 Step 4)', () => {
+  test('Step 5 fix round 1 (Task 5 ruling 1): bare stall words name a category, never one kind; chuck names beef chuck', () => {
+    expect(graph.resolve('rice')).toBe('rice_grain');
+    expect(graph.get('rice').isA).toEqual(['rice_grain']);
+    expect(graph.resolve('squash')).toBe('squash');
+    expect(graph.pathTo('butternut_squash', 'squash')).toEqual(['butternut_squash', 'winter_squash', 'squash']);
+    expect(graph.resolve('tortillas')).toBe('tortilla');
+    expect(graph.get('corn_tortilla').isA).toEqual(['tortilla']);
+    expect(graph.resolve('chuck')).toBe('chuck');
+    expect(graph.resolve('legumes')).toBe('bean');
+    expect(graph.resolve('plums')).toBe('plum');
+  });
+
   test("graph additions: no node gains an allergen edge its source field does not state (snapshot of new nodes' edges)", () => {
     for (const [id, want] of Object.entries(NEW_NODE_EDGES)) {
       const n = graph.get(id);
@@ -276,7 +290,7 @@ describe('the market graph nodes (data/ingredients.json, M6 Step 4)', () => {
       expect(got, id).toEqual({ isA: want.isA, contains: want.contains, unsafeFor: want.unsafeFor, labelDependent: want.labelDependent, broad: want.broad });
       expect(typeof n.source, id).toBe('string');
     }
-    expect(Object.keys(NEW_NODE_EDGES)).toHaveLength(88); // 85, plus the butternut ruling's three
+    expect(Object.keys(NEW_NODE_EDGES)).toHaveLength(92); // 85, the butternut ruling's three, and Step 5 fix round 1's four
     // The existing nodes Step 4 touched: only new isA edges (stricter), and cumin_seed's bare "cumin" moved to `cumin`.
     expect(graph.get('cumin_seed').isA).toEqual(['cumin']);
     expect(graph.resolve('cumin')).toBe('cumin');

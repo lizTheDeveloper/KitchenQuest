@@ -17,6 +17,7 @@ persona:
 
 triggers:
   greet:
+    contains: { "0": [chili, cumin], "5": [mustard, mustard_seed] }
     ai: allowed
     when: The player opens the spice stall.
     lines:
@@ -43,6 +44,7 @@ triggers:
       - "No, but a lovely guess. Here's the thing —"
       - "— Not that one. But your nose is warming up."
   idle:
+    contains: { "1": [cardamom] }
     ai: allowed
     when: The player lingers.
     lines:
@@ -81,6 +83,7 @@ triggers:
       - "Off you go. Toast the seeds, bloom the ground, taste as you go."
       - "Farewell! Buy small, sniff often, grind as you go."
   allergen_note:
+    contains: { "0": [asafoetida, celery, mustard, sesame, wheat] }
     ai: never
     when: The player has a severe rule and is shopping at the spice stall.
     lines:

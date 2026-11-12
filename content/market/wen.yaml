@@ -37,6 +37,7 @@ persona:
 
 triggers:
   greet:
+    contains: { "1": [squash, strawberry], "2": [avocado], "4": [plum] }
     ai: allowed
     when: The player opens Wen's stall.
     lines:
@@ -47,6 +48,7 @@ triggers:
       - "Old Wen. Third of the name. The plums are from the first Wen's tree. Don't tell the plums; they think they're special."
       - "What are we cooking? Tell me the dish and I'll tell you which vegetables want to be in it."
   correct:
+    contains: { "1": [leek], "3": [strawberry] }
     ai: allowed
     when: The player answers a Wen question correctly (said before the option's own reaction).
     lines:
@@ -63,6 +65,7 @@ triggers:
       - "No. But I like the confidence."
       - "Common mistake. The produce is used to it."
   idle:
+    contains: { "0": [cabbage], "3": [leek] }
     ai: allowed
     when: The player lingers at the stall without acting.
     lines:
@@ -93,6 +96,7 @@ triggers:
       - "No {item}, and no stand-in I can vouch for against your rules. Skip it this week; there's always next week."
       - "{item} isn't in today, and nothing on my table passes your rules in its place. Leave it out this week."
   farewell:
+    contains: { "0": [onion], "3": [berry] }
     ai: allowed
     when: The player leaves Wen's stall.
     lines:

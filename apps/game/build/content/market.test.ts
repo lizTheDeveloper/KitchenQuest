@@ -46,7 +46,12 @@ describe('compileMarket (M6 Step 5)', () => {
       expect(s.games).toEqual(src.games);
       expect({ id: s.id, name: s.name, stall: s.stall, art: s.art }).toEqual({ id: src.id, name: src.name, stall: src.stall, art: src.art });
       expect(Object.keys(s.triggers)).toEqual(Object.keys(src.triggers));
-      for (const [t, trig] of Object.entries(s.triggers)) expect(trig).toEqual({ ai: src.triggers[t].ai, lines: src.triggers[t].lines, ...(src.triggers[t].vars ? { vars: src.triggers[t].vars } : {}) });
+      for (const [t, trig] of Object.entries(s.triggers)) {
+        const { when: _w, notes: _n, ...kept } = src.triggers[t];
+        expect(trig).toEqual(kept);
+      }
+      // A keeper line's declared foods ship, so Step 9's keeperLines can check them (fix round 1, I1).
+      expect(market.stalls.bram.triggers.idle.contains).toEqual({ '1': ['chuck'], '2': ['meat'] });
     }
     const pc = market.stalls.bram.variants?.protein_counter;
     expect(pc).toBeDefined();

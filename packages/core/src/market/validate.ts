@@ -1,6 +1,7 @@
 // The build's and the API's check of a stall file (M6 Step 1; Step 5's compile and Step 6's boot refuse on any
 // problem). Never throws. Each problem names the stall, the key path and, for a question, its id.
 import type { IngredientGraph } from '../ingredients/graph';
+import { textMentions } from '../ingredients/mentions';
 import { isKnownCountry } from './country';
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -135,6 +136,36 @@ function checkChalkboard(
 }
 
 /**
+ * Fix round 1, I1 (Task 5 ruling 1): a keeper line that names a graph food declares it in its trigger's `contains`,
+ * keyed by the line's index, so the rules check of the line never rests on the text scan alone and a writer sees each
+ * food a line names. A `{var}` is filled in by code and names nothing here. Declared ids must be graph ids.
+ */
+function checkTriggerFoods(triggers: Record<string, unknown>, at: string, graph: IngredientGraph, say: (msg: string) => void): void {
+  for (const [id, t] of Object.entries(triggers)) {
+    if (!isObject(t) || !Array.isArray(t.lines)) continue;
+    const lines = t.lines as unknown[];
+    const declared = t.contains;
+    if (declared !== undefined && !isObject(declared)) {
+      say(`${at}.${id}.contains is not a map of line index to ingredient ids`);
+      continue;
+    }
+    for (const [key, ids] of Object.entries(declared ?? {})) {
+      if (!/^\d+$/.test(key) || Number(key) >= lines.length) say(`${at}.${id}.contains["${key}"] is not the index of a line`);
+      if (!Array.isArray(ids)) say(`${at}.${id}.contains["${key}"] is not a list of ingredient ids`);
+      else for (const c of ids) if (typeof c !== 'string' || !graph.has(c)) say(`${at}.${id}.contains["${key}"] "${String(c)}" is not in the ingredient graph`);
+    }
+    lines.forEach((line, i) => {
+      if (typeof line !== 'string') return;
+      const mine = declared?.[String(i)];
+      const have = new Set(Array.isArray(mine) ? (mine as unknown[]) : []);
+      for (const named of textMentions([line.replace(/\{\w+\}/g, ' ')], graph)) {
+        if (!have.has(named)) say(`${at}.${id}.lines[${i}] names "${named}" but its contains does not declare it (${at}.${id}.contains["${i}"])`);
+      }
+    });
+  }
+}
+
+/**
  * Every problem with a stall file:
  * - not exactly one `correct: true`, or not 3–4 options;
  * - a `contains` id (question or option level) missing from the graph;
@@ -156,6 +187,7 @@ export function validateStallFile(d: unknown, graph: IngredientGraph, opts: { kn
   if (!isText(d.id)) say('id is not a non-empty string');
   if (!isText(d.name)) say('name is not a non-empty string');
   if (!isObject(d.triggers)) say('triggers is not a map');
+  else checkTriggerFoods(d.triggers, 'triggers', graph, say);
 
   const games = new Set<string>();
   if (!isObject(d.games)) say('games is not a map');
@@ -182,6 +214,7 @@ export function validateStallFile(d: unknown, graph: IngredientGraph, opts: { kn
           continue;
         }
         if (!isObject(v.triggers)) say(`${at}.triggers is not a map`);
+        else checkTriggerFoods(v.triggers, `${at}.triggers`, graph, say);
         banks.push({ at: `${at}.questions`, list: v.questions });
         tipMaps.push({ at: `${at}.item_tips`, tips: v.item_tips });
         faqs.push({ at: `${at}.faq`, faq: v.faq });

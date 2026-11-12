@@ -89,6 +89,8 @@ const stallTrigger = strict({
   when: z.string(),
   lines: z.array(z.string()).min(1, 'needs at least one line'),
   vars: z.record(z.string(), z.string()).optional(),
+  /** Fix round 1 (Task 5 ruling 1): line index → the graph ids that line names; core checks it against the words. */
+  contains: z.record(z.string(), z.array(z.string())).optional(),
   notes: z.string().optional(),
 });
 const stallTriggers = z.record(z.string().regex(TRIGGER_ID, 'trigger id must be dotted lowercase (a-z, 0-9, _)'), stallTrigger);

@@ -189,9 +189,23 @@ describe('validateStallFile (never throws; each problem names the stall, the key
   });
 
   test('fix round 1, M1: a currency symbol anywhere in a stall file fails the build, not only in a question', () => {
-    expect(with_((d) => { d.triggers.greet.lines.push('Chuck is £4 today.'); })).toEqual(['bram: triggers.greet.lines[1] has a currency symbol (£); stall prices name no currency']);
-    expect(with_((d) => { pc(d).triggers.greet.lines[0] = 'Tofu, ₹50.'; })).toEqual(['bram: variants.protein_counter.triggers.greet.lines[0] has a currency symbol (₹); stall prices name no currency']);
+    expect(with_((d) => { d.triggers.greet.lines.push('That is £4 today.'); })).toEqual(['bram: triggers.greet.lines[1] has a currency symbol (£); stall prices name no currency']);
+    expect(with_((d) => { pc(d).triggers.greet.lines[0] = 'That is ₹50.'; })).toEqual(['bram: variants.protein_counter.triggers.greet.lines[0] has a currency symbol (₹); stall prices name no currency']);
     expect(with_((d) => { d.item_tips.chuck = { pick: 'Marbled.', store: 'Fridge. About $8.' }; })).toEqual(['bram: item_tips.chuck.store has a currency symbol ($); stall prices name no currency']);
     expect(with_((d) => { d.faq.push({ q: ['Cost?'], a: 'About 3€.' }); })).toEqual(['bram: faq[3].a has a currency symbol (€); stall prices name no currency']);
   });
+
+  test('fix round 1, I1: every keeper line declares the graph foods it names in its contains (by line index)', () => {
+    expect(with_((d) => { d.triggers.idle = { ai: 'allowed', lines: ['Take your time.', "The chuck isn't going anywhere."] }; }))
+      .toEqual(['bram: triggers.idle.lines[1] names "chuck" but its contains does not declare it (triggers.idle.contains["1"])']);
+    expect(with_((d) => { d.triggers.idle = { ai: 'allowed', lines: ['Take your time.', "The chuck isn't going anywhere."], contains: { '1': ['chuck'] } }; })).toEqual([]);
+    // A {var} is filled by code, not named by the line.
+    expect(with_((d) => { d.triggers.idle = { ai: 'never', lines: ['No {item} today.'] }; })).toEqual([]);
+    // The Protein Counter's lines too; a bad index or an unknown id fails.
+    expect(with_((d) => { pc(d).triggers.greet = { ai: 'allowed', lines: ['Lentils today!'] }; }))
+      .toEqual(['bram: variants.protein_counter.triggers.greet.lines[0] names "lentil" but its contains does not declare it (variants.protein_counter.triggers.greet.contains["0"])']);
+    expect(with_((d) => { d.triggers.idle = { ai: 'allowed', lines: ['Hi.'], contains: { '3': ['beef'] } }; })).toEqual(['bram: triggers.idle.contains["3"] is not the index of a line']);
+    expect(with_((d) => { d.triggers.idle = { ai: 'allowed', lines: ['Hi.'], contains: { '0': ['unobtainium'] } }; })).toEqual(['bram: triggers.idle.contains["0"] "unobtainium" is not in the ingredient graph']);
+  });
 });
+

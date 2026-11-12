@@ -1,4 +1,6 @@
+import { keeperLines, type MarketCtx, type Rule } from '@kitchenquest/core/engine';
 import { describe, expect, test, vi } from 'vitest';
+import { content, graph } from '../content';
 import type { MarketContent } from '../content/types';
 import { loadMarket, marketLoader } from './content';
 
@@ -48,3 +50,25 @@ describe('loadMarket (M6 Step 5)', () => {
     expect(await loadMarket()).toBe(m);
   });
 });
+
+describe('keeper lines on the shipped stalls (fix round 1, Task 5 ruling 1: what Step 9 uses)', () => {
+  const avoid = (...ids: string[]): Rule => ({ id: `r-${ids.join('-')}`, target: { kind: 'category', ids }, type: 'avoid', severity: 'allergy' });
+  const ctx = (rules: Rule[]): MarketCtx => ({ rules, graph, subs: content.substitutions, date: '2026-11-12', country: null });
+  const CHUCK = "Take your time. The chuck isn't going anywhere. It's had a very hard-working life and it's resting.";
+  const RICE = 'Rice in the sack, because Haruka did not ask nicely.';
+
+  test("Bram's \"The chuck isn't going anywhere\" is dropped for a no-beef player; \"Rice in the sack\" under a rice rule", async () => {
+    const m = await loadMarket();
+    expect(keeperLines(m.stalls.bram, 'idle', ctx([]))).toContain(CHUCK);
+    expect(keeperLines(m.stalls.bram, 'idle', ctx([avoid('beef')]))).not.toContain(CHUCK);
+    expect(keeperLines(m.stalls.bram, 'idle', ctx([avoid('beef')])).length).toBeGreaterThan(0);
+    const greet = (rules: Rule[]) => keeperLines(m.stalls['okafor-sato'], 'greet', ctx(rules)).filter((l) => l.includes(RICE));
+    expect(greet([])).toHaveLength(1);
+    expect(greet([avoid('rice')])).toEqual([]);
+    expect(greet([avoid('rice_grain')])).toEqual([]);
+    // Wen's squash greet under a butternut-squash rule; the plums under a plum rule.
+    expect(keeperLines(m.stalls.wen, 'greet', ctx([avoid('butternut_squash')])).some((l) => /squash/i.test(l))).toBe(false);
+    expect(keeperLines(m.stalls.wen, 'greet', ctx([avoid('plum')])).some((l) => /plums/i.test(l))).toBe(false);
+  });
+});
+
