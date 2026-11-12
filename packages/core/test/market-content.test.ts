@@ -219,6 +219,12 @@ describe('data/seasonality.yaml (Ruling 9)', () => {
     for (const [country, region] of [['India', 'Kerala'], ['Mexico', 'Oaxaca'], ['Nigeria', 'Lagos'], ['Australia', 'Melbourne']]) expect(at(country, region)).toBeNull();
   });
 
+  test('M7 Step 7 (M6 final M11): Oregon, Ohio, Oregon WI and eastern Washington or Oregon get no calendar; Portland, Oregon still does', () => {
+    const at = (region: string) => seasonRegionFor({ country: 'United States', region }, table);
+    for (const region of ['Oregon, Ohio', 'Oregon WI', 'Oregon, Wisconsin', 'eastern Washington', 'Spokane, eastern Washington', 'Eastern Oregon', 'Oregon, IL']) expect(at(region), region).toBeNull();
+    for (const region of ['Portland, Oregon', 'Oregon', 'western Washington', 'Seattle, WA', 'Portland, OR', 'Bend, Oregon']) expect(at(region), region).toBe('pnw-usa');
+  });
+
   test("the season note shows only on an item the rules call ✅; a seasonal round for a strawberry allergy drops the strawberry", () => {
     const nov = { ...ctx([]), date: '2026-11-12' };
     expect(seasonNote('cranberry', 'pnw-usa', table, nov)).toMatchObject({ category: 'now', isNow: true });

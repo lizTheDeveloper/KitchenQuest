@@ -735,12 +735,14 @@ variants:
       tofu:
         pick: "Check the date and the type for the job: silken to blend, soft to simmer, firm for most things, extra-firm to fry."
         store: "Opened: cover with fresh water in a container in the fridge, change it daily, use within 3–5 days."
+        contains: [water]
       tempeh:
         pick: "Firm, tightly bound cake, white mycelium. A few grey or black spots are normal; slime or an ammonia smell aren't."
         store: "Fridge, sealed, use by the date. Freezes well."
       seitan:
         pick: "Check the label: wheat gluten base. Not for anyone avoiding gluten."
         store: "Fridge, in its liquid, about a week once opened."
+        contains: [gluten, wheat]
       egg:
         pick: "Open the carton: no cracks. Check the date."
         store: "In the carton, in the fridge body, not the door — the door is the weather."
@@ -753,22 +755,27 @@ variants:
       paneer:
         pick: "Firm, fresh-smelling, check the date."
         store: "Fridge, sealed. Soak cubes in warm water for ten minutes before cooking to soften them."
+        contains: [water]
       edamame:
         pick: "Frozen is easiest and cheapest; bright green pods."
         store: "Freezer for months."
     faq:
       - q: ["how much protein do i need", "enough protein"]
         a: "Enough is the word, and it varies by person. A protein food at most meals — beans, lentils, tofu, eggs, dairy, whatever fits your rules — gets most people there. For a number that's right for you, ask a dietitian. Bram does chalkboards, not prescriptions."
+        contains: [bean, egg, lentil, milk, tofu]
         a_if_blocked: "Enough is the word, and it varies by person. A protein food at most meals, whatever fits your rules, gets most people there. For a number that's right for you, ask a dietitian. Bram does chalkboards, not prescriptions."
       - q: ["is soy safe", "is tofu bad for you", "soy hormones"]
         a: "That's one for a doctor or dietitian if you've got a specific worry. What I can say: tofu, tempeh and edamame are everyday foods for a great many people. Unless soy's on your rules, they're excellent value."
+        contains: [edamame, soy, tempeh, tofu]
         a_if_blocked: "That's one for a doctor or dietitian if you've got a specific worry. Your rules come first at this counter: what I show you fits them."
       - q: ["vegan b12", "b12", "nutritional yeast b12"]
         a: "Some nutritional yeast and plant milks are fortified with B12 — check the label, because not all are. For whether you need a supplement, ask a doctor or dietitian. I sell food, not diagnoses."
+        contains: [milk]
         a_if_blocked: "Some foods are fortified with B12; check the label, because not all are. For whether you need a supplement, ask a doctor or dietitian. I sell food, not diagnoses."
         # REVIEW: deliberately non-prescriptive; confirm wording with a dietitian.
       - q: ["what's the cheapest protein", "cheap protein", "budget protein"]
         a: "Dried lentils and beans, by a mile. Then eggs and tofu. Canned beans are next, and they're fast. Tempeh and fancy meat substitutes are the treats."
+        contains: [bean, canned_bean, egg, lentil, meat, tempeh, tofu]
         a_if_blocked: "Whatever fits your rules, work it out per serving: divide the cost by how many it feeds. Dried things that cook up big usually win."
 
 item_tips:
@@ -784,6 +791,7 @@ item_tips:
   strip_steak:
     pick: "Fine, even marbling, bright red, about 2.5 cm (1 in) thick for a good sear."
     store: "Fridge 3–5 days. Pat dry and salt before cooking."
+    contains: [salt]
   ribeye:
     pick: "Generous marbling and the fat-rich 'cap'. Thick cuts sear better than thin."
     store: "Fridge 3–5 days."
@@ -807,12 +815,14 @@ item_tips:
   whole_chicken:
     pick: "Usually the cheapest per serving of any chicken. Plump breast, no strong smell, cold."
     store: "Fridge 1–2 days. Keep the carcass for stock."
+    contains: [chicken]
   pork_shoulder:
     pick: "Good marbling and a fat cap; bone-in has extra flavour."
     store: "Fridge 3–5 days."
   pork_tenderloin:
     pick: "Long, narrow, lean. Not the same as pork loin, which is wider and bigger."
     store: "Fridge 3–5 days. Cook to 63°C (145°F) and rest."
+    contains: [pork]
   pork_chop:
     pick: "Thick chops (2.5 cm / 1 in or more) stay juicier. Some marbling helps."
     store: "Fridge 3–5 days."
@@ -823,37 +833,45 @@ item_tips:
 faq:
   - q: ["how much meat per person", "how much meat do i need", "meat per serving"]
     a: "For boneless meat, about 150–225 g (⅓–½ lb) raw per person, depending on appetite and what else is on the plate. Bone-in, buy more; bones are heavy and don't feed anyone. And make extra if you like leftovers."
+    contains: [meat]
     a_if_blocked: "Plan a generous portion of protein per person, more for big appetites, and make extra if you like leftovers. Bone-in cuts need more; bones don't feed anyone."
   - q: ["can i refreeze meat", "refreeze thawed meat"]
     a: "If you thawed it in the fridge, yes, you can refreeze it raw (the texture suffers a bit). If you thawed it in cold water or the microwave, cook it first, then you can freeze the cooked dish."
+    contains: [water]
     a_if_blocked: "If it thawed in the fridge, it can go back in the freezer raw (the texture suffers a bit). If it thawed in a cold bath or the microwave, cook it first, then freeze the cooked dish."
     tags: [safety]
   - q: ["how long can i freeze meat", "freezer meat how long"]
     a: "It stays safe indefinitely frozen solid, but quality drops. Roughly: steaks and roasts 4–12 months, ground meat 3–4 months, chicken pieces about 9 months. Wrap it tightly to stop freezer burn and label it with the date."
+    contains: [chicken, meat]
     a_if_blocked: "Frozen solid, food stays safe indefinitely, but quality fades. Wrap it tightly against freezer burn and write the date on it."
     tags: [storage]
     # REVIEW: FSIS freezer quality times (steaks 4-12 mo, ground 3-4 mo, poultry parts ~9 mo) — check current chart.
   - q: ["how do i marinate safely", "marinate on counter", "reuse marinade"]
     a: "Marinate in the fridge, never on the counter. Don't reuse marinade that touched raw meat as a sauce unless you boil it first. Better: set some aside before the meat goes in."
+    contains: [meat]
     a_if_blocked: "Marinate in the fridge, never on the counter. Set some marinade aside for a sauce before anything raw goes in; marinade that touched raw food gets boiled first."
     tags: [safety]
   - q: ["is pink pork safe", "pork pink inside"]
     a: "Whole cuts of pork are safe at 63°C (145°F) with a three-minute rest, and they can still be a little pink. Ground pork needs 71°C (160°F). Use a thermometer and stop worrying about colour."
+    contains: [pork]
     a_if_blocked: "Use a probe thermometer in the thickest part, and go by the number on the chart, not the colour."
     tags: [safety]
   - q: ["do i need a separate cutting board", "cross contamination", "cutting board for meat"]
     a: "Yes, ideally: one board for raw meat, one for everything else. Wash it in hot soapy water after use, and wash your hands and the knife too. Never put cooked food back on a plate that held raw meat."
+    contains: [meat, water]
     a_if_blocked: "Yes, ideally: one board for raw foods, one for everything else. Wash it hot and soapy after use, and wash your hands and the knife too."
     tags: [safety]
   - q: ["what is marbling", "why marbling"]
     # REVIEW: M6 Step 5 voice scan: reworded from "streaks" (the streak pattern). Content review.
     a: "The thin flecks of fat inside the muscle. They melt as it cooks and keep the meat juicy and flavourful. More marbling usually means more tender and more expensive."
+    contains: [meat]
     # REVIEW: M6 Step 5 voice scan: reworded from "streaks" (the streak pattern). Content review.
     a_if_blocked: "The thin flecks of fat inside a cut. They melt as it cooks and keep it juicy and full of flavour."
   - q: ["what is the difference between pork loin and tenderloin", "loin vs tenderloin"]
     a: "Tenderloin is a small, narrow, very lean muscle — quick to cook. Loin is a much bigger, wider cut from along the back, sold as roasts or chops. Different sizes, different cooking times. Don't swap one for the other without adjusting."
   - q: ["what does sell by mean", "use by date", "best before meat"]
     a: "'Sell by' is for the shop. 'Use by' is the maker's quality suggestion. For you: ground meat and poultry within 1–2 days of buying, steaks, chops and roasts within 3–5, or freeze."
+    contains: [meat]
     a_if_blocked: "'Sell by' is for the shop. 'Use by' is the maker's quality suggestion. For you: the more perishable the food, the sooner it is cooked or frozen. The label tells you how soon."
     tags: [safety, storage]
   - q: ["halal", "kosher", "is this halal", "is this kosher"]

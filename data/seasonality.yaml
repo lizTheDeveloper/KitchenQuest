@@ -28,11 +28,25 @@ pnw-usa:
     - "Farmers' market seasonal calendars (Seattle, Portland, Oregon)"
   match:
     countries: ["united states", "usa", "us", "united states of america"]
-    # REVIEW: "oregon" also names a few small towns elsewhere in the US (Oregon, Ohio; Oregon, Wisconsin). A player
-    # there who writes only "Oregon" would get this calendar. The matcher has no exclusions yet.
-    # REVIEW: "wa" matches any region text with the token "WA", and eastern Washington or eastern Oregon (high
-    # desert) get this western-leaning calendar through "washington state" and "oregon". Information only (Ruling 10).
+    # REVIEW: "oregon" also names a few small towns elsewhere in the US (Oregon, Ohio; Oregon, Wisconsin), and "wa"
+    # matches any region text with the token "WA". M7 Step 7 (M6 final M11): `exclude` takes a player out of this
+    # region when their region names another state (its name or postal code) or the dry side of the Cascades.
+    # REVIEW: the postal codes IN, ME, OH, OK and HI are left out of `exclude` because they are common English words
+    # ("Seattle in Washington"); the state names cover them. Information only (Ruling 10): a wrong exclusion only
+    # means no calendar, never a wrong one.
     regions: ["washington state", "western washington", "wa", "oregon", "portland oregon", "portland or", "seattle", "pacific northwest", "pnw"]
+    # Eastern and central Washington and Oregon (the dry side) first, then every other state's name and postal code.
+    exclude: [
+      "eastern washington", "eastern oregon", "central washington", "central oregon", "alabama", "alaska", "arizona",
+      "arkansas", "california", "colorado", "connecticut", "delaware", "florida", "georgia", "hawaii", "idaho",
+      "illinois", "indiana", "iowa", "kansas", "kentucky", "louisiana", "maine", "maryland", "massachusetts",
+      "michigan", "minnesota", "mississippi", "missouri", "montana", "nebraska", "nevada", "new hampshire",
+      "new jersey", "new mexico", "new york", "north carolina", "north dakota", "ohio", "oklahoma", "pennsylvania",
+      "rhode island", "south carolina", "south dakota", "tennessee", "texas", "utah", "vermont", "virginia",
+      "west virginia", "wisconsin", "wyoming", "district of columbia", "al", "ak", "az", "ar", "ca", "co", "ct",
+      "de", "fl", "ga", "ia", "id", "il", "ks", "ky", "la", "ma", "md", "mi", "mn", "mo", "ms", "mt", "nc", "nd",
+      "ne", "nh", "nj", "nm", "nv", "ny", "pa", "ri", "sc", "sd", "tn", "tx", "ut", "va", "vt", "wi", "wv", "wy", "dc"
+    ]
   categories:
     - { id: now, label: "In season here, now" }
     - { id: stored, label: "Local, stored from the autumn harvest" }

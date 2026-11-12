@@ -87,13 +87,13 @@ export const BRAM: StallFile = {
       ],
       item_tips: {
         lentil: { pick: 'Whole, unbroken, no dust.', store: 'Airtight, dark, a year or more.' },
-        paneer: { pick: 'Firm and milky-white.', store: 'Fridge, in water, two days.' },
+        paneer: { pick: 'Firm and milky-white.', store: 'Fridge, in water, two days.', contains: ['water'] },
       },
       faq: [
-        { q: ['what does fermenting do', 'fermented'], a: 'Yes: tempeh is soybeans bound by a friendly mould.', a_if_blocked: 'Ask me about chickpeas instead: they keep for a year.' },
+        { q: ['what does fermenting do', 'fermented'], a: 'Yes: tempeh is soybeans bound by a friendly mould.', contains: ['soy', 'tempeh'], a_if_blocked: 'Ask me about chickpeas instead: they keep for a year.', contains_if_blocked: ['chickpea'] },
         { q: ['how much protein do i need'], a: 'Enough, from a variety of foods.' },
-        { q: ['is soy safe'], a: 'For most people, yes: a legume eaten for centuries.' },
-        { q: ['is tempeh gluten free'], a: 'Plain tempeh is; flavoured ones vary, so read the label.' },
+        { q: ['is soy safe'], a: 'For most people, yes: a legume eaten for centuries.', contains: ['legume'] },
+        { q: ['is tempeh gluten free'], a: 'Plain tempeh is; flavoured ones vary, so read the label.', contains: ['tempeh'] },
       ],
     },
   },
@@ -101,12 +101,12 @@ export const BRAM: StallFile = {
     chuck: { pick: 'Good marbling and seams of connective tissue.', store: 'Fridge, bottom shelf, 3–5 days.' },
     chicken_thigh: { pick: 'Plump, pink, no strong smell.', store: 'Fridge 1–2 days.' },
     pork: { pick: 'Good marbling and a fat cap.', store: 'Fridge 3–5 days.' },
-    cabbage: { pick: 'Heavy for its size.', store: 'Fridge, wrapped, rendered with lard if you like.' },
+    cabbage: { pick: 'Heavy for its size.', store: 'Fridge, wrapped, rendered with lard if you like.', contains: ['lard'] },
   },
   faq: [
-    { q: ['how much meat per person'], a: 'About 150–225 g of raw meat per person.' },
-    { q: ['is pink pork safe', 'pork pink inside'], a: 'Whole cuts of pork are safe at 63°C with a rest.', a_if_blocked: 'Use a thermometer for any whole cut.' },
-    { q: ['what fat for pastry'], a: 'Lard makes it flaky.' },
+    { q: ['how much meat per person'], a: 'About 150–225 g of raw meat per person.', contains: ['meat'] },
+    { q: ['is pink pork safe', 'pork pink inside'], a: 'Whole cuts of pork are safe at 63°C with a rest.', contains: ['pork'], a_if_blocked: 'Use a thermometer for any whole cut.' },
+    { q: ['what fat for pastry'], a: 'Lard makes it flaky.', contains: ['lard'] },
   ],
 };
 
@@ -126,7 +126,7 @@ export const SPICE: StallFile = {
     cumin_seed: { pick: 'Whole seeds, ridged, earthy.', store: 'Airtight, dark, cool.' },
   },
   faq: [
-    { q: ['spice blend allergens'], a: 'Asafoetida usually has wheat flour in it.' },
+    { q: ['spice blend allergens'], a: 'Asafoetida usually has wheat flour in it.', contains: ['asafoetida', 'wheat'] },
     { q: ['how long do spices last'], a: 'They fade; they rarely spoil.' },
   ],
 };

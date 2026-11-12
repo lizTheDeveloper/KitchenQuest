@@ -414,12 +414,15 @@ item_tips:
   soft_tofu:
     pick: "For simmering gently: soups, mapo tofu. Handle with a spoon, not tongs."
     store: "Opened: in fresh water in the fridge, change daily, 3–5 days."
+    contains: [tofu, water]
   firm_tofu:
     pick: "The all-rounder: stir-fries, scrambles, baking. Press 15 minutes before frying."
     store: "Opened: in fresh water in the fridge, change daily, 3–5 days. Freeze for a chewier texture."
+    contains: [water]
   extra_firm_tofu:
     pick: "For frying and grilling. Press 15–30 minutes; dust with cornstarch for crunch."
     store: "Opened: in fresh water in the fridge, change daily, 3–5 days."
+    contains: [water]
   tofu_puffs:
     pick: "Light, golden, hollow. Drop into soups and hot pot; they drink the broth."
     store: "Fridge, sealed; freeze for longer."
@@ -433,6 +436,7 @@ item_tips:
   canned_bean:
     pick: "No dents along the seams, no bulges. 'No salt added' if you'd like to season them yourself."
     store: "Cupboard until the date. Opened: transfer to a container, fridge, 3–4 days."
+    contains: [salt]
   black_bean:
     pick: "Shiny, uniform, deep black. Cooks from dry in about 2 hours; faster if soaked."
     store: "Dried: airtight, up to a year. Cooked: in their broth, fridge 4–5 days, freezer months."
@@ -445,18 +449,23 @@ item_tips:
   lentil:
     pick: "Bright, even colour, not dusty, no tiny holes. Rinse until the water runs clearer."
     store: "Airtight jar, up to a year."
+    contains: [water]
   red_lentil:
     pick: "Bright orange-pink split lentils. No soaking; 15–20 minutes. They collapse into a purée."
     store: "Airtight jar."
+    contains: [lentil]
   moong_dal:
     pick: "Small, pale yellow split mung beans. No soaking; about 20 minutes."
     store: "Airtight jar."
+    contains: [bean]
   toor_dal:
     pick: "Yellow split pigeon peas. Rinse; 30–40 minutes on the stove, or the pressure cooker."
     store: "Airtight jar. Some are coated in oil; rinse well."
+    contains: [pea]
   rice:
     pick: "For onigiri and sushi: Japanese short-grain or Calrose medium-grain. Short, round, shiny grains."
     store: "Airtight container, cool and dry. Cooked rice: cool quickly, fridge within 2 hours, eat within a day or two."
+    contains: [cooked_rice, rice_grain]
   nori:
     pick: "Dark, crisp, sealed. Toasted (yaki nori) for onigiri."
     store: "Keep it airtight — nori goes limp in damp air like a sad flag."
@@ -472,9 +481,11 @@ faq:
     a: "Wrap the block in a clean towel, put it on a plate, and set something heavy on top — a pan, a few cans, a large book you've been meaning to read. Fifteen to thirty minutes. Never silken."
   - q: ["can i eat tofu raw", "is tofu cooked", "raw tofu safe"]
     a: "Yes. Packaged tofu has already been cooked during making. Eat it cold in salads or with soy sauce and ginger. Keep it in the fridge and respect the date."
+    contains: [ginger, soy, soy_sauce, tofu]
     a_if_blocked: "Packaged foods like this are usually cooked during making, but your rules come first. Check the label, keep it in the fridge, and respect the date."
   - q: ["is tofu gluten free", "tofu gluten"]
     a: "Plain tofu is soybeans, water and a coagulant, so yes. Flavoured, marinated or fried tofu may contain soy sauce or flour, which often means wheat. Check the label; your rules will flag it."
+    contains: [soy, soy_sauce, tofu, tofu_puffs, water, wheat]
     a_if_blocked: "Plain ones usually are; flavoured, marinated or fried ones may not be. Check the label. Your rules will flag what I can't check."
     tags: [safety]
   - q: ["what's the difference between silken and soft tofu", "silken vs soft"]
@@ -483,6 +494,7 @@ faq:
     a: "Both are good. Canned saves time and is already cooked; rinse it. Dried costs much less per serving and gives you a broth. Keep both. That is the merchant's answer and also the correct one."
   - q: ["do i need to soak beans", "soak beans", "soaking"]
     a: "Lentils and split peas: no. Whole beans: soaking shortens cooking and helps them cook evenly, but black beans and pinto beans can cook from dry if you have time. Red kidney beans: soak, then boil hard for 10 minutes. Always."
+    contains: [bean, kidney_bean, lentil, pea]
     # REVIEW: M6 Step 5 fix round 1: "legumes" is a graph name now, and the blocked answer names nothing; was "Small split legumes". Content review.
     a_if_blocked: "Small split ones: no. Whole dried ones: soaking shortens the cooking and helps them cook evenly. Some must be boiled hard after soaking; the packet will say. Check it against your rules first."
     tags: [safety]
@@ -491,6 +503,7 @@ faq:
     tags: [storage]
   - q: ["why do beans make you gassy", "beans gas"]
     a: "Beans contain fibres your gut bacteria enjoy enthusiastically. Eating beans regularly usually helps. Soaking and rinsing helps a little. Beyond that, a doctor, not a merchant."
+    contains: [bean]
     a_if_blocked: "Fibre your gut bacteria enjoy enthusiastically. Eating it regularly usually helps. Beyond that, a doctor, not a merchant."
   - q: ["how do i warm tortillas", "tortillas", "heat tortillas"]
     a: "A dry, hot pan or comal. About 30 seconds a side, until they flex and puff a little. Stack them in a clean towel to keep them warm and soft. Doña Marisol taught me that, and then watched me do it three times."

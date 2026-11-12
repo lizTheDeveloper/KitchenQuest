@@ -3,6 +3,7 @@ import { check } from '../rules/check';
 import type { Rule } from '../rules/types';
 import { faqFor, keeperLines, questionStatus, questionVariant, stallBank, stallVariant, tipFor } from './bank';
 import { countryInScope, isKnownCountry, normalizeCountry } from './country';
+import type { StallFile } from './types';
 import { ALLERGEN_LINE, avoid, BRAM, ctx, DAY, graph, MEDICAL_LINE, NO_PORK, question, SEASONAL_STRAWBERRY, SPICE, subs, VEGAN, VEGETARIAN, WEN } from './fixtures';
 
 const ids = (rules: Rule[], stall = BRAM, over = {}) => stallBank(stall, ctx(rules, over)).questions.map((q) => q.id);
@@ -189,6 +190,34 @@ describe('questionStatus and stallBank (spec §2.2, §3.5)', () => {
     // Nothing safe to say → the entry is left out.
     const silent = { ...SPICE, triggers: {} };
     expect(faqFor(silent, ctx([COELIAC])).map((f) => f.q)).toEqual(['how long do spices last']);
+  });
+
+  test('M7 Step 7 (M6 final M2): the generic safety line is a fallback only when it is ✅ itself; a medical line naming soy, under a soy rule → no answer', () => {
+    // The answer names tempeh (⛔ under soy) and there is no a_if_blocked, so the stall's medical line would stand in.
+    const soyLine = 'That one is for a doctor. Ask before the soy stall.';
+    const stall: StallFile = { ...WEN, triggers: { medical: { ai: 'never', lines: [soyLine] } }, faq: [{ q: ['what is this block'], a: 'Tempeh is fermented soybeans.' }] };
+    expect(faqFor(stall, ctx([]))).toEqual([{ q: 'what is this block', a: 'Tempeh is fermented soybeans.' }]);
+    expect(faqFor(stall, ctx([SOY]))).toEqual([]);
+    // The line's declared contains counts too: a medical line naming nothing the scan sees, declared as soy.
+    const declared: StallFile = { ...stall, triggers: { medical: { ai: 'never', lines: ['Ask at the bean counter.'], contains: { '0': ['soy'] } } } };
+    expect(faqFor(declared, ctx([SOY]))).toEqual([]);
+    // Under a tempeh rule the answer is ⛔ but soy is not, so the declared-soy line stands in.
+    expect(faqFor(declared, ctx([avoid('tempeh')]))).toEqual([{ q: 'what is this block', a: 'Ask at the bean counter.' }]);
+  });
+
+  test('M7 Step 7 (M6 final M7): a tip or an FAQ answer naming a food indirectly is checked through its own contains', () => {
+    // The words name no graph food the scan can see; the declared contains says peanut.
+    const tip = { pick: 'Ask for the Kerala blend.', store: 'Airtight.', contains: ['peanut'] };
+    const stall: StallFile = { ...WEN, item_tips: { cumin_seed: tip }, faq: [{ q: ['what is in the blend'], a: 'The house blend, roasted.', contains: ['peanut'], a_if_blocked: 'Ask me for a single spice instead.' }] };
+    expect(tipFor(stall, 'cumin_seed', ctx([]))).toEqual(tip);
+    expect(tipFor(stall, 'cumin_seed', ctx([avoid('peanut')]))).toBeNull();
+    expect(faqFor(stall, ctx([]))).toEqual([{ q: 'what is in the blend', a: 'The house blend, roasted.' }]);
+    expect(faqFor(stall, ctx([avoid('peanut')]))).toEqual([{ q: 'what is in the blend', a: 'Ask me for a single spice instead.' }]);
+    // a_if_blocked's own contains: blocked too → the safety line (none here) → nothing.
+    const both: StallFile = { ...stall, triggers: {}, faq: [{ ...stall.faq[0], a_if_blocked: 'Ask for the other tin.', contains_if_blocked: ['peanut'] }] };
+    expect(faqFor(both, ctx([avoid('peanut')]))).toEqual([]);
+    // An id the graph doesn't know is ❓, never safe.
+    expect(tipFor({ ...stall, item_tips: { cumin_seed: { ...tip, contains: ['unobtainium'] } } }, 'cumin_seed', ctx([]))).toBeNull();
   });
 
   test('the check runs on the local date: a phased rule only bites while it is active', () => {

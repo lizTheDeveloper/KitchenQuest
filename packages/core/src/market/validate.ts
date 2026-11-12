@@ -78,6 +78,8 @@ const shown = (n: number): string => (Number.isInteger(n) ? String(n) : n.toFixe
  * - A "= N" outside such a sum, and any other figure in a reaction or the explanation, must be some option's price per
  *   serving (so "Chuck is 3.50" fails when chuck is 3.75).
  * - The prompt lists every entry in board order: each price, then its servings as the next number.
+ * - Every other number in the prompt is a board price, servings or price per serving, and one in an option's text is
+ *   that option's own (M7 Step 7, moved here from the game build so the API's boot checks it too).
  */
 function checkChalkboard(
   q: Record<string, unknown>,
@@ -97,7 +99,16 @@ function checkChalkboard(
 
   for (const t of texts) {
     if (t.text.includes('≈')) bad(`${t.at} uses "≈"; chalkboard arithmetic is exact`);
-    if (t.at === 'prompt' || t.at.endsWith('.text')) continue;
+    // M7 Step 7 (M6 Task 5 N3, the core half of the build's old `chalkboardFigures`): every number in the prompt is
+    // some board price, servings or price per serving; one in an option's text is that option's own.
+    const opt = /^options\[(\d+)\]\.text$/.exec(t.at);
+    if (t.at === 'prompt' || opt !== null) {
+      const figures = (es: readonly { price: number; servings: number }[]) => es.flatMap((e) => [cents(e.price), e.servings * 100, cents(e.price) / e.servings]);
+      const allowed = opt === null ? figures(board) : figures(board[Number(opt[1])] === undefined ? [] : [board[Number(opt[1])]]);
+      const what = opt === null ? 'is no chalkboard price, servings or price per serving' : 'is not its own chalkboard price, servings or price per serving';
+      for (const m of t.text.matchAll(NUMBER)) if (!allowed.some((x) => Math.abs(x - Number(m[0]) * 100) < 1e-6)) bad(`${t.at} states ${m[0]}, which ${what}`);
+      continue;
+    }
     const own = /^options\[(\d+)\]\.reaction$/.exec(t.at);
     const k = own === null ? null : Number(own[1]);
     let rest = t.text;
@@ -172,6 +183,8 @@ function checkTriggerFoods(triggers: Record<string, unknown>, at: string, graph:
  * - Ruling 5's chalkboard arithmetic, a value question stating a price without a chalkboard, and a currency symbol in
  *   any question text;
  * - a `faq` entry with an empty `q`;
+ * - an FAQ answer (`a`, `a_if_blocked`) or an item tip naming a graph food its `contains` (`contains_if_blocked`)
+ *   doesn't declare (M7 Step 7; a tip's own item excepted), or declaring an id the graph lacks;
  * - and the shape around them (a missing list, a field of the wrong type), so nothing downstream reads a hole.
  */
 export function validateStallFile(d: unknown, graph: IngredientGraph, opts: { knownGames: ReadonlySet<string> }): string[] {
@@ -232,6 +245,24 @@ export function validateStallFile(d: unknown, graph: IngredientGraph, opts: { kn
       }
     }
   }
+
+  /**
+   * M7 Step 7 (M6 final M7): a shown text (an FAQ answer, a tip) declares in `contains` every graph food its words name,
+   * as keeper lines do, so the rules check never rests on the scan alone. Declared ids must be graph ids. `own` is
+   * named freely (a tip's own item).
+   */
+  const declaredFoods = (declared: unknown, texts: readonly string[], at: string, key: string, own: ReadonlySet<string> = new Set()): void => {
+    if (declared !== undefined && !Array.isArray(declared)) {
+      say(`${key} is not a list of ingredient ids`);
+      return;
+    }
+    const list: unknown[] = declared ?? [];
+    const have = new Set<unknown>(list);
+    for (const c of list) if (typeof c !== 'string' || !graph.has(c)) say(`${key} "${String(c)}" is not in the ingredient graph`);
+    for (const named of textMentions(texts, graph)) {
+      if (!have.has(named) && !own.has(named)) say(`${at} names "${named}" but its ${key.slice(key.lastIndexOf('.') + 1)} does not declare it (${key})`);
+    }
+  };
 
   const seen = new Map<string, string>();
   for (const { at, list } of banks) {
@@ -318,6 +349,8 @@ export function validateStallFile(d: unknown, graph: IngredientGraph, opts: { kn
     for (const [key, tip] of Object.entries(tips)) {
       if (!graph.has(key)) say(`${at}.${key}: not in the ingredient graph`);
       if (!isObject(tip) || !isText(tip.pick) || !isText(tip.store)) say(`${at}.${key}: not { pick, store } text`);
+      // M7 Step 7 (M6 final M7): every other graph food the tip names is declared; its own item needs no entry.
+      else declaredFoods(tip.contains, [tip.pick, tip.store], `${at}.${key}`, `${at}.${key}.contains`, new Set([key]));
     }
   }
 
@@ -331,7 +364,10 @@ export function validateStallFile(d: unknown, graph: IngredientGraph, opts: { kn
       if (!isObject(f)) return say(`${path}: not an object`);
       if (!Array.isArray(f.q) || f.q.length === 0 || !f.q.every(isText)) say(`${path}.q is empty: it needs at least one non-empty question`);
       if (!isText(f.a)) say(`${path}.a is not a non-empty string`);
+      else declaredFoods(f.contains, [f.a], `${path}.a`, `${path}.contains`);
       if (f.a_if_blocked !== undefined && !isText(f.a_if_blocked)) say(`${path}.a_if_blocked is not a non-empty string`);
+      else if (f.a_if_blocked !== undefined) declaredFoods(f.contains_if_blocked, [f.a_if_blocked], `${path}.a_if_blocked`, `${path}.contains_if_blocked`);
+      else if (f.contains_if_blocked !== undefined) say(`${path}.contains_if_blocked is set but there is no a_if_blocked`);
     });
   }
   // Fix round 1, M1: no currency symbol anywhere else in the file either (keeper lines, FAQ, tips, names), so the

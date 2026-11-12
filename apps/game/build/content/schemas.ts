@@ -114,11 +114,14 @@ const stallQuestion = strict({
   chalkboard: z.array(strict({ price: z.number(), servings: z.number() })).optional(),
 });
 const stallQuestions = z.array(stallQuestion);
-const itemTips = z.record(z.string(), strict({ pick: z.string(), store: z.string() }));
+/** M7 Step 7 (M6 final M7): a tip's and an FAQ answer's `contains`, the graph ids it names; core checks them against the words. */
+const itemTips = z.record(z.string(), strict({ pick: z.string(), store: z.string(), contains: ids.optional() }));
 const stallFaq = z.array(strict({
   q: z.array(z.string()).min(1),
   a: z.string(),
+  contains: ids.optional(),
   a_if_blocked: z.string().optional(),
+  contains_if_blocked: ids.optional(),
   tags: z.array(z.string()).optional(),
 }));
 

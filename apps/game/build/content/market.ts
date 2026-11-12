@@ -63,34 +63,6 @@ export function stallQuestions(stall: StallFile): { at: string; q: StallQuestion
 }
 
 /**
- * M6 final (Task 5 N3): core's chalkboard check (eval-hashed, so not changed here) reads every figure in the reactions
- * and the explanation, and the prompt's board pairs in order, but not a figure in an option's own text or a stray one
- * in the prompt. The build checks those too: a number in an option's text must be that option's own price, servings
- * or price per serving, and every number in the prompt must be some board price, servings or price per serving.
- */
-export function chalkboardFigures(stall: StallFile): string[] {
-  const out: string[] = [];
-  const per = (e: { price: number; servings: number }) => Math.round(e.price * 100) / e.servings / 100;
-  const same = (a: number, b: number) => Math.abs(a - b) < 1e-6;
-  const numbers = (t: string) => [...t.matchAll(/\d+(?:\.\d+)?/g)].map((m) => m[0]);
-  for (const { at, q } of stallQuestions(stall)) {
-    const board = q.chalkboard;
-    if (board === undefined || board.length !== q.options.length) continue;
-    const any = board.flatMap((e) => [e.price, e.servings, per(e)]);
-    for (const n of numbers(q.prompt)) {
-      if (!any.some((x) => same(x, Number(n)))) out.push(`${at} (${q.id}): prompt states ${n}, which is no chalkboard price, servings or price per serving`);
-    }
-    q.options.forEach((o, k) => {
-      const own = [board[k].price, board[k].servings, per(board[k])];
-      for (const n of numbers(o.text)) {
-        if (!own.some((x) => same(x, Number(n)))) out.push(`${at} (${q.id}): options[${k}].text states ${n}, which is not its own chalkboard price, servings or price per serving`);
-      }
-    });
-  }
-  return out;
-}
-
-/**
  * Ruling 2: a hash of a question's options in file order: each option's text and whether it is the correct one (fix
  * round 1, M4: a saved `pick` would be re-scored the other way if the correct option moved under the same id).
  */
