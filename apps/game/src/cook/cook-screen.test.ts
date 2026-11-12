@@ -7,7 +7,12 @@ import { cookScreen } from './cook-screen';
 import { cookWithNotes } from './with-notes';
 
 // Cook mode speaks through the Pan; a silent stand-in is enough here.
-vi.mock('../mentor', () => ({ getMentor: () => ({ say: () => ({ text: '', trigger: '', ai: 'never' }) }) }));
+// M6 Step 10: signed in, cook mode reads this week's run on demand (GET /market-runs/current) through the panel's client.
+const runRead = vi.hoisted(() => ({ run: null as unknown, calls: 0 }));
+vi.mock('../mentor', () => ({
+  getMentor: () => ({ say: () => ({ text: '', trigger: '', ai: 'never' }) }),
+  getMentorServices: () => ({ client: { currentRun: () => { runRead.calls++; return Promise.resolve({ ok: true, status: 200, data: { run: runRead.run } }); } } }),
+}));
 
 const SLUG = 'india/kerala/parippu';
 const EMAIL = 'cook@example.test';
@@ -56,6 +61,29 @@ describe('cook mode with my notes (M5 Step 11, fix I3)', () => {
     await t.run();
     expect(t.el.querySelector('.cook-refusal')).toBeNull();
     expect(t.el.querySelector('h1')?.textContent).not.toContain('with your notes');
+    t.screen.unmount?.();
+  });
+});
+
+describe('M6 Step 10: a stall swap, signed in after a reload', () => {
+  test('the run is read on demand (read only); cook mode shows "swapped at the market" and checks with the swap; a new rule → refused', async () => {
+    const { forgetWeek } = await import('../week/memory');
+    forgetWeek();
+    runRead.calls = 0;
+    runRead.run = {
+      id: 'run-1', weekStart: '2026-11-09', doneAt: null,
+      items: [
+        { key: 'shallot', name: 'shallots', ingredientId: 'shallot', stall: 'wen', forDishes: [SLUG], outOfStock: true, ticked: false },
+        { key: 'stock:onion', name: 'onion', ingredientId: 'onion', stall: 'wen', forDishes: [SLUG], stockSwap: { from: 'shallot' }, ticked: true },
+      ],
+    };
+    const t = mount([]);
+    await t.run();
+    expect(runRead.calls).toBe(1);
+    expect(t.el.querySelector('.cook-refusal')).toBeNull();
+    expect(t.el.querySelector('.stock-label')?.textContent).toBe('swapped at the market: onion for shallots');
+    t.store.update((s) => ({ ...s, accountRules: [{ id: 'o1', target: { kind: 'ingredient', ids: ['onion'] }, type: 'avoid', severity: 'allergy' }] }));
+    expect(t.el.querySelector('.cook-refusal')).not.toBeNull();
     t.screen.unmount?.();
   });
 });
