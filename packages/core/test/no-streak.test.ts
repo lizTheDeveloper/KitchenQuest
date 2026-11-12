@@ -6,91 +6,19 @@
 // expression literals are stripped first and identifiers alone are matched, so a test title ("no streak term"), a
 // doc comment that explains the rule, and this file itself are never scanned. It lives in test/, beside
 // progress-architecture.test.ts, because core's src/ is type-checked without Node's types.
-import { readdirSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { codeOnly, sourceFiles } from './code-only';
 
 const BANNED = /streak|consecutive|inARow|daysInARow|combo/i;
 const SRC = fileURLToPath(new URL('../src/', import.meta.url));
 const DIRS = ['progress', 'quests', 'toolkit', 'week', 'market'];
 
-/** A `/` here starts a regular expression literal, not a division (the previous significant token decides). */
-const REGEX_AFTER = /(^|[=(,:[!&|?{};+\-*%<>~^]|\breturn|\btypeof|\bcase|\bdo|\belse|\bin|\bof|\bvoid|\byield|\bawait)\s*$/;
-
-/**
- * The code of a TypeScript file with every comment, string, template text and regex literal replaced by a space.
- * Template `${…}` expressions stay: they are code.
- */
-function codeOnly(src: string): string {
-  let out = '';
-  /** One entry per open template literal: the brace depth its current `${` expression started at. */
-  const templates: number[] = [];
-  let depth = 0;
-  let i = 0;
-  const inTemplateText = () => templates.length > 0 && templates[templates.length - 1] === -1;
-  const readTemplateText = () => {
-    // From just after a backtick or a closing `}` of an expression, to the closing backtick or the next `${`.
-    while (i < src.length) {
-      const c = src[i];
-      if (c === '\\') { i += 2; continue; }
-      if (c === '`') { i++; templates.pop(); out += ' '; return; }
-      if (c === '$' && src[i + 1] === '{') { i += 2; templates[templates.length - 1] = depth; depth++; out += ' '; return; }
-      i++;
-    }
-  };
-  while (i < src.length) {
-    if (inTemplateText()) { readTemplateText(); continue; }
-    const c = src[i];
-    const next = src[i + 1];
-    if (c === '/' && next === '/') { while (i < src.length && src[i] !== '\n') i++; out += ' '; continue; }
-    if (c === '/' && next === '*') { const end = src.indexOf('*/', i + 2); i = end < 0 ? src.length : end + 2; out += ' '; continue; }
-    if (c === "'" || c === '"') {
-      i++;
-      while (i < src.length && src[i] !== c && src[i] !== '\n') i += src[i] === '\\' ? 2 : 1;
-      i++;
-      out += ' ';
-      continue;
-    }
-    if (c === '`') { i++; templates.push(-1); continue; }
-    if (c === '/' && REGEX_AFTER.test(out)) {
-      i++;
-      let cls = false;
-      while (i < src.length && src[i] !== '\n') {
-        const r = src[i];
-        if (r === '\\') { i += 2; continue; }
-        if (r === '[') cls = true;
-        else if (r === ']') cls = false;
-        else if (r === '/' && !cls) break;
-        i++;
-      }
-      i++;
-      while (i < src.length && /[a-z]/i.test(src[i])) i++; // flags
-      out += ' ';
-      continue;
-    }
-    if (c === '{') depth++;
-    if (c === '}') {
-      depth--;
-      if (templates.length > 0 && templates[templates.length - 1] === depth) { templates[templates.length - 1] = -1; i++; out += ' '; continue; }
-    }
-    out += c;
-    i++;
-  }
-  return out;
-}
-
 /** The identifiers in a file's code that use a banned word. */
 function streakIdentifiers(src: string): string[] {
   return (codeOnly(src).match(/[A-Za-z_$][\w$]*/g) ?? []).filter((id) => BANNED.test(id));
-}
-
-function sourceFiles(dir: string): string[] {
-  return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
-    const p = join(dir, e.name);
-    if (e.isDirectory()) return sourceFiles(p);
-    return e.name.endsWith('.ts') && !e.name.endsWith('.test.ts') ? [p] : [];
-  });
 }
 
 describe('no streak vocabulary in core progress/, quests/, toolkit/, week/ and market/ (C28, M6)', () => {
