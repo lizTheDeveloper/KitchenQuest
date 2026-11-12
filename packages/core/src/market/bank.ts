@@ -142,3 +142,22 @@ export function faqFor(stall: StallFile, ctx: MarketCtx): { q: string; a: string
   }
   return out;
 }
+
+/**
+ * A keeper's written lines for one trigger (greet, idle, farewell, correct, ...), as this player may see them (Step 1
+ * review M3, for Step 9): the Protein Counter's own trigger when that variant is in use and has it, else the base
+ * stall's. Each line is kept only when everything it names is ✅ under ctx.rules, with no substitutions, as
+ * questions are ("Don't say 'something with beef'" never reaches a no-beef player). [] when the trigger is missing
+ * or no line is safe: the screen then shows no keeper line, never a guessed one. A `{var}` is not a word here; the
+ * caller checks whatever it fills in (an item name) the same way before showing it.
+ */
+export function keeperLines(stall: StallFile, triggerId: string, ctx: MarketCtx): string[] {
+  const side = sideOf(stall, stallVariant(stall, ctx));
+  const trigger = Object.hasOwn(side.triggers, triggerId)
+    ? side.triggers[triggerId]
+    : Object.hasOwn(stall.triggers, triggerId)
+      ? stall.triggers[triggerId]
+      : undefined;
+  if (trigger === undefined) return [];
+  return trigger.lines.filter((line) => typeof line === 'string' && line.trim() !== '' && namedStatus([], [line.replace(/\{\w+\}/g, ' ')], ctx) === 'ok');
+}

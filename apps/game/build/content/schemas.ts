@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-// Unknown keys are allowed everywhere: writers add notes.
+// Unknown keys are allowed everywhere except the market stalls (below): writers add notes.
 const obj = <T extends z.core.$ZodLooseShape>(shape: T) => z.looseObject(shape);
 
 const TRIGGER_ID = /^[a-z0-9_]+(\.[a-z0-9_]+)*$/;
@@ -78,30 +78,77 @@ export const cookFile = obj({
   faq: z.array(faq),
 });
 
-const stallOption = obj({
+// ---- market stalls (M6 Step 5): strict. An unknown key anywhere in a stall file fails the build, with its path, so
+// a misspelt `contians:` or `countires:` can never silently drop a rules check or a country scope. Writers' notes go
+// in YAML comments, or in a trigger's `when` / `notes`, which the build drops for the client.
+const strict = <T extends z.core.$ZodLooseShape>(shape: T) => z.strictObject(shape);
+const ids = z.array(z.string());
+
+const stallTrigger = strict({
+  ai: z.enum(['never', 'allowed']),
+  when: z.string(),
+  lines: z.array(z.string()).min(1, 'needs at least one line'),
+  vars: z.record(z.string(), z.string()).optional(),
+  notes: z.string().optional(),
+});
+const stallTriggers = z.record(z.string().regex(TRIGGER_ID, 'trigger id must be dotted lowercase (a-z, 0-9, _)'), stallTrigger);
+
+const stallOption = strict({
   text: z.string(),
   correct: z.boolean(),
   reaction: z.string(),
-  contains: z.array(z.string()).optional(),
+  contains: ids.optional(),
 });
-const stallQuestion = obj({
+const stallQuestion = strict({
   id: z.string(),
-  game: z.string().optional(),
+  game: z.string(),
   prompt: z.string(),
   options: z.array(stallOption),
   explain: z.string(),
-  contains: z.array(z.string()).optional(),
+  contains: ids.optional(),
+  /** Ruling 8: the ISO country names this fact is true for. */
+  countries: ids.optional(),
+  /** Ruling 5: one { price, servings } per option, in file order. */
+  chalkboard: z.array(strict({ price: z.number(), servings: z.number() })).optional(),
 });
 const stallQuestions = z.array(stallQuestion);
+const itemTips = z.record(z.string(), strict({ pick: z.string(), store: z.string() }));
+const stallFaq = z.array(strict({
+  q: z.array(z.string()).min(1),
+  a: z.string(),
+  a_if_blocked: z.string().optional(),
+  tags: z.array(z.string()).optional(),
+}));
 
-export const stallFile = obj({
+export const stallFile = strict({
   id: z.string(),
   name: z.string(),
+  /** The stall's kind ("produce", "butcher", ...). */
+  stall: z.string(),
+  /** The keeper's sprite key; null for a keeper who is never seen. */
+  art: z.string().nullable(),
   persona: z.array(z.string()),
-  triggers: triggerMap,
+  triggers: stallTriggers,
+  games: z.record(z.string(), z.string()),
   questions: stallQuestions,
-  variants: z.record(z.string(), obj({ questions: stallQuestions.optional() })).optional(),
+  variants: strict({
+    protein_counter: strict({
+      name: z.string().optional(),
+      persona: z.array(z.string()).optional(),
+      triggers: stallTriggers,
+      questions: stallQuestions,
+      item_tips: itemTips,
+      faq: stallFaq,
+    }).optional(),
+  }).optional(),
+  /** region → month (1–12) → questions: Wen's "Seasonal or well-travelled?" round (Ruling 9). */
+  seasonal: z.record(z.string(), z.record(z.string(), stallQuestions)).optional(),
+  item_tips: itemTips,
+  faq: stallFaq,
 });
+
+/** data/seasonality.yaml: only "a map of regions" here; core's `validateSeasonTable` checks each region and names it. */
+export const seasonalityFile = z.record(z.string(), z.unknown());
 
 const bureauForm = obj({
   number: z.string(),
@@ -112,6 +159,8 @@ const bureauForm = obj({
   buttons: obj({ confirm: z.string(), decline: z.string().optional(), undo: z.string().optional() }),
   stamp: z.string(),
   footnotes: z.array(z.string()).optional(),
+  /** Form 14-S only: each minigame's display name, by the stall files' `games:` keys (M6 Step 5: the known games). */
+  game: z.record(z.string(), z.string()).optional(),
 });
 
 export const FOOTNOTE_TAGS = ['any', 'empty', 'loading', 'market', 'kitchen', 'map', 'ledger', 'settings'] as const;

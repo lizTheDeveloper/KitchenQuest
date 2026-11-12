@@ -35,6 +35,40 @@ export const M5_LOOP_TRIGGERS_AI = {
 } as const satisfies Record<string, 'never' | 'allowed'>;
 const M5_LOOP_TRIGGERS = Object.keys(M5_LOOP_TRIGGERS_AI);
 
+/** The M6 market triggers (Step 4's table), each with its `ai` value. Steps 8–10 fire them by id. Written lines only. */
+export const M6_MARKET_TRIGGERS_AI = {
+  'market.no_calendar': 'never',
+  'market.stall_wait': 'never',
+  'market.bank_small': 'never',
+  'market.practice': 'allowed',
+  'market.round_done': 'allowed',
+  'market.leave_round': 'allowed',
+  'market.no_swap': 'never',
+  'market.stock_swapped': 'never',
+  'season.now': 'never',
+  'season.other': 'never',
+  'market.checkoff_readback': 'never',
+  'market.checkoff_none': 'never',
+  'market.no_run': 'never',
+  'errand.question': 'allowed',
+  'cook.drill_first': 'never',
+  'stamp_earned.market_game': 'allowed',
+} as const satisfies Record<string, 'never' | 'allowed'>;
+const M6_MARKET_TRIGGERS = Object.keys(M6_MARKET_TRIGGERS_AI);
+
+/**
+ * Each stall's safety triggers (M6 Step 5, C19), pinned `ai: never`, per stall as the files have them: `out_of_stock`
+ * and `out_of_stock_none` everywhere; `medical` at Wen, Bram and Okafor-Sato; `religious_rules` at Bram only; the
+ * Spice Merchant's `allergen_note` (it has no `medical`). The build fails when a stall lacks one or makes it
+ * `ai: allowed`; required.test.ts pins each first line.
+ */
+export const REQUIRED_STALL_TRIGGERS: Readonly<Record<'wen' | 'bram' | 'okafor-sato' | 'spice', readonly string[]>> = {
+  wen: ['out_of_stock', 'out_of_stock_none', 'medical'],
+  bram: ['out_of_stock', 'out_of_stock_none', 'medical', 'religious_rules'],
+  'okafor-sato': ['out_of_stock', 'out_of_stock_none', 'medical'],
+  spice: ['out_of_stock', 'out_of_stock_none', 'allergen_note'],
+};
+
 /** Pan triggers the game fires by name. The build fails if pan.yaml lacks any of them. */
 export const REQUIRED_PAN_TRIGGERS: readonly string[] = [
   'greet.first_ever',
@@ -76,6 +110,8 @@ export const REQUIRED_PAN_TRIGGERS: readonly string[] = [
   // M5 Step 4: the weekly loop's lines (plan, One More Technique, market run, rescue, frames, cook → log, margin
   // notes, quests, the Recipe Book, navigation chips). Written lines only (Ruling 21).
   ...M5_LOOP_TRIGGERS,
+  // M6 Step 4: the market's lines (stalls, swaps, the Season's Table, check-off, errands, drill-first).
+  ...M6_MARKET_TRIGGERS,
   'ai_unavailable',
   'thanks',
   'intake.ios_home_screen',

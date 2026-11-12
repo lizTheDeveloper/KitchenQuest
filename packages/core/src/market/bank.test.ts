@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { check } from '../rules/check';
 import type { Rule } from '../rules/types';
-import { faqFor, questionStatus, questionVariant, stallBank, stallVariant, tipFor } from './bank';
+import { faqFor, keeperLines, questionStatus, questionVariant, stallBank, stallVariant, tipFor } from './bank';
 import { countryInScope, isKnownCountry, normalizeCountry } from './country';
 import { ALLERGEN_LINE, avoid, BRAM, ctx, DAY, graph, MEDICAL_LINE, NO_PORK, question, SEASONAL_STRAWBERRY, SPICE, subs, VEGAN, VEGETARIAN, WEN } from './fixtures';
 
@@ -258,5 +258,29 @@ describe('questionStatus and stallBank (spec §2.2, §3.5)', () => {
     expect(questionVariant(SPICE, 'spice-cumin')).toBe('base');
     // Seasonal questions (Step 2 supplies them) belong to the base stall.
     expect(questionVariant({ ...WEN, seasonal: { 'pnw-usa': { 6: [SEASONAL_STRAWBERRY] } } }, 'wen-pnw-6-strawberry')).toBe('base');
+  });
+
+  test('Step 5 (Step 1 review M3): keeperLines drops a greet, idle or farewell line that names a ⛔ or ❓ item; the Protein Counter speaks its own', () => {
+    const stall = {
+      ...BRAM,
+      triggers: {
+        ...BRAM.triggers,
+        idle: { ai: 'allowed' as const, lines: ["The beef isn't going anywhere.", 'Take your time.'] },
+        farewell: { ai: 'allowed' as const, lines: ['Cheerio! Ground beef within two days.', 'Cheerio!'] },
+        out_of_stock: { ai: 'never' as const, lines: ['Sold out of {item}. Try {swap}.'] },
+      },
+    };
+    expect(keeperLines(stall, 'idle', ctx([]))).toEqual(["The beef isn't going anywhere.", 'Take your time.']);
+    expect(keeperLines(stall, 'idle', ctx([avoid('beef')]))).toEqual(['Take your time.']);
+    expect(keeperLines(stall, 'farewell', ctx([avoid('beef')]))).toEqual(['Cheerio!']);
+    // Every line unsafe → [], never a guessed line; an unknown trigger → [].
+    expect(keeperLines({ ...stall, triggers: { idle: { ai: 'allowed', lines: ['Beef, beef, beef.'] } } }, 'idle', ctx([avoid('beef')]))).toEqual([]);
+    expect(keeperLines(stall, 'no_such_trigger', ctx([]))).toEqual([]);
+    // {vars} are not words: the caller checks what it fills in.
+    expect(keeperLines(stall, 'out_of_stock', ctx([avoid('beef')]))).toEqual(['Sold out of {item}. Try {swap}.']);
+    // A vegetarian gets the Protein Counter's greet; a trigger it lacks falls back to the base stall's, still checked.
+    expect(keeperLines(stall, 'greet', ctx([VEGETARIAN]))).toEqual(['Welcome to the Protein Counter!']);
+    expect(keeperLines(stall, 'greet', ctx([]))).toEqual(['Morning!']);
+    expect(keeperLines(stall, 'idle', ctx([VEGETARIAN]))).toEqual(['Take your time.']);
   });
 });

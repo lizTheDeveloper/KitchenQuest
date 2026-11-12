@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.sw.json",
     "test": "NODE_OPTIONS=--no-warnings=ExperimentalWarning vitest run --configLoader runner",
     "test:e2e": "vitest run -c vitest.e2e.config.ts",
-    "icons": "node scripts/make-icons.mjs"
+    "icons": "node scripts/make-icons.mjs",
+    "content:pin": "node scripts/content-pin.mjs"
   },
   "dependencies": {
     "@fontsource/atkinson-hyperlegible": "^5.3.0",
