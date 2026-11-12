@@ -27,7 +27,7 @@ Three things close the milestone, as in M5 Step 12:
   2. `#/stalls` → Wen → the seasonal round appears ("Seasonal or well-travelled?"). One right and one wrong answer, then leave: one `stall_round` posted, XP once, and the stamp line once.
   3. The same round again: no new XP and no second stamp that ISO week, and no line mentions a loss.
   4. `#/market` → amounts shown → "Out of stock?" on shallots → take onion → tick two rows → "That's the shop done".
-  5. "got the moong dal" said to the Pan → card → tap → ticked.
+  5. "got the moong dal" said to the Pan → the card is already ticked with an Undo (no tap, C31); "no fennel" → the health ask and nothing ticked (C30); a model-proposed check-off card ticks only after the tap.
   6. Cook parippu: the label "swapped at the market: onion for shallot".
   7. A coconut rule is added: parippu ⛔ in the plan and cook mode, Cook disabled, and its unticked list rows are gone (M5 C20). XP, level and stamps are unchanged. A soy rule then removes every tofu question at Okafor-Sato's.
   8. The profile region changes to "Kerala, India" (no table): no seasonal round, `market.no_calendar` once, and **no** Pacific Northwest note anywhere.
@@ -50,7 +50,7 @@ Three things close the milestone, as in M5 Step 12:
   - U-6: the progress snapshot;
   - H-11: market rows with amounts and stock swaps;
   - L-5: device stall rounds, with Protein Counter rounds noted as health data on the device;
-  - P-1: the region now resolved for seasonality by code, never sent to a prompt;
+  - P-1: the region now resolved for seasonality by code, never added to a prompt (M4's `profile.region` is the only region a prompt carries, and is unchanged; M6 adds nothing region-derived, C32);
   - §6 columns;
   - the lock order.
 - `ROADMAP.md`: a ticked **M6 gamified market** line, plus open `[lawyer]` items for:

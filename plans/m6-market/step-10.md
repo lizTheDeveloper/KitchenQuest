@@ -5,7 +5,7 @@ The shopping trip itself, on screen. Form 12-M (`#/market`, M5 Step 10) gains:
 - an honest season note per produce row;
 - an "Out of stock?" control that offers the stall keeper's rules-checked swap.
 
-The plan view gains The Season's Table note per dish. A quest errand now plays its stall's question for the item before the step completes, and the step passes whatever is answered. The Pan's check-off card gets its full UI, and the scripted engine builds it with the AI off. The drill-first hint (Ruling 16) appears on recipe and cook screens. **None of this gates anything:** the list, ticks, the finish, errands and Cook work exactly as before for a player who ignores every new control.
+The plan view gains The Season's Table note per dish. A quest errand now plays its stall's question for the item before the step completes, and the step passes whatever is answered. The Pan's check-off card gets its full UI, and the scripted engine builds it with the AI off: a grammar card ticks at once with an Undo, and only a model-proposed card waits for a tap (C31). The drill-first hint (Ruling 16) appears on recipe and cook screens. **None of this gates anything:** the list, ticks, the finish, errands and Cook work exactly as before for a player who ignores every new control.
 
 **Family Table mode** (M5 Ruling 25, C31):
 - the list shows amounts and season notes;
@@ -28,8 +28,8 @@ The plan view gains The Season's Table note per dish. A quest errand now plays i
   - `apps/game/src/week/plan-view.ts`: The Season's Table note under each dish (information only; no reorder, no badge colour);
   - `apps/game/src/api/{client,types}.ts`: `stock()`;
   - `apps/game/src/quests/quest-runner.ts` (+ test): the errand question;
-  - `apps/game/src/mentor/scripted.ts`: `checkOffIntent` with the current run (device or account) → a local `check_off` card;
-  - `apps/game/src/mentor/writer.ts`: replaces Step 8's minimal case; confirm → `tick` per key; undo → untick;
+  - `apps/game/src/mentor/scripted.ts`: `checkOffIntent` with the current run (device or account), run before the health check in the same place as the API (C30; emergency and child first) → a local `check_off` card that ticks at once with an Undo; anything it does not claim goes on to the health path;
+  - `apps/game/src/mentor/writer.ts`: replaces Step 8's minimal case; a grammar card is applied on creation (`tick` per key) and its undo → untick; a model-proposed card confirms on the tap → `tick` per key;
   - `apps/game/src/mentor/cards-view.ts`, `panel.ts`: the full card; `go` chips for `stalls` / `stall`;
   - `apps/game/src/cook/cook-screen.ts`: for a dish planned this week whose run has stock swaps, a label "swapped at the market: Y for X" and the check from `checkWithStockSwaps`. ⛔ disables Cook as everywhere;
   - `apps/game/src/recipes/card-view.ts`, `recipe-screen.ts`: the drill-first line and chip.
@@ -53,7 +53,10 @@ export function drillFirstFor(recipe: ParsedRecipe, toolkit: ToolkitState, techn
   { technique: string; cook: string; questId: string } | null;   // first skill (recipe order) with a prereq below Seen that a quest drill teaches
 ```
 - **Errand question:** when an errand step's stall bank (rules-checked, Step 1) holds a question with a `contains` id that is the errand's item or one of its `isA` ancestors (Marisol's `black_bean` errand matches an Okafor-Sato `bean` question; Leela's `shallot` errand matches no question today, since Wen has no shallot question, so it shows none), `errand.question` plays that one question with `round-view`, and then the step goes on exactly as M5 (pantry or tap). If no question passes, nothing is shown. The answer is recorded as a one-answer `stall_round`, except in Family Table. **The step's completion never depends on the answer**, and a test pins that both a right and a wrong answer complete it with identical quest grants.
-- **Check-off card:** it lists the matched rows by their list names, then "Tick these", "Not now", and for each missing row "Out of stock?", which scrolls `#/market` to that row's stock control. Nothing ticks before the tap. Undo unticks each.
+- **Check-off card** (C31): it lists the matched rows by their list names and, for each missing row, "Out of stock?", which scrolls `#/market` to that row's stock control.
+  - A **grammar** card (scripted engine, or the API's code-built card) is already applied: the rows show ticked, with an "Undo" that unticks each. No "Tick these" button.
+  - A **model-proposed** card is pending: "Tick these" and "Not now"; nothing ticks before the tap. Undo unticks each afterwards.
+  - Without `health_data` consent, either card shows `consent.health_first` and ticks nothing until consent and, for a grammar card, a tap on "Tick these".
 - **Season notes** (the table comes from `loadMarket()`'s `MarketContent.seasonality`, Step 5; the notes appear once it resolves, and the list never waits on it):
   - "in season where you are: {item}" (`season.now`), or the region's own category word (`season.other`);
   - never a red, grey or warning style, never on a ❓ or ⛔ row, and never a countdown;
@@ -69,12 +72,14 @@ test('cook mode for a dish with a stall swap shows the label and the checkWithSt
 test('season notes: pnw-usa November → "in season where you are" on squash; no region → none; never on a ❓ row', ...);
 test('plan view season note is text only; plan order and suggestPlan output are unchanged (snapshot)', ...);
 test('errand: right and wrong answers both complete the step with identical grants; no passing question → no question shown', ...);
-test('scripted: "got the shallots" with an open device run → local check_off card; tap ticks; undo unticks; Family Table → no card', ...);
-test('scripted: "no fennel" → health path ask, no card (Ruling 13)', ...);
+test('scripted, safe side: "got the shallots", "picked up the onion", "no shallots today" with an open device run → a local check_off card already ticked, with an Undo and no tap; undo unticks; Family Table → no card, no tick', ...);
+test('scripted, health side: bare "no fennel", "got the shallots, I\'m allergic", "got the dal, I\'m vegan", "got the onion, it made me ill" → health path ask, no card, no tick (Ruling 13, C30); the same message is not claimed by the grammar on the API either', ...);
+test('a model-proposed check_off card renders pending with "Tick these" / "Not now"; nothing ticks before the tap', ...);
+test('without health_data consent: a grammar card ticks nothing and shows consent.health_first', ...);
 test('drill-first: shown when a prereq is below Seen; Cook enabled; absent in Family Table and on sacred dishes', ...);
 // e2e market-day.e2e.test.ts (mocked /api/**; AI off signed out; AI on signed in with a mocked check_off card)
 //   plan parippu → #/market amounts → Out of stock? shallot → take onion → cook parippu shows "swapped at the market"
-//   "got the moong dal" → card → tap → row ticked; Marisol's black_bean errand plays an Okafor-Sato bean question; a wrong answer still completes it;
+//   "got the moong dal" → card already ticked, Undo visible (no tap); Undo → row unticked; a mocked model-proposed card ticks only after the tap; "no fennel" → health ask, nothing ticked; Marisol's black_bean errand plays an Okafor-Sato bean question; a wrong answer still completes it;
 //   Leela's shallot errand shows no question (no stall question names shallot) and completes as in M5
 ```
 - [ ] **10.2 Run** `npm test -w @kitchenquest/game -- stock season drill-first quest-runner scripted writer cards-view cook-screen plan-view` and `npm run test:e2e -w @kitchenquest/game -- market-day week quests` → FAIL.
