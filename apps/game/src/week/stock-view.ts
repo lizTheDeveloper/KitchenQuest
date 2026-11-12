@@ -19,6 +19,11 @@ export interface StockDeps {
   swapRow?: ListItem | null;
   /** The keeper's written line (`out_of_stock` / `out_of_stock_none`), rules-checked; null → the Pan's line. */
   keeperLine?: (trigger: 'out_of_stock' | 'out_of_stock_none', vars: Record<string, string>) => string | null;
+  /**
+   * M6 final M3: whether a swap's curated note names nothing ⛔ or ❓ for the player now (the rules text check). A note
+   * that fails, or any note with no checker given, is left out; the chip stays (core checked the swap itself).
+   */
+  noteOk?: (note: string) => boolean;
   /** A dish's display name. */
   dishName?: (slug: string) => string;
   /** Whether the control starts open (the screen keeps it open across a redraw). */
@@ -84,7 +89,7 @@ export function stockControl(row: ListItem, deps: StockDeps): HTMLElement | null
     skip.addEventListener('click', () => { void run({ key: row.key, action: 'out' }, all); });
     panel.replaceChildren(
       ...(said === null ? [] : [contentText('p', said, { class: 'stock-said' })]),
-      ...chips.filter(({ sw }) => sw.note !== '').map(({ sw }) => contentText('p', sw.note, { class: 'stock-note' })),
+      ...chips.filter(({ sw }) => sw.note !== '' && deps.noteOk?.(sw.note) === true).map(({ sw }) => contentText('p', sw.note, { class: 'stock-note' })),
       h('div', { class: 'button-row' }, ...all));
   };
   const setOpen = (open: boolean) => {

@@ -46,4 +46,21 @@ describe('stockControl (Ruling 11)', () => {
     await Promise.resolve();
     expect(acts).toEqual([{ key: 'shallot', action: 'take', toId: 'onion' }]);
   });
+
+  test('final M3: a swap\'s note is shown only when the rules text check passes; the chip stays either way', () => {
+    const swaps = [{ toId: 'neutral_oil', toName: 'neutral oil', note: 'Same amount of sunflower or canola oil.', dishes: [PARIPPU] }];
+    const open = (noteOk?: (n: string) => boolean) => {
+      const box = stockControl(row({ key: 'coconut_oil', name: 'coconut oil' }), { swaps, act: () => Promise.resolve({ ok: true }), familyTable: false, ...(noteOk ? { noteOk } : {}) })!;
+      box.querySelector<HTMLButtonElement>('.stock-ask')!.click();
+      return box;
+    };
+    const named: string[] = [];
+    const blocked = open((n) => { named.push(n); return false; });
+    expect(named).toEqual([swaps[0].note]);
+    expect(blocked.querySelector('.stock-note')).toBeNull();
+    expect(blocked.querySelectorAll('.stock-swap')).toHaveLength(1);
+    expect(open().querySelector('.stock-note')).toBeNull(); // no checker: can't verify is never safe
+    expect(open(() => true).querySelector('.stock-note')!.textContent).toBe(swaps[0].note);
+  });
 });
+

@@ -22,6 +22,7 @@ import { afterCookThenKitchen, cookedEvent } from './finish';
 import { takeNotes } from './with-notes';
 
 const NOT_COOKABLE_TEXT = "This dish isn't cookable with your rules.";
+const RUN_WAIT_TEXT = "Reading this week's market run…";
 const SACRED_TEXT = 'Shared as a story only.';
 
 const refusalText = (card: RecipeCard): string => (card.notCookableReason === 'sacred' ? SACRED_TEXT : NOT_COOKABLE_TEXT);
@@ -64,10 +65,14 @@ export function cookScreen(): Screen {
       const recipe: ParsedRecipe = notes === null ? content.recipes[slug] : applyNotes(content.recipes[slug], notes);
       const cook = content.cooks[recipe.meta.cook];
       // Signed in after a reload: this week's run, read once (read only) so its stall swaps are checked and labelled.
+      // M6 final M9: the wait (at most 3 s) says what it is doing; drawing without the swap first would be unsafe.
       if (ctx.store.get().account !== null) {
         let client: Parameters<typeof loadKnownRun>[1] | null = null;
         try { client = getMentorServices().client; } catch { /* no panel (a test mount): no run read */ }
-        if (client !== null) await loadKnownRun(ctx.store.get(), client, localDate(ctx.now()));
+        if (client !== null) {
+          el.replaceChildren(h('p', { class: 'cook-wait', role: 'status' }, RUN_WAIT_TEXT));
+          await loadKnownRun(ctx.store.get(), client, localDate(ctx.now()));
+        }
         if (gone) return;
       }
 
@@ -110,6 +115,10 @@ export function cookScreen(): Screen {
         }
       };
 
+      // M6 final: the drill-first hint needs the toolkit, which comes with progress. On a direct #/cook load it is not
+      // in memory yet, so the strip is drawn again once progress has loaded (as the recipe screen does).
+      let toolkit = currentToolkit();
+      let redrawStrip: (() => void) | null = null;
       cleanup = runCookMode(el, ctx, {
         title: notes === null ? card.title : `${card.title}, with your notes`,
         recipe,
@@ -117,10 +126,11 @@ export function cookScreen(): Screen {
         // M6 Ruling 16 (fix round 1, m1): the drill-first hint here too, advisory; never in Family Table.
         strip: () => {
           const strip = withStockLabels(renderSafetyStrip(card), card);
-          const hint = drillFirstHint(slug, currentToolkit(), ctx.store.get().settings.familyTable);
+          const hint = drillFirstHint(slug, toolkit, ctx.store.get().settings.familyTable);
           if (hint) strip.append(hint);
           return strip;
         },
+        onStripStale: (redraw) => { redrawStrip = redraw; },
         swapFor: (ing: RecipeIngredient) => card.findings.find((f) => f.ingredient === ing.name && f.swapLabel !== null)?.swapLabel ?? null,
         progressKey: slug,
         start: { trigger: 'cook.start', vars: { dish: cook.dish || card.title } },
@@ -148,6 +158,13 @@ export function cookScreen(): Screen {
           };
         },
       });
+      if (toolkit === null) {
+        void progressService().then((svc) => {
+          if (gone) return;
+          toolkit = svc.view().toolkit;
+          redrawStrip?.();
+        }, () => undefined);
+      }
     },
     unmount() { gone = true; cleanup?.(); cleanup = null; },
   };

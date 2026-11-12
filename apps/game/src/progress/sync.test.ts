@@ -518,4 +518,32 @@ describe('the guest → account move and health-revealing stall rounds (fix roun
     expect(part(store, A).events).toEqual([]);
     expect(part(store, A).grants).toEqual([]);
   });
+
+  // M6 final M1: device B never knew that device A answered this question right first. B's own judgment gives 5 XP;
+  // the server refuses it (not first-correct for the account). B neither keeps nor announces that XP.
+  test('final M1: two devices: the server\'s grants replace the device\'s for a stall round; offline, its XP is not announced', async () => {
+    const stampOnly = (p: Post) => ok({ accepted: p.events.map((e) => ({ clientId: e.id, grants: [{ id: `${e.id}#s`, eventId: e.id, isoDay: e.at, kind: 'stamp' as const, stamp: 'market_game' as const }] })) });
+    const { store, sync } = guestWithRound(stampOnly, { granted: true });
+    signIn(store);
+    const round = pcRound();
+    const said = await sync.record([round]);
+    expect(said.filter((g) => g.kind === 'xp')).toEqual([]);
+    expect(part(store, A).grants).toEqual([{ id: `${round.id}#s`, eventId: round.id, isoDay: TODAY, kind: 'stamp', stamp: 'market_game' }]);
+    expect(currentProgress(store.get()).xp).toBe(0);
+
+    // Offline (or the server late): the device's stall XP is kept for now but not said; the stamp line still is.
+    const off = createStore(null);
+    off.update((s) => ({ ...s, localRules: [VEG], account: { email: A } }));
+    const offline = createProgressSync({ store: off, client: {} as ApiClient, online: () => false, gapMs: 0, catalogue: catalogueOf(), context: () => rulesContextOf([VEG], [], TODAY) });
+    const r2 = pcRound();
+    const lines = await offline.record([r2]);
+    expect(lines.some((g) => g.kind === 'xp')).toBe(false);
+    expect(lines.some((g) => g.kind === 'stamp')).toBe(true);
+    expect(partitionOf(off.get(), accountKey(A)).grants.some((g) => g.kind === 'xp' && g.eventId === r2.id)).toBe(true);
+    // Signed out, the device is the record: its XP is said.
+    const guest = createStore(null);
+    guest.update((s) => ({ ...s, localRules: [VEG] }));
+    const g = createProgressSync({ store: guest, client: {} as ApiClient, online: () => false, gapMs: 0, catalogue: catalogueOf(), context: () => rulesContextOf([VEG], [], TODAY) });
+    expect((await g.record([pcRound()])).some((x) => x.kind === 'xp')).toBe(true);
+  });
 });

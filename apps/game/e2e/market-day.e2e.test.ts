@@ -247,6 +247,15 @@ describe('market day: accessibility (M6 Step 10, fix round 1 m5)', () => {
     expect(app.consoleErrors).toEqual([]);
   });
 
+  it('M6 final: a cold load of #/cook/<slug> shows the drill-first hint once progress has loaded', async () => {
+    app = await openApp(`/#/cook/${PARIPPU}`, { reducedMotion: true, seed: SEED });
+    const { page } = app;
+    await page.locator('.cook-step').waitFor();
+    await page.locator('.cook-head .drill-first').waitFor();
+    expect(await page.locator('.cook-head .drill-first a').getAttribute('href')).toBe('#/visit/marisol');
+    expect(app.consoleErrors).toEqual([]);
+  });
+
   it('the drill-first hint on the recipe and cook screens, and the rule form\'s which-kind choices, are axe-clean at 320 px', async () => {
     app = await openApp(`/#/recipe/${PARIPPU}`, { reducedMotion: true, width: 320, seed: SEED });
     const { page } = app;

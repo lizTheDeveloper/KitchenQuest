@@ -14,6 +14,12 @@ vi.mock('../mentor', () => ({
   getMentorServices: () => ({ client: { currentRun: () => { runRead.calls++; return runRead.hang ? new Promise(() => {}) : Promise.resolve({ ok: true, status: 200, data: { run: runRead.run } }); } } }),
 }));
 
+// M6 final: the progress service, when a test gives one (else it is not initialised, as in a bare mount).
+const progressMock = vi.hoisted((): { p: Promise<unknown> | null } => ({ p: null }));
+vi.mock('../progress', () => ({
+  progressService: () => progressMock.p ?? Promise.reject(new Error('progress is not initialised')),
+}));
+
 const SLUG = 'india/kerala/parippu';
 const EMAIL = 'cook@example.test';
 const peanut: Rule = { id: 'p1', target: { kind: 'ingredient', ids: ['peanut'] }, type: 'avoid', severity: 'anaphylactic' };
@@ -125,3 +131,46 @@ describe('Fix round 1 (m1, Ruling 16): the drill-first hint on the cook screen t
     ft.screen.unmount?.();
   });
 });
+
+describe('M6 final: a direct #/cook load', () => {
+  test('M9: while the run read waits, cook mode says so (a status line), then draws', async () => {
+    const { forgetWeek } = await import('../week/memory');
+    const { LOOKUP_TIMEOUT_MS } = await import('../shell/within');
+    forgetWeek();
+    const { rememberRun } = await import('../week/run-memory');
+    rememberRun({ id: '', weekStart: '', items: [], doneAt: null }, null); // nothing remembered from the tests before
+    runRead.hang = true;
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const t = mount([]);
+      const done = t.run();
+      await vi.advanceTimersByTimeAsync(10);
+      const wait = t.el.querySelector('[role="status"].cook-wait');
+      expect(wait?.textContent).toBe("Reading this week's market run…");
+      await vi.advanceTimersByTimeAsync(LOOKUP_TIMEOUT_MS);
+      await done;
+      expect(t.el.querySelector('.cook-wait')).toBeNull();
+      expect(t.el.querySelector('.cook-step')).not.toBeNull();
+      t.screen.unmount?.();
+    } finally { vi.useRealTimers(); runRead.hang = false; }
+  });
+
+  test('the drill-first hint appears once progress loads, though the toolkit was not in memory at mount', async () => {
+    const { setToolkitSource } = await import('../week/memory');
+    setToolkitSource(() => undefined as never); // a cold load: progress has not loaded yet
+    let release: () => void = () => undefined;
+    progressMock.p = new Promise((r) => { release = () => { r({ view: () => ({ toolkit: { techniques: {} } }) }); }; });
+    try {
+      const t = mount([]);
+      await t.run();
+      expect(t.el.querySelector('.cook-step')).not.toBeNull();
+      expect(t.el.querySelector('.drill-first')).toBeNull();
+      release();
+      await new Promise((r) => setTimeout(r, 0));
+      expect(t.el.querySelector('.drill-first a')?.getAttribute('href')).toBe('#/visit/marisol');
+      expect(t.el.querySelector('.cook-step')).not.toBeNull(); // cook mode runs on, the strip redrawn in place
+      t.screen.unmount?.();
+    } finally { progressMock.p = null; }
+  });
+});
+

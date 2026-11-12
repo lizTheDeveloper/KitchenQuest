@@ -4,7 +4,7 @@ import {
 import type { ApiClient } from '../api/client';
 import type { ApiResult, ProgressPostResponse } from '../api/types';
 import { content } from '../content';
-import { dropEvents, partitionKey, partitionOf, withPartition, type PlayerStore } from '../state/store';
+import { dropEvents, partitionKey, partitionOf, withPartition, type PlayerState, type PlayerStore } from '../state/store';
 import { catalogueOf } from './catalogue';
 import { appendEvents, historyOf, markUploaded } from './log';
 
@@ -73,6 +73,16 @@ export interface ProgressSync {
   /** Ask the account's view (GET /progress), when signed in; it is cached with that account's partition. */
   refreshAccountView(): Promise<void>;
   stop(): void;
+}
+
+/** Partition `key` with the server's grants in place of the device's for each accepted event listed (M6 final M1). */
+function adoptGrants(s: PlayerState, key: string, accepted: { clientId: string; grants: RewardGrant[] }[]): PlayerState {
+  const p = partitionOf(s, key);
+  const ids = new Set(accepted.map((a) => a.clientId).filter((id) => p.events.some((e) => e.id === id)));
+  if (ids.size === 0) return s;
+  const server = accepted.filter((a) => ids.has(a.clientId)).flatMap((a) => (Array.isArray(a.grants) ? a.grants : []));
+  // A deliberate removal of the device's grants: the epoch keeps a merge with an older copy from bringing them back.
+  return withPartition(s, key, { ...p, grants: [...p.grants.filter((g) => !ids.has(g.eventId)), ...server], epoch: (p.epoch ?? 0) + 1 });
 }
 
 const isObj = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x);
@@ -168,6 +178,14 @@ export function createProgressSync(deps: ProgressSyncDeps): ProgressSync {
     // included); the server holds the record now, so it leaves the device at once (Task 9 minimisation).
     const meals = sent.filter((e) => e.kind === 'meal_logged').map((e) => e.id);
     if (from !== null && meals.length > 0) store.update((s) => dropEvents(s, from, meals));
+    // M6 final M1: a stall round's grants are the server's. The device judged first-correct from its own history only,
+    // so a question first answered right on another device earned XP here that the server refused: the server's
+    // grants replace the device's for each stall round it accepted (the shown view is the max with the server's).
+    if (from !== null && Array.isArray(r.accepted)) {
+      const rounds = new Set(sent.filter((e) => e.kind === 'stall_round').map((e) => e.id));
+      const server = r.accepted.filter((a) => rounds.has(a.clientId));
+      if (server.length > 0) store.update((s) => adoptGrants(s, from, server));
+    }
     // Every id sent was answered (accepted, duplicate or refused for good), so none is posted again.
     if (from !== null && liveKey() !== as) store.update((s) => dropEvents(s, from, ids));
     else markUploaded(store, from, ids);
@@ -269,16 +287,20 @@ export function createProgressSync(deps: ProgressSyncDeps): ProgressSync {
         appendEvents(store, key, meals, [], { cat });
       }
       const local = ok.flatMap((r) => r.grants);
-      if (key === null || !deps.online() || blockedUntil > now()) return local;
+      // M6 final M1: signed in, a stall round's XP is announced only from the server's grants. When the server can't
+      // answer in time, the device's stall XP is not said (its stamp and round lines still are).
+      const rounds = new Set(ok.filter((r) => r.event.kind === 'stall_round').map((r) => r.event.id));
+      const said = key === null ? local : local.filter((g) => !(g.kind === 'xp' && rounds.has(g.eventId)));
+      if (key === null || !deps.online() || blockedUntil > now()) return said;
 
       // Signed in: the server decides. An event the device already holds is not sent again here.
       const send = results.filter((r) => !r.problems.includes('duplicate_id')).map((r) => r.event);
-      if (send.length === 0) return local;
-      if (send.length > EVENTS_PER_REQUEST) { void sync.uploadDeviceLog(); return local; } // too many for one live post
+      if (send.length === 0) return said;
+      if (send.length > EVENTS_PER_REQUEST) { void sync.uploadDeviceLog(); return said; } // too many for one live post
       const ids = new Set(send.map((e) => e.id));
       const timeout = new Promise<'late'>((resolve) => { setTimer(() => resolve('late'), liveWaitMs); });
       const r = await Promise.race([postLive(key, send), timeout]);
-      if (r === 'late' || r === null || !r.ok) return local;
+      if (r === 'late' || r === null || !r.ok) return said;
       return r.data.accepted.filter((a) => ids.has(a.clientId)).flatMap((a) => a.grants);
     },
 

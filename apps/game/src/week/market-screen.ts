@@ -205,6 +205,7 @@ export function marketScreen(api: ApiClient, source?: WeekSource): Screen {
             familyTable,
             swapRow: current.items.find((i) => i.stockSwap?.from === row.key) ?? null,
             keeperLine: (trigger, vars) => stockKeeperLine(market, row.stall, trigger, vars, c),
+            noteOk: (n) => c !== null && questionStatus({ id: '', game: '', prompt: n, options: [], explain: '' }, c) === 'ok',
             dishName: titleOf,
             open: openStock.has(row.key),
             onOpen: (open) => { if (open) openStock.add(row.key); else openStock.delete(row.key); },
