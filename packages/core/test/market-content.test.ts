@@ -264,7 +264,7 @@ const NEW_NODE_EDGES: Record<string, { isA?: string[]; contains?: string[]; unsa
   carrot: {}, potato: {}, winter_squash: {}, zucchini: {}, kale: {}, leek: { isA: ['allium', 'fodmap_fructan'] }, green_onion: { isA: ['allium', 'fodmap_fructan'] }, mushroom: {}, lemon: {}, mandarin: {}, parsnip: {}, asparagus: {}, nettle: {},
   coriander: {}, cilantro: { isA: ['herb', 'coriander'] }, cabbage: {}, brussels_sprout: {}, ginger: {}, fennel: {}, chili: {},
   cumin: {}, coriander_seed: { isA: ['coriander'] }, cardamom: {}, cinnamon: {}, clove: {}, black_pepper: {}, paprika: { isA: ['chili'] }, fennel_seed: { isA: ['fennel'] }, star_anise: {}, nutmeg: {}, saffron: {}, bay_leaf: {}, oregano: {},
-  butternut: { broad: true }, butternut_squash: { isA: ['winter_squash', 'butternut'] }, butternut_nut: { isA: ['tree_nut', 'butternut'] },
+  butternut: { broad: true }, butternut_squash: { isA: ['winter_squash', 'butternut'] }, butternut_nut: { isA: ['tree_nut', 'butternut'], unsafeFor: ['walnut', 'pecan'] },
   mexican_oregano: { unsafeFor: ['oregano'] }, asafoetida: { contains: ['wheat'], labelDependent: true }, garam_masala: { labelDependent: true }, curry_powder: { labelDependent: true }, furikake: { contains: ['sesame', 'fish', 'soy', 'wheat'], labelDependent: true },
 };
 
@@ -449,6 +449,11 @@ describe('butternut is ambiguous: the squash or the tree nut (binding ruling, fi
     const q = { ...wen.questions[0], id: 't-butternut', contains: [], prompt: 'Wen holds up a butternut. Which one is ready?' } as StallQuestion;
     expect(questionStatus(q, ctx([TREE_NUT]))).not.toBe('ok');
     expect(questionStatus(q, ctx([]))).toBe('ok');
+  });
+
+  test('N2: the butternut nut is a walnut-genus nut, so a walnut or pecan rule never sees it as ✅', () => {
+    for (const target of ['walnut', 'pecan']) for (const line of ['white walnut', 'butternut', 'butternuts', 'butternut tree nut']) expect(statusOf(line, [rule([target], 'anaphylactic')]), `${line} under ${target}`).not.toBe('ok');
+    expect(statusOf('butternut squash', [rule(['walnut'], 'anaphylactic')])).toBe('ok');
   });
 
   test('"butternut squash" stays unambiguous: the squash, not blocked under a tree-nut rule', () => {

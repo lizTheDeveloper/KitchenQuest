@@ -302,3 +302,13 @@ describe('M6 Step 4 fix round 1 (ruling C1): everyday words are never a slip of 
     }
   });
 });
+
+describe('M6 Step 4 fix round 2 (re-review N1, N4): food words are never on the everyday list', () => {
+  test.each(['keep the chile out', 'can you leave out the chile', 'the chile was too much for me last time', 'my son and chile do not mix', 'skip the marrow', 'bone marrow broth'])(
+    '%j is health',
+    (text) => expect(mentionsHealthTerm(text, graph, terms)).toBe(true),
+  );
+  test('chile, chiles and red chile name the chilli category', () => {
+    for (const w of ['chile', 'chiles', 'red chile']) expect(graph.resolve(w), w).toBe('chili');
+  });
+});

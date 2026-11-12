@@ -181,7 +181,7 @@ const EVERYDAY_WORDS: ReadonlySet<string> = new Set([
   'infer', 'hinge', 'love', 'loves', 'close', 'closes', 'glove', 'gloves', 'clone', 'until', 'pencil', 'mental', 'paper', 'papers',
   'panel', 'panels', 'planner', 'planners', 'career', 'careers', 'banner', 'manner', 'manners', 'payers', 'parser', 'parsers', 'oregon',
   'checked', 'checkin', 'checker', 'clicked', 'thicken', 'thickens', 'thicker', 'chucked', 'feel', 'feels', 'funnel', 'child', 'chilled',
-  'chill', 'chile', 'apply', 'applies', 'temp', 'temper', 'tamper', 'carry', 'carries', 'cannot', 'narrow', 'narrows', 'marrow', 'arrow',
+  'chill', 'apply', 'applies', 'temp', 'temper', 'tamper', 'carry', 'carries', 'cannot', 'narrow', 'narrows', 'arrow',
   'carton', 'worries', 'retries', 'series', 'little', 'gentle', 'kettle', 'settle', 'pestle', 'neatly', 'rattle', 'seattle', 'damage',
   'damages', 'rotate', 'motto', 'parsing', 'colander', 'garbage', 'balances', 'canada', 'terry',
 ]);

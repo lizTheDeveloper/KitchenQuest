@@ -2838,7 +2838,10 @@
       "aliases": [
         "chili",
         "chilli pepper",
-        "chili pepper"
+        "chili pepper",
+        "chile",
+        "chiles",
+        "red chile"
       ],
       "source": "Category: fresh, dried and ground chillies; no FDC record."
     },
@@ -3145,6 +3148,10 @@
         "tree_nut",
         "butternut"
       ],
+      "unsafeFor": [
+        "walnut",
+        "pecan"
+      ],
       "per100g": {
         "energy_kcal": 612,
         "protein_g": 24.9,
@@ -3154,7 +3161,7 @@
         "sodium_mg": 1
       },
       "fdcId": 170570,
-      "source": "FDC 170570 (Nuts, butternuts, dried). A tree nut."
+      "source": "FDC 170570 (Nuts, butternuts, dried). A tree nut of the walnut genus: unsafeFor walnut and pecan."
     }
   ]
 }
