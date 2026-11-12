@@ -81,7 +81,8 @@ export function parseBenchRun(x: unknown): BenchRun {
   // C8: recorded speech only from volunteers with a written consent record, named here.
   if (u.source === 'recorded' && (typeof u.consentRecord !== 'string' || u.consentRecord.trim() === '')) bad('utterances.consentRecord is required for a recorded run (C8)');
   if (u.consentRecord !== null && typeof u.consentRecord !== 'string') bad('utterances.consentRecord must be a string or null');
-  const utterances = { source: u.source as BenchRun['utterances']['source'], n: u.n, noise: [...(u.noise as NoiseLevel[])], consentRecord: u.consentRecord as string | null };
+  const source: BenchRun['utterances']['source'] = u.source === 'recorded' ? 'recorded' : 'synthetic';
+  const utterances = { source, n: u.n, noise: (u.noise as unknown[]).map((n) => n as NoiseLevel), consentRecord: u.consentRecord };
 
   const m = obj(o.ms, 'ms', TIMINGS);
   const ms = Object.fromEntries(

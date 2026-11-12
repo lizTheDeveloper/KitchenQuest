@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { LATENCY_TARGET_MS, parseBenchRun, type BenchRun } from '../bench/schema.js';
 import type { VoiceConfig } from './config.js';
 
-export const LATEST_RUN = new URL('../bench/latest.json', import.meta.url);
+const LATEST_RUN = new URL('../bench/latest.json', import.meta.url);
 
 /** The latest run, or null when the operator has not committed one. A file that does not parse throws, naming it. */
 export function loadLatestRun(file: URL | string = LATEST_RUN): BenchRun | null {

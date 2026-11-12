@@ -14,6 +14,7 @@ describe('deploy/kq-voice.service', () => {
   test('kq-voice.service sets LimitCORE=0 and HF_HUB_OFFLINE=1 and binds VOICE_PORT on a private address variable', () => {
     expect(settings.get('LimitCORE')).toEqual(['0']);
     expect(env.HF_HUB_OFFLINE).toBe('1');
+    expect(env.ORT_DISABLE_TELEMETRY).toBe('1'); // onnxruntime 1.31 writes a device id and a .ses file otherwise
     expect(env.NODE_ENV).toBe('production');
     // The bind address is a variable the service reads (VOICE_HOST), private by default, and config refuses anything
     // that is not loopback or private (C-38); the unit never sets the wildcard.

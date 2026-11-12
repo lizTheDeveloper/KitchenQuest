@@ -43,7 +43,7 @@ const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
  * C-38: an IP literal on loopback or a private network: 127/8, 10/8, 172.16/12, 192.168/16, 100.64/10 (carrier-grade
  * NAT, as private overlays use), ::1 and fc00::/7. Never the wildcard, a public address or a hostname.
  */
-export function isPrivateAddress(host: string): boolean {
+function isPrivateAddress(host: string): boolean {
   const v = isIP(host);
   if (v === 4) {
     const [a, b] = host.split('.').map(Number);

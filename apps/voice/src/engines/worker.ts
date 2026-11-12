@@ -21,11 +21,11 @@ export type WorkerEngineName = 'echo' | 'whisper' | 'kokoro' | 'piper';
 
 export const WORKER_SCRIPT = fileURLToPath(new URL('../../worker/kq_voice_worker.py', import.meta.url));
 /** Model loading can take a while on a cold box; a worker that has not answered `ping` by then is refused. */
-export const START_TIMEOUT_MS = 120_000;
+const START_TIMEOUT_MS = 120_000;
 /** One utterance (at most MAX_UTTERANCE_MS of audio) from submission to transcript, queue time included. */
-export const STT_DEADLINE_MS = 20_000;
+const STT_DEADLINE_MS = 20_000;
 /** The longest silence between two messages of one TTS job. */
-export const TTS_GAP_MS = 10_000;
+const TTS_GAP_MS = 10_000;
 const MAX_HEADER = 64 * 1024;
 const MAX_PAYLOAD = 4 * 1024 * 1024;
 const RESTART_MIN_MS = 100;
@@ -72,6 +72,16 @@ export class FrameReader {
     if (joined !== chunk) chunk.fill(0);
     return out;
   }
+}
+
+/**
+ * The worker's environment: an allowlist, so it never sees VOICE_SERVICE_TOKEN or any other secret. Models load
+ * offline, and onnxruntime's telemetry is off (1.31 otherwise writes a device id under HOME and a .ses file in TMPDIR).
+ */
+export function workerEnv(parent: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { HF_HUB_OFFLINE: '1', HF_HUB_DISABLE_TELEMETRY: '1', ORT_DISABLE_TELEMETRY: '1', OMP_NUM_THREADS: '1', LANG: 'C.UTF-8' };
+  for (const k of ['PATH', 'HOME', 'TMPDIR', 'LD_LIBRARY_PATH'] as const) if (parent[k] !== undefined) env[k] = parent[k];
+  return env;
 }
 
 interface Job {
@@ -289,17 +299,9 @@ export class WorkerPool {
     return [...flags, WORKER_SCRIPT, '--engine', engine, '--model', model, '--models-dir', modelsDir, ...(voice === undefined ? [] : ['--voice', voice]), ...extraArgs];
   }
 
-  private env(): NodeJS.ProcessEnv {
-    // An allowlist: the worker never sees VOICE_SERVICE_TOKEN or any other secret.
-    // ORT_DISABLE_TELEMETRY: onnxruntime 1.31 otherwise writes a device id under HOME and a .ses file in TMPDIR.
-    const env: NodeJS.ProcessEnv = { HF_HUB_OFFLINE: '1', HF_HUB_DISABLE_TELEMETRY: '1', ORT_DISABLE_TELEMETRY: '1', OMP_NUM_THREADS: '1', LANG: 'C.UTF-8' };
-    for (const k of ['PATH', 'HOME', 'TMPDIR', 'LD_LIBRARY_PATH'] as const) if (process.env[k] !== undefined) env[k] = process.env[k];
-    return env;
-  }
-
   private spawnOne(): Promise<void> {
     return new Promise((resolve, reject) => {
-      const w = new Worker(this, this.opts.python, this.args(), this.env());
+      const w = new Worker(this, this.opts.python, this.args(), workerEnv(process.env));
       this.workers.add(w);
       let settled = false;
       const timer = setTimeout(() => fail(), this.startMs);
@@ -468,7 +470,7 @@ export function workerTts(pool: WorkerPool, model: string, sampleRate: number): 
         wake?.();
         wake = null;
       };
-      let finished = false;
+      const state = { finished: false };
       const handle = pool.submit({
         header: { op: 'tts', voice, text },
         payload: null,
@@ -487,14 +489,14 @@ export function workerTts(pool: WorkerPool, model: string, sampleRate: number): 
             return false;
           }
           if (h.op === 'done' || h.op === 'error') {
-            finished = true;
+            state.finished = true;
             push(h.op === 'done' ? 'done' : new Error('tts failed'));
             return true;
           }
           return false;
         },
         onFail: () => {
-          finished = true;
+          state.finished = true;
           push(new Error('tts worker failed'));
         },
       });
@@ -517,7 +519,7 @@ export function workerTts(pool: WorkerPool, model: string, sampleRate: number): 
         }
       } finally {
         signal.removeEventListener('abort', onAbort);
-        if (!finished) handle.cancel();
+        if (!state.finished) handle.cancel();
       }
     },
   };

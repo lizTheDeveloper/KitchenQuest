@@ -65,6 +65,7 @@
       "project": [
         "src/**/*.ts",
         "test/**/*.ts",
+        "bench/**/*.ts",
         "*.ts"
       ]
     }

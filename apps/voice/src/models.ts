@@ -19,7 +19,7 @@ export interface ModelEntry {
   fetch?: ModelFetch;
 }
 
-export interface ModelFetch {
+interface ModelFetch {
   repo: string;
   revision: string;
   /** The folder in the repo that holds the files (`<id>/<name>` comes from `<from>/<name>`); omitted for the root. */

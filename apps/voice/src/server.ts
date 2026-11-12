@@ -46,7 +46,7 @@ const MAX_HEADER_BYTES = 8 * 1024;
  * CLOSE_IDLE after IDLE_TIMEOUT_MS with no message either way. A hands-free cook may be quiet for HANDS_FREE_IDLE_MS
  * (core) before hands-free turns itself off, so the idle limit is longer than that; the API reconnects when it needs to.
  */
-export const HELLO_TIMEOUT_MS = 5000;
+const HELLO_TIMEOUT_MS = 5000;
 export const IDLE_TIMEOUT_MS = 11 * 60_000;
 const CLOSE_IDLE = 4408;
 

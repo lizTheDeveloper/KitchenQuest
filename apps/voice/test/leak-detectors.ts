@@ -19,8 +19,8 @@ export function workerScale(): number {
 }
 
 const pcmBytes = Buffer.from(new Int16Array(32).fill(PCM_WORD).buffer);
-export const PCM_HEX = [pcmBytes.subarray(0, 8).toString('hex'), pcmBytes.subarray(1, 9).toString('hex')];
-export const PCM_B64 = [pcmBytes.subarray(0, 12).toString('base64').slice(0, 12), pcmBytes.subarray(1, 13).toString('base64').slice(0, 12)];
+const PCM_HEX = [pcmBytes.subarray(0, 8).toString('hex'), pcmBytes.subarray(1, 9).toString('hex')];
+const PCM_B64 = [pcmBytes.subarray(0, 12).toString('base64').slice(0, 12), pcmBytes.subarray(1, 13).toString('base64').slice(0, 12)];
 const PCM_SPACED_HEX = /(51 4b 51 4b|4b 51 4b 51)/;
 /** The bytes as decimals, as inspect of a Uint8Array and a Buffer's JSON print them: 81, 75, 81, 75 (any spacing). */
 const PCM_BYTES = /(81[,\s]+75[,\s]+81[,\s]+75|75[,\s]+81[,\s]+75[,\s]+81)/;
@@ -59,7 +59,7 @@ function phased(): { hex: string[]; b64: string[] } {
 }
 const FLOAT = phased();
 
-export const DETECTORS = {
+const DETECTORS = {
   noPcmHex: (out: string) => !PCM_HEX.some((h) => out.toLowerCase().includes(h)),
   noPcmSpacedHex: (out: string) => !PCM_SPACED_HEX.test(out.toLowerCase()),
   noPcmBytes: (out: string) => !PCM_BYTES.test(out),

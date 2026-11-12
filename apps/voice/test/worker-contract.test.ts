@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { encodeFrame, type UpstreamServerMsg } from '@kitchenquest/core';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
-import { encodeWorkerFrame, FrameReader, WORKER_SCRIPT, WorkerPool, workerStt, workerTts } from '../src/engines/worker';
+import { encodeWorkerFrame, FrameReader, WORKER_SCRIPT, workerEnv, WorkerPool, workerStt, workerTts } from '../src/engines/worker';
 import type { LogKind } from '../src/log';
 import { createVoiceServer } from '../src/server';
 import { connect, testConfig, type Client } from './helpers';
@@ -249,6 +249,11 @@ describe('WorkerPool', () => {
         for await (const _ of wrong.synthesize('hello', 'pan', never));
       })(),
     ).rejects.toThrow(/sample rate/);
+  });
+
+  test('the worker environment is an allowlist: no token or other variable passes; models offline and onnxruntime telemetry off', () => {
+    const env = workerEnv({ PATH: '/bin', HOME: '/h', TMPDIR: '/t', VOICE_SERVICE_TOKEN: 'secret', OPENROUTER_API_KEY: 'k', NODE_OPTIONS: '--x', PYTHONPATH: '/evil' });
+    expect(env).toEqual({ PATH: '/bin', HOME: '/h', TMPDIR: '/t', HF_HUB_OFFLINE: '1', HF_HUB_DISABLE_TELEMETRY: '1', ORT_DISABLE_TELEMETRY: '1', OMP_NUM_THREADS: '1', LANG: 'C.UTF-8' });
   });
 
   test('start() refuses a worker whose engine cannot load, naming only the engine and model', async () => {

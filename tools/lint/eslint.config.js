@@ -96,6 +96,7 @@ export default tseslint.config(
   // Runtime environments.
   { files: ['packages/core/src/**/*.ts'], languageOptions: { globals: {} } },
   { files: ['apps/api/**/*.ts'], languageOptions: { globals: globals.node } },
+  { files: ['apps/voice/bench/**/*.ts'], languageOptions: { globals: globals.node } },
   { files: ['apps/game/**/*.ts'], languageOptions: { globals: globals.browser } },
   { files: ['**/vite.config.ts', '**/vitest.config.ts', '**/*.config.ts', 'scripts/**/*.ts'], languageOptions: { globals: globals.node } },
 
