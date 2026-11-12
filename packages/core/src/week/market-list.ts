@@ -90,7 +90,7 @@ const pushOnce = (list: string[], v: string): void => {
  */
 export function marketList(plan: Plan, ctx: PlanContext, pantry: readonly PantryItem[], stallOf: StallMap): ListItem[] {
   const rows = new Map<string, ListItem>();
-  const lines = new Map<string, { quantity: number | null; unit: string | null; servingsFactor: number }[]>();
+  const lines = new Map<string, { quantity: number | null; unit: string | null; servingsFactor: number; name: string }[]>();
   const inPantry = (name: string): boolean => {
     const has = pantryMatcher([name], [], ctx.graph);
     return pantry.some((p) => has({ id: '', name: p.name, ingredientId: p.ingredientId }));
@@ -124,7 +124,7 @@ export function marketList(plan: Plan, ctx: PlanContext, pantry: readonly Pantry
       // A listed swap is itself rules-checked; any other line with a ❓ finding is marked.
       const unsure = result.findings.some((f) => f.ingredient === line.name && (f.kind === 'label' || f.kind === 'unresolved'));
       if (!swap && unsure) row.unverified = true;
-      lines.set(key, [...(lines.get(key) ?? []), { quantity: line.quantity, unit: line.unit, servingsFactor }]);
+      lines.set(key, [...(lines.get(key) ?? []), { quantity: line.quantity, unit: line.unit, servingsFactor, name: line.name }]);
       rows.set(key, row);
     }
   }

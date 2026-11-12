@@ -9,8 +9,43 @@ const PARIPPU = 'india/kerala/parippu';
 const FRIJOLES = 'mexico/oaxaca/frijoles-de-olla';
 const plan = (items: PlanItem[]): Plan => ({ weekStart: MONDAY, items, hard: false, slot: 'unanswered' });
 const dishOn = (day: number, slug: string, servings: number): PlanItem => ({ day, kind: 'dish', slug, servings });
-const l = (quantity: number | null, unit: string | null, servingsFactor = 1) => ({ quantity, unit, servingsFactor });
+const l = (quantity: number | null, unit: string | null, servingsFactor = 1, name?: string) => ({ quantity, unit, servingsFactor, ...(name === undefined ? {} : { name }) });
 const ing = (name: string, quantity: number | null, unit: string | null): RecipeIngredient => ({ name, displayName: null, quantity, unit, note: null });
+
+describe('fix round 1', () => {
+  test('I1: a line with no quantity and no unit beside summable lines → every line shown as written, never an understated sum', () => {
+    expect(listAmounts([l(2, null), l(null, null)])).toEqual([
+      { quantity: 2, unit: null, text: '2' },
+      { quantity: null, unit: null, text: 'some' },
+    ]);
+    // Not summed either: each line as written (scaled), then the unwritten one.
+    expect(formatAmounts(listAmounts([l(1, 'tsp'), l(null, null), l(2, 'tsp', 0.5)]))).toBe('1 tsp + 1 tsp + some');
+    // On the list: dish A "salt 1 tsp", dish B "salt" with no amount.
+    const recipes = new Map([...canon, ['test/a', dish('leela', ['salt'])], ['test/b', dish('haruka', ['salt'])]]);
+    recipes.set('test/a', { ...recipes.get('test/a')!, ingredients: [ing('salt', 1, 'tsp')] });
+    recipes.set('test/b', { ...recipes.get('test/b')!, ingredients: [ing('salt', null, null)] });
+    const row = marketList(plan([dishOn(0, 'test/a', 2), dishOn(1, 'test/b', 2)]), planCtx({ recipes }), [], STALLS).find((i) => i.ingredientId === 'salt')!;
+    expect(formatAmounts(row.amounts ?? [])).toBe('1 tsp + some');
+    // Only unwritten lines: still no amounts at all.
+    expect(listAmounts([l(null, null)])).toEqual([]);
+  });
+
+  test('M1: "T" (tablespoon) and "t" (teaspoon) never merge; plain units match by exact spelling', () => {
+    expect(formatAmounts(listAmounts([l(1, 'T'), l(1, 't')]))).toBe('1 T + 1 t');
+    expect(formatAmounts(listAmounts([l(1, 'C'), l(1, 'c')]))).toBe('1 C + 1 c');
+    expect(formatAmounts(listAmounts([l(null, 'T'), l(null, 't')]))).toBe('T + t');
+    expect(formatAmounts(listAmounts([l(1, 'T'), l(2, 'T')]))).toBe('3 T');
+  });
+
+  test('M2: unit-less counts sum only for identically named lines, and then say what they count', () => {
+    expect(formatAmounts(listAmounts([l(1, null, 1, 'curry leaf sprig'), l(10, null, 1, 'curry leaves')]))).toBe('1 curry leaf sprig + 10 curry leaves');
+    expect(formatAmounts(listAmounts([l(1, null, 1, 'shallots'), l(2, null, 1, 'shallots')]))).toBe('3');
+    expect(formatAmounts(listAmounts([l(1, null, 1, 'garlic clove'), l(2, null, 1, 'garlic cloves'), l(5, 'g', 1, 'garlic')]))).toBe('1 garlic clove + 2 garlic cloves + 5 g');
+    // On the list: parippu's "garlic clove{1}" and frijoles' "garlic cloves{2}" share the garlic row, never summed as "3".
+    const row = marketList(plan([dishOn(0, PARIPPU, 3), dishOn(1, FRIJOLES, 6)]), planCtx(), [], STALLS).find((i) => i.ingredientId === 'garlic')!;
+    expect(formatAmounts(row.amounts ?? [])).toBe('1 garlic clove + 2 garlic cloves');
+  });
+});
 
 describe('listAmounts (Ruling 12)', () => {
   test('2 servings of a 4-serving recipe halves; g + kg sum; tsp + tbsp sum; tbsp + cup and g + oz listed side by side; null quantity → shown as written', () => {
@@ -29,9 +64,9 @@ describe('listAmounts (Ruling 12)', () => {
     expect(formatAmounts(listAmounts([l(100, 'g'), l(100, 'ml')]))).toBe('100 g + 100 ml');
     // Counts sum with counts; another unit sums only with the same spelling.
     expect(formatAmounts(listAmounts([l(1, null), l(2, null), l(200, 'g')]))).toBe('3 + 200 g');
-    expect(formatAmounts(listAmounts([l(2, 'cloves'), l(1, 'clove'), l(1, 'Clove')]))).toBe('2 cloves + 2 clove');
+    expect(formatAmounts(listAmounts([l(2, 'cloves'), l(1, 'clove'), l(1, 'clove ')]))).toBe('2 cloves + 2 clove');
     // Fuzzy amounts are shown as written, once, after the sums.
-    expect(listAmounts([l(null, 'a handful'), l(3, null), l(null, 'A handful'), l(null, 'to taste')])).toEqual([
+    expect(listAmounts([l(null, 'a handful'), l(3, null), l(null, 'a handful '), l(null, 'to taste')])).toEqual([
       { quantity: 3, unit: null, text: '3' },
       { quantity: null, unit: 'a handful', text: 'a handful' },
       { quantity: null, unit: 'to taste', text: 'to taste' },
