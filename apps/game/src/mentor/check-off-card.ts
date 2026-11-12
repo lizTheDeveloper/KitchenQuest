@@ -15,11 +15,10 @@ import { contentText, h } from '../ui/dom';
 import { knownRun } from '../week/market-swaps';
 import { askStock } from '../week/stock-ask';
 import { bureauSlip } from './cards-view';
-import type { CheckOffSlot, Trail } from './panel';
-import type { CardView } from './reply';
+import type { CardView, CheckOffSlot, PanelTrail as Trail } from './reply';
 
 /** `applying`: a grammar card whose ticks are on their way; `undone`: its Undo ran. */
-export type CheckOffState = Exclude<CheckOffSlot['state'], 'new'>;
+type CheckOffState = Exclude<CheckOffSlot['state'], 'new'>;
 
 const TICK = 'Tick these';
 const NOT_NOW = 'Not now';
@@ -34,7 +33,7 @@ let seq = 0;
  * A row's name as the run has it; a row no longer on the known run is named from the graph (an ingredient key), or
  * from its own normalised name (a `name:` key). Never anything the player typed.
  */
-export function rowName(key: string, store: PlayerStore, now: () => Date): string {
+function rowName(key: string, store: PlayerStore, now: () => Date): string {
   const row = knownRun(store.get(), localDate(now()))?.items.find((i) => i.key === key);
   if (row !== undefined) return row.name;
   if (key.startsWith('name:')) return key.slice(5);
@@ -42,7 +41,7 @@ export function rowName(key: string, store: PlayerStore, now: () => Date): strin
   return graph.has(key) ? graph.get(key).name : key;
 }
 
-export function renderCheckOffCard(card: CheckOffCard, opts: {
+function renderCheckOffCard(card: CheckOffCard, opts: {
   form: BureauForm; state: CheckOffState; store: PlayerStore; now: () => Date;
   onTick(): void; onNotNow(): void; onUndo(): void;
   /** Navigation is the panel's (a hash change): here only the row to open is handed over. */

@@ -11,7 +11,7 @@ import type { ChildFlag } from './child-flag';
 import { CLOSED_TEXT, closeCard, renderCard, renderTrail, setCardNote } from './cards-view';
 import { renderConsentCard } from './consent-card';
 import type { Dialogue, Said, Vars } from './dialogue';
-import type { CardView, ConsentAnswer, LocalIntent, PanItem, PanReply, TurnContext } from './reply';
+import type { CardView, CheckOffSlot, ConsentAnswer, LocalIntent, PanelTrail, PanItem, PanReply, TurnContext } from './reply';
 import type { ScriptedEngine } from './scripted';
 import type { CardWriter, UndoOutcome, WriteOutcome } from './writer';
 import { navRoute } from './nav';
@@ -68,9 +68,7 @@ export interface MentorPanel {
 
 /** `co`: a check-off card's place (M6 Step 10), drawn by its own lazy renderer (check-off-card.ts). */
 interface OpenCard { view: CardView; el: HTMLElement; li: HTMLElement; co?: CheckOffSlot }
-export interface Trail { entry: TrailEntry; card: ProposalCard; li: HTMLElement; co?: CheckOffSlot }
-/** `applied`: done, with its Undo (`trail`); `new`: drawn by its view's own rule (a local grammar card is ticking). */
-export interface CheckOffSlot { state: 'new' | 'applying' | 'pending' | 'applied' | 'undone'; trail?: Trail | null; draw(): void }
+type Trail = PanelTrail;
 
 const keyOf = (c: CardView) => (c.origin === 'server' ? `server:${c.proposalId}` : `local:${c.localId}`);
 

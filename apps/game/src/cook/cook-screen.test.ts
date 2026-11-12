@@ -8,7 +8,7 @@ import { cookWithNotes } from './with-notes';
 
 // Cook mode speaks through the Pan; a silent stand-in is enough here.
 // M6 Step 10: signed in, cook mode reads this week's run on demand (GET /market-runs/current) through the panel's client.
-const runRead = vi.hoisted(() => ({ run: null as unknown, calls: 0 }));
+const runRead = vi.hoisted((): { run: unknown; calls: number } => ({ run: null, calls: 0 }));
 vi.mock('../mentor', () => ({
   getMentor: () => ({ say: () => ({ text: '', trigger: '', ai: 'never' }) }),
   getMentorServices: () => ({ client: { currentRun: () => { runRead.calls++; return Promise.resolve({ ok: true, status: 200, data: { run: runRead.run } }); } } }),

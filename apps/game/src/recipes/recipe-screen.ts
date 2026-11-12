@@ -17,8 +17,8 @@ import { activeRules, cardInputsKey, localDate, watchLocalDate } from './rules';
  * still loading, or when every prereq the cooks' drills teach is at Seen. Advisory only.
  */
 export function drillFirstHint(slug: string, toolkit: ToolkitState | null, familyTable: boolean): HTMLElement | null {
+  if (familyTable || toolkit === null || !Object.hasOwn(content.recipes, slug)) return null;
   const recipe = content.recipes[slug];
-  if (familyTable || toolkit === null || recipe === undefined) return null;
   const hint = drillFirstFor(recipe, toolkit, content.techniques.techniques, Object.values(content.cooks).map((c) => c.quest));
   if (hint === null || !Object.hasOwn(content.cooks, hint.cook)) return null;
   const cook = content.cooks[hint.cook].name;

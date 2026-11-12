@@ -200,7 +200,7 @@ export function marketScreen(api: ApiClient, source?: WeekSource): Screen {
         if (!done) {
           const current = run;
           const control = stockControl(row, {
-            swaps: c === null || plan === null ? [] : stockSwaps(row, plan, planContextFor(plan.weekStart, c.rules)),
+            swaps: c === null ? [] : stockSwaps(row, plan, planContextFor(plan.weekStart, c.rules)),
             act: (a) => stock(row, a),
             familyTable,
             swapRow: current.items.find((i) => i.stockSwap?.from === row.key) ?? null,
@@ -282,7 +282,7 @@ export function marketScreen(api: ApiClient, source?: WeekSource): Screen {
         openStock.add(asked);
         focusStock = asked;
         draw();
-        body.querySelector<HTMLElement>(`.stock-control[data-stock-key="${CSS.escape(asked)}"]`)?.scrollIntoView?.({ block: 'center' });
+        body.querySelector<HTMLElement>(`.stock-control[data-stock-key="${CSS.escape(asked)}"]`)?.scrollIntoView({ block: 'center' });
       }
       // Season notes and keeper lines follow once the market content and the profile have loaded (never blocking).
       void Promise.all([loadMarket(), profileFor(ctx.store.get(), api)]).then(([m, p]) => {

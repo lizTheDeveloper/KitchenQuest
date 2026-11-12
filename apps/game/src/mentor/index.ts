@@ -10,7 +10,10 @@ import { createChildFlag } from './child-flag';
 import { lazyBackend } from './lazy-backend';
 import { createLocalSafety, newConversation, scriptedWhenUnavailable, type ConversationRef } from './outage';
 import { createDialogue, type Dialogue } from './dialogue';
-import type { Intake } from './intake';
+import type { createIntake, Intake } from './intake';
+
+/** What the lazy Form 1-A module gives (M6 Step 10): its one factory. */
+export interface IntakeModule { createIntake: typeof createIntake }
 import { mountMentorPanel, type MentorPanel } from './panel';
 import type { PanReply } from './reply';
 import { createScriptedEngine, type ScriptedEngine } from './scripted';
@@ -137,7 +140,7 @@ function stablePanel(cur: () => MentorPanel, onClear: () => void): MentorPanel {
  */
 export function mountMentor(
   doc: Document, store: PlayerStore, bank: LineBank, client: ApiClient = createApiClient(),
-  importIntake: () => Promise<typeof import('./intake')> = () => import('./intake'),
+  importIntake: () => Promise<IntakeModule> = () => import('./intake'),
 ): MentorPanel {
   if (mentor) return mentor;
   const win = doc.defaultView!;

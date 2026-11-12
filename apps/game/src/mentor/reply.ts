@@ -47,3 +47,11 @@ export interface PanReply { items: PanItem[]; cards: CardView[]; intents: LocalI
  * the trail entries whose undo window is still open (oldest first), so a typed undo goes by the newest one.
  */
 export interface TurnContext { turn: number; openCards: CardView[]; intakeStep: IntakeStep | null; signedIn: boolean; trail: readonly TrailEntry[] }
+
+/** A write in the panel's trail: its entry, the card it came from, and its place (`co`: a check-off card's, M6 Step 10). */
+export interface PanelTrail { entry: TrailEntry; card: ProposalCard; li: HTMLElement; co?: CheckOffSlot }
+/**
+ * A check-off card's place in the panel (M6 Step 10), drawn by check-off-card.ts. `applied`: done, with its Undo
+ * (`trail`); `new`: not drawn yet (a local grammar card is ticking, any other waits for its tap).
+ */
+export interface CheckOffSlot { state: 'new' | 'applying' | 'pending' | 'applied' | 'undone'; trail?: PanelTrail | null; draw(): void }

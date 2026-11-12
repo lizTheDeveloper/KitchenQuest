@@ -6,11 +6,12 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 import type { ApiClient } from '../api/client';
 import { content } from '../content';
 import { createStore, type PlayerState } from '../state/store';
+import type { IntakeModule } from './index';
 
 const noClient = new Proxy({}, { get: () => () => Promise.resolve({ ok: false, status: 0, error: { code: 'network', message: '' } }) }) as ApiClient;
 const READY: Partial<PlayerState> = { aiDisclosureSeen: true };
 
-async function mount(importIntake: () => Promise<typeof import('./intake')>, seed: Partial<PlayerState> = READY) {
+async function mount(importIntake: () => Promise<IntakeModule>, seed: Partial<PlayerState> = READY) {
   vi.resetModules();
   document.body.replaceChildren();
   const { mountMentor } = await import('./index');
@@ -33,7 +34,7 @@ afterEach(() => { vi.useRealTimers(); });
 
 describe('the intake is lazy (Form 1-A)', () => {
   test('an emergency is answered within 50 ms while the intake import never resolves; before opening it is never requested', async () => {
-    const importIntake = vi.fn(() => new Promise<typeof import('./intake')>(() => {}));
+    const importIntake = vi.fn(() => new Promise<IntakeModule>(() => {}));
     const m = await mount(importIntake);
     m.send("I can't breathe, my throat is closing");
     const t0 = Date.now();
@@ -67,7 +68,7 @@ describe('the intake is lazy (Form 1-A)', () => {
   });
 
   test('Family Table never loads it', async () => {
-    const importIntake = vi.fn(() => new Promise<typeof import('./intake')>(() => {}));
+    const importIntake = vi.fn(() => new Promise<IntakeModule>(() => {}));
     const m = await mount(importIntake, { ...READY, settings: { ...createStore(null).get().settings, familyTable: true, reducedMotion: 'on' } });
     m.panel.open();
     expect(importIntake).not.toHaveBeenCalled();
