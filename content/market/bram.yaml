@@ -815,7 +815,7 @@ faq:
     a_if_blocked: "Plan a generous portion of protein per person, more for big appetites, and make extra if you like leftovers. Bone-in cuts need more; bones don't feed anyone."
   - q: ["can i refreeze meat", "refreeze thawed meat"]
     a: "If you thawed it in the fridge, yes, you can refreeze it raw (the texture suffers a bit). If you thawed it in cold water or the microwave, cook it first, then you can freeze the cooked dish."
-    a_if_blocked: "If it thawed in the fridge, it can go back in the freezer raw (the texture suffers a bit). If it thawed in cold water or the microwave, cook it first, then freeze the cooked dish."
+    a_if_blocked: "If it thawed in the fridge, it can go back in the freezer raw (the texture suffers a bit). If it thawed in a cold bath or the microwave, cook it first, then freeze the cooked dish."
     tags: [safety]
   - q: ["how long can i freeze meat", "freezer meat how long"]
     a: "It stays safe indefinitely frozen solid, but quality drops. Roughly: steaks and roasts 4–12 months, ground meat 3–4 months, chicken pieces about 9 months. Wrap it tightly to stop freezer burn and label it with the date."
@@ -832,7 +832,7 @@ faq:
     tags: [safety]
   - q: ["do i need a separate cutting board", "cross contamination", "cutting board for meat"]
     a: "Yes, ideally: one board for raw meat, one for everything else. Wash it in hot soapy water after use, and wash your hands and the knife too. Never put cooked food back on a plate that held raw meat."
-    a_if_blocked: "Yes, ideally: one board for raw foods, one for everything else. Hot soapy water after use, and wash your hands and the knife too."
+    a_if_blocked: "Yes, ideally: one board for raw foods, one for everything else. Wash it hot and soapy after use, and wash your hands and the knife too."
     tags: [safety]
   - q: ["what is marbling", "why marbling"]
     a: "The thin streaks of fat inside the muscle. They melt as it cooks and keep the meat juicy and flavourful. More marbling usually means more tender and more expensive."

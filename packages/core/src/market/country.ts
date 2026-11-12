@@ -52,6 +52,58 @@ const ALIASES: Readonly<Record<string, string>> = Object.freeze({
   'united republic of tanzania': 'tanzania',
   'state of palestine': 'palestine',
   'federated states of micronesia': 'micronesia',
+  // Common short names (M6 Step 4).
+  'st lucia': 'saint lucia',
+  'st kitts and nevis': 'saint kitts and nevis',
+  'st kitts': 'saint kitts and nevis',
+  'saint kitts': 'saint kitts and nevis',
+  'st vincent and the grenadines': 'saint vincent and the grenadines',
+  'st vincent': 'saint vincent and the grenadines',
+  'saint vincent': 'saint vincent and the grenadines',
+  bosnia: 'bosnia and herzegovina',
+  'bosnia herzegovina': 'bosnia and herzegovina',
+  trinidad: 'trinidad and tobago',
+  antigua: 'antigua and barbuda',
+  'sao tome': 'sao tome and principe',
+  'kyrgyz republic': 'kyrgyzstan',
+  'slovak republic': 'slovakia',
+  dprk: 'north korea',
+  macau: 'macao',
+  'st helena': 'saint helena ascension and tristan da cunha',
+  'saint helena': 'saint helena ascension and tristan da cunha',
+  'st barts': 'saint barthelemy',
+  'st barths': 'saint barthelemy',
+  'st barthelemy': 'saint barthelemy',
+  'st martin': 'saint martin',
+  'st maarten': 'sint maarten',
+  'st pierre and miquelon': 'saint pierre and miquelon',
+  falklands: 'falkland islands',
+  'faeroe islands': 'faroe islands',
+  faroes: 'faroe islands',
+  bonaire: 'caribbean netherlands',
+  usvi: 'us virgin islands',
+  bvi: 'british virgin islands',
+  // ISO 3166-1's own "Name, qualifier" forms, normalised (M6 Step 4).
+  'bolivia plurinational state of': 'bolivia',
+  'bonaire sint eustatius and saba': 'caribbean netherlands',
+  'congo the democratic republic of the': 'democratic republic of the congo',
+  'falkland islands malvinas': 'falkland islands',
+  'holy see vatican city state': 'vatican city',
+  'iran islamic republic of': 'iran',
+  'korea democratic peoples republic of': 'north korea',
+  'lao peoples democratic republic': 'laos',
+  'micronesia federated states of': 'micronesia',
+  'moldova republic of': 'moldova',
+  'palestine state of': 'palestine',
+  pitcairn: 'pitcairn islands',
+  'saint martin french part': 'saint martin',
+  'sint maarten dutch part': 'sint maarten',
+  'taiwan province of china': 'taiwan',
+  'tanzania united republic of': 'tanzania',
+  'venezuela bolivarian republic of': 'venezuela',
+  'virgin islands british': 'british virgin islands',
+  'virgin islands us': 'us virgin islands',
+  'virgin islands of the united states': 'us virgin islands',
 });
 
 /** Sub-national names a scope may use, each inside its country. A player in one also matches its country's scopes. */
@@ -62,7 +114,12 @@ const INSIDE: Readonly<Record<string, string>> = Object.freeze({
   'northern ireland': 'united kingdom',
 });
 
-/** Country names as `normalizeCountry` writes them (ISO 3166-1 short names in common English, plus a few territories). */
+/**
+ * Country names as `normalizeCountry` writes them: every ISO 3166-1 entry (249), by its short name in common English,
+ * plus Kosovo (no ISO 3166-1 code). M6 Step 4 checked the list against ISO 3166-1 as published in the Debian
+ * `iso-codes` package 4.16.0 (iso_3166-1.json, which tracks the ISO 3166 Maintenance Agency), and added the 47
+ * dependent territories that were missing.
+ */
 const COUNTRIES: ReadonlySet<string> = new Set([
   'afghanistan', 'albania', 'algeria', 'andorra', 'angola', 'antigua and barbuda', 'argentina', 'armenia', 'australia',
   'austria', 'azerbaijan', 'bahamas', 'bahrain', 'bangladesh', 'barbados', 'belarus', 'belgium', 'belize', 'benin',
@@ -87,6 +144,16 @@ const COUNTRIES: ReadonlySet<string> = new Set([
   'uganda', 'ukraine', 'united arab emirates', 'united kingdom', 'united states', 'uruguay', 'uzbekistan', 'vanuatu',
   'vatican city', 'venezuela', 'vietnam', 'yemen', 'zambia', 'zimbabwe',
   'puerto rico', 'hong kong', 'macao', 'greenland', 'guam', 'new caledonia', 'french polynesia', 'reunion',
+  // ISO 3166-1 territories added in M6 Step 4.
+  'aland islands', 'american samoa', 'anguilla', 'antarctica', 'aruba', 'bermuda', 'bouvet island',
+  'british indian ocean territory', 'british virgin islands', 'caribbean netherlands', 'cayman islands',
+  'christmas island', 'cocos keeling islands', 'cook islands', 'curacao', 'falkland islands', 'faroe islands',
+  'french guiana', 'french southern territories', 'gibraltar', 'guadeloupe', 'guernsey',
+  'heard island and mcdonald islands', 'isle of man', 'jersey', 'martinique', 'mayotte', 'montserrat', 'niue',
+  'norfolk island', 'northern mariana islands', 'pitcairn islands', 'saint barthelemy',
+  'saint helena ascension and tristan da cunha', 'saint martin', 'saint pierre and miquelon', 'sint maarten',
+  'south georgia and the south sandwich islands', 'svalbard and jan mayen', 'tokelau', 'turks and caicos islands',
+  'united states minor outlying islands', 'us virgin islands', 'wallis and futuna', 'western sahara',
 ]);
 
 /**

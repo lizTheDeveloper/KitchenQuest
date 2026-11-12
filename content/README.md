@@ -144,26 +144,39 @@ faq: [ ... ]              # see FAQ
 ```yaml
 id: wen
 name: "Old Wen"
-persona: ["..."]
-triggers: { ... }          # line bank: greet, correct, wrong, idle, etc.
+stall: produce
+art: grocer                # the keeper's sprite key, or null when never seen
+persona: ["..."]           # writers' card; stripped from the client bundle (M6 Step 5)
+triggers: { ... }          # line bank: greet, correct, wrong, idle, out_of_stock, out_of_stock_none, medical, ...
+games:                     # this stall's minigames: key → one-line description
+  ripeness: "..."
 questions:                 # the minigame bank
   - id: wen-avocado-ripe
-    game: ripeness         # which minigame shape the UI uses
+    game: ripeness         # one of this file's `games:` keys
     prompt: "..."
     options:
       - { text: "...", correct: true, reaction: "..." }
       - { text: "...", correct: false, reaction: "..." }
     explain: "one plain sentence, true on its own"
-    contains: [avocado]    # optional: ingredient ids involved, for rules filtering
+    contains: [avocado]    # ingredient ids involved; each must be a graph node
+    countries: ["United States"]   # optional (Ruling 8): one country's label or agency figure
+    chalkboard:            # value questions that compare prices only (Ruling 5): one entry per option
+      - { price: 22.50, servings: 6 }
 item_tips:
-  avocado: { pick: "...", store: "..." }
-faq: [ ... ]
+  avocado: { pick: "...", store: "..." }   # keys are graph ids
+faq:
+  - q: ["chip text", "other phrasings"]
+    a: "the answer"
+    a_if_blocked: "shown instead when `a` names something the player's rules block or can't verify"
 ```
 
-- Each question has 3–4 options, exactly one `correct: true`. The correct option's `reaction` is the "right!" line; each wrong option's `reaction` is its funny, true explanation. `explain` is shown after any answer.
-- **Rules filtering.** Before a question is shown, the rules engine checks `contains` and each option's `contains` (when present). A question whose correct answer involves a blocked ingredient is dropped for that player. Blocked items never appear as correct answers.
-- **Bram's Protein Counter.** `bram.yaml` has a `variants.protein_counter` block with its own triggers and questions. The game uses it when the player's confirmed rules exclude meat (vegetarian, vegan, or a custom rule). Questions in it with `contains: [egg]` or `[milk]` are dropped for players who exclude those.
-- **Wen's seasonality** lives in `seasonal.<region>.<month>` (month is 1–12). See the comment at the top of `wen.yaml` for how other regions and months plug in. A region/month with no entry simply skips the "Seasonal or smuggled?" round; the general ripeness and storage questions still run.
+- Each question has 3–4 options, exactly one `correct: true`. The correct option's `reaction` is the "right!" line; each wrong option's `reaction` is its funny, true explanation. `explain` is shown after any answer. A shipped question keeps its id and its option order (Ruling 2): a reworded option keeps its place; a reordered one needs a new id.
+- **Rules filtering (M6 Ruling 2.2).** Before a question is shown, the rules engine checks everything it names, with no substitutions: its `contains`, each option's `contains`, and every graph ingredient its prompt, options, reactions and explanation name. Only ✅ is shown; ⛔ and ❓ questions are dropped and counted, never named (`market.bank_small`). An unknown `contains` id fails the build. Tips and FAQ answers are checked the same way: a tip naming anything ⛔ or ❓ is not shown, and an FAQ answer that does shows its `a_if_blocked` (itself checked), else the stall's generic safety line. **Every FAQ answer that names an ingredient has an `a_if_blocked` that names none** (M6 Step 4, `packages/core/test/market-content.test.ts`).
+- **Bram's Protein Counter.** `bram.yaml` has a `variants.protein_counter` block with its own triggers, questions, tips and FAQ. The game uses it when the player's rules block `meat` itself (vegetarian, vegan, or a custom rule covering all meat); a partial rule ("no pork") keeps Big Bram with the pork questions dropped. Questions naming egg or milk are dropped for players who exclude those.
+- **Chalkboard prices (Ruling 5)** are example numbers in no particular currency: no currency symbol anywhere in a question, never real, never regional. The two price questions (`bram-value-braise`, `bram-pc-cheapest`) carry a `chalkboard:`; the build checks that the correct option is the cheapest per serving and that every "= N" in a reaction is that option's own per-serving figure. The numbers divide exactly, so no reaction needs "≈". Form 14-S carries the footnote "*Example prices in no particular currency. Your shop will differ."
+- **Country scopes (Ruling 8).** A question that teaches one country's label or agency figure lists the countries it is true for in `countries:` (names as in core `market/country.ts`, checked against ISO 3166-1). It shows only to a player whose profile country is in the scope; with no country set, only unscoped questions show. Bram's four US label questions (`bram-air-chilled`, `bram-grass-finished`, `bram-use-by`, `bram-no-hormones`) are scoped to the United States; the °C/°F temperature questions are physics, not law, and stay unscoped.
+- **Stall swaps (Ruling 11).** `out_of_stock` (with `{item}` and `{swap}`) is the line for a rules-checked swap from `data/substitutions.json`; `out_of_stock_none` (`ai: never`, four lines, `{item}`) is the line when no swap passes the player's rules: skip it this week.
+- **Wen's seasonality** lives in `seasonal.<region>.<month>` (month is 1–12), for regions in `data/seasonality.yaml` only. Each option is one of that region's category labels, word for word, and the correct one is the category the table gives the question's own `contains[0]` that month (core `seasonalAgrees`). A region with no table entry gets no "Seasonal or well-travelled?" round and no calendar note (`market.no_calendar`); the general ripeness and storage questions still run. There is no fallback to another region or country. See the comment at the top of `wen.yaml`.
 
 ### Bureau (`bureau/forms.yaml`)
 
@@ -237,6 +250,9 @@ Beside this folder, the game build reads these files and fails, naming the file,
 - **`data/keeps.json`** (M5, Ruling 12): `{ ingredientId: days }`, how long a perishable keeps once bought, for Use-It-Up Rescue and frame filling. Conservative day counts. The lookup is by the bought item's own id, with no isA ancestry, so keys are concrete ingredients (`herb` is listed because it is the id a told or bought "herbs" resolves to). An id with no entry means no nudge: a spoil date is never guessed. Whole days, 1 to 365, ids in the graph only (core `validateKeeps`).
 - **`data/stalls.json`** (M5, C11): `{ ingredient or category id: stall }`, which market stall sells it, for Form 12-M. A category entry covers its kinds through isA (`allium` sends onions, shallots and garlic to Old Wen); an ingredient's own entry wins (`celery_seed` goes to the Spice Merchant, not Wen). Anything unlisted goes to `general` (the General Counter, named by Form 12-M's `general_stall` field). Values are `content/market` ids or `general`; there is no dairy stall (core `validateStallMap`).
 - **`data/food-groups.json`** (M5): `{ ingredient or category id: veg_fruit | protein | grain }`, for the plan's balance line (`plan.gap_green`, `plan.gap_protein`, `plan.balanced`). It never scores anything; garnishes (herbs, curry leaves) are left out so a sprinkle doesn't count as "something green" (core `validateFoodGroups`).
+- **`data/seasonality.yaml`** (M6, Ruling 9): The Season's Table. One entry per region, each with a display name, `status: draft | reviewed`, cited sources, match phrases for the profile's country and region, its own 2–5 categories (the first is "in season now"), and per month the ingredient ids in each category. A month left out means no note. M6 ships only `pnw-usa` (November–February, built from Wen's own seasonal answers, each question's own id). Region phrases are written so they don't catch the wrong place ("washington state", "portland oregon"; a bare "Washington" or "Portland" matches nothing). Checked by core `validateSeasonTable`; Wen must agree with it (`seasonalAgrees`). How a region plugs in is at the top of the file.
+- **`data/ingredients.json`, the market nodes** (M6 Step 4): the 85 nodes the stall files name (38 of the 48 `contains` ids and 78 item-tip keys were missing). Meat cuts under `beef`, `chicken`, `lamb` and `pork` (so the vegetarian term covers them); `bean` and `berry` are broad categories (never a rule target, like `herb`), with their kinds filed under them; `tofu` and every tofu kind, `yuba`, `tempeh`, `miso` and `edamame` reach soy; `seitan` contains wheat; `paneer` and `greek_yogurt` contain milk; `furikake` contains sesame and fish; `asafoetida` contains wheat; the blends, `miso`, `canned_bean` and `furikake` are label-dependent; `leek` and `green_onion` are alliums and fructans; `fennel_seed` is filed under `fennel`, `cumin_seed` under `cumin`, `coriander_seed` and `cilantro` under `coriander`, and the chillies and `paprika` under `chili`. Nutrition values and `fdcId` come from USDA FoodData Central (SR Legacy) where one record matches the node as named; otherwise none, and `source` says why.
+- **`data/substitutions.json`, stall swaps** (M6, Ruling 11): three for the launch dishes' market items (`shallot → onion`, `green_chili → dried_red_chili`, `moong_dal → red_lentil`), each with a "Stall swap:" note and `unsafeFor` its own `from` where the two share a rule target. Curry leaves and epazote have no honest swap, so they have no entry and the stall says `out_of_stock_none`.
 
 Review flags for the JSON files:
 
@@ -246,6 +262,12 @@ Review flags for the JSON files:
 - `# REVIEW:` **`peanut_oil`** (FDC 171410, "Oil, peanut, salad or cooking"; M5 Step 4, Step 3 N1), aliases "groundnut oil", "arachis oil", "refined peanut oil", "roasted peanut oil" and "cold-pressed peanut oil", `contains: [peanut]`, and the alias "arachis" on `peanut`, so a margin note or a rule naming them is checked as peanut: ⛔ under a peanut rule, never ✅. Refined peanut oil is treated as containing peanut on purpose: a label can't be verified from here. "PB" is deliberately not an alias (too ambiguous).
 - `# REVIEW:` **`cooked_rice`'s aliases** "leftover rice", "cold rice" and "day-old rice" read any leftover as plain cooked rice (`contains: [rice]` only). Takeaway egg-fried rice told as "leftover rice" would fill the fried-rice frame ✅ under an egg rule. The content reviewer decides whether these aliases stay, or whether leftovers need their own ❓ node.
 - `# REVIEW:` `data/stalls.json` and `data/food-groups.json` placements (fish and dairy at the General Counter; eggs at Big Bram's Protein Counter; tortillas at Okafor-Sato's, because Doña Marisol asked nicely).
+- `# REVIEW:` **the M6 market nodes' allergen edges** (Step 4, C16–C17), against a food-allergen source: `tofu` (and `silken_tofu`, `soft_tofu`, `firm_tofu`, `extra_firm_tofu`, `tofu_puffs` through it), `yuba`, `tempeh`, `miso`, `edamame` → soy; `seitan` → wheat, and `unsafeFor: [soy]` (shop seitan is often simmered in soy sauce); `asafoetida` → wheat, label-dependent (compounded hing is commonly cut with wheat flour; a gluten-free one can't be verified from here); `paneer`, `greek_yogurt` → milk; `furikake` → sesame and fish, label-dependent (many add soy, wheat or egg); `garam_masala`, `curry_powder`, `miso`, `canned_bean` label-dependent; `mexican_oregano` `unsafeFor: [oregano]` (a different plant, Lippia, sold as oregano). Tempeh can contain grains (barley, rice, wheat) and is not label-dependent, so that the Protein Counter's tempeh questions still reach vegetarians: the reviewer decides.
+- `# REVIEW:` **FODMAP and cross-reactivity are clinical questions, not graph edges.** `leek` and `green_onion` are filed under `fodmap_fructan`, as onion, shallot and garlic are (the green tops are lower in fructans, but a line names the whole vegetable). No other new node carries a FODMAP edge (asparagus, chickpeas and kidney beans are FODMAP-relevant too: the graph's low-FODMAP coverage is the alliums only). `pea` carries no lupin edge. `lupin_bean` is now also filed under `bean`, so a "beans" line is never ✅ under a lupin rule; `edamame` is filed under `bean` so it isn't under a soy rule either. Nutmeg is a seed, with no tree-nut edge.
+- `# REVIEW:` **the market node names chosen to keep the Pan's health gate from catching common words** (M4's one- and two-edit slip matching reads every one-word name of 5+ letters): `ginger root` (alias `fresh ginger`, not a bare "ginger": it is two edits from "dinner", "winter" and "longer"), `stinging nettle` ("nettle" is near "little"), `whole clove` ("clove" is one edit from "love" and "close"), `dried oregano` ("oregano" is two edits from "Oregon", a region a player types), `paneer cheese` ("paneer" is two edits from "paper", which a pinned route test leaves alone), `lentils` and `carrots` in the plural ("lentil" is two edits from "until", "carrot" from "carry" and "cannot"), and no `berries` alias ("worries"). The cost: a bare "ginger", "clove", "oregano", "nettle" or "paneer" in a stall text is not read as that node (every such question also declares its `contains`), and a rule on one of them is filed through the which-one ask. `chicken` ("checked"), `fennel` ("feel"), `chilli` ("child", "chilled"), `apple` ("apply") and `tempeh` ("temp") keep their names, because a rule on them must match the bare word: the Pan sends those near-misses to the health path (the stricter side), and Step 8's eval measures it.
+- `# REVIEW:` **every M6 node's FDC record** (SR Legacy, checked in M6 Step 4 against the FoodData Central SR Legacy CSV release 2018-04): the ids are in each node's `fdcId` and `source`. Spices with only a ground record (`cinnamon`, `clove`, `nutmeg`) carry the ground values; `mushroom`, the meat cuts, `silken_tofu`, `greek_yogurt`, `paneer`, `seitan`, `yuba`, `nettle` (FDC has only a blanched record), `star_anise`, the categories and the blends other than curry powder carry none.
+- `# REVIEW:` **the three stall swaps' notes** (`data/substitutions.json`): half a small onion for three small shallots; one dried red chilli for each green chilli; the same amount of split red lentils for moong dal. Kitchen judgement, no primary source; a cook from the tradition should confirm them for parippu.
+- `# REVIEW:` `data/stalls.json` gains `cumin: spice` (the bare "cumin" now names the `cumin` node, not `cumin_seed`).
 
 ### Rule terms (`data/rule-terms.json`)
 
@@ -317,9 +339,34 @@ Rewritten in M5 (C30): `stamp_earned` spends nothing (stamps are spent nowhere u
 
 The new Bureau forms: `margin_note` (2-M/MARGIN, a plain safety form: notes are health data, Ruling 9), `cooked_for` (5-S/SHARED TABLE: a fixed count and an optional fixed word, never a name), `technique_certificate` (51-T) and `frame` (8-F/FRAME). Form 7-W gains `days`, `hard_week` and `one_more`; Form 12-M gains `for_dish` and `general_stall`, whose label names the general stall.
 
+### The market's Pan triggers (Milestone 6)
+
+Steps 9–10 fire these by id (Step 5 adds them to `REQUIRED_PAN_TRIGGERS`). Written lines only, even where `ai: allowed` (M5 Ruling 21); each `ai: never` trigger has 4–6 lines. No line uses a streak or count word, a countdown or scarcity word, a currency, "buy" from a keeper, or a joke about a sparse cupboard.
+
+| Trigger | ai | When | Vars |
+|---|---|---|---|
+| `market.no_calendar` | never | No seasons calendar for the player's region (or none set): the seasonal round is left out, said plainly. Never "your region isn't supported". | |
+| `market.stall_wait` | never | The rules can't be read yet, so the stall waits (fail closed). | |
+| `market.bank_small` | never | Some questions were left out (they name something the rules block or can't check). Never says which. | |
+| `market.practice` | allowed | A stall opened on a day with no run: practice, any day. | |
+| `market.round_done` | allowed | A round ends: no score, no count. | |
+| `market.leave_round` | allowed | The player leaves a round partway: it costs nothing. | |
+| `market.no_swap` | never | No stall swap passes the player's rules for an item. | `item` |
+| `market.stock_swapped` | never | Read-back after taking a stall swap: labelled and re-checked. | `item`, `swap`, `dish` |
+| `season.now` | never | The note beside an item in season where the player is (✅ items only). | `item` |
+| `season.other` | never | A neutral note for the region's other categories; never a warning. | `item`, `category` |
+| `market.checkoff_readback` | never | Read-back of a check-off card (Step 8). | `summary` |
+| `market.checkoff_none` | never | Nothing said matched the open list; nothing ticked. | |
+| `market.no_run` | never | A check-off with no open market run: points at the list chip. | |
+| `errand.question` | allowed | An errand's stall question; the step passes whatever is answered. | `stall`, `item` |
+| `cook.drill_first` | never | Ruling 16: a recipe skill's prereqs aren't at Seen; the drill is offered, Cook stays. No ❗, no "should". | `technique`, `cook` |
+| `stamp_earned.market_game` | allowed | The weekly stall stamp. Spends nothing. | `stall` |
+
+Also new in M6 Step 4: each stall's `out_of_stock_none` (above), and Form 14-S/STALL (`forms.stall_round`) for the minigame panel: its `game` labels (one per minigame key, "Seasonal or well-travelled?" first), the example-price footnote and "*No stall keeper will sell you anything. They are teachers with tables." Form 12-M's meat footnote lost "Example prices": the list shows no prices.
+
 ### The voice scan
 
-`apps/game/src/content/voice-scan.test.ts` runs over every line, form, frame and recipe (title, steps, ingredient display names and notes) the client bundle carries: voice §7's banned words; unlock, loot, collect, acquire, discover, and "found" about recipes; streak, "missed" and "x days"; "version of"; Guild, price, upgrade, premium, subscribe; HIPAA and "medical-grade"; hours or calories in nourishment or rescue lines; a frame or rescue line about a sparse cupboard; scarcity words and joke cues ("regret", "bare", "empty fridge", "worked with less", "better stocked" …) on any intake or pantry line and any line that names the cupboard, fridge, pantry or a shelf (M5 final review I4); and spending stamps. No pattern is weakened (Ruling 24): a legitimate teaching line a pattern catches goes in `apps/game/src/content/voice-allowlist.ts`, by file, location (its key path) and exact text, with its reason; the same words pasted anywhere else are scanned. Edit an allowlisted line and the scan fails again until the entry is re-justified. The market stall files aren't in the client bundle yet; they are scanned when M6 gives them a screen.
+`apps/game/src/content/voice-scan.test.ts` runs over every line, form, frame and recipe (title, steps, ingredient display names and notes) the client bundle carries: voice §7's banned words; unlock, loot, collect, acquire, discover, and "found" about recipes; streak, "missed" and "x days"; "version of"; Guild, price, upgrade, premium, subscribe; HIPAA and "medical-grade"; hours or calories in nourishment or rescue lines; a frame or rescue line about a sparse cupboard; scarcity words and joke cues ("regret", "bare", "empty fridge", "worked with less", "better stocked" …) on any intake or pantry line and any line that names the cupboard, fridge, pantry or a shelf (M5 final review I4); and spending stamps. No pattern is weakened (Ruling 24): a legitimate teaching line a pattern catches goes in `apps/game/src/content/voice-allowlist.ts`, by file, location (its key path) and exact text, with its reason; the same words pasted anywhere else are scanned. Edit an allowlisted line and the scan fails again until the entry is re-justified. The market stall files aren't in the client bundle yet; they are scanned when M6 gives them a screen (Step 5).
 
 ## Content review for the founder: everything M5 flagged, in one place
 
@@ -363,6 +410,19 @@ Each line below was flagged during M5 (Steps 1–12, from the SDD ledger and the
 - [ ] `intake.pantry.followup[2]`, `[3]`, `[4]` (I4): the "regret" callback, "better stocked than a lighthouse" and "I've worked with less" commented on how much was there. Reworded; the new voice-scan pattern (scarcity words and joke cues on intake, pantry and cupboard lines) now catches all three forms.
 - [ ] Countdown rewordings (m14), so their allowlist entries are gone: `plan.saved[3]` ("only a guess" → "just a guess"), `plan.dish_unknown[1]` ("left it out" → "kept it out"), `frame.slot_empty[3]` ("left it unfilled … until you pick something you've checked" → "I haven't filled it … until you pick something I can check": the player's own label check never clears ❓).
 - [ ] The prompt's few-shot player lines (m3, not shown to players): "We're out of butter now.", "Breakfast around quarter past eight.", "For this week, put the stew on Thursday and the pasta on Saturday."
+
+**M6 Step 4: the market's content (read these first)**
+- [ ] **The 16 new Pan triggers** in the table above, `ai: never` ones first: `market.no_calendar`, `market.stall_wait`, `market.bank_small`, `market.no_swap`, `market.stock_swapped`, `season.now`, `season.other`, `market.checkoff_readback`, `market.checkoff_none`, `market.no_run`, `cook.drill_first`. Then `market.practice`, `market.round_done`, `market.leave_round`, `errand.question` and `stamp_earned.market_game`.
+- [ ] `market.cheer[5]`: "Right again. I'm almost impressed. Almost." → "Right. I'm almost impressed. Almost." `market.cheer` plays after any correct answer, the first included, and "again" counted a run of right answers (no-pressure rule, C18).
+- [ ] Each stall's new `out_of_stock_none` (four lines each, in the keeper's voice): no swap passes the player's rules; skip it this week.
+- [ ] The 26 new `a_if_blocked` answers (Wen 5, Bram 8, the Protein Counter 4, Okafor-Sato 4, the Spice Merchant 5): each says the same thing as its `a` without naming an ingredient.
+- [ ] The seasonal round is now **"Seasonal or well-travelled?"** (Ruling 6: its old name framed shipped food as a crime): Wen's `games.seasonal`, every seasonal prompt's closing question, and option C, now the table's own label "Well-travelled: shipped in from far away". The question ids are unchanged.
+- [ ] Bram's chalkboards (Ruling 5): no currency anywhere. The braise prices are unchanged (22.50, 38, 24, 60). The Protein Counter's were changed so each divides exactly, with no "≈": lentils 1.79 → 1.75 (0.25 a serving), tofu 2.79 → 2.80 (0.70), tempeh 3.49 → 3.50 (1.75); eggs stay 4.20 (0.70). The bean-yield reaction keeps 1.89 and 4 × 1.29 = 5.16 as example numbers. "Buy shank if the chuck's gone" became "Shank's the one to pick if the chuck's gone", and "the best few dollars you'll spend" became "the most useful little tool in a kitchen". The header's USD note is now the example-price note.
+- [ ] Bram's US-scoped label questions (Ruling 8): air-chilled (most US chicken is water-chilled; air-chilling is the EU norm), grass-finished, sell-by and no-hormones show only to players in the United States.
+- [ ] Form 14-S/STALL (`forms.stall_round`): title, title aside, the `game` labels, buttons and footnotes. Form 9-Q/Practice Log's footnote "*Practice rounds earn XP but not stamps. Stamps are for first completions." no longer matches Ruling 1 (a stall stamp each ISO week for a round played through); it is unchanged here and needs the founder's call (keep 9-Q, or retire it for 14-S).
+- [ ] **"Mr. Okafor-Sato"** (Ruling 23, carried from the file's own founder note): "Mr." is itself gendered, and a neutral display name ("Okafor-Sato") may fit better. M6 is the first milestone to put the name on screen. Kept as written until the founder rules.
+- [ ] The Season's Table (`data/seasonality.yaml`): Pacific Northwest only, November–February, `status: draft`. Its region phrases ("washington state", "western washington", "wa", "oregon", "portland oregon", "portland or", "seattle", "pacific northwest", "pnw"); a bare "Washington" or "Portland" gets no calendar. "Oregon" also names a few small towns in other states (Oregon, Ohio), which would get this calendar. Which regions come next is decided with the ROADMAP launch-region item (Ruling 9).
+- [ ] The market graph nodes, their allergen edges, their FDC values, the stall swaps and the names chosen around the Pan's health gate: every M6 `# REVIEW:` under "Data files" above.
 
 **Founder decisions (not built)**
 - [ ] **The drill-first hint (final review m9, Task 9 concern 7, Ruling 4).** Spec §6 says skill levels gate harder dishes; Ruling 4 made that advisory ("suggests the drill first"), and nothing suggests it yet. Every Cook button stays enabled, which is correct. Proposed shape: one `cook.drill_first` Pan line (`ai: never`, 4–6 lines, no ❗) on the recipe and cook screens when a recipe skill's `prereqs` aren't at Seen, with a chip to the cook's quest drill. Cook stays enabled, nothing is gated, nothing shows in Family Table. Or defer it to M10 with the basics lessons. Needs the founder's call and the copy.
