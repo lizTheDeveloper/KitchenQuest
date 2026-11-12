@@ -150,9 +150,67 @@ describe('the market (M6 Step 9)', () => {
     await page.locator('.stall-option').first().waitFor();
     await playRound(page);
     await expect.poll(() => posted.length).toBe(2);
-    await page.waitForTimeout(300);
+    // Deterministic, no wall-clock wait (M9): the second answer has landed once the account holds both rounds, uploaded.
+    await expect.poll(async () => Object.values((await stored(page)).accountProgress)
+      .map((p) => [p.progress.events.filter((e) => e.kind === 'stall_round').length, p.progress.pendingUpload.length].join('/'))).toContain('2/0');
+    await page.evaluate(() => new Promise((r) => { requestAnimationFrame(() => { r(null); }); }));
     expect((await toasts(page)).filter((t) => stampLine(t, 'Mr. Okafor-Sato'))).toHaveLength(1);
     expect(app.consoleErrors).toEqual([]);
+  });
+
+  it('keyboard only (M9): a whole round with Tab and Enter, focus on the reaction after each pick', async () => {
+    app = await openApp('/#/stall/wen', { reducedMotion: true, width: 400, seed: SIGNED_OUT_AI_OFF });
+    const { page } = app;
+    await page.locator('.stall-option').first().waitFor();
+    for (let n = 0; n < 5; n++) {
+      // From the question's heading, the first option is the next stop.
+      await page.locator('.stall-round h2').focus();
+      await page.keyboard.press('Tab');
+      expect(await page.evaluate(() => document.activeElement?.classList.contains('stall-option'))).toBe(true);
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() => document.activeElement?.classList.contains('stall-feedback') === true);
+      await page.keyboard.press('Tab');
+      expect(await page.evaluate(() => document.activeElement?.classList.contains('stall-next'))).toBe(true);
+      await page.keyboard.press('Enter');
+    }
+    await page.locator('.stall-done').waitFor();
+    expect(await page.evaluate(() => document.activeElement?.classList.contains('stall-done'))).toBe(true);
+    expect((await stored(page)).progress.events.filter((e) => e.kind === 'stall_round')).toHaveLength(1);
+  });
+
+  it('signed in, the Protein Counter (M9): no health_data → the consent card first; "I agree" → the round', async () => {
+    let granted = false;
+    const grants: unknown[] = [];
+    app = await openApp('/#/stall/bram', {
+      reducedMotion: true, width: 400, seed: SIGNED_OUT_AI_OFF,
+      beforeGoto: async (page) => {
+        await page.route((u) => u.pathname.startsWith('/api/'), async (route) => {
+          const req = route.request();
+          const path = new URL(req.url()).pathname.replace(/^\/api/, '');
+          if (path === '/me') return route.fulfill(json(200, { id: 'u1', email: 'cook@example.com', entitlements: [] }));
+          if (path === '/me/consents' && req.method() === 'POST') { granted = true; grants.push(req.postDataJSON()); return route.fulfill(json(201, { consent: {} })); }
+          if (path === '/me/consents') {
+            const consents = granted ? [{ purpose: 'health_data', noticeVersion: 'v3', noticeSha256: 'x', method: 'tap', grantedAt: '2026-11-01T00:00:00Z', withdrawnAt: null, endedReason: null, current: true }] : [];
+            return route.fulfill(json(200, { consents, needsReconsent: [], notices: { health_data: { version: 'v3', text: 'HEALTH NOTICE TEXT' } } }));
+          }
+          if (path === '/profile') return route.fulfill(json(200, { marketDays: [], mealsPerWeek: null, country: null, region: null, mealWindows: [] }));
+          if (path === '/rules') return route.fulfill(json(200, { rules: [{ ...VEGETARIAN, id: 's1' }] }));
+          if (path === '/progress') return route.fulfill(json(200, { view: null }));
+          return route.fulfill(json(404, { error: { code: 'not_found', message: `no mock for ${path}` } }));
+        });
+      },
+    });
+    const { page } = app;
+    await page.locator('#view h1', { hasText: bram.variants.protein_counter.name }).waitFor();
+    await page.locator('.stall-consent').waitFor();
+    expect(await page.locator('.stall-option').count()).toBe(0);
+    await page.locator('.stall-consent').click();
+    const card = page.locator('#pan-panel .consent-card');
+    await card.waitFor();
+    await expectNoA11yViolations(page, 'the Protein Counter consent card');
+    await card.getByRole('button', { name: 'I agree' }).click();
+    await page.locator('.stall-option').first().waitFor();
+    expect(grants).toHaveLength(1);
   });
 
   for (const familyTable of [false, true]) {
