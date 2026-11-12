@@ -263,6 +263,29 @@ export function rankSoundAlikes(word: string, graph: IngredientGraph, terms: rea
 }
 
 /**
+ * Major allergens whose name or alias (no digits) has exactly the phonetic key of `word`, for a word of any length
+ * ("so" / soy, "it" / oat, "ok" / egg, "we" / whey): the short-word fail-safe (fix round 2, N2). Closest spelling first.
+ */
+export function allergenEchoes(word: string, graph: IngredientGraph): { id: string; name: string }[] {
+  const key = phoneticKey(word);
+  if (key === '') return [];
+  const allergens = allergenIds(graph);
+  const w = letters(word);
+  const hits = new Map<string, number>();
+  for (const label of graph.labels()) {
+    if (/\d/.test(label) || phoneticKey(label) !== key) continue;
+    const id = graph.resolve(label)!;
+    if (!allergens.has(id)) continue;
+    const l = letters(label);
+    const d = editDistance(w, l) / Math.max(w.length, l.length);
+    if (!hits.has(id) || d < hits.get(id)!) hits.set(id, d);
+  }
+  return [...hits]
+    .sort((a, b) => a[1] - b[1] || (a[0] < b[0] ? -1 : 1))
+    .map(([id]) => ({ id, name: graph.get(id).name }));
+}
+
+/**
  * Foods (and rule terms) `word` sounds like, closest first, at most `max`: known confusions, then major allergens it
  * is a phonetic neighbour of, then the rest whose phonetic key is within one edit of the word's (or its singular's).
  * A rule term comes as `term:<name>` (`isRuleTermId`), not a graph id. The word's own food is never offered. A word under three

@@ -3,7 +3,7 @@
 //
 // Ruling 15: a `speak` message names what to say by id or reference only. No SpeakItem carries text or variables; the
 // API renders every spoken line itself from server-held data.
-import { MAX_TEXT } from '../mentor/intents';
+import { canonicalFull, MAX_TEXT } from '../mentor/intents';
 import type { TurnRequest } from '../mentor/protocol';
 import { MAX_SPEAK_ITEMS } from './constants';
 import { hasExactKeys, isBoundedText, isDate, isIndex, isShortString, isU32, plainObject } from './wire';
@@ -149,7 +149,13 @@ function parseState(x: unknown): VoiceState | null {
   return null;
 }
 
-/** An API message, strictly (the game's side). A fresh copy. */
+/**
+ * An API message, strictly (the game's side). A fresh copy.
+ *
+ * Contract (fix round 2, N7): a `transcript` over MAX_TEXT code points parses to null; it is refused, never cut. The
+ * API must therefore never send one: an over-long utterance is answered with `too_long` (and the text box), so the
+ * device never drops a message and leaves the turn hanging.
+ */
 export function parseServerMsg(x: unknown): ServerMsg | null {
   if (!plainObject(x)) return null;
   switch (x.t) {
@@ -188,7 +194,9 @@ export function parseServerMsg(x: unknown): ServerMsg | null {
  * over-long input is refused, never truncated. For the API's turn route (Step 6).
  */
 export function parseTurnInput(x: unknown): TurnRequest['input'] | null {
-  if (!plainObject(x) || !isBoundedText(x.text, MAX_TEXT) || x.text.trim() === '') return null;
+  // Fix round 2 (N6): blank means blank once whitespace and invisible (zero-width, format) characters are gone.
+  const filled = (t: string): boolean => canonicalFull(t).trim() !== '';
+  if (!plainObject(x) || !isBoundedText(x.text, MAX_TEXT) || !filled(x.text)) return null;
   if (x.kind === 'text') return hasExactKeys(x, ['kind', 'text']) ? { kind: 'text', text: x.text } : null;
   if (x.kind !== 'transcript') return null;
   if (hasExactKeys(x, ['kind', 'text'])) return { kind: 'transcript', text: x.text };
@@ -196,6 +204,6 @@ export function parseTurnInput(x: unknown): TurnRequest['input'] | null {
   const words = x.heard.words;
   if (!Array.isArray(words) || words.length > MAX_TEXT) return null;
   const list = words as unknown[];
-  if (!list.every((w): w is string => isBoundedText(w, MAX_TEXT))) return null;
+  if (!list.every((w): w is string => isBoundedText(w, MAX_TEXT) && filled(w))) return null;
   return { kind: 'transcript', text: x.text, heard: { words: [...list] } };
 }

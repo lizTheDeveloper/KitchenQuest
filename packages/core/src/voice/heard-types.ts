@@ -10,6 +10,11 @@ export interface HeardTerm {
    * which is NOT a graph id (`isRuleTermId`; never pass it to `IngredientGraph.get`). Null when they name nothing.
    */
   id: string | null;
+  /**
+   * Fix round 2 (N3): where the check heard it, as word indices (the first word of each occurrence) into the text's
+   * letter-and-digit words. A choice rewrites these occurrences only, never another copy of the same word.
+   */
+  at: number[];
   /** What the words may have been instead, closest first, at most MAX_ALTERNATIVES. `id` as above: a graph id or `term:<name>`. */
   alternatives: { id: string; name: string; spelled: string }[];
 }
@@ -18,9 +23,10 @@ export interface HeardCheck {
   /**
    * Fix round 1 (I2): the transcript is over MAX_TEXT once page events are stripped, so it was not read and `terms` is
    * empty. This check blocks: it is never confirmed, and the caller refuses the turn and asks the player to type.
+   * Contract (N7): test `tooLong` FIRST. `terms.length === 0` never means "names nothing" (that is a null check).
    */
   tooLong: boolean;
   terms: HeardTerm[];
-  /** Health wording is present: the card's spelling is spoken too (Ruling 4). */
+  /** Health wording is present (`hasHealthWording`): the card's spelling is spoken too (Ruling 4). */
   speakSpelling: boolean;
 }

@@ -2,14 +2,14 @@
 // (with health wording) a sound-alike of one is stopped by a heard card showing the words as heard, spelled, with the
 // foods they may have been. Only a tap confirms it (`heardConfirmed`); nothing reaches a rule, a card or the model
 // before. Speech-to-text output is untrusted user text (§7.6): it is stripped of page events first. Browser-safe.
-import type { IngredientGraph } from '../ingredients/graph';
+import { IngredientGraph } from '../ingredients/graph';
 import { pluralForms, words } from '../ingredients/mentions';
 import { foldConfusables, HEALTH_PATTERN, MAX_TEXT, normalizeText, stripPageEventsFull } from '../mentor/intents';
 import { ALLERGY_NEGATIONS, DIET_WORD_PATTERN, RULE_TRIGGER_PATTERN, SEVERITY_PATTERNS, severityFromText } from '../mentor/parse';
 import type { RuleTerm } from '../mentor/rule-terms';
 import { spell } from '../mentor/spell';
 import { MAX_ALTERNATIVES } from './constants';
-import { rankSoundAlikes, termId, type SoundAlike } from './phonetic';
+import { allergenEchoes, rankSoundAlikes, termId, type SoundAlike } from './phonetic';
 import { codePoints } from './wire';
 import type { HeardCheck, HeardTerm } from './heard-types';
 
@@ -52,10 +52,18 @@ export const STOP_WORDS: ReadonlySet<string> = new Set(
 
 const isStop = (w: string): boolean => STOP_WORDS.has(w) || /\d/.test(w) || [...w].length < 3;
 
-/** Health wording (Ruling 4): the mentor's health, rule-trigger, diet and severity patterns, read on the normal form. */
+/** Meal and mealtime words: HEALTH_PATTERN over-catches them on purpose (for the model gate), but alone they are cook chatter. */
+const MEAL_ONLY = /^(?:ate|eaten|had|breakfast|brekkie|lunch|dinner|supper|snack\w*)$/;
+
+/**
+ * Health wording (Ruling 4), read on the normal form: the mentor's health, rule-trigger, diet and severity patterns,
+ * except that a meal word alone ("what's for dinner", "I had toast") is not health wording (fix round 2, N5). Without
+ * health wording a transcript gets a heard card only for a food or rule term it names.
+ */
 export function hasHealthWording(normal: string): boolean {
+  const health = new RegExp(HEALTH_PATTERN.source, 'g');
   return (
-    HEALTH_PATTERN.test(normal) ||
+    [...normal.matchAll(health)].some((m) => !MEAL_ONLY.test(m[0])) ||
     normal.search(RULE_TRIGGER_PATTERN) >= 0 ||
     normal.search(DIET_WORD_PATTERN) >= 0 ||
     SEVERITY_PATTERNS.some(([p]) => p.test(normal))
@@ -92,21 +100,26 @@ function phrasesOf(graph: IngredientGraph, terms: readonly RuleTerm[]): Phrases 
 
 interface Token {
   word: string;
-  /** Inside health wording (`healthSpans`): never a sound-alike term. */
-  health: boolean;
+  start: number;
+  end: number;
+  /** Inside a rule trigger, a negation or a severity cue (`exemptSpans`): never a sound-alike term, bar one case. */
+  exempt: boolean;
+  /** Starts exactly where a rule trigger ends: the term position ("allergic to |so"). */
+  afterTrigger: boolean;
   /** A clause break (, . ; : ! ?) comes before this word. */
   broken: boolean;
 }
 
 function tokensOf(normal: string): Token[] {
-  const spans = healthSpans(normal);
+  const spans = exemptSpans(normal);
+  const triggerEnds = new Set([...normal.matchAll(new RegExp(RULE_TRIGGER_PATTERN.source, 'g'))].map((m) => m.index + m[0].length));
   const out: Token[] = [];
   let broken = false;
   for (const m of normal.matchAll(/[\p{L}\p{N}]+|[,.;:!?]/gu)) {
     if (/^[,.;:!?]$/.test(m[0])) broken = true;
     else {
       const [start, end] = [m.index, m.index + m[0].length];
-      out.push({ word: m[0], broken, health: spans.some(([a, b]) => a < end && start < b) });
+      out.push({ word: m[0], start, end, broken, exempt: spans.some(([a, b]) => a < end && start < b), afterTrigger: triggerEnds.has(start) });
       broken = false;
     }
   }
@@ -114,12 +127,13 @@ function tokensOf(normal: string): Token[] {
 }
 
 /**
- * [start, end) of every piece of health wording in the normal form: rule triggers, diet words, severity and anaphylaxis
- * cues, negations and the health pattern. Those words were heard as what they are, so they are never sound-alike
- * terms (fix round 1, I3: "epipen", "deadly" or "almost died" never offer a food to swap them for).
+ * [start, end) of the words whose swap would change what the rule parsers read: rule triggers ("allergic to",
+ * "can't eat"), allergy negations and severity cues ("allerg", "epipen", "deadly", "almost died"). These were heard
+ * as what they are, so they are never sound-alike terms (fix round 1, I3). Fix round 2 (N2): only these; meal, diet
+ * and symptom words are ordinary words again, so "allergic to dietary" (dairy) and "allergic to ate" (oat) ask.
  */
-function healthSpans(normal: string): [number, number][] {
-  const patterns = [HEALTH_PATTERN, RULE_TRIGGER_PATTERN, DIET_WORD_PATTERN, ALLERGY_NEGATIONS, ...SEVERITY_PATTERNS.map(([p]) => p)];
+function exemptSpans(normal: string): [number, number][] {
+  const patterns = [RULE_TRIGGER_PATTERN, ALLERGY_NEGATIONS, ...SEVERITY_PATTERNS.map(([p]) => p)];
   const out: [number, number][] = [];
   for (const p of patterns)
     for (const m of normal.matchAll(new RegExp(p.source, p.flags.includes('g') ? p.flags : `${p.flags}g`)))
@@ -146,10 +160,16 @@ const better = (a: SoundAlike, b: SoundAlike | undefined): boolean =>
  *     words heard for one food ("pea cans", "chick pea") win over a food heard inside them only when they sound
  *     exactly like a different food.
  * Every term carries its sound-alikes as alternatives, so a real food heard for another offers the other. The heard
- * words are never corrected: `id` is what they name as heard. Health wording itself is never a sound-alike term, and
- * a stop word is one only when it sounds like a major allergen. Over MAX_TEXT (page events stripped first) it returns
+ * words are never corrected: `id` is what they name as heard. Rule triggers, negations and severity cues are never
+ * sound-alike terms (unless one sits in the term position and sounds exactly like an allergen); a stop word is one only
+ * when it sounds like a major allergen; a 1–2 letter word only in the term position on an exact allergen sound. Over MAX_TEXT (page events stripped first) it returns
  * a blocking `tooLong` check, never null: the caller refuses the turn and asks the player to type.
  */
+// Contract (fix round 2, N7) for Steps 5, 6 and 9:
+//  - test `check.tooLong` FIRST: a blocking check has `terms: []`, which never means "names nothing" (that is null);
+//    refuse the turn and ask the player to type;
+//  - apply a card choice with `tryHeardChoice(transcript, check, choice, graph)` and keep asking on any refusal;
+//  - a turn's input is validated with core `parseTurnInput` (bounded, never truncated).
 export function heardCheck(transcript: string, graph: IngredientGraph, terms: readonly RuleTerm[]): HeardCheck | null {
   // Fix round 1 (I2): fail closed. Page events are stripped from the whole text first, then the length is measured;
   // over MAX_TEXT the check blocks instead of reading a cut text (a food past the cap would go unseen).
@@ -178,14 +198,15 @@ export function heardCheck(transcript: string, graph: IngredientGraph, terms: re
    * phonetic neighbour of a major allergen ("what" / wheat, "ache" / egg: fix round 1, I1; over-asking is safe).
    */
   const soundAt = (i: number): SoundAlike | undefined => {
-    if (toks[i].health) return undefined;
     const list = ranked(toks[i].word);
+    // An exempt word stays out, unless it sits in the term position and sounds exactly like an allergen (N2).
+    if (toks[i].exempt && !(toks[i].afterTrigger && list.some((s) => s.allergen && s.distance <= 0))) return undefined;
     if (!isStop(toks[i].word)) return closest(list);
     return list.some((s) => s.allergen) && [...toks[i].word].length >= 3 && !/\d/.test(toks[i].word) ? closest(list) : undefined;
   };
   /** Two words heard for one food, when they win over what their words name alone. */
   const pairAt = (i: number, exact: { len: number; id: string } | null): boolean => {
-    if (!health || i + 1 >= toks.length || toks[i + 1].broken || toks[i].health || toks[i + 1].health) return false;
+    if (!health || i + 1 >= toks.length || toks[i + 1].broken || toks[i].exempt || toks[i + 1].exempt) return false;
     const [a, b] = [toks[i].word, toks[i + 1].word];
     if (/\d/.test(a + b)) return false;
     const pair = ranked(`${a} ${b}`);
@@ -201,75 +222,103 @@ export function heardCheck(transcript: string, graph: IngredientGraph, terms: re
     return better(best, alone);
   };
 
-  const found: { heard: string; id: string | null }[] = [];
+  /**
+   * Fix round 2 (N2), the short-word fail-safe: a word of 1–2 letters right after a rule trigger, then the end, a
+   * clause break, "and" or "or", that sounds exactly like an allergen ("allergic to so" / soy, "to it." / oat).
+   */
+  const shortAt = (i: number): { id: string; name: string }[] => {
+    const t = toks[i];
+    if (!t.afterTrigger || [...t.word].length > 2 || /\d/.test(t.word)) return [];
+    const next = toks.at(i + 1);
+    if (next !== undefined && !next.broken && next.word !== 'and' && next.word !== 'or') return [];
+    return allergenEchoes(t.word, graph);
+  };
+
+  const found: { heard: string; id: string | null; at: number; echoes?: { id: string; name: string }[] }[] = [];
   for (let i = 0; i < toks.length; ) {
     const exact = exactAt(i);
-    if (pairAt(i, exact)) {
-      found.push({ heard: `${toks[i].word} ${toks[i + 1].word}`, id: null });
+    const echoes = exact === null ? shortAt(i) : [];
+    if (echoes.length > 0) {
+      found.push({ heard: toks[i].word, id: null, at: i, echoes });
+      i += 1;
+    } else if (pairAt(i, exact)) {
+      found.push({ heard: `${toks[i].word} ${toks[i + 1].word}`, id: null, at: i });
       i += 2;
     } else if (exact !== null) {
-      found.push({ heard: toks.slice(i, i + exact.len).map((t) => t.word).join(' '), id: exact.id });
+      found.push({ heard: toks.slice(i, i + exact.len).map((t) => t.word).join(' '), id: exact.id, at: i });
       i += exact.len;
     } else {
-      if (health && soundAt(i) !== undefined) found.push({ heard: toks[i].word, id: null });
+      if (health && soundAt(i) !== undefined) found.push({ heard: toks[i].word, id: null, at: i });
       i += 1;
     }
   }
 
-  const seen = new Set<string>();
-  const out: HeardTerm[] = [];
+  const byHeard = new Map<string, HeardTerm>();
   for (const f of found) {
-    if (seen.has(f.heard)) continue;
-    seen.add(f.heard);
-    out.push({
+    const seen = byHeard.get(f.heard);
+    if (seen !== undefined) {
+      seen.at.push(f.at);
+      continue;
+    }
+    const alts = f.echoes ?? ranked(f.heard);
+    byHeard.set(f.heard, {
       heard: f.heard,
       spelled: spell(f.heard),
       id: f.id,
-      alternatives: ranked(f.heard)
-        .slice(0, MAX_ALTERNATIVES)
-        .map(({ id, name }) => ({ id, name, spelled: spell(name) })),
+      at: [f.at],
+      alternatives: alts.slice(0, MAX_ALTERNATIVES).map(({ id, name }) => ({ id, name, spelled: spell(name) })),
     });
   }
+  const out = [...byHeard.values()];
   return out.length === 0 ? null : { tooLong: false, terms: out, speakSpelling: health };
 }
 
-const escape = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
 const SEVERITY_RANK: Readonly<Record<string, number>> = { preference: 1, intolerance: 2, allergy: 3, anaphylactic: 4 };
-const severityRank = (text: string): number => {
-  const s = severityFromText(text);
+/** Severity exactly as production reads it (fix round 2, N1: with the graph, so intolerance and preference count). */
+const severityRank = (normal: string, graph: IngredientGraph): number => {
+  const s = severityFromText(normal, graph);
   return s === null ? 0 : SEVERITY_RANK[s];
 };
 
-/** Why a heard choice was not applied: a chosen term matched nothing, it would lower severity, or the check blocks. */
+/** Why a heard choice was not applied: a chosen term's words are not where it was heard, it would lower severity, or too long. */
 export type HeardChoiceRefusal = 'not_applied' | 'severity_lowered' | 'too_long';
 
 /**
- * The transcript with each chosen term replaced in place by its chosen alternative's name. `choice[i]` is an index
+ * The transcript with each chosen term replaced by its chosen alternative's name, at the positions the check heard
+ * it (`term.at`) and nowhere else (fix round 2, N3: "it could kill me" keeps its "kill"). `choice[i]` is an index
  * into `check.terms[i].alternatives`, or null to keep the words as heard; anything else is ignored. It works on the
- * text the check read (page events stripped, NFKC, invisible characters removed: fix round 1, M1); every whole-word
- * occurrence of a chosen term's heard words is replaced (matching ignores case, accents and lookalikes).
+ * text the check read: page events stripped, NFKC, invisible characters removed (fix round 1, M1).
  *
- * Refused, with the transcript unchanged, so the card keeps asking: when a chosen term matches nothing; when the
- * result's `severityFromText` would be lower than the transcript's (fix round 1, I3: a choice may only keep or raise
- * severity); and for a blocking (`tooLong`) check.
+ * Refused, with the transcript unchanged, so the card keeps asking:
+ *  - `too_long`: a blocking check, or a text whose normal form is over MAX_TEXT (N4: the same measure as heardCheck);
+ *  - `not_applied`: a chosen term's words are not at its recorded position;
+ *  - `severity_lowered`: `severityFromText(…, graph)`, on the normal form as the turn reads it, would be lower after
+ *    the choice (I3, N1: a choice may only keep or raise severity, intolerance and preference included).
  */
 export function tryHeardChoice(
   transcript: string,
   check: HeardCheck,
   choice: readonly (number | null)[],
+  graph: IngredientGraph,
 ): { ok: true; text: string } | { ok: false; reason: HeardChoiceRefusal; text: string } {
-  if (check.tooLong) return { ok: false, reason: 'too_long', text: transcript };
+  if (!(graph instanceof IngredientGraph)) throw new TypeError('tryHeardChoice: the ingredient graph is required (severity guard)');
+  const refuse = (reason: HeardChoiceRefusal) => ({ ok: false as const, reason, text: transcript });
+  if (check.tooLong || transcript.length > HARD_MAX_UNITS) return refuse('too_long');
   const base = stripPageEventsFull(transcript).text;
+  const normalBase = normalizeText(base);
+  if (codePoints(normalBase, MAX_TEXT) > MAX_TEXT) return refuse('too_long');
   const folded = foldConfusables(base);
+  const toks = [...folded.matchAll(/[\p{L}\p{N}]+/gu)].map((m) => ({ word: m[0].toLowerCase(), start: m.index, end: m.index + m[0].length }));
   const spans: { start: number; end: number; name: string }[] = [];
   for (const [i, term] of check.terms.entries()) {
     const k = choice.at(i);
     if (k === null || k === undefined || !Number.isInteger(k) || k < 0 || k >= term.alternatives.length) continue;
-    const pattern = new RegExp(`(?<![\\p{L}\\p{N}])${term.heard.split(' ').map(escape).join('[^\\p{L}\\p{N}]+')}(?![\\p{L}\\p{N}])`, 'giu');
-    const before = spans.length;
-    for (const m of folded.matchAll(pattern)) spans.push({ start: m.index, end: m.index + m[0].length, name: term.alternatives[k].name });
-    if (spans.length === before) return { ok: false, reason: 'not_applied', text: transcript };
+    const words = term.heard.split(' ');
+    for (const at of term.at) {
+      const run = toks.slice(at, at + words.length);
+      if (run.length !== words.length || run.some((t, j) => t.word !== words[j])) return refuse('not_applied');
+      spans.push({ start: run[0].start, end: run[run.length - 1].end, name: term.alternatives[k].name });
+    }
   }
   spans.sort((a, b) => a.start - b.start);
   let out = '';
@@ -280,13 +329,15 @@ export function tryHeardChoice(
     pos = s.end;
   }
   out += base.slice(pos);
-  if (severityRank(out) < Math.max(severityRank(transcript), severityRank(base))) return { ok: false, reason: 'severity_lowered', text: transcript };
+  const normalOut = normalizeText(out);
+  if (codePoints(normalOut, MAX_TEXT) > MAX_TEXT) return refuse('too_long');
+  if (severityRank(normalOut, graph) < severityRank(normalBase, graph)) return refuse('severity_lowered');
   return { ok: true, text: out };
 }
 
 /** `tryHeardChoice`'s text: the chosen text, or the transcript unchanged when the choice is refused. */
-export function applyHeardChoice(transcript: string, check: HeardCheck, choice: readonly (number | null)[]): string {
-  return tryHeardChoice(transcript, check, choice).text;
+export function applyHeardChoice(transcript: string, check: HeardCheck, choice: readonly (number | null)[], graph: IngredientGraph): string {
+  return tryHeardChoice(transcript, check, choice, graph).text;
 }
 
 /** Ruling 4: the tap confirmed exactly these heard words, in order. Anything else (or nothing) is not a confirmation. */

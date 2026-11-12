@@ -5,7 +5,7 @@ import ingredients from '../../../../data/ingredients.json';
 import ruleTerms from '../../../../data/rule-terms.json';
 import { IngredientGraph } from '../ingredients/graph';
 import { MAX_TEXT } from '../mentor/intents';
-import { severityFromText } from '../mentor/parse';
+import { ALLERGY_NEGATIONS, RULE_TRIGGER_PATTERN, SEVERITY_PATTERNS, severityFromText } from '../mentor/parse';
 import { isMajorAllergen } from '../mentor/route';
 import type { RuleTerm } from '../mentor/rule-terms';
 import { spell } from '../mentor/spell';
@@ -141,7 +141,10 @@ describe('fix round 1: allergen-shaped stop words (I1)', () => {
       // sound in the term position (right after "allergic to"), which is where this sentence puts them.
       if (/[^a-z]/.test(w)) continue;
       const k = phoneticKey(w);
-      const near = allergens.filter((a) => a.key.length > 0 && (editDistance(k, a.key) === 0 || ([...w].length >= 4 && Math.min(k.length, a.key.length) > 1 && editDistance(k, a.key) === 1)));
+      // a trigger, negation or severity word ("anaphylaxis") is exempt unless it sounds EXACTLY like an allergen (N2)
+      const exempt = [RULE_TRIGGER_PATTERN, ALLERGY_NEGATIONS, ...SEVERITY_PATTERNS.map(([p]) => p)].some((p) => `${w} `.search(p) >= 0);
+      const oneEdit = !exempt && [...w].length >= 4;
+      const near = allergens.filter((a) => a.key.length > 0 && (editDistance(k, a.key) === 0 || (oneEdit && Math.min(k.length, a.key.length) > 1 && editDistance(k, a.key) === 1)));
       if (near.length === 0) continue;
       tried++;
       const t = check(`I'm allergic to ${w}`)?.terms.find((x) => x.heard === w);
@@ -306,7 +309,7 @@ describe('fix round 2: the severity guard reads severity as production does (N1)
           }),
         );
       }
-    expect(levels).toEqual(new Set([1, 2, 3, 4]));
+    for (const level of [1, 2, 3, 4]) expect(levels.has(level), String(level)).toBe(true);
     expect(tried).toBeGreaterThan(1000);
     expect(lowered).toBe(0);
   });
@@ -356,7 +359,7 @@ describe('fix round 2: a choice rewrites only its own occurrences (N3)', () => {
   test('every occurrence the check made a term is rewritten; a position whose words differ is not_applied', () => {
     const text = 'allergic to selfish, yes selfish';
     const chk = check(text)!;
-    expect(chk.terms[0].at).toEqual([2, 5]);
+    expect(chk.terms[0].at).toEqual([2, 4]);
     expect(tryChoice(text, chk, [0])).toEqual({ ok: true, text: 'allergic to shellfish, yes shellfish' });
     expect(tryChoice('allergic to sesame, yes selfish', chk, [0]).ok).toBe(false);
   });

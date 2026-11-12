@@ -58,7 +58,12 @@ export function parseUpstreamClientMsg(x: unknown): UpstreamClientMsg | null {
   }
 }
 
-/** A voice-service message to the API, strictly. A fresh copy. */
+/**
+ * A voice-service message to the API, strictly. A fresh copy.
+ *
+ * Contract (fix round 2, N7): a `transcript` over MAX_TEXT code points parses to null. The API (Step 5) must turn
+ * that null into `too_long` for the device's utterance, never drop it silently and leave the turn waiting.
+ */
 export function parseUpstreamServerMsg(x: unknown): UpstreamServerMsg | null {
   if (!plainObject(x)) return null;
   switch (x.t) {
