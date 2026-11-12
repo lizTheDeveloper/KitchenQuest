@@ -9,7 +9,7 @@ const PARIPPU = 'india/kerala/parippu';
 const FRIJOLES = 'mexico/oaxaca/frijoles-de-olla';
 const ONIGIRI = 'japan/osaka/onigiri';
 const view = (p: Partial<ProgressView> = {}): ProgressView => ({
-  xp: 0, level: 1, stamps: 0, trust: {}, toolkit: EMPTY_TOOLKIT, questsDone: [], questSteps: {}, questStartedOn: {}, cookedOn: {}, framesCookedOn: {}, ...p,
+  xp: 0, level: 1, stamps: 0, trust: {}, toolkit: EMPTY_TOOLKIT, questsDone: [], questSteps: {}, questStartedOn: {}, cookedOn: {}, framesCookedOn: {}, marketAnswered: {}, ...p,
 });
 const note = (recipe: string, id: string, text: string | null = 'less salt next time'): BookNote => ({ recipe, ops: [{ op: 'add', name: 'lime' }], text, at: '2026-11-10', id });
 

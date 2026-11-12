@@ -96,7 +96,7 @@ describe('free forever (§16)', () => {
   });
 
   it('M5: capped, AI off, no entitlements: the plan, the market, the rescue, a quest, cook → log, the book and its export, and delete', async () => {
-    const view: ProgressView = { xp: 0, level: 1, stamps: 0, trust: {}, toolkit: { techniques: {} }, questsDone: [], questSteps: {}, questStartedOn: {}, cookedOn: {}, framesCookedOn: {} };
+    const view: ProgressView = { xp: 0, level: 1, stamps: 0, trust: {}, toolkit: { techniques: {} }, questsDone: [], questSteps: {}, questStartedOn: {}, cookedOn: {}, framesCookedOn: {}, marketAnswered: {} };
     const pantry = [
       { id: 'sp', name: 'spinach', ingredientId: 'spinach', addedOn: '2026-11-12', source: 'market' },
       { id: 'rice', name: 'cooked rice', ingredientId: 'cooked_rice' },

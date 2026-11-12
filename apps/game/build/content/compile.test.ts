@@ -74,7 +74,7 @@ const bureau = (
   const marketFields = over.noGeneralStall ? '[{ key: stall, label: "Stall" }]' : '[{ key: stall, label: "Stall" }, { key: general_stall, label: "The Counter" }]';
   const m5 = M5_FORMS.filter((f) => f !== over.omitForm).map((f) => `  ${f}:\n${form('approved')}`).join('');
   const market = over.omitForm === 'market_list' ? '' : `  market_list:\n${form('approved', marketFields)}`;
-  const stampNames = ['quest_done', 'certificate', 'market_run'].filter((k) => k !== over.omitStampName).map((k) => `  ${k}: "${k}"\n`).join('');
+  const stampNames = ['quest_done', 'certificate', 'market_run', 'market_game'].filter((k) => k !== over.omitStampName).map((k) => `  ${k}: "${k}"\n`).join('');
   return `forms:
 ${over.noTravel ? '' : `  travel:\n${form(over.stamp ?? 'approved')}`}  certificate:\n${form('approved')}${m5}${market}stamps:
   approved: "APPROVED"
@@ -115,10 +115,11 @@ const rewards = (levels = '[100, 250]') => `xp:
   cook: 30
   frame: 20
   market_run: 20
+  market_game: 5
   refresh: 15
   nourishment: { per_log: 5, max_per_day: 3, min_gap_minutes: 120 }
 levels: ${levels}
-stamps: { quest_done: 1, certificate: 1, market_run: 1 }
+stamps: { quest_done: 1, certificate: 1, market_run: 1, market_game: 1 }
 trust:
   names: [Stranger, Guest, Acquainted]
   weeks_for_level: [2]
@@ -207,7 +208,7 @@ describe('compileContent: the real repo', () => {
     expect(content.stallOf.onion ?? content.stallOf.allium).toBe('wen');
     expect(content.foodGroups.rice).toBe('grain');
     expect(content.stallNames).toEqual({ wen: 'Old Wen', bram: 'Big Bram', 'okafor-sato': 'Mr. Okafor-Sato', spice: 'The Spice Merchant', general: 'The General Counter' });
-    for (const id of ['quest_done', 'certificate', 'market_run']) expect(content.bureau.stamp_names[id], id).toBeTruthy();
+    for (const id of ['quest_done', 'certificate', 'market_run', 'market_game']) expect(content.bureau.stamp_names[id], id).toBeTruthy();
     expect(content.techniques.techniques.find((t) => t.id === 'tempering')).toMatchObject({ adjacent: ['quick-sauce'], prereqs: ['heat-control'] });
   });
 

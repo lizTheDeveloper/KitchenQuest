@@ -98,7 +98,7 @@ describe('quests and the progress log (M5 Step 9)', () => {
     let signedIn = false;
     const posts: { events: ProgressEvent[]; upload?: boolean }[] = [];
     // The account knows nothing yet (as if compacted device events never reached it): a lower view.
-    const accountView: ProgressView = { xp: 0, level: 1, stamps: 0, trust: {}, toolkit: { techniques: {} }, questsDone: [], questSteps: {}, questStartedOn: {}, cookedOn: {}, framesCookedOn: {} };
+    const accountView: ProgressView = { xp: 0, level: 1, stamps: 0, trust: {}, toolkit: { techniques: {} }, questsDone: [], questSteps: {}, questStartedOn: {}, cookedOn: {}, framesCookedOn: {}, marketAnswered: {} };
     app = await openApp('/#/map', {
       reducedMotion: true,
       seed: { ...PAN_READY, firstOpenedAt: new Date().toISOString(), lastOpenedAt: new Date().toISOString() },

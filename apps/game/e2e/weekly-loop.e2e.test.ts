@@ -66,7 +66,7 @@ const tried = (lastUsedAt: string) => ({ tier: 'tried' as const, firstAt: lastUs
 const ACCOUNT_VIEW: ProgressView = {
   xp: 30, level: 1, stamps: 0, trust: {},
   toolkit: { techniques: { legumes: tried(LAST_WEEK), 'heat-control': tried(LAST_WEEK), patience: tried(LAST_WEEK) } },
-  questsDone: [], questSteps: {}, questStartedOn: {}, cookedOn: { [FRIJOLES]: [LAST_WEEK] }, framesCookedOn: {},
+  questsDone: [], questSteps: {}, questStartedOn: {}, cookedOn: { [FRIJOLES]: [LAST_WEEK] }, framesCookedOn: {}, marketAnswered: {},
 };
 const settings = (aiMentor: boolean) => ({ showCalories: false, reducedMotion: 'system' as const, familyTable: false, iosNoteDismissed: false, aiMentor, rescueNudges: false });
 const BASE: Partial<PlayerState> = {
