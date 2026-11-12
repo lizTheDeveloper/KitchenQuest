@@ -1,6 +1,6 @@
 {
   "fingerprint": "24a575860b2895bf0fe9b786a15f319f4bd9d84c755021490d89a4410c643f9a",
-  "evalHash": "e46588e351ff8c59964b07eac875efd89ceb34a95ba98ce495c5ccd324de8f8f",
+  "evalHash": "0b9dd6369e64f8367b64c272012172bff24c8fb522cf8557db044543b60366d4",
   "model": "qwen/qwen3.8-27b",
   "providers": [
     "tenstorrent"
@@ -182,8 +182,7 @@
       "pass": false,
       "hard": false,
       "problems": [
-        "cards [plan], expected [plan, profile]",
-        "missing /\"marketDays\":\\[6\\]/"
+        "cards [profile], expected [plan, profile]"
       ]
     },
     {
@@ -350,9 +349,11 @@
       "id": "T15",
       "category": "tool",
       "rep": 0,
-      "pass": true,
+      "pass": false,
       "hard": false,
-      "problems": []
+      "problems": [
+        "cards [meal], expected none"
+      ]
     },
     {
       "id": "T15",
