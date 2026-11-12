@@ -246,6 +246,10 @@ describe('reward_grants is append-only', () => {
 // the grants each next event earns (grantsForBatch) and the view (deriveProgress). The model is the API's: a
 // snapshot is written once the tail passes a threshold (small here; SNAPSHOT_EVERY in the API), any erase drops it
 // (the trigger), a different catalogue hash ignores it, and the tail's grants are those of the tail's events.
+/** The property's fixed seed, and what it covers with that seed (measured once; a change to the arbitraries re-measures). */
+const SNAPSHOT_PROPERTY_SEED = 20261112;
+const SNAPSHOT_PROPERTY_COVERAGE = { accepted: 1718, fromSnapshot: 247, checked: 469 };
+
 describe('snapshot equivalence (M6 Step 7)', () => {
   it('property: view(snapshot + tail) == view(full) over random histories with erasures (fast-check)', async () => {
     const loop = defaultLoopContent();
@@ -278,6 +282,7 @@ describe('snapshot equivalence (M6 Step 7)', () => {
     );
     let accepted = 0;
     let fromSnapshot = 0;
+    let checked = 0;
     await fc.assert(
       fc.asyncProperty(fc.array(op, { minLength: 1, maxLength: 25 }), fc.integer({ min: 1, max: 8 }), async (ops, every) => {
         let rewards: RewardsData = loop.rewards;
@@ -292,12 +297,17 @@ describe('snapshot equivalence (M6 Step 7)', () => {
           const ids = new Set(tail.map((e) => e.id));
           return { events: tail, grants: grants.filter((g) => ids.has(g.eventId)), base: snap.base };
         };
+        // Fix round 1 (Task 9 review, flakes): with no usable snapshot, cached() IS the full history, so comparing it with
+        // itself proves nothing and only costs time; the equivalence is checked on every op that reads a snapshot.
+        const usable = () => snap !== null && snap.hash === hash;
         for (const o of ops) {
           if ('post' in o) {
             const a = grantsForBatch(o.post, full(), cat, rewards, loop.thresholds, rules);
-            const b = grantsForBatch(o.post, cached(), cat, rewards, loop.thresholds, rules);
-            expect(b).toEqual(a);
-            if (cached().base !== null) fromSnapshot += 1;
+            if (usable()) {
+              const b = grantsForBatch(o.post, cached(), cat, rewards, loop.thresholds, rules);
+              expect(b).toEqual(a);
+              fromSnapshot += 1;
+            }
             for (const r of a.filter((x) => x.problems.length === 0)) {
               events.push(r.event);
               grants.push(...r.grants);
@@ -319,13 +329,22 @@ describe('snapshot equivalence (M6 Step 7)', () => {
             rewards = { ...rewards, xp: { ...rewards.xp, lesson: o.retune, cook: o.retune + 1, market_game: o.retune } };
             hash = catalogueHash(cat, rewards, loop.thresholds);
           }
-          expect(deriveProgress(cached(), cat)).toEqual(deriveProgress(full(), cat));
+          if (usable()) {
+            checked += 1;
+            expect(deriveProgress(cached(), cat)).toEqual(deriveProgress(full(), cat));
+          }
         }
       }),
-      { numRuns: 150 },
+      // A fixed seed (fix round 1): the same histories every run, so a failure replays and the coverage is a fixed
+      // number. FAST_CHECK_SEED=random fuzzes locally with a fresh seed (printed by fast-check on failure).
+      { numRuns: 150, endOnFailure: true, ...(process.env.FAST_CHECK_SEED === 'random' ? {} : { seed: SNAPSHOT_PROPERTY_SEED }) },
     );
-    // The property ran on real histories: events were accepted, and posts were judged from a snapshot.
-    expect(accepted).toBeGreaterThan(500);
-    expect(fromSnapshot).toBeGreaterThan(50);
+    // The property ran on real histories: events were accepted, posts were judged from a snapshot, and views compared.
+    if (process.env.FAST_CHECK_SEED !== 'random') {
+      expect({ accepted, fromSnapshot, checked }).toEqual(SNAPSHOT_PROPERTY_COVERAGE);
+    } else {
+      expect(accepted).toBeGreaterThan(500);
+      expect(fromSnapshot).toBeGreaterThan(50);
+    }
   });
 });

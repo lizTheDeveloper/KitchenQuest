@@ -28,7 +28,7 @@ export const RECIPE_READS_PER_MINUTE = 120;
 export async function recipeRoutes(app: FastifyInstance, catalog: Catalog): Promise<void> {
   const { db, config, now } = app.deps;
   // Per app instance, in memory only (N-2).
-  const limiter = new SlidingWindowLimiter(RECIPE_READS_PER_MINUTE, 60_000);
+  const limiter = new SlidingWindowLimiter(config.recipeReadsPerMinute ?? RECIPE_READS_PER_MINUTE, 60_000);
   const stopSweeping = sweepPeriodically([limiter], () => now().getTime());
   app.addHook('onClose', (_app, done) => {
     stopSweeping();

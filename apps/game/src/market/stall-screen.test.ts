@@ -329,7 +329,7 @@ describe('fix round 1 (review-task9)', async () => {
     for (let pick = 0; pick < 4; pick++) {
       const { el } = await open(store({ localRules: [SOY] }), 'okafor-sato');
       while (el.querySelector('.stall-round')) {
-        el.querySelectorAll<HTMLButtonElement>('.stall-option')[pick % el.querySelectorAll('.stall-option').length]!.click();
+        el.querySelectorAll<HTMLButtonElement>('.stall-option')[pick % el.querySelectorAll('.stall-option').length].click();
         const said = el.querySelector('.stall-feedback .stall-said')?.textContent ?? null;
         if (said !== null && said.startsWith(who)) { heard += 1; expect(kept.has(said), said).toBe(true); }
         el.querySelector<HTMLButtonElement>('.stall-next')!.click();
@@ -342,7 +342,7 @@ describe('fix round 1 (review-task9)', async () => {
     const { el } = await open(store({ localRules: [SOY] }), 'okafor-sato');
     for (const chip of el.querySelectorAll<HTMLButtonElement>('.stall-faq-chip')) {
       chip.click();
-      const a = el.querySelector('.stall-faq-answer')!.textContent!.replace(/^[^:]+: /, '');
+      const a = el.querySelector('.stall-faq-answer')!.textContent.replace(/^[^:]+: /, '');
       expect(safeText(a, ctxOf([SOY])), a).toBe(true);
     }
     const medical = market.stalls['okafor-sato'].triggers.medical.lines[0];

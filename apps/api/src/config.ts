@@ -24,6 +24,11 @@ export interface Config {
   port: number;
   /** null when AI_ENABLED is not true: the mentor runs scripted only. The API key is left out of JSON. */
   ai: AiConfig | null;
+  /**
+   * Recipe list and detail reads per player per minute, when not RECIPE_READS_PER_MINUTE (120). Never read from the
+   * environment: a test knob (Task 9 fix round 1), so the 429 path is proven without 120 round-trips.
+   */
+  recipeReadsPerMinute?: number;
 }
 
 const dataKeys = z

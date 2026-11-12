@@ -366,9 +366,18 @@ describe('recipe endpoints', () => {
     expect(rows.map((r) => ({ ...r }))).toEqual([{ resource: 'rules', day: '2026-11-09', count: 2 }]);
   });
 
-  it(`limits list and detail to ${RECIPE_READS_PER_MINUTE} a minute per player (429 rate_limited)`, async () => {
+  // Fix round 1 (Task 9 review, flakes): the per-player limit is a config knob (`recipeReadsPerMinute`), so the 429 path
+  // is proven with a limit of 3 instead of 120 real round-trips; the shipped constant and default are pinned below.
+  it('the shipped limit is 120 a minute per player, and a loaded config leaves it at that', () => {
+    expect(RECIPE_READS_PER_MINUTE).toBe(120);
+    expect(config.recipeReadsPerMinute).toBeUndefined();
+  });
+
+  it('limits list and detail per player past the configured limit (429 rate_limited, retry-after)', async () => {
+    await app.close();
+    app = await buildApp({ config: { ...config, recipeReadsPerMinute: 3 }, db, mailer, ai: null, now: () => NOW, logger: false });
     const a = await user();
-    for (let i = 0; i < RECIPE_READS_PER_MINUTE; i++) {
+    for (let i = 0; i < 3; i++) {
       const url = i % 2 ? '/recipes' : '/recipes/japan/osaka/onigiri';
       expect((await call(a, { method: 'GET', url })).statusCode, `request ${i + 1}`).toBe(200);
     }

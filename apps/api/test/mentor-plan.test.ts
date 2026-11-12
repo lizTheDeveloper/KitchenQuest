@@ -18,6 +18,7 @@ import type { Db } from '../src/types.js';
 import { signIn } from './helpers/auth.js';
 import { testConfig } from './helpers/config.js';
 import { testDb, type Sql } from './helpers/db.js';
+import { N6_TEXTS, N7_TEXTS } from './helpers/gate-texts.js';
 import { fakeAi, reply, toolCall } from './helpers/fake-ai.js';
 
 const config = testConfig();
@@ -491,7 +492,14 @@ describe('fix round 1', () => {
       });
       await isHeld;
       const confirming = tap(p.cookie, id);
-      await new Promise((res) => setTimeout(res, 300));
+      // Fix round 1 (Task 9 review): no wall-clock sleep. Wait until the confirm's backend is actually blocked on a
+      // lock (this file's own database), so the check below is never vacuous under load.
+      for (let i = 0; ; i++) {
+        const [w] = await sql<{ n: number }[]>`select count(*)::int as n from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock' and pid <> pg_backend_pid()`;
+        if (w.n > 0) break;
+        if (i > 2000) throw new Error(`${hold}: the confirm never waited on the held lock`);
+        await new Promise((res) => setTimeout(res, 5));
+      }
       // The confirm waits on the held lock, so it has not reached (locked) its proposal row yet.
       const free = await sql`select id from mentor_proposals where id = ${id} for update skip locked`;
       expect(free, hold).toHaveLength(1);
@@ -653,39 +661,11 @@ describe('fix round 4: the whole message, health first, a spelled age', () => {
     }
   }
 
+  // Fix round 1 (Task 9 review, flakes): every N6 and N7 text runs through the gate directly in mentor-gate.test.ts
+  // (no HTTP); these keep two /mentor/turn probes per gate as integration smoke.
   test('N6 probes: a clause outside the closed grammar anywhere in the message → no code card, for either player', async () => {
-    const texts = [
-      'remind me to eat dinner at 6pm, no wait, 7pm',
-      'remind me about dinner at 6pm, no, 7pm',
-      'remind me about dinner at 6pm, for my brother',
-      'remind me about dinner at 6pm, my son too',
-      'remind me about dinner at 6pm, for my daughter',
-      'remind me about dinner at 6pm, yesterday',
-      "remind me about dinner at 6pm, don't",
-      'remind me about dinner at 6pm, kidding',
-      'remind me about dinner at 6pm. never mind',
-      'remind me about dinner at 6pm, actually no',
-      'my market day is saturday, for my brother',
-      "my market day is saturday, my brother's",
-      'my market day is saturday, not mine',
-      'my market day is saturday, actually no',
-      'my market day is saturday, maybe',
-      'my market day is saturday, i think',
-      'my market day is saturday, used to be',
-      'my market day is saturday, last year',
-      "market's saturday, or not",
-      'put parippu on monday, actually tuesday',
-      'put parippu on monday, no wait',
-      'put parippu on monday, or not',
-      "put parippu on monday, don't",
-      'put parippu on monday, for my brother',
-      'put parippu on monday, last week',
-      'put parippu on monday, bitte',
-      'put parippu on monday, por favor',
-      'pick 2, no mushrooms',
-      'pick 2. i hate mushrooms',
-      'pick 2. no spicy',
-    ];
+    const texts = ['remind me to eat dinner at 6pm, no wait, 7pm', 'put parippu on monday, for my brother'];
+    expect(N6_TEXTS).toEqual(expect.arrayContaining(texts));
     await makeApp(silent(texts.length * 2));
     for (const purposes of [['health_data', 'ai_health'], ['health_data']] as Purpose[][]) {
       await eachFresh(purposes, texts, (r, text) => expect(codeCards(r), `${purposes.join('+')}: ${text}`).toEqual([]));
@@ -704,26 +684,8 @@ describe('fix round 4: the whole message, health first, a spelled age', () => {
   });
 
   test('N7: health_data only → the text never reaches the model (needs_ai_health), no code card', async () => {
-    const texts = [
-      "market's saturday, i get headaches",
-      "market's saturday, no beef",
-      'put parippu on monday, i have gout',
-      'put parippu on monday, no beef',
-      'pick 2, no mushrooms',
-      'put parippu on monday. 🥜',
-      'put parippu on monday, sin cacahuetes',
-      'remind me to eat dinner at 6pm, no beef',
-      'remind me to eat dinner at 6pm, or i get dizzy',
-      'remind me to eat dinner at 6pm, my blood sugar drops',
-      'remind me to eat dinner at 6pm, type 2',
-      'remind me to eat dinner at 6pm, sugar free',
-      ...[
-        'beef free', 'sugar free', 'no sugar', 'no alcohol', "i'm fasting", 'ramadan', "it's lent", 'type 2', 'i have gout',
-        'my cholesterol is high', 'high blood pressure', "i'm hypertensive", 'kidney disease', 'ckd', 'anemic', 'low iron',
-        "i'm breastfeeding", 'i get dizzy', 'i feel shaky after', 'my throat gets scratchy', 'no mushrooms', 'no rice',
-        'no lentils', 'no seaweed', 'no spice', 'not too spicy', 'nothing spicy', 'halal', 'kosher', 'low carb', '🦐', '🥛', '🌾',
-      ].map((x) => `put parippu on monday, ${x}`),
-    ];
+    const texts = ["market's saturday, i get headaches", 'put parippu on monday, no beef'];
+    expect(N7_TEXTS).toEqual(expect.arrayContaining(texts));
     const ai = silent(texts.length);
     await makeApp(ai);
     await eachFresh(['health_data'], texts, (r, text) => expect(r, text).toMatchObject({ route: 'scripted', notice: 'needs_ai_health', cards: [] }));
@@ -731,15 +693,7 @@ describe('fix round 4: the whole message, health first, a spelled age', () => {
   });
 
   test('N7: with ai_health the same texts get no code card and take the health path (an ask or a rule card)', async () => {
-    const texts = [
-      "market's saturday, i get headaches",
-      "market's saturday, no beef",
-      'put parippu on monday, i have gout',
-      'put parippu on monday, no beef',
-      'put parippu on monday. 🥜',
-      'remind me to eat dinner at 6pm, no beef',
-      'remind me to eat dinner at 6pm, type 2',
-    ];
+    const texts = ["market's saturday, i get headaches", 'put parippu on monday, i have gout', 'remind me to eat dinner at 6pm, no beef'];
     await makeApp(silent(texts.length));
     await eachFresh(['health_data', 'ai_health'], texts, (r, text) => {
       expect(r.route, text).toBe('ai');
