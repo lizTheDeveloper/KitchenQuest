@@ -7,7 +7,6 @@ import type { AddressInfo } from 'node:net';
 import { heardCheck, VOICE_CLOSE_CODES, type MarketRunView, type Plan, type ReplyPart, type TurnResponse } from '@kitchenquest/core';
 import type { FastifyInstance, InjectOptions } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'vitest';
-import type { AiProvider } from '../src/ai/provider.js';
 import { buildApp } from '../src/app.js';
 import { defaultCatalog } from '../src/catalog.js';
 import { NOTICES } from '../src/consent/notices.js';
@@ -63,7 +62,7 @@ afterEach(async () => {
 /** The app with a fake model that counts its calls; `listen` opens a real port for the voice socket. */
 async function makeApp(steps: FakeStep[] = [], opts: { listen?: boolean } = {}) {
   const ai = fakeAi(steps);
-  app = await buildApp({ config, db, mailer, ai: ai as AiProvider, now: () => new Date(clock), logger: false, voiceUpstream: new FakeUpstream() });
+  app = await buildApp({ config, db, mailer, ai, now: () => new Date(clock), logger: false, voiceUpstream: new FakeUpstream() });
   if (opts.listen) await app.listen({ port: 0, host: '127.0.0.1' });
   return ai;
 }

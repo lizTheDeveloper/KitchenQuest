@@ -90,6 +90,8 @@ describe('dialogue engine', () => {
       swap: 'shallot', category: 'Local, stored from the autumn harvest', stall: 'Old Wen',
       // M7 Step 5: the heard card's spoken half (the API renders it from its own transcript).
       terms: 'sesame',
+      // M7 Step 6: voice.resting's day (Step 9 supplies it from GET /voice/status).
+      until: 'Thursday 19 November',
     };
     for (const id of REQUIRED_PAN_TRIGGERS) expect(createDialogue(content.pan).say(id, sample).text, id).not.toMatch(/[{}]/);
   });

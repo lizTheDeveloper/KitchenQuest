@@ -21,7 +21,8 @@ describe('schema', () => {
       expect(names).toContain(n);
     }
     const applied = await t.sql`select count(*)::int as n from drizzle.__drizzle_migrations`;
-    expect(applied[0].n).toBe(24);
+    // M7 Step 6: 0024 adds `spoken_yes` to the proposal channel check.
+    expect(applied[0].n).toBe(25);
   });
 
   it('cascades user deletion to sessions, profiles and rules', async () => {

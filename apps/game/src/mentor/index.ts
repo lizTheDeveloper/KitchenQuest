@@ -173,7 +173,7 @@ export function mountMentor(
     });
     const writer = createCardWriter({ client, store, dialogue, graph, ruleTerms: content.ruleTerms, now, conversationId: () => conversation?.id, week });
     const backend = switchingBackend(store, (kind) => {
-      if (kind !== 'ai') return createScriptedBackend(engine, dialogue);
+      if (kind !== 'ai') return createScriptedBackend(engine);
       // A new AI backend is a new server conversation: its own server id. The child flag is the panel's (m-4).
       const ref: ConversationRef = { id: null };
       const intakeStep = () => { const step = store.get().intake.step; return step === 'done' ? null : step; };
