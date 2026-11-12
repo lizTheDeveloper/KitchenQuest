@@ -92,7 +92,7 @@ export function fillerFor(transcript: string): 'voice.filler.ledger' | 'voice.fi
 
   Every term carries its `soundAlikes` as alternatives, so a real food heard for another offers the other. `speakSpelling` is true exactly when health wording is present. `fillerFor` gives `ledger` for a meal verb, pantry pattern, rule trigger or `checkOffShaped`.
 
-- [ ] **1.1 Write the failing tests.** Each title's assertion is in the title, or in the line under it (D3).
+- [x] **1.1 Write the failing tests.** Each title's assertion is in the title, or in the line under it (D3).
 ```ts
 // protocol.test.ts / upstream.test.ts
 test('encodeFrame/decodeFrame round-trip id and samples; < 4 bytes and odd PCM length → null', ...);
@@ -141,10 +141,10 @@ test('at least 30% of entries are holdout: true, spread over every group', ...);
   Plus ≥ 20 `plain` utterances: commands, timing questions, "thanks".
   - The spike-sourced rows say so in `source`; the others say `synthetic`.
   - Foods checked against `data/ingredients.json` when this plan was written: rye, rice, pecan, pea, lentil, lemon, leek, almond, epazote, shellfish, celery, mustard, cumin, sesame, mussel, nut, lupin, walnut, chickpea, hazelnut, peanut. Jalapeño, kiwi and thyme are not in the graph and are left out.
-- [ ] **1.2 Run** `npm test -w @kitchenquest/core -- voice` → FAIL.
-- [ ] **1.3 Implement.**
+- [x] **1.2 Run** `npm test -w @kitchenquest/core -- voice` → FAIL.
+- [x] **1.3 Implement.**
   - Tune `phoneticKey`, the stop list and `KNOWN_CONFUSIONS` on **non-holdout rows only**. Never weaken or delete an entry.
   - If a holdout row fails, report it rather than tuning on it: the controller rules.
   - Export everything from `voice/index.ts`, `index.ts` and `engine.ts`.
-- [ ] **1.4 Run** `npm test -w @kitchenquest/core` and `npm run typecheck` at the root → PASS. Then `npm test -w @kitchenquest/api` → only `eval-gate.test.ts` fails, and `npm test -w @kitchenquest/game` → PASS.
-- [ ] **1.5 Commit** `feat(core): voice protocols, heard check and the mishearing gate, speech text, cook commands`
+- [x] **1.4 Run** `npm test -w @kitchenquest/core` and `npm run typecheck` at the root → PASS. Then `npm test -w @kitchenquest/api` → only `eval-gate.test.ts` fails, and `npm test -w @kitchenquest/game` → PASS.
+- [x] **1.5 Commit** `feat(core): voice protocols, heard check and the mishearing gate, speech text, cook commands`
