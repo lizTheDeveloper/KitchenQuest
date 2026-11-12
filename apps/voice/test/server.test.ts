@@ -8,7 +8,7 @@ import { afterEach, describe, expect, test } from 'vitest';
 import { boot } from '../src/boot';
 import { fakeStt, fakeTts } from '../src/engines/fake';
 import type { LogKind } from '../src/log';
-import { createVoiceServer } from '../src/server';
+import { createVoiceServer, MAX_BUFFERED, socketIo } from '../src/server';
 import { connect, freePort, testConfig, TEST_TOKEN, upgradeStatus } from './helpers';
 
 const servers: { close(): Promise<void> }[] = [];
@@ -224,5 +224,45 @@ describe('fix round 1 (review I1, I3)', () => {
     expect(logs.map(([k]) => k)).toContain('fatal');
     expect(logs.find(([k]) => k === 'fatal')).toEqual(['fatal', undefined]);
     expect(JSON.stringify(logs)).not.toContain('zebrapeanut71');
+  });
+});
+
+describe('fix round 2 (review N4): a client that stops reading', () => {
+  function fakeWs() {
+    const sent: unknown[] = [];
+    const closes: number[] = [];
+    const ws = {
+      bufferedAmount: 0,
+      send: (d: unknown) => void sent.push(d),
+      close: (code: number) => void closes.push(code),
+    };
+    return { ws, sent, closes };
+  }
+
+  test(`a send that leaves bufferedAmount over MAX_BUFFERED closes the socket with 1011 and reports congestion; under it, nothing closes`, () => {
+    const { ws, closes } = fakeWs();
+    const io = socketIo(ws);
+    ws.bufferedAmount = MAX_BUFFERED;
+    expect(io.frame(new Uint8Array(8))).toBe(true);
+    io.json({ t: 'failed', id: 1, kind: 'tts' });
+    expect(closes).toEqual([]);
+    ws.bufferedAmount = MAX_BUFFERED + 1;
+    expect(io.frame(new Uint8Array(8))).toBe(false);
+    expect(closes).toEqual([1011]);
+    // Once closing, nothing more is queued and it is not closed twice.
+    const before = closes.length;
+    expect(io.frame(new Uint8Array(8))).toBe(false);
+    io.json({ t: 'failed', id: 1, kind: 'tts' });
+    expect(closes).toHaveLength(before);
+  });
+
+  test('a JSON send over the bound closes with 1011 too', () => {
+    const { ws, sent, closes } = fakeWs();
+    const io = socketIo(ws);
+    ws.bufferedAmount = MAX_BUFFERED + 10;
+    io.json({ t: 'failed', id: 1, kind: 'tts' });
+    expect(closes).toEqual([1011]);
+    io.json({ t: 'failed', id: 2, kind: 'tts' });
+    expect(sent).toHaveLength(1);
   });
 });

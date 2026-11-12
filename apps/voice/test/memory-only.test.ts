@@ -188,6 +188,17 @@ const LEAKS: Record<string, { leak: (c: LeakContext) => void; fails: string[] }>
   'hex': { leak: (c) => void process.stderr.write(c.bytes.subarray(0, 16).toString('hex')), fails: ['noPcmHex'] },
   'base64': { leak: (c) => void process.stdout.write(c.bytes.subarray(1, 25).toString('base64')), fails: ['noPcmBase64'] },
   'console.log(Int16Array)': { leak: (c) => console.error(c.pcm.subarray(0, 4)), fails: ['noPcmDecimal'] },
+  // Fix round 2 (N5): the float forms an STT adapter makes (faster-whisper takes float32 in [-1, 1)).
+  'console.log(Float32Array)': { leak: (c) => console.log(Float32Array.from(c.pcm.subarray(0, 4), (v) => v / 32768)), fails: ['noFloatPcm'] },
+  'base64 of float32 PCM': {
+    leak: (c) => {
+      const f = Float32Array.from(c.pcm.subarray(0, 16), (v) => v / 32768);
+      process.stderr.write(Buffer.from(f.buffer).subarray(1).toString('base64'));
+    },
+    fails: ['noFloatPcmBase64'],
+  },
+  'bytes joined by spaces': { leak: (c) => console.log(Array.from(c.bytes.subarray(0, 8)).join(' ')), fails: ['noPcmBytes'] },
+  'per-sample hex': { leak: (c) => console.log(Array.from(c.pcm.subarray(0, 4), (v) => v.toString(16)).join(' ')), fails: ['noPcmSampleHex'] },
 };
 
 const leakAll = (c: LeakContext) => {
@@ -275,7 +286,14 @@ const sample = pcmBytes(new Int16Array(16).fill(PCM_WORD));
 const PCM_HEX = [sample.subarray(0, 8).toString('hex'), sample.subarray(1, 9).toString('hex')];
 const PCM_SPACED_HEX = /(51 4b 51 4b|4b 51 4b 51)/;
 /** The bytes as decimals, as inspect of a Uint8Array and a Buffer's JSON print them: 81, 75, 81, 75 (any spacing). */
-const PCM_BYTES = /(81,\s*75,\s*81,\s*75|75,\s*81,\s*75,\s*81)/;
+const PCM_BYTES = /(81[,\s]+75[,\s]+81[,\s]+75|75[,\s]+81[,\s]+75[,\s]+81)/;
+/** One sample per hex word (N5): 4b51 4b51. */
+const PCM_SAMPLE_HEX = /4b51[,\s]+4b51/;
+/** The PCM as float32 in [-1, 1) (N5): 19281 / 32768 = 0.588409423828125, printed to float32 or float64 precision. */
+const FLOAT_PCM = /0\.58840\d/;
+const floatBytes = Buffer.from(Float32Array.from({ length: 16 }, () => PCM_WORD / 32768).buffer);
+/** Every byte phase of the float32 run: base64 groups start at multiples of 3, the samples every 4 bytes. */
+const FLOAT_B64 = [0, 1, 2, 3].map((p) => floatBytes.subarray(p, p + 24).toString('base64').slice(0, 16));
 const PCM_B64 = [sample.subarray(0, 12).toString('base64'), sample.subarray(1, 13).toString('base64')];
 const PCM_DEC = String(PCM_WORD); // 19281, as inspect of an Int16Array prints it
 
@@ -292,6 +310,9 @@ function checks(e: Evidence): Record<string, boolean> {
     noBufferJson: !out.includes('"type":"buffer"'),
     noPcmBase64: !PCM_B64.some((b) => e.output.includes(b.slice(0, 12))),
     noPcmDecimal: !out.includes(PCM_DEC),
+    noPcmSampleHex: !PCM_SAMPLE_HEX.test(out),
+    noFloatPcm: !FLOAT_PCM.test(out),
+    noFloatPcmBase64: !FLOAT_B64.some((b) => e.output.includes(b)),
   };
 }
 const ALL_PASS = Object.fromEntries(Object.keys(checks({ before: [], after: [], writeCalls: [], output: '' } as unknown as Evidence)).map((k) => [k, true]));

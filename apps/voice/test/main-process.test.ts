@@ -15,14 +15,17 @@ import { connect, freePort, TEST_TOKEN, type Client } from './helpers';
 const MARKER = 'zebrapeanut71';
 const HINT_WORD = 'sesame';
 const PCM_HEX = /514b514b|4b514b51/i;
-const KINDS = ['conn_open', 'conn_close', 'stt_done', 'tts_done', 'engine_error', 'bad_message', 'auth_fail', 'fatal'];
+const KINDS = ['conn_open', 'conn_close', 'stt_done', 'tts_done', 'engine_error', 'bad_message', 'auth_fail', 'fatal', 'warning'];
 
 const require = createRequire(import.meta.url);
 const tsxDir = dirname(require.resolve('tsx/package.json'));
 const tsxLoader = pathToFileURL(join(tsxDir, (JSON.parse(readFileSync(join(tsxDir, 'package.json'), 'utf8')) as { exports: { '.': string } }).exports['.'])).href;
 const preload = new URL('./fixtures/fault-preload.mjs', import.meta.url).href;
-/** As `npm run dev` runs main: core's recipe parser loads WebAssembly, whose ExperimentalWarning is not ours to print. */
-const NODE_FLAGS = ['--no-warnings=ExperimentalWarning'];
+/**
+ * As `npm run dev` runs main. Fix round 2 (N2): `--disable-warning` drops only ExperimentalWarning (core's recipe parser
+ * loads WebAssembly); `--no-warnings=X` would silence every warning. Every other warning reaches main's handler.
+ */
+const NODE_FLAGS = ['--disable-warning=ExperimentalWarning'];
 const mainTs = fileURLToPath(new URL('../src/main.ts', import.meta.url));
 
 let root = '';
@@ -158,6 +161,25 @@ test.each([
   expect(problems).toEqual([]);
   expect(stdoutLines.at(-1)).toEqual({ kind: 'fatal' });
   expect(dirs.map((d) => snapshot(d))).toEqual(before);
+});
+
+test('N2: a process warning whose message, type and detail carry the marker and the PCM is logged by kind only; stderr stays empty', async () => {
+  const child = await startMain();
+  const c = await connect(child.port);
+  c.send({ t: 'hello', v: 1 });
+  await waitFor(c, (m) => m.t === 'ready');
+  await utter(c, 1, ['warn', HINT_WORD]);
+  await waitFor(c, (m) => 'id' in m && m.id === 1);
+  await new Promise((r) => setTimeout(r, 100));
+  c.ws.close();
+  await c.closed;
+  child.kill();
+  expect(await child.exited).toBe(0);
+  const { stdoutLines, problems } = clean(child);
+  expect(problems).toEqual([]);
+  expect(stdoutLines).toContainEqual({ kind: 'warning', other: true });
+  expect(stdoutLines).toContainEqual({ kind: 'warning', deprecation: true });
+  expect(stdoutLines).toContainEqual({ kind: 'warning', maxListeners: true });
 });
 
 test('positive control: an engine that prints its error is caught by the same checks (the child capture works)', async () => {

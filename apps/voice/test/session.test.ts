@@ -358,7 +358,7 @@ describe('Session: fix round 1 (review I1, M2)', () => {
     expect(h.sent.at(-1)).toEqual({ t: 'failed', id: 1, kind: 'tts' });
   });
 
-  test('M2: at most one transcription in flight: while an engine ignores the abort, a later end is failed stt and the engine is not called again', async () => {
+  test('M2 / N1: at most one transcription in flight and at most one waiting: while an engine ignores the abort, each newer utterance replaces the waiting one, which gets failed stt', async () => {
     let calls = 0;
     const stuck: SttEngine = { model: 'stuck', transcribe: () => (calls++, new Promise<string>(() => {})) };
     const h = harness({ stt: stuck });
@@ -369,8 +369,63 @@ describe('Session: fix round 1 (review I1, M2)', () => {
       if (id === 1) await until(() => calls === 1);
     }
     expect(calls).toBe(1);
-    expect(h.sent.slice(1)).toEqual([2, 3, 4, 5].map((id) => ({ t: 'failed', id, kind: 'stt' })));
-    // Every buffer but the one the stuck engine still holds is already zero; that one was zeroed when replaced.
+    // 1 was aborted by listen 2 (no reply, the one-at-a-time rule); 2, 3 and 4 each waited and were replaced; 5 waits.
+    expect(h.sent.slice(1)).toEqual([2, 3, 4].map((id) => ({ t: 'failed', id, kind: 'stt' })));
+    expect(h.session.inspect()).toMatchObject({ utterance: 5, bufferedSamples: 320 });
+    // Only the waiting utterance still holds audio; 1 was zeroed when replaced, 2-4 when they failed.
+    expect(h.buffers.map(allZero)).toEqual([true, true, true, true, false]);
+  });
+
+  test("N1 (the reviewer's 800 ms probe): a new utterance that ends while an aborted call is still running waits for it, then is transcribed; no failed", async () => {
+    const calls: number[] = [];
+    // 800 ms per call, and the abort is noticed only when the call finishes, as an uninterruptible decode would.
+    const slow: SttEngine = {
+      model: 'slow',
+      transcribe: (pcm, _hint, signal) =>
+        new Promise((resolve, reject) => {
+          calls.push(pcm.length);
+          setTimeout(() => (signal.aborted ? reject(new Error('aborted')) : resolve(`heard ${pcm.length}`)), 800);
+        }),
+    };
+    const h = harness({ stt: slow });
+    h.msg({ t: 'listen', id: 1, hint: [] });
+    h.frame(1, 320);
+    h.msg({ t: 'end', id: 1 });
+    await new Promise((r) => setTimeout(r, 100));
+    h.msg({ t: 'listen', id: 2, hint: [] });
+    for (let i = 0; i < 20; i++) {
+      h.frame(2, 320);
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    h.msg({ t: 'end', id: 2 });
+    await until(() => h.sent.length > 1, 3000);
+    await h.session.idle();
+    expect(h.sent.slice(1)).toEqual([{ t: 'transcript', id: 2, text: 'heard 6400' }]);
+    expect(calls).toEqual([320, 6400]);
+    expect(h.buffers.every(allZero)).toBe(true);
+    expect(h.session.inspect()).toEqual({ utterance: null, hintWords: 0, bufferedSamples: 0, speech: null });
+  });
+
+  test('N1: a waiting utterance can be cancelled (no reply) and is zeroed on close', async () => {
+    const stuck: SttEngine = { model: 'stuck', transcribe: () => new Promise<string>(() => {}) };
+    const h = harness({ stt: stuck });
+    h.msg({ t: 'listen', id: 1, hint: [] });
+    h.frame(1, 320);
+    h.msg({ t: 'end', id: 1 });
+    await new Promise((r) => setTimeout(r, 5));
+    for (const id of [2, 3]) {
+      h.msg({ t: 'listen', id, hint: [] });
+      h.frame(id, 320, 0x4b51);
+      h.msg({ t: 'end', id });
+    }
+    expect(h.sent.slice(1)).toEqual([{ t: 'failed', id: 2, kind: 'stt' }]);
+    h.msg({ t: 'cancel', id: 3 });
+    expect(allZero(h.buffers[2]!)).toBe(true);
+    expect(h.sent).toHaveLength(2);
+    h.msg({ t: 'listen', id: 4, hint: [] });
+    h.frame(4, 320, 0x4b51);
+    h.msg({ t: 'end', id: 4 });
+    h.session.close();
     expect(h.buffers.every(allZero)).toBe(true);
   });
 
