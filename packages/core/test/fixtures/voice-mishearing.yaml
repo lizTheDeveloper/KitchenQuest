@@ -1,0 +1,84 @@
+# M7 Step 1 (D2, §12): the mishearing test set that gates core `heardCheck`. Every entry is a health-worded utterance
+# (`said`) as speech-to-text got it (`heard`). The gate needs a heard term whose words are exactly `heardWord`, spelled
+# by core `spell`, and, when `saidId` is set, offering that graph id (as the term itself or an alternative).
+#
+# `holdout: true` rows were never used to tune `phoneticKey`, the stop list or KNOWN_CONFUSIONS. If one fails, it is
+# reported to the controller, never tuned on. Never weaken or delete an entry.
+# `source`: `spike §2` for mishearings observed in docs/spikes/2026-11-09-voice-latency.md §2, else `synthetic`.
+# `plain`: utterances with no food, rule term or health wording; none may get a heard check.
+entries:
+  # A real food heard for another real food (or a near word).
+  - { group: real_food_swap, said: "I'm allergic to rye", saidId: rye, heard: "I'm allergic to rice", heardWord: rice, source: synthetic }
+  - { group: real_food_swap, said: "No rye bread for me, I can't eat it", saidId: rye, heard: "No rice bread for me, I can't eat it", heardWord: rice, source: synthetic }
+  - { group: real_food_swap, said: "I can't have rye, it makes me ill", saidId: rye, heard: "I can't have rice, it makes me ill", heardWord: rice, holdout: true, source: synthetic }
+  - { group: real_food_swap, said: "I'm allergic to pecans", saidId: pecan, heard: "I'm allergic to peas", heardWord: peas, source: synthetic }
+  - { group: real_food_swap, said: "Pecans give me hives, I'm allergic", saidId: pecan, heard: "Peas give me hives, I'm allergic", heardWord: peas, source: synthetic }
+  - { group: real_food_swap, said: "I can't eat lentils", saidId: lentil, heard: "I can't eat lemons", heardWord: lemons, source: synthetic }
+  - { group: real_food_swap, said: "Lentils make me bloated", saidId: lentil, heard: "Lemons make me bloated", heardWord: lemons, source: synthetic }
+  - { group: real_food_swap, said: "I'm allergic to leek", saidId: leek, heard: "I'm allergic to leak", heardWord: leak, source: synthetic }
+  - { group: real_food_swap, said: "I'm allergic to almond", saidId: almond, heard: "I'm allergic to all mond", heardWord: all mond, holdout: true, source: synthetic }
+  - { group: real_food_swap, said: "Leeks upset my stomach", saidId: leek, heard: "Leaks upset my stomach", heardWord: leaks, holdout: true, source: synthetic }
+
+  # A food heard as a word that is no food.
+  - { group: non_word, said: "I can't eat epazote", saidId: epazote, heard: "I can't eat episodes", heardWord: episodes, source: spike §2 }
+  - { group: non_word, said: "Is epazote ok for my diet?", saidId: epazote, heard: "Is episode ok for my diet?", heardWord: episode, source: spike §2 }
+  - { group: non_word, said: "I'm allergic to shellfish", saidId: shellfish, heard: "I'm allergic to selfish", heardWord: selfish, source: synthetic }
+  - { group: non_word, said: "No shellfish, I'm anaphylactic", saidId: shellfish, heard: "No selfish, I'm anaphylactic", heardWord: selfish, holdout: true, source: synthetic }
+  - { group: non_word, said: "I'm allergic to celery", saidId: celery, heard: "I'm allergic to salary", heardWord: salary, source: synthetic }
+  - { group: non_word, said: "Celery makes me sick", saidId: celery, heard: "Salary makes me sick", heardWord: salary, holdout: true, source: synthetic }
+  - { group: non_word, said: "I'm allergic to mustard", saidId: mustard, heard: "I'm allergic to mustered", heardWord: mustered, source: synthetic }
+  - { group: non_word, said: "I avoid mustard", saidId: mustard, heard: "I avoid mustered", heardWord: mustered, holdout: true, source: synthetic }
+  - { group: non_word, said: "I can't have cumin", saidId: cumin, heard: "I can't have coming", heardWord: coming, source: synthetic }
+  - { group: non_word, said: "Cumin gives me a rash, I'm allergic", saidId: cumin, heard: "Coming gives me a rash, I'm allergic", heardWord: coming, holdout: true, source: synthetic }
+  - { group: non_word, said: "I'm allergic to sesame", saidId: sesame, heard: "I'm allergic to sesamy", heardWord: sesamy, source: synthetic }
+  - { group: non_word, said: "Sesame is my allergy", saidId: sesame, heard: "Sesamy is my allergy", heardWord: sesamy, holdout: true, source: synthetic }
+  - { group: non_word, said: "I'm allergic to mussels", saidId: mussel, heard: "I'm allergic to muscles", heardWord: muscles, source: synthetic }
+  - { group: non_word, said: "Mussels make me ill, I'm allergic", saidId: mussel, heard: "Muscles make me ill, I'm allergic", heardWord: muscles, source: synthetic }
+  - { group: non_word, said: "I'm allergic to mussel", saidId: mussel, heard: "I'm allergic to muscle", heardWord: muscle, source: synthetic }
+  - { group: non_word, said: "No nuts for me, I'm allergic", saidId: nut, heard: "No nots for me, I'm allergic", heardWord: nots, source: synthetic }
+  - { group: non_word, said: "I can't eat nuts", saidId: nut, heard: "I can't eat nots", heardWord: nots, holdout: true, source: synthetic }
+  - { group: non_word, said: "Allergic to celery and mustard", saidId: mustard, heard: "Allergic to salary and mustered", heardWord: mustered, source: synthetic }
+
+  # One food heard as two words.
+  - { group: split, said: "I'm allergic to pecans", saidId: pecan, heard: "I'm allergic to pea cans", heardWord: pea cans, source: synthetic }
+  - { group: split, said: "I can't eat pecans", saidId: pecan, heard: "I can't eat pea cans", heardWord: pea cans, holdout: true, source: synthetic }
+  - { group: split, said: "I'm allergic to walnut", saidId: walnut, heard: "I'm allergic to wall nut", heardWord: wall nut, source: synthetic }
+  - { group: split, said: "Walnuts give me hives, I'm allergic", saidId: walnut, heard: "Wall nuts give me hives, I'm allergic", heardWord: wall nuts, holdout: true, source: synthetic }
+  - { group: split, said: "I can't eat chickpea", saidId: chickpea, heard: "I can't eat chick pea", heardWord: chick pea, source: synthetic }
+  - { group: split, said: "Chickpeas make me bloated", saidId: chickpea, heard: "Chick peas make me bloated", heardWord: chick peas, source: synthetic }
+  - { group: split, said: "I'm allergic to hazelnut", saidId: hazelnut, heard: "I'm allergic to hazel nut", heardWord: hazel nut, source: synthetic }
+  - { group: split, said: "Hazelnuts, I'm allergic", saidId: hazelnut, heard: "Hazel nuts, I'm allergic", heardWord: hazel nuts, holdout: true, source: synthetic }
+  - { group: split, said: "I'm allergic to lupin", saidId: lupin, heard: "I'm allergic to loop in", heardWord: loop in, source: synthetic }
+  - { group: split, said: "Lupin flour gives me a reaction, I'm allergic", saidId: lupin, heard: "Loop in flour gives me a reaction, I'm allergic", heardWord: loop in, source: synthetic }
+
+  # A spelled-out food: the letters come back as words (the spike's "kiwi, K-I-W-I" → "kiwi kai i w r" pattern).
+  - { group: spelled, said: "I'm allergic to peanut, P-E-A-N-U-T", saidId: peanut, heard: "I'm allergic to peanut pee and you tea", heardWord: peanut, source: synthetic }
+  - { group: spelled, said: "Allergic to sesame, S-E-S-A-M-E", saidId: sesame, heard: "Allergic to sesame s e s a m e", heardWord: sesame, source: synthetic }
+  - { group: spelled, said: "I can't eat celery, C-E-L-E-R-Y", saidId: celery, heard: "I can't eat celery see e l e are why", heardWord: celery, holdout: true, source: synthetic }
+  - { group: spelled, said: "Mustard allergy, M-U-S-T-A-R-D", saidId: mustard, heard: "Mustard allergy m you s tea a are d", heardWord: mustard, source: synthetic }
+  - { group: spelled, said: "I'm allergic to lupin, L-U-P-I-N", saidId: lupin, heard: "I'm allergic to lupin l you p i n", heardWord: lupin, holdout: true, source: synthetic }
+  - { group: spelled, said: "Shellfish allergy, S-H-E-L-L-F-I-S-H", saidId: shellfish, heard: "Shellfish allergy s h e l l f i s h", heardWord: shellfish, source: synthetic }
+
+plain:
+  - next
+  - next step please
+  - go back
+  - say that again
+  - what do I need
+  - start the timer
+  - stop the timer
+  - stop listening
+  - thanks
+  - thank you
+  - how long do I stir it
+  - set a timer for ten minutes
+  - is the pan hot enough
+  - how thick should it be
+  - turn the heat down
+  - repeat that
+  - how many minutes are left
+  - can you read that again
+  - okay
+  - cheers
+  - what temperature should the oven be
+  - wait a moment
