@@ -94,6 +94,9 @@ describe('stockSwaps (Ruling 11)', () => {
     // An unresolved row (no ingredient id) and a stall swap's own row offer none either.
     expect(stockSwaps({ ...shallotRow(), ingredientId: null }, PARIPPU_WEEK, ctxWith())).toEqual([]);
     expect(stockSwaps({ ...shallotRow(), stockSwap: { from: 'x' } }, PARIPPU_WEEK, ctxWith())).toEqual([]);
+    // The row's own ❓ mark is enough on its own, even where the dish would check clean.
+    expect(stockSwaps({ ...shallotRow(), unverified: true }, PARIPPU_WEEK, ctxWith())).toEqual([]);
+    expect(stockSwaps({ ...shallotRow(), swappedFor: [PARIPPU] }, PARIPPU_WEEK, ctxWith())).toEqual([]);
   });
 });
 
