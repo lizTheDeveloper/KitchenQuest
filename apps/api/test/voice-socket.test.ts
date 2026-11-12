@@ -267,6 +267,8 @@ describe('listening', () => {
     upstream.down();
     c.send({ t: 'end', id: 2 });
     expect(await c.next((m) => m.t === 'failed' && m.id === 2)).toEqual({ t: 'failed', id: 2, kind: 'upstream' });
+    await settle();
+    expect(await speechOf(p.id)).toEqual([]);
     upstream.up();
     c.send({ t: 'listen', id: 3, mode: 'hold' });
     c.frame(3);
@@ -333,8 +335,8 @@ describe('ids, timeouts and usage (carries 2, 5, 7)', () => {
     ]);
   });
 
-  test('carry 7: a transcript over MAX_TEXT is refused (too_long), never cut; a blank one is failed stt; neither is kept for heard items', async () => {
-    await start({ transcribe: (u) => (u.frames === 2 ? 'x'.repeat(MAX_TEXT + 1) : u.frames === 3 ? '   ' : 'i am allergic to sesame') });
+  test('carry 7: a transcript over MAX_TEXT is refused (too_long), never cut; a blank one (spaces and zero-width characters) is failed stt; neither is kept for heard items', async () => {
+    await start({ transcribe: (u) => (u.frames === 2 ? 'x'.repeat(MAX_TEXT + 1) : u.frames === 3 ? ' \u200b \u200b ' : 'i am allergic to sesame') });
     const p = await player();
     const { c } = await ready(p.cookie);
     const utter = (id: number, frames: number) => {

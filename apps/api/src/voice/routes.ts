@@ -13,6 +13,7 @@ import {
   decodeFrame,
   encodeFrame,
   FRAME_MS,
+  MAX_TEXT,
   MAX_UTTERANCE_MS,
   parseClientMsg,
   parseTurnInput,
@@ -223,7 +224,9 @@ class VoiceSocket {
         this.send({ t: 'too_long', id: u.clientId });
         return this.finish(u);
       }
-      this.link?.frame(u.upId, frame.pcm);
+      // Counted only when forwarded: speechMs is frames forwarded × FRAME_MS (P1).
+      if (this.link?.isOpen() !== true) return;
+      this.link.frame(u.upId, frame.pcm);
       u.frames++;
     } finally {
       frame.pcm.fill(0);
@@ -383,9 +386,9 @@ class VoiceSocket {
           // cut; blank → failed stt. Kept for `heard` items, never logged.
           const input = parseTurnInput({ kind: 'transcript', text });
           if (input === null) {
-            const blank = text.trim() === '';
-            if (blank) this.send({ t: 'failed', id: u.clientId, kind: 'stt' });
-            else this.send({ t: 'too_long', id: u.clientId });
+            // Refused for its length (more code points than MAX_TEXT), or because nothing readable is left.
+            if ([...text].length > MAX_TEXT) this.send({ t: 'too_long', id: u.clientId });
+            else this.send({ t: 'failed', id: u.clientId, kind: 'stt' });
             return speechMs;
           }
           this.keepTranscript(u.clientId, input.text);
@@ -398,7 +401,9 @@ class VoiceSocket {
           releaseSlot(this.userId);
           if (e instanceof VoiceUpstreamError && e.kind === 'too_long') this.send({ t: 'too_long', id: u.clientId });
           else this.upstreamFailed(u.clientId, e, 'upstream');
-          return e instanceof VoiceUpstreamError && e.kind === 'cancelled' ? null : speechMs;
+          // The service heard it (an STT failure, a transcript too long to send): recorded. The service down, slow
+          // or gone: the player is not charged for speech it never processed.
+          return e instanceof VoiceUpstreamError && (e.kind === 'stt' || e.kind === 'too_long') ? speechMs : null;
         },
       )
       .then(async (ms) => {
