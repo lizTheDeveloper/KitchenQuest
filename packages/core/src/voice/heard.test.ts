@@ -557,7 +557,8 @@ describe('fix round 4: a clause-initial exclusion opener is a trigger for the he
   ])('"%s" asks about "%s" offering %s', (text, heard, id) => {
     const chk = check(text);
     expect(chk, text).not.toBeNull();
-    expect(chk!.speakSpelling).toBe(true);
+    // fix round 5 (G2): an opener is no health wording, so the spelling is not spoken
+    expect(chk!.speakSpelling).toBe(false);
     expect(chk!.terms.find((t) => t.heard === heard)?.alternatives.map((a) => a.id)).toContain(id);
   });
 
@@ -569,5 +570,138 @@ describe('fix round 4: a clause-initial exclusion opener is a trigger for the he
 
   test.each(['no thanks', 'no, the other one', 'no not yet', 'no problem', 'no worries, what is next', 'there is no rush'])('a "no" without a food-position word gets no card: "%s"', (text) => {
     expect(check(text), JSON.stringify(check(text)?.terms.map((t) => t.heard))).toBeNull();
+  });
+});
+
+// Fix round 5 (review-task1-fix4.md G1, G2).
+describe('fix round 5: the reaction phrasings round 4 lost ask again (G1)', () => {
+  test.each([
+    ['the selfish is making me dizzy', 'selfish'],
+    ['selfish is making me dizzy', 'selfish'],
+    ['selfish makes me faint', 'selfish'],
+    ['selfish leaves me feeling awful', 'selfish'],
+    ['swell up after selfish', 'selfish'],
+  ])('"%s" asks about "%s" offering shellfish, spelling spoken', (text, heard) => {
+    const chk = check(text);
+    expect(chk?.speakSpelling, text).toBe(true);
+    expect(chk!.terms.find((t) => t.heard === heard)?.alternatives.map((a) => a.id)).toContain('shellfish');
+  });
+
+  // The reviewer's chatter set (review-task1-fix4.md: the 21 chatter lines, both cook corpora and 10 extra cook lines).
+  test.each([
+    "the dough will swell as it proves",
+    "break out the wok",
+    "I'll come up in a minute",
+    "Ill check the oven",
+    "that's the Maillard reaction, right",
+    "this sauce is sick",
+    "I feel bad, I burned it",
+    "my hands are numb from the cold",
+    "I'm itching to start",
+    "what's for dinner, I feel awful today",
+    "how do I react if it spits",
+    "the pan is sick hot",
+    "I'm sick of stirring",
+    "it's making me dizzy, all this stirring",
+    "I'll throw up the lid",
+    "let it rest, what's next",
+    "not yet, wait",
+    "can you say that again",
+    "I've been stirring for ages",
+    "next step",
+    "repeat that",
+    "how long do I stir it",
+    "set a timer for ten minutes",
+    "we're out of butter",
+    "can I use olive oil instead",
+    "is this safe for me",
+    "what's for dinner",
+    "I'm allergic to latex",
+    "turn the heat down",
+    "is the oven hot enough",
+    "what should I make for lunch",
+    "I had the oven on already",
+    "what do I do next, I had it out",
+    "I ate too much, what's next",
+    "is it ok to wait",
+    "what's next",
+    "what did I have for lunch yesterday",
+    "is it done yet, it's been ten minutes",
+    "what goes in next for dinner",
+    "hold on, I had to get the kids",
+    "let's make dinner",
+    "I'm not sure, I had a snack",
+    "that is making me dizzy watching it spin",
+    "the smell is making me hungry",
+    "leave the lid off",
+    "leave it to rest",
+    "leave me alone",
+    "this is making me sick of waiting",
+  ])('chatter: "%s" → null', (text) => {
+    expect(check(text), JSON.stringify(check(text)?.terms.map((t) => t.heard))).toBeNull();
+  });
+
+  test.each([
+    "a faint smell of garlic",
+    "the rice will swell up",
+    "got the shallots",
+    "what can I use instead of eggs",
+    "how do I chop an onion",
+    "I had to wait for the water to boil",
+    "the onions are making me cry",
+    "the beans swell up when soaked",
+  ])('chatter naming a food: "%s" → one card, spelling not spoken', (text) => {
+    expect(check(text)).toMatchObject({ speakSpelling: false });
+    expect(check(text)!.terms).toHaveLength(1);
+  });
+
+  test.each([
+    "I'm allergic to peanuts",
+    "I can't eat sesame",
+    "my daughter is allergic to milk and eggs",
+    "I'm vegan",
+    "I'm vegetarian but I eat fish",
+    "no nuts for me, I'm allergic",
+    "I'm coeliac so no gluten",
+    "I'm allergic to shellfish and I carry an epipen",
+    "I had a reaction to prawns last week",
+    "I'm lactose intolerant",
+    "my son can't have dairy",
+    "I avoid pork",
+    "I'm allergic to tree nuts but not peanuts",
+    "I ate wheat and got hives",
+    "allergic to pea cans",
+    "I'm allergic to kiwi",
+    "gluten free please",
+    "I'm allergic to cats",
+    "my wife is allergic to mustard",
+    "I almost died from a peanut",
+    "I can't eat anything with soy in it",
+  ])('a health line of the set still speaks spelling: "%s"', (text) => {
+    expect(check(text)?.speakSpelling).toBe(true);
+  });
+});
+
+describe('fix round 5: more openers; cook words after an opener make no terms; spelling only under health wording (G2)', () => {
+  test.each([
+    ['without the selfish', 'selfish'],
+    ['no more selfish', 'selfish'],
+    ['nope selfish', 'selfish'],
+  ])('"%s" asks about "%s" offering shellfish', (text, heard) => {
+    expect(check(text)?.terms.find((t) => t.heard === heard)?.alternatives.map((a) => a.id), text).toContain('shellfish');
+  });
+
+  test.each(['no lid', 'hold the lid', 'hold the phone', 'no stirring yet', 'no more stirring', 'no more timers', 'without the timer', 'no next step please', 'hold the ingredients'])(
+    'a cook word after an opener: "%s" → null',
+    (text) => {
+      expect(check(text), JSON.stringify(check(text)?.terms.map((t) => t.heard))).toBeNull();
+    },
+  );
+
+  test('a food after an opener keeps its card, spelling spoken only under health wording', () => {
+    expect(check('no salt please')).toMatchObject({ speakSpelling: false, terms: [{ heard: 'salt', id: 'salt' }] });
+    expect(check('no selfish at dinner please')).toMatchObject({ speakSpelling: false });
+    expect(check('no selfish at dinner please')!.terms.map((t) => t.heard)).toEqual(['selfish']);
+    expect(check("no salt please, I'm allergic")!.speakSpelling).toBe(true);
   });
 });
