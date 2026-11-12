@@ -67,7 +67,8 @@ export class FakeUpstream implements VoiceUpstream {
     this.opens++;
     if (this.isDown) return Promise.reject(new VoiceUpstreamError(this.openFailure));
     if (signal.aborted) return Promise.reject(new VoiceUpstreamError('cancelled'));
-    const fake = this;
+    // The link's view of this fake (no `this` inside the link's own methods).
+    const fake = { opts: this.opts, utterances: this.utterances, speeches: this.speeches, live: this.live };
     let open = true;
     const utterances = new Map<number, { u: FakeUtterance; reject?: (e: VoiceUpstreamError) => void }>();
     const speeches = new Map<number, { s: FakeSpeech; reject: (e: VoiceUpstreamError) => void }>();

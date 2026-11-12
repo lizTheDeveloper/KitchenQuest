@@ -113,3 +113,13 @@ describe('error handler', () => {
     await app.close();
   });
 });
+
+describe('the voice close codes (M7 Step 5, carry 1)', () => {
+  it("the doc comment on ApiError names every VOICE_CLOSE_CODES code with its reason, and the voice service's codes it maps", async () => {
+    const { readFileSync } = await import('node:fs');
+    const { UPSTREAM_CLOSE, UPSTREAM_REFUSAL, VOICE_CLOSE_CODES } = await import('@kitchenquest/core');
+    const doc = readFileSync(new URL('../src/errors.ts', import.meta.url), 'utf8');
+    for (const [reason, code] of Object.entries(VOICE_CLOSE_CODES)) expect(doc, reason).toContain(`${code} \`${reason}\``);
+    for (const code of [...Object.values(UPSTREAM_CLOSE), ...Object.values(UPSTREAM_REFUSAL)]) expect(doc, String(code)).toMatch(new RegExp(`\\b${code}\\b`));
+  });
+});

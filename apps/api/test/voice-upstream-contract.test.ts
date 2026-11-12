@@ -11,7 +11,7 @@ import session from '../../../packages/core/test/fixtures/voice-upstream-session
 import { defaultCatalog } from '../src/catalog.js';
 import { loadPanBank } from '../src/mentor/lines.js';
 import { renderSpeak, type SpeakableText } from '../src/voice/speak.js';
-import { VoiceUpstreamError, wsUpstream, type UpstreamFailure, type VoiceLink } from '../src/voice/upstream.js';
+import { wsUpstream, type UpstreamFailure, type VoiceLink, type VoiceUpstreamError } from '../src/voice/upstream.js';
 
 type Entry = { from: 'api' | 'service'; msg?: unknown; frame?: { id: number; samples: number } };
 const entries = session.messages as Entry[];
@@ -134,7 +134,7 @@ describe('wsUpstream (P1)', () => {
     const svc = await service(async (ws, next) => {
       for (const e of entries) {
         if (e.from === 'api') await next();
-        else if (e.msg) send(ws, e.msg as object);
+        else if (e.msg) send(ws, e.msg);
         else sendFrame(ws, e.frame!.id, e.frame!.samples);
       }
     });

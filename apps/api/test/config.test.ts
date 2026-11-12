@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -255,6 +255,18 @@ describe('loadConfig: voice (M7 Step 5, P-11)', () => {
     writeFileSync(file, JSON.stringify({ version: 1, processors: [{ id: 'hetzner', dpa_status: status }] }));
     return pathToFileURL(file);
   };
+
+  it('.env.example has its own `# Voice (API)` block (P14), voice off, and its VOICE_SERVICE_URL parses once it is turned on', () => {
+    const text = readFileSync(new URL('../../../.env.example', import.meta.url), 'utf8');
+    const block = text.slice(text.indexOf('# Voice (API)'));
+    expect(block.startsWith('# Voice (API)')).toBe(true);
+    const value = (name: string) => /^(\w+)=(.*)$/m.exec(block.split('\n').filter((l) => l.startsWith(`${name}=`))[0] ?? '')?.[2];
+    expect(value('VOICE_ENABLED')).toBe('false');
+    const url = value('VOICE_SERVICE_URL')!;
+    expect(loadConfig({ ...voiceEnv, VOICE_SERVICE_URL: url }).voice?.serviceUrl.href).toBe(`${url}/`);
+    // The token is the voice service block's (one shared secret), not set twice.
+    expect(text.match(/^VOICE_SERVICE_TOKEN=/gm)).toHaveLength(1);
+  });
 
   it('voice is off by default, and with it off no other voice variable is read', () => {
     expect(loadConfig(goodEnv).voice).toBeNull();

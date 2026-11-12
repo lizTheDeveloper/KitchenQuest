@@ -99,7 +99,7 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
       return reply.status(status).send(body('bad_request', (err as Error).message));
     }
     // Review Focus 2: on the voice socket, a kind and a status only; an error there may carry anything.
-    if (req.routeOptions?.url === '/voice') {
+    if (req.routeOptions.url === '/voice') {
       req.log.error(voiceErrorForLog(err, 500), 'voice request failed');
       return reply.status(500).send(body('internal', 'Internal server error'));
     }

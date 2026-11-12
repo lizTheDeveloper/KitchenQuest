@@ -135,7 +135,7 @@ Map of measures to ROADMAP ids, with their state on 2026-11-09. "Built" means in
 | Complete export and delete | C-7, C-8 | Planned M2 |
 | Org and health separation | C-10 | Planned M2 (constraint) |
 | AI gateway minimisation, OpenRouter pinned, disclosure | C-13, C-14, C-16, C-22 | Built M4 (C-13, C-14 code part, C-16; see §6.1); C-22 planned M8 |
-| Voice privacy | C-18, C-19 | M7. Step 4: the `voice` notice v1; the accessibility need sealed under `health_data` (`voice_settings`, fixed sealed length, kept as a sealed `false`, exported and erased; the plain entitlement kind retired); voice usage content-free (seconds and cost). The rest of C-18 (memory-only audio, no voiceprints, the route) in Steps 2, 3 and 5 |
+| Voice privacy | C-18, C-19 | M7. Step 4: the `voice` notice v1; the accessibility need sealed under `health_data` (`voice_settings`, fixed sealed length, kept as a sealed `false`, exported and erased; the plain entitlement kind retired); voice usage content-free (seconds and cost). The rest of C-18 (memory-only audio, no voiceprints, the route) in Steps 2, 3 and 5. Step 5: the API voice socket (session, Origin, `voice` consent, the per-user child and Family Table block, the allowance re-checked before each utterance), memory-only audio and transcripts with a leaking positive control, server-rendered speech (Ruling 15). Gap recorded (Ruling 17): a Family Table device that is wrong and never reports blocks nothing on the server until it does; the device rule stays primary |
 | Photos, ingestion hardening | C-20, C-21 | Planned M8 |
 | Tracker sealed; notifications generic; household privacy; share links; low-intake | C-23 to C-27 | Planned M9 |
 | Pantry location and moderation | C-28, C-29 | Planned M11 |

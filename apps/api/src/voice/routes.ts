@@ -178,6 +178,11 @@ class VoiceSocket {
     if (!this.closed && this.ws.readyState === this.ws.OPEN) this.ws.send(JSON.stringify(msg));
   }
 
+  /** Read through a call: an await may have closed the socket meanwhile (no narrowing across awaits). */
+  private isClosed(): boolean {
+    return this.closed;
+  }
+
   /** Closes with `closed { reason }` and its code (core VOICE_CLOSE_CODES). Idempotent. */
   close(reason: VoiceCloseReason): void {
     if (this.closed) return;
@@ -348,7 +353,7 @@ class VoiceSocket {
       const at = now();
       const today = new Date(at.getTime() + this.offset * MINUTE_MS).toISOString().slice(0, 10);
       const hint = await sttHint(db, config.keyring, this.deps.catalog, this.userId, at, today);
-      if (this.closed || this.blockedNow()) return;
+      if (this.isClosed() || this.blockedNow()) return;
       // A fresh upstream id per listen (G2): the service never sees an id twice.
       const upId = this.nextUpId++;
       link.listen(upId, hint);
@@ -445,7 +450,7 @@ class VoiceSocket {
     } catch (e) {
       return this.upstreamFailed(id, e, e instanceof VoiceUpstreamError ? 'upstream' : 'tts');
     }
-    if (this.closed) return;
+    if (this.isClosed()) return;
     // One speech at a time: a new speak replaces the old, which gets no audio_end (core upstream.ts).
     const old = this.speech;
     if (old !== null) {

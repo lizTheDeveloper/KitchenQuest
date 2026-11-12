@@ -202,7 +202,7 @@ describe('renderSpeak', () => {
       safe: { trigger: 'voice.heard_check', vars: { terms: "it's safe" } },
       ok: { trigger: 'voice.heard_check', vars: { terms: 'kiwi' } },
     };
-    recentReplies.put('u-vars', 'r', [refs.long, refs.safe, refs.ok].map((line) => ({ kind: 'line', line }) as ReplyPart), NOW.getTime());
+    recentReplies.put('u-vars', 'r', [refs.long, refs.safe, refs.ok].map((line): ReplyPart => ({ kind: 'line', line })), NOW.getTime());
     const c = ctx({ userId: 'u-vars', nowMs: NOW.getTime() });
     expect(said(await renderSpeak([{ kind: 'reply', replyId: 'r', part: 0 }], c))).toBe(CHECK);
     expect(said(await renderSpeak([{ kind: 'reply', replyId: 'r', part: 1 }], c))).toBe(CHECK);
@@ -233,7 +233,7 @@ describe('renderSpeak', () => {
     expect(text.endsWith(CHECK)).toBe(true);
     expect(text.split(CHECK).length - 1).toBe(1);
     // items after a fallback that are fallbacks too are said once
-    const fallbacks = await renderSpeak(Array.from({ length: 3 }, () => ({ kind: 'card', proposalId: 'x' }) as SpeakItem), ctx());
+    const fallbacks = await renderSpeak(Array.from({ length: 3 }, (): SpeakItem => ({ kind: 'card', proposalId: 'x' })), ctx());
     expect(said(fallbacks)).toBe(CHECK);
   });
 

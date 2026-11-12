@@ -38,7 +38,25 @@ import { ZodError } from 'zod';
  * - 429 `rate_limited`: with a `retry-after` header. The daily write cap on meal logs and
  *   loosening rule edits (usage/write-cap.ts) also puts it in `details.retryAfterSeconds`, with `details.scope: 'day'`
  *   (M5 final m2); the per-minute limiters (book, week, progress) put `retryAfterSeconds` but never a scope.
- * - 500 `internal`: anything unexpected (logged scrubbed, never sent).
+ * - 500 `internal`: anything unexpected (logged scrubbed, never sent). On `GET /voice` (the voice socket's upgrade)
+ *   it is logged as a kind and a status only (Review Focus 2).
+ *
+ * M7 Step 5, the voice socket `GET /voice` (core `VoiceCloseReason`, `VOICE_CLOSE_CODES`). The upgrade always
+ * succeeds unless the server fails (500 above); a refusal is a `closed { reason }` message, then the close code:
+ * - 4400 `bad_message`: a message core `parseClientMsg` refuses, a frame or any message before `hello`, a second
+ *   `hello`, a clock (`localDate`, `localTime`) `GET /voice/status` would refuse, or a client flooding the queue.
+ * - 4401 `signed_out`: no live session.
+ * - 4403 `bad_origin`: no Origin header, or not the game's (APP_ORIGIN); checked before the cookie is read.
+ * - 4409 `another_tab`: the player opened a newer voice socket.
+ * - 4412 `consent_required`: no current `voice` grant.
+ * - 4451 `child`, 4452 `family_table`: the per-user voice block (Ruling 17); sent at `hello`, `listen` or `speak`,
+ *   and to every open socket of the player the moment the block is set.
+ * - 4503 `unavailable`: voice is off, or the voice service refuses this server's credentials or address.
+ * The voice service's own codes (core `UPSTREAM_CLOSE`, `UPSTREAM_REFUSAL`), which the API maps and never forwards:
+ * socket 4400 (the API sent a bad message: `failed upstream`), 4408 (idle: reconnect on the next need), 1011 and 1001
+ * (down: `failed upstream`, the player's socket stays open); HTTP before the upgrade 401 and 403 (`unavailable`), 503
+ * (busy: `failed upstream`), 426 (a wrong URL: `unavailable`); and `GET /ready` 503 (not ready: fail fast,
+ * `failed upstream`). `PUT /voice/family-table` uses 204, 400 `bad_request`, 401 and 429 above.
  *
  * Extend this list with every new code.
  */

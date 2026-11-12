@@ -47,11 +47,11 @@ export function isSpeakable(x: unknown): x is SpeakableText {
   return typeof x === 'object' && x !== null && minted.has(x);
 }
 
-export const CHECK_SCREEN = 'voice.check_screen';
-export const STEP_ON_SCREEN = 'voice.step_on_screen';
-export const HEARD_CHECK = 'voice.heard_check';
-export const HEARD_CHECK_SPELLED = 'voice.heard_check_spelled';
-export const TOO_LONG = 'voice.too_long';
+const CHECK_SCREEN = 'voice.check_screen';
+const STEP_ON_SCREEN = 'voice.step_on_screen';
+const HEARD_CHECK = 'voice.heard_check';
+const HEARD_CHECK_SPELLED = 'voice.heard_check_spelled';
+const TOO_LONG = 'voice.too_long';
 /** Every trigger renderSpeak says itself, each with its variables: the voice route checks the bank has them at boot. */
 export const SPOKEN_TRIGGERS: Readonly<Record<string, readonly string[]>> = {
   [CHECK_SCREEN]: [],
@@ -103,7 +103,7 @@ function fixed(bank: PanBank, trigger: string): Piece {
 }
 
 /** The heard card's spoken half, from this socket's own transcript (§7.6b.2: the spelling comes from code). */
-export function heardLine(check: HeardCheck): LineRef {
+function heardLine(check: HeardCheck): LineRef {
   const terms = listWords(check.terms.map((t) => t.heard));
   if (!check.speakSpelling) return { trigger: HEARD_CHECK, vars: { terms } };
   return { trigger: HEARD_CHECK_SPELLED, vars: { terms, spelled: check.terms.map((t) => t.spelled).join(', ') } };

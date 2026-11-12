@@ -10,7 +10,7 @@ import type { VoiceCloseReason } from '@kitchenquest/core';
 export const CHILD_BLOCK_TTL_MS = 30 * 60_000;
 
 /** What the registry needs of a voice socket: a way to close it with a reason. */
-export interface VoiceSocketHandle {
+interface VoiceSocketHandle {
   close(reason: VoiceCloseReason): void;
 }
 

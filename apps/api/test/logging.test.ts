@@ -1,3 +1,4 @@
+import type { AddressInfo } from 'node:net';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { z } from 'zod';
@@ -133,7 +134,7 @@ describe('the voice socket (M7 Step 5, C-9, Review Focus 2)', () => {
     vapp.get('/test/plain', async () => ({ ok: true }));
     try {
       await vapp.listen({ port: 0, host: '127.0.0.1' });
-      const port = (vapp.server.address() as import('node:net').AddressInfo).port;
+      const port = (vapp.server.address() as AddressInfo).port;
       const open = (path: string, origin: string) =>
         new Promise<number>((resolve) => {
           const ws = new WebSocket(`ws://127.0.0.1:${port}${path}`, { headers: { origin, cookie: 'kq_session=peanut' } });

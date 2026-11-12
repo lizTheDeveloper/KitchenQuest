@@ -161,7 +161,7 @@ function connect(ws: WebSocket, t: UpstreamTiming, signal: AbortSignal): Promise
     const utterances = new Map<number, { promise: Promise<{ text: string }>; waiter: Waiter<{ text: string }>; done: boolean }>();
     const speeches = new Map<number, { waiter: Waiter<{ audioMs: number }>; onPcm: (pcm: Int16Array, rate: number) => void }>();
 
-    const settle = <T>(w: Waiter<T>) => {
+    const settle = (w: { timer: NodeJS.Timeout | null }) => {
       if (w.timer !== null) clearTimeout(w.timer);
       w.timer = null;
     };
@@ -278,8 +278,8 @@ function connect(ws: WebSocket, t: UpstreamTiming, signal: AbortSignal): Promise
       const msg = parseUpstreamServerMsg(raw);
       if (msg !== null) return onMessage(msg);
       // Core N7: a transcript over MAX_TEXT parses to null. Refused for its id (too_long), never cut, never dropped.
-      const r = raw as { t?: unknown; id?: unknown };
-      if (r !== null && typeof r === 'object' && r.t === 'transcript' && typeof r.id === 'number') {
+      const r = typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>) : null;
+      if (r !== null && r.t === 'transcript' && typeof r.id === 'number') {
         const u = utterances.get(r.id);
         if (u === undefined || u.done) return;
         u.done = true;
@@ -338,13 +338,13 @@ function connect(ws: WebSocket, t: UpstreamTiming, signal: AbortSignal): Promise
         const s = speeches.get(id);
         if (u === undefined && s === undefined) return;
         send({ t: 'cancel', id });
-        const stop = (w: Waiter<never> | undefined) => {
+        const stop = (w: { reject(e: VoiceUpstreamError): void; timer: NodeJS.Timeout | null } | undefined) => {
           if (w === undefined) return;
           settle(w);
           w.reject(new VoiceUpstreamError('cancelled'));
         };
-        stop(u?.waiter as Waiter<never> | undefined);
-        stop(s?.waiter as Waiter<never> | undefined);
+        stop(u?.waiter);
+        stop(s?.waiter);
         utterances.delete(id);
         speeches.delete(id);
       },

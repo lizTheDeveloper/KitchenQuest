@@ -5,7 +5,7 @@ import type { AiConfig } from './ai/openrouter.js';
 import { Keyring, parseDataKeys, parseKey, type SecretKey } from './crypto/keyring.js';
 
 /** The voice service: its WebSocket URL on the private network and the bearer token it checks. */
-export interface VoiceConfig {
+interface VoiceConfig {
   serviceUrl: URL;
   token: Buffer;
 }
