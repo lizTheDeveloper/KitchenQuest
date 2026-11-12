@@ -3,7 +3,7 @@
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { heardCheck, type TurnResponse } from '@kitchenquest/core';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, InjectOptions } from 'fastify';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { createOpenRouterProvider, OPENROUTER_URL } from '../src/ai/openrouter.js';
 import { buildApp } from '../src/app.js';
@@ -93,13 +93,13 @@ describe('M7 Step 7 ruling round: the counter on the runner\'s own path (the rea
       const config = loadConfig({ ...testAiEnv, DATABASE_URL: testConfig().databaseUrl });
       // The real client; only the host it posts to is the local stub.
       const openRouter = createOpenRouterProvider(config.ai!, {
-        fetch: (url, init) => fetch(String(url) === OPENROUTER_URL ? stubUrl : String(url), init),
+        fetch: (url, init) => fetch(url === OPENROUTER_URL ? stubUrl : url, init),
         log: { warn: () => undefined },
       });
       const mailer = new CaptureMailer();
       app = await buildApp({ config: testConfig(), db, mailer, ai: countingProvider(openRouter), now: () => NOW, logger: false });
       const cookie = await signIn(app, mailer, 'runner-path@example.com');
-      const call = (o: Parameters<FastifyInstance['inject']>[0] & object) => app!.inject({ ...o, cookies: { kq_session: cookie } });
+      const call = (o: InjectOptions) => app!.inject({ ...o, cookies: { kq_session: cookie } });
       for (const purpose of ['health_data', 'ai_health'] as const) {
         expect((await call({ method: 'POST', url: '/me/consents', payload: { purpose, noticeVersion: NOTICES[purpose]!.version } })).statusCode).toBe(201);
       }
