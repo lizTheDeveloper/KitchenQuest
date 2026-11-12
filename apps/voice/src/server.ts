@@ -78,6 +78,8 @@ export function createVoiceServer(opts: { config: VoiceConfig; stt: SttEngine; t
     ws.on('message', (data: RawData, binary: boolean) => {
       const bytes = toBytes(data);
       session.receive(binary ? bytes : Buffer.from(bytes).toString('utf8'), binary);
+      // C-18: the session zeroes the frame it was given; a fragmented frame's pieces are zeroed here too.
+      if (binary && Array.isArray(data)) for (const piece of data) piece.fill(0);
     });
     ws.once('close', (code: number) => {
       session.close();
