@@ -134,7 +134,8 @@ const better = (a: SoundAlike, b: SoundAlike | undefined): boolean =>
  *     words heard for one food ("pea cans", "chick pea") win over a food heard inside them only when they sound
  *     exactly like a different food.
  * Every term carries its sound-alikes as alternatives, so a real food heard for another offers the other. The heard
- * words are never corrected: `id` is what they name as heard.
+ * words are never corrected: `id` is what they name as heard. Like every mentor text function it reads at most
+ * MAX_TEXT characters, so a caller must never act on transcript text past that (a longer one is refused, not cut).
  */
 export function heardCheck(transcript: string, graph: IngredientGraph, terms: readonly RuleTerm[]): HeardCheck | null {
   const normal = normalizeTurn(stripPageEvents(transcript).text);
