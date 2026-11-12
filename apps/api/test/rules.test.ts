@@ -106,7 +106,8 @@ const storedCount = async (userId?: string) =>
 
 describe('GET /ingredients/search', () => {
   it('finds ingredients by name or alias without signing in', async () => {
-    const res = await app.inject({ method: 'GET', url: '/ingredients/search?q=ground' });
+    // "groundn", not "ground": since M6 Step 4 more than ten names start with "ground" (ground beef, ground clove, ...).
+    const res = await app.inject({ method: 'GET', url: '/ingredients/search?q=groundn' });
     expect(res.statusCode).toBe(200);
     expect(res.json().results).toContainEqual({ id: 'peanut', name: 'peanut', matched: 'groundnut' });
   });
