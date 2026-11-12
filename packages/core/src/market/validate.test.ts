@@ -78,22 +78,27 @@ describe('validateStallFile (never throws; each problem names the stall, the key
   });
 
   test('value question: correct option not the cheapest per serving → problem; a reaction "= 3.80" when the entry gives 3.75 → problem', () => {
-    expect(with_((d) => { board(d)[0].price = 30; q(d, 'bram-value-braise').options[0].reaction = 'Chuck.'; })).toEqual([
+    const reprice = (d: StallFile, price: number) => {
+      board(d)[0].price = price;
+      const v = q(d, 'bram-value-braise');
+      v.prompt = v.prompt.replace('22.50', String(price));
+      v.options[0].reaction = 'Chuck.';
+      v.options[1].reaction = 'Half bone.';
+    };
+    expect(with_((d) => { reprice(d, 30); })).toEqual([
       'bram: questions[6] (bram-value-braise): options[0] is correct but is not the strict cheapest per serving',
     ]);
     // A tie is not a strict minimum: 24 ÷ 5 = 4.80, and 28.80 ÷ 6 = 4.80.
-    expect(with_((d) => { board(d)[0].price = 28.8; q(d, 'bram-value-braise').options[0].reaction = 'Chuck.'; })).toEqual([
+    expect(with_((d) => { reprice(d, 28.8); })).toEqual([
       'bram: questions[6] (bram-value-braise): options[0] is correct but is not the strict cheapest per serving',
     ]);
     expect(with_((d) => { q(d, 'bram-value-braise').options[0].reaction = 'Chuck: 22.50 ÷ 6 = 3.80 a serving.'; })).toEqual([
-      'bram: questions[6] (bram-value-braise): options[0].reaction states = 3.80 but its chalkboard entry gives 3.75 a serving',
+      'bram: questions[6] (bram-value-braise): options[0].reaction states 22.50 ÷ 6 = 3.80, but 22.50 ÷ 6 = 3.75',
     ]);
-    // A figure from another entry inside a reaction is checked against the reaction's own entry.
+    // A bare "= N" is not a sum the player can follow: it needs its "A ÷ B".
     expect(with_((d) => { q(d, 'bram-value-braise').options[1].reaction = 'Chuck = 3.75.'; })).toEqual([
-      'bram: questions[6] (bram-value-braise): options[1].reaction states = 3.75 but its chalkboard entry gives 9.50 a serving',
+      'bram: questions[6] (bram-value-braise): options[1].reaction states "= 3.75" outside an "A ÷ B = C" sum',
     ]);
-    // "≈" and figures with no "=" are not checked.
-    expect(with_((d) => { q(d, 'bram-value-braise').options[1].reaction = 'About ≈ 9.5. Chuck is 3.75.'; })).toEqual([]);
     // Shape: one entry per option, positive numbers, and only on a value question.
     expect(with_((d) => { board(d).pop(); })).toEqual(['bram: questions[6] (bram-value-braise): chalkboard needs one entry per option']);
     expect(with_((d) => { board(d)[2].servings = 0; })).toEqual(['bram: questions[6] (bram-value-braise): chalkboard[2] is not { price, servings } with positive numbers']);
@@ -144,5 +149,49 @@ describe('validateStallFile (never throws; each problem names the stall, the key
   test('fix round 1, M6: an unknown country name in countries is a problem', () => {
     expect(with_((d) => { q(d, 'bram-usda-label').countries = ['Untied States']; })).toEqual(['bram: questions[4] (bram-usda-label): countries[0] "Untied States" is not a known country name']);
     expect(with_((d) => { q(d, 'bram-usda-label').countries = ['USA', 'Scotland']; })).toEqual([]);
+  });
+
+  // Fix round 1, I3 (Task 1 M4 ruling): chalkboard arithmetic is exact, and every figure is the board's.
+  describe('fix round 1, I3: the chalkboard arithmetic is real', () => {
+    const set = (d: StallFile, k: number, reaction: string) => { q(d, 'bram-value-braise').options[k].reaction = reaction; };
+    const AT = 'bram: questions[6] (bram-value-braise)';
+    test('a false sum fails: 24.00 ÷ 6 = 3.75', () => {
+      expect(with_((d) => set(d, 0, 'Chuck: 24.00 ÷ 6 = 3.75 a serving.'))).toEqual([`${AT}: options[0].reaction states 24.00 ÷ 6, but its chalkboard entry is 22.50 for 6`]);
+      expect(with_((d) => set(d, 0, 'Chuck: 22.50 ÷ 6 = 3.70 a serving.'))).toEqual([`${AT}: options[0].reaction states 22.50 ÷ 6 = 3.70, but 22.50 ÷ 6 = 3.75`]);
+      // In the explain, a sum names some entry of the board, and must be true.
+      expect(with_((d) => { q(d, 'bram-value-braise').explain = 'Divide: 38 ÷ 4 = 9.00.'; })).toEqual([`${AT}: explain states 38 ÷ 4 = 9.00, but 38 ÷ 4 = 9.50`]);
+      expect(with_((d) => { q(d, 'bram-value-braise').explain = 'Divide: 30 ÷ 4 = 7.50.'; })).toEqual([`${AT}: explain states 30 ÷ 4, which is no chalkboard entry`]);
+    });
+    test('"≈" fails anywhere in a chalkboard question', () => {
+      expect(with_((d) => set(d, 0, 'Chuck: 22.50 ÷ 6 ≈ 3.70 a serving.'))).toContain(`${AT}: options[0].reaction uses "≈"; chalkboard arithmetic is exact`);
+      expect(with_((d) => set(d, 1, 'About ≈ 9.5. Chuck is 3.75.'))).toContain(`${AT}: options[1].reaction uses "≈"; chalkboard arithmetic is exact`);
+    });
+    test('an inexact entry fails: 22.49 for 6 is 3.748…', () => {
+      expect(with_((d) => { board(d)[0].price = 22.49; set(d, 0, 'Chuck is the cheapest.'); q(d, 'bram-value-braise').prompt = q(d, 'bram-value-braise').prompt.replace('22.50', '22.49'); }))
+        .toEqual([`${AT}: chalkboard[0] 22.49 ÷ 6 is not exact to the cent; pick numbers that divide exactly`]);
+    });
+    test('the prompt lists every board entry, in order, with the same numbers', () => {
+      expect(with_((d) => { q(d, 'bram-value-braise').prompt = q(d, 'bram-value-braise').prompt.replace('22.50', '21.00'); }))
+        .toEqual([`${AT}: prompt does not list chalkboard[0] (22.50 for 6) in order`]);
+      expect(with_((d) => { q(d, 'bram-value-braise').prompt = q(d, 'bram-value-braise').prompt.replace('38 for 4', '38 for 5'); }))
+        .toEqual([`${AT}: prompt does not list chalkboard[1] (38 for 4) in order`]);
+      // An extra number between a price and its servings, or entries swapped, fails too.
+      expect(with_((d) => { q(d, 'bram-value-braise').prompt = 'Shank 24 for 5; chuck 22.50 for 6 servings; short ribs 38 for 4.'; }))
+        .toEqual([`${AT}: prompt does not list chalkboard[2] (24 for 5) in order`]);
+    });
+    test('a cross-option figure must be some option\'s price per serving: "Chuck is 3.50" fails', () => {
+      expect(with_((d) => set(d, 1, 'Half bone: 38 ÷ 4 = 9.50 a serving. Chuck is 3.50.'))).toEqual([`${AT}: options[1].reaction states 3.50, which is no option's price per serving (3.75, 9.50, 4.80)`]);
+      expect(with_((d) => set(d, 1, 'Half bone: 38 ÷ 4 = 9.50 a serving. Shank is 4.80, chuck 3.75.'))).toEqual([]);
+    });
+    test('the shipped wording passes: "60 ÷ 6 = 10" equals 10.00', () => {
+      expect(with_((d) => { board(d)[2] = { price: 60, servings: 6 }; set(d, 2, '60 ÷ 6 = 10 a serving.'); q(d, 'bram-value-braise').prompt = 'Chuck 22.50 for 6 servings; short ribs 38 for 4; tenderloin 60 for 6.'; set(d, 1, 'Half bone: 38 ÷ 4 = 9.50 a serving. Chuck is 3.75.'); })).toEqual([]);
+    });
+  });
+
+  test('fix round 1, M1: a currency symbol anywhere in a stall file fails the build, not only in a question', () => {
+    expect(with_((d) => { d.triggers.greet.lines.push('Chuck is £4 today.'); })).toEqual(['bram: triggers.greet.lines[1] has a currency symbol (£); stall prices name no currency']);
+    expect(with_((d) => { pc(d).triggers.greet.lines[0] = 'Tofu, ₹50.'; })).toEqual(['bram: variants.protein_counter.triggers.greet.lines[0] has a currency symbol (₹); stall prices name no currency']);
+    expect(with_((d) => { d.item_tips.chuck = { pick: 'Marbled.', store: 'Fridge. About $8.' }; })).toEqual(['bram: item_tips.chuck.store has a currency symbol ($); stall prices name no currency']);
+    expect(with_((d) => { d.faq.push({ q: ['Cost?'], a: 'About 3€.' }); })).toEqual(['bram: faq[3].a has a currency symbol (€); stall prices name no currency']);
   });
 });

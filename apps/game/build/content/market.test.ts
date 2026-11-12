@@ -98,10 +98,24 @@ describe('the strict stall checks on the real files (M6 Step 5)', () => {
 
   test('a scope naming an unknown country, a currency symbol, scarcity wording in a season label, or chalkboard arithmetic that does not add up fail the build', () => {
     expectProblem(problemsOf({ ...files, [BRAM]: files[BRAM].replace('countries: ["United States"]', 'countries: ["Untied States"]') }), BRAM, 'countries[0] "Untied States" is not a known country name');
-    expectProblem(problemsOf(withEdit(BRAM, '{ price: 22.50, servings: 6 }', '{ price: 22.50, servings: 5 }')), BRAM, '(bram-value-braise)', 'chalkboard entry gives 4.50 a serving');
+    expectProblem(problemsOf(withEdit(BRAM, '{ price: 22.50, servings: 6 }', '{ price: 22.50, servings: 5 }')), BRAM, '(bram-value-braise)', 'states 22.50 ÷ 6, but its chalkboard entry is 22.50 for 5');
     expectProblem(problemsOf(withEdit('data/seasonality.yaml', 'label: "In season here, now"', 'label: "In season, but not for long"')), 'data/seasonality.yaml', 'deadline or scarcity words');
     const reaction = /reaction: "([^"]*)"/.exec(files[WEN]);
     expectProblem(problemsOf(withEdit(WEN, reaction![0], `reaction: "${reaction![1]} Only 2€."`)), WEN, 'has a currency symbol (€)');
+  });
+
+  test('fix round 1, I3: the reviewer\'s chalkboard probes fail the build on the real files', () => {
+    const probes: [string, string, string][] = [
+      ['Chuck: 22.50 ÷ 6 = 3.75', 'Chuck: 24.00 ÷ 6 = 3.75', 'states 24.00 ÷ 6, but its chalkboard entry is 22.50 for 6'],
+      ['Chuck: 22.50 ÷ 6 = 3.75', 'Chuck: 22.50 ÷ 6 ≈ 3.70', 'uses "≈"'],
+      ['{ price: 22.50, servings: 6 }', '{ price: 22.49, servings: 6 }', 'chalkboard[0] 22.49 ÷ 6 is not exact to the cent'],
+      ['chuck 22.50 for 6 servings', 'chuck 21.00 for 6 servings', 'prompt does not list chalkboard[0] (22.50 for 6) in order'],
+      ['A treat, not a value. Chuck is 3.75.', 'A treat, not a value. Chuck is 3.50.', "states 3.50, which is no option's price per serving"],
+      ['But lentils are 0.25."', 'But lentils are 0.30."', "states 0.30, which is no option's price per serving"],
+    ];
+    for (const [from, to, needle] of probes) expectProblem(problemsOf(withEdit(BRAM, from, to)), BRAM, needle);
+    // M1: a currency symbol in a keeper line fails the build too.
+    expectProblem(problemsOf(withEdit(BRAM, '      - "Price per pound lies;', '      - "Chuck is £4 today. Price per pound lies;')), BRAM, 'triggers.greet.lines[4] has a currency symbol (£)');
   });
 
   test('Wen seasonal disagreeing with data/seasonality.yaml → ContentError naming the question id', () => {

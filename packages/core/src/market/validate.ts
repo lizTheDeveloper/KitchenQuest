@@ -32,8 +32,6 @@ const AGENCY = new RegExp(
 );
 /** Ruling 5: chalkboard prices are example numbers in no particular currency. */
 const CURRENCY = /[$£€¥₹₩₦₱¢]/;
-/** Ruling 5: a per-serving figure a reaction states ("÷ 6 = 3.75"). */
-const PER_SERVING = /=\s*(\d+(?:\.\d+)?)/g;
 /**
  * Ruling 5: text that states a price: a number beside "chalkboard" (within four words), a number "a serving", or a
  * number for a pack ("1.79 a bag", "22.50 for 6 servings"). Weights and yields ("per 100 g", "one pound") are not prices.
@@ -62,7 +60,79 @@ function questionTexts(q: Record<string, unknown>): { at: string; text: string }
   return out;
 }
 
-const round2 = (n: number): string => (Math.round(n * 100 + 1e-9) / 100).toFixed(2);
+
+/** Fix round 1, I3: "A ÷ B = C" (÷, / or "divided by"), and any "= N". */
+const SUM = /(\d+(?:\.\d+)?)\s*(?:÷|\/|divided by)\s*(\d+(?:\.\d+)?)\s*=\s*(\d+(?:\.\d+)?)/g;
+const NUMBER = /\d+(?:\.\d+)?/g;
+const cents = (n: number): number => Math.round(n * 100);
+/** "22.50" for 22.5, "38" for 38: the number as a reader sees it on the board. */
+const shown = (n: number): string => (Number.isInteger(n) ? String(n) : n.toFixed(2));
+
+/**
+ * Ruling 5 and the Task 1 M4 ruling (fix round 1, I3): a chalkboard question's arithmetic is real and exact.
+ * - Every entry divides exactly to the cent (price × 100 is a multiple of servings), so no figure needs rounding.
+ * - No "≈" anywhere in the question.
+ * - The correct option is the strict cheapest per serving.
+ * - Every "A ÷ B = C" is true to the cent, and A ÷ B is a board entry: in an option's reaction, that option's own.
+ * - A "= N" outside such a sum, and any other figure in a reaction or the explanation, must be some option's price per
+ *   serving (so "Chuck is 3.50" fails when chuck is 3.75).
+ * - The prompt lists every entry in board order: each price, then its servings as the next number.
+ */
+function checkChalkboard(
+  q: Record<string, unknown>,
+  options: unknown[],
+  board: readonly { price: number; servings: number }[],
+  texts: readonly { at: string; text: string }[],
+  bad: (msg: string) => void,
+): void {
+  let exact = true;
+  board.forEach((e, k) => {
+    if (cents(e.price) % e.servings !== 0 || Math.abs(cents(e.price) - e.price * 100) > 1e-6) {
+      bad(`chalkboard[${k}] ${shown(e.price)} ÷ ${e.servings} is not exact to the cent; pick numbers that divide exactly`);
+      exact = false;
+    }
+  });
+  if (!exact) return; // the figures can't be checked against a board that needs rounding
+  const per = board.map((e) => cents(e.price) / e.servings); // in cents
+  const c = options.findIndex((o: unknown) => isObject(o) && o.correct === true);
+  if (c >= 0 && per.some((p, k) => k !== c && !(per[c] < p))) bad(`options[${c}] is correct but is not the strict cheapest per serving`);
+  const perList = [...new Set(per)].map((p) => (p / 100).toFixed(2)).join(', ');
+  const isPer = (n: number): boolean => per.some((p) => Math.abs(p - n * 100) < 1e-6);
+
+  for (const t of texts) {
+    if (t.text.includes('≈')) bad(`${t.at} uses "≈"; chalkboard arithmetic is exact`);
+    if (t.at === 'prompt' || t.at.endsWith('.text')) continue;
+    const own = /^options\[(\d+)\]\.reaction$/.exec(t.at);
+    const k = own === null ? null : Number(own[1]);
+    let rest = t.text;
+    for (const m of t.text.matchAll(SUM)) {
+      const [a, b, r] = [Number(m[1]), Number(m[2]), Number(m[3])];
+      const entry = k === null ? board.find((e) => e.price === a && e.servings === b) : board[k];
+      if (entry === undefined) bad(`${t.at} states ${m[1]} ÷ ${m[2]}, which is no chalkboard entry`);
+      else if (entry.price !== a || entry.servings !== b) bad(`${t.at} states ${m[1]} ÷ ${m[2]}, but its chalkboard entry is ${shown(entry.price)} for ${entry.servings}`);
+      else if (Math.abs(r * 100 * b - cents(a)) > 1e-6) bad(`${t.at} states ${m[1]} ÷ ${m[2]} = ${m[3]}, but ${m[1]} ÷ ${m[2]} = ${(cents(a) / b / 100).toFixed(2)}`);
+      rest = rest.replace(m[0], ' ');
+    }
+    for (const m of rest.matchAll(/=\s*(\d+(?:\.\d+)?)/g)) {
+      bad(`${t.at} states "= ${m[1]}" outside an "A ÷ B = C" sum`);
+      rest = rest.replace(m[0], ' ');
+    }
+    for (const m of rest.matchAll(NUMBER)) if (!isPer(Number(m[0]))) bad(`${t.at} states ${m[0]}, which is no option's price per serving (${perList})`);
+  }
+
+  // The prompt: each entry's price, then its servings as the very next number, in board order.
+  const nums = typeof q.prompt === 'string' ? [...q.prompt.matchAll(NUMBER)].map((m) => Number(m[0])) : [];
+  let at = 0;
+  for (const [k, e] of board.entries()) {
+    let i = at;
+    while (i < nums.length && nums[i] !== e.price) i++;
+    if (i >= nums.length || nums[i + 1] !== e.servings) {
+      bad(`prompt does not list chalkboard[${k}] (${shown(e.price)} for ${e.servings}) in order`);
+      return;
+    }
+    at = i + 2;
+  }
+}
 
 /**
  * Every problem with a stall file:
@@ -195,25 +265,15 @@ export function validateStallFile(d: unknown, graph: IngredientGraph, opts: { kn
         if (q.game !== 'value') bad('has a chalkboard but is not a value question');
         if (!Array.isArray(board) || options === null || board.length !== options.length) bad('chalkboard needs one entry per option');
         else {
-          const per: (number | null)[] = board.map((e: unknown, k: number) => {
-            const ok = isObject(e) && typeof e.price === 'number' && Number.isFinite(e.price) && e.price > 0 && typeof e.servings === 'number' && Number.isFinite(e.servings) && e.servings > 0;
+          const entries: ({ price: number; servings: number } | null)[] = board.map((e: unknown, k: number) => {
+            const ok = isObject(e) && typeof e.price === 'number' && Number.isFinite(e.price) && e.price > 0 && typeof e.servings === 'number' && Number.isInteger(e.servings) && e.servings > 0;
             if (!ok) {
               bad(`chalkboard[${k}] is not { price, servings } with positive numbers`);
               return null;
             }
-            return (e.price as number) / (e.servings as number);
+            return { price: e.price as number, servings: e.servings as number };
           });
-          const c = options.findIndex((o: unknown) => isObject(o) && o.correct === true);
-          if (c >= 0 && per.every((p) => p !== null)) {
-            const nums = per; // every() narrowed it to number[]
-            if (nums.some((p, k) => k !== c && !(nums[c] < p))) bad(`options[${c}] is correct but is not the strict cheapest per serving`);
-            options.forEach((o: unknown, k: number) => {
-              if (!isObject(o) || typeof o.reaction !== 'string') return;
-              for (const m of o.reaction.matchAll(PER_SERVING)) {
-                if (Number(m[1]).toFixed(2) !== round2(nums[k])) bad(`options[${k}].reaction states = ${m[1]} but its chalkboard entry gives ${round2(nums[k])} a serving`);
-              }
-            });
-          }
+          if (entries.every((x) => x !== null)) checkChalkboard(q, options, entries as { price: number; servings: number }[], texts, bad);
         }
       } else if (q.game === 'value') {
         const priced = texts.find((t) => PRICE_TEXT.some((re) => re.test(t.text)));
@@ -246,5 +306,22 @@ export function validateStallFile(d: unknown, graph: IngredientGraph, opts: { kn
       if (f.a_if_blocked !== undefined && !isText(f.a_if_blocked)) say(`${path}.a_if_blocked is not a non-empty string`);
     });
   }
+  // Fix round 1, M1: no currency symbol anywhere else in the file either (keeper lines, FAQ, tips, names), so the
+  // build and the API boot refuse "Chuck is £4 today." in a greet line, not only the voice-scan test.
+  const walk = (value: unknown, path: string): void => {
+    if (typeof value === 'string') {
+      const m = CURRENCY.exec(value);
+      if (m !== null) say(`${path} has a currency symbol (${m[0]}); stall prices name no currency`);
+    } else if (Array.isArray(value)) value.forEach((x, i) => { walk(x, `${path}[${i}]`); });
+    else if (isObject(value)) {
+      for (const [key, v] of Object.entries(value)) {
+        const at = path === '' ? key : `${path}.${key}`;
+        // Question banks are checked above, per question.
+        if (at === 'questions' || at === 'seasonal' || /^variants\.[^.]+\.questions$/.test(at)) continue;
+        walk(v, at);
+      }
+    }
+  };
+  walk(d, '');
   return problems;
 }
