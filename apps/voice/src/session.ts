@@ -23,7 +23,8 @@ const CLOSE_BAD_MESSAGE = 4400;
 
 interface SessionIo {
   json(msg: UpstreamServerMsg): void;
-  frame(bytes: Uint8Array): void;
+  /** Sends one audio frame. False when the socket is congested (backpressure): the speech then stops. */
+  frame(bytes: Uint8Array): boolean;
   close(code: number): void;
 }
 
@@ -92,6 +93,8 @@ export class Session {
   private utterance: Utterance | null = null;
   private speech: Speech | null = null;
   private readonly pending = new Set<Promise<void>>();
+  /** STT calls not yet settled, aborted ones included: at most one (review M2), so an engine ignoring an abort cannot pile up buffers. */
+  private transcribing = 0;
   private readonly alloc: (samples: number) => Int16Array;
   private readonly voices: ReadonlyMap<string, string>;
 
@@ -102,7 +105,10 @@ export class Session {
 
   /** One WebSocket message: a JSON text message or a binary audio frame. */
   receive(data: Uint8Array | string, binary: boolean): void {
-    if (this.closed) return;
+    if (this.closed) {
+      if (typeof data !== 'string') data.fill(0);
+      return;
+    }
     if (binary && typeof data !== 'string') return this.onFrame(data);
     let msg: UpstreamClientMsg | null = null;
     try {
@@ -171,8 +177,11 @@ export class Session {
 
   private onFrame(raw: Uint8Array): void {
     const frame = decodeFrame(raw);
-    if (frame === null || !this.helloed) return this.bad();
     raw.fill(0);
+    if (frame === null || !this.helloed) {
+      frame?.pcm.fill(0);
+      return this.bad();
+    }
     const u = this.utterance;
     if (u !== null && !u.ended && u.id === frame.id) {
       const n = Math.min(frame.pcm.length, MAX_SAMPLES - u.len);
@@ -208,12 +217,22 @@ export class Session {
       this.release(u);
       return this.send({ t: 'failed', id: u.id, kind: 'stt' });
     }
+    if (this.transcribing > 0) {
+      // The engine still holds an earlier (aborted) utterance: refuse rather than start a second call.
+      this.release(u);
+      return this.send({ t: 'failed', id: u.id, kind: 'stt' });
+    }
     const started = Date.now();
     const samples = u.len;
     const signal = u.abort.signal;
+    this.transcribing++;
     this.track(
-      this.deps.stt
-        .transcribe(u.buf.subarray(0, u.len), u.hint, signal)
+      // Fix round 1 (I1): inside .then, so an engine that throws synchronously is a rejection like any other.
+      Promise.resolve()
+        .then(() => {
+          if (signal.aborted) throw new Error('aborted');
+          return this.deps.stt.transcribe(u.buf.subarray(0, u.len), u.hint, signal);
+        })
         .then(
           (text) => {
             if (signal.aborted) return;
@@ -229,7 +248,10 @@ export class Session {
             this.send({ t: 'failed', id: u.id, kind: 'stt' });
           },
         )
-        .finally(() => this.release(u)),
+        .finally(() => {
+          this.transcribing--;
+          this.release(u);
+        }),
     );
   }
 
@@ -247,7 +269,12 @@ export class Session {
     const s: Speech = { id, abort: new AbortController() };
     this.speech = s;
     this.track(
-      this.play(s, voice, chunks)
+      Promise.resolve()
+        .then(() => this.play(s, voice, chunks))
+        .then((result) => {
+          // A client that stops reading gets no more audio, only the failure (review M2).
+          if (result === 'congested') this.send({ t: 'failed', id, kind: 'tts' });
+        })
         .catch(() => {
           if (s.abort.signal.aborted) return;
           this.deps.log('engine_error', { tts: true });
@@ -259,7 +286,8 @@ export class Session {
     );
   }
 
-  private async play(s: Speech, voice: string, chunks: { text: string; cache: boolean }[]): Promise<void> {
+  /** `congested` when the socket stopped taking frames (backpressure), `stopped` when cancelled or closed. */
+  private async play(s: Speech, voice: string, chunks: { text: string; cache: boolean }[]): Promise<'done' | 'stopped' | 'congested'> {
     const { tts, cache, io } = this.deps;
     const signal = s.abort.signal;
     const started = Date.now();
@@ -268,7 +296,7 @@ export class Session {
     let fill = 0;
     let total = 0;
     let cached = 0;
-    const live = () => !signal.aborted && !this.closed;
+    const live = () => !signal.aborted && !this.closed && !congested;
     const push = (pcm: Int16Array) => {
       for (let i = 0; i < pcm.length && live(); ) {
         const n = Math.min(frameLen - fill, pcm.length - i);
@@ -277,12 +305,17 @@ export class Session {
         i += n;
         total += n;
         if (fill === frameLen) {
-          io.frame(encodeFrame(s.id, out));
+          send(encodeFrame(s.id, out));
           fill = 0;
         }
       }
     };
 
+    let congested = false;
+    const stopped = () => (congested ? 'congested' : 'stopped');
+    const send = (bytes: Uint8Array) => {
+      if (!io.frame(bytes)) congested = true;
+    };
     for (const chunk of chunks) {
       const hit = chunk.cache ? cache.get(voice, chunk.text) : undefined;
       if (hit !== undefined) {
@@ -291,19 +324,21 @@ export class Session {
       } else {
         const pieces: Int16Array[] = [];
         for await (const piece of tts.synthesize(chunk.text, voice, signal)) {
-          if (!live()) return;
+          if (!live()) return stopped();
           push(piece);
           if (chunk.cache) pieces.push(piece.slice());
         }
-        if (!live()) return;
+        if (!live()) return stopped();
         if (chunk.cache) cache.set(voice, chunk.text, concat(pieces));
       }
-      if (!live()) return;
+      if (!live()) return stopped();
     }
-    if (fill > 0) io.frame(encodeFrame(s.id, out.subarray(0, fill)));
+    if (fill > 0) send(encodeFrame(s.id, out.subarray(0, fill)));
+    if (!live()) return stopped();
     const audioMs = Math.round((total * 1000) / tts.sampleRate);
     this.send({ t: 'audio_end', id: s.id, audioMs });
     this.deps.log('tts_done', { audioMs, ms: Date.now() - started, chunks: chunks.length, cached });
+    return 'done';
   }
 }
 

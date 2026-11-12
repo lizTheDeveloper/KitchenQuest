@@ -8,7 +8,7 @@ import { loadVoiceConfig } from '../src/config';
 import { ALLOWED_LICENCES, castable, type EngineEntry, loadManifest, parseManifest, type VoiceManifest } from '../src/models';
 
 const manifest = loadManifest();
-const NC_OR_ND = /(^|-)(NC|ND)(-|$)/;
+const NC_OR_ND = /(^|-)(NC|ND)(-|$)/i;
 const TOKEN = 'a-dev-token-for-tests-only-0123456789';
 
 function devEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {

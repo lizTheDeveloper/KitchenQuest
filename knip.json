@@ -59,7 +59,8 @@
     },
     "apps/voice": {
       "entry": [
-        "test/**/*.test.ts"
+        "test/**/*.test.ts",
+        "test/fixtures/fault-engines.ts"
       ],
       "project": [
         "src/**/*.ts",

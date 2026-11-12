@@ -1,7 +1,7 @@
 // M7 Step 2: the WebSocket server. Only the API may connect (a shared bearer token, compared in constant time); the
 // service knows no user and logs only enums and numbers.
 import { readdirSync, readFileSync } from 'node:fs';
-import { connect as netConnect } from 'node:net';
+import { connect as netConnect, type Socket } from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, test } from 'vitest';
@@ -126,9 +126,11 @@ test('P2: apps/voice/src never imports speechText or speechChunks; the API alone
 
 describe('fix round 1 (review I1, I3)', () => {
   // The reviewer's probe: 300 raw upgrades with a bad token, each then sending 5 × 60 KB and never answering a close.
+  // A socket that is upgraded (101) is kept open, so every refusal is concurrent with it; it is destroyed at the end.
   async function probe(port: number, authorization: string, count = 300): Promise<{ closedWithin: number; statuses: Map<string, number> }> {
     const junk = Buffer.alloc(60 * 1024, 0x4b);
     const statuses = new Map<string, number>();
+    const upgraded: Socket[] = [];
     const started = Date.now();
     await Promise.all(
       Array.from(
@@ -140,22 +142,32 @@ describe('fix round 1 (review I1, I3)', () => {
                 'GET / HTTP/1.1\r\nHost: x\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\n' +
                   `Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nAuthorization: ${authorization}\r\n\r\n`,
               );
-              for (let i = 0; i < 5; i++) sock.write(junk);
+              if (!authorization.includes(TEST_TOKEN)) for (let i = 0; i < 5; i++) sock.write(junk);
             });
             let head = '';
-            sock.on('data', (d: Buffer) => {
-              if (head.length < 64) head += d.toString('latin1');
-            });
-            sock.on('error', () => {});
-            sock.on('close', () => {
+            let done = false;
+            const finish = () => {
+              if (done) return;
+              done = true;
               const status = /^HTTP\/1\.1 (\d{3})/.exec(head)?.[1] ?? 'none';
               statuses.set(status, (statuses.get(status) ?? 0) + 1);
               resolve();
+            };
+            sock.on('data', (d: Buffer) => {
+              if (head.length < 64) head += d.toString('latin1');
+              if (head.startsWith('HTTP/1.1 101')) {
+                upgraded.push(sock);
+                finish();
+              }
             });
+            sock.on('error', () => {});
+            sock.on('close', finish);
           }),
       ),
     );
-    return { closedWithin: Date.now() - started, statuses };
+    const closedWithin = Date.now() - started;
+    for (const u of upgraded) u.destroy();
+    return { closedWithin, statuses };
   }
 
   test('I3: 300 unauthenticated upgrades are refused with 401 and every socket is closed by the server within 3 s; memory stays bounded', async () => {
@@ -174,7 +186,6 @@ describe('fix round 1 (review I1, I3)', () => {
   test('I3: over capacity, pending upgrades count: 300 authorised upgrades against maxConnections 2 → 2 upgraded, 298 refused with 503, all closed', async () => {
     const { port } = await start(2);
     const { closedWithin, statuses } = await probe(port, `Bearer ${TEST_TOKEN}`);
-    // The two upgraded sockets send junk that is not a valid masked frame, so the server closes them too.
     expect(statuses.get('503')).toBe(298);
     expect(statuses.get('101')).toBe(2);
     expect(closedWithin).toBeLessThan(3000);

@@ -35,7 +35,8 @@ const value = (env: NodeJS.ProcessEnv, name: string): string | undefined => {
 
 export function loadVoiceConfig(env: NodeJS.ProcessEnv, manifest: VoiceManifest): VoiceConfig {
   const production = env.NODE_ENV === 'production';
-  const port = intVar(env, 'VOICE_PORT', DEFAULT_PORT, 0, 65_535);
+  // Fix round 1 (M8): never 0, a random port the API could never find. Tests pass a config, not an env.
+  const port = intVar(env, 'VOICE_PORT', DEFAULT_PORT, 1, 65_535);
   const maxConnections = intVar(env, 'VOICE_MAX_CONNECTIONS', DEFAULT_MAX_CONNECTIONS, 1, 10_000);
 
   const rawToken = env.VOICE_SERVICE_TOKEN ?? '';

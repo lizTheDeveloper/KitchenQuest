@@ -59,7 +59,8 @@ async function startMain(): Promise<Child> {
   let err = '';
   const child = spawn(process.execPath, [...NODE_FLAGS, '--import', tsxLoader, '--import', preload, mainTs], {
     cwd: dirs[2],
-    env: { PATH: process.env.PATH, TMPDIR: dirs[0], HOME: dirs[1], VOICE_SERVICE_TOKEN: TEST_TOKEN, VOICE_PORT: String(port), VOICE_ENGINE: 'fake' },
+    // tsx's compile cache would otherwise land in TMPDIR: source code, not audio, but it would mask a real write.
+    env: { TSX_DISABLE_CACHE: '1', PATH: process.env.PATH, TMPDIR: dirs[0], HOME: dirs[1], VOICE_SERVICE_TOKEN: TEST_TOKEN, VOICE_PORT: String(port), VOICE_ENGINE: 'fake' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   child.stdout.on('data', (d: Buffer) => (out += d.toString('utf8')));

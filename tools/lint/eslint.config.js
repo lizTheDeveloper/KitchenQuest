@@ -123,6 +123,28 @@ export default tseslint.config(
     rules: { '@typescript-eslint/require-await': 'off' },
   },
 
+  // M7 C-18: apps/voice logs only through its typed logger (log.ts), which keeps numbers and enums. No console, and no
+  // direct stdout or stderr anywhere else, so a stray `console.log(frame)` is a lint failure. main.ts writes a boot
+  // refusal (config only, before any session) to stderr.
+  {
+    files: ['apps/voice/src/**/*.ts'],
+    ignores: ['apps/voice/src/log.ts', 'apps/voice/src/main.ts'],
+    languageOptions: { globals: globals.node },
+    rules: {
+      'no-console': 'error',
+      'no-restricted-properties': [
+        'error',
+        { object: 'process', property: 'stdout', message: 'apps/voice logs only through log.ts (C-18).' },
+        { object: 'process', property: 'stderr', message: 'apps/voice logs only through log.ts (C-18).' },
+      ],
+    },
+  },
+  {
+    files: ['apps/voice/src/log.ts', 'apps/voice/src/main.ts'],
+    languageOptions: { globals: globals.node },
+    rules: { 'no-console': 'error' },
+  },
+
   // Scripts and one-shot CLIs: console output is their interface.
   {
     files: ['scripts/**', 'apps/*/scripts/**', '**/*-cli.ts', '**/*.config.{ts,js,cjs,mjs}'],

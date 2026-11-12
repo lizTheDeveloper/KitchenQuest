@@ -159,6 +159,7 @@ describe('Session: listening', () => {
     t.msg({ t: 'listen', id: 1, hint: [] });
     t.frame(1, 320, 0x4b51);
     t.msg({ t: 'end', id: 1 });
+    await until(() => typeof release === 'function'); // the engine has the buffer
     t.session.close();
     release('late words');
     await t.session.idle();
@@ -365,6 +366,7 @@ describe('Session: fix round 1 (review I1, M2)', () => {
       h.msg({ t: 'listen', id, hint: [] });
       h.frame(id, 320, 0x4b51);
       h.msg({ t: 'end', id });
+      if (id === 1) await until(() => calls === 1);
     }
     expect(calls).toBe(1);
     expect(h.sent.slice(1)).toEqual([2, 3, 4, 5].map((id) => ({ t: 'failed', id, kind: 'stt' })));
