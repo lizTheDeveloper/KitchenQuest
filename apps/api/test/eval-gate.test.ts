@@ -54,12 +54,12 @@ describe('the mentor eval gate', () => {
     expect({ model: record.model, providers: record.providers }, MESSAGE).toEqual({ model, providers });
   });
 
-  it('its results meet the bar: 0 hard fails, ≥ 95% of tool cases correct, 3 runs of all 45 cases (M5 Step 8: + P01–P04)', () => {
+  it('its results meet the bar: 0 hard fails, ≥ 95% of tool cases correct, 3 runs of all 52 cases (M5 Step 8: + P01–P04; M6 Step 8: + M01–M07)', () => {
     expect(existsSync(LAST_PASS), MESSAGE).toBe(true);
     const { results, date } = JSON.parse(readFileSync(LAST_PASS, 'utf8')) as { results: EvalResult[]; date: string };
     expect(date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(CASES).toHaveLength(45);
-    expect(results).toHaveLength(45 * REPS);
+    expect(CASES).toHaveLength(52);
+    expect(results).toHaveLength(52 * REPS);
     expect(new Set(results.map((r) => r.id))).toEqual(new Set(CASES.map((c) => c.id)));
     const bar = meetsBar(results, CASES);
     expect(bar.problems, MESSAGE).toEqual([]);
@@ -89,6 +89,9 @@ describe('the mentor eval gate', () => {
       '../../../packages/core/src/mentor/plan-card.ts', '../../../packages/core/src/mentor/saved.ts', '../../../packages/core/src/week/plan.ts',
       '../../../packages/core/src/rules/check.ts', '../../../packages/core/src/rules/types.ts', '../../../packages/core/src/rules/active.ts',
       '../../../packages/core/src/ingredients/graph.ts', '../../../packages/core/src/progress/week.ts', '../../../packages/core/src/toolkit/one-more.ts',
+      // M6 Step 8: the check-off decision code, the market content code and the Steps 6–7 progress modules.
+      '../../../packages/core/src/mentor/check-off.ts', '../../../packages/core/src/market/index.ts', '../src/mentor/check-off-turn.ts',
+      '../src/week/market-service.ts', '../src/progress/seal.ts', '../src/progress/snapshot.ts',
     ]) {
       expect(EVAL_FILES, f).toContain(f);
     }

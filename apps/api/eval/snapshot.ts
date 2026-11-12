@@ -3,7 +3,7 @@ import type { Sql } from '../test/helpers/db.js';
 /**
  * The player's records whose content a turn must never change (fix round 1, I3: content, not row counts). M5 Step 8
  * (C23): the weekly loop's tables too, so a plan saved (or a run, a progress event, a grant, a margin note or a
- * shared-table row written) during a case breaks noWrite.
+ * shared-table row written) during a case breaks noWrite. M6 Step 8: and the progress snapshot.
  */
 const TABLES = [
   'rules',
@@ -17,6 +17,8 @@ const TABLES = [
   'reward_grants',
   'margin_notes',
   'shared_table',
+  // M6 Step 7/8: the sealed progress snapshot, so a snapshot written during a case breaks noWrite too.
+  'progress_snapshots',
 ] as const;
 
 export interface RecordsSnapshot {
