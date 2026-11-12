@@ -166,6 +166,8 @@ export interface WorkerPoolOptions {
   model: string;
   modelsDir: string;
   size: number;
+  /** TTS: the cast voice (kokoro serves one language per process and warms up with it). */
+  voice?: string;
   /** Extra worker arguments: tests only (`--leak-for-test`). */
   extraArgs?: string[];
   /** Deadlines in ms; tests shorten them. */
@@ -280,16 +282,17 @@ export class WorkerPool {
   // --- internals -----------------------------------------------------------------------------------------------------
 
   private args(): string[] {
-    const { engine, model, modelsDir, extraArgs = [] } = this.opts;
+    const { engine, model, modelsDir, voice, extraArgs = [] } = this.opts;
     // -I: isolated (no user site, no PYTHON* variables, no script directory on sys.path). -B: no .pyc writes.
     // -S for echo: no site-packages at all, which proves the echo path is stdlib only (D4).
     const flags = engine === 'echo' ? ['-I', '-S', '-B'] : ['-I', '-B'];
-    return [...flags, WORKER_SCRIPT, '--engine', engine, '--model', model, '--models-dir', modelsDir, ...extraArgs];
+    return [...flags, WORKER_SCRIPT, '--engine', engine, '--model', model, '--models-dir', modelsDir, ...(voice === undefined ? [] : ['--voice', voice]), ...extraArgs];
   }
 
   private env(): NodeJS.ProcessEnv {
     // An allowlist: the worker never sees VOICE_SERVICE_TOKEN or any other secret.
-    const env: NodeJS.ProcessEnv = { HF_HUB_OFFLINE: '1', HF_HUB_DISABLE_TELEMETRY: '1', OMP_NUM_THREADS: '1', LANG: 'C.UTF-8' };
+    // ORT_DISABLE_TELEMETRY: onnxruntime 1.31 otherwise writes a device id under HOME and a .ses file in TMPDIR.
+    const env: NodeJS.ProcessEnv = { HF_HUB_OFFLINE: '1', HF_HUB_DISABLE_TELEMETRY: '1', ORT_DISABLE_TELEMETRY: '1', OMP_NUM_THREADS: '1', LANG: 'C.UTF-8' };
     for (const k of ['PATH', 'HOME', 'TMPDIR', 'LD_LIBRARY_PATH'] as const) if (process.env[k] !== undefined) env[k] = process.env[k];
     return env;
   }

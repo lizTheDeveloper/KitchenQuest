@@ -26,6 +26,8 @@ Environment=VOICE_WORKER_ENGINE=real
 Environment=VOICE_HOST=127.0.0.1
 Environment=VOICE_PORT=3100
 Environment=HF_HUB_OFFLINE=1
+# onnxruntime 1.31 otherwise writes a device id and a .ses session file (C-18: the service writes nothing).
+Environment=ORT_DISABLE_TELEMETRY=1
 Environment=TSX_DISABLE_CACHE=1
 # --disable-warning, never the blanket no-warnings flag: main.ts logs every warning by name, and its handler is what keeps stderr
 # content-free; on Node 22 this flag changes nothing there (see main.ts).

@@ -31,7 +31,7 @@ async function workerEngines(config: VoiceConfig, manifest: VoiceManifest): Prom
   const base = { python: config.python, modelsDir: config.modelsDir, size: config.workers };
   const ttsEntry = castable(manifest, config.cast.model, config.cast.voice);
   const sttPool = new WorkerPool({ ...base, engine: echo ? 'echo' : 'whisper', model: config.sttModel });
-  const ttsPool = new WorkerPool({ ...base, engine: echo ? 'echo' : ttsWorkerEngine(ttsEntry.engine), model: config.cast.model });
+  const ttsPool = new WorkerPool({ ...base, engine: echo ? 'echo' : ttsWorkerEngine(ttsEntry.engine), model: config.cast.model, voice: config.cast.voice });
   const started = await Promise.allSettled([sttPool.start(), ttsPool.start()]);
   const failed = started.find((r): r is PromiseRejectedResult => r.status === 'rejected');
   if (failed) {

@@ -331,21 +331,106 @@ class Whisper:
             audio.fill(0)
 
 
+class _MemFile:
+    """
+    An in-memory file (memfd) standing in for phonemizer's NamedTemporaryFile, into which espeak-ng writes each text's
+    phonemes. On disk that file would hold the last phonemised line (the Pan's speech, which can read back the
+    player's words) between calls; a memfd is never on disk. espeak opens it again by its /proc path.
+    """
+
+    def __init__(self):
+        self.fd = os.memfd_create("kq-phonemes", 0)
+        self.name = "/proc/self/fd/%d" % self.fd
+        self.mode = "w+b"
+
+    def truncate(self, n):
+        os.ftruncate(self.fd, n)
+
+    def seek(self, n):
+        os.lseek(self.fd, n, os.SEEK_SET)
+
+    def read(self):
+        out = bytearray()
+        while True:
+            chunk = os.read(self.fd, 65536)
+            if not chunk:
+                return bytes(out)
+            out += chunk
+
+    def close(self):
+        pass
+
+
+PHONEMIZER_VERSION = "3.6.0"  # requirements.txt; the two patches below are written against it
+
+
+def _phonemizer_in_memory():
+    """
+    phonemizer, as kokoro-onnx uses it, writes to disk twice: a copy of the espeak-ng library into a temporary
+    directory (so that several copies can be loaded), and each phonemised text into a temporary file. This worker
+    needs one copy only, so the library is loaded in place, and the text goes to a memfd. A phonemizer other than the
+    pinned one is refused rather than patched blind.
+    """
+    import ctypes
+
+    import phonemizer
+    from phonemizer.backend.espeak import api, wrapper
+
+    if getattr(phonemizer, "__version__", None) != PHONEMIZER_VERSION:
+        raise ValueError("phonemizer")
+
+    def init_in_place(self, library, data_path):
+        self._library = None
+        self._library = ctypes.cdll.LoadLibrary(str(library))
+        version = self._version()
+        if version < (1, 48):
+            raise RuntimeError("espeak")
+        if data_path is not None:
+            data_path = self._data_path_argument(data_path, version, None)
+        if self._library.espeak_Initialize(0x02, 0, data_path, 0) <= 0:
+            raise RuntimeError("espeak")
+        self._tempdir = None
+        self._library_path = self._shared_library_path(self._library)
+
+    def mem_tempfile(self):
+        if getattr(self, "_kq_mem", None) is None:
+            self._kq_mem = _MemFile()
+        return self._kq_mem
+
+    api.EspeakAPI.__init__ = init_in_place
+    wrapper.EspeakWrapper._tempfile = property(mem_tempfile)
+
+
 class Kokoro:
-    """kokoro-onnx (Apache-2.0 weights; espeak-ng in this process). One chunk per call (the spike: no per-sentence stream)."""
+    """
+    kokoro-onnx (Apache-2.0 weights; espeak-ng in this process). One chunk per call (the spike: no per-sentence
+    stream). espeak-ng holds one language per process, so the worker serves the cast voice's language only.
+    """
 
     name = "kokoro"
     sample_rate = 24000
 
-    def __init__(self, models_dir, model, threads):
+    def __init__(self, models_dir, model, threads, voice):
+        _phonemizer_in_memory()
         from kokoro_onnx import Kokoro as K
 
         base = os.path.join(models_dir, model)
         self.k = K(os.path.join(base, "kokoro-v1.0.onnx"), os.path.join(base, "voices-v1.0.bin"))
+        if not voice:
+            raise ValueError("voice")
+        self.voice = voice
+        self.lang = self._lang(voice)
+        warm, _rate = self.k.create("Ready.", voice=voice, speed=1.0, lang=self.lang)
+        zero(warm)
+
+    @staticmethod
+    def _lang(voice):
+        return "en-gb" if voice.startswith("b") else "en-us"
 
     def tts(self, text, voice, job_id):
-        lang = "en-gb" if voice.startswith("b") else "en-us"
-        samples, rate = self.k.create(text, voice=voice, speed=1.0, lang=lang)
+        if self._lang(voice) != self.lang:
+            raise ValueError("voice")
+        samples, rate = self.k.create(text, voice=voice, speed=1.0, lang=self.lang)
         try:
             if rate != self.sample_rate:
                 raise ValueError("rate")
@@ -356,7 +441,12 @@ class Kokoro:
 
 
 class Piper:
-    """Piper as a further separate process (Ruling 14): `piper --output-raw`, one process per call, killed on cancel."""
+    """
+    Piper as a further separate process (Ruling 14): `piper --output-raw`, one process per call, its end of output
+    marking the end of the reply (the CLI has no delimiter between lines). Loading the voice costs about a second, so
+    one spare process is started ahead, already loaded and waiting on its stdin, and the next spare is started as soon
+    as a call takes it. A cancelled call's process is killed.
+    """
 
     name = "piper"
 
@@ -369,13 +459,24 @@ class Piper:
         with open(self.model + ".json", "rb") as fh:
             self.sample_rate = int(json.load(fh)["audio"]["sample_rate"])
         self.bin = piper_bin or os.path.join(os.path.dirname(sys.executable), "piper")
+        if not os.path.exists(self.bin):
+            raise ValueError("piper")
         self.cwd = base
+        # Warm up before answering ping: one throwaway line through its own process (which also proves the binary
+        # and the voice work), while the first spare loads alongside it.
+        self.spare = self._start()
+        warm = self._start()
+        out, _ = warm.communicate(b"Ready.\n")
+        if warm.returncode != 0 or len(out) == 0:
+            raise ValueError("piper")
+        out = None
 
-    def tts(self, text, voice, job_id):
+    def _start(self):
         import subprocess
 
-        env = {"PATH": os.environ.get("PATH", ""), "PYTHONDONTWRITEBYTECODE": "1", "HF_HUB_OFFLINE": "1", "OMP_NUM_THREADS": "1"}
-        proc = subprocess.Popen(
+        # No HOME and no TMPDIR to write to, and onnxruntime's telemetry off (it writes a device id and a .ses file).
+        env = {"PATH": os.environ.get("PATH", ""), "PYTHONDONTWRITEBYTECODE": "1", "HF_HUB_OFFLINE": "1", "OMP_NUM_THREADS": "1", "ORT_DISABLE_TELEMETRY": "1"}
+        return subprocess.Popen(
             [self.bin, "--model", self.model, "--config", self.model + ".json", "--output-raw"],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
@@ -383,18 +484,31 @@ class Piper:
             cwd=self.cwd,
             env=env,
         )
+
+    def _take(self):
+        proc = self.spare
+        if proc is None or proc.poll() is not None:
+            proc = self._start()
+        self.spare = self._start()
+        return proc
+
+    def tts(self, text, voice, job_id):
+        proc = self._take()
         try:
             proc.stdin.write(text.replace("\n", " ").encode("utf-8") + b"\n")
             proc.stdin.close()
+            carry = b""
             while True:
                 if is_cancelled(job_id):
                     return
-                chunk = proc.stdout.read1(8820) if hasattr(proc.stdout, "read1") else proc.stdout.read(8820)
+                chunk = proc.stdout.read1(8820)
                 if not chunk:
                     break
-                if len(chunk) % 2 == 1:
-                    chunk += proc.stdout.read(1)
-                yield chunk
+                chunk = carry + chunk
+                cut = len(chunk) - (len(chunk) % 2)
+                carry = chunk[cut:]
+                if cut > 0:
+                    yield chunk[:cut]
             if proc.wait() != 0:
                 raise ValueError("piper")
         finally:
@@ -444,7 +558,7 @@ def run_job(engine, header, payload):
 
 
 def parse_args(argv):
-    opts = {"engine": None, "model": "", "models_dir": "", "leaks": [], "piper": None, "threads": 1}
+    opts = {"engine": None, "model": "", "models_dir": "", "voice": "", "leaks": [], "piper": None, "threads": 1}
     i = 0
     while i < len(argv):
         flag = argv[i]
@@ -457,6 +571,8 @@ def parse_args(argv):
             opts["model"] = val
         elif flag == "--models-dir":
             opts["models_dir"] = val
+        elif flag == "--voice":
+            opts["voice"] = val
         elif flag == "--leak-for-test":
             opts["leaks"].append(val)
         elif flag == "--piper":
@@ -475,6 +591,7 @@ def load(opts):
     os.environ["HF_HUB_OFFLINE"] = "1"
     os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
     os.environ["TRANSFORMERS_OFFLINE"] = "1"
+    os.environ["ORT_DISABLE_TELEMETRY"] = "1"  # onnxruntime 1.31 otherwise writes a device id and a .ses file
     os.environ.setdefault("OMP_NUM_THREADS", str(opts["threads"]))
     engine = opts["engine"]
     if engine == "echo":
@@ -482,7 +599,7 @@ def load(opts):
     if engine == "whisper":
         return Whisper(opts["models_dir"], opts["model"], opts["threads"])
     if engine == "kokoro":
-        return Kokoro(opts["models_dir"], opts["model"], opts["threads"])
+        return Kokoro(opts["models_dir"], opts["model"], opts["threads"], opts["voice"])
     return Piper(opts["models_dir"], opts["model"], opts["threads"], opts["piper"])
 
 
