@@ -197,6 +197,9 @@ export function mountMentor(
     if (panel.mode === 'standard') {
       panel.onOpen(() => {
         const startedFor = current?.panel;
+        // Form 1-A never cuts into a conversation already under way: if the player spoke while its code was loading,
+        // it waits for the next open (its lines never land after the Pan's answer to what they said).
+        const turnAtOpen = panel.turn;
         intake ??= importIntake().then((m) => {
           const made = m.createIntake({
             panel, engine, ai: backend, store, client, dialogue, signedIn: () => store.get().account !== null,
@@ -205,7 +208,7 @@ export function mountMentor(
           if (services) services.intake = made;
           return made;
         });
-        intake.then((i) => { if (current?.panel === startedFor) i.start(); }, (err: unknown) => {
+        intake.then((i) => { if (current?.panel === startedFor && panel.turn === turnAtOpen) i.start(); }, (err: unknown) => {
           console.error(err);
           intake = null;
           // Only a player the interview would have met hears it (it starts only until Form 1-A is done).

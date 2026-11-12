@@ -67,6 +67,23 @@ describe('the intake is lazy (Form 1-A)', () => {
     await vi.waitFor(() => { expect(calls).toBe(2); });
   });
 
+  test('a player who speaks while it loads is never interrupted: it starts on the next open instead', async () => {
+    let resolve!: (m: IntakeModule) => void;
+    const real = await import('./intake');
+    const importIntake = vi.fn(() => new Promise<IntakeModule>((r) => { resolve = r; }));
+    const m = await mount(importIntake, { aiDisclosureSeen: true });
+    m.panel.open();
+    m.send('hello');
+    await vi.waitFor(() => { expect(m.panText().length).toBeGreaterThan(0); });
+    resolve(real);
+    await new Promise((r) => setTimeout(r, 20));
+    const opening = content.pan.triggers['intake.open'].lines;
+    expect(m.panText().some((t) => opening.includes(t))).toBe(false);
+    m.panel.close();
+    m.panel.open();
+    await vi.waitFor(() => { expect(m.panText().some((t) => opening.includes(t))).toBe(true); });
+  });
+
   test('Family Table never loads it', async () => {
     const importIntake = vi.fn(() => new Promise<IntakeModule>(() => {}));
     const m = await mount(importIntake, { ...READY, settings: { ...createStore(null).get().settings, familyTable: true, reducedMotion: 'on' } });
