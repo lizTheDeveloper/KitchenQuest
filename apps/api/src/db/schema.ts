@@ -523,6 +523,28 @@ export const rewardGrants = pgTable(
 );
 
 /**
+ * U-6 (M6 Step 7, Ruling 18; M5 m12): a cache of the player's progress fold, never a record. `sealed` is core's
+ * `ProgressSnapshot` (`{ view, facts }`) of every event with `seq <= upto_seq` and every grant made for them or for an
+ * event already erased, sealed S-U with AAD `{ table: 'progress_snapshots', userId, rowId: userId }` (the view holds
+ * dish slugs, answered stall question ids, Protein Counter ones included, and trust per cook). `catalogue_hash` is the
+ * catalogue, rewards and freshness it was folded under: a different hash, or a blob that won't open, and it is ignored
+ * and rebuilt from the ledgers. A trigger (`progress_events_drop_snapshot`, migration 0020) deletes the row whenever any
+ * of the player's progress events is deleted (a meal-log undo's cascade, a `health_data` delete), in the same
+ * transaction, so a snapshot never outlives an erased event. Written under `progress:` (last in the table order); account
+ * delete cascades.
+ */
+export const progressSnapshots = pgTable("progress_snapshots", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  uptoSeq: bigint("upto_seq", { mode: "number" }).notNull(),
+  catalogueHash: text("catalogue_hash").notNull(),
+  sealed: bytea("sealed").notNull(),
+  /** Set from the app's injected clock. */
+  createdAt: ts("created_at").notNull(),
+});
+
+/**
  * H-11 (M5 Step 6, Ruling 18): one weekly plan per plan week. `sealed` is core's `Plan` minus `weekStart` (dish and
  * lesson slugs per day, servings, the hard-week flag and the One More Technique slot), sealed S-U with AAD
  * `{ table: 'meal_plans', userId, rowId }`. `week_start` stays plain: a date only, needed for the lookup and the

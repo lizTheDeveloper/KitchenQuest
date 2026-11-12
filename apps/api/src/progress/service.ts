@@ -20,8 +20,10 @@ import { audit } from '../audit/audit.js';
 import { lockLiveUser } from '../auth/live-user.js';
 import type { Keyring } from '../crypto/keyring.js';
 import { lockUserProgress } from '../db/advisory-locks.js';
+import { QUESTION_ID_MAX, STALL_ID_MAX } from '../catalog.js';
 import { mealLogs, PROGRESS_KINDS } from '../db/schema.js';
-import { insertEvents, loadHistory, type Tx } from './store.js';
+import { catalogueHash, loadHistoryWithSnapshot, maybeWriteSnapshot, type SnapshotLog } from './snapshot.js';
+import { insertEvents, loadFullHistory, recordedFacts, type Tx } from './store.js';
 
 /** At most this many events in one POST /progress/events (more is a 400); a device log goes up in chunks. */
 export const MAX_EVENTS_PER_REQUEST = 100;
@@ -42,9 +44,13 @@ const day = z.string().max(10);
 const ref = z.string().max(REF_MAX);
 const num = z.number();
 const claims = z.array(ref).max(MAX_CLAIMS).optional();
-/** A stall round's caps (M6 Step 6): a stall id, each question id, and a pick (a file option index, 3–4 options). */
-const STALL_MAX = 40;
-const QUESTION_MAX = 80;
+/**
+ * A stall round's caps (M6 Step 6): a stall id, each question id, and a pick (a file option index, 3–4 options). The id
+ * caps are the catalogue's, which boot holds every stall file to (M6 Step 7, Task 6 review M2), so no id the content
+ * holds can be refused here.
+ */
+const STALL_MAX = STALL_ID_MAX;
+const QUESTION_MAX = QUESTION_ID_MAX;
 const MAX_PICK = 3;
 
 /**
@@ -121,6 +127,8 @@ export interface ProgressDeps {
   healthConsent?: () => Promise<boolean>;
   /** The daily write cap (the app's `assertUnderWriteCap` on 'progress.record'): throws a 429 before anything is read or written. */
   writeCap?: () => Promise<void>;
+  /** The request's logger, for the content-free warning of an unreadable snapshot (M6 Step 7). */
+  log?: SnapshotLog;
 }
 
 export interface RecordResult {
@@ -188,7 +196,8 @@ function evaluate(candidates: ProgressEvent[], history: ProgressHistory, deps: P
  * Records a batch of progress events for the player, inside the caller's transaction (Ruling 7). Order:
  * `lockLiveUser` (401) → advisory `progress:` (the last advisory lock) → the daily write cap (429) → when the batch has
  * a `meal_logged` event or a health-revealing `stall_round`, the `health_data` grant (share-locked: the consent row comes after the advisory locks) →
- * load the whole history (`base: null`; the account never compacts) → per event, in the order sent:
+ * load the history (from the sealed snapshot plus the events after it when usable, M6 Step 7; else the whole ledgers,
+ * `base: null`) → per event, in the order sent:
  * - a shape outside core's `ProgressEvent`, or a client id that is not a UUID → rejected `bad_event` (`unknown_kind`
  *   for a kind core doesn't have);
  * - a client id already stored (an erased event's id stays seen through its grants) → `duplicate`;
@@ -207,6 +216,7 @@ function evaluate(candidates: ProgressEvent[], history: ProgressHistory, deps: P
  * The daily cap is per event (C14): core's `too_many_events` rejects only an event past MAX_PROGRESS_EVENTS_PER_DAY
  * for its `at`, and the rest of the batch is still recorded. Never fails the whole batch for one bad event.
  * Audits 'progress.record' with counts only (no ids, slugs or quests), when anything was recorded; the write cap counts those.
+ * Then, still under `progress:`, refreshes the snapshot when more than SNAPSHOT_EVERY events follow it (`maybeWriteSnapshot`).
  */
 export async function recordEventsIn(
   tx: Tx,
@@ -257,9 +267,16 @@ export async function recordEventsIn(
     for (const r of own) eatenOn.set(r.id, r.eatenOn);
   }
 
-  const history = await loadHistory(tx, deps.keyring, userId);
-  const seen = new Set([...history.events.map((e) => e.id), ...history.grants.map((g) => g.eventId)]);
-  const claimed = new Set(history.events.map(claimOf).filter((c): c is string => c !== null));
+  // From the snapshot when it is usable (M6 Step 7): `base` then folds the older events, so what was seen and claimed
+  // is read from the tables (the same sets M5 built from the whole history).
+  const hash = catalogueHash(deps.catalogue, deps.rewards, deps.thresholds);
+  const history = await loadHistoryWithSnapshot(tx, deps.keyring, userId, deps.catalogue, hash, deps.log);
+  const { seen, claimed } = await recordedFacts(
+    tx,
+    userId,
+    parsed.map((e) => e.id),
+    meals.map((m) => m.mealLogId ?? '').filter((m) => m !== ''),
+  );
   const oldest = opts.upload ? PROGRESS_EPOCH : [PROGRESS_EPOCH, addDays(today, -LIVE_DAYS_BACK)].sort()[1];
   const newest = addDays(today, DAYS_AHEAD);
   const inWindow = (d: string) => !isValidDate(d) || (d >= oldest && d <= newest);
@@ -336,8 +353,10 @@ export async function recordEventsIn(
       at,
     );
   }
+  // Still under `progress:`, after the events and grants (progress_snapshots is last in the table order).
+  if (kept.length > 0) await maybeWriteSnapshot(tx, deps.keyring, userId, deps.catalogue, hash, at, deps.log);
   const view = deriveProgress(
-    { events: [...history.events, ...kept.map((r) => r.event)], grants: [...history.grants, ...kept.flatMap((r) => r.grants)], base: null },
+    { events: [...history.events, ...kept.map((r) => r.event)], grants: [...history.grants, ...kept.flatMap((r) => r.grants)], base: history.base },
     deps.catalogue,
   );
   return {
@@ -349,7 +368,28 @@ export async function recordEventsIn(
   };
 }
 
-/** The view of the player's stored history (GET /progress); call it inside one read transaction (M1). */
-export async function progressViewOf(db: Pick<Tx, 'select'>, keyring: Keyring, userId: string, catalogue: Catalogue): Promise<ProgressView> {
-  return deriveProgress(await loadHistory(db, keyring, userId), catalogue);
+/** What a snapshot needs to be usable for a read: the hash of the catalogue, rewards and freshness in force. */
+export interface SnapshotUse {
+  rewards: RewardsData;
+  thresholds: FreshnessThresholds;
+  log?: SnapshotLog;
+}
+
+/**
+ * The view of the player's stored history (GET /progress); call it inside one read transaction (M1). From the
+ * snapshot plus the events after it when `snapshot` gives the rewards and freshness in force (M6 Step 7), else from the
+ * whole ledgers: the same view either way.
+ */
+export async function progressViewOf(
+  db: Pick<Tx, 'select' | 'transaction'>,
+  keyring: Keyring,
+  userId: string,
+  catalogue: Catalogue,
+  snapshot?: SnapshotUse,
+): Promise<ProgressView> {
+  const history =
+    snapshot === undefined
+      ? await loadFullHistory(db, keyring, userId)
+      : await loadHistoryWithSnapshot(db, keyring, userId, catalogue, catalogueHash(catalogue, snapshot.rewards, snapshot.thresholds), snapshot.log);
+  return deriveProgress(history, catalogue);
 }

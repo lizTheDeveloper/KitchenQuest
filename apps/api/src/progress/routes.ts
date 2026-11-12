@@ -59,9 +59,15 @@ export async function progressRoutes(app: FastifyInstance, deps: ProgressRouteDe
   };
 
   app.get('/progress', { preHandler: [requireUser, limited] }, async (req) => {
-    // One snapshot (M1): the events and the grants come from the same moment.
+    // One snapshot (M1): the events and the grants come from the same moment. The sealed progress snapshot (M6 Step 7)
+    // and the events after it are read in that same transaction.
     const view = await db.transaction(
-      async (tx: Tx) => progressViewOf(tx, config.keyring, req.user.id, catalogueFor(await deps.recipes.current(tx), deps.loop)),
+      async (tx: Tx) =>
+        progressViewOf(tx, config.keyring, req.user.id, catalogueFor(await deps.recipes.current(tx), deps.loop), {
+          rewards: deps.loop.rewards,
+          thresholds: deps.loop.thresholds,
+          log: req.log,
+        }),
       { isolationLevel: 'repeatable read' },
     );
     await countSelfRead(db, req.user.id, 'progress', now());
@@ -88,6 +94,7 @@ export async function progressRoutes(app: FastifyInstance, deps: ProgressRouteDe
         rules: () => deps.rulesFor(tx, userId, today, recipes),
         healthConsent: () => deps.healthConsentFor(tx, userId, at),
         writeCap: () => deps.writeCapFor(tx, userId, at),
+        log: req.log,
       };
       return recordEventsIn(tx, progressDeps, userId, events, today, at, { upload: upload === true }, req.id);
     });

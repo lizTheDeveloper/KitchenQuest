@@ -60,7 +60,10 @@ export async function planCardContext(tx: Tx, deps: PlanTurnDeps, userId: string
   const rules = await loadRules(tx, deps.keyring, userId);
   const stored = await loadPlan(tx, deps.keyring, userId, weekStart);
   const ctx = { ...planContext(week, weekStart, rules), existing: stored?.items ?? [] };
-  const { toolkit } = await progressViewOf(tx, deps.keyring, userId, catalogueFor(recipes, deps.week.loop));
+  const { toolkit } = await progressViewOf(tx, deps.keyring, userId, catalogueFor(recipes, deps.week.loop), {
+    rewards: deps.week.loop.rewards,
+    thresholds: deps.week.loop.thresholds,
+  });
   return {
     ...ctx,
     slot: {

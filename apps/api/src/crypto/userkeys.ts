@@ -74,6 +74,19 @@ export async function sealFor(db: ReadWriter, keyring: Keyring, ctx: SealContext
 }
 
 /**
+ * `sealFor` for many values of one owner: the data key is loaded (or created, stamped `now`) once, not once per value
+ * (M6 Step 7, Task 6 review M4: a progress post seals up to 100 rounds inside the `progress:` lock). Each value is
+ * sealed under its own context, whose `userId` must be this owner.
+ */
+export async function sealerFor(db: ReadWriter, keyring: Keyring, userId: string, now?: Date): Promise<(ctx: SealContext, value: unknown) => Buffer> {
+  const key = await userKey(db, keyring, userId, now);
+  return (ctx, value) => {
+    if (ctx.userId !== userId) throw new Error('sealerFor: a value of another user');
+    return seal(value, key, USER_KEY_ID, contextFor(ctx));
+  };
+}
+
+/**
  * Opens a blob sealed by `sealFor` under the same context. Throws if the
  * context differs, the blob was tampered with, or the user has no data key
  * (account deleted: the data is crypto-shredded).

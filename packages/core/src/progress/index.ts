@@ -13,5 +13,5 @@ export type {
 } from './types';
 export { MAX_PROGRESS_EVENTS_PER_DAY, grantsFor, grantsForBatch, isHealthRevealing, marketCatalogue, validateRewards } from './rewards';
 export type { GrantResult, ProgressProblem, ProgressWarning } from './rewards';
-export { compactHistory, deriveProgress, eraseEvents, levelFor, trustLevel } from './derive';
+export { SNAPSHOT_EVERY, compactHistory, deriveProgress, eraseEvents, levelFor, trustLevel } from './derive';
 export { isoWeek, planWeekStart } from './week';

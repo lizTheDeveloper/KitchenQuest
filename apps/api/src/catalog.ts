@@ -42,6 +42,14 @@ export interface Catalog {
   ruleTerms: readonly RuleTerm[];
 }
 
+/**
+ * The longest stall id and stall question id a progress event may carry (M6 Step 6's event shape). Boot refuses a stall
+ * file whose id or any question id is longer (M6 Step 7, Task 6 review M2), so a long seasonal id fails the build, not
+ * silently every answer to it (`bad_event`, the round lost).
+ */
+export const STALL_ID_MAX = 40;
+export const QUESTION_ID_MAX = 80;
+
 /** The repository's `data/` directory. */
 const DATA_DIR = fileURLToPath(new URL('../../../data/', import.meta.url));
 
@@ -267,10 +275,20 @@ export function loadLoopContent(catalog: Catalog, dataDir: string = DATA_DIR, co
     refuse(path, seasonalAgrees(file as unknown as StallFile, seasonality as SeasonTable));
     stallMap.set(id, deepFreeze(file as unknown as StallFile));
   }
+  let market: ReturnType<typeof marketCatalogue>;
   try {
-    marketCatalogue([...stallMap.values()]);
+    market = marketCatalogue([...stallMap.values()]);
   } catch (e) {
     throw new Error(`Catalog: ${join(contentDir, 'market')}: ${(e as Error).message}`);
+  }
+  for (const { id, path } of stallFiles) {
+    const tooLong = [
+      ...(id.length > STALL_ID_MAX ? [`stall id "${id}" is longer than ${STALL_ID_MAX} characters`] : []),
+      ...[...(market.get(id)?.questions.keys() ?? [])]
+        .filter((q) => q.length > QUESTION_ID_MAX)
+        .map((q) => `question id "${q}" is longer than ${QUESTION_ID_MAX} characters`),
+    ];
+    refuse(path, tooLong);
   }
   const stalls: ReadonlySet<string> = new Set(stallFiles.map((s) => s.id));
 
