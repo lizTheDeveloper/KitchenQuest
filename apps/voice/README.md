@@ -131,7 +131,9 @@ also verifies the models' sha256 pins; only production runs the latency gate.
   `GET /ready`: 200 or 503 (above). Anything else: 426.
 - WebSocket: a socket that sends nothing within 5 s, or nothing either way for 11 minutes, is closed with **4408**
   (longer than core's `HANDS_FREE_IDLE_MS`, so a quiet hands-free cook is not cut off; the API reconnects). Other close
-  codes: 4400 (a message the protocol refuses), 1011 (a handler error, or a client too slow to read), 1001 (shutdown).
+  codes: 4400 (a message the protocol refuses, including a `listen` that reuses the live utterance's id: ids are fresh
+  per listen), 1011 (a handler error, or a client too slow to read), 1001 (shutdown). These numbers live in core
+  (`UPSTREAM_CLOSE`, `UPSTREAM_REFUSAL`), and the API maps them (`upstreamClose`, `upstreamRefusal`; M7 Step 5).
 
 ## Benchmarking
 

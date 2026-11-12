@@ -44,12 +44,13 @@ describe('the voice allowance boundary (M7 Step 4, Ruling 5)', () => {
     expect(src).not.toMatch(/from\s*['"][^'"]*entitlements|GUILD_KINDS|mentor\/allowance/);
   });
 
-  it('only voice/status-routes.ts reads voiceState so far (Step 5 adds the voice route)', () => {
+  it('only voice/status-routes.ts and the voice route (Step 5) read voiceState, and the route never reads an entitlement itself', () => {
     const importers = files(SRC)
       .map((f) => relative(SRC, f))
       .filter((f) => f !== 'voice/allowance.ts')
       .filter((f) => /\bvoiceState\b/.test(readFileSync(join(SRC, f), 'utf8')));
-    expect(importers).toEqual(['voice/status-routes.ts']);
+    expect(importers.sort()).toEqual(['voice/routes.ts', 'voice/status-routes.ts']);
+    expect(readFileSync(join(SRC, 'voice/routes.ts'), 'utf8')).not.toMatch(/from\s*['"][^'"]*entitlements|GUILD_KINDS|accessibilityInForce/);
   });
 
   it('m1: GET /voice/status reads the setting once, through voiceState (status-routes.ts never calls accessibilityInForce)', () => {

@@ -88,6 +88,8 @@ describe('dialogue engine', () => {
       level: '3', stamp: 'A Quest, Completed With Thanks', friend: 'Doña Marisol',
       // M6 Step 5: the market's lines (Steps 8–10 supply these).
       swap: 'shallot', category: 'Local, stored from the autumn harvest', stall: 'Old Wen',
+      // M7 Step 5: the heard card's spoken half (the API renders it from its own transcript).
+      terms: 'sesame',
     };
     for (const id of REQUIRED_PAN_TRIGGERS) expect(createDialogue(content.pan).say(id, sample).text, id).not.toMatch(/[{}]/);
   });
