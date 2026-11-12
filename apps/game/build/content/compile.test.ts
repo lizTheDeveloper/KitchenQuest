@@ -387,6 +387,16 @@ describe('compileContent: each check fails with the path and the offending value
   });
 });
 
+describe('compileContent: one bad stall file reports only its own problem (fix round 1, M5)', () => {
+  it('a strict-schema miss in wen.yaml does not also blame data/stalls.json for naming wen', () => {
+    const files = valid();
+    files['content/market/wen.yaml'] = stall().replace('games:\n', 'colour: green\ngames:\n');
+    const problems = problemsOf(files);
+    expect(problems.some((p) => p.startsWith('content/market/wen.yaml') && p.includes('colour'))).toBe(true);
+    expect(problems.filter((p) => p.startsWith('data/stalls.json')), problems.join('\n')).toEqual([]);
+  });
+});
+
 describe('compileContent: Pan variables', () => {
   it('lets an ai: allowed trigger declare a variable its lines skip', () => {
     const files = valid();

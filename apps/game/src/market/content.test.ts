@@ -4,9 +4,9 @@ import { content, graph } from '../content';
 import type { MarketContent } from '../content/types';
 import { loadMarket, marketLoader } from './content';
 
-const stall = { id: 'x' };
+const fullStall = (): Record<string, unknown> => ({ id: 'x', triggers: {}, games: {}, questions: [], item_tips: {}, faq: [] });
 const market = (): MarketContent =>
-  ({ stalls: { wen: { ...stall }, bram: { ...stall }, 'okafor-sato': { ...stall }, spice: { ...stall } }, seasonality: { r: { months: { 11: { now: ['kale'] } } } }, version: 'abc' }) as unknown as MarketContent;
+  ({ stalls: { wen: fullStall(), bram: fullStall(), 'okafor-sato': fullStall(), spice: fullStall() }, seasonality: { r: { months: { 11: { now: ['kale'] } } } }, version: 'abc' }) as unknown as MarketContent;
 
 describe('loadMarket (M6 Step 5)', () => {
   test('loadMarket imports once and memoises; a failed import rejects (the screen shows its offline line), never a partial bank', async () => {
@@ -27,7 +27,15 @@ describe('loadMarket (M6 Step 5)', () => {
     // A module missing a stall, the table or its version is refused whole: never a partial bank.
     const partial = market() as unknown as { stalls: Record<string, unknown> };
     delete partial.stalls.spice;
-    await expect(marketLoader(() => Promise.resolve({ default: partial as unknown as MarketContent }))()).rejects.toThrow(/missing spice/);
+    await expect(marketLoader(() => Promise.resolve({ default: partial as unknown as MarketContent }))()).rejects.toThrow(/missing or partial: spice/);
+    // Fix round 1, M7: each stall whole too: its questions, triggers, games, tips and FAQ.
+    for (const hole of ['questions', 'triggers', 'games', 'item_tips', 'faq'] as const) {
+      const m = market() as unknown as { stalls: Record<string, Record<string, unknown>> };
+      m.stalls.bram = fullStall();
+      delete m.stalls.bram[hole];
+      for (const id of ['wen', 'okafor-sato', 'spice']) m.stalls[id] = fullStall();
+      await expect(marketLoader(() => Promise.resolve({ default: m as unknown as MarketContent }))(), hole).rejects.toThrow(/bram/);
+    }
     const noTable = { ...market(), seasonality: null } as unknown as MarketContent;
     await expect(marketLoader(() => Promise.resolve({ default: noTable }))()).rejects.toThrow(/incomplete/);
   });
@@ -36,6 +44,7 @@ describe('loadMarket (M6 Step 5)', () => {
     const m = await marketLoader(() => Promise.resolve({ default: market() }))();
     expect(Object.isFrozen(m)).toBe(true);
     expect(Object.isFrozen(m.stalls.wen)).toBe(true);
+    expect(Object.isFrozen(m.stalls.wen.questions)).toBe(true);
     const months = (m.seasonality as unknown as { r: { months: Record<string, { now: string[] }> } }).r.months;
     expect(Object.isFrozen(months[11].now)).toBe(true);
     expect(() => months[11].now.push('strawberry')).toThrow(TypeError);

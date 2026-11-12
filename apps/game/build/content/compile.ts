@@ -292,7 +292,9 @@ export function compileContent(files: Record<string, string>, opts: CompileOptio
   }
 
   // data/stalls.json: every value a content/market stall or 'general' (C11); every core StallId has a stall file.
-  const stallIdSet = new Set([...Object.keys(stalls), 'general']);
+  // By file name, not by the files that loaded (fix round 1, M5): a stall file with its own schema problem is reported
+  // once, and data/stalls.json is not blamed for naming it.
+  const stallIdSet = new Set([...stallPaths.map((p) => p.slice('content/market/'.length, -'.yaml'.length)), 'general']);
   const stallOf = idMap<StallMap>(STALLS, (d, g) => validateStallMap(d, g, stallIdSet));
   for (const id of Object.keys(stalls)) {
     if (!(STALL_IDS as readonly string[]).includes(id)) fail(`content/market/${id}.yaml`, `stall "${id}" is not a market stall the game knows (${STALL_IDS.join(', ')})`);

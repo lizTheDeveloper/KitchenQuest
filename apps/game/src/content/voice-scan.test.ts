@@ -56,7 +56,7 @@ const scanned = (file: string, where: string, text: string, kinds: readonly stri
 function collect(c: ClientContent): Scanned[] {
   const out: Scanned[] = [];
   const add = (file: string, where: string, text: string, kinds: string[] = []): void => void out.push(scanned(file, where, text, kinds));
-  for (const p of c.pan.persona ?? []) add(PAN, 'persona', p);
+  // (No persona cards: they never ship to the client, M6 Step 5; the server's prompt is checked by the API's own tests.)
   for (const [id, t] of Object.entries(c.pan.triggers)) t.lines.forEach((l, i) => add(PAN, `triggers.${id}[${i}]`, l, kindsOf(id)));
   for (const [id, cook] of Object.entries(c.cooks)) for (const [where, text] of strings(cook, '')) add(`content/cooks/${id}.yaml`, where, text);
   for (const [where, text] of strings(c.bureau, '')) add(BUREAU, where, text);
@@ -161,8 +161,11 @@ const PATTERNS: { name: string; re: RegExp; kinds?: string }[] = [
   { name: 'scarcity joke', re: SCARCITY, kinds: 'cupboard' },
 ];
 
-/** Keyed by location (file and path) and exact text (fix round 1, M7): the same words anywhere else are scanned. */
-const allowed = new Set(VOICE_ALLOWLIST.map((a) => `${a.file}\0${a.where}\0${a.line}`));
+/**
+ * Keyed by location (file and path) and exact text (fix round 1, M7): the same words anywhere else are scanned. Each
+ * entry excuses only its own patterns (M6 Step 5 fix round 1, M2).
+ */
+const allowed = new Map(VOICE_ALLOWLIST.map((a) => [`${a.file}\0${a.where}\0${a.line}`, new Set(a.patterns ?? [])]));
 /** This scan's own entries; the 'countdown' ones are proven needed by Step 12's never-rules sweep (e2e). */
 const VOICE_ENTRIES = VOICE_ALLOWLIST.filter((a) => (a.scan ?? 'voice') === 'voice');
 
@@ -170,11 +173,12 @@ const VOICE_ENTRIES = VOICE_ALLOWLIST.filter((a) => (a.scan ?? 'voice') === 'voi
 function scan(items: readonly Scanned[]): string[] {
   const problems: string[] = [];
   for (const it of items) {
-    if (allowed.has(`${it.file}\0${it.where}\0${it.text}`)) continue;
+    const excused = allowed.get(`${it.file}\0${it.where}\0${it.text}`);
     // {vars} are filled in by code; their names are not words the player reads.
     const text = it.text.replace(/\{\w+\}/g, 'X');
     for (const p of PATTERNS) {
       if (p.kinds !== undefined && !it.kinds.has(p.kinds)) continue;
+      if (excused?.has(p.name) === true) continue;
       if (p.re.test(text)) problems.push(`${it.file} ${it.where}: ${p.name}: ${it.text}`);
     }
   }
@@ -206,6 +210,24 @@ describe('voice scan of the client content (C29)', () => {
       expect(a.reason.length, a.line).toBeGreaterThan(20);
     }
     for (const a of VOICE_ENTRIES) expect(scan([line(a.line, [], `${a.file}#unlisted`)]), a.line).not.toEqual([]);
+  });
+
+  it('fix round 1, M2: an entry excuses only the patterns it was justified for, and names exactly the ones its line trips', () => {
+    // A new pattern that trips an allowlisted line fails here until the entry is re-justified for it.
+    const mismatched: string[] = [];
+    for (const a of VOICE_ENTRIES) {
+      const tripped = [...new Set(scan([line(a.line, [], `${a.file}#unlisted`)]).map((h) => h.split(': ')[1]))].sort();
+      if (JSON.stringify([...(a.patterns ?? [])].sort()) !== JSON.stringify(tripped)) mismatched.push(`${a.where}: ${JSON.stringify(tripped)}`);
+    }
+    // A location excuses nothing beyond its own patterns: with none listed, the exact line fails at its own place.
+    for (const a of VOICE_ENTRIES) {
+      const key = `${a.file}\0${a.where}\0${a.line}`;
+      const kept = allowed.get(key)!;
+      allowed.set(key, new Set());
+      expect(scan([line(a.line, [], a.file, a.where)]), a.line).not.toEqual([]);
+      allowed.set(key, kept);
+    }
+    expect(mismatched).toEqual([]);
   });
 
   it('an allowlisted line edited by one word fails again', () => {

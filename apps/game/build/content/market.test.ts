@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
 import { contentModule, marketModule, readPins } from '../content-plugin';
 import { compileContent, ContentError } from './compile';
-import { clientStall, compileMarket, optionPin, pinProblems, PINS_PATH, stallQuestions, updatedPins } from './market';
+import { clientStall, compileMarket, optionPin, parsePinsFile, pinProblems, PINS_PATH, stallQuestions, updatedPins } from './market';
 import { readContentFiles } from './read';
 
 const repoRoot = fileURLToPath(new URL('../../../..', import.meta.url));
@@ -161,6 +161,25 @@ describe('the option-order pins (Ruling 2)', () => {
     // A changed option text fails the same way; the same edit under a new id needs a pin, which only content:pin adds.
     expectProblem(problemsOf(withEdit(BRAM, a, a.replace(/"$/, '!"'))), `(${q.id})`, 'give the question a new id');
     expectProblem(problemsOf(withEdit(BRAM, `id: ${q.id}\n`, `id: ${q.id}-v2\n`)), `(${q.id}-v2)`, 'has no option-order pin', 'content:pin');
+  });
+
+  test('fix round 1, M4: flipping which option is correct, under the same id, fails like a re-order', () => {
+    const q = content.stalls.bram.questions[0];
+    const flipped = { ...q, options: q.options.map((o, i) => ({ ...o, correct: i === 1 })) };
+    expect(optionPin(flipped)).not.toBe(optionPin(q));
+    const correct = `text: "${q.options[0].text}"\n        correct: true`;
+    const wrong = `text: "${q.options[1].text}"\n        correct: false`;
+    const edited = files[BRAM].replace(correct, correct.replace('true', 'false')).replace(wrong, wrong.replace('false', 'true'));
+    expect(edited).not.toBe(files[BRAM]);
+    expectProblem(problemsOf({ ...files, [BRAM]: edited }), `(${q.id})`, 'give the question a new id');
+  });
+
+  test('fix round 1, M3: a corrupt pin file is an error, never a first run; only a missing one starts empty', () => {
+    expect(parsePinsFile(null)).toEqual({});
+    expect(parsePinsFile('{"a": "1"}')).toEqual({ a: '1' });
+    expect(() => parsePinsFile('<<<<<<< HEAD\n{"a": "1"}\n=======\n')).toThrow(/does not parse/);
+    expect(() => parsePinsFile('["a"]')).toThrow(/not a map/);
+    expect(() => parsePinsFile('{"a": 1}')).toThrow(/not a map/);
   });
 
   test('updatedPins adds new ids, keeps every pin, and re-pins a changed one only when asked', () => {

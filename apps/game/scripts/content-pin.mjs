@@ -18,8 +18,11 @@ for (let i = 0; i < args.length; i++) {
   else { console.error(`content:pin: unknown argument ${args[i]}`); process.exit(2); }
 }
 
-let pins = {};
-try { pins = JSON.parse(readFileSync(pinsFile, 'utf8')); } catch { /* first run: no pins yet */ }
+// Only a missing file is a first run; a corrupt one stops here (fix round 1, M3).
+let text = null;
+try { text = readFileSync(pinsFile, 'utf8'); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+let pins;
+try { pins = market.parsePinsFile(text); } catch (e) { console.error(`content:pin: ${e.message}`); process.exit(1); }
 const stalls = ['wen', 'bram', 'okafor-sato', 'spice'].map((id) => parse(readFileSync(`${repoRoot}/content/market/${id}.yaml`, 'utf8')));
 const out = market.updatedPins(stalls, pins, repin);
 for (const id of repin) if (!out.repinned.includes(id)) console.error(`content:pin: --repin ${id}: no such question, or its options are unchanged`);

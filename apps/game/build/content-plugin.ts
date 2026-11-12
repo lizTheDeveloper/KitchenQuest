@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import type { Plugin, Rolldown } from 'vite';
 import type { ClientContent, GameContent, MarketContent } from '../src/content/types';
 import { compileContent, ContentError } from './content/compile';
-import { compileMarket, PINS_PATH, type MarketPins } from './content/market';
+import { compileMarket, parsePinsFile, PINS_PATH, type MarketPins } from './content/market';
 import { contentPaths, readContentFiles } from './content/read';
 
 const VIRTUAL_ID = 'virtual:kq-content';
@@ -40,9 +40,9 @@ export function readPins(repoRoot: string): MarketPins {
   const path = join(repoRoot, PINS_PATH);
   if (!existsSync(path)) throw new ContentError([`${PINS_PATH}: file is missing; run \`npm run content:pin -w @kitchenquest/game\``]);
   try {
-    return JSON.parse(readFileSync(path, 'utf8')) as MarketPins;
+    return parsePinsFile(readFileSync(path, 'utf8'));
   } catch (e) {
-    throw new ContentError([`${PINS_PATH}: JSON does not parse: ${e instanceof Error ? e.message : String(e)}`]);
+    throw new ContentError([e instanceof Error ? e.message : String(e)]);
   }
 }
 

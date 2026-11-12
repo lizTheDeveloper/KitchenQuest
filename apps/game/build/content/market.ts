@@ -62,9 +62,31 @@ export function stallQuestions(stall: StallFile): { at: string; q: StallQuestion
   return out;
 }
 
-/** Ruling 2: a hash of a question's option texts, in file order. A changed order or text changes it. */
+/**
+ * Ruling 2: a hash of a question's options in file order: each option's text and whether it is the correct one (fix
+ * round 1, M4: a saved `pick` would be re-scored the other way if the correct option moved under the same id).
+ */
 export function optionPin(q: StallQuestion): string {
-  return createHash('sha256').update(JSON.stringify(q.options.map((o) => o.text))).digest('hex').slice(0, 16);
+  return createHash('sha256').update(JSON.stringify(q.options.map((o) => [o.text, o.correct]))).digest('hex').slice(0, 16);
+}
+
+/**
+ * The pin file's text as pins (fix round 1, M3): `null` (the file does not exist yet) is the only "first run". A file
+ * that does not parse (a merge conflict) or is not a map of id → hash throws, so `content:pin` never re-pins every
+ * question to whatever its options are now.
+ */
+export function parsePinsFile(text: string | null): Record<string, string> {
+  if (text === null) return {};
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch (e) {
+    throw new Error(`${PINS_PATH}: JSON does not parse (${e instanceof Error ? e.message : String(e)}); fix the file, never delete it to re-pin`);
+  }
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw) || !Object.values(raw).every((v) => typeof v === 'string')) {
+    throw new Error(`${PINS_PATH}: not a map of question id to pin`);
+  }
+  return raw as Record<string, string>;
 }
 
 /**
@@ -81,7 +103,7 @@ export function pinProblems(stall: StallFile, pins: MarketPins): string[] {
       problems.push(`${at} (${q.id}): has no option-order pin; run \`npm run content:pin -w @kitchenquest/game\` and commit ${PINS_PATH}`);
     } else if (pin !== optionPin(q)) {
       problems.push(
-        `${at} (${q.id}): its options changed order or text since the question shipped (Ruling 2: a saved answer is an option index): ` +
+        `${at} (${q.id}): its options changed order, text or correct answer since the question shipped (Ruling 2: a saved answer is an option index): ` +
           'give the question a new id, or, for a deliberate text fix, re-pin it with `npm run content:pin -w @kitchenquest/game -- --repin ' + q.id + '` in the same commit',
       );
     }

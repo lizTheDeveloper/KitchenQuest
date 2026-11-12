@@ -18,9 +18,16 @@ function deepFreeze<T>(value: T): T {
 function checked(module: unknown): MarketContent {
   const m = (typeof module === 'object' && module !== null ? module : {}) as { stalls?: unknown; seasonality?: unknown; version?: unknown };
   const stalls = (typeof m.stalls === 'object' && m.stalls !== null ? m.stalls : {}) as Record<string, unknown>;
-  const missing = STALL_IDS.filter((id) => id !== 'general' && (typeof stalls[id] !== 'object' || stalls[id] === null));
+  const isMap = (v: unknown): boolean => typeof v === 'object' && v !== null && !Array.isArray(v);
+  // Each stall whole (fix round 1, M7): its banks and line maps, not just an object.
+  const whole = (v: unknown): boolean => {
+    if (!isMap(v)) return false;
+    const s = v as Record<string, unknown>;
+    return Array.isArray(s.questions) && Array.isArray(s.faq) && isMap(s.triggers) && isMap(s.games) && isMap(s.item_tips);
+  };
+  const missing = STALL_IDS.filter((id) => id !== 'general' && !whole(stalls[id]));
   if (missing.length > 0 || typeof m.seasonality !== 'object' || m.seasonality === null || typeof m.version !== 'string') {
-    throw new Error(`market content is incomplete${missing.length > 0 ? ` (missing ${missing.join(', ')})` : ''}`);
+    throw new Error(`market content is incomplete${missing.length > 0 ? ` (missing or partial: ${missing.join(', ')})` : ''}`);
   }
   return deepFreeze(m as MarketContent);
 }
