@@ -82,7 +82,8 @@ export function stockSwaps(row: ListItem, plan: Plan, ctx: PlanContext): StockSw
   const targets = new Set(ctx.rules.filter((r) => allDates.some((d) => isActive(r, d))).flatMap((r) => r.target.ids));
   const out: StockSwap[] = [];
   for (const sub of ctx.subs) {
-    if ((sub.from !== id && ctx.graph.resolve(sub.from) !== id) || sub.to === id || !ctx.graph.has(sub.to)) continue;
+    // A `to` the graph lacks is not skipped: graph.get throws, as check() does on such a table (fail loudly).
+    if ((sub.from !== id && ctx.graph.resolve(sub.from) !== id) || sub.to === id) continue;
     if (out.some((s) => s.toId === sub.to)) continue;
     if ((sub.unsafeFor ?? []).some((t) => targets.has(t))) continue;
     const toName = ctx.graph.get(sub.to).name;

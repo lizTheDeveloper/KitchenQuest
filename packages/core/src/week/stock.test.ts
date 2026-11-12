@@ -94,6 +94,15 @@ describe('stockSwaps (Ruling 11)', () => {
     // An unresolved row (no ingredient id) and a stall swap's own row offer none either.
     expect(stockSwaps({ ...shallotRow(), ingredientId: null }, PARIPPU_WEEK, ctxWith())).toEqual([]);
     expect(stockSwaps({ ...shallotRow(), stockSwap: { from: 'x' } }, PARIPPU_WEEK, ctxWith())).toEqual([]);
+    // Fix round 1, M3: a row with no dishes offers nothing (never vacuously "every dish passes").
+    expect(stockSwaps({ ...shallotRow(), forDishes: [] }, PARIPPU_WEEK, ctxWith())).toEqual([]);
+    // A sacred dish is never checked for a swap, so it is offered none.
+    const sacred = new Map([...canon, [PARIPPU, { ...canon.get(PARIPPU)!, meta: { ...canon.get(PARIPPU)!.meta, sacred: true } }]]);
+    expect(stockSwaps(shallotRow(), PARIPPU_WEEK, ctxWith({ recipes: sacred }))).toEqual([]);
+    // The same substitute listed twice is offered once.
+    expect(stockSwaps(shallotRow(), PARIPPU_WEEK, ctxWith({ subs: [...SUBS, { ...ONION, note: 'again' }] }))).toEqual([{ toId: 'onion', toName: 'onion', note: ONION.note, dishes: [PARIPPU] }]);
+    // A substitution table naming an id the graph lacks fails loudly, as check() does; it is never skipped as "fine".
+    expect(() => stockSwaps(shallotRow(), PARIPPU_WEEK, ctxWith({ subs: [...SUBS, { from: 'shallot', to: 'not_an_id' }] }))).toThrow(/not in the ingredient graph/);
     // The row's own ❓ mark is enough on its own, even where the dish would check clean.
     expect(stockSwaps({ ...shallotRow(), unverified: true }, PARIPPU_WEEK, ctxWith())).toEqual([]);
     expect(stockSwaps({ ...shallotRow(), swappedFor: [PARIPPU] }, PARIPPU_WEEK, ctxWith())).toEqual([]);
