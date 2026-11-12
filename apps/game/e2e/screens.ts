@@ -593,6 +593,27 @@ export const LOOP_SCREENS: ScreenCase[] = [
   { label: 'book page (Family Table)', loop: true, path: `/#/book/${PARIPPU}`, seed: { ...PAN_READY, ...ft }, beforeGoto: loopApi, open: (p) => p.locator('.book-techniques').waitFor(), primary: (p) => button(p, 'Download my book') },
 ];
 
+/**
+ * M6 Step 9: the market hub and each stall, standard and Family Table, for the a11y and never-rules sweeps. A stall
+ * shows its keeper's greeting and the round's first question; "Leave the stall" is its primary action.
+ */
+const STALLS = ['wen', 'bram', 'okafor-sato', 'spice'] as const;
+const VEGETARIAN = { id: 'r-veg', target: { kind: 'category' as const, ids: ['meat', 'fish', 'shellfish', 'gelatin'] }, type: 'avoid' as const, severity: 'preference' as const };
+const stallOpen = (p: Page) => p.locator('.stall-option').first().waitFor();
+export const MARKET_SCREENS: ScreenCase[] = [
+  { label: 'market hub', path: '/#/stalls', seed: PAN_READY, open: (p) => p.locator('.stall-button-games', { hasText: /\S/ }).first().waitFor(), primary: (p) => p.locator('.stall-button').first() },
+  { label: 'market hub (Family Table)', path: '/#/stalls', seed: { ...PAN_READY, ...ft }, open: (p) => p.locator('.stall-button').first().waitFor(), primary: (p) => p.locator('.stall-button').first() },
+  ...STALLS.flatMap((id): ScreenCase[] => [
+    { label: `stall ${id}`, path: `/#/stall/${id}`, seed: PAN_READY, open: stallOpen, primary: (p) => button(p, 'Leave the stall') },
+    { label: `stall ${id} (Family Table)`, path: `/#/stall/${id}`, seed: { ...PAN_READY, ...ft }, open: stallOpen, primary: (p) => button(p, 'Leave the stall') },
+  ]),
+  {
+    label: 'stall bram: the Protein Counter, a question answered', path: '/#/stall/bram', seed: { ...PAN_READY, localRules: [VEGETARIAN] },
+    open: async (p) => { await stallOpen(p); await p.locator('.stall-option').first().click(); await p.locator('.stall-feedback:not([hidden])').waitFor(); },
+    primary: (p) => p.locator('.stall-next'),
+  },
+];
+
 export const SCREENS: ScreenCase[] = [
   { label: 'kitchen', path: '/', open: (p) => h1(p, 'Your kitchen'), primary: (p) => button(p, 'Go out to the world map') },
   {
@@ -748,6 +769,7 @@ export const SCREENS: ScreenCase[] = [
     },
     primary: (p) => p.getByRole('link', { name: 'Back to the kitchen' }),
   },
+  ...MARKET_SCREENS,
   { label: 'not found', path: '/#/no-such-page', open: (p) => h1(p, 'Not found'), primary: (p) => p.getByRole('link', { name: 'Back to the kitchen' }) },
   ...LOOP_SCREENS,
 ];

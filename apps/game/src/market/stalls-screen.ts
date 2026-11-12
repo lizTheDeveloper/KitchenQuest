@@ -50,7 +50,7 @@ export function stallsScreen(deps: { client: Pick<ApiClient, 'getProfile'>; load
       const names = new Map<KeeperStall, HTMLElement>();
       const buttons = KEEPERS.map((id) => {
         const name = contentText('span', content.stallNames[id], { class: 'stall-button-name' });
-        const sub = h('span', { class: 'stall-button-games' });
+        const sub = h('span', { class: 'stall-button-games', 'data-content': '' });
         names.set(id, name);
         games.set(id, sub);
         const b = h('button', { type: 'button', class: 'btn btn-secondary stall-button', 'data-stall': id }, name, sub);
@@ -86,7 +86,10 @@ export function stallsScreen(deps: { client: Pick<ApiClient, 'getProfile'>; load
         names.get(id)!.textContent = keeperName(stall, mctx);
         const seasonal = file.seasonal === undefined ? [] : seasonalQuestions(file, regionId, month, market.seasonality);
         const list = gamesIn(stallBank(file, mctx, seasonal).questions, mctx);
-        games.get(id)!.textContent = list.length > 0 ? list.join(' · ') : 'Nothing for you here today';
+        const sub = games.get(id)!;
+        // Form 14-S's names are content; the plain empty line is the screen's own.
+        if (list.length > 0) sub.textContent = list.join(' · ');
+        else { sub.removeAttribute('data-content'); sub.textContent = 'Nothing for you here today'; }
       }
     },
     unmount() { gone = true; cleanup?.(); cleanup = null; },

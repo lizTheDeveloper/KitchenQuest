@@ -143,7 +143,7 @@ export function renderRound(el: HTMLElement, deps: RoundDeps): RoundHandle {
     };
 
     el.replaceChildren(h('section', { class: 'stall-round', 'aria-labelledby': headingId, 'data-question': q.id },
-      game === null ? null : h('p', { class: 'stall-game' }, game),
+      game === null ? null : contentText('p', game, { class: 'stall-game' }),
       heading,
       promptArt,
       contentText('p', q.prompt, { class: 'stall-prompt' }),
