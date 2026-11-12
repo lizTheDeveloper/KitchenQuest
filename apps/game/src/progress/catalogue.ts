@@ -1,5 +1,5 @@
 import {
-  frameOptions, marketCatalogue, type StallFile, type Catalogue, type FrameOption, type IngredientGraph, type PantryItem, type Quest, type Rule, type RulesContext, type StepContext,
+  frameOptions, marketCatalogue, type Catalogue, type FrameOption, type IngredientGraph, type PantryItem, type Quest, type Rule, type RulesContext, type StepContext,
 } from '@kitchenquest/core/engine';
 import { content, graph } from '../content';
 import type { ClientContent, MarketContent } from '../content/types';
@@ -38,8 +38,8 @@ export function catalogueOf(c: ClientContent = content): Catalogue {
 export function withMarket(market: Pick<MarketContent, 'stalls'>, c: ClientContent = content): void {
   const cat = catalogueOf(c);
   if (cat.market !== undefined) return;
-  // ClientStall is StallFile minus the writers' persona cards, which marketCatalogue never reads.
-  cat.market = marketCatalogue(Object.values(market.stalls) as StallFile[]);
+  // ClientStall is StallFile without the writers' persona cards, which marketCatalogue never reads.
+  cat.market = marketCatalogue(Object.values(market.stalls));
 }
 
 /** Every cook's quest, in cook-id order. */

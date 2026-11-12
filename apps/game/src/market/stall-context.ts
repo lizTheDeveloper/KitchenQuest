@@ -1,7 +1,7 @@
 // The market screens' shared context (M6 Step 9): the player's MarketCtx for core's stall functions, their seasonal
 // region and month, and the profile both come from. Everything that decides (which questions, the variant, the
 // season) is core's; this file only gathers its inputs, and fails closed: rules that can't be read give no context.
-import { monthOf, seasonRegionFor, stallVariant, type IngredientGraph, type MarketCtx, type Rule, type SeasonTable, type StallFile, type Substitution } from '@kitchenquest/core/engine';
+import { monthOf, seasonRegionFor, stallVariant, type IngredientGraph, type MarketCtx, type Rule, type SeasonTable, type Substitution } from '@kitchenquest/core/engine';
 import type { ApiClient } from '../api/client';
 import type { ClientStall } from '../content/types';
 import type { PlayerState } from '../state/store';
@@ -42,7 +42,7 @@ export async function profileFor(state: PlayerState, client: Pick<ApiClient, 'ge
 /** The keeper's name as their sign has it: the Protein Counter's own name for that variant (a full stall, never a lesser one). */
 export function keeperName(stall: ClientStall, ctx: MarketCtx | null): string {
   const pc = stall.variants?.protein_counter;
-  return ctx !== null && pc?.name !== undefined && stallVariant(stall as StallFile, ctx) === 'protein_counter' ? pc.name : stall.name;
+  return ctx !== null && pc?.name !== undefined && stallVariant(stall, ctx) === 'protein_counter' ? pc.name : stall.name;
 }
 
 /** A line for the hub to show once on its next mount (the Pan's `market.leave_round` after leaving a stall). Memory only. */

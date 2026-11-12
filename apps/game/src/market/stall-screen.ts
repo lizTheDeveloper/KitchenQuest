@@ -4,19 +4,19 @@
 // read close the stall (`market.stall_wait`). A round played through, or left with an answer, records one
 // `stall_round` (never in Family Table). No timer, no score, no lives; the shopping list never waits on any of it.
 import {
-  faqFor, keeperLines, nextRound, seasonalQuestions, stallBank, tipFor,
+  faqFor, keeperLines, nextRound, questionStatus, seasonalQuestions, stallBank, tipFor,
   type AnsweredMap, type MarketCtx, type ProgressView, type StallFile, type StallQuestion,
 } from '@kitchenquest/core/engine';
 import assets from 'virtual:kq-assets';
 import { healthConsent, type ApiClient } from '../api/client';
 import { content, graph } from '../content';
-import type { ClientStall, MarketContent } from '../content/types';
+import type { BureauForm, ClientStall, MarketContent } from '../content/types';
 import { progressService } from '../progress';
 import { withMarket } from '../progress/catalogue';
 import type { ProgressService } from '../progress/service';
 import { activeRules, localDate } from '../recipes/rules';
 import type { Screen } from '../shell/app';
-import { routeHref, type KeeperStall, type Route } from '../shell/router';
+import { routeHref, type KeeperStall } from '../shell/router';
 import { contentText, h } from '../ui/dom';
 import { askHealthConsent, statusLine } from '../week/screen-kit';
 import { loadMarket } from './content';
@@ -52,15 +52,27 @@ export function itemArt(id: string, manifest: Readonly<Record<string, string>> =
   return Object.hasOwn(manifest, key) ? manifest[key] : null;
 }
 
-const footnotes = (): string[] => content.bureau.forms.stall_round?.footnotes ?? [];
+/** Form 14-S (the stall round), when the Bureau file has it. */
+export const stallForm = (): BureauForm | undefined => (Object.hasOwn(content.bureau.forms, 'stall_round') ? content.bureau.forms.stall_round : undefined);
+const footnotes = (): string[] => stallForm()?.footnotes ?? [];
 /** Form 14-S's example-price footnote (Ruling 5): under every chalkboard, in every mode. */
 export const priceFootnote = (): string => footnotes().find((f) => /example prices/i.test(f)) ?? '*Example prices in no particular currency. Your shop will differ.';
+
+/**
+ * Form 14-S's name for a minigame, shown only when it names nothing the rules engine calls ⛔ or ❓ for this player
+ * ("The right tofu for the job" never reaches a soy rule); null otherwise, or when the form has no name for it.
+ */
+export function gameLabel(game: string, ctx: MarketCtx): string | null {
+  const names = stallForm()?.game ?? {};
+  const name = Object.hasOwn(names, game) ? names[game] : null;
+  return name !== null && questionStatus({ id: '', game, prompt: name, options: [], explain: '' }, ctx) === 'ok' ? name : null;
+}
 
 /** What one stall shows the player now: the bank core keeps, the round, and why it may be smaller. Pure. */
 export function stallPlan(
   stall: ClientStall, ctx: MarketCtx, profile: MarketProfile, table: MarketContent['seasonality'], answered: AnsweredMap,
 ): { variant: 'base' | 'protein_counter'; round: StallQuestion[]; dropped: number; bankSize: number; noCalendar: boolean } {
-  const file = stall as StallFile;
+  const file: StallFile = stall;
   const { regionId, month } = seasonFor(profile, table, ctx.date);
   // Wen's seasonal round only for the player's own region (core `seasonRegionFor`): no region, no round, said plainly.
   const seasonal = file.seasonal === undefined ? [] : seasonalQuestions(file, regionId, month, table);
@@ -120,11 +132,11 @@ export function stallScreen(deps: StallScreenDeps): Screen {
       const name = keeperName(stall, ctx);
       heading.textContent = name;
       doc.title = `${name} · Kitchen Quest`;
-      const file = stall as StallFile;
+      const file: StallFile = stall;
       const view: ProgressView | null = svc?.view() ?? null;
       const answered: AnsweredMap = new Map(Object.entries(view?.marketAnswered ?? {}));
       const plan = stallPlan(stall, ctx, profile, market.seasonality, answered);
-      const form = content.bureau.forms.stall_round;
+      const form = stallForm();
 
       // The keeper: portrait (decorative), the Protein Counter's own sign, and a greeting core kept for these rules.
       const portrait = stall.art === null ? null : assets[`char.${id}`] ?? null;
@@ -159,7 +171,7 @@ export function stallScreen(deps: StallScreenDeps): Screen {
         round = renderRound(roundSlot, {
           questions: plan.round,
           keeper: name,
-          gameName: (game) => (form?.game !== undefined && Object.hasOwn(form.game, game) ? form.game[game] : null),
+          gameName: (game) => gameLabel(game, ctx),
           keeperLine: (trigger, q) => lineFor(trigger)(q),
           panLine: (trigger) => panLine(trigger, `${id}|${today}|${trigger}`),
           itemArt: (i) => itemArt(i),
@@ -173,7 +185,7 @@ export function stallScreen(deps: StallScreenDeps): Screen {
               return;
             }
             const again = h('button', { type: 'button', class: 'btn btn-primary stall-again' }, 'Another round');
-            again.addEventListener('click', () => { appCtx.navigate(route as Route & { name: 'stall' }); });
+            again.addEventListener('click', () => { appCtx.navigate(route); });
             const done = contentText('p', panLine('market.round_done', `${id}|${today}`), { class: 'stall-done', tabindex: -1 });
             roundSlot.replaceChildren(done, h('div', { class: 'button-row' }, again, h('a', { class: 'btn btn-secondary', href: routeHref({ name: 'stalls' }) }, 'Back to the stalls')));
             done.focus();
@@ -187,7 +199,7 @@ export function stallScreen(deps: StallScreenDeps): Screen {
       if (gone) return;
       if (needsConsent) {
         const ask = h('button', { type: 'button', class: 'btn btn-primary stall-consent' }, 'Read the health-data notice');
-        ask.addEventListener('click', () => { askConsent(() => { appCtx.navigate(route as Route & { name: 'stall' }); }); });
+        ask.addEventListener('click', () => { askConsent(() => { appCtx.navigate(route); }); });
         roundSlot.replaceChildren(h('p', null, CONSENT_NOTE), h('div', { class: 'button-row' }, ask));
       } else startRound();
 
@@ -223,8 +235,7 @@ export function stallScreen(deps: StallScreenDeps): Screen {
 
       cleanup = () => {
         // Leaving by any other way (a link, the back button) records the answers so far, once; none, nothing.
-        const r = round as RoundHandle | null;
-        if (r !== null && !r.ended() && r.answers().length > 0) record(r.answers());
+        if (round !== null && !round.ended() && round.answers().length > 0) record(round.answers());
         round = null;
       };
     },

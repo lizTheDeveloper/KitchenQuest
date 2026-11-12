@@ -2,7 +2,7 @@
 // hotspots (MarketScene), over an HTML list of the stalls that carries everything without the canvas. Each stall is
 // one button with its keeper's name and the games in its round today. Practice runs any day; nothing here touches the
 // shopping list, and the list never waits on it.
-import { seasonalQuestions, stallBank, STALL_IDS, type StallFile } from '@kitchenquest/core/engine';
+import { seasonalQuestions, stallBank, STALL_IDS, type MarketCtx, type StallFile } from '@kitchenquest/core/engine';
 import assets from 'virtual:kq-assets';
 import type { ApiClient } from '../api/client';
 import { content, graph } from '../content';
@@ -16,17 +16,17 @@ import { contentText, h } from '../ui/dom';
 import { mountBackdrop } from '../world/backdrop';
 import { loadMarket } from './content';
 import { keeperName, marketCtxFor, profileFor, seasonFor, takeHubNote } from './stall-context';
+import { gameLabel, stallForm } from './stall-screen';
 
 /** scene.market is 320×180; shown at 2x (integer), shrinking with the page. */
 const MARKET_WIDTH = 640;
 const KEEPERS = STALL_IDS.filter((s): s is KeeperStall => s !== 'general');
 
-/** The minigame names in a stall's round today (Form 14-S's names), in bank order, without repeats. */
-export function gamesIn(questions: readonly { game: string }[]): string[] {
-  const names = content.bureau.forms.stall_round?.game ?? {};
+/** The minigame names in a stall's bank today (Form 14-S's names, each rules-checked), in bank order, without repeats. */
+export function gamesIn(questions: readonly { game: string }[], ctx: MarketCtx): string[] {
   const out: string[] = [];
   for (const q of questions) {
-    const n = Object.hasOwn(names, q.game) ? names[q.game] : null;
+    const n = gameLabel(q.game, ctx);
     if (n !== null && !out.includes(n)) out.push(n);
   }
   return out;
@@ -63,7 +63,7 @@ export function stallsScreen(deps: { client: Pick<ApiClient, 'getProfile'>; load
         backdropSlot,
         h('ul', { class: 'stalls-list', 'aria-label': 'The stalls' }, ...buttons),
         h('p', { class: 'stall-links' }, h('a', { href: routeHref({ name: 'market' }) }, 'The market list'), ' · ', h('a', { href: routeHref({ name: 'kitchen' }) }, 'Back to the kitchen')),
-        ...(content.bureau.forms.stall_round?.footnotes ?? []).filter((f) => !/example prices/i.test(f)).slice(0, 1).map((f) => contentText('p', f, { class: 'bureau-footnote' })),
+        ...(stallForm()?.footnotes ?? []).filter((f) => !/example prices/i.test(f)).slice(0, 1).map((f) => contentText('p', f, { class: 'bureau-footnote' })),
       );
       const stopBackdrop = mountBackdrop(backdropSlot, { className: 'market-backdrop', src: assets['scene.market'], width: MARKET_WIDTH, scene: 'Market' });
       // Canvas → HTML: a keeper's hotspot is the same action as their button (bridge).
@@ -82,10 +82,10 @@ export function stallsScreen(deps: { client: Pick<ApiClient, 'getProfile'>; load
       const { regionId, month } = seasonFor(profile, market.seasonality, today);
       for (const id of KEEPERS) {
         const stall = market.stalls[id];
-        const file = stall as StallFile;
+        const file: StallFile = stall;
         names.get(id)!.textContent = keeperName(stall, mctx);
         const seasonal = file.seasonal === undefined ? [] : seasonalQuestions(file, regionId, month, market.seasonality);
-        const list = gamesIn(stallBank(file, mctx, seasonal).questions);
+        const list = gamesIn(stallBank(file, mctx, seasonal).questions, mctx);
         games.get(id)!.textContent = list.length > 0 ? list.join(' · ') : 'Nothing for you here today';
       }
     },
