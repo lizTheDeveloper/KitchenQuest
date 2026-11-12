@@ -857,7 +857,8 @@ triggers:
       - "Got it. If anyone asks, I am not in the bag. I am supervising from the bag."
       - "Correct. Don't let it go to your head; it's a small head."
       - "Good choice. Wen nodded. Wen doesn't nod at everyone."
-      - "Right again. I'm almost impressed. Almost."
+      # M6 Step 4 (C18): was "Right again…", which counts a run of right answers; market.cheer plays after any correct answer.
+      - "Right. I'm almost impressed. Almost."
       - "Received. The bag approves. The bag is me."
       - "Good. The Bureau will put that in a file. Several files."
       - "That's the one. You're getting good at this. I've been to this market four hundred times and the strawberries still lie to me."
@@ -1237,6 +1238,176 @@ triggers:
       - "Run complete. The bag is heavy and the week looks fed."
       - "Home with the shopping. Well done. The vegetables are making plans already."
       - "Shop done. Unpack, put the kettle on, then dinner."
+
+  # M6 Step 4: the gamified market's Pan lines (Steps 9-10 fire them by id; written lines only, M5 Ruling 21).
+  # No streak or count word, no countdown, no currency, nothing sells. # REVIEW: content review, every line.
+
+  market.no_calendar:
+    ai: never
+    when: "No seasons calendar for the player's region (or no region set): Wen's seasonal round is left out of the bank, said plainly (M6 Ruling 9). Never \"your region isn't supported\"."
+    lines:
+      - "I don't have a seasons calendar for where you are yet, so Wen's seasonal round sits this one out. Ripeness and storage are all still here."
+      - "No seasons calendar for your part of the world yet. The Bureau won't guess one. Wen's other rounds are open."
+      - "Wen's seasonal round needs a calendar written by someone who shops where you do. There isn't one yet, so it's not in today's bank."
+      - "There's no seasons calendar for your area yet, and I'd rather say nothing than borrow someone else's. Everything else at the stall works."
+
+  market.stall_wait:
+    ai: never
+    when: "The player's rules can't be read yet, so the stall waits (fail closed, M6 Ruling 4)."
+    lines:
+      - "I can't read your rules just now, so the stall waits. I won't put a question in front of you that I haven't checked."
+      - "Your rules haven't loaded yet. Until they do, the stall stays closed; I check every question against them first."
+      - "One moment: I need your rules before anyone asks you anything. The stall opens once I can read them."
+      - "The stall waits until I can read your rules. A question I can't check is a question I don't ask."
+
+  market.bank_small:
+    ai: never
+    when: "Some of the stall's questions were left out because they name something the player's rules block or that can't be checked. Never says which."
+    lines:
+      - "A few of this stall's questions aren't in today's round. They name something I can't check against your rules, so they stay out."
+      - "This round is a little smaller than the stall's full bank. Anything I can't check against your rules stays out of it."
+      - "Some questions are sitting this one out: they name things your rules keep off your plate, or things I can't check. The rest are yours."
+      - "The round is a bit shorter at this stall. I keep out any question I can't square with your rules."
+
+  market.practice:
+    ai: allowed
+    when: "The player opens a stall on a day with no market run: practice, any day (spec §3.5). Earns what any round earns; promises nothing."
+    lines:
+      - "No shopping today? The stalls are open for practice any day. Nothing on the list, plenty to learn."
+      - "Practice day at the market. The keepers love a quiet day; they get to show off."
+      - "No run this week yet, and that's fine. The stall rounds work any day."
+      - "Practice costs nothing, and the produce never bruises. Pick a stall."
+
+  market.round_done:
+    ai: allowed
+    when: "A stall round ends. No score and no count: what was learned, warmly."
+    lines:
+      - "That's the round. Whatever you picked, you'll shop a little sharper next time."
+      - "Round done. The useful part is the reasons, and you heard them all."
+      - "Done. You know a bit more about choosing food than you did a few minutes ago. That's the whole point."
+      - "That's the stall round. The Bureau has filed it under 'learned something'. It's a large drawer."
+
+  market.leave_round:
+    ai: allowed
+    when: "The player leaves a stall round partway. It costs nothing (no-pressure rule)."
+    lines:
+      - "Off you go. Stepping away from a round costs nothing; the stall will be here."
+      - "Stopping here is fine. Nothing's lost, and the questions keep."
+      - "Had enough for now? Fair. Stepping away costs nothing."
+      - "Leaving partway through is allowed, encouraged even. Nothing is lost."
+
+  market.no_swap:
+    ai: never
+    when: "No stall swap passes the player's rules for an item that's out of stock (Ruling 11): skip it this week."
+    vars:
+      item: "the missing item"
+    lines:
+      - "No swap for {item} passes your rules, so I won't offer one. Skip it this week."
+      - "There's no stand-in for {item} that I can check against your rules. Leave it off this week."
+      - "Nothing I can check against your rules takes the place of {item}. This week, the dish goes without it."
+      - "No checked substitute for {item}. Skip it this week; the rest of the dish still stands."
+
+  market.stock_swapped:
+    ai: never
+    when: "Read-back after the player takes a stall swap: labelled on the recipe and re-checked against their rules (Ruling 11)."
+    vars:
+      item: "the missing item"
+      swap: "the stall swap"
+      dish: "the dish it serves"
+    lines:
+      - "Swapped: {swap} for {item} in {dish}. It's labelled on the recipe and checked against your rules."
+      - "{swap} instead of {item}, for {dish}. Labelled as a stall swap, and checked against your rules."
+      - "Done: {dish} gets {swap} in place of {item} this week. Labelled, and checked against your rules."
+      - "{item} out, {swap} in, for {dish}. The swap is labelled on the recipe and checked against your rules."
+
+  season.now:
+    ai: never
+    when: "The Season's Table note beside an item in season where the player is (Ruling 10). Information only; only on an item the rules engine calls ✅."
+    vars:
+      item: "the item"
+    lines:
+      - "{item}: in season where you are."
+      - "In season where you are: {item}."
+      - "{item} is in season near you right now."
+      - "{item}, in season here, now."
+
+  season.other:
+    ai: never
+    when: "A neutral note for the region's other categories (\"stored\", \"well-travelled\", \"depends\"). Never a warning, never a judgement (Ruling 10)."
+    vars:
+      item: "the item"
+      category: "the region's category label, e.g. 'Well-travelled: shipped in from far away'"
+    lines:
+      # REVIEW: M6 Step 5: was "{item}: {category}.", which as a pattern matches nearly any "X: Y." line, so the in-page
+      # never-rules sweep could not tell a stall's storage tip from it. Same meaning, one word more. Content review.
+      - "{item} here: {category}."
+      - "For {item} this month: {category}."
+      - "A note on {item}: {category}. Good to know, nothing more."
+      - "{item}, this month, here: {category}."
+
+  market.checkoff_readback:
+    ai: never
+    when: "Read-back of a check-off card (Step 8): what was got and what the stalls were out of."
+    vars:
+      summary: "what the card ticks or marks missing, e.g. 'got shallots; out of curry leaves'"
+    lines:
+      - "Reading it back: {summary}."
+      - "Here's what I heard: {summary}."
+      - "On the market list: {summary}."
+      - "{summary}. The card is right there if I misheard."
+
+  market.checkoff_none:
+    ai: never
+    when: "Nothing the player said matched a row of the open market list; nothing is ticked."
+    lines:
+      - "I couldn't match that to anything on the open list, so nothing's ticked."
+      - "Nothing you said matches the list, so I haven't ticked anything. The rows are there to tap."
+      - "That doesn't match any item on this week's list. Nothing ticked."
+      - "No match on the list, so nothing's changed. Tap a row if you'd rather."
+
+  market.no_run:
+    ai: never
+    when: "A check-off with no open market run: points at the list chip."
+    lines:
+      - "There's no market list open right now. The chip below takes you to it."
+      - "No open market run to tick off. Tap the list chip to start one."
+      - "Ticking needs an open market list, and there isn't one. The chip takes you there."
+      - "Nothing to tick yet: no market list is open. Try the list chip."
+
+  errand.question:
+    ai: allowed
+    when: "An errand's stall question, before it is asked. The errand step passes whatever is answered (spec §3.5)."
+    vars:
+      stall: "the stall keeper's name"
+      item: "the errand's item"
+    lines:
+      - "{stall} has a question about {item} before you go. Any answer is fine; the errand's done either way."
+      - "A quick one from {stall} about {item}. Right or wrong, the errand counts."
+      - "Before the {item}: a question from {stall}. Nothing rides on it but the fun."
+      - "{stall} wants to quiz you on {item}. Answer however you like; the errand's done."
+
+  cook.drill_first:
+    ai: never
+    when: "Ruling 16: a recipe skill's prereqs aren't at Seen. The drill is offered; Cook stays enabled. Advisory only: no ❗, no \"should\", nothing in Family Table."
+    vars:
+      technique: "the technique's name"
+      cook: "the cook whose drill it is"
+    lines:
+      - "This dish uses {technique}. {cook} has a short drill for it, if you'd like a practice first. Cooking now is fine too."
+      - "A practice of {technique} with {cook} might make this one easier. Or cook it now; both are good."
+      - "{technique} comes up in this dish. {cook}'s drill is there if you want it first. The Cook button works either way."
+      - "If {technique} is new to you, {cook}'s drill is a gentle warm-up. Entirely optional; the dish is ready when you are."
+
+  stamp_earned.market_game:
+    ai: allowed
+    when: "The weekly stall stamp, for a round played through (Ruling 1). Spends nothing (M5 Ruling 17); promises nothing."
+    vars:
+      stall: "the stall keeper's name"
+    lines:
+      - "A stall stamp from {stall}, for a round played through. It goes in your papers."
+      - "Stamped: a round at {stall}. The ink is still wet. Don't blow on it."
+      - "{stall} stamps your book. Played through is all it asks."
+      - "A stamp for the round at {stall}. The Bureau has filed it with great ceremony."
 
   rescue.offer:
     ai: allowed

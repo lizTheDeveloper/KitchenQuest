@@ -267,6 +267,9 @@ export function createCardWriter(deps: {
       }
       case 'plan':
         return writePlan(card);
+      case 'check_off':
+        // M6 Step 8 (minimal): the scripted engine builds no check-off card yet; Step 10 writes it through the week source.
+        return { ok: false, reason: 'invalid', items: [line('write.not_done')] };
     }
   }
 
@@ -419,7 +422,7 @@ export function createCardWriter(deps: {
         if (view.origin === 'server') {
           const now = deps.conversationId?.();
           // A plan card's week window reads the player's local date (Step 6 I2): `today` goes with every week write.
-          const r = await client.confirmProposal(view.proposalId, edits, now, card.kind === 'plan' ? today() : undefined);
+          const r = await client.confirmProposal(view.proposalId, edits, now, card.kind === 'plan' || card.kind === 'check_off' ? today() : undefined);
           if (!r.ok && r.status === 409 && r.error.code === 'plan_changed') {
             // The week changed since the card was shown: the server closed it and offered it again on the week now.
             const d = (r.error.details ?? {}) as { card?: ServerCard; parts?: ReplyPart[] };

@@ -1,10 +1,13 @@
+import { questionStatus, stallVariant } from '../market/bank';
+import { MAX_ROUND_ANSWERS, scoreAnswer } from '../market/round';
+import type { MarketCtx, StallFile, StallQuestion } from '../market/types';
 import { isValidDate } from '../rules/active';
 import { refreshDue, toolkitFromEvents } from '../toolkit/toolkit';
 import type { FreshnessThresholds, ToolkitState } from '../toolkit/types';
 import { levelFor, trustLevel } from './derive';
 import { standInCooks, type RulesContext } from '../quests/alternatives';
 import { applyEvent, applyGrant, foldHistory, key, standsInFor, type FoldState } from './fold';
-import type { Catalogue, ProgressEvent, ProgressHistory, RewardGrant, RewardsData, StampId, XpReason } from './types';
+import type { Catalogue, MarketStall, ProgressEvent, ProgressHistory, RewardGrant, RewardsData, StampId, XpReason } from './types';
 import { isoWeek } from './week';
 
 /** Per local date (`at`). Core enforces it, per event, so the device and the API agree (C14). */
@@ -57,10 +60,16 @@ export type ProgressProblem =
   | 'unknown_technique'
   | 'unknown_frame'
   | 'technique_mismatch'
-  | 'bad_field';
+  | 'bad_field'
+  /**
+   * M6: a `stall_round` that is otherwise well-formed arrived without the player's rules (the device signed out, before
+   * rules load), or with rules that can't be read. Nothing is stored; the caller retries once rules load (fail closed,
+   * M5 C5 pattern).
+   */
+  | 'rules_unknown';
 
-const STAMP_IDS: readonly StampId[] = ['quest_done', 'certificate', 'market_run'];
-const XP_KEYS = ['lesson', 'drill', 'cook', 'frame', 'market_run', 'refresh'] as const;
+const STAMP_IDS: readonly StampId[] = ['quest_done', 'certificate', 'market_run', 'market_game'];
+const XP_KEYS = ['lesson', 'drill', 'cook', 'frame', 'market_run', 'refresh', 'market_game'] as const;
 const TIERS = new Set(['seen', 'tried', 'yours']);
 const MAX_ID_LENGTH = 128;
 const MAX_IMPORTED_RECIPES = 100;
@@ -115,13 +124,106 @@ export function validateRewards(d: unknown): string[] {
   return p;
 }
 
+// ---- the market (M6) ----------------------------------------------------------------------------------------
+
+/**
+ * `Catalogue.market` from the stall files (M6): every question each file holds, with its bank. Built the same way by
+ * the API (Step 6) and the device (Step 9). Throws on a stall id given twice, a question id in two banks of one
+ * stall, or a question id at two stalls (fix round 1, M4: `marketAnswered` is keyed by the bare id, so a shared id would
+ * let one stall's answer use up another's first-correct XP), so a broken catalogue fails at load, never at grant time.
+ */
+export function marketCatalogue(files: readonly StallFile[]): Map<string, MarketStall> {
+  const out = new Map<string, MarketStall>();
+  const owner = new Map<string, string>();
+  for (const file of files) {
+    if (out.has(file.id)) throw new Error(`stall "${file.id}" is given twice`);
+    const questions = new Map<string, { question: StallQuestion; variant: 'base' | 'protein_counter' | 'seasonal' }>();
+    const add = (list: readonly StallQuestion[], variant: 'base' | 'protein_counter' | 'seasonal') => {
+      for (const question of list) {
+        if (questions.has(question.id)) throw new Error(`stall "${file.id}": question "${question.id}" is in two banks`);
+        const other = owner.get(question.id);
+        if (other !== undefined) throw new Error(`question "${question.id}" is at two stalls ("${other}" and "${file.id}")`);
+        owner.set(question.id, file.id);
+        questions.set(question.id, { question, variant });
+      }
+    };
+    add(file.questions, 'base');
+    add(file.variants?.protein_counter?.questions ?? [], 'protein_counter');
+    for (const months of Object.values(file.seasonal ?? {})) for (const list of Object.values(months)) if (Array.isArray(list)) add(list, 'seasonal');
+    out.set(file.id, { questions, file });
+  }
+  return out;
+}
+
+const ROUND_KEYS: ReadonlySet<string> = new Set(['id', 'kind', 'at', 'stall', 'answers']);
+const ANSWER_KEYS: ReadonlySet<string> = new Set(['q', 'pick']);
+
+/**
+ * A `stall_round` (M6 Rulings 1, 2 and 4; Review Focus 4). Shape first, all `bad_event`: the stall is in `cat.market`;
+ * no key outside the event's shape (a forged "correct" flag, a score); 1–MAX_ROUND_ANSWERS answers, each `{ q, pick }`
+ * only, each q one of that stall's questions and given once, each pick a file index in range. Then the rules: without
+ * them, `rules_unknown`. With them, every question must be one the player could have been shown on `at`: in the bank
+ * `stallVariant` gives them (a Protein Counter question only while their rules block meat, a base or seasonal one only
+ * while they don't) and `questionStatus` 'ok' with MarketCtx { rules, graph, subs, date: at, country: null } (no
+ * substitutions: a question kept only by a curated swap is hidden). The country scope is a relevance filter, not
+ * safety, so it isn't re-checked. A hidden question → `bad_event`, and nothing is stored.
+ */
+function validateStallRound(e: Record<string, unknown>, cat: Catalogue, rules: RulesContext | undefined): ProgressProblem[] {
+  const stall = isStr(e.stall) && cat.market !== undefined ? cat.market.get(e.stall) : undefined;
+  if (stall === undefined || Object.keys(e).some((k) => !ROUND_KEYS.has(k))) return ['bad_event'];
+  const answers: unknown = e.answers;
+  if (!Array.isArray(answers) || answers.length < 1 || answers.length > MAX_ROUND_ANSWERS) return ['bad_event'];
+  const seen = new Set<string>();
+  const asked: { question: StallQuestion; variant: 'base' | 'protein_counter' | 'seasonal' }[] = [];
+  for (const a of answers as unknown[]) {
+    if (!isObj(a) || Object.keys(a).some((k) => !ANSWER_KEYS.has(k)) || !isStr(a.q) || seen.has(a.q)) return ['bad_event'];
+    seen.add(a.q);
+    const entry = stall.questions.get(a.q);
+    if (entry === undefined || !Number.isInteger(a.pick) || (a.pick as number) < 0 || (a.pick as number) >= entry.question.options.length)
+      return ['bad_event'];
+    asked.push(entry);
+  }
+  if (rules === undefined) return ['rules_unknown'];
+  if (!isValidDate(e.at)) return []; // `validate` already reports bad_date
+  const ctx: MarketCtx = { rules: rules.rules, graph: rules.graph, subs: rules.subs, date: e.at, country: null };
+  try {
+    const variant = stallVariant(stall.file, ctx);
+    for (const { question, variant: bank } of asked) {
+      if ((bank === 'protein_counter' ? 'protein_counter' : 'base') !== variant) return ['bad_event'];
+      if (questionStatus(question, ctx) !== 'ok') return ['bad_event'];
+    }
+  } catch {
+    return ['rules_unknown']; // rules the engine can't read: can't verify is never safe, and never stored
+  }
+  return [];
+}
+
+/**
+ * Whether an event reveals health data (M6 Ruling 17): a `stall_round` with any Protein Counter question, which shows
+ * the player's rules exclude meat. It decides which rounds need `health_data` consent to be accepted, nothing more.
+ * Sealing is by kind, never by this: every `stall_round` is sealed at rest (Task 3 privacy ruling: answered question ids
+ * can imply a rule over time), and a `health_data` delete erases every `stall_round` (Task 3 ruling I2), not only the
+ * ones this calls revealing. Fail closed: a round naming a stall or question the catalogue doesn't hold (content
+ * removed since), or with no readable answers, counts as revealing. Every other kind is false.
+ */
+export function isHealthRevealing(e: ProgressEvent, cat: Catalogue): boolean {
+  if (e.kind !== 'stall_round') return false;
+  const stall = cat.market?.get(e.stall);
+  const answers: unknown = e.answers;
+  if (stall === undefined || !Array.isArray(answers) || answers.length === 0) return true;
+  return (answers as unknown[]).some((a) => {
+    const entry = isObj(a) && typeof a.q === 'string' ? stall.questions.get(a.q) : undefined;
+    return entry === undefined || entry.variant === 'protein_counter';
+  });
+}
+
 // ---- event validation ---------------------------------------------------------------------------------------
 
 function requiresDone(q: { requires: readonly string[] }, s: FoldState): boolean {
   return q.requires.every((r) => s.questsDone.includes(r));
 }
 
-function validateKind(e: Record<string, unknown>, s: FoldState, cat: Catalogue): ProgressProblem[] {
+function validateKind(e: Record<string, unknown>, s: FoldState, cat: Catalogue, rules: RulesContext | undefined): ProgressProblem[] {
   const p: ProgressProblem[] = [];
   const quest = () => {
     const q = isStr(e.quest) ? cat.quests.get(e.quest) : undefined;
@@ -181,6 +283,9 @@ function validateKind(e: Record<string, unknown>, s: FoldState, cat: Catalogue):
     case 'market_run':
       if (!isValidDate(e.weekStart)) p.push('bad_field');
       break;
+    case 'stall_round':
+      p.push(...validateStallRound(e, cat, rules));
+      break;
     case 'meal_logged':
       if (!Number.isInteger(e.minute) || (e.minute as number) < 0 || (e.minute as number) >= MINUTES_PER_DAY) p.push('bad_field');
       break;
@@ -209,14 +314,14 @@ function validateKind(e: Record<string, unknown>, s: FoldState, cat: Catalogue):
   return p;
 }
 
-function validate(event: unknown, s: FoldState, cat: Catalogue): ProgressProblem[] {
+function validate(event: unknown, s: FoldState, cat: Catalogue, rules: RulesContext | undefined): ProgressProblem[] {
   if (!isObj(event)) return ['bad_event'];
   const p: ProgressProblem[] = [];
   if (!isStr(event.id) || event.id.length > MAX_ID_LENGTH) p.push('bad_id');
   else if (s.ids.has(event.id)) p.push('duplicate_id');
   if (!isValidDate(event.at)) p.push('bad_date');
   else if ((s.perDate.get(event.at) ?? 0) >= MAX_PROGRESS_EVENTS_PER_DAY) p.push('too_many_events');
-  p.push(...validateKind(event, s, cat));
+  p.push(...validateKind(event, s, cat, rules));
   return p;
 }
 
@@ -309,6 +414,20 @@ function eventGrants(e: ProgressEvent, s: FoldState, cat: Catalogue, data: Rewar
       out.push(...stamps('market_run', data, e.id));
       break;
     }
+    case 'stall_round': {
+      // M6 Ruling 1: XP for each answer the stall file scores correct whose question was never correct before (once
+      // ever); one stamp per stall per ISO week for any accepted round, whatever the score. A wrong answer earns
+      // nothing and lowers nothing.
+      const stall = cat.market?.get(e.stall);
+      if (stall === undefined) return [];
+      for (const a of e.answers) {
+        const entry = stall.questions.get(a.q);
+        if (entry !== undefined && scoreAnswer(entry.question, a.pick).correct && s.marketAnswered.get(a.q)?.correct !== true)
+          xp(data.xp.market_game, 'market_game', null);
+      }
+      if (!s.keys.has(key('stall', e.stall, isoWeek(e.at)))) out.push(...stamps('market_game', data, e.id));
+      break;
+    }
     case 'meal_logged': {
       // Ruling 5/6: flat, capped per day, counted on grants already made for this date (an undo never re-opens it).
       const n = data.xp.nourishment;
@@ -338,7 +457,7 @@ function evaluate(
   thresholds: FreshnessThresholds,
   rules: RulesContext | undefined,
 ): GrantResult {
-  const problems = validate(sent, s, cat);
+  const problems = validate(sent, s, cat, rules);
   if (problems.length > 0) return { event: sent, grants: [], problems, warnings: [] };
 
   // A claim that doesn't hold is dropped, never the event: the cook keeps its own grants (concern-3 ruling).
@@ -366,8 +485,9 @@ function evaluate(
  * player-shaped input. Problems non-empty → reject the event and grant nothing. It reads only the event, the
  * history, the catalogue and the data: no paid status is an input (never rule 3) and nothing reads a run of days.
  *
- * `rules` is the player's rules and content (I3): needed only to keep a cook's `standsInFor` claim. Without it, or
+ * `rules` is the player's rules and content (I3): needed to keep a cook's `standsInFor` claim. Without it, or
  * when the claim doesn't hold, the claim is dropped (warning `stand_in_dropped`) and the cook earns as any cook.
+ * A `stall_round` (M6) needs it too: without it the round is rejected `rules_unknown` and the caller retries.
  * Callers store the returned `event`, so a dropped claim never reaches the fold.
  *
  * Order matters (M2): each grant is fixed when written, so the same events in another order can earn a different,

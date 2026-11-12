@@ -2,6 +2,13 @@ import { foldHistory, snapshotOf, viewOf } from './fold';
 import type { Catalogue, ProgressHistory, ProgressView, RewardsData } from './types';
 
 /**
+ * M6 Ruling 18 (M5 m12): the API folds a player's ledger into a sealed snapshot once more than this many events have
+ * been recorded since the last one (or since the start), so a read folds at most about this many events on top of
+ * it. A cache only: the snapshot is `compactHistory(history, 0, cat).base`, the C15 fold, so nothing derived changes.
+ */
+export const SNAPSHOT_EVERY = 500;
+
+/**
  * Everything shown about progress, as a fold over events and grants (Ruling 7). XP and stamps are sums of grants,
  * level is the highest level grant (at least 1) and trust the highest trust grant per cook, so a retune of
  * data/rewards.yaml can never lower any of them. The toolkit is a fold over events.

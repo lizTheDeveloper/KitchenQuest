@@ -234,7 +234,8 @@ describe('minimisation and consent (C-13, P-3)', () => {
   // question (S10); a named ingredient gets the ask after it (E2). No model.
   test.each([
     ['I just ate shrimp and my lips are tingling and my throat feels tight. What should I take?', 'rule.ask_what_else'], // shrimp is named
-    ['How much Benadryl should I take for hives from strawberries?', null], // strawberry isn't in the graph: nothing to ask for
+    // Strawberry is a graph node since M6 Step 4: named in a severe statement, so the Pan asks for it plainly.
+    ['How much Benadryl should I take for hives from strawberries?', 'rule.ask_what_else'],
   ])('%j is answered by code: the emergency line, then any ask', async (text, ask) => {
     const ai = fakeAi([reply('Model words.')]);
     await makeApp(ai);
@@ -371,7 +372,7 @@ describe('tools — the model can only propose', () => {
     await makeApp(ai);
     const p = await player(AI_HEALTH);
     await turn(p.cookie, 'what should I cook tonight?');
-    expect(ai.requests[0].tools.map((t) => t.name)).toEqual(['propose_rule', 'propose_meal_log', 'propose_profile', 'propose_pantry_change', 'propose_plan', 'propose_navigation']);
+    expect(ai.requests[0].tools.map((t) => t.name)).toEqual(['propose_rule', 'propose_meal_log', 'propose_profile', 'propose_pantry_change', 'propose_plan', 'propose_check_off', 'propose_navigation']);
     const q = await player(HEALTH);
     await turn(q.cookie, 'what should I cook tonight?');
     expect(ai.requests[1].tools.map((t) => t.name)).toEqual(['propose_profile', 'propose_plan', 'propose_navigation']);
@@ -459,17 +460,18 @@ describe('tools — the model can only propose', () => {
   });
 
   test('unknown and ambiguous terms', async () => {
-    const ai = fakeAi([toolCall('propose_rule', { term: 'kiwi', severity: 'allergy' }), toolCall('propose_rule', { term: 'pea', severity: 'allergy' })]);
+    const ai = fakeAi([toolCall('propose_rule', { term: 'kiwi', severity: 'allergy' }), toolCall('propose_rule', { term: 'pepper', severity: 'allergy' })]);
     await makeApp(ai);
     const p = await player(AI_HEALTH);
     const kiwi = await turn(p.cookie, "I'm allergic to kiwi");
     expect(kiwi.parts).toEqual([lineOf('rule.unknown_term', { term: 'kiwi' })]);
     expect(kiwi.cards).toEqual([]);
-    const pea = await turn(p.cookie, "I'm allergic to pea");
-    // Search hits are offered, never picked: "pea" is a prefix of peanut, "peanut oil" (M5 Step 4) and "pearl barley".
+    const pea = await turn(p.cookie, "I'm allergic to pepper");
+    // Search hits are offered, never picked. M6 Step 4 made "pea" a graph node, so the ambiguous term is "pepper":
+    // black pepper (and peppercorn) or chilli (chilli pepper).
     expect(pea.parts).toEqual([
-      lineOf('rule.which_one', { term: 'pea' }),
-      { kind: 'choices', options: [{ id: 'barley', name: 'barley' }, { id: 'peanut', name: 'peanut' }, { id: 'peanut_oil', name: 'peanut oil' }], severity: 'allergy' },
+      lineOf('rule.which_one', { term: 'pepper' }),
+      { kind: 'choices', options: [{ id: 'black_pepper', name: 'black pepper' }, { id: 'chili', name: 'chilli' }], severity: 'allergy' },
     ]);
     expect(pea.cards).toEqual([]);
     expect(await countOf('mentor_proposals', p.userId)).toBe(0);
@@ -481,8 +483,9 @@ describe('tools — the model can only propose', () => {
     const p = await player(AI_HEALTH);
     const r = await turn(p.cookie, "I'm allergic to herbs");
     expect(r.parts).toEqual([
-      lineOf('rule.which_kind', { term: 'herbs', examples: 'curry leaf or epazote' }),
-      { kind: 'choices', options: [{ id: 'curry_leaf', name: 'curry leaf' }, { id: 'epazote', name: 'epazote' }], severity: 'allergy' },
+      // Cilantro is filed under herbs since M6 Step 4.
+      lineOf('rule.which_kind', { term: 'herbs', examples: 'cilantro, curry leaf or epazote' }),
+      { kind: 'choices', options: [{ id: 'cilantro', name: 'cilantro' }, { id: 'curry_leaf', name: 'curry leaf' }, { id: 'epazote', name: 'epazote' }], severity: 'allergy' },
     ]);
     expect(r.cards).toEqual([]);
     expect(await countOf('mentor_proposals', p.userId)).toBe(0);
@@ -1669,12 +1672,13 @@ describe('fix round 4: R9 — no model text reaches any player', () => {
   });
 
   test.each([
-    ['we ran out of rice', 'Rice is out of your pantry.', [] as Purpose[]],
-    ['we ran out of rice', "I've binned the rice.", AI_HEALTH],
+    // M6 Step 5 fix round 1: bare "rice" is a graph name now (a health word, like "milk"), so this pins "flour".
+    ['we ran out of flour', 'Flour is out of your pantry.', [] as Purpose[]],
+    ['we ran out of flour', "I've binned the flour.", AI_HEALTH],
   ])('L3: %j with %j makes a pantry card from the player\'s words, and no model text', async (q, text, purposes) => {
     await makeApp(fakeAi([reply(text)]));
     const p = await player(purposes);
-    await seedPantry(p.cookie, ['rice']);
+    await seedPantry(p.cookie, ['flour']);
     const r = await turn(p.cookie, q);
     seesNoModelText(r, text);
     expect(r.cards.map((c) => c.card.kind)).toEqual(['pantry']);

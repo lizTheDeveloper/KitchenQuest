@@ -12,7 +12,7 @@
     "test": "npm test --workspaces --if-present",
     "lint:install": "npm ci --prefix tools/lint",
     "lint": "npm run lint:eslint && npm run lint:arch && npm run lint:dead",
-    "lint:eslint": "tools/lint/node_modules/.bin/eslint .",
+    "lint:eslint": "node --max-old-space-size=6144 tools/lint/node_modules/.bin/eslint .",
     "lint:arch": "tools/lint/node_modules/.bin/depcruise --config .dependency-cruiser.cjs apps packages",
     "lint:dead": "tools/lint/node_modules/.bin/knip",
     "format:check": "tools/lint/node_modules/.bin/prettier --check .",

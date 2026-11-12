@@ -161,7 +161,8 @@ describe('EU 14 / US 9 allergen members', () => {
   });
 
   it('tree nut descendants are every tree nut, and not peanut or coconut', () => {
-    expect(graph.descendants('tree_nut').sort()).toEqual([...TREE_NUTS].sort());
+    // The butternut tree nut joined in M6 Step 4 (the butternut ruling).
+    expect(graph.descendants('tree_nut').sort()).toEqual([...TREE_NUTS, 'butternut_nut'].sort());
     expect(graph.descendants('nut')).toEqual(expect.arrayContaining([...TREE_NUTS, 'tree_nut', 'peanut']));
     expect(graph.ancestors('coconut')).toEqual([]);
   });
@@ -430,5 +431,108 @@ describe('consent gate keeps common allergen misspellings', () => {
   it.each(['muscles make my throat close', 'never give me muscles', 'no barely please', 'squad rings make me ill'])('%s is health text', async (text) => {
     const { mentionsHealthTerm } = await import('../src/mentor/route');
     expect(mentionsHealthTerm(text, graph, terms)).toBe(true);
+  });
+});
+
+describe('M6 Step 4: the market nodes carry their allergen edges, never fewer (C16, C17)', () => {
+  const status = (id: string, rules: Rule[]) => runWith(id, rules).status;
+  const SOY = [avoid(['soy'], 'allergy')];
+  const WHEAT = [avoid(['wheat'], 'allergy')];
+  const COELIAC = [avoid(termIds('coeliac'), 'allergy')];
+  const MILK = [avoid(['milk'], 'allergy')];
+
+  it.each(['tofu', 'silken_tofu', 'soft_tofu', 'firm_tofu', 'extra_firm_tofu', 'tofu_puffs', 'yuba', 'tempeh', 'miso', 'edamame'])('%s reaches soy, so a soy rule blocks it', (id) => {
+    expect(graph.pathTo(id, 'soy'), id).not.toBeNull();
+    expect(status(id, SOY), id).toBe('blocked');
+  });
+
+  it('seitan contains wheat (so gluten), and is treated as unsafe for a soy rule (shop seitan is often simmered in soy sauce)', () => {
+    expect(graph.pathTo('seitan', 'gluten')).toEqual(['seitan', 'wheat', 'gluten']);
+    expect(status('seitan', WHEAT)).toBe('blocked');
+    expect(status('seitan', COELIAC)).toBe('blocked');
+    expect(status('seitan', SOY)).toBe('blocked');
+  });
+
+  it('asafoetida contains wheat and is label-dependent: ⛔ for a coeliac, ❓ (never ✅) under any other restricting rule', () => {
+    expect(graph.get('asafoetida').labelDependent).toBe(true);
+    expect(graph.pathTo('asafoetida', 'gluten')).toEqual(['asafoetida', 'wheat', 'gluten']);
+    expect(status('asafoetida', COELIAC)).toBe('blocked');
+    expect(status('asafoetida', [avoid(['peanut'])])).toBe('unverified');
+  });
+
+  it.each(['paneer', 'greek_yogurt'])('%s contains milk', (id) => {
+    expect(graph.pathTo(id, 'milk'), id).not.toBeNull();
+    expect(status(id, MILK), id).toBe('blocked');
+    expect(status(id, [avoid(termIds('vegan'), 'preference')]), id).toBe('blocked');
+  });
+
+  it('furikake contains sesame and fish and is label-dependent; the blends are label-dependent', () => {
+    expect(graph.pathTo('furikake', 'sesame')).not.toBeNull();
+    expect(graph.pathTo('furikake', 'fish')).not.toBeNull();
+    expect(status('furikake', [avoid(['sesame'])])).toBe('blocked');
+    expect(status('furikake', [avoid(termIds('vegetarian'), 'preference')])).toBe('blocked');
+    for (const id of ['furikake', 'garam_masala', 'curry_powder', 'miso', 'canned_bean', 'asafoetida']) {
+      expect(graph.get(id).labelDependent, id).toBe(true);
+      expect(status(id, [avoid(['celery'])]), id).toBe('unverified');
+    }
+  });
+
+  it('every meat node is meat, so the vegetarian, vegan and pescatarian terms cover it', () => {
+    const meats = ['beef', 'chicken', 'lamb', 'chuck', 'short_rib', 'shank', 'strip_steak', 'ribeye', 'flank_steak', 'brisket', 'ground_beef', 'chicken_thigh', 'chicken_breast', 'whole_chicken', 'pork_shoulder', 'pork_tenderloin', 'pork_chop', 'lamb_shoulder'];
+    for (const id of meats) {
+      expect(graph.pathTo(id, 'meat'), id).not.toBeNull();
+      for (const term of ['vegetarian', 'vegan', 'pescatarian']) expect(status(id, [avoid(termIds(term), 'preference')]), `${id} ${term}`).toBe('blocked');
+    }
+    for (const id of ['pork_shoulder', 'pork_tenderloin', 'pork_chop']) expect(status(id, [avoid(termIds('no pork'), 'preference')]), id).toBe('blocked');
+    expect(status('chuck', [avoid(termIds('no pork'), 'preference')])).toBe('ok');
+  });
+
+  it('a "beans" line is never ✅ under a soy or lupin rule: its kinds include edamame and lupini (category reach)', () => {
+    expect(graph.get('bean').broad).toBe(true);
+    expect(graph.descendants('bean')).toEqual(expect.arrayContaining(['black_bean', 'kidney_bean', 'chickpea', 'pea', 'edamame', 'lupin_bean', 'canned_bean']));
+    expect(status('bean', SOY)).not.toBe('ok');
+    expect(status('bean', [avoid(['lupin'])])).not.toBe('ok');
+    // Pea carries no lupin edge: cross-reactivity is a clinical question (# REVIEW in content/README.md).
+    expect(graph.pathTo('pea', 'lupin')).toBeNull();
+  });
+
+  it('leek and green onion reach the low-FODMAP target, like onion and shallot; fennel seed is filed under fennel', () => {
+    const FODMAP = [avoid(['fodmap_fructan'], 'intolerance')];
+    for (const id of ['leek', 'green_onion']) {
+      expect(graph.pathTo(id, 'allium'), id).not.toBeNull();
+      expect(graph.pathTo(id, 'fodmap_fructan'), id).not.toBeNull();
+      expect(status(id, FODMAP), id).toBe('blocked');
+    }
+    expect(graph.pathTo('fennel_seed', 'fennel')).toEqual(['fennel_seed', 'fennel']);
+    expect(status('fennel_seed', [avoid(['fennel'], 'allergy')])).toBe('blocked');
+    expect(graph.resolve('fennel')).toBe('fennel');
+  });
+
+  it('a chilli rule reaches green and dried chillies and paprika; a coriander rule reaches leaf and seed, a cilantro rule only the leaf', () => {
+    for (const id of ['green_chili', 'dried_red_chili', 'paprika']) expect(status(id, [avoid(['chili'], 'allergy')]), id).toBe('blocked');
+    expect(status('cilantro', [avoid(['coriander'], 'allergy')])).toBe('blocked');
+    expect(status('coriander_seed', [avoid(['coriander'], 'allergy')])).toBe('blocked');
+    expect(status('coriander_seed', [avoid(['cilantro'], 'allergy')])).toBe('ok');
+    expect(status('cumin_seed', [avoid(['cumin'], 'allergy')])).toBe('blocked');
+    expect(status('mexican_oregano', [avoid(['oregano'], 'allergy')])).toBe('blocked');
+    // Nutmeg is a seed, not a tree nut.
+    expect(graph.pathTo('nutmeg', 'tree_nut')).toBeNull();
+  });
+
+  it('every new node with an FDC id carries the FDC record\'s values; one without says why in its source', () => {
+    const M6 = ['avocado', 'apple', 'pear', 'banana', 'strawberry', 'blueberry', 'cranberry', 'carrot', 'potato', 'winter_squash', 'zucchini', 'kale', 'leek', 'green_onion', 'lemon', 'mandarin', 'parsnip', 'asparagus', 'cilantro', 'cabbage', 'brussels_sprout', 'ginger', 'fennel', 'kidney_bean', 'chickpea', 'pea', 'lentil', 'red_lentil', 'toor_dal', 'edamame', 'soft_tofu', 'firm_tofu', 'extra_firm_tofu', 'tofu_puffs', 'tempeh', 'miso', 'coriander_seed', 'cardamom', 'cinnamon', 'clove', 'black_pepper', 'paprika', 'fennel_seed', 'nutmeg', 'saffron', 'bay_leaf', 'oregano', 'curry_powder'];
+    for (const id of M6) {
+      const n = graph.get(id);
+      expect(n.fdcId, id).toBeGreaterThan(160000);
+      expect(n.source, id).toMatch(new RegExp(`^FDC ${n.fdcId} \\(`));
+      expect(n.per100g?.energy_kcal, id).toBeGreaterThan(0);
+    }
+    const none = ['beef', 'chicken', 'lamb', 'bean', 'berry', 'tofu', 'silken_tofu', 'yuba', 'seitan', 'paneer', 'greek_yogurt', 'mushroom', 'nettle', 'chili', 'cumin', 'star_anise', 'mexican_oregano', 'asafoetida', 'garam_masala', 'furikake', 'canned_bean', 'coriander'];
+    for (const id of none) {
+      const n = graph.get(id);
+      expect(n.fdcId, id).toBeUndefined();
+      expect(n.per100g, id).toBeUndefined();
+      expect(n.source, id).toMatch(/FDC/); // says why there is no FDC record, or which one was not used
+    }
   });
 });

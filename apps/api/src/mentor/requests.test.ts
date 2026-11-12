@@ -27,3 +27,21 @@ test.each(['note that peanuts nearly killed me, can I eat this?', 'remember I am
   expect(isWriteRequest(text)).toBe(true),
 );
 test.each(['peanuts nearly killed me', 'is this ok for my dinner? update me'])('%j is not (fix round 5)', (text) => expect(isWriteRequest(text)).toBe(false));
+
+// M6 Step 8 fix round 1 (m4): a tick of the market list is a write request; a tick the animal, in a health context, never is.
+describe('tick requests', () => {
+  test.each(['tick the shallots', 'tick off the onion please', 'can you tick the dal', 'cross the dal off', 'check the onion off my list', 'ticked the eggs'])('%j is a write request', (t) =>
+    expect(isWriteRequest(t)).toBe(true),
+  );
+  test.each([
+    'got a tick bite, now red meat makes me ill',
+    'i had a tick bite last summer',
+    'tick bites gave me alpha-gal',
+    'a tick bit me on holiday',
+    'I was bitten by a tick and now I can\'t eat beef',
+    'the tick-borne thing means no red meat',
+    'found a tick on my leg',
+    'ticks on the dog again',
+    'deer ticks are everywhere',
+  ])('%j is not a write request', (t) => expect(isWriteRequest(t)).toBe(false));
+});

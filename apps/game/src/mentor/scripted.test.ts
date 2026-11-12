@@ -307,7 +307,8 @@ describe('scripted engine', () => {
   });
 
   test('an ambiguous term offers choices and never picks; cardFromChoice builds the card from the tapped option', async () => {
-    const r = await engine().reply("I'm allergic to bean", ctx({ turn: 4 }));
+    // M6 Step 4: "bean" is a broad category now (a which-kind ask), so the partial match is "pean".
+    const r = await engine().reply("I'm allergic to pean", ctx({ turn: 4 }));
     const choices = r.items.find((i) => i.kind === 'choices');
     expect(said(r)).toContain('rule.which_one');
     expect(r.cards).toEqual([]);
@@ -334,7 +335,7 @@ describe('M5 Step 4 fix round 2: a herb ask beside a real allergen', () => {
     expect(rules.map((c) => c.kind === 'rule' && c.rule.severity)).toEqual(['allergy']);
     expect(said(r).filter((t) => t === 'rule.which_kind')).toHaveLength(1);
     const choices = r.items.find((i) => i.kind === 'choices');
-    expect(choices?.kind === 'choices' && choices.options.map((o) => o.id)).toEqual(['curry_leaf', 'epazote']);
+    expect(choices?.kind === 'choices' && choices.options.map((o) => o.id)).toEqual(['cilantro', 'curry_leaf', 'epazote']); // cilantro since M6 Step 4
   });
 });
 

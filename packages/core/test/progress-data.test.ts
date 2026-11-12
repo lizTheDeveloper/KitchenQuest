@@ -15,6 +15,12 @@ describe('data/rewards.yaml', () => {
     expect(validateRewards(rewards)).toEqual([]);
     expect(rewards).toEqual(DATA);
   });
+
+  test('M6 Ruling 1: 5 XP per stall question answered correctly the first time, one stall stamp per week', () => {
+    const rewards = read('data/rewards.yaml') as { xp: Record<string, unknown>; stamps: Record<string, unknown> };
+    expect(rewards.xp.market_game).toBe(5);
+    expect(rewards.stamps.market_game).toBe(1);
+  });
 });
 
 describe('data/techniques.yaml', () => {

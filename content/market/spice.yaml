@@ -17,6 +17,7 @@ persona:
 
 triggers:
   greet:
+    contains: { "0": [chili, cumin], "5": [mustard, mustard_seed] }
     ai: allowed
     when: The player opens the spice stall.
     lines:
@@ -43,6 +44,7 @@ triggers:
       - "No, but a lovely guess. Here's the thing —"
       - "— Not that one. But your nose is warming up."
   idle:
+    contains: { "1": [cardamom] }
     ai: allowed
     when: The player lingers.
     lines:
@@ -61,6 +63,17 @@ triggers:
       - "Out of {item}, alas. {swap} will stand in. Labelled, checked, and slightly offended to be second choice."
       - "We're out of {item}. {swap} is your best stand-in. Labelled, and checked against your rules."
       - "No {item}, I'm afraid. Try {swap}. It's been checked against your rules."
+  # REVIEW: new in M6 Step 4 (content review): no swap passes the rules, so skip it this week.
+  out_of_stock_none:
+    ai: never
+    when: "A spice isn't available and no substitute passes the player's rules (Ruling 11): skip it this week."
+    vars:
+      item: "the missing item"
+    lines:
+      - "No {item} today, alas — and nothing in my sacks I can check against your rules to stand in. Skip it this week."
+      - "Out of {item}. I could guess at a stand-in — but not one I can check against your rules. Leave it out this week."
+      - "We're out of {item}, and no substitute passes your rules. Skip it this week; the dish will still be a dish."
+      - "No {item}, I'm afraid. Nothing here I can vouch for against your rules — so leave it off this week."
   farewell:
     ai: allowed
     when: The player leaves the stall.
@@ -70,6 +83,7 @@ triggers:
       - "Off you go. Toast the seeds, bloom the ground, taste as you go."
       - "Farewell! Buy small, sniff often, grind as you go."
   allergen_note:
+    contains: { "0": [asafoetida, celery, mustard, sesame, wheat] }
     ai: never
     when: The player has a severe rule and is shopping at the spice stall.
     lines:
@@ -215,7 +229,7 @@ questions:
   - id: spice-asafoetida
     game: freshness
     prompt: "Ground asafoetida (hing) is in many dal recipes. What should a gluten-free cook know about it?"
-    contains: [asafoetida, wheat]
+    contains: [asafoetida]   # the graph node carries the wheat edge (compounded hing) and is label-dependent
     options:
       - text: "Most ground asafoetida is mixed with wheat flour; look for a labelled gluten-free version."
         correct: true
@@ -389,7 +403,8 @@ item_tips:
   black_pepper:
     pick: "Whole peppercorns, firm and fragrant. Grind as you go."
     store: "Whole for years in a dark cupboard."
-  dried_chili:
+  # Step 4 re-keys (graph ids): dried_chili → dried_red_chili, oregano_mexican → mexican_oregano.
+  dried_red_chili:
     pick: "Flexible, glossy, deep red, not brittle or dusty. Kashmiri chillies for colour; others for heat."
     store: "Airtight, dark, cool; they last months to a year."
   paprika:
@@ -413,7 +428,7 @@ item_tips:
   bay_leaf:
     pick: "Green, not grey or brown; fragrant when crumbled."
     store: "Airtight; fish them out of the dish before serving."
-  oregano_mexican:
+  mexican_oregano:
     pick: "Whole dried leaves, grey-green, citrusy and grassy when rubbed."
     store: "Airtight, dark. Rub between your palms as you add it."
   curry_leaf:
@@ -441,14 +456,19 @@ faq:
     a: "Dry pan, medium heat, keep them moving. Thirty to sixty seconds for small seeds, until fragrant and a shade darker. Tip them onto a plate straight away so they stop cooking."
   - q: ["what is blooming spices", "what is tempering", "tadka", "bloom spices in oil"]
     a: "Frying spices in hot oil or ghee so their flavours move into the fat, which then carries them through the whole dish. Whole seeds first, until they pop or sizzle; ground spices last, for seconds. Ammachi Leela's parippu ends with exactly this."
+    a_if_blocked: "Frying spices in hot fat so their flavours move into it, and the fat carries them through the whole dish. Whole seeds first, until they pop or sizzle; ground spices last, for seconds."
   - q: ["what is garam masala", "garam masala vs curry powder"]
     a: "Garam masala is a warm spice blend used in many Indian kitchens; its recipe changes from region to region and family to family. 'Curry powder' is a blend that grew up mostly outside India. Neither is one fixed thing. Smell the bag; use what tastes right."
+    a_if_blocked: "A blend, and blends vary from kitchen to kitchen. Read the label every time, and choose single spices where you can."
     # REVIEW: confirm phrasing on curry powder's history is fair and not reductive.
   - q: ["spice blend allergens", "hidden allergens in spices", "are spice blends safe for allergies"]
     a: "Blends can hide things. Asafoetida usually has wheat flour; some blends contain mustard, celery, sesame or nut flours. Labelling rules differ by country, and some don't require every spice to be named. If you have an allergy, choose single spices and check every label."
+    a_if_blocked: "Blends can hide things that aren't obvious, and labelling rules differ by country. If you have an allergy, choose single spices where you can and check every label."
     tags: [safety]
     # REVIEW: country-specific labelling (US: major allergens incl. sesame must be declared, mustard/celery not; EU/UK: mustard, celery, sesame are declared allergens; Canada: mustard and sesame). Keep the line general unless region-aware.
   - q: ["how do i get turmeric stains out", "turmeric stain"]
     a: "Quickly, and with a little dish soap, then sunlight — sun fades turmeric stains on cloth and countertops remarkably well. Your fingers will forgive you in a day or two."
+    a_if_blocked: "Quickly, with a little dish soap, then sunlight: the sun fades most spice stains on cloth and counters remarkably well."
   - q: ["whole or ground spices", "should i buy whole spices"]
     a: "Whole for the ones you toast or temper with (cumin, mustard, coriander, fennel, pepper). Ground for things you use in pinches and replace often (turmeric, paprika, chilli). Always small bags."
+    a_if_blocked: "Whole for the ones you toast or temper with; ground for the ones you use in pinches and replace often. Always small bags, and always the ones that fit your rules."

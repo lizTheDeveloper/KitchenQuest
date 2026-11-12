@@ -230,6 +230,12 @@ describe('POST /progress/events and GET /progress', () => {
     expect(r.accepted.map((a) => a.clientId)).toEqual([good.id]);
     const stored = await rows(p.id);
     expect(stored.events.map((ev) => ev.clientId)).toEqual([good.id]);
+    // M6 Step 6: stall_round is a stored kind now (the Step 3 exclusion is gone), with its own strict shape.
+    const roundShape = { id: eid(), kind: 'stall_round', at: TODAY, stall: 'wen', answers: [{ q: 'wen-avocado-ripe', pick: 0 }] };
+    const roundForged = { ...roundShape, id: eid(), correct: 1 };
+    const rr = await post(p.cookie, [roundShape, roundForged]);
+    expect(rr.accepted.map((a) => a.clientId)).toEqual([roundShape.id]);
+    expect(rr.rejected).toEqual([{ clientId: roundForged.id, problems: ['bad_event'] }]);
     expect([...stored.events, ...stored.grants].flatMap((r) => Object.values(r.body as Record<string, unknown>))).not.toContain(999);
     expect(stored.grants.map((g) => g.body)).toEqual([expect.objectContaining({ amount: loop.rewards.xp.cook })]);
   });
@@ -664,6 +670,9 @@ describe('boot validation (C10)', () => {
     expect(c.quests.map((q) => q.id)).toEqual(['haruka-gluey-rice', 'leela-tempering', 'marisol-salt-question']);
     expect(c.frames.map((f) => f.id)).toEqual(['fried-rice', 'green-sauce', 'quick-tomato-sauce']);
     expect(c.stalls).toEqual(new Set(['bram', 'okafor-sato', 'spice', 'wen']));
+    // M6 Step 6: the stall files whole and the Season's Table, boot-checked.
+    expect([...c.market.stalls.keys()]).toEqual(['bram', 'okafor-sato', 'spice', 'wen']);
+    expect(Object.keys(c.market.seasonality)).toContain('pnw-usa');
     expect(c.thresholds).toEqual({ warmAfterDays: 42, rustyAfterDays: 120 });
   });
 
@@ -679,6 +688,20 @@ describe('boot validation (C10)', () => {
   ])('refuses bad %s, naming the file', (_label, rel, from, to) => {
     edit(rel, from, to);
     expect(load).toThrow(join(dir, rel));
+  });
+
+  it('refuses a stall id over 40 or a question id over 80 characters, the event caps (M6 Step 7, Task 6 review M2)', () => {
+    const long = `wen-${'x'.repeat(77)}`; // 81
+    edit('content/market/wen.yaml', /^ {2}- id: wen-avocado-ripe$/m, `  - id: ${long}`);
+    expect(load).toThrow(new RegExp(`content/market/wen\\.yaml: .*question id "${long}" is longer than 80 characters`));
+    // 80 is still fine.
+    edit('content/market/wen.yaml', `  - id: ${long}`, `  - id: ${long.slice(0, 80)}`);
+    expect(load).not.toThrow();
+    const stall = 's'.repeat(41);
+    const text = readFileSync(join(dir, 'content/market/spice.yaml'), 'utf8');
+    rmSync(join(dir, 'content/market/spice.yaml'));
+    writeFileSync(join(dir, `content/market/${stall}.yaml`), text.replace(/^id: spice$/m, `id: ${stall}`));
+    expect(load).toThrow(new RegExp(`${stall}\\.yaml: stall id "${stall}" is longer than 40 characters`));
   });
 
   it('refuses YAML that does not parse, naming the file', () => {

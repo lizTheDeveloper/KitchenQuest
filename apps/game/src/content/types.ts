@@ -9,14 +9,22 @@ import type {
   Quest,
   RewardsData,
   RuleTerm,
+  SeasonTable,
+  StallFile,
   StallId,
   StallMap,
+  StallVariantFile,
   Substitution,
   TechniqueNode,
 } from '@kitchenquest/core/engine';
 
 /** The quest types live in core (C33), shared with the API and the quest engine. */
 export type { Quest, QuestStep, RiddleOption } from '@kitchenquest/core/engine';
+/**
+ * The market stall types live in core (C33, M6 Step 1), shared with the API (Step 6) and the market functions
+ * (`stallBank`, `scoreAnswer`, `keeperLines`, ...). Core's `StallFile` carries `stall`, `art`, `persona?` and `triggers`.
+ */
+export type { ItemTip, SeasonRegion, SeasonTable, StallFaq, StallFile, StallOption, StallQuestion, StallTrigger, StallVariantFile } from '@kitchenquest/core/engine';
 
 export interface BureauFormField { key: string; label: string; hint?: string }
 
@@ -30,6 +38,8 @@ export interface BureauForm {
   /** Key into the Bureau file's `stamps` map. */
   stamp: string;
   footnotes?: string[];
+  /** Form 14-S only: each minigame's display name, by the stall files' `games:` keys. */
+  game?: Record<string, string>;
 }
 
 /** A trigger as shipped to the client: the writers' `when` and `notes` are dropped at build time. */
@@ -39,6 +49,7 @@ export interface LineTrigger {
   vars?: Record<string, string>;
 }
 export interface LineBank {
+  /** The writers' persona card: never shipped to the client (M6 Step 5); the model's prompt is the server's. */
   persona?: string[];
   triggers: Record<string, LineTrigger>;
 }
@@ -49,23 +60,14 @@ export interface Faq {
   a_if_blocked?: string;
   tags?: string[];
 }
-export interface StallOption { text: string; correct: boolean; reaction: string; contains?: string[] }
-export interface StallQuestion {
-  id: string;
-  game?: string;
-  prompt: string;
-  options: StallOption[];
-  explain: string;
-  contains?: string[];
-}
-
 export interface CookFile {
   id: string;
   name: string;
   place: string;
   dish: string;
   recipe: string;
-  persona: string[];
+  /** The writers' persona card: required in the file (the build checks it), never shipped to the client (M6 Step 5). */
+  persona?: string[];
   intro: string[];
   story: string[];
   quest: Quest;
@@ -74,15 +76,6 @@ export interface CookFile {
   reactions: { photo: string[]; skip_photo: string[] };
   introduction: string[];
   faq: Faq[];
-}
-export interface StallFile {
-  id: string;
-  name: string;
-  persona: string[];
-  triggers: Record<string, LineTrigger>;
-  questions: StallQuestion[];
-  /** Other keys (variants, seasonal, item_tips, faq, ...) pass through untouched. */
-  [key: string]: unknown;
 }
 export interface BureauFile {
   forms: Record<string, BureauForm>;
@@ -125,11 +118,29 @@ export interface GameContent {
   stallOf: StallMap;
   /** Each stall's display name: the content/market file's `name`, and `general` from Form 12-M's `general_stall` (C11). */
   stallNames: Record<StallId, string>;
+  /** data/seasonality.yaml (Ruling 9): The Season's Table, checked by core `validateSeasonTable`. */
+  seasonality: SeasonTable;
 }
 
 /**
- * What the app bundle carries: everything but the market stalls. No screen shows a stall yet, so their ~135 KB of
- * lines stays out of first paint (the build still validates them; `kq-content` strips them from the module). The
- * stalls' names reach the client as `stallNames` (C11), and every M5 field above with them (C35).
+ * What the first-paint bundle carries (`virtual:kq-content`): everything but the market stalls and The Season's Table.
+ * They ship in their own lazy module, `virtual:kq-market` (`MarketContent`, loaded by `src/market/content.ts`), which
+ * only the market screens import, so first paint stays under budget (M6 Step 5). The stalls' names reach the client
+ * here as `stallNames` (C11), and every M5 field above with them (C35). The ingredient graph's provenance fields
+ * (`source`, `fdcId`) are stripped too, and so are the Pan's and the cooks' writer persona cards: nothing on the device
+ * reads them (M6 Step 4 ruling, first paint; the stalls' personas are dropped the same way).
  */
-export type ClientContent = Omit<GameContent, 'stalls'>;
+export type ClientContent = Omit<GameContent, 'stalls' | 'seasonality'>;
+
+/** A stall as shipped: `persona` and the writers' trigger `when`/`notes` dropped (no model reads them in M6, Ruling 21). */
+export type ClientStall = Omit<StallFile, 'persona' | 'variants'> & { variants?: { protein_counter?: Omit<StallVariantFile, 'persona'> } };
+
+/** The lazy market module, `virtual:kq-market` (build/content/market.ts `compileMarket`). */
+export interface MarketContent {
+  /** Every market stall (not 'general', which has no file). */
+  stalls: Record<Exclude<StallId, 'general'>, ClientStall>;
+  /** data/seasonality.yaml. Frozen on load (`loadMarket`), so no screen can change a season. */
+  seasonality: SeasonTable;
+  /** First 12 hex of sha256 over the canonical stall and season JSON: the market's content version (the service worker's cache name). */
+  version: string;
+}

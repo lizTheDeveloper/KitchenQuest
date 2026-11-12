@@ -60,7 +60,10 @@ export async function planCardContext(tx: Tx, deps: PlanTurnDeps, userId: string
   const rules = await loadRules(tx, deps.keyring, userId);
   const stored = await loadPlan(tx, deps.keyring, userId, weekStart);
   const ctx = { ...planContext(week, weekStart, rules), existing: stored?.items ?? [] };
-  const { toolkit } = await progressViewOf(tx, userId, catalogueFor(recipes, deps.week.loop));
+  const { toolkit } = await progressViewOf(tx, deps.keyring, userId, catalogueFor(recipes, deps.week.loop), {
+    rewards: deps.week.loop.rewards,
+    thresholds: deps.week.loop.thresholds,
+  });
   return {
     ...ctx,
     slot: {
@@ -91,6 +94,12 @@ export function planReply(req: PlanRequest, ctx: PlanCardContext): { card: PlanC
 /** A navigation chip with its `nav.offer` line: the place's name from code (a cook's display name, a dish's title). */
 export function goPart(target: NavTarget, deps: { week: WeekSource }, recipes: RecipeIndex): ReplyPart {
   const name =
-    target.to === 'visit' ? (deps.week.loop.cookNames.get(target.cook) ?? null) : target.to === 'recipe' ? dishName(target.slug, recipes) : null;
+    target.to === 'visit'
+      ? (deps.week.loop.cookNames.get(target.cook) ?? null)
+      : target.to === 'recipe'
+        ? dishName(target.slug, recipes)
+        : target.to === 'stall'
+          ? (deps.week.loop.market.stalls.get(target.stall)?.name ?? null)
+          : null;
   return { kind: 'go', target, line: { trigger: 'nav.offer', vars: { place: navPlace(target, name) } } };
 }

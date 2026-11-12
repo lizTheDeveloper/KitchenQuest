@@ -40,11 +40,11 @@ const HELP_ALLERGEN =
 
 /**
  * Fix round 3 (E6, structural, the primary net): a strong symptom word anywhere is an emergency, with no verb
- * or subject needed. Over-catches on purpose: "I'm anaphylactic to cashews and carry an epipen" and "a swell
+ * or subject needed. M6 Step 8: "chest pain" too ("got the onions, chest pain" is an emergency before any check-off). Over-catches on purpose: "I'm anaphylactic to cashews and carry an epipen" and "a swell
  * dinner" are accepted on the safe side (the rule path still follows the emergency line, E2).
  */
 export const STRONG_SYMPTOM =
-  /\b(anaphyla\w*|epi[- ]?pens?|adrenalin\w*|auto-?injectors?|hives?|hivs|welts?|wheez\w*|can'?t breathe?|cannot breathe?|(struggling|trouble|hard) (to )?breath\w*|not breathing|throat (is |'?s |feels )?(tight|clos\w*|swell\w*)|swell\w*|swollen|tingl\w*|puff\w* up|numb|collaps\w*|faint\w*|vomit\w*|throwing up|passed out|turning blue|(lips?|face) (is |are |went |going |gone |turned )?blue|blue lips|chest (is |'?s |feels )?tight|chok\w*|can'?t stop cough\w*|(hard|trouble) to swallow|can'?t swallow|anafila\w*|urticar\w*|atemnot)\b/;
+  /\b(anaphyla\w*|epi[- ]?pens?|adrenalin\w*|auto-?injectors?|hives?|hivs|welts?|wheez\w*|can'?t breathe?|cannot breathe?|(struggling|trouble|hard) (to )?breath\w*|not breathing|throat (is |'?s |feels )?(tight|clos\w*|swell\w*)|swell\w*|swollen|tingl\w*|puff\w* up|numb|collaps\w*|faint\w*|vomit\w*|throwing up|passed out|turning blue|(lips?|face) (is |are |went |going |gone |turned )?blue|blue lips|chest (is |'?s |feels )?tight|chest pains?|chok\w*|can'?t stop cough\w*|(hard|trouble) to swallow|can'?t swallow|anafila\w*|urticar\w*|atemnot)\b/;
 /** Weaker words on a body part ("my mouth is tingling", "her eyes went all red"). */
 export const BODY_PART_SYMPTOM =
   /\b(mouth|lips?|tongue|face|eyes?|throat)('?s)? (is |are |feels? |went |gone |going |turned |looks? )?([a-z']+ ){0,2}(red|funny|weird|burning|itch\w*|tingl\w*)\b/;
@@ -167,9 +167,18 @@ const CONFUSABLES: Readonly<Record<string, string>> = {
 const FORMAT_CHARS = /\p{Cf}/gu;
 const COMBINING_MARKS = /\p{M}+/gu;
 
+/**
+ * NFKC (fullwidth "Ｐｅａｎｕｔ" → "Peanut") with invisible format characters removed, and NOT capped. For text the
+ * game wrote or already stored (stall content, saved margin notes), which a safety scan must read in full (M6 fix
+ * round 1, C1). A player's turn goes through `canonicalText`, which caps it first.
+ */
+export function canonicalFull(text: string): string {
+  return text.normalize('NFKC').replace(FORMAT_CHARS, '');
+}
+
 /** NFKC (fullwidth "Ｐｅａｎｕｔ" → "Peanut"), capped at MAX_TEXT, with invisible format characters removed. */
 export function canonicalText(text: string): string {
-  return capText(text).normalize('NFKC').replace(FORMAT_CHARS, '');
+  return canonicalFull(capText(text));
 }
 
 /** One character folded: a listed lookalike, else its base letter without accents ("é" → "e"), else itself. */
@@ -185,15 +194,24 @@ export function foldConfusables(text: string): string {
   return text.replace(/[^\p{ASCII}]/gu, foldChar);
 }
 
-/** Canonical, lookalikes folded, lower-cased, curly quotes made straight, whitespace collapsed. */
-export function normalizeTurn(text: string): string {
-  return foldConfusables(canonicalText(text))
+/**
+ * `normalizeTurn` without the MAX_TEXT cap: the whole text, lookalikes folded, lower-cased, quotes straightened,
+ * whitespace collapsed. For written or stored text that a safety scan must read in full (C1); never for a turn.
+ */
+export function normalizeText(text: string): string {
+  return foldConfusables(canonicalFull(text))
     .toLowerCase()
     .replace(/[\u2018\u2019\u201B\u2032]/g, "'")
     .replace(/[\u201C\u201D\u201F\u2033]/g, '"')
     .replace(/\s+/g, ' ')
     .trim();
 }
+
+/** Canonical (capped at MAX_TEXT), lookalikes folded, lower-cased, curly quotes made straight, whitespace collapsed. */
+export function normalizeTurn(text: string): string {
+  return normalizeText(capText(text));
+}
+
 
 function isStrictYes(t: string): boolean {
   const words = t

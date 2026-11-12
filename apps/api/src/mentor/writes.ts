@@ -36,6 +36,7 @@ import { createRuleIn, deleteRuleIn, lockUserRules } from '../rules/service.js';
 import type { Db } from '../types.js';
 import { checksFor, restorePlanIn, savePlanIn, type WeekDeps } from '../week/plan-service.js';
 import { loadPlan } from '../week/store.js';
+import { tickCheckOffIn, untickCheckOffIn, type CheckOffUndo } from './check-off-turn.js';
 import { line } from './lines.js';
 import { planCardContext, type WeekSource } from './plan-turn.js';
 import { createProposal, lockProposal, markDecided, peekProposal } from './proposals.js';
@@ -49,7 +50,8 @@ import { createProposal, lockProposal, markDecided, peekProposal } from './propo
  * "second short window" (UNDO_WINDOW_MS).
  *
  * Lock order (README, pre-flight C13, M5): live user → the kind's advisory lock
- * (`rules:` for a rule card, `pantry:` for a pantry card, `plan:` for a plan card, `progress:` for a meal card,
+ * (`rules:` for a rule card, `pantry:` for a pantry card, `plan:` for a plan card, `pantry:` then `plan:` for a
+ * check-off card (M6 Step 8: each tick writes the pantry and the run), `progress:` for a meal card,
  * confirm and undo: a meal log's delete cascades to its `meal_logged` progress event) → `health_data` consent (rule,
  * meal and plan cards; for an undo only a plan card's, which the plan service needs) → for an undo of a rule or meal, the written row (`rules` /
  * `meal_logs`, fix round 1 C1; a meal log's progress event goes with it) → the proposal row (`lockProposal`). No conversation row is
@@ -69,6 +71,12 @@ async function weekDepsOf(tx: Tx, deps: ConfirmDeps): Promise<WeekDeps> {
   return { keyring: deps.keyring, catalog: deps.catalog, loop: deps.week.loop, recipes: await deps.week.recipes.current(tx) };
 }
 
+/** The check-off pieces need the week's content (M6 Step 8), as a plan card does. */
+function checkOffDepsOf(deps: ConfirmDeps): { keyring: Keyring; catalog: Catalog; week: WeekSource } {
+  if (deps.week === undefined) throw new Error('mentor writes: a check-off card needs the week deps');
+  return { keyring: deps.keyring, catalog: deps.catalog, week: deps.week };
+}
+
 const notFound = () => new ApiError(404, 'not_found', 'Proposal not found');
 const closed = () => new ApiError(409, 'proposal_closed', 'This card is no longer open');
 
@@ -80,6 +88,14 @@ async function lockForKind(tx: Tx, userId: string, kind: ProposalKind, withConse
   // plans being health data (Step 6 ruling), the health_data grant, for the undo too. Both are taken here, before
   // the proposal row, in the global order.
   if (kind === 'plan') {
+    await lockUserPlan(tx, userId);
+    await lockConsentIn(tx, userId, 'health_data', at);
+  }
+  // M6 Step 8: a check-off card ticks (and its undo unticks) rows through Step 6's tickIn, which writes the pantry
+  // and the run, and market runs need health_data (M5 Step 6 ruling), for the undo too: `pantry:` → `plan:` → the
+  // health_data grant, here before the proposal row, so tickIn re-takes only locks already held.
+  if (kind === 'check_off') {
+    await lockUserPantry(tx, userId);
     await lockUserPlan(tx, userId);
     await lockConsentIn(tx, userId, 'health_data', at);
   }
@@ -143,7 +159,11 @@ export async function confirmProposalIn(
   deps: ConfirmDeps,
   userId: string,
   proposalId: string,
-  channel: 'tap' | 'typed_yes',
+  /**
+   * 'grammar' (M6 Step 8, C31): the turn applies a check-off card code built from the closed grammar at once, with an
+   * Undo (spec §7.0 "None (undoable)"). Only for such a card; the proposal records no channel.
+   */
+  channel: 'tap' | 'typed_yes' | 'grammar',
   edits: { severity?: Severity } | undefined,
   at: Date,
   requestId?: string,
@@ -162,6 +182,8 @@ export async function confirmProposalIn(
   // The stored flag and the card itself: either one makes it severe.
   if ((p.severe || isSevereCard(p.card)) && channel !== 'tap')
     throw new ApiError(400, 'tap_required', 'A severe rule needs a tap on its card');
+  // Only a card code built from the closed grammar is applied without the player's tap or yes (C31).
+  if (channel === 'grammar' && !(p.card.kind === 'check_off' && p.card.source === 'grammar')) throw new Error('mentor writes: only a grammar check-off card is applied by the turn');
 
   let card = p.card;
   if (edits?.severity !== undefined) {
@@ -172,6 +194,7 @@ export async function confirmProposalIn(
   let writeRef: string | null = null;
   let undo: unknown = null;
   let removedNames: string[] = [];
+  let ticked: number | null = null;
   switch (card.kind) {
     case 'rule': {
       const rule = await createRuleIn(tx, deps, userId, card.rule, at, requestId);
@@ -198,6 +221,14 @@ export async function confirmProposalIn(
       undo = { weekStart: plan.weekStart, previous } satisfies PlanUndo;
       break;
     }
+    case 'check_off': {
+      // M6 Step 8: the run is re-read now; a row gone, already ticked or out of stock is skipped (its count is the trail's).
+      const done = await tickCheckOffIn(tx, checkOffDepsOf(deps), userId, card, at, today, requestId);
+      undo = { runId: card.runId, keys: done.keys } satisfies CheckOffUndo;
+      removedNames = done.names;
+      ticked = done.keys.length;
+      break;
+    }
     case 'pantry': {
       // Exactly the rows resolved when the card was proposed; names are never matched again (Step 5 carry).
       const { removed, addedIds } = await changePantryIn(
@@ -215,7 +246,7 @@ export async function confirmProposalIn(
   }
   // The lines come from core, as the client's card writer says them (pre-flight C14).
   const parts: ReplyPart[] = confirmedLines(card, removedNames).map((l) => ({ kind: 'line', line: l }));
-  await markDecided(tx, p.id, 'confirmed', channel, writeRef, undo, deps.keyring, userId, at);
+  await markDecided(tx, p.id, 'confirmed', channel === 'grammar' ? null : channel, writeRef, undo, deps.keyring, userId, at);
   await audit(
     tx,
     { actorKind: 'user', actorId: userId, subjectUserId: userId, action: 'mentor.confirm', target: p.id, requestId },
@@ -225,7 +256,8 @@ export async function confirmProposalIn(
     id: p.id,
     origin: 'server',
     kind: card.kind,
-    summary: trailSummary(card),
+    // A check-off's trail says how many rows ticked, as a number only (never which).
+    summary: ticked === null ? trailSummary(card) : `${ticked} ticked`,
     undoUntil: new Date(at.getTime() + UNDO_WINDOW_MS).toISOString(),
   };
   return { trail, parts };
@@ -396,6 +428,11 @@ export async function undoWriteIn(
       // The week's plan as it was before the confirm, or none (Step 6's restorePlanIn).
       const u = p.undo as PlanUndo | null;
       if (u !== null) await restorePlanIn(tx, await weekDepsOf(tx, deps), userId, u.weekStart, u.previous, at, requestId);
+      break;
+    }
+    case 'check_off': {
+      const u = p.undo as CheckOffUndo | null;
+      if (u !== null) await untickCheckOffIn(tx, checkOffDepsOf(deps), userId, u, at, requestId);
       break;
     }
     case 'pantry': {

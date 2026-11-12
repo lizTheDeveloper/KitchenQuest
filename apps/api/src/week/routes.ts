@@ -8,7 +8,7 @@ import { requireUser } from '../auth/session.js';
 import type { Catalog, LoopContent } from '../catalog.js';
 import { ApiError } from '../errors.js';
 import type { RecipeIndexSource } from '../recipes/recipe-index.js';
-import { finishRunIn, openRunIn, tickIn } from './market-service.js';
+import { finishRunIn, openRunIn, stockIn, tickIn } from './market-service.js';
 import { checksFor, currentWeekStart, deletePlanIn, savePlanIn, type WeekDeps } from './plan-service.js';
 import { localToday } from './local-date.js';
 import { loadPlan, type Tx } from './store.js';
@@ -31,6 +31,13 @@ const PlanWrite = z.object({ plan: z.unknown(), confirmed: z.unknown(), today })
 const OpenBody = z.object({ weekStart: z.string().max(10), today }).strict();
 const TickBody = z.object({ key: z.string().min(1).max(200), ticked: z.boolean(), today }).strict();
 const FinishBody = z.object({ confirmed: z.unknown(), today }).strict();
+/** M6 Step 6: an out-of-stock mark, a stall swap (`toId`, re-checked by core) or the undo of both. Ids only, no names. */
+const runKey = z.string().min(1).max(200);
+const StockBody = z.discriminatedUnion('action', [
+  z.object({ key: runKey, action: z.literal('out'), today }).strict(),
+  z.object({ key: runKey, action: z.literal('take'), toId: z.string().min(1).max(200), today }).strict(),
+  z.object({ key: runKey, action: z.literal('undo'), today }).strict(),
+]);
 
 const needsYes = (body: unknown, what: string) => {
   if (typeof body !== 'object' || body === null || (body as { confirmed?: unknown }).confirmed !== true) {
@@ -48,7 +55,7 @@ const weekDate = (v: string): string => {
  * The week's records (H-11, Step 6): the player's plan per plan week, and the market run built from it. Sealed per
  * user and row; health data (Step 6 ruling): writes need `health_data` (403 `consent_required`), reads and deletes
  * don't (kept data stays readable and deletable after a withdrawal). A plan save and a run's finish need
- * `confirmed: true`; a tick doesn't (§7.0 "None (undoable)"). A run is read without `health_data` too (M2): `POST
+ * `confirmed: true`; a tick doesn't (§7.0 "None (undoable)"), nor does a stall swap (M6: `undo` is its undo). A run is read without `health_data` too (M2): `POST
  * /market-runs` then returns the existing run computed now and writes nothing. Every route takes an optional `today`, the
  * player's local date (I2), within a day of the server's UTC date. Nothing about food is ever in a URL (P-5) or a log
  * (C-9): only a plan-week date and a run id are. Every route is limited per player (429 `rate_limited`).
@@ -135,6 +142,19 @@ export async function weekRoutes(app: FastifyInstance, deps: WeekRouteDeps): Pro
     const { key, ticked, today: t } = TickBody.parse(req.body);
     const local = localToday(t, at);
     return db.transaction(async (tx: Tx) => tickIn(tx, await weekDeps(tx), req.user.id, id, key, ticked, at, req.id, local));
+  });
+
+  /**
+   * `{ key, action: 'out' | 'take' | 'undo', toId?, today }` (M6 Ruling 11) → 200 `MarketRunView`. `take` re-runs core
+   * `stockSwaps` with the player's rules now: the client's offer is never trusted (400 `stock_invalid`). The row key and
+   * the swap's id are only ever in the body (P-5).
+   */
+  app.post('/market-runs/:id/stock', pre, async (req) => {
+    const at = now();
+    const { id } = RunParam.parse(req.params);
+    const { today: t, ...body } = StockBody.parse(req.body);
+    const local = localToday(t, at);
+    return db.transaction(async (tx: Tx) => stockIn(tx, await weekDeps(tx), req.user.id, id, body, at, local, req.id));
   });
 
   app.post('/market-runs/:id/finish', pre, async (req) => {

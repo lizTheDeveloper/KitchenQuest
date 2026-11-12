@@ -2,6 +2,8 @@
 // here imports the recipe parser or any I/O.
 export * from './plan';
 export * from './market-list';
+export * from './amounts';
+export * from './stock';
 export * from './use-it-up';
 export * from './frames';
 export * from './data';

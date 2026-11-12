@@ -17,8 +17,10 @@ import { parse } from 'yaml';
 import type { ProgressEvent, ProgressView, RewardGrant } from '@kitchenquest/core/engine';
 import { STORE_KEY, type PlayerState } from '../src/state/store';
 import { expectNoA11yViolations, expectNoHorizontalScroll, openApp, type OpenedApp } from './helpers';
-import { FRIJOLES, NOW, PARIPPU, WEEK, fakeApi, newFake } from './loop-fake';
+import { FRIJOLES, NOW, PARIPPU, WEEK, fakeApi, newFake, type Fake } from './loop-fake';
 
+/** src/progress/sync.ts's PROGRESS_REQUEST_GAP_MS, read from the source (importing it would pull in the content module). */
+const PROGRESS_REQUEST_GAP_MS = Number(/PROGRESS_REQUEST_GAP_MS = ([\d_]+);/.exec(readFileSync(fileURLToPath(new URL('../src/progress/sync.ts', import.meta.url)), 'utf8'))![1].replace(/_/g, ''));
 const yaml = <T>(rel: string): T => parse(readFileSync(fileURLToPath(new URL(`../../../content/${rel}`, import.meta.url)), 'utf8')) as T;
 const pan = yaml<{ triggers: Record<string, { lines: string[] }> }>('dialogue/pan.yaml');
 const lines = (id: string) => pan.triggers[id].lines;
@@ -46,6 +48,24 @@ const tell = async (page: Page, text: string) => {
   await page.keyboard.press('Enter');
   await page.waitForFunction((n) => document.querySelectorAll('#pan-panel .bubble.pan').length > n, before);
 };
+/**
+ * Fix round 1, I2 (Task 5 ruling 3): the signed-in run keeps the page clock paused (no `resume()`), so no page timer
+ * fires by accident: the progress sync's 1.1 s request gap and its 4 s live wait run only when the test steps the
+ * clock. `untilSynced` steps it one gap at a time while it waits for the fake server to hold what the step expects.
+ */
+const untilSynced = async (page: Page, check: () => boolean | Promise<boolean>) => {
+  for (let i = 0; i < 20; i++) {
+    if (await check()) return;
+    await page.clock.runFor(PROGRESS_REQUEST_GAP_MS);
+    await page.evaluate(() => new Promise((r) => { requestAnimationFrame(() => { r(null); }); }));
+  }
+  expect(await check()).toBe(true);
+};
+/** Every event the device holds for the signed-in account, and the ids it still has to upload. */
+const accountEvents = async (page: Page) => {
+  const parts = Object.values((await stored(page)).accountProgress ?? {});
+  return { events: parts.flatMap((p) => p.progress.events.map((e) => e.id)), pending: parts.flatMap((p) => p.progress.pendingUpload) };
+};
 /** Every grant the device holds, in every partition: what a meal-log undo must never take back. */
 const deviceGrants = async (page: Page): Promise<RewardGrant[]> => {
   const s = await stored(page);
@@ -66,7 +86,7 @@ const tried = (lastUsedAt: string) => ({ tier: 'tried' as const, firstAt: lastUs
 const ACCOUNT_VIEW: ProgressView = {
   xp: 30, level: 1, stamps: 0, trust: {},
   toolkit: { techniques: { legumes: tried(LAST_WEEK), 'heat-control': tried(LAST_WEEK), patience: tried(LAST_WEEK) } },
-  questsDone: [], questSteps: {}, questStartedOn: {}, cookedOn: { [FRIJOLES]: [LAST_WEEK] }, framesCookedOn: {},
+  questsDone: [], questSteps: {}, questStartedOn: {}, cookedOn: { [FRIJOLES]: [LAST_WEEK] }, framesCookedOn: {}, marketAnswered: {},
 };
 const settings = (aiMentor: boolean) => ({ showCalories: false, reducedMotion: 'system' as const, familyTable: false, iosNoteDismissed: false, aiMentor, rescueNudges: false });
 const BASE: Partial<PlayerState> = {
@@ -148,7 +168,7 @@ async function shop(page: Page) {
 }
 
 /** After the cooking, signed in: "Just me", an "added lime" note, Log it, then the log undone. */
-async function afterCookSignedIn(page: Page) {
+async function afterCookSignedIn(page: Page, fake: Fake) {
   const who = page.locator('.bureau-slip[data-kind="cooked_for"]');
   await who.waitFor();
   await who.getByRole('button', { name: 'Just me' }).click();
@@ -169,7 +189,8 @@ async function afterCookSignedIn(page: Page) {
   expect(xpOf(before)).toBeGreaterThan(30);
   await page.locator('.after-cook-step', { hasText: 'Log it?' }).getByRole('button', { name: /Undo/ }).click();
   await page.locator('.after-cook-step', { hasText: 'Log it?' }).getByRole('button', { name: /Undo/ }).waitFor({ state: 'detached' });
-  await page.waitForTimeout(300);
+  // The undo has reached the server (DELETE /meals/:id), not a fixed wait (fix round 1, I2).
+  await untilSynced(page, () => fake.requests.some((r) => r.method() === 'DELETE' && new URL(r.url()).pathname.startsWith('/api/meals/')));
   // Nothing earned is taken back: every grant held before the undo is still held, and XP is no lower.
   const after = await deviceGrants(page);
   expect(after.map((g) => g.id)).toEqual(expect.arrayContaining(before.map((g) => g.id)));
@@ -217,7 +238,6 @@ describe('the weekly loop (M5 Step 12)', () => {
         reducedMotion: true, width, seed: { ...BASE, settings: settings(true) },
         beforeGoto: async (page) => {
           await page.clock.install({ time: NOW });
-          await page.clock.resume();
           await fakeApi(page, fake, { view: ACCOUNT_VIEW });
         },
       });
@@ -229,11 +249,14 @@ describe('the weekly loop (M5 Step 12)', () => {
       expect(fake.plan?.slot).toBe('declined');
       expect(fake.plan?.items.map((i) => i.slug)).toEqual([PARIPPU, 'japan/osaka/onigiri', FRIJOLES]);
       await shop(page);
+      // Each tick and the run's event reach the server: waited for, never assumed straight after the UI.
+      await untilSynced(page, () => fake.requests.filter((r) => /\/ticks$/.test(new URL(r.url()).pathname)).length === 3);
+      await untilSynced(page, () => fake.events.some((e) => e.kind === 'market_run'));
       expect(fake.requests.filter((r) => /\/ticks$/.test(new URL(r.url()).pathname))).toHaveLength(3);
       expect(fake.events.filter((e) => e.kind === 'market_run')).toHaveLength(1);
 
       await cookLeelasQuest(page);
-      await afterCookSignedIn(page);
+      await afterCookSignedIn(page, fake);
       // The undo is DELETE /meals/:id: no meal log is left, so any meal_logged event already sent went with it (Step 5 I1).
       expect(fake.meals).toEqual([]);
       expect(fake.requests.filter((r) => r.method() === 'DELETE' && new URL(r.url()).pathname.startsWith('/api/meals/'))).toHaveLength(1);
@@ -252,6 +275,12 @@ describe('the weekly loop (M5 Step 12)', () => {
       expect((await deviceGrants(page)).map((g) => g.id)).toEqual(expect.arrayContaining(held.map((g) => g.id)));
       expect(held.some((g) => g.kind === 'trust')).toBe(true);
       expect((await stored(page)).accountProgress).toBeDefined();
+      // Every event the device recorded went up live, and none waits for an upload.
+      await untilSynced(page, async () => {
+        const { events, pending } = await accountEvents(page);
+        return pending.length === 0 && events.every((id) => fake.events.some((e) => e.id === id));
+      });
+      expect((await accountEvents(page)).events.length).toBeGreaterThan(3);
       expect(fake.uploads.every((u) => !u)).toBe(true); // live events, never an upload
       expect(app.consoleErrors).toEqual([]);
     });

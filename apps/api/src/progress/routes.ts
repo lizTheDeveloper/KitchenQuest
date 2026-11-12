@@ -35,9 +35,12 @@ export interface ProgressRouteDeps {
  * mentor. Slugs and quest ids are only in bodies, never in a URL or a log (C-9). Both routes are limited per player
  * (429 `rate_limited`, `retry-after`); a refused request changes nothing already stored.
  * A meal-log undo needs no route here: deleting the meal log erases its event (I1 ruling).
+ * M6 Step 6: a `stall_round` is judged by core against the stall files loaded at boot (`Catalogue.market`) with the
+ * player's rules, sealed per row with their key (`config.keyring`), and needs `health_data` only when it is a Protein
+ * Counter round; no stall, question or pick is ever in a URL or a log.
  */
 export async function progressRoutes(app: FastifyInstance, deps: ProgressRouteDeps): Promise<void> {
-  const { db, now } = app.deps;
+  const { db, now, config } = app.deps;
   // Per app instance, in memory only (N-2).
   const limiter = new SlidingWindowLimiter(PROGRESS_REQUESTS_PER_MINUTE, 60_000);
   const stopSweeping = sweepPeriodically([limiter], () => now().getTime());
@@ -56,9 +59,15 @@ export async function progressRoutes(app: FastifyInstance, deps: ProgressRouteDe
   };
 
   app.get('/progress', { preHandler: [requireUser, limited] }, async (req) => {
-    // One snapshot (M1): the events and the grants come from the same moment.
+    // One snapshot (M1): the events and the grants come from the same moment. The sealed progress snapshot (M6 Step 7)
+    // and the events after it are read in that same transaction.
     const view = await db.transaction(
-      async (tx: Tx) => progressViewOf(tx, req.user.id, catalogueFor(await deps.recipes.current(tx), deps.loop)),
+      async (tx: Tx) =>
+        progressViewOf(tx, config.keyring, req.user.id, catalogueFor(await deps.recipes.current(tx), deps.loop), {
+          rewards: deps.loop.rewards,
+          thresholds: deps.loop.thresholds,
+          log: req.log,
+        }),
       { isolationLevel: 'repeatable read' },
     );
     await countSelfRead(db, req.user.id, 'progress', now());
@@ -78,12 +87,14 @@ export async function progressRoutes(app: FastifyInstance, deps: ProgressRouteDe
     return db.transaction(async (tx: Tx) => {
       const recipes = await deps.recipes.current(tx);
       const progressDeps = {
+        keyring: config.keyring,
         catalogue: catalogueFor(recipes, deps.loop),
         rewards: deps.loop.rewards,
         thresholds: deps.loop.thresholds,
         rules: () => deps.rulesFor(tx, userId, today, recipes),
         healthConsent: () => deps.healthConsentFor(tx, userId, at),
         writeCap: () => deps.writeCapFor(tx, userId, at),
+        log: req.log,
       };
       return recordEventsIn(tx, progressDeps, userId, events, today, at, { upload: upload === true }, req.id);
     });

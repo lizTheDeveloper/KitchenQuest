@@ -1,11 +1,13 @@
 // The voice scan (M5 Step 4, Ruling 24, C29): every line, form and frame the client bundle carries (ClientContent)
-// against voice §7's banned words and the never rules. The market stall files are not in ClientContent (no M5 screen
-// shows them); they are scanned when M6 gives them a screen. No pattern is weakened: a legitimate teaching line a
-// pattern catches is listed, by exact text, in VOICE_ALLOWLIST, and an edited line fails again.
+// against voice §7's banned words and the never rules. M6 Step 5: the market module (MarketContent) too: every stall
+// line, prompt, option, reaction, explanation, tip, FAQ chip and answer, keeper greet/idle/farewell line, the Protein
+// Counter's content and The Season's Table's labels. No pattern is weakened: a legitimate teaching line a pattern
+// catches is listed, by file, key path and exact text, in VOICE_ALLOWLIST, and an edited line fails again.
 import { stepPlainText } from '@kitchenquest/core/engine';
 import { describe, expect, it } from 'vitest';
+import { loadMarket } from '../market/content';
 import { content } from './index';
-import type { ClientContent } from './types';
+import type { ClientContent, MarketContent } from './types';
 import { VOICE_ALLOWLIST } from './voice-allowlist';
 
 /** One scanned string: where it comes from (file, path) and which line kinds it belongs to. */
@@ -13,7 +15,10 @@ interface Scanned {
   file: string;
   where: string;
   text: string;
-  /** 'nourishment' (meal logging, Ruling 5), 'rescue' (Use-It-Up), 'frame' (Pantry Frames), 'okafor' (names Okafor-Sato). */
+  /**
+   * 'nourishment' (meal logging, Ruling 5), 'rescue' (Use-It-Up), 'frame' (Pantry Frames), 'okafor' (names Okafor-Sato,
+   * or is in Okafor-Sato's own file), 'stall' (a market stall file or The Season's Table, M6 Step 5).
+   */
   kinds: ReadonlySet<string>;
 }
 
@@ -51,7 +56,7 @@ const scanned = (file: string, where: string, text: string, kinds: readonly stri
 function collect(c: ClientContent): Scanned[] {
   const out: Scanned[] = [];
   const add = (file: string, where: string, text: string, kinds: string[] = []): void => void out.push(scanned(file, where, text, kinds));
-  for (const p of c.pan.persona ?? []) add(PAN, 'persona', p);
+  // (No persona cards: they never ship to the client, M6 Step 5; the server's prompt is checked by the API's own tests.)
   for (const [id, t] of Object.entries(c.pan.triggers)) t.lines.forEach((l, i) => add(PAN, `triggers.${id}[${i}]`, l, kindsOf(id)));
   for (const [id, cook] of Object.entries(c.cooks)) for (const [where, text] of strings(cook, '')) add(`content/cooks/${id}.yaml`, where, text);
   for (const [where, text] of strings(c.bureau, '')) add(BUREAU, where, text);
@@ -74,6 +79,26 @@ function collect(c: ClientContent): Scanned[] {
   for (const t of c.techniques.techniques) add('data/techniques.yaml', t.id, t.name);
   c.rewards.trust.names.forEach((n, i) => add('data/rewards.yaml', `trust.names[${i}]`, n));
   for (const [id, n] of Object.entries(c.stallNames)) add(id === 'general' ? BUREAU : `content/market/${id}.yaml`, `stallNames.${id}`, n);
+  return out;
+}
+
+/**
+ * The kinds every line of a market file has: 'stall' for a stall file or The Season's Table, and 'okafor' for every
+ * line in Okafor-Sato's own file (never gendered, voice §0.11, named or not).
+ */
+function fileKinds(file: string): string[] {
+  if (file === 'content/market/okafor-sato.yaml') return ['stall', 'okafor'];
+  return /^content\/market\/|^data\/seasonality\.yaml$/.test(file) ? ['stall'] : [];
+}
+
+/** The market module (M6 Step 5): every string of every stall, and The Season's Table, by file and key path. */
+function collectMarket(m: MarketContent): Scanned[] {
+  const out: Scanned[] = [];
+  for (const [id, stall] of Object.entries(m.stalls)) {
+    const file = `content/market/${id}.yaml`;
+    for (const [where, text] of strings(stall, '')) out.push(scanned(file, where, text, fileKinds(file)));
+  }
+  for (const [where, text] of strings(m.seasonality, '')) out.push(scanned('data/seasonality.yaml', where, text, fileKinds('data/seasonality.yaml')));
   return out;
 }
 
@@ -111,6 +136,17 @@ const PATTERNS: { name: string; re: RegExp; kinds?: string }[] = [
   { name: 'selling', re: /\b(guild|prices?|pricing|upgrade\w*|premium|subscri\w*)\b|[$£€]\s?\d/i },
   // Ruling 17: stamps are spent nowhere until M10
   { name: 'spending stamps', re: /\b(spend|spends|spent|spending)\b/i },
+  // M6 Ruling 6 and Ruling 5 (Step 5): nothing is "smuggled"; no currency symbol anywhere (chalkboard prices name none)
+  { name: 'smuggled', re: /\bsmuggl\w*/i },
+  { name: 'currency symbol', re: /[$£€¥₹₩₦₱¢]/ },
+  // M6 (never rule 5, voice §5): a stall keeper never hurries, counts down or calls stock scarce; a spice is never
+  // "mysterious" (the mystery is the merchant).
+  {
+    name: 'stall scarcity or countdown',
+    re: /\b(sold out|sell(?:s|ing)? out|selling fast|hurry\w*|last chance|running out|while (?:stocks?|supplies) last|limited (?:time|stock|supply|offer)|only \w+ left|(?:almost|nearly) gone|before (?:it'?s|they'?re) gone|ends? soon|ending soon|don'?t miss)\b/i,
+    kinds: 'stall',
+  },
+  { name: 'mysterious spice', re: /\bmysterious\w*/i, kinds: 'stall' },
   // §9: never claim HIPAA
   { name: 'HIPAA', re: /\bHIPAA\b|\bmedical[- ]grade\b/i },
   // spec §2.3, voice §0.10: no hours or calories in nourishment or rescue lines
@@ -125,8 +161,11 @@ const PATTERNS: { name: string; re: RegExp; kinds?: string }[] = [
   { name: 'scarcity joke', re: SCARCITY, kinds: 'cupboard' },
 ];
 
-/** Keyed by location (file and path) and exact text (fix round 1, M7): the same words anywhere else are scanned. */
-const allowed = new Set(VOICE_ALLOWLIST.map((a) => `${a.file}\0${a.where}\0${a.line}`));
+/**
+ * Keyed by location (file and path) and exact text (fix round 1, M7): the same words anywhere else are scanned. Each
+ * entry excuses only its own patterns (M6 Step 5 fix round 1, M2).
+ */
+const allowed = new Map(VOICE_ALLOWLIST.map((a) => [`${a.file}\0${a.where}\0${a.line}`, new Set(a.patterns ?? [])]));
 /** This scan's own entries; the 'countdown' ones are proven needed by Step 12's never-rules sweep (e2e). */
 const VOICE_ENTRIES = VOICE_ALLOWLIST.filter((a) => (a.scan ?? 'voice') === 'voice');
 
@@ -134,19 +173,22 @@ const VOICE_ENTRIES = VOICE_ALLOWLIST.filter((a) => (a.scan ?? 'voice') === 'voi
 function scan(items: readonly Scanned[]): string[] {
   const problems: string[] = [];
   for (const it of items) {
-    if (allowed.has(`${it.file}\0${it.where}\0${it.text}`)) continue;
+    const excused = allowed.get(`${it.file}\0${it.where}\0${it.text}`);
     // {vars} are filled in by code; their names are not words the player reads.
     const text = it.text.replace(/\{\w+\}/g, 'X');
     for (const p of PATTERNS) {
       if (p.kinds !== undefined && !it.kinds.has(p.kinds)) continue;
+      if (excused?.has(p.name) === true) continue;
       if (p.re.test(text)) problems.push(`${it.file} ${it.where}: ${p.name}: ${it.text}`);
     }
   }
   return problems;
 }
 
-const shipped = collect(content);
-const line = (text: string, kinds: string[] = [], file = PAN, where = 'planted'): Scanned => scanned(file, where, text, kinds);
+const market = await loadMarket();
+const shipped = [...collect(content), ...collectMarket(market)];
+const line = (text: string, kinds: string[] = [], file = PAN, where = 'planted'): Scanned =>
+  scanned(file, where, text, [...kinds, ...fileKinds(file.replace(/#.*$/, ''))]);
 
 describe('voice scan of the client content (C29)', () => {
   it('scans the lines, forms, frames, recipes and names the bundle carries', () => {
@@ -170,11 +212,28 @@ describe('voice scan of the client content (C29)', () => {
     for (const a of VOICE_ENTRIES) expect(scan([line(a.line, [], `${a.file}#unlisted`)]), a.line).not.toEqual([]);
   });
 
+  it('fix round 1, M2: an entry excuses only the patterns it was justified for, and names exactly the ones its line trips', () => {
+    // A new pattern that trips an allowlisted line fails here until the entry is re-justified for it.
+    const mismatched: string[] = [];
+    for (const a of VOICE_ENTRIES) {
+      const tripped = [...new Set(scan([line(a.line, [], `${a.file}#unlisted`)]).map((h) => h.split(': ')[1]))].sort();
+      if (JSON.stringify([...(a.patterns ?? [])].sort()) !== JSON.stringify(tripped)) mismatched.push(`${a.where}: ${JSON.stringify(tripped)}`);
+    }
+    // A location excuses nothing beyond its own patterns: with none listed, the exact line fails at its own place.
+    for (const a of VOICE_ENTRIES) {
+      const key = `${a.file}\0${a.where}\0${a.line}`;
+      const kept = allowed.get(key)!;
+      allowed.set(key, new Set());
+      expect(scan([line(a.line, [], a.file, a.where)]), a.line).not.toEqual([]);
+      allowed.set(key, kept);
+    }
+    expect(mismatched).toEqual([]);
+  });
+
   it('an allowlisted line edited by one word fails again', () => {
     for (const a of VOICE_ENTRIES) {
-      // One word added after the first: the caught word stays, the exact line is gone.
-      const words = a.line.split(' ');
-      const edited = [words[0], 'indeed', ...words.slice(1)].join(' ');
+      // One word added at the end: the caught words stay, the exact line is gone.
+      const edited = `${a.line} Indeed.`;
       expect(edited).not.toBe(a.line);
       expect(scan([line(edited, [], a.file, a.where)]), edited).not.toEqual([]);
     }
@@ -237,3 +296,58 @@ describe('voice scan of the client content (C29)', () => {
     expect(scan([line('Just enough for a sauce.', ['frame'])])).not.toEqual([]);
   });
 });
+
+describe('voice scan of the market module (M6 Step 5)', () => {
+  const marketLines = collectMarket(market);
+  const at = (file: string, where: RegExp) => marketLines.filter((x) => x.file === file && where.test(x.where));
+
+  it('every MarketContent string passes the voice scan; "smuggled" and currency symbols are patterns', () => {
+    // It reaches every kind of stall content: lines, prompts, options, reactions, explanations, tips, FAQ chips and
+    // answers, keeper greet/idle/farewell, the Protein Counter's own content, Wen's seasonal round and the table.
+    const WEN = 'content/market/wen.yaml';
+    const BRAM = 'content/market/bram.yaml';
+    for (const [file, where] of [
+      [WEN, /^triggers\.greet\.lines\[0\]$/], [WEN, /^triggers\.idle\.lines\[0\]$/], [WEN, /^triggers\.farewell\.lines\[0\]$/],
+      [WEN, /^questions\[0\]\.prompt$/], [WEN, /^questions\[0\]\.options\[0\]\.text$/], [WEN, /^questions\[0\]\.options\[0\]\.reaction$/], [WEN, /^questions\[0\]\.explain$/],
+      [WEN, /^seasonal\.pnw-usa\.11\[0\]\.options\[2\]\.reaction$/], [WEN, /^item_tips\.avocado\.pick$/], [WEN, /^faq\[0\]\.q\[0\]$/], [WEN, /^faq\[0\]\.a$/],
+      [BRAM, /^variants\.protein_counter\.triggers\.greet\.lines\[0\]$/], [BRAM, /^variants\.protein_counter\.questions\[0\]\.prompt$/],
+      [BRAM, /^variants\.protein_counter\.faq\[0\]\.a_if_blocked$/], [BRAM, /^variants\.protein_counter\.item_tips\.\w+\.store$/], [BRAM, /^variants\.protein_counter\.name$/],
+      ['content/market/okafor-sato.yaml', /^questions\[0\]\.prompt$/], ['content/market/spice.yaml', /^triggers\.allergen_note\.lines\[0\]$/],
+      ['data/seasonality.yaml', /^pnw-usa\.categories\[2\]\.label$/], ['data/seasonality.yaml', /^pnw-usa\.name$/],
+    ] as const) expect(at(file, where).length, `${file} ${String(where)}`).toBeGreaterThan(0);
+    expect(marketLines.length).toBeGreaterThan(1500);
+    expect(marketLines.filter((x) => x.kinds.has('okafor')).length).toBeGreaterThan(200);
+    // No persona text ships, so none is scanned as shipped.
+    expect(marketLines.some((x) => /(^|\.)persona(\[|$)/.test(x.where))).toBe(false);
+    expect(scan(marketLines)).toEqual([]);
+  });
+
+  it.each([
+    ['Seasonal or smuggled?', 'content/market/wen.yaml'],
+    ['These strawberries were smuggled in.', 'content/market/wen.yaml'],
+    ['Chuck is 4.50 a serving, or about £4.', 'content/market/bram.yaml'],
+    ['Lentils: 1.75¢ a serving.', 'content/market/bram.yaml'],
+    ['¥200 for the block.', 'content/market/okafor-sato.yaml'],
+    ['A bag for ₹50.', 'content/market/spice.yaml'],
+    ['Only 3 left, so grab them!', 'content/market/wen.yaml'],
+    ['Hurry: the chuck is selling fast.', 'content/market/bram.yaml'],
+    ['Sold out soon, last chance.', 'content/market/wen.yaml'],
+    ['A mysterious spice from far away.', 'content/market/spice.yaml'],
+    ['An exotic bean.', 'content/market/okafor-sato.yaml'],
+    ['He presses it twice, then nods.', 'content/market/okafor-sato.yaml'],
+    ['Our dal is a version of your soup.', 'content/market/spice.yaml'],
+    ['Well-travelled: only two weeks left', 'data/seasonality.yaml'],
+  ])('a planted stall line %j fails', (text, file) => {
+    expect(scan([line(text, [], file, 'planted')])).not.toEqual([]);
+  });
+
+  it('the stall patterns are scoped: the same plain storage words pass, and the Pan may say "left" or "only"', () => {
+    for (const text of ['Fridge, in a bag or a drawer.', 'Tops off, then in the fridge.', 'Weigh it by the serving.']) {
+      expect(scan([line(text, [], 'content/market/wen.yaml')]), text).toEqual([]);
+    }
+    // "hurry" is a stall pattern; a Pan line is scanned by the Step 12 countdown sweep instead.
+    expect(scan([line('No hurry at all.', [], PAN)])).toEqual([]);
+    expect(scan([line('No hurry at all.', [], 'content/market/wen.yaml')])).not.toEqual([]);
+  });
+});
+

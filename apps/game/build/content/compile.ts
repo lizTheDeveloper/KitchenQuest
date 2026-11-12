@@ -4,6 +4,7 @@ import type { ZodType } from 'zod';
 import {
   IngredientGraph,
   parseRecipe,
+  seasonalAgrees,
   STALL_IDS,
   timerSeconds,
   validateFoodGroups,
@@ -12,6 +13,8 @@ import {
   validateQuests,
   validateRewards,
   validateRuleTerms,
+  validateSeasonTable,
+  validateStallFile,
   validateStallMap,
   validateSubstitutions,
   validateTechniques,
@@ -22,12 +25,14 @@ import {
   type ParsedRecipe,
   type RewardsData,
   type RuleTerm,
+  type SeasonTable,
+  type StallFile,
   type StallId,
   type StallMap,
   type Substitution,
   type TechniqueNode,
 } from '@kitchenquest/core';
-import { REQUIRED_DISCLAIMERS, REQUIRED_PAN_TRIGGERS } from '../../src/content/required';
+import { REQUIRED_DISCLAIMERS, REQUIRED_PAN_TRIGGERS, REQUIRED_STALL_TRIGGERS } from '../../src/content/required';
 import type {
   BureauFile,
   BureauForm,
@@ -36,8 +41,6 @@ import type {
   FrameFile,
   GameContent,
   LineBank,
-  StallFile,
-  StallQuestion,
   TechniqueData,
 } from '../../src/content/types';
 import {
@@ -50,10 +53,12 @@ import {
   lineBank,
   rewardsFile,
   ruleTermsFile,
+  seasonalityFile,
   stallFile,
   substitutionsFile,
   techniquesFile,
 } from './schemas';
+import { pinProblems, stallQuestions, type MarketPins } from './market';
 
 export class ContentError extends Error {
   problems: string[];
@@ -74,9 +79,12 @@ const REWARDS = 'data/rewards.yaml';
 const KEEPS = 'data/keeps.json';
 const STALLS = 'data/stalls.json';
 const FOOD_GROUPS = 'data/food-groups.json';
+const SEASONALITY = 'data/seasonality.yaml';
 const FRAME_PATH = /^content\/frames\/[^/]+\.yaml$/;
 /** Forms the M5 screens show (Steps 9–11); the build fails without them. */
-const REQUIRED_FORMS = ['travel', 'certificate', 'plan', 'market_list', 'margin_note', 'cooked_for', 'technique_certificate', 'frame'] as const;
+const REQUIRED_FORMS = ['travel', 'certificate', 'plan', 'market_list', 'margin_note', 'cooked_for', 'technique_certificate', 'frame', 'stall_round'] as const;
+/** Form 14-S: its `game` map names every minigame a stall file may use (the known games, M6 Step 5). */
+const STALL_ROUND_FORM = 'stall_round';
 /** Form 12-M's field whose label is the display name of the `general` stall (C11). */
 const GENERAL_STALL_FIELD = 'general_stall';
 
@@ -102,19 +110,17 @@ function clientTriggers(triggers: Record<string, SourceTrigger>): Record<string,
   );
 }
 
-function clientStall(stall: StallFile): StallFile {
-  const out: StallFile = { ...stall, triggers: clientTriggers(stall.triggers) };
-  const variants = stall.variants as Record<string, { triggers?: Record<string, SourceTrigger> }> | undefined;
-  if (variants) {
-    out.variants = Object.fromEntries(
-      Object.entries(variants).map(([name, v]) => [name, v.triggers ? { ...v, triggers: clientTriggers(v.triggers) } : v]),
-    );
-  }
-  return out;
+/** Options for `compileContent`. */
+export interface CompileOptions {
+  /**
+   * The committed option-order pins (Ruling 2, build/content/market-pins.json). The build and the real-repo tests
+   * always pass them; only the minimal-fixture tests leave them out, which skips the pin check.
+   */
+  pins?: MarketPins;
 }
 
 /** Compile every game input into one validated bundle. Throws a ContentError listing every problem. */
-export function compileContent(files: Record<string, string>): GameContent {
+export function compileContent(files: Record<string, string>, opts: CompileOptions = {}): GameContent {
   const problems: string[] = [];
   const fail = (path: string, message: string): void => void problems.push(`${path}: ${message}`);
 
@@ -271,33 +277,24 @@ export function compileContent(files: Record<string, string>): GameContent {
     checkFileVars(path, cook, '');
     cookByPath.set(path, cook);
   }
+  // Stall files: the strict schema here; core's validateStallFile, seasonalAgrees and the pins after the Bureau loads
+  // (Form 14-S names the known games).
   const stalls: Record<string, StallFile> = {};
+  const stallPathOf = new Map<string, string>();
   for (const path of stallPaths) {
     const stall = load<StallFile>(path, stallFile);
     if (!stall) continue;
     const fileId = path.slice('content/market/'.length, -'.yaml'.length);
     if (stall.id !== fileId) fail(path, `id "${stall.id}" must equal the file name "${fileId}"`);
     stalls[stall.id] = stall;
+    stallPathOf.set(stall.id, path);
     checkFileVars(path, stall, '');
-    checkStallQuestions(path, 'questions', stall.questions);
-    const variants = (stall.variants ?? {}) as Record<string, { questions?: StallQuestion[] }>;
-    for (const [name, variant] of Object.entries(variants)) {
-      if (variant.questions) checkStallQuestions(path, `variants.${name}.questions`, variant.questions);
-    }
-  }
-
-  function checkStallQuestions(path: string, where: string, questions: StallQuestion[]): void {
-    for (const q of questions) {
-      const label = `${where} "${q.id}"`;
-      if (q.options.length < 3 || q.options.length > 4)
-        fail(path, `${label}: needs 3 or 4 options, has ${q.options.length}`);
-      const correct = q.options.filter((o) => o.correct).length;
-      if (correct !== 1) fail(path, `${label}: needs exactly one correct option, has ${correct}`);
-    }
   }
 
   // data/stalls.json: every value a content/market stall or 'general' (C11); every core StallId has a stall file.
-  const stallIdSet = new Set([...Object.keys(stalls), 'general']);
+  // By file name, not by the files that loaded (fix round 1, M5): a stall file with its own schema problem is reported
+  // once, and data/stalls.json is not blamed for naming it.
+  const stallIdSet = new Set([...stallPaths.map((p) => p.slice('content/market/'.length, -'.yaml'.length)), 'general']);
   const stallOf = idMap<StallMap>(STALLS, (d, g) => validateStallMap(d, g, stallIdSet));
   for (const id of Object.keys(stalls)) {
     if (!(STALL_IDS as readonly string[]).includes(id)) fail(`content/market/${id}.yaml`, `stall "${id}" is not a market stall the game knows (${STALL_IDS.join(', ')})`);
@@ -345,6 +342,38 @@ export function compileContent(files: Record<string, string>): GameContent {
     for (const [id, form] of Object.entries(bureau.forms)) {
       if (!(form.stamp in bureau.stamps))
         fail(BUREAU, `forms.${id}.stamp "${form.stamp}" is not a key of stamps`);
+    }
+  }
+
+  // ---- market stalls and The Season's Table (M6 Step 5) ------------------------------
+  const rawSeasons = load<Record<string, unknown>>(SEASONALITY, seasonalityFile);
+  const seasonProblems = rawSeasons !== null && graph ? validateSeasonTable(rawSeasons, graph) : [];
+  for (const p of seasonProblems) fail(SEASONALITY, p);
+  const seasonality = rawSeasons !== null && graph && seasonProblems.length === 0 ? (rawSeasons as unknown as SeasonTable) : null;
+
+  const roundForm = bureau && Object.hasOwn(bureau.forms, STALL_ROUND_FORM) ? bureau.forms[STALL_ROUND_FORM] : undefined;
+  if (bureau && roundForm && roundForm.game === undefined) fail(BUREAU, `forms.${STALL_ROUND_FORM}.game is missing: it names every minigame a stall may use`);
+  const knownGames = new Set(Object.keys(roundForm?.game ?? {}));
+  // A question id is unique across every stall too: events and pins name a question by id alone (Step 3 M4).
+  const questionAt = new Map<string, string>();
+  for (const [id, stall] of Object.entries(stalls)) {
+    const path = stallPathOf.get(id) ?? `content/market/${id}.yaml`;
+    // Core's check (shared with the API boot, Step 6): ids in the graph, one correct of 3–4 options, games, country
+    // scopes, chalkboard arithmetic, no currency symbol, duplicate ids, FAQ shape. Each problem names the key path.
+    if (graph && bureau) for (const p of validateStallFile(stall, graph, { knownGames })) fail(path, p);
+    // Ruling 9: Wen's seasonal questions agree with the table.
+    if (seasonality) for (const p of seasonalAgrees(stall, seasonality)) fail(path, p);
+    if (opts.pins) for (const p of pinProblems(stall, opts.pins)) fail(path, p);
+    for (const { at, q } of stallQuestions(stall)) {
+      const before = questionAt.get(q.id);
+      if (before !== undefined && !before.startsWith(`${path} `)) fail(path, `${at} (${q.id}): question id is also used at ${before}`);
+      else questionAt.set(q.id, `${path} ${at}`);
+    }
+    // C19: each stall's safety lines exist, written only.
+    const required = Object.hasOwn(REQUIRED_STALL_TRIGGERS, id) ? REQUIRED_STALL_TRIGGERS[id as keyof typeof REQUIRED_STALL_TRIGGERS] : [];
+    for (const t of required) {
+      if (!Object.hasOwn(stall.triggers, t)) fail(path, `triggers.${t}: required trigger is missing`);
+      else if (stall.triggers[t].ai !== 'never') fail(path, `triggers.${t}: a safety line must be ai: never`);
     }
   }
 
@@ -426,7 +455,7 @@ export function compileContent(files: Record<string, string>): GameContent {
 
   if (
     problems.length > 0 || !pan || !bureau || !ingredients || !substitutions || !techniques || !ruleTerms ||
-    !rewards || !keeps || !foodGroups || !stallOf || !namedAll
+    !rewards || !keeps || !foodGroups || !stallOf || !namedAll || seasonality === null
   ) {
     throw new ContentError(problems);
   }
@@ -434,7 +463,9 @@ export function compileContent(files: Record<string, string>): GameContent {
     version: versionOf(files),
     pan: { ...pan, triggers: clientTriggers(pan.triggers) },
     cooks,
-    stalls: Object.fromEntries(Object.entries(stalls).map(([id, s]) => [id, clientStall(s)])),
+    // The full stall files: build/content/market.ts shapes them for the client, and the content module leaves them out.
+    stalls,
+    seasonality,
     bureau: {
       ...bureau,
       forms: Object.fromEntries(

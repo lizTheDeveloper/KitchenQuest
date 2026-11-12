@@ -474,7 +474,7 @@ describe('progress (M5 Step 9)', () => {
   });
 
   it('store: a technique already folded into a compacted base is not imported again', () => {
-    const base = { view: { xp: 0, level: 1, stamps: 0, trust: {}, toolkit: m3.toolkit, questsDone: [], questSteps: {}, questStartedOn: {}, cookedOn: {}, framesCookedOn: {} }, facts: { v: 1, ids: ['x'] } };
+    const base = { view: { xp: 0, level: 1, stamps: 0, trust: {}, toolkit: m3.toolkit, questsDone: [], questSteps: {}, questStartedOn: {}, cookedOn: {}, framesCookedOn: {}, marketAnswered: {} }, facts: { v: 1, ids: ['x'] } };
     const s = importM3Toolkit({ ...createStore(null).get(), toolkit: m3.toolkit as never, progress: { events: [], grants: [], base: base as never, pendingUpload: [] } });
     expect(s.progress.events).toEqual([]);
   });
@@ -494,7 +494,7 @@ describe('progress (M5 Step 9)', () => {
     expect(m.grants.map((x) => x.id)).toEqual(['a#0', 'c#0']);
     expect(m.pendingUpload).toEqual(['a', 'b', 'c']);
     // A base covering 'a' (a compaction in one tab): 'a' is held by the base, every other event stays.
-    const base = { view: { xp: 10, level: 1, stamps: 0, trust: {}, toolkit: { techniques: {} }, questsDone: [], questSteps: {}, questStartedOn: {}, cookedOn: {}, framesCookedOn: {} }, facts: { v: 1, ids: ['a'] } };
+    const base = { view: { xp: 10, level: 1, stamps: 0, trust: {}, toolkit: { techniques: {} }, questsDone: [], questSteps: {}, questStartedOn: {}, cookedOn: {}, framesCookedOn: {}, marketAnswered: {} }, facts: { v: 1, ids: ['a'] } };
     const c = mergeProgress(a, { events: [e('b'), e('c')], grants: [], base, pendingUpload: [] });
     expect(c.base).toBe(base);
     expect(c.events.map((x) => x.id)).toEqual(['b', 'c']);
@@ -520,7 +520,7 @@ describe('progress partitions (C1 ruling)', () => {
   it('a store reload keeps the partitions, each with its own log and cached view', () => {
     const st = memStorage();
     const s = createStore(st);
-    const view = { xp: 7, level: 1, stamps: 0, trust: {}, toolkit: { techniques: {} }, questsDone: [], questSteps: {}, questStartedOn: {}, cookedOn: {}, framesCookedOn: {} };
+    const view = { xp: 7, level: 1, stamps: 0, trust: {}, toolkit: { techniques: {} }, questsDone: [], questSteps: {}, questStartedOn: {}, cookedOn: {}, framesCookedOn: {}, marketAnswered: {} };
     s.update((x) => withPartition(withPartition(withPartition(x, null, log('g')), 'a@x.test', log('a'), view), 'b@x.test', log('b')));
     const again = createStore(st).get();
     expect(partitionOf(again, null).events.map((x) => x.id)).toEqual(['g']);
@@ -551,7 +551,7 @@ describe('progress partitions (C1 ruling)', () => {
 
   it('prunePartition keeps only the unsynced events (and their grants), drops the view, and a stale copy can\'t bring the rest back', () => {
     const key = accountKey('a@x.test');
-    const view = { xp: 7, level: 1, stamps: 0, trust: {}, toolkit: { techniques: {} }, questsDone: [], questSteps: {}, questStartedOn: {}, cookedOn: {}, framesCookedOn: {} };
+    const view = { xp: 7, level: 1, stamps: 0, trust: {}, toolkit: { techniques: {} }, questsDone: [], questSteps: {}, questStartedOn: {}, cookedOn: {}, framesCookedOn: {}, marketAnswered: {} };
     const before = withPartition(createStore(null).get(), key, { ...log('a', 'b', 'c'), pendingUpload: ['c'], grants: [{ id: 'c#0', eventId: 'c', isoDay: '2026-11-09', kind: 'xp', amount: 10, reason: 'lesson' }, { id: 'a#0', eventId: 'a', isoDay: '2026-11-09', kind: 'xp', amount: 10, reason: 'lesson' }] }, view);
     const after = prunePartition(before, key);
     expect(partitionOf(after, key).events.map((x) => x.id)).toEqual(['c']);

@@ -31,11 +31,11 @@ import { loadRules } from '../rules/store.js';
 import type { StoredMessage } from './conversations.js';
 import { isHealthText } from './health.js';
 import type { PanBank } from './lines.js';
-import { loadPlan } from '../week/store.js';
+import { loadPlan, loadRunForPlan } from '../week/store.js';
 import { openProposalsOfConversation } from './proposals.js';
 
 /** Bump on any change to the system text, examples or context shape (Step 12's eval gate reads the fingerprint). */
-export const MENTOR_PROMPT_VERSION = 'pan-6';
+export const MENTOR_PROMPT_VERSION = 'pan-7';
 
 const VOICE_MD = new URL('../../../../docs/style/voice.md', import.meta.url);
 const PANTRY_IN_CONTEXT = 50;
@@ -72,6 +72,12 @@ export interface PromptContext {
    * resolves the player's dish words), and no margin note, cooked-for answer, pantry date or plan content.
    */
   week: { weekdays: string[]; hasPlan: boolean };
+  /**
+   * M6 Step 8 (C-13, C32): only whether the plan week has an open market run (with `ai_health`: runs are health data),
+   * so the model knows a check-off has a list to match. No row, item or stall name, no amount, and nothing
+   * region-derived (no season region id, category or seasonal answer): the check-off tool gets no list, code matches.
+   */
+  market: { runOpen: boolean };
 }
 
 export interface PanPrompt {
@@ -142,6 +148,10 @@ export function loadPanPrompt(bank: PanBank, voiceGuide: URL = VOICE_MD): PanPro
         { id: 'example_5b', name: 'propose_plan', arguments: JSON.stringify({ pick: 2, after: 'Thursday' }) },
       ],
     },
+    // M6 Step 8: ONE generic check-off example (Ruling 14), worded unlike any eval case (prompt.test's span check): the
+    // player's item words only, a got list and a missing one; the game matches them to the open market list.
+    { role: 'user', content: 'Found the leeks, but the stall had sold out of parsnips.' },
+    exampleCall('example_6', 'propose_check_off', { got: ['leeks'], missing: ['parsnips'] }),
   ];
   return { system, examples };
 }
@@ -165,6 +175,7 @@ function cardSummary(card: Awaited<ReturnType<typeof openProposalsOfConversation
     case 'profile':
     case 'pantry':
     case 'plan':
+    case 'check_off':
       return card.summary;
   }
 }
@@ -214,6 +225,10 @@ export async function buildPromptContext(
 
   const open = req.conversationId === null ? [] : await openProposalsOfConversation(tx, deps.keyring, userId, req.conversationId, now);
   const weekStart = planWeekStart(req.localDate, row?.marketDays ?? []);
+  // Plans and market runs are health data: read only with ai_health.
+  const plan = aiHealth ? await loadPlan(tx, deps.keyring, userId, weekStart) : null;
+  const run = plan === null ? null : await loadRunForPlan(tx, deps.keyring, userId, plan.id);
+  const runOpen = run !== null && run.doneAt === null;
   const first = new Date(`${weekStart}T00:00:00Z`).getUTCDay();
   return {
     weekday: capitalised(WEEKDAY_NAMES[day]),
@@ -230,8 +245,9 @@ export async function buildPromptContext(
       .map((p) => ({ kind: p.kind, summary: cardSummary(p.card) })),
     week: {
       weekdays: Array.from({ length: 7 }, (_, i) => capitalised(WEEKDAY_NAMES[(first + i) % 7])),
-      hasPlan: aiHealth && (await loadPlan(tx, deps.keyring, userId, weekStart)) !== null,
+      hasPlan: plan !== null,
     },
+    market: { runOpen },
   };
 }
 

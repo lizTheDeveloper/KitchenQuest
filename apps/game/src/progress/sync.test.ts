@@ -10,7 +10,7 @@ import { newEventId } from './log';
 import { createProgressSync, EVENTS_PER_REQUEST, PROGRESS_REQUEST_GAP_MS } from './sync';
 
 const PARIPPU = 'india/kerala/parippu';
-const VIEW: ProgressView = { xp: 0, level: 1, stamps: 0, trust: {}, toolkit: { techniques: {} }, questsDone: [], questSteps: {}, questStartedOn: {}, cookedOn: {}, framesCookedOn: {} };
+const VIEW: ProgressView = { xp: 0, level: 1, stamps: 0, trust: {}, toolkit: { techniques: {} }, questsDone: [], questSteps: {}, questStartedOn: {}, cookedOn: {}, framesCookedOn: {}, marketAnswered: {} };
 const cooked = (at: string, recipe = PARIPPU): ProgressEvent => ({ id: newEventId(), kind: 'cooked', at, recipe, planned: false });
 const lesson = (at: string): ProgressEvent => ({ id: newEventId(), kind: 'lesson', at, recipe: PARIPPU });
 

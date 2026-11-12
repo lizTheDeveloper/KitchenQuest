@@ -74,6 +74,19 @@ export async function sealFor(db: ReadWriter, keyring: Keyring, ctx: SealContext
 }
 
 /**
+ * `sealFor` for many values of one owner: the data key is loaded (or created, stamped `now`) once, not once per value
+ * (M6 Step 7, Task 6 review M4: a progress post seals up to 100 rounds inside the `progress:` lock). Each value is
+ * sealed under its own context, whose `userId` must be this owner.
+ */
+export async function sealerFor(db: ReadWriter, keyring: Keyring, userId: string, now?: Date): Promise<(ctx: SealContext, value: unknown) => Buffer> {
+  const key = await userKey(db, keyring, userId, now);
+  return (ctx, value) => {
+    if (ctx.userId !== userId) throw new Error('sealerFor: a value of another user');
+    return seal(value, key, USER_KEY_ID, contextFor(ctx));
+  };
+}
+
+/**
  * Opens a blob sealed by `sealFor` under the same context. Throws if the
  * context differs, the blob was tampered with, or the user has no data key
  * (account deleted: the data is crypto-shredded).
@@ -83,6 +96,20 @@ export async function openFor<T>(db: Reader, keyring: Keyring, ctx: SealContext,
   const key = await loadUserKey(db, keyring, ctx.userId);
   if (!key) throw new Error('openFor: no data key for this user (deleted account?)');
   return open<T>(sealed, { [USER_KEY_ID]: key }, aad);
+}
+
+/**
+ * `openFor` for many blobs of one owner: the data key is loaded once (a player's whole progress history may hold many
+ * sealed rows). The returned function opens each blob under its own context, whose `userId` must be this owner.
+ * Throws, as `openFor` does, when the owner has no data key.
+ */
+export async function openerFor(db: Reader, keyring: Keyring, userId: string): Promise<<T>(ctx: SealContext, sealed: Buffer) => T> {
+  const key = await loadUserKey(db, keyring, userId);
+  if (!key) throw new Error('openFor: no data key for this user (deleted account?)');
+  return <T>(ctx: SealContext, sealed: Buffer): T => {
+    if (ctx.userId !== userId) throw new Error('openerFor: a blob of another user');
+    return open<T>(sealed, { [USER_KEY_ID]: key }, contextFor(ctx));
+  };
 }
 
 /**

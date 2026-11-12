@@ -1,13 +1,23 @@
 import { describe, expect, test } from 'vitest';
-import { checkFirstPaintBudget, firstPaint, FIRST_PAINT_BUDGET_BYTES } from './budget-plugin';
+import { checkFirstPaintBudget, firstPaint, FIRST_PAINT_BUDGET_BYTES, FIRST_PAINT_TARGET_BYTES, marketChunk } from './budget-plugin';
 
-type Chunk = { type: 'chunk'; fileName: string; name: string; isEntry: boolean; code: string; imports: string[]; dynamicImports: string[] };
+type Chunk = { type: 'chunk'; fileName: string; name: string; isEntry: boolean; code: string; imports: string[]; dynamicImports: string[]; moduleIds?: string[] };
 const chunk = (fileName: string, o: Partial<Chunk> = {}): Chunk =>
   ({ type: 'chunk', fileName, name: fileName.replace(/^assets\//, '').replace(/-.*$/, ''), isEntry: false, code: 'x', imports: [], dynamicImports: [], ...o });
 const bundle = (...cs: Chunk[]) => Object.fromEntries(cs.map((c) => [c.fileName, c]));
 
 describe('checkFirstPaintBudget', () => {
-  test('the budget is 400 KB', () => { expect(FIRST_PAINT_BUDGET_BYTES).toBe(400 * 1024); });
+  test('the hard budget is 400 KB; the target the build enforces is 360 KB (M6 Step 4 ruling)', () => {
+    expect(FIRST_PAINT_BUDGET_BYTES).toBe(400 * 1024);
+    expect(FIRST_PAINT_TARGET_BYTES).toBe(360 * 1024);
+  });
+
+  test('first paint at 360 KB passes; one byte over fails, naming the target and the hard budget', () => {
+    const at = bundle(chunk('assets/index-a.js', { isEntry: true, code: 'a'.repeat(360 * 1024) }));
+    expect(checkFirstPaintBudget(at, 'index')).toEqual([]);
+    const over = bundle(chunk('assets/index-a.js', { isEntry: true, code: 'a'.repeat(360 * 1024 + 1) }));
+    expect(checkFirstPaintBudget(over, 'index').join()).toMatch(/over the 360\.0 KB target \(hard budget 400\.0 KB\)/);
+  });
 
   test('a small entry that only loads Phaser on demand passes', () => {
     const b = bundle(
@@ -21,7 +31,7 @@ describe('checkFirstPaintBudget', () => {
 
   test('an entry over 400 KB fails, counting bytes not characters', () => {
     const big = bundle(chunk('assets/index-a.js', { isEntry: true, code: 'é'.repeat(210 * 1024) }));
-    expect(checkFirstPaintBudget(big, 'index').join()).toMatch(/over the 400 KB budget/);
+    expect(checkFirstPaintBudget(big, 'index').join()).toMatch(/first paint loads 420\.0 KB .*over the 360\.0 KB target/);
   });
 
   test('a small entry whose static imports push the total over 400 KB fails (the carry: not just the entry chunk)', () => {
@@ -30,7 +40,7 @@ describe('checkFirstPaintBudget', () => {
       chunk('assets/dom-b.js', { code: 'b'.repeat(200 * 1024), imports: ['assets/store-c.js'] }),
       chunk('assets/store-c.js', { code: 'c'.repeat(150 * 1024) }),
     );
-    expect(checkFirstPaintBudget(b, 'index').join()).toMatch(/first paint loads 450 KB/);
+    expect(checkFirstPaintBudget(b, 'index').join()).toMatch(/first paint loads 450\.0 KB/);
   });
 
   test('chunks reached only by a dynamic import do not count toward first paint', () => {
@@ -64,4 +74,39 @@ describe('checkFirstPaintBudget', () => {
     expect(checkFirstPaintBudget(bundle(chunk('assets/phaser-a.js', { isEntry: true, name: 'index' })), 'index').join()).toMatch(/is Phaser/);
     expect(checkFirstPaintBudget(bundle(chunk('assets/store-b.js')), 'index').join()).toMatch(/no entry chunk/);
   });
+
+  test('a bundle whose first-paint chunks include the market module fails the budget check', () => {
+    const MARKER = '0123456789ab';
+    const market = (code = `export default {"version":"${MARKER}","stalls":{}}`) => chunk('assets/market-m.js', { code });
+    // Lazy: reached only by a dynamic import (or emitted on its own) — fine, and measured.
+    const lazy = bundle(chunk('assets/index-a.js', { isEntry: true, dynamicImports: ['assets/market-m.js'] }), market());
+    expect(checkFirstPaintBudget(lazy, 'index', { marketMarker: MARKER })).toEqual([]);
+    expect(marketChunk(lazy, MARKER)).toEqual({ files: ['assets/market-m.js'], bytes: Buffer.byteLength(market().code) });
+    // Statically imported, directly or through another chunk, or inlined into the entry: fails.
+    const direct = bundle(chunk('assets/index-a.js', { isEntry: true, imports: ['assets/market-m.js'] }), market());
+    expect(checkFirstPaintBudget(direct, 'index', { marketMarker: MARKER }).join()).toMatch(/first paint loads the market module .*market-m\.js/);
+    const via = bundle(chunk('assets/index-a.js', { isEntry: true, imports: ['assets/store-b.js'] }), chunk('assets/store-b.js', { imports: ['assets/market-m.js'] }), market());
+    expect(checkFirstPaintBudget(via, 'index', { marketMarker: MARKER }).join()).toMatch(/market-m\.js/);
+    const inlined = bundle(chunk('assets/index-a.js', { isEntry: true, code: `const m={"version":"${MARKER}"}` }));
+    expect(checkFirstPaintBudget(inlined, 'index', { marketMarker: MARKER }).join()).toMatch(/market module .*index-a\.js/);
+  });
+
+  test('a chunk bundling a test, a fixture or a raw data file fails (Step 2 review M4: the fixture in core src/ imports data)', () => {
+    for (const id of [
+      '/repo/packages/core/src/market/season.fixture.ts',
+      '/repo/packages/core/src/market/fixtures.ts',
+      '/repo/packages/core/src/market/bank.test.ts',
+      '/repo/data/ingredients.json',
+      '/repo/data/seasonality.yaml',
+    ]) {
+      const b = bundle(chunk('assets/index-a.js', { isEntry: true, dynamicImports: ['assets/x-b.js'] }), chunk('assets/x-b.js', { moduleIds: ['/repo/apps/game/src/a.ts', id] }));
+      expect(checkFirstPaintBudget(b, 'index').join(), id).toMatch(/must never reach the client/);
+    }
+    const fine = bundle(chunk('assets/index-a.js', { isEntry: true, moduleIds: ['/repo/packages/core/src/market/season.ts', '\0virtual:kq-content', '/repo/apps/game/src/content/index.ts'] }));
+    expect(checkFirstPaintBudget(fine, 'index')).toEqual([]);
+  });
 });
+
+// The real build's check (first paint ≤ 360 KB, no stall content in it, the market chunk lazy and precached) is
+// e2e/budget.e2e.test.ts: it reads the dist/ that e2e/setup.ts builds, instead of a second build here that would
+// compete for CPU with the wall-clock tests in this suite.

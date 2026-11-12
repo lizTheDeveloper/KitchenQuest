@@ -917,7 +917,9 @@ describe('fix round 5', () => {
     await makeApp(fakeAi([reply(''), reply(''), reply('')]));
     const r = await (await aiPlayer()).turn('had toast for lunch. put onigiri on monday');
     expect(kinds(r)).toContain('plan');
-    const s = await (await aiPlayer()).turn("ran out of rice, my market's saturday");
+    // M6 Step 5 fix round 1: bare "rice" is a graph name now (a health word, like "milk"); "flour" is still read only
+    // inside a longer name, the case this pins.
+    const s = await (await aiPlayer()).turn("ran out of flour, my market's saturday");
     expect(JSON.stringify(s.cards)).toMatch(/"marketDays":\[6\]/);
     const t = await (await aiPlayer()).turn("idk just pick 3 things for this week. market's saturday so do the beans after that");
     expect(t.cards).toEqual([]);

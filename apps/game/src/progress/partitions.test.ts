@@ -8,7 +8,7 @@ import { initProgress, progressService } from './index';
 import { newEventId } from './log';
 
 const EMAIL = 'cook@example.test';
-const SERVER_VIEW: ProgressView = { xp: 640, level: 4, stamps: 3, trust: { leela: 2 }, toolkit: { techniques: {} }, questsDone: ['leela-tempering'], questSteps: {}, questStartedOn: {}, cookedOn: {}, framesCookedOn: {} };
+const SERVER_VIEW: ProgressView = { xp: 640, level: 4, stamps: 3, trust: { leela: 2 }, toolkit: { techniques: {} }, questsDone: ['leela-tempering'], questSteps: {}, questStartedOn: {}, cookedOn: {}, framesCookedOn: {}, marketAnswered: {} };
 const cooked = (at: string): ProgressEvent => ({ id: newEventId(), kind: 'cooked', at, recipe: 'india/kerala/parippu', planned: false });
 const settle = async (until: () => boolean) => { for (let i = 0; i < 200 && !until(); i++) await new Promise((r) => setTimeout(r, 5)); };
 

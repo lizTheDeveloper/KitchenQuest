@@ -30,6 +30,7 @@ import { knownMealWindows } from '../profile/store.js';
 import { catalogueFor } from '../progress/catalogue.js';
 import type { ProgressRouteDeps } from '../progress/routes.js';
 import { progressViewOf } from '../progress/service.js';
+import { loadSnapshotForExport } from '../progress/snapshot.js';
 import { loadProgressForExport } from '../progress/store.js';
 import { loadRules } from '../rules/store.js';
 import { loadPlansForExport, loadRunsForExport } from '../week/store.js';
@@ -204,10 +205,16 @@ async function buildExport(tx: Tx, config: Config, userId: string, now: Date, re
     decidedAt: iso(p.decidedAt),
   }));
 
-  // Progress (U-5): every event and grant as stored (erased meal-log events are gone; their grants stay), and the view.
+  // Progress (U-5): every event and grant as stored (erased meal-log and stall-round events are gone; their grants stay),
+  // and the view. A sealed stall round is shown whole, decrypted (M6 Step 6).
   // Unchecked: the export never fails on content (a player's data can always be downloaded).
   const catalogue = catalogueFor(await progressDeps.recipes.current(tx), progressDeps.loop, { check: false });
-  const progress = { ...(await loadProgressForExport(tx, userId)), view: await progressViewOf(tx, userId, catalogue) };
+  // The view from the whole ledgers (not the snapshot), and the snapshot itself, decrypted (U-6, M6 Step 7), or null.
+  const progress = {
+    ...(await loadProgressForExport(tx, config.keyring, userId)),
+    view: await progressViewOf(tx, config.keyring, userId, catalogue),
+    snapshot: await loadSnapshotForExport(tx, config.keyring, userId),
+  };
 
   const ents = await tx
     .select({
@@ -385,7 +392,7 @@ export async function accountRoutes(app: FastifyInstance, progressDeps: Pick<Pro
     // One transaction, in this order: the delete event first (so it is pseudonymized
     // with the rest), then the user (cascading to sessions, profile, rules, meal logs, pantry, meal plans, market runs,
     // margin notes, Shared Table rows,
-    // conversations, messages, mentor proposals, progress events, reward grants, consents, user_keys, entitlements, usage,
+    // conversations, messages, mentor proposals, progress events, reward grants, the progress snapshot, consents, user_keys, entitlements, usage,
     // self-read counts), then sign-in links by email,
     // then the audit trail, which the database pseudonymizes only once the user is gone.
     // A running export holds the user row, so the delete waits for it (see above).

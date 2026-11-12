@@ -1,0 +1,2 @@
+ALTER TABLE "mentor_proposals" DROP CONSTRAINT "mentor_proposals_kind_check";--> statement-breakpoint
+ALTER TABLE "mentor_proposals" ADD CONSTRAINT "mentor_proposals_kind_check" CHECK ("mentor_proposals"."kind" in ('rule', 'meal', 'profile', 'pantry', 'plan', 'check_off'));

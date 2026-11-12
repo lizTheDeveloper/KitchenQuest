@@ -17,7 +17,7 @@ export interface LineRef {
   trigger: string;
   vars: Record<string, string>;
 }
-export type ProposalKind = 'rule' | 'meal' | 'profile' | 'pantry' | 'plan';
+export type ProposalKind = 'rule' | 'meal' | 'profile' | 'pantry' | 'plan' | 'check_off';
 type RuleForm = 'rule_allergen' | 'rule_intolerance' | 'rule_diet';
 
 export interface RuleCard {
@@ -107,7 +107,24 @@ export interface PlanCard {
   basis: string;
   readback: LineRef[];
 }
-export type ProposalCard = RuleCard | MealCard | ProfileCard | PantryCard | PlanCard;
+/**
+ * M6 Step 8 (Ruling 13, 14, C31): what the player said they got at the market and what the stalls were out of, as row
+ * keys of one open market run, matched by code (core `checkOffIntent`, `matchCheckOff`). `source: 'grammar'` is built
+ * by code from the closed grammar and ticked at once, with an Undo (spec §7.0 "None (undoable)"); `source: 'model'`
+ * came from the model's `propose_check_off` and ticks nothing until the player taps it. `missing` rows are never
+ * ticked (their "Out of stock?" chip is Step 10's stall swap). `summary` names the run's own rows, never the player's
+ * or the model's words; `readback` is `market.checkoff_readback`.
+ */
+export interface CheckOffCard {
+  kind: 'check_off';
+  runId: string;
+  got: string[];
+  missing: string[];
+  source: 'grammar' | 'model';
+  summary: string;
+  readback: LineRef[];
+}
+export type ProposalCard = RuleCard | MealCard | ProfileCard | PantryCard | PlanCard | CheckOffCard;
 export type RuleCardResult =
   | { ok: true; card: RuleCard }
   | { ok: false; reason: 'unknown_term'; line: LineRef }

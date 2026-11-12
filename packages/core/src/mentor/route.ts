@@ -169,7 +169,36 @@ const COMMON_WORDS: ReadonlySet<string> = new Set([
   'taking', 'along', 'among', 'alone', 'spent', 'sister', 'sisters', 'master', 'masters', 'cash', 'missed', 'valley',
   'faster', 'marine', 'monster', 'monsters', 'mystery', 'badly', 'rarely', 'foster',
   'filter', 'vessel', 'vessels', 'outer', 'nail', 'poster', 'bare', 'suite', 'barrel', 'wallet', 'easter',
+  // M6 Step 8 over-catch review: "corner" starts with the exact name "corn" (a compound, not a slip).
+  'corner', 'corners',
 ]);
+/**
+ * M6 Step 4 fix round 1 (ruling C1): everyday English words that are one or two edits from a market ingredient name
+ * ("dinner" from ginger, "love" from clove, "until" from lentil, "checked" from chicken, "Oregon" from oregano). They
+ * never count as a SLIP of a name: the near-miss check skips them. A closed list, each word checked not to be a graph
+ * label itself; an exact name or alias still always counts, and so does a compound ("chilling" holds "chilli").
+ */
+const EVERYDAY_WORDS: ReadonlySet<string> = new Set([
+  'dinner', 'dinners', 'longer', 'winter', 'finger', 'fingers', 'linger', 'lingers', 'gender', 'grinder', 'finer', 'bigger', 'danger',
+  'infer', 'hinge', 'love', 'loves', 'close', 'closes', 'glove', 'gloves', 'clone', 'until', 'pencil', 'mental', 'paper', 'papers',
+  'panel', 'panels', 'planner', 'planners', 'career', 'careers', 'banner', 'manner', 'manners', 'payers', 'parser', 'parsers', 'oregon',
+  'checked', 'checkin', 'checker', 'clicked', 'thicken', 'thickens', 'thicker', 'chucked', 'feel', 'feels', 'funnel', 'child', 'chilled',
+  'chill', 'apply', 'applies', 'temp', 'temper', 'tamper', 'carry', 'carries', 'cannot', 'narrow', 'narrows', 'arrow',
+  'carton', 'worries', 'retries', 'series', 'little', 'gentle', 'kettle', 'settle', 'pestle', 'neatly', 'rattle', 'seattle', 'damage',
+  'damages', 'rotate', 'motto', 'parsing', 'colander', 'garbage', 'balances', 'canada', 'terry',
+  // M6 Step 8 (the Task 4 ruling's over-catch review, of the eval texts and of ordinary chat): "case" (cashew, casein),
+  // "hill" (chilli), "plant" (peanut), "same" (sesame), "while" (chile), "money's" (honey). Left OUT on the safe side,
+  // as plausible slips of an allergen or a diet word: "daily" (dairy), "began" (vegan, b and v are neighbours).
+  'case', 'cases', 'hill', 'hills', 'plant', 'plants', 'same', 'while', 'moneys',
+]);
+/**
+ * M6 Step 5 fix round 1 (Task 5 ruling 1): market names added so stall lines can be rules-checked, which are a slip
+ * away from very common words ("chuck"/"check", "squash"/"square", "tortilla"/"gorilla", "legume"/"league", and M6
+ * Step 8's "pulse"/"purse", "pulsed") or start them ("plumber", "chuckle", "squashed", "ricer", "pulsing"). They count only as exact whole words: never as a near miss, never
+ * as part of a compound. An exact "chuck", "rice" or "plums" is still always health.
+ */
+const EXACT_ONLY: ReadonlySet<string> = new Set(['chuck', 'squash', 'rice', 'tortilla', 'plum', 'legume', 'pulse']);
+
 /** The shortest word checked against the longer labels; shorter ones over-match too much. */
 const FUZZY_MIN = 4;
 /** Labels this long or longer allow two edits ("pnuts" for peanuts). */
@@ -179,7 +208,7 @@ const TWO_EDIT_MIN = 6;
 function fuzzyLabels(graph: IngredientGraph, phrases: ReadonlySet<string>): string[] {
   const labels = new Set<string>();
   for (const p of phrases) if (!p.includes(' ') && p.length >= 5) labels.add(p);
-  for (const label of graph.labels()) if (!label.includes(' ') && label.length >= 5) labels.add(label);
+  for (const label of graph.labels()) if (!label.includes(' ') && label.length >= 5 && !EXACT_ONLY.has(label)) labels.add(label);
   return [...labels];
 }
 
@@ -252,6 +281,8 @@ export function mentionsHealthTerm(text: string, graph: IngredientGraph, terms: 
   );
   const isExactName = (part: string): boolean => {
     if (phrases.has(part)) return true;
+    // Only the compound check calls this: an exact-only name is never part of a longer word.
+    if (pluralForms(part).some((f) => EXACT_ONLY.has(f))) return false;
     const id = graph.resolve(part);
     if (id === null) return false;
     const node = graph.get(id);
@@ -260,7 +291,7 @@ export function mentionsHealthTerm(text: string, graph: IngredientGraph, terms: 
   const fuzzyNames = fuzzyLabels(graph, phrases);
   for (const word of new Set(joined)) {
     if (COMMON_WORDS.has(word)) continue; // "salty", "union", "shall": never a slip or a compound
-    if (nearMiss(word, fuzzyNames)) return true;
+    if (!EVERYDAY_WORDS.has(word) && nearMiss(word, fuzzyNames)) return true; // an everyday word is never a slip (M6 C1)
     for (let k = COMPOUND_MIN; k <= word.length - 1; k++) {
       if (isExactName(word.slice(0, k))) return true;
       if (word.length - k >= COMPOUND_MIN && isExactName(word.slice(k))) return true;
@@ -590,6 +621,14 @@ export const HARD_WEEK_PATTERN = new RegExp(`\\b${HARD_WORDS}\\b`);
  */
 const DIET_CUE =
   /\b(keto|paleo|vegan|vegetarian|pescatarian|plant[- ]based|halal|haram|kosher|jain|sattvic|satvik|fasting|fast day|ramadan|ramzan|iftar|suhoor|suhur|sehri|lent|lenten|passover|navratri|ekadashi|yom kippur|teetotal\w*|sober|alcohol\w*|spic(?:e|es|y|ier|iest|iness)|(?:low|lower|reduced|less|zero|high)[- ](?:carb|carbs|fat|fats|sugar|sugars|salt|sodium|cal\w*|fodmap|gi|spice|protein|cholesterol|iron|purine|potassium|phosphorus|lactose|gluten|residue|fibre|fiber|histamine|oxalate)|less (?:salt|salty|sugar|sugary|spicy|spice|fat|fatty|oil|oily|meat|dairy|sweet|carbs?)|minus|without|hold the|go easy on|easy on the|light on|reduced|free of|no added|cut(?:ting)? (?:out|down on|back on)|giv(?:e|ing) up|gave up|given up|\w+-free)\b/;
+/** The negated verbs of the restriction cue "can't / won't / don't … X" (M5 final I2). */
+const NEGATED_VERB = "(?:won'?t|will not|wouldn'?t|would not|can'?t|cannot|can not|don'?t|do not|never)";
+/**
+ * M6 Step 8 (N2, Ruling 19): what "can't do / manage / handle" may be followed by and still be a plan, not a
+ * restriction: a weekday (`(mon|tues|wednes|thurs|fri|satur|sun)days?`), "tonight", "the weekend", "that day", or a
+ * clock in letters ("noon", "midday", "midnight"; a clock in digits never starts the cue's word). A closed list.
+ */
+const SCHEDULING_OBJECT = '(?:(?:mon|tues|wednes|thurs|fri|satur|sun)days?|tonight|the weekend|that day|noon|midday|midnight)\\b';
 /**
  * Restriction forms on any word (N7): "no X", "X free", "sin X", "zero X", "not too X". The only exceptions are words
  * that are never food: "no thanks", "no problem", "no idea", "no money" (M4's "I have no money, what can I cook"),
@@ -603,10 +642,15 @@ const RESTRICTION_CUES: readonly RegExp[] = [
   // M5 final I2 (when in doubt, health): the restriction verbs and negators the N7 lists missed, on any word.
   // "i'm off sugar" (not "off to", "off out", "off work" …), "X doesn't agree with me", "stay away from X", "steer
   // clear of X", "won't touch X", "nothing with X", and non-English "pas de", "keine", "kein", "sem", "bez", "geen".
-  /\b(?:i'?m|im|i am|we'?re|we are|i'?ve gone|i went|been|i'?ll be|going)\s+off\s+(?!(?:to|out|now|home|for|on|work|today|tonight|tomorrow|soon|then|again|sick|shopping|duty)\b)\p{L}/u,
+  // M6 Step 8 (N2, Ruling 19): "off to / on / camping / work / out / away" is a plan, never a restriction ("off camping").
+  /\b(?:i'?m|im|i am|we'?re|we are|i'?ve gone|i went|been|i'?ll be|going)\s+off\s+(?!(?:to|out|now|home|for|on|work|today|tonight|tomorrow|soon|then|again|sick|shopping|duty|camping|away)\b)\p{L}/u,
   /\b(?:do|does|did)(?:n'?t| not)\s+agree\s+with\s+(?:me|us|him|her|them|my)\b/u,
   /\b(?:stay|stays|staying|stayed|keep|keeps|keeping|kept|steer|steers|steering|steered)\s+(?:well\s+)?(?:away\s+from|clear\s+of)\s+\p{L}/u,
-  /\b(?:won'?t|will not|wouldn'?t|would not|can'?t|cannot|can not|don'?t|do not|never)\s+(?:touch|do|go near|stomach|handle|tolerate|digest|manage)\s+\p{L}/u,
+  new RegExp(`\\b${NEGATED_VERB}\\s+(?:touch|go near|stomach|tolerate|digest)\\s+\\p{L}`, 'u'),
+  // M6 Step 8 (N2, Ruling 19): "can't do / manage / handle" stays a restriction ("can't do dairy", "don't do gluten")
+  // except right before a scheduling object: a weekday, "tonight", "the weekend", "that day" or a clock ("can't do
+  // monday", "won't manage tonight"). Only those; a weekday carries no food word, so no rule is lost.
+  new RegExp(`\\b${NEGATED_VERB}\\s+(?:do|handle|manage)\\s+(?!${SCHEDULING_OBJECT})\\p{L}`, 'u'),
   /\b(?:nothing|none|never)\s+(?:with|of|any|containing)\s+\p{L}/u,
   /\b(?:pas de|keine|kein|keinen|sem|bez|geen)\s+\p{L}|\bpas d'\p{L}/u,
 ];
@@ -677,8 +721,11 @@ const dayOf = (word: string): string => {
   return WEEKDAY_NAMES.find((n) => n === w || (w.length >= 3 && n.startsWith(w))) ?? w;
 };
 
-/** The player's own words, normalised, or null for a safety turn or text cut by the injection marker or a paste. */
-function ownClauseText(text: string): string | null {
+/**
+ * The player's own words, normalised, or null for a safety turn or text cut by the injection marker or a paste.
+ * Exported for the check-off grammar (M6 Step 8), which reads the whole message the same way (5a).
+ */
+export function ownClauseText(text: string): string | null {
   const whole = stripPageEvents(text).text;
   if (SAFETY_INTENTS.has(classifyTurn(whole))) return null;
   const own = normalizeTurn(ownWords(text));
@@ -734,7 +781,7 @@ export function planIntent(text: string, dishes: readonly { slug: string; title:
  * (parked m6): "idk" and "lol" are not fillers: they signal doubt, as "maybe" does, so a message with one gets no
  * code card.
  */
-const FILLER = /\s*\b(?:ok|okay|please|pls|thanks|thank you)\b\s*/;
+export const FILLER = /\s*\b(?:ok|okay|please|pls|thanks|thank you)\b\s*/;
 /** The clauses of the player's words for the closed readers: split at SEP and at the fillers, empty ones dropped. */
 const closedSplit = (own: string): string[] =>
   own
@@ -1099,7 +1146,7 @@ export function navIntent(text: string, ids: { cooks: ReadonlySet<string>; slugs
   return null;
 }
 
-/** The `{place}` of a chip's `nav.offer` line; `name` is the cook's or the dish's display name for those targets. */
+/** The `{place}` of a chip's `nav.offer` line; `name` is the cook's, the dish's or the stall keeper's display name for those targets. */
 export function navPlace(target: NavTarget, name: string | null): string {
   switch (target.to) {
     case 'kitchen':
@@ -1116,5 +1163,9 @@ export function navPlace(target: NavTarget, name: string | null): string {
       return `${name ?? target.cook}'s kitchen`;
     case 'recipe':
       return name ?? 'the recipe';
+    case 'stalls':
+      return 'the market stalls';
+    case 'stall':
+      return name === null ? 'the stall' : `${name}'s stall`;
   }
 }

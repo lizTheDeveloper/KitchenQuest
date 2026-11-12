@@ -80,6 +80,8 @@ const NOTE = { recipe: 'japan/osaka/onigiri', ops: [{ op: 'swap', from: 'umebosh
 const SHARED = { cookedOn: '2026-11-09', recipe: 'japan/osaka/onigiri', frame: null, cookedFor: { count: 'one', who: 'partner' } };
 const MARKET_EVENT = { id: '6f1c2b7e-0d3a-4c55-9b8e-1a2b3c4d5e6f', kind: 'market_run', at: '2026-11-09', weekStart: '2026-11-09' };
 const MEAL_EVENT_ID = '7a2d3c8f-1e4b-4d66-8c9f-2b3c4d5e6f70';
+/** A stall round (M6 Step 6): sealed at rest, exported whole and decrypted. */
+const ROUND_EVENT = { id: '8b3e4d9a-2f5c-4e77-9da0-3c4d5e6f7081', kind: 'stall_round', at: '2026-11-09', stall: 'wen', answers: [{ q: 'wen-avocado-ripe', pick: 0 }] };
 
 const SAID: StoredMessage = { role: 'player', text: 'I had peanut noodles for lunch' };
 const PAN_SAID: Extract<StoredMessage, { role: 'pan' }> = { role: 'pan', parts: [{ kind: 'line', line: { trigger: 'log.confirm', vars: {} } }], proposalIds: [] };
@@ -135,10 +137,10 @@ async function fullPlayer(): Promise<Player> {
   // Progress (U-5): a market run and a meal-log event, each earning grants (no catalogue needed for either).
   // The meal-log event names the meal log just made (I1).
   const mealLogId = meal.json<{ meal: { id: string } }>().meal.id;
-  const events = [MARKET_EVENT, { id: MEAL_EVENT_ID, kind: 'meal_logged', at: '2026-11-09', minute: 750, mealLogId }];
+  const events = [MARKET_EVENT, { id: MEAL_EVENT_ID, kind: 'meal_logged', at: '2026-11-09', minute: 750, mealLogId }, ROUND_EVENT];
   const progress = await call(cookie, { method: 'POST', url: '/progress/events', payload: { events } });
   expect(progress.statusCode).toBe(200);
-  expect(progress.json<{ accepted: unknown[] }>().accepted).toHaveLength(2);
+  expect(progress.json<{ accepted: unknown[] }>().accepted).toHaveLength(3);
   expect((await call(cookie, { method: 'GET', url: '/rules' })).statusCode).toBe(200);
   await grant(db, id, 'founding', 'manual', new Date('2026-01-01T00:00:00Z'));
   await recordUsage(db, id, 'mentor_text', 3, 120);
@@ -316,6 +318,8 @@ describe('GET /me/export', () => {
     expect(x.progress.events).toEqual([
       { ...MARKET_EVENT, createdAt: NOW.toISOString() },
       { id: MEAL_EVENT_ID, kind: 'meal_logged', at: '2026-11-09', minute: 750, mealLogId: x.meals[0].id, createdAt: NOW.toISOString() },
+      // Sealed at rest (body {}), shown whole and decrypted (M6 Step 6).
+      { ...ROUND_EVENT, createdAt: NOW.toISOString() },
     ]);
     // Grants carry their day only, no time (I2).
     const M = MARKET_EVENT.id;
@@ -324,10 +328,12 @@ describe('GET /me/export', () => {
         { id: `${M}#0`, eventId: M, isoDay: '2026-11-09', kind: 'xp', amount: 20, reason: 'market_run' },
         { id: `${M}#1`, eventId: M, isoDay: '2026-11-09', kind: 'stamp', stamp: 'market_run' },
         { id: `${MEAL_EVENT_ID}#0`, eventId: MEAL_EVENT_ID, isoDay: '2026-11-09', kind: 'xp', amount: 5, reason: 'nourishment' },
+        { id: `${ROUND_EVENT.id}#0`, eventId: ROUND_EVENT.id, isoDay: '2026-11-09', kind: 'xp', amount: 5, reason: 'market_game' },
+        { id: `${ROUND_EVENT.id}#1`, eventId: ROUND_EVENT.id, isoDay: '2026-11-09', kind: 'stamp', stamp: 'market_game' },
       ]),
     );
-    expect(x.progress.grants).toHaveLength(3);
-    expect(x.progress.view).toMatchObject({ xp: 25, level: 1, stamps: 1 });
+    expect(x.progress.grants).toHaveLength(5);
+    expect(x.progress.view).toMatchObject({ xp: 30, level: 1, stamps: 2 });
     expect(x.auditEvents[0]).toEqual({
       at: NOW.toISOString(),
       actorKind: 'user',
@@ -499,6 +505,7 @@ describe('GET /me/export', () => {
       mentor_proposals: 'proposals',
       progress_events: 'progress',
       reward_grants: 'progress',
+      progress_snapshots: 'progress',
       audit_events: 'auditEvents',
     };
     // Linked: a foreign key to users, or a column that holds a user id or an email.

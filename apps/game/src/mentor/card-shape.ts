@@ -11,7 +11,7 @@ const isStrArr = (x: unknown): x is string[] => Array.isArray(x) && x.every(isSt
 export const isDate = (x: unknown): x is string => isStr(x) && Number.isFinite(Date.parse(x));
 const isLineRef = (x: unknown): boolean => isObj(x) && isStr(x.trigger) && isObj(x.vars) && Object.values(x.vars).every(isStr);
 const RULE_FORMS: readonly unknown[] = ['rule_allergen', 'rule_intolerance', 'rule_diet'];
-export const KINDS: readonly unknown[] = ['rule', 'meal', 'profile', 'pantry', 'plan'];
+export const KINDS: readonly unknown[] = ['rule', 'meal', 'profile', 'pantry', 'plan', 'check_off'];
 const isPlanItem = (i: unknown): boolean =>
   isObj(i) && Number.isInteger(i.day) && isStr(i.slug) && (i.kind === 'lesson' || (i.kind === 'dish' && typeof i.servings === 'number'));
 /** A plan card's checks are never ⛔ (a ⛔ item never reaches a card); anything else is dropped, never drawn as ok. */
@@ -50,6 +50,9 @@ export function isProposalCard(c: unknown): boolean {
         isStrArr(c.unknown) && isStrArr(c.dropped) && isStr(c.summary) && Array.isArray(c.added) && c.added.every(isPlanItem) && isStr(c.basis) &&
         (c.offer === null || (isObj(c.offer) && (c.offer.kind === 'new' || c.offer.kind === 'refresh') && isStr(c.offer.technique) && isStr(c.offer.recipe) &&
           (c.offer.status === 'ok' || c.offer.status === 'swap') && (c.offer.kind === 'refresh' || isStr(c.offer.from))));
+    case 'check_off':
+      // M6 Step 8 (minimal; Step 10 draws it whole): the run's row keys, who built it, and code's summary.
+      return isStr(c.runId) && isStrArr(c.got) && isStrArr(c.missing) && (c.source === 'grammar' || c.source === 'model') && isStr(c.summary);
     default:
       return false;
   }

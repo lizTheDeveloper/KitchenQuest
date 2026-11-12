@@ -8,7 +8,19 @@ import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { ProgressEvent, ProgressView, RewardsData } from '@kitchenquest/core';
+import {
+  compactHistory,
+  deriveProgress,
+  grantsForBatch,
+  type ProgressEvent,
+  type ProgressHistory,
+  type ProgressSnapshot,
+  type ProgressView,
+  type RewardGrant,
+  type RewardsData,
+  type RulesContext,
+} from '@kitchenquest/core';
+import fc from 'fast-check';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance, InjectOptions } from 'fastify';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
@@ -17,6 +29,9 @@ import { defaultCatalog, defaultLoopContent, type LoopContent } from '../src/cat
 import { NOTICES } from '../src/consent/notices.js';
 import { rewardGrants } from '../src/db/schema.js';
 import { CaptureMailer } from '../src/mail/mailer.js';
+import { catalogueFor } from '../src/progress/catalogue.js';
+import { catalogueHash } from '../src/progress/snapshot.js';
+import { createRecipeIndexSource } from '../src/recipes/recipe-index.js';
 import { RECIPES_DIR, syncCanon } from '../src/recipes/sync.js';
 import type { Db } from '../src/types.js';
 import { signIn } from './helpers/auth.js';
@@ -223,5 +238,94 @@ describe('reward_grants is append-only', () => {
     expect(await grantRows(p.id)).toEqual(before);
     expect((await call(p.cookie, { method: 'DELETE', url: '/me', payload: { confirm: 'delete my account' } })).statusCode).toBe(204);
     expect(await grantRows(p.id)).toEqual([]);
+  });
+});
+
+// M6 Step 7 (Ruling 18, §6): the snapshot is a cache. For any history (random events, erasures of meal-log and
+// stall-round events, rewards retunes), what the snapshot plus its tail gives equals what the whole ledgers give:
+// the grants each next event earns (grantsForBatch) and the view (deriveProgress). The model is the API's: a
+// snapshot is written once the tail passes a threshold (small here; SNAPSHOT_EVERY in the API), any erase drops it
+// (the trigger), a different catalogue hash ignores it, and the tail's grants are those of the tail's events.
+describe('snapshot equivalence (M6 Step 7)', () => {
+  it('property: view(snapshot + tail) == view(full) over random histories with erasures (fast-check)', async () => {
+    const loop = defaultLoopContent();
+    const index = await createRecipeIndexSource().current(db);
+    const cat = catalogueFor(index, loop);
+    const rules: RulesContext = { rules: [], graph: catalog.graph, subs: [...catalog.substitutions], recipes: index };
+    const recipes = [PARIPPU, ONIGIRI, FRIJOLES];
+    const wen = [...loop.market.stalls.get('wen')!.questions].filter((q) => q.countries === undefined).slice(0, 6);
+    const day = fc.integer({ min: 0, max: 20 }).map((n) => addDays(TODAY, -n));
+    const event: fc.Arbitrary<ProgressEvent> = fc.oneof(
+      fc.record({ kind: fc.constant('lesson' as const), at: day, recipe: fc.constantFrom(...recipes) }),
+      fc.record({ kind: fc.constant('cooked' as const), at: day, recipe: fc.constantFrom(...recipes), planned: fc.boolean() }),
+      fc.record({ kind: fc.constant('quest_step' as const), at: day, quest: fc.constant('leela-tempering'), step: fc.integer({ min: 1, max: 6 }) }),
+      fc.record({ kind: fc.constant('quest_done' as const), at: day, quest: fc.constant('leela-tempering') }),
+      fc.record({ kind: fc.constant('market_run' as const), at: day, weekStart: fc.constant('2026-11-09') }),
+      fc.record({ kind: fc.constant('meal_logged' as const), at: day, minute: fc.integer({ min: 0, max: 1439 }), mealLogId: fc.uuid() }),
+      fc.record({
+        kind: fc.constant('stall_round' as const),
+        at: day,
+        stall: fc.constant('wen'),
+        answers: fc.uniqueArray(fc.constantFrom(...wen), { minLength: 1, maxLength: 3, selector: (q) => q.id }).chain((qs) =>
+          fc.tuple(...qs.map((q) => fc.integer({ min: 0, max: q.options.length - 1 }).map((pick) => ({ q: q.id, pick })))),
+        ),
+      }),
+    ).chain((e) => fc.uuid().map((id) => ({ ...e, id })));
+    const op = fc.oneof(
+      { weight: 6, arbitrary: fc.record({ post: fc.array(event, { minLength: 1, maxLength: 6 }) }) },
+      { weight: 2, arbitrary: fc.record({ erase: fc.nat() }) },
+      { weight: 1, arbitrary: fc.record({ retune: fc.integer({ min: 1, max: 30 }) }) },
+    );
+    let accepted = 0;
+    let fromSnapshot = 0;
+    await fc.assert(
+      fc.asyncProperty(fc.array(op, { minLength: 1, maxLength: 25 }), fc.integer({ min: 1, max: 8 }), async (ops, every) => {
+        let rewards: RewardsData = loop.rewards;
+        let hash = catalogueHash(cat, rewards, loop.thresholds);
+        const events: ProgressEvent[] = [];
+        const grants: RewardGrant[] = [];
+        let snap: { base: ProgressSnapshot; upto: number; hash: string } | null = null;
+        const full = (): ProgressHistory => ({ events, grants, base: null });
+        const cached = (): ProgressHistory => {
+          if (snap === null || snap.hash !== hash) return full();
+          const tail = events.slice(snap.upto);
+          const ids = new Set(tail.map((e) => e.id));
+          return { events: tail, grants: grants.filter((g) => ids.has(g.eventId)), base: snap.base };
+        };
+        for (const o of ops) {
+          if ('post' in o) {
+            const a = grantsForBatch(o.post, full(), cat, rewards, loop.thresholds, rules);
+            const b = grantsForBatch(o.post, cached(), cat, rewards, loop.thresholds, rules);
+            expect(b).toEqual(a);
+            if (cached().base !== null) fromSnapshot += 1;
+            for (const r of a.filter((x) => x.problems.length === 0)) {
+              events.push(r.event);
+              grants.push(...r.grants);
+              accepted += 1;
+            }
+            // maybeWriteSnapshot: past the threshold since the usable snapshot (or the start), fold and upsert.
+            const since = snap !== null && snap.hash === hash ? snap.upto : 0;
+            if (events.length - since > every) {
+              const base = compactHistory(cached(), 0, cat).base;
+              if (base !== null) snap = { base: JSON.parse(JSON.stringify(base)) as ProgressSnapshot, upto: events.length, hash };
+            }
+          } else if ('erase' in o) {
+            // A meal-log undo or a health_data delete: only those kinds are ever erased; grants stay; the trigger drops the snapshot.
+            const erasable = events.map((e, i) => [e, i] as const).filter(([e]) => e.kind === 'meal_logged' || e.kind === 'stall_round');
+            if (erasable.length === 0) continue;
+            events.splice(erasable[o.erase % erasable.length][1], 1);
+            snap = null;
+          } else {
+            rewards = { ...rewards, xp: { ...rewards.xp, lesson: o.retune, cook: o.retune + 1, market_game: o.retune } };
+            hash = catalogueHash(cat, rewards, loop.thresholds);
+          }
+          expect(deriveProgress(cached(), cat)).toEqual(deriveProgress(full(), cat));
+        }
+      }),
+      { numRuns: 150 },
+    );
+    // The property ran on real histories: events were accepted, and posts were judged from a snapshot.
+    expect(accepted).toBeGreaterThan(500);
+    expect(fromSnapshot).toBeGreaterThan(50);
   });
 });

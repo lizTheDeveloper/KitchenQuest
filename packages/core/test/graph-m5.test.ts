@@ -69,7 +69,8 @@ describe('the Pantry Frame nodes (C12)', () => {
       expect(graph.ancestors(id), id).toEqual([]);
     }
     // The graph's own herbs are filed under the category (C1 ruling).
-    expect(graph.descendants('herb').sort()).toEqual(['curry_leaf', 'curry_leaf_sprig', 'epazote']);
+    // M6 Step 4 files cilantro (coriander leaf) under it too.
+    expect(graph.descendants('herb').sort()).toEqual(['cilantro', 'curry_leaf', 'curry_leaf_sprig', 'epazote']);
     expect(graph.get('herb').broad).toBe(true);
   });
 
@@ -108,8 +109,8 @@ describe('the Pantry Frame nodes (C12)', () => {
       if (r.ok) continue;
       expect(r.reason).toBe('ambiguous');
       // Only the direct kinds (N1): a sprig is a form of curry leaf, never offered as its peer.
-      expect(r.line).toEqual({ trigger: 'rule.which_kind', vars: { term, examples: 'curry leaf or epazote' } });
-      if (r.reason === 'ambiguous') expect(r.options.map((o) => o.id)).toEqual(['curry_leaf', 'epazote']);
+      expect(r.line).toEqual({ trigger: 'rule.which_kind', vars: { term, examples: 'cilantro, curry leaf or epazote' } });
+      if (r.reason === 'ambiguous') expect(r.options.map((o) => o.id)).toEqual(['cilantro', 'curry_leaf', 'epazote']);
     }
     // A which-kind ask accounts for its category, so no second ask follows; a plain card on a herb does not.
     expect(broadKindsAsked(['curry_leaf', 'epazote'], graph)).toEqual(['herb']);

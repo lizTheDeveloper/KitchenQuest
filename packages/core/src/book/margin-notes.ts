@@ -2,7 +2,8 @@
 // The canon text is never altered: `applyNotes` returns a copy, and "cook with my notes" is checked by the rules
 // engine with every change applied. Notes are health data: they never enter a prompt (C-13) and stay private.
 import { normalizeName, type IngredientGraph } from '../ingredients/graph';
-import { canonicalText, normalizeTurn } from '../mentor/intents';
+import { lineOf, textMentions } from '../ingredients/mentions';
+import { canonicalText } from '../mentor/intents';
 import type { ParsedRecipe, RecipeIngredient, StepItem } from '../recipe/types';
 import { isValidDate } from '../rules/active';
 import { check, type CheckResult, type Substitution } from '../rules/check';
@@ -97,8 +98,6 @@ export function parseMarginNote(text: string, recipe: ParsedRecipe, graph: Ingre
   return { ops, rest: joined === '' ? null : Array.from(joined).slice(0, NOTE_TEXT_MAX).join('') };
 }
 
-const lineOf = (name: string): RecipeIngredient => ({ name, displayName: null, quantity: null, unit: null, note: null });
-
 /**
  * The recipe with every note's ops applied in order, as a copy; the canon recipe is never changed. Names compare
  * normalised. `add` appends a line; `remove` drops every matching line (a missing name is a no-op); `swap` renames
@@ -143,19 +142,8 @@ export function applyNotes(recipe: ParsedRecipe, notes: readonly MarginNote[]): 
   };
 }
 
-const words = (text: string): string => ` ${normalizeTurn(text).replace(/[^\p{L}\p{N}]+/gu, ' ').trim()} `;
-
-/**
- * A label and its plural forms as they could appear in a note: +s, +es, -y → -ies ("berries"), -f → -ves ("leaves",
- * "loaves") and -fe → -ves ("knives"). Over-matching only makes the check stricter.
- */
-export function pluralForms(key: string): string[] {
-  const forms = [key, `${key}s`, `${key}es`];
-  if (key.endsWith('y')) forms.push(`${key.slice(0, -1)}ies`);
-  if (key.endsWith('fe')) forms.push(`${key.slice(0, -2)}ves`);
-  else if (key.endsWith('f')) forms.push(`${key.slice(0, -1)}ves`);
-  return forms;
-}
+/** Moved to `ingredients/mentions.ts` (M6 Step 1), re-exported here so M5's callers are unchanged. */
+export { pluralForms } from '../ingredients/mentions';
 
 /**
  * Every ingredient id the graph can resolve that a note names anywhere: in its text (read or not) and in its ops,
@@ -167,14 +155,7 @@ export function noteMentions(notes: readonly MarginNote[], graph: IngredientGrap
     if (typeof n.text === 'string') parts.push(n.text);
     for (const op of n.ops) parts.push(...(op.op === 'swap' ? [op.from, op.to] : [op.name]));
   }
-  const hay = words(parts.join(' | '));
-  const found = new Set<string>();
-  for (const label of graph.labels()) {
-    const key = words(label).trim();
-    if (key === '') continue;
-    if (pluralForms(key).some((form) => hay.includes(` ${form} `))) found.add(graph.resolve(label)!);
-  }
-  return [...found].sort();
+  return textMentions(parts, graph);
 }
 
 /**

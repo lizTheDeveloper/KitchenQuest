@@ -31,10 +31,26 @@ function maxToolkit(a: ToolkitState, b: ToolkitState): ToolkitState {
   return { techniques: Object.fromEntries(out) };
 }
 
+type Answered = ProgressView['marketAnswered'];
+/** A view's stall answers; a view cached before M6 has none. */
+const answeredOf = (v: { marketAnswered?: Answered }): Answered => v.marketAnswered ?? {};
+
+/** Per stall question, ever correct on either side, and the later of the two last-answered dates (M6). */
+function maxAnswered(a: Answered, b: Answered): Answered {
+  return Object.fromEntries(
+    keys(a, b).map((k) => {
+      const x = own(a, k), y = own(b, k);
+      if (x === undefined || y === undefined) return [k, { ...(x ?? y)! }];
+      return [k, { correct: x.correct || y.correct, lastAt: x.lastAt > y.lastAt ? x.lastAt : y.lastAt }];
+    }),
+  );
+}
+
 /**
  * Two views as one where nothing goes down (Ruling 8, C14, C15): XP, level and stamps the larger; each cook's trust
  * and each quest's steps the larger; each technique's best tier, earliest first use and latest use; quests done,
- * and cook dates, as a union; each quest's earliest start.
+ * and cook dates, as a union; each quest's earliest start; each stall question ever correct on either side, last
+ * answered on the later date (M6).
  */
 export function maxView(a: ProgressView, b: ProgressView): ProgressView {
   return {
@@ -53,6 +69,7 @@ export function maxView(a: ProgressView, b: ProgressView): ProgressView {
     ),
     cookedOn: unionDates(a.cookedOn, b.cookedOn),
     framesCookedOn: unionDates(a.framesCookedOn, b.framesCookedOn),
+    marketAnswered: maxAnswered(answeredOf(a), answeredOf(b)),
   };
 }
 

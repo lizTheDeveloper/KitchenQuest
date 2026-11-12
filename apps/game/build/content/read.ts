@@ -10,6 +10,7 @@ const DATA_FILES = [
   'data/keeps.json',
   'data/stalls.json',
   'data/food-groups.json',
+  'data/seasonality.yaml',
 ];
 // Every file under content/ (content/frames/ included) and recipes/ is read, whatever its name, so the compiler can
 // refuse the ones no loader claims instead of silently skipping them.

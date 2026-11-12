@@ -20,6 +20,7 @@ persona:
 
 triggers:
   greet:
+    contains: { "0": [tofu], "1": [tofu], "2": [lentil], "3": [bean, rice_grain, tofu, tortilla], "4": [bean], "5": [tofu] }
     ai: allowed
     when: The player opens the stall.
     lines:
@@ -30,6 +31,7 @@ triggers:
       - "Ask me about beans. I've been waiting all day."
       - "Good. A shopper with a plan. Or without one. Both are welcome. One leaves with the right tofu."
   correct:
+    contains: { "0": [tofu], "3": [tofu] }
     ai: allowed
     when: Correct answer at the stall.
     lines:
@@ -38,6 +40,7 @@ triggers:
       - "Yes. You may have a sample."
       - "Good. That tofu will be very happy in your kitchen."
   wrong:
+    contains: { "3": [tofu] }
     ai: allowed
     when: Wrong answer at the stall.
     lines:
@@ -46,6 +49,7 @@ triggers:
       - "Not that one. Let me explain."
       - "Not that one. The tofu would have resigned."
   idle:
+    contains: { "0": [bean, tofu], "2": [tortilla], "3": [tofu] }
     ai: allowed
     when: The player lingers.
     lines:
@@ -64,7 +68,19 @@ triggers:
       - "Out of {item}. Take {swap}. It is a good employee. Labelled, and checked."
       - "We have no {item} today. {swap} will do the work. Checked and labelled."
       - "Out of {item}. {swap} instead. A good substitute, checked against your rules."
+  # REVIEW: new in M6 Step 4 (content review): no swap passes the rules, so skip it this week.
+  out_of_stock_none:
+    ai: never
+    when: "An item isn't available and no substitute passes the player's rules (Ruling 11): skip it this week."
+    vars:
+      item: "the missing item"
+    lines:
+      - "No {item} today. Nothing here that I can check against your rules does its job. Skip it this week."
+      - "Out of {item}. I will not offer a substitute I cannot check against your rules. Leave it off this week."
+      - "We have no {item} today, and no stand-in that passes your rules. Skip it this week."
+      - "No {item}. No honest substitute either, checked against your rules. This week, leave it out."
   farewell:
+    contains: { "0": [firm_tofu, tofu], "1": [bean, kidney_bean, lentil], "2": [tortilla], "3": [tofu, water] }
     ai: allowed
     when: The player leaves.
     lines:
@@ -73,6 +89,7 @@ triggers:
       - "Come back. Bring Doña Marisol's regards. Take some tortillas."
       - "Goodbye. Change the tofu's water daily. It notices."
   medical:
+    contains: { "0": [bean] }
     ai: never
     when: Medical or diet-therapy question.
     lines:
@@ -409,10 +426,11 @@ item_tips:
   yuba:
     pick: "Fresh: pale, pliable sheets. Dried: brittle sticks or sheets; soak before using."
     store: "Fresh in the fridge for a few days; dried in a cool cupboard."
-  dried_beans:
+  # Step 4 re-keys (graph ids): dried_beans → bean (the category), canned_beans → canned_bean, lentils → lentil.
+  bean:
     pick: "Glossy, even, few broken ones. Old beans take ages to soften — buy from a shop that sells lots of them."
     store: "Airtight, cool, dark. Best within a year. Soak 8–12 hours or quick-soak."
-  canned_beans:
+  canned_bean:
     pick: "No dents along the seams, no bulges. 'No salt added' if you'd like to season them yourself."
     store: "Cupboard until the date. Opened: transfer to a container, fridge, 3–4 days."
   black_bean:
@@ -424,7 +442,7 @@ item_tips:
   chickpea:
     pick: "Dried: cream-coloured, even, not wrinkled. Soak overnight; simmer 1–2 hours."
     store: "Keep canned liquid (aquafaba) in the fridge for 2–3 days if you want it."
-  lentils:
+  lentil:
     pick: "Bright, even colour, not dusty, no tiny holes. Rinse until the water runs clearer."
     store: "Airtight jar, up to a year."
   red_lentil:
@@ -454,8 +472,10 @@ faq:
     a: "Wrap the block in a clean towel, put it on a plate, and set something heavy on top — a pan, a few cans, a large book you've been meaning to read. Fifteen to thirty minutes. Never silken."
   - q: ["can i eat tofu raw", "is tofu cooked", "raw tofu safe"]
     a: "Yes. Packaged tofu has already been cooked during making. Eat it cold in salads or with soy sauce and ginger. Keep it in the fridge and respect the date."
+    a_if_blocked: "Packaged foods like this are usually cooked during making, but your rules come first. Check the label, keep it in the fridge, and respect the date."
   - q: ["is tofu gluten free", "tofu gluten"]
     a: "Plain tofu is soybeans, water and a coagulant, so yes. Flavoured, marinated or fried tofu may contain soy sauce or flour, which often means wheat. Check the label; your rules will flag it."
+    a_if_blocked: "Plain ones usually are; flavoured, marinated or fried ones may not be. Check the label. Your rules will flag what I can't check."
     tags: [safety]
   - q: ["what's the difference between silken and soft tofu", "silken vs soft"]
     a: "Silken is never cut into curds or pressed: one smooth custard. Soft is curdled and pressed a little: delicate but with a slight curd. Silken for blending; soft for simmering."
@@ -463,11 +483,14 @@ faq:
     a: "Both are good. Canned saves time and is already cooked; rinse it. Dried costs much less per serving and gives you a broth. Keep both. That is the merchant's answer and also the correct one."
   - q: ["do i need to soak beans", "soak beans", "soaking"]
     a: "Lentils and split peas: no. Whole beans: soaking shortens cooking and helps them cook evenly, but black beans and pinto beans can cook from dry if you have time. Red kidney beans: soak, then boil hard for 10 minutes. Always."
+    # REVIEW: M6 Step 5 fix round 1: "legumes" is a graph name now, and the blocked answer names nothing; was "Small split legumes". Content review.
+    a_if_blocked: "Small split ones: no. Whole dried ones: soaking shortens the cooking and helps them cook evenly. Some must be boiled hard after soaking; the packet will say. Check it against your rules first."
     tags: [safety]
   - q: ["can i freeze cooked beans", "freeze beans"]
     a: "Yes. Cool them, then freeze in their cooking liquid in portions. They keep well for a few months. Thaw in the fridge or straight into a pot."
     tags: [storage]
   - q: ["why do beans make you gassy", "beans gas"]
     a: "Beans contain fibres your gut bacteria enjoy enthusiastically. Eating beans regularly usually helps. Soaking and rinsing helps a little. Beyond that, a doctor, not a merchant."
+    a_if_blocked: "Fibre your gut bacteria enjoy enthusiastically. Eating it regularly usually helps. Beyond that, a doctor, not a merchant."
   - q: ["how do i warm tortillas", "tortillas", "heat tortillas"]
     a: "A dry, hot pan or comal. About 30 seconds a side, until they flex and puff a little. Stack them in a clean towel to keep them warm and soft. Doña Marisol taught me that, and then watched me do it three times."

@@ -1,5 +1,5 @@
 /**
- * The Pan's permanent eval (spec §7.6b.9, spike §6.10): the spike's 41 cases, REPS runs
+ * The Pan's permanent eval (spec §7.6b.9, spike §6.10): the spike's 41 cases, M5's P01–P04 and M6's M01–M07, REPS runs
  * each, through the real app and the real model on OpenRouter. Never part of `npm test`.
  *
  *   OPENROUTER_API_KEY=… AI_PROVIDERS=tenstorrent TEST_DATABASE_URL=… npm run eval:mentor -w @kitchenquest/api
@@ -12,7 +12,7 @@
  */
 import { randomBytes } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
-import { buildRuleCard, planBasis, planWeekStart, stripPageEvents, WEEKDAY_NAMES, type PlanCard, type ReplyPart, type TurnResponse } from '@kitchenquest/core';
+import { buildRuleCard, planBasis, planWeekStart, stripPageEvents, WEEKDAY_NAMES, type MarketRunView, type Plan, type PlanCard, type ReplyPart, type TurnResponse } from '@kitchenquest/core';
 import type { FastifyInstance, InjectOptions } from 'fastify';
 import { createOpenRouterProvider } from '../src/ai/openrouter.js';
 import type { AiProvider } from '../src/ai/provider.js';
@@ -28,9 +28,10 @@ import { PROPOSAL_TTL_MS } from '../src/mentor/constants.js';
 import { createProposal } from '../src/mentor/proposals.js';
 import { MENTOR_TOOLS } from '../src/mentor/tools.js';
 import { RECIPES_DIR, syncCanon } from '../src/recipes/sync.js';
+import { loadRunById } from '../src/week/store.js';
 import { testDb, type Sql } from '../test/helpers/db.js';
 import { CASES, type EvalCase } from './cases.js';
-import { judge, meetsBar, REPS, type EvalResult } from './checks.js';
+import { judge, meetsBar, REPS, type EvalResult, type Observed } from './checks.js';
 import { evalHash } from './hash.js';
 import { changedRecords, recordsSnapshot } from './snapshot.js';
 
@@ -153,10 +154,38 @@ async function signIn(app: FastifyInstance, n: number): Promise<string> {
   return res.cookies.find((c) => c.name === 'kq_session')!.value;
 }
 
-/** A seeded conversation, and the card a plain yes in it names (the client's `answering`, M4 final I-1). */
+/**
+ * A seeded conversation, and the card a plain yes in it names (the client's `answering`, M4 final I-1). M6 Step 8: the
+ * open market run a check-off case ticks.
+ */
 interface Seeded {
   conversationId: string | null;
   answering?: string;
+  runId?: string;
+}
+
+/**
+ * M6 Step 8: this week's plan (frijoles de olla on Tuesday, parippu on Sunday of the plan week, with no market day) and
+ * its market run, opened through the API as the player would: shallots, white onion, curry leaf sprig, split moong dal
+ * and the rest of both dishes' rows, none ticked.
+ */
+async function seedMarketRun(call: (o: InjectOptions) => Promise<{ statusCode: number; json: <T>() => T }>): Promise<Seeded> {
+  const today = new Date().toISOString().slice(0, 10);
+  const weekStart = planWeekStart(today, []);
+  const plan: Plan = {
+    weekStart,
+    items: [
+      { day: 1, kind: 'dish', slug: 'mexico/oaxaca/frijoles-de-olla', servings: 6 },
+      { day: 6, kind: 'dish', slug: 'india/kerala/parippu', servings: 3 },
+    ],
+    hard: false,
+    slot: 'unanswered',
+  };
+  const saved = await call({ method: 'PUT', url: `/plans/${weekStart}`, payload: { plan, confirmed: true, today } });
+  if (saved.statusCode !== 200) throw new Error(`seed plan ${saved.statusCode}`);
+  const opened = await call({ method: 'POST', url: '/market-runs', payload: { weekStart, today } });
+  if (opened.statusCode !== 200) throw new Error(`seed run ${opened.statusCode}`);
+  return { conversationId: null, runId: opened.json<MarketRunView>().id };
 }
 
 /**
@@ -211,9 +240,10 @@ async function seedExpiredPlanCard(app: FastifyInstance, userId: string): Promis
   });
 }
 
-/** Seeds: an open, read-back severe peanut card in the conversation, saved peanut and lactose rules, or an expired plan card. */
-async function seed(app: FastifyInstance, call: (o: InjectOptions) => Promise<{ statusCode: number }>, userId: string, c: EvalCase): Promise<Seeded> {
+/** Seeds: an open, read-back severe peanut card in the conversation, saved peanut and lactose rules, an expired plan card, or an open market run. */
+async function seed(app: FastifyInstance, call: (o: InjectOptions) => Promise<{ statusCode: number; json: <T>() => T }>, userId: string, c: EvalCase): Promise<Seeded> {
   if (c.seed === 'plan_card_expired') return seedExpiredPlanCard(app, userId);
+  if (c.seed === 'market_run_open') return seedMarketRun(call);
   if (c.seed === 'peanut_saved') {
     for (const [ids, severity] of [[['peanut'], 'anaphylactic'], [['milk'], 'intolerance']] as const) {
       const res = await call({ method: 'POST', url: '/rules', payload: { rule: { target: { kind: 'ingredient', ids }, type: 'avoid', severity }, confirmed: true } });
@@ -247,8 +277,18 @@ async function seed(app: FastifyInstance, call: (o: InjectOptions) => Promise<{ 
   });
 }
 
-/** One turn from a fresh made-up player; its response and how many record kinds it changed, by content (I3). */
-async function runOnce(app: FastifyInstance, sql: Sql, c: EvalCase, n: number): Promise<{ r: TurnResponse; writes: number }> {
+/** The names of the seeded run's ticked rows, read straight from the store (no route: a read never writes). */
+async function tickedRows(userId: string, runId: string | undefined): Promise<string[]> {
+  if (runId === undefined) return [];
+  const run = await loadRunById(db, config.keyring, userId, runId);
+  return run === null ? [] : run.items.filter((i) => i.ticked).map((i) => i.name);
+}
+
+/**
+ * One turn from a fresh made-up player; its response and how many record kinds it changed, by content (I3). M6 Step 8:
+ * which kinds, and the market rows the turn ticked.
+ */
+async function runOnce(app: FastifyInstance, sql: Sql, c: EvalCase, n: number): Promise<{ r: TurnResponse; writes: number; observed: Observed }> {
   const cookie = await signIn(app, n);
   const call = (o: InjectOptions) => app.inject({ ...o, cookies: { kq_session: cookie } });
   for (const purpose of ['health_data', 'ai_health'] as const) {
@@ -256,7 +296,8 @@ async function runOnce(app: FastifyInstance, sql: Sql, c: EvalCase, n: number): 
     if (res.statusCode !== 201) throw new Error(`consent ${purpose} ${res.statusCode}`);
   }
   const userId = (await call({ method: 'GET', url: '/me' })).json<{ id: string }>().id;
-  const { conversationId, answering } = await seed(app, call, userId, c);
+  const { conversationId, answering, runId } = await seed(app, call, userId, c);
+  const tickedBefore = await tickedRows(userId, runId);
   const before = await recordsSnapshot(sql, userId);
   const now = new Date();
   const res = await call({
@@ -273,7 +314,9 @@ async function runOnce(app: FastifyInstance, sql: Sql, c: EvalCase, n: number): 
     },
   });
   if (res.statusCode !== 200) throw new Error(`turn ${res.statusCode}`);
-  return { r: res.json<TurnResponse>(), writes: changedRecords(before, await recordsSnapshot(sql, userId)).length };
+  const changed = changedRecords(before, await recordsSnapshot(sql, userId));
+  const ticked = (await tickedRows(userId, runId)).filter((name) => !tickedBefore.includes(name));
+  return { r: res.json<TurnResponse>(), writes: changed.length, observed: { changed, ticked } };
 }
 
 async function runCase(app: FastifyInstance, sql: Sql, c: EvalCase, rep: number, n: number): Promise<EvalResult> {
@@ -283,8 +326,8 @@ async function runCase(app: FastifyInstance, sql: Sql, c: EvalCase, rep: number,
       await pause(10_000 * attempt);
       turn = await runOnce(app, sql, c, n * ATTEMPTS + attempt);
     }
-    const { r, writes } = turn;
-    const verdict = judge(c, r, writes);
+    const { r, writes, observed } = turn;
+    const verdict = judge(c, r, writes, observed);
     if (!verdict.pass) {
       const reply = JSON.stringify({ parts: r.parts, cards: r.cards.map(({ card }) => (card.kind === 'rule' ? `rule: ${card.display.ingredient}, ${card.display.severity}` : `${card.kind}: ${card.summary}`)) });
       const calls = JSON.stringify(rawCalls.get(stripPageEvents(c.text).text.trim()) ?? 'no model call');

@@ -4,6 +4,7 @@ import {
   clockForSlot,
   dropMealsMatchingRemovals,
   HARD_WEEK_PATTERN,
+  INJECTION_MARKER,
   normalizeName,
   planClauseHasHealth,
   normalizeTurn,
@@ -22,6 +23,7 @@ import {
   type Severity,
 } from '@kitchenquest/core';
 import { filterReply, screenText, touchesHealth } from './filter.js';
+import { TICK_PATTERN } from './requests.js';
 import type { ToolArgs } from './tools.js';
 
 /**
@@ -203,6 +205,26 @@ const mealDescription = (value: string | null, text: string): string | null => {
   return filterReply(v, { finish: 'stop' }).ok && !touchesHealth(v) ? v : null;
 };
 
+/** A leading list marker on a pasted line: "-", "*", "•", "·", or "1." / "1)". */
+const LIST_MARKER = /^\s*(?:[-*•·]|\d+[.)])\s+/;
+
+/**
+ * M6 Step 8 fix round 2 (controller ruling, code wins; S19): a model `dish` that is a multi-line pasted block keeps only
+ * the block's FIRST non-empty line, and only when that line is the player's verbatim text, holds no injection marker,
+ * and passes the output filter and the health screen (`mealString`, which the caller applies). A leading list marker
+ * is stripped only when what is left is still verbatim. The later lines are never used, so nothing pasted below the
+ * first line (an ingredient list, an injected note) can reach a card. Null when that line fails; a one-line value is
+ * returned as it is.
+ */
+function blockDish(value: string | null, text: string): string | null {
+  if (value === null || !/\n/.test(value)) return value;
+  const first = value.split('\n').map((l) => l.trim()).find((l) => l !== '');
+  if (first === undefined || INJECTION_MARKER.test(first)) return null;
+  const unmarked = first.replace(LIST_MARKER, '').trim();
+  const line = unmarked !== first && unmarked !== '' && mealString(unmarked, text) !== null ? unmarked : first;
+  return mealString(line, text) !== null ? line : null;
+}
+
 /** The graph or a rule term knows the term, so it is an ingredient name and no claim (fix round 5). */
 const knownTerm = (term: string, graph: IngredientGraph, ruleTerms: readonly RuleTerm[]): boolean =>
   graph.resolve(term) !== null || ruleTerms.some((t) => t.phrases.some((p) => forms(p).some((f) => forms(term).includes(f))));
@@ -325,11 +347,20 @@ export function applyPostChecks(
         } else out.push({ name: 'propose_navigation', args: { to, id: null } });
         break;
       }
+      case 'propose_check_off': {
+        // M6 Step 8 (Ruling 14, R5): at most one per turn; each item must be a short name in the player's own words
+        // that passes the screens, else it is dropped (never echoed). Code matches what is left to the open run.
+        if (out.some((c) => c.name === 'propose_check_off')) break;
+        const got = call.args.got.filter((w) => shortName(w, own) !== null);
+        const missing = call.args.missing.filter((w) => shortName(w, own) !== null && !got.includes(w));
+        if (got.length + missing.length > 0) out.push({ name: 'propose_check_off', args: { got, missing } });
+        break;
+      }
       case 'propose_meal_log': {
         // M4: a meal the player's text names (a pasted recipe counts: it is data, and the card asks).
         // R5: each free field must be the player's text and pass the screen, else it is dropped.
         const description = mealDescription(call.args.description, stripped);
-        const dish = mealString(call.args.dish, stripped);
+        const dish = mealString(blockDish(call.args.dish, stripped), stripped);
         if (description !== null || dish !== null) out.push({ name: 'propose_meal_log', args: { ...call.args, description, dish } });
         break;
       }
@@ -348,6 +379,18 @@ export function applyPostChecks(
   return out.filter(
     (c) => (c.name !== 'propose_meal_log' || keptMeals.has(c.args)) && (c.name !== 'propose_pantry_change' || c.args.add.length + c.args.remove.length > 0),
   );
+}
+
+
+/**
+ * M6 Step 8: the model's own text (never shown, R9) talks of ticking the market list ("I've ticked the shallots for
+ * you", "checked them all off") on a turn that made no card: the reply is `write.not_done`, never a bare
+ * `didnt_understand`, so a tick the model only said it made never looks done. Any tick wording counts, a negated one
+ * too (the line only says nothing was changed). Never the animal ("a tick bite", fix round 1 m4: `TICK_PATTERN`). M4's
+ * other write claims keep their scripted lines (R9).
+ */
+export function claimsTickWithoutCard(modelText: string, cards: number): boolean {
+  return cards === 0 && TICK_PATTERN.test(screenText(modelText));
 }
 
 /**

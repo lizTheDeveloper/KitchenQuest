@@ -388,7 +388,7 @@ export const messages = pgTable(
 );
 
 /** Core's `ProposalKind`, as stored (`mentor/proposals.ts` checks the two agree). */
-export const PROPOSAL_KINDS = ["rule", "meal", "profile", "pantry", "plan"] as const;
+export const PROPOSAL_KINDS = ["rule", "meal", "profile", "pantry", "plan", "check_off"] as const;
 export const PROPOSAL_STATUSES = ["open", "confirmed", "rejected", "expired", "undone"] as const;
 export const PROPOSAL_CHANNELS = ["tap", "typed_yes"] as const;
 
@@ -442,6 +442,7 @@ export const PROGRESS_KINDS = [
   "market_run",
   "meal_logged",
   "imported",
+  "stall_round",
 ] as const;
 /** Core's `RewardGrant['kind']`, as stored (`progress/store.ts` checks the two agree). */
 export const GRANT_KINDS = ["xp", "stamp", "trust", "level", "certificate"] as const;
@@ -452,6 +453,10 @@ export const GRANT_KINDS = ["xp", "stamp", "trust", "level", "certificate"] as c
  * `ProgressEvent` as accepted by `grantsFor` (ids and numbers only, each checked against the catalogue, so no free
  * text lands in it). Plain, on the contract basis: not health data, though dish slugs reveal what was cooked
  * ([lawyer], inventory U-5). A `meal_logged` row is erased by a meal-log undo or a `health_data` delete; its grants stay.
+ * A `stall_round` row (M6 Step 6) is sealed: `body` is `{}` and `sealed` holds the whole body (the stall and every
+ * answer, each question id with its pick), S-U with AAD `{ table: 'progress_events', userId, rowId }` (Task 3 privacy
+ * ruling: every round, by kind, since answered ids can imply a rule over time). A `health_data` delete erases every
+ * `stall_round` row (Task 3 ruling I2); its grants stay.
  */
 export const progressEvents = pgTable(
   "progress_events",
@@ -471,6 +476,11 @@ export const progressEvents = pgTable(
      * undo, a `health_data` delete) cascades here, so the record of when they ate goes with it, server-side.
      */
     mealLogId: uuid("meal_log_id").references(() => mealLogs.id, { onDelete: "cascade" }),
+    /**
+     * M6 Step 6: a `stall_round`'s whole body, sealed per row (`progress/seal.ts`); set for that kind only and always
+     * for it (the check below), so no round's stall or question ids are ever stored in the clear.
+     */
+    sealed: bytea("sealed"),
     /** Set from the app's injected clock; defaultNow() is only a fallback. */
     createdAt: ts("created_at").notNull().defaultNow(),
   },
@@ -482,6 +492,7 @@ export const progressEvents = pgTable(
       .where(sql`${t.mealLogId} is not null`),
     check("progress_events_kind_check", sql`${t.kind} in (${inList(PROGRESS_KINDS)})`),
     check("progress_events_meal_log_check", sql`(${t.kind} = 'meal_logged') = (${t.mealLogId} is not null)`),
+    check("progress_events_sealed_check", sql`(${t.kind} = 'stall_round') = (${t.sealed} is not null)`),
   ],
 );
 
@@ -510,6 +521,28 @@ export const rewardGrants = pgTable(
     check("reward_grants_kind_check", sql`${t.kind} in (${inList(GRANT_KINDS)})`),
   ],
 );
+
+/**
+ * U-6 (M6 Step 7, Ruling 18; M5 m12): a cache of the player's progress fold, never a record. `sealed` is core's
+ * `ProgressSnapshot` (`{ view, facts }`) of every event with `seq <= upto_seq` and every grant made for them or for an
+ * event already erased, sealed S-U with AAD `{ table: 'progress_snapshots', userId, rowId: userId }` (the view holds
+ * dish slugs, answered stall question ids, Protein Counter ones included, and trust per cook). `catalogue_hash` is the
+ * catalogue, rewards and freshness it was folded under: a different hash, or a blob that won't open, and it is ignored
+ * and rebuilt from the ledgers. A trigger (`progress_events_drop_snapshot`, migration 0020) deletes the row whenever any
+ * of the player's progress events is deleted (a meal-log undo's cascade, a `health_data` delete), in the same
+ * transaction, so a snapshot never outlives an erased event. Written under `progress:` (last in the table order); account
+ * delete cascades.
+ */
+export const progressSnapshots = pgTable("progress_snapshots", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  uptoSeq: bigint("upto_seq", { mode: "number" }).notNull(),
+  catalogueHash: text("catalogue_hash").notNull(),
+  sealed: bytea("sealed").notNull(),
+  /** Set from the app's injected clock. */
+  createdAt: ts("created_at").notNull(),
+});
 
 /**
  * H-11 (M5 Step 6, Ruling 18): one weekly plan per plan week. `sealed` is core's `Plan` minus `weekStart` (dish and

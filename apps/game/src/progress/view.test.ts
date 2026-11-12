@@ -7,7 +7,7 @@ import { appendEvents, deviceView, historyOf, newEventId } from './log';
 import { currentProgress, maxView } from './view';
 
 const cat = catalogueOf();
-const EMPTY: ProgressView = { xp: 0, level: 1, stamps: 0, trust: {}, toolkit: { techniques: {} }, questsDone: [], questSteps: {}, questStartedOn: {}, cookedOn: {}, framesCookedOn: {} };
+const EMPTY: ProgressView = { xp: 0, level: 1, stamps: 0, trust: {}, toolkit: { techniques: {} }, questsDone: [], questSteps: {}, questStartedOn: {}, cookedOn: {}, framesCookedOn: {}, marketAnswered: {} };
 
 function playedStore() {
   const store = createStore(null);
@@ -20,6 +20,16 @@ function playedStore() {
 }
 
 describe('progress view', () => {
+  test('maxView: stall answers ever correct on either side, last answered on the later date; a pre-M6 view has none (M6 Step 3)', () => {
+    const a: ProgressView = { ...EMPTY, marketAnswered: { q1: { correct: true, lastAt: '2026-11-01' }, q2: { correct: false, lastAt: '2026-11-09' } } };
+    const b: ProgressView = { ...EMPTY, marketAnswered: { q1: { correct: false, lastAt: '2026-11-05' }, q3: { correct: false, lastAt: '2026-10-01' } } };
+    const want = { q1: { correct: true, lastAt: '2026-11-05' }, q2: { correct: false, lastAt: '2026-11-09' }, q3: { correct: false, lastAt: '2026-10-01' } };
+    expect(maxView(a, b).marketAnswered).toEqual(want);
+    expect(maxView(b, a).marketAnswered).toEqual(want);
+    const { marketAnswered: _none, ...old } = EMPTY;
+    expect(maxView(old as ProgressView, a).marketAnswered).toEqual(a.marketAnswered);
+  });
+
   test('signed out: the device view, whatever the account says', () => {
     const store = playedStore();
     store.update((s) => withPartition(s, accountKey('a@example.test'), { events: [], grants: [], base: null, pendingUpload: [] }, { ...EMPTY, xp: 99_999, level: 9 }));

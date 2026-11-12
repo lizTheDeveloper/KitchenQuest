@@ -1,0 +1,62 @@
+# The Season's Table (spec §3.5 and §17, M6 Ruling 9): what is in season where the player is, by region and month.
+# Information only (Ruling 10): a note beside an item, never a lock, a hide or a reorder. Checked by core
+# validateSeasonTable, and Wen's seasonal questions must agree with it (core seasonalAgrees).
+#
+# How a region plugs in:
+#   1. A reviewer who shops there writes the region entry first: its id (kebab-case), a display name, its sources
+#      (an extension service, growers' board or farmers' market calendar), the match phrases for the profile's
+#      country and region, its OWN categories (a tropical region has no "stored from the autumn harvest"), and the
+#      ingredient ids per month. A month left out means no note, never a guess. Status stays `draft` until reviewed.
+#   2. Then Wen's questions for that region and month go in content/market/wen.yaml, one option per category label.
+#   There is no default region, no hemisphere and no fallback to another country's calendar. A `parent` may only be
+#   a broader region of the same country that is itself in this table.
+#
+# Region phrases are matched as whole words on the player's profile region, inside the listed countries. They are
+# written so they don't catch the wrong place: "washington state", not "washington" (Washington, DC), and
+# "portland oregon", not "portland" (Portland, Maine; South Portland). A plain "Washington" or "Portland" matches
+# nothing, honestly: the player sees no calendar rather than the wrong one.
+
+pnw-usa:
+  id: pnw-usa
+  name: "Pacific Northwest (US)"
+  # REVIEW: draft. Needs a reviewer who shops in Washington or Oregon to spot-check each month.
+  status: draft
+  sources:
+    - "Washington State University Extension harvest calendars"
+    - "Oregon State University Extension harvest calendars"
+    - "Washington Apple Commission and USA Pears storage notes"
+    - "Farmers' market seasonal calendars (Seattle, Portland, Oregon)"
+  match:
+    countries: ["united states", "usa", "us", "united states of america"]
+    # REVIEW: "oregon" also names a few small towns elsewhere in the US (Oregon, Ohio; Oregon, Wisconsin). A player
+    # there who writes only "Oregon" would get this calendar. The matcher has no exclusions yet.
+    # REVIEW: "wa" matches any region text with the token "WA", and eastern Washington or eastern Oregon (high
+    # desert) get this western-leaning calendar through "washington state" and "oregon". Information only (Ruling 10).
+    regions: ["washington state", "western washington", "wa", "oregon", "portland oregon", "portland or", "seattle", "pacific northwest", "pnw"]
+  categories:
+    - { id: now, label: "In season here, now" }
+    - { id: stored, label: "Local, stored from the autumn harvest" }
+    - { id: travelled, label: "Well-travelled: shipped in from far away" }
+    - { id: depends, label: "Depends: ask the farmer" }
+  # Built from Wen's own seasonal answers (content/market/wen.yaml), each question's own ingredient id, November to
+  # February only. The other months are empty: no note. # REVIEW: spot-check each month against the sources.
+  months:
+    "11":
+      now: [cranberry]
+      stored: [winter_squash]
+      travelled: [strawberry, tomato]
+      depends: [cilantro]
+    "12":
+      now: [kale]
+      stored: [apple]
+      travelled: [mandarin, zucchini]
+    "1":
+      now: [leek, parsnip]
+      stored: [potato]
+      travelled: [asparagus]
+    "2":
+      # REVIEW: nettles start late February in lowland western WA/OR, later at elevation; mushrooms here are
+      # cultivated ones (grown indoors all year), not wild ones.
+      now: [nettle, mushroom]
+      stored: [pear]
+      travelled: [blueberry]

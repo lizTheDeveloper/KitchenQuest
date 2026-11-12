@@ -18,6 +18,10 @@ export function navRoute(t: unknown): Exclude<Route, { name: 'notFound' }> | nul
     case 'book': return { name: 'book', slug: null };
     case 'visit': return typeof target.cook === 'string' && Object.hasOwn(content.cooks, target.cook) ? { name: 'visit', cookId: target.cook } : null;
     case 'recipe': return typeof target.slug === 'string' && Object.hasOwn(content.recipes, target.slug) ? { name: 'recipe', slug: target.slug } : null;
+    // M6 Step 8: the market hub and its stalls have no screen until Step 9; their chips are dropped until then.
+    case 'stalls':
+    case 'stall':
+      return null;
     case undefined:
     default: return null;
   }

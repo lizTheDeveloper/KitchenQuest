@@ -1,0 +1,4 @@
+ALTER TABLE "progress_events" DROP CONSTRAINT "progress_events_kind_check";--> statement-breakpoint
+ALTER TABLE "progress_events" ADD COLUMN "sealed" "bytea";--> statement-breakpoint
+ALTER TABLE "progress_events" ADD CONSTRAINT "progress_events_sealed_check" CHECK (("progress_events"."kind" = 'stall_round') = ("progress_events"."sealed" is not null));--> statement-breakpoint
+ALTER TABLE "progress_events" ADD CONSTRAINT "progress_events_kind_check" CHECK ("progress_events"."kind" in ('lesson', 'drill', 'cooked', 'frame_cooked', 'quest_step', 'quest_done', 'recognized', 'market_run', 'meal_logged', 'imported', 'stall_round'));

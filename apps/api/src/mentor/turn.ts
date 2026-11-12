@@ -8,6 +8,9 @@ import {
   buildPantryCard,
   buildProfileCard,
   buildRuleCard,
+  buildCheckOffCard,
+  checkOffIntent,
+  checkOffShaped,
   classifyTurn,
   isSevereCard,
   isSuitabilityQuestion,
@@ -41,6 +44,7 @@ import {
   weekdayNumbers,
   type CardAction,
   type IngredientGraph,
+  type MarketRunView,
   type NavTarget,
   type OpenCardRef,
   type PlanRequest,
@@ -61,11 +65,13 @@ import { lockLiveUser } from '../auth/live-user.js';
 import type { Catalog } from '../catalog.js';
 import { consentHeldIn, hasConsent, type Tx } from '../consent/ledger.js';
 import type { Keyring } from '../crypto/keyring.js';
+import { lockUserPlan } from '../db/advisory-locks.js';
 import { canonRecipes, conversations } from '../db/schema.js';
 import { ApiError } from '../errors.js';
 import { addDays } from '../meals/service.js';
-import { pantryMatcher } from '../pantry/service.js';
+import { lockUserPantry, pantryMatcher } from '../pantry/service.js';
 import { loadPantry } from '../pantry/store.js';
+import { lockUserRules } from '../rules/service.js';
 import { loadRules } from '../rules/store.js';
 import type { Db } from '../types.js';
 import { completeUsage, recordSent } from '../usage/usage.js';
@@ -74,13 +80,14 @@ import { appendMessages, bumpTurn, openConversation, recentMessages, type Stored
 import { isHealthText } from './health.js';
 import { line, listWords, type PanBank } from './lines.js';
 import type { MemoryFlags, MemoryHistory } from './memory.js';
-import { applyPostChecks } from './postchecks.js';
+import { currentRun, modelCheckOff } from './check-off-turn.js';
+import { applyPostChecks, claimsTickWithoutCard } from './postchecks.js';
 import { buildPromptContext, minimiseHistory, renderMessages, type PanPrompt } from './prompt.js';
 import { createProposal, hasOpenHealthProposal, openProposalsOfConversation } from './proposals.js';
 import { isWriteRequest } from './requests.js';
 import { goPart, planCardContext, planReply, type PlanCardContext, type WeekSource } from './plan-turn.js';
 import { MENTOR_TOOLS, parseToolCall, type ToolArgs } from './tools.js';
-import { confirmProposal, latestUndoable, rejectProposalIn, undoWriteIn } from './writes.js';
+import { confirmProposal, confirmProposalIn, latestUndoable, rejectProposalIn, undoWriteIn } from './writes.js';
 import type { RecipeIndex } from '../recipes/recipe-index.js';
 
 export interface TurnDeps {
@@ -211,7 +218,7 @@ function cardsFromCalls(
   recipes: readonly { slug: string; title: string }[],
   pantry: readonly { id: string; name: string; ingredientId: string | null }[],
   saved: readonly Rule[] = [],
-  week: { planCtx: PlanCardContext | null; recipes: RecipeIndex } = { planCtx: null, recipes: new Map() },
+  week: { planCtx: PlanCardContext | null; recipes: RecipeIndex; checkOff?: { run: MarketRunView | null; raw: string } } = { planCtx: null, recipes: new Map() },
 ): Reply {
   const parts: ReplyPart[] = [];
   const cards: ProposalCard[] = [];
@@ -306,6 +313,16 @@ function cardsFromCalls(
         const built = planReply(request, week.planCtx);
         if (built.card !== null) cards.push(built.card);
         parts.push(...built.parts);
+        break;
+      }
+      case 'propose_check_off': {
+        // M6 Step 8 (Ruling 14): code matches the player's words to their open run; the card waits for a tap. Market
+        // runs need health_data: without it the card still shows, pending, behind the consent card (C31).
+        if (week.checkOff === undefined) break;
+        const built = modelCheckOff(call.args, week.checkOff.run, week.checkOff.raw, deps);
+        if (built.card !== null) cards.push(built.card);
+        parts.push(...built.parts);
+        if (built.card !== null && !healthData) needsConsent();
         break;
       }
       case 'propose_navigation': {
@@ -526,9 +543,12 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
     const saved = persist && calls.some((c) => c.name === 'propose_rule') ? await loadRules(tx, deps.keyring, userId) : [];
     // M5 Step 8: the plan week's context, only for a plan call and only with health_data (plans are health data).
     const planCtx = persist && calls.some((c) => c.name === 'propose_plan') ? await planCardContext(tx, deps, userId, f.req.localDate) : null;
-    if (calls.length > 0) reply = cardsFromCalls(deps, calls, f.req, persist, recipes, pantry, saved, { planCtx, recipes: index });
+    // M6 Step 8: the open market run, read only, for a check-off call (its rows are matched now; a tap re-reads it).
+    const checkOff = calls.some((c) => c.name === 'propose_check_off') ? { run: await currentRun(tx, deps, userId, f.req.localDate), raw: f.raw } : undefined;
+    if (calls.length > 0) reply = cardsFromCalls(deps, calls, f.req, persist, recipes, pantry, saved, { planCtx, recipes: index, ...(checkOff ? { checkOff } : {}) });
     else if (f.mode === 'rule_help') reply = { parts: [], cards: [], toolTurn: false }; // R3: rule help only
-    else reply = scriptedReply(f.stripped, dishNamed, writeRequest);
+    // M6 Step 8: a model that only SAID it ticked the list gets write.not_done too (its text is never shown).
+    else reply = scriptedReply(f.stripped, dishNamed, writeRequest || claimsTickWithoutCard(f.result.text, 0));
     // A bare "didn't understand" gives way to any ask that follows.
     const dropBareFallback = () => {
       if (reply.parts.length === 1 && reply.parts[0].kind === 'line' && reply.parts[0].line.trigger === 'didnt_understand') reply.parts = [];
@@ -575,7 +595,8 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
     const droppedRule = proposedRule && keptRuleTerms.length === 0;
     // Fix round 1 I1/I2: a plan card, or a profile card code built from a clock clause, never stands in for the ask:
     // neither answers what the player said about their health.
-    const answering = reply.cards.filter((c) => c.kind !== 'plan' && !(c.kind === 'profile' && codeProfile));
+    // M6 Step 8: nor does a model's check-off card: health keeps precedence over every model-proposed check-off.
+    const answering = reply.cards.filter((c) => c.kind !== 'plan' && c.kind !== 'check_off' && !(c.kind === 'profile' && codeProfile));
     if (f.health && !suitabilityOnly && !hasRuleOutcome(reply) && (answering.length === 0 || droppedRule)) {
       dropBareFallback();
       reply.parts.push(line('rule.ask_keep_off'));
@@ -754,6 +775,67 @@ async function codeRoute(deps: TurnDeps, userId: string, raw: string, req: TurnR
 }
 
 /**
+ * Stage 3c (M6 Step 8, Ruling 13; C30, C31): the closed check-off grammar, before the health gate, only for a safe whole
+ * message (core `checkOffIntent`: every clause a got or missing clause naming open rows of the player's current market
+ * run, and no allergy, symptom, severity, diet, religious or rule wording). Emergency and child have already answered.
+ * Anything it does not claim goes on to health exactly as in M4 and M5 (null). Never on an allergies intake answer or
+ * while a rule or meal card is open (any doubt is the health path's). The card is code's (`source: 'grammar'`) and is
+ * applied in this turn through the write guard (`confirmProposalIn`, channel 'grammar'): each got row ticked into the
+ * pantry dated the player's today, with an Undo (spec §7.0 "None (undoable)"); missing rows are never ticked. Without
+ * health_data nothing ticks: the card is stored pending behind the consent card, and a tap after consent ticks it.
+ * With no open run it claims nothing (fix round 1, I1): the model's `propose_check_off` answers `market.no_run`.
+ * It runs before the AI checks: with the AI off or at the cap the grammar still ticks (§16: the grammar is code).
+ * Locks, in the README order: live user → `rules:` → `pantry:` → `plan:` (the run's rows can't change under the card)
+ * → health_data (share) → conversation row → mentor_proposals → (tickIn) market_runs; the messages are written last,
+ * under the conversation row and the consent share lock already held (m5).
+ */
+async function checkOffRoute(deps: TurnDeps, userId: string, raw: string, req: TurnRequest, opened: Opened, now: Date, requestId: string): Promise<TurnResponse | null> {
+  const graph = deps.catalog.graph;
+  const terms = deps.catalog.ruleTerms;
+  if (req.intakeStep === 'allergies' || opened.openHealthCard || !checkOffShaped(raw, graph, terms)) return null;
+  const id = opened.conversationId;
+  const run = await deps.db.transaction((tx) => currentRun(tx, deps, userId, req.localDate));
+  // Fix round 1 (I1): with no open run there is no code path; the message goes on to health exactly as in M4/M5.
+  if (checkOffIntent(raw, run, graph, terms) === null) return null;
+  try {
+    return await deps.db.transaction(async (tx) => {
+      await lockLiveUser(tx, userId);
+      await lockUserRules(tx, userId);
+      await lockUserPantry(tx, userId);
+      await lockUserPlan(tx, userId);
+      const persist = await consentHeldIn(tx, userId, 'health_data', now);
+      // Read again under the locks: a row ticked on screen since is no longer open, and the grammar decides again.
+      const fresh = await currentRun(tx, deps, userId, req.localDate);
+      const read = fresh === null ? null : checkOffIntent(raw, fresh, graph, terms);
+      const card = fresh === null || read === null ? null : buildCheckOffCard(fresh, read.got, read.missing, 'grammar');
+      if (fresh === null || card === null) return null;
+      const readback: ReplyPart[] = card.readback.map((l) => ({ kind: 'line', line: l }));
+      if (!(await lockConversation(tx, userId, id))) return respond(id, 'deterministic', [line('didnt_understand')]);
+      const proposalId = randomUUID();
+      const stripped = stripPageEvents(raw).text.trim();
+      const store = (parts: ReplyPart[]) =>
+        appendMessages(tx, deps.keyring, deps.memory, userId, id, [{ role: 'player', text: stripped }, { role: 'pan', parts, proposalIds: [proposalId] }], persist, now);
+      const server = await createProposal(tx, deps.keyring, { userId, conversationId: id, turnSeq: opened.turnSeq, card, id: proposalId }, now);
+      if (!persist) {
+        const parts: ReplyPart[] = [...readback, line('consent.health_first'), { kind: 'consent', purpose: 'health_data' }];
+        await store(parts);
+        return respond(id, 'deterministic', parts, null, { cards: [server] });
+      }
+      const done = await confirmProposalIn(tx, deps, userId, proposalId, 'grammar', undefined, now, requestId, undefined, req.localDate);
+      // Fix round 1 (m5): the transcript holds exactly what the player got, the lines naming only the rows actually
+      // ticked. It is written after the ticks: the turn still holds the conversation row and the health_data share
+      // lock, so neither a forget nor a withdraw-with-delete can reach these rows meanwhile.
+      const parts: ReplyPart[] = [...readback, ...done.parts];
+      await store(parts);
+      return respond(id, 'deterministic', parts, null, { cards: [server], actions: [{ kind: 'confirmed', proposalId, trail: done.trail }] });
+    });
+  } catch (e) {
+    // The daily write cap, a full pantry: said plainly, and nothing of the turn is kept (the transaction rolled back).
+    return respond(id, 'deterministic', refusalParts(e));
+  }
+}
+
+/**
  * One mentor turn. Code goes first and the model goes last; each stage below
  * is one function. Only `propose_*` tools are offered, so a turn can make
  * cards but never write, and the model's text is never shown (R9). Neither
@@ -800,6 +882,10 @@ export async function runTurn(deps: TurnDeps, userId: string, req: TurnRequest, 
   // 3b. A plain yes, no or undo answers a card through the write guard, before the consent gate (Step 8).
   const short = await shortReply(deps, userId, intent, opened, req, now, requestId);
   if (short !== null) return short;
+
+  // 3c. M6 Step 8 (C30): the closed check-off grammar, for a safe whole message only, before the health gate.
+  const checkedOff = await checkOffRoute(deps, userId, raw, req, opened, now, requestId);
+  if (checkedOff !== null) return checkedOff;
 
   // 4. Health text never reaches the model without ai_health (C1, C-13, P-3).
   const health = isHealthTurn(deps, stripped, req, opened);

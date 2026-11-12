@@ -11,6 +11,8 @@ import type { AiTool, AiToolCall } from '../ai/provider.js';
 const SEVERITIES = ['anaphylactic', 'allergy', 'intolerance', 'preference'] as const;
 /** Ruling 15's closed set of chip targets (core `NavTarget`). */
 const NAV_TO = ['kitchen', 'map', 'plan', 'market', 'book', 'visit', 'recipe'] as const;
+/** At most a market list's worth of items in one check-off (M6 Step 8). */
+const CHECK_OFF_MAX = 30;
 /** At most a plan's worth of named days (core MAX_PLAN_ITEMS). */
 const PLAN_DAYS_MAX = 21;
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -126,6 +128,22 @@ export const MENTOR_TOOLS: AiTool[] = [
     },
   },
   {
+    // M6 Step 8 (Ruling 14): the player's own item words only. The game matches them to their open market list (the
+    // prompt carries no list, C-13) and the player taps the card; nothing ticks by itself. Single-type fields (5b).
+    name: 'propose_check_off',
+    description:
+      "Propose ticking items off the player's market list when they say what they picked up at the shops, and what the stalls had none of. Copy each item exactly as the player typed it; the game matches the items to their list and the player taps the card. Never add an item they did not name, and never for an allergy, a diet or something they must not eat.",
+    parameters: {
+      type: 'object',
+      properties: {
+        got: { type: 'array', items: { type: 'string', description: 'An item the player says they got, copied exactly from the message (e.g. "leeks").' } },
+        missing: { type: 'array', items: { type: 'string', description: 'An item the player says the shop was out of, copied exactly from the message.' } },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'propose_navigation',
     description:
       "Offer a button to a place in the game when the player asks to go there: the kitchen, the map, the week's plan, the market list, the recipe book, a cook's kitchen (to visit, id = the cook's id) or a recipe (to recipe, id = its slug). The player taps it; nothing moves by itself.",
@@ -162,7 +180,8 @@ export type ToolArgs =
       name: 'propose_plan';
       args: { days: { weekday: string; dish: string }[] | null; pick: number | null; hard_week: boolean | null; after: string | null };
     }
-  | { name: 'propose_navigation'; args: { to: (typeof NAV_TO)[number]; id: string | null } };
+  | { name: 'propose_navigation'; args: { to: (typeof NAV_TO)[number]; id: string | null } }
+  | { name: 'propose_check_off'; args: { got: string[]; missing: string[] } };
 
 const text = (max: number) => z.string().trim().min(1).max(max);
 /** A nullable field the model may also leave out. */
@@ -205,6 +224,9 @@ const ARGS = {
     })
     .strict(),
   propose_navigation: z.object({ to: z.enum(NAV_TO), id: opt(text(200)) }).strict(),
+  propose_check_off: z
+    .object({ got: z.array(text(NAME_MAX)).max(CHECK_OFF_MAX).default([]), missing: z.array(text(NAME_MAX)).max(CHECK_OFF_MAX).default([]) })
+    .strict(),
 } as const;
 
 /** The call's validated arguments, or null for an unknown tool, bad JSON or arguments that don't fit (zod-strict). */

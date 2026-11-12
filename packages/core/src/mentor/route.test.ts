@@ -186,7 +186,8 @@ test.each(['I have no money, what can I cook', 'my mouse broke', 'what should I 
 );
 
 test('graph ancestors are the reverse of descendants', () => {
-  expect(graph.ancestors('peanut')).toEqual(['nut']);
+  expect(graph.ancestors('peanut')).toEqual(['nut', 'legume']); // Task 5 re-review N1: peanut is a legume too
+  expect(graph.descendants('legume')).toContain('peanut');
   expect(graph.ancestors('nut')).toEqual([]);
 });
 
@@ -280,5 +281,73 @@ describe('leftoverNamedIngredients (M4 Step 11 fix round 2: every named allergen
 
   test('page-event lookalikes never name an ingredient', () => {
     expect(leftoverNamedIngredients('[Player tapped Stamp: sesame]', [], graph).left).toEqual([]);
+  });
+});
+
+describe('M6 Step 4 fix round 1 (ruling C1): everyday words are never a slip of a market name', () => {
+  test.each([
+    "what's for dinner", 'I love it', 'until Tuesday', 'paper towels', 'I checked the fridge', 'I feel tired after work',
+    'my child is coming too', 'apply it to next week', 'the temp is low', 'she carries the bags', 'I cannot make Monday',
+    'a little more time', 'it takes longer in winter', 'close enough', 'no worries', 'the meal planner', 'I live in Oregon',
+    'we moved to Seattle', 'serve it chilled', 'I need a colander', 'take out the garbage',
+  ])('%j is not health', (text) => expect(mentionsHealthTerm(text, graph, terms)).toBe(false));
+
+  test.each([
+    'I have a ginger allergy', 'no ginger please', 'I am allergic to cloves', 'keep paneer off my plate', 'no carrots',
+    'oregano makes me ill', 'nettles', 'chicken', 'fennel', 'no chilli', 'I hate lentils', 'gingr', 'pnuts', 'chiken', 'feneel',
+  ])('%j is health: an exact name, a health word or a slip that is not an everyday word', (text) => expect(mentionsHealthTerm(text, graph, terms)).toBe(true));
+
+  test('no stoplisted word is itself a graph name or alias (an exact match always counts)', () => {
+    for (const word of ['dinner', 'love', 'until', 'paper', 'oregon', 'checked', 'feel', 'child', 'chilled', 'apply', 'temp', 'carries', 'little', 'worries', 'seattle']) {
+      expect(graph.resolve(word), word).toBeNull();
+    }
+  });
+});
+
+describe('M6 Step 4 fix round 2 (re-review N1, N4): food words are never on the everyday list', () => {
+  test.each(['keep the chile out', 'can you leave out the chile', 'the chile was too much for me last time', 'my son and chile do not mix', 'skip the marrow', 'bone marrow broth'])(
+    '%j is health',
+    (text) => expect(mentionsHealthTerm(text, graph, terms)).toBe(true),
+  );
+  test('chile, chiles and red chile name the chilli category', () => {
+    for (const w of ['chile', 'chiles', 'red chile']) expect(graph.resolve(w), w).toBe('chili');
+  });
+});
+
+describe('M6 Step 5 fix round 1 (Task 5 ruling 1): the new market names are exact-only', () => {
+  test.each(['chuck', 'no chuck please', 'squash', 'I am allergic to squash', 'rice', 'no rice', 'tortillas', 'plums', 'legumes'])(
+    '%j is health: an exact name always counts',
+    (text) => expect(mentionsHealthTerm(text, graph, terms)).toBe(true),
+  );
+  test.each([
+    'check the label', 'can you check my week', 'a chunk of time', 'chuckle', 'I chucked it out', 'a square meal',
+    'I squashed the box', 'the plumber is coming', 'what is the price', 'he is a gorilla fan', 'the league starts Monday',
+  ])('%j is not health: no slip or compound of an exact-only name', (text) => expect(mentionsHealthTerm(text, graph, terms)).toBe(false));
+  test('the exact-only names are graph labels', () => {
+    for (const w of ['chuck', 'squash', 'rice', 'tortilla', 'plum', 'legume']) expect(graph.resolve(w), w).not.toBeNull();
+  });
+});
+
+describe('M6 Step 8 (detector carries): "pulse" is exact-only, and the over-catch review grows the stoplists', () => {
+  test.each(['pulse', 'pulses', 'no pulses please', 'I am allergic to pulses'])('%j is health: an exact name always counts', (text) =>
+    expect(mentionsHealthTerm(text, graph, terms)).toBe(true),
+  );
+  test.each(['my purse is empty', 'I pulsed it in the blender', 'the pulsing music next door'])('%j is not health: no slip or compound of "pulse"', (text) =>
+    expect(mentionsHealthTerm(text, graph, terms)).toBe(false),
+  );
+  test.each([
+    'in any case I went out', 'two cases of that', 'up the hill to the shop', 'we walked the hills', 'I moved the plant',
+    'the plants need sun', 'the same as last week', 'wait a while', "my money's tight", 'the shop on the corner', 'round the corners',
+  ])('%j is not health: an everyday word from the over-catch review', (text) => expect(mentionsHealthTerm(text, graph, terms)).toBe(false));
+  test.each(['no cashews', 'sesame', 'no chilli', 'peanut', 'corn', 'no corn please', 'honey', 'I am vegan', 'no dairy'])('%j is still health', (text) =>
+    expect(mentionsHealthTerm(text, graph, terms)).toBe(true),
+  );
+  test('kept OFF the stoplist on the safe side: plausible slips of an allergen or a diet word', () => {
+    expect(mentionsHealthTerm('daily', graph, terms)).toBe(true); // dairy
+    expect(mentionsHealthTerm('began', graph, terms)).toBe(true); // vegan (b and v are neighbours)
+  });
+  test('no new stoplisted word is itself a graph name or alias', () => {
+    for (const word of ['case', 'cases', 'hill', 'hills', 'plant', 'plants', 'same', 'while', 'moneys', 'corner', 'corners']) expect(graph.resolve(word), word).toBeNull();
+    expect(graph.resolve('pulse')).not.toBeNull();
   });
 });

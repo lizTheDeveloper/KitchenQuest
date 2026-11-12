@@ -3,7 +3,9 @@ import { parse as parseYaml } from 'yaml';
 import { describe, expect, it } from 'vitest';
 import { STALL_IDS } from '@kitchenquest/core';
 import { REQUIRED_PAN_TRIGGERS } from '../../src/content/required';
+import { contentModule } from '../content-plugin';
 import { compileContent, ContentError } from './compile';
+import { compileMarket } from './market';
 import { readContentFiles } from './read';
 
 const repoRoot = fileURLToPath(new URL('../../../..', import.meta.url));
@@ -44,39 +46,77 @@ introduction: ["i"]
 faq: []
 `;
 
+/** A stall trigger at any indent (the Protein Counter's sit deeper). */
+const stallTrigger = (indent: string, ai = 'never', lines = '["a line"]') => `${indent}ai: ${ai}\n${indent}when: test\n${indent}lines: ${lines}\n`;
+const SAFETY: Record<string, string[]> = {
+  wen: ['out_of_stock', 'out_of_stock_none', 'medical'],
+  bram: ['out_of_stock', 'out_of_stock_none', 'medical', 'religious_rules'],
+  'okafor-sato': ['out_of_stock', 'out_of_stock_none', 'medical'],
+  spice: ['out_of_stock', 'out_of_stock_none', 'allergen_note'],
+};
+/** A strict stall file (M6 Step 5): every key the schema knows, and each stall's safety triggers. */
 const stall = (questionOptions = options(3), id = 'wen') => `
 id: ${id}
 name: "Stall ${id}"
+stall: produce
+art: grocer
 persona: ["p"]
 triggers:
   greet:
-${trigger()}
+${stallTrigger('    ', 'allowed')}${(SAFETY[id] ?? []).map((t) => `  ${t}:\n${stallTrigger('    ')}`).join('')}games:
+  ripeness: "Ripe today?"
 questions:
-  - id: q1
+  - id: ${id}-q1
+    game: ripeness
     prompt: "P"
     options: ${questionOptions}
     explain: "E"
+item_tips:
+  onion: { pick: "Firm.", store: "Dry." }
+faq:
+  - { q: ["Why?"], a: "Because." }
 variants:
-  alt:
-    questions:
-      - id: q2
+  protein_counter:
+    persona: ["pc"]
+    triggers:
+      greet:
+${stallTrigger('        ', 'allowed')}    questions:
+      - id: ${id}-q2
+        game: ripeness
         prompt: "P"
         options: ${options(3)}
         explain: "E"
+    item_tips: {}
+    faq: []
+`;
+
+const seasonality = (over: { label?: string; now?: string } = {}) => `
+r-one:
+  id: r-one
+  name: "Region one"
+  status: draft
+  sources: ["A calendar"]
+  match: { countries: ["united states"], regions: ["somewhere"] }
+  categories:
+    - { id: now, label: "${over.label ?? 'In season here, now'}" }
+    - { id: travelled, label: "Well-travelled" }
+  months:
+    "11": { now: [${over.now ?? 'onion'}], travelled: [shallot] }
 `;
 
 const M5_FORMS = ['plan', 'margin_note', 'cooked_for', 'technique_certificate', 'frame'];
 const bureau = (
-  over: { stamp?: string; noTravel?: boolean; tag?: string; noCrossContact?: boolean; noAiCharacters?: boolean; omitForm?: string; noGeneralStall?: boolean; omitStampName?: string } = {},
+  over: { stamp?: string; noTravel?: boolean; tag?: string; noCrossContact?: boolean; noAiCharacters?: boolean; omitForm?: string; noGeneralStall?: boolean; omitStampName?: string; noGames?: boolean } = {},
 ) => {
   const form = (stamp: string, fields = '[]') =>
     `    number: "1"\n    title: "T"\n    fields: ${fields}\n    buttons: { confirm: "ok" }\n    stamp: ${stamp}\n`;
   const marketFields = over.noGeneralStall ? '[{ key: stall, label: "Stall" }]' : '[{ key: stall, label: "Stall" }, { key: general_stall, label: "The Counter" }]';
   const m5 = M5_FORMS.filter((f) => f !== over.omitForm).map((f) => `  ${f}:\n${form('approved')}`).join('');
   const market = over.omitForm === 'market_list' ? '' : `  market_list:\n${form('approved', marketFields)}`;
-  const stampNames = ['quest_done', 'certificate', 'market_run'].filter((k) => k !== over.omitStampName).map((k) => `  ${k}: "${k}"\n`).join('');
+  const round = over.omitForm === 'stall_round' ? '' : `  stall_round:\n${form('approved')}${over.noGames ? '' : '    game: { ripeness: "Ripe today?" }\n'}`;
+  const stampNames = ['quest_done', 'certificate', 'market_run', 'market_game'].filter((k) => k !== over.omitStampName).map((k) => `  ${k}: "${k}"\n`).join('');
   return `forms:
-${over.noTravel ? '' : `  travel:\n${form(over.stamp ?? 'approved')}`}  certificate:\n${form('approved')}${m5}${market}stamps:
+${over.noTravel ? '' : `  travel:\n${form(over.stamp ?? 'approved')}`}  certificate:\n${form('approved')}${m5}${market}${round}stamps:
   approved: "APPROVED"
 stamp_names:
   travel: "Travel"
@@ -115,10 +155,11 @@ const rewards = (levels = '[100, 250]') => `xp:
   cook: 30
   frame: 20
   market_run: 20
+  market_game: 5
   refresh: 15
   nourishment: { per_log: 5, max_per_day: 3, min_gap_minutes: 120 }
 levels: ${levels}
-stamps: { quest_done: 1, certificate: 1, market_run: 1 }
+stamps: { quest_done: 1, certificate: 1, market_run: 1, market_game: 1 }
 trust:
   names: [Stranger, Guest, Acquainted]
   weeks_for_level: [2]
@@ -156,6 +197,7 @@ function valid(): Record<string, string> {
     'data/keeps.json': JSON.stringify({ onion: 30 }),
     'data/stalls.json': JSON.stringify({ onion: 'wen', shallot: 'general' }),
     'data/food-groups.json': JSON.stringify({ onion: 'veg_fruit' }),
+    'data/seasonality.yaml': seasonality(),
   };
 }
 
@@ -207,7 +249,7 @@ describe('compileContent: the real repo', () => {
     expect(content.stallOf.onion ?? content.stallOf.allium).toBe('wen');
     expect(content.foodGroups.rice).toBe('grain');
     expect(content.stallNames).toEqual({ wen: 'Old Wen', bram: 'Big Bram', 'okafor-sato': 'Mr. Okafor-Sato', spice: 'The Spice Merchant', general: 'The General Counter' });
-    for (const id of ['quest_done', 'certificate', 'market_run']) expect(content.bureau.stamp_names[id], id).toBeTruthy();
+    for (const id of ['quest_done', 'certificate', 'market_run', 'market_game']) expect(content.bureau.stamp_names[id], id).toBeTruthy();
     expect(content.techniques.techniques.find((t) => t.id === 'tempering')).toMatchObject({ adjacent: ['quick-sauce'], prereqs: ['heat-control'] });
   });
 
@@ -265,12 +307,12 @@ describe('compileContent: each check fails with the path and the offending value
     ['a riddle option without a reaction', (f) => (f['content/cooks/ann.yaml'] = cook({ steps: '    - { type: riddle, prompt: "P", explain: "E", options: [{ text: "a", correct: true }, { text: "b", correct: false, reaction: "r" }] }' })), ['content/cooks/ann.yaml', 'reaction']],
     ['a drill with an unknown skill', (f) => (f['content/cooks/ann.yaml'] = cook({ steps: '    - { type: drill, skill: sorcery, prompt: "P", lines: ["l"] }' })), ['content/cooks/ann.yaml', 'sorcery']],
     ['trust_lines outside 1 to 5', (f) => (f['content/cooks/ann.yaml'] = cook({ trust: '6' })), ['content/cooks/ann.yaml', '6']],
-    ['a stall question with two options', (f) => (f['content/market/wen.yaml'] = stall(options(2))), ['content/market/wen.yaml', 'q1', '3 or 4']],
-    ['a stall question with two correct options', (f) => (f['content/market/wen.yaml'] = stall(options(3, 2))), ['content/market/wen.yaml', 'q1', 'exactly one']],
-    ['a stall variant question with no correct option', (f) => (f['content/market/wen.yaml'] = stall().replace(`options: ${options(3)}\n        explain`, `options: ${options(3, 0)}\n        explain`)), ['content/market/wen.yaml', 'variants.alt.questions', 'q2']],
+    ['a stall question with two options', (f) => (f['content/market/wen.yaml'] = stall(options(2))), ['content/market/wen.yaml', 'questions[0] (wen-q1)', 'not 3–4']],
+    ['a stall question with two correct options', (f) => (f['content/market/wen.yaml'] = stall(options(3, 2))), ['content/market/wen.yaml', 'questions[0] (wen-q1)', 'not exactly one']],
+    ['a stall variant question with no correct option', (f) => (f['content/market/wen.yaml'] = stall().replace(`options: ${options(3)}\n        explain`, `options: ${options(3, 0)}\n        explain`)), ['content/market/wen.yaml', 'variants.protein_counter.questions[0] (wen-q2)', 'not exactly one']],
     ['a cook line with a {var} nothing fills in', (f) => (f['content/cooks/ann.yaml'] = cook().replace('story: ["s"]', 'story: ["Welcome, {name}."]')), ['content/cooks/ann.yaml', 'story[0]', '{name}']],
-    ['a stall line using an undeclared variable', (f) => (f['content/market/wen.yaml'] = stall().replace('  greet:\n', '  greet:\n    ai: allowed\n    when: t\n    vars: {}\n    lines: ["Try {item}."]\n  other:\n')), ['content/market/wen.yaml', 'triggers.greet line 1 uses undeclared {item}']],
-    ['a stall ai: never trigger declaring a variable no line uses', (f) => (f['content/market/wen.yaml'] = stall().replace('  greet:\n', '  greet:\n    ai: never\n    when: t\n    vars: { item: "x" }\n    lines: ["Hello."]\n  other:\n')), ['content/market/wen.yaml', 'triggers.greet', '{item}', 'no line uses']],
+    ['a stall line using an undeclared variable', (f) => (f['content/market/wen.yaml'] = stall().replace('triggers:\n  greet:\n', 'triggers:\n  greet:\n    ai: allowed\n    when: t\n    vars: {}\n    lines: ["Try {item}."]\n  other:\n')), ['content/market/wen.yaml', 'triggers.greet line 1 uses undeclared {item}']],
+    ['a stall ai: never trigger declaring a variable no line uses', (f) => (f['content/market/wen.yaml'] = stall().replace('triggers:\n  greet:\n', 'triggers:\n  greet:\n    ai: never\n    when: t\n    vars: { item: "x" }\n    lines: ["Hello."]\n  other:\n')), ['content/market/wen.yaml', 'triggers.greet', '{item}', 'no line uses']],
     ['a missing travel form', (f) => (f['content/bureau/forms.yaml'] = bureau({ noTravel: true })), ['content/bureau/forms.yaml', 'travel']],
     ['a form stamp that is not defined', (f) => (f['content/bureau/forms.yaml'] = bureau({ stamp: 'mystery' })), ['content/bureau/forms.yaml', 'mystery']],
     ['a missing card disclaimer', (f) => (f['content/bureau/forms.yaml'] = bureau({ noCrossContact: true })), ['content/bureau/forms.yaml', 'cross_contact']],
@@ -314,6 +356,25 @@ describe('compileContent: each check fails with the path and the offending value
     ['a market list form without the general stall name', (f) => (f['content/bureau/forms.yaml'] = bureau({ noGeneralStall: true })), ['content/bureau/forms.yaml', 'general_stall']],
     ['a missing market stall file', (f) => delete f['content/market/spice.yaml'], ['content/market/spice.yaml', 'missing']],
     ['a market stall the game does not know', (f) => (f['content/market/dairy.yaml'] = stall(options(3), 'dairy')), ['content/market/dairy.yaml', 'dairy']],
+    // ---- M6 Step 5: strict stalls, core's stall checks, The Season's Table, the safety triggers ----
+    ['an unknown key in a stall file', (f) => (f['content/market/wen.yaml'] = stall().replace('games:\n', 'colour: green\ngames:\n')), ['content/market/wen.yaml', 'colour']],
+    ['an unknown key on a stall question (a misspelt contains)', (f) => (f['content/market/wen.yaml'] = stall().replace('    game: ripeness\n    prompt', '    game: ripeness\n    contians: [onion]\n    prompt')), ['content/market/wen.yaml', 'questions.0', 'contians']],
+    ['an unknown key in a stall option', (f) => (f['content/market/wen.yaml'] = stall(`[{ text: "a", correct: true, reaction: "r", why: "x" }, ${option('b', false)}, ${option('c', false)}]`)), ['content/market/wen.yaml', 'options.0', 'why']],
+    ['an unknown key in a Protein Counter block', (f) => (f['content/market/bram.yaml'] = stall(options(3), 'bram').replace('    item_tips: {}\n', '    item_tips: {}\n    sign: "new"\n')), ['content/market/bram.yaml', 'variants.protein_counter', 'sign']],
+    ['a stall question with no game', (f) => (f['content/market/wen.yaml'] = stall().replace('    game: ripeness\n    prompt: "P"\n    options: [{ text: "o0"', '    prompt: "P"\n    options: [{ text: "o0"')), ['content/market/wen.yaml', 'game']],
+    ['a stall question naming an id missing from the graph', (f) => (f['content/market/wen.yaml'] = stall().replace('    game: ripeness\n    prompt', '    game: ripeness\n    contains: [unobtainium]\n    prompt')), ['content/market/wen.yaml', 'questions[0] (wen-q1)', '"unobtainium" is not in the ingredient graph']],
+    ['a stall question of a game Form 14-S does not name', (f) => (f['content/market/wen.yaml'] = stall().replace('  ripeness: "Ripe today?"\n', '  juggling: "Juggle"\n')), ['content/market/wen.yaml', 'games.juggling: not a known game']],
+    ['a Form 14-S with no game names', (f) => (f['content/bureau/forms.yaml'] = bureau({ noGames: true })), ['content/bureau/forms.yaml', 'forms.stall_round.game']],
+    ['a missing Form 14-S', (f) => (f['content/bureau/forms.yaml'] = bureau({ omitForm: 'stall_round' })), ['content/bureau/forms.yaml', 'forms.stall_round']],
+    ['a stall question scoped to an unknown country', (f) => (f['content/market/wen.yaml'] = stall().replace('    game: ripeness\n    prompt', '    game: ripeness\n    countries: [narnia]\n    prompt')), ['content/market/wen.yaml', 'countries[0] "narnia" is not a known country name']],
+    ['a currency symbol in a stall question', (f) => (f['content/market/wen.yaml'] = stall().replace('    prompt: "P"\n    options: [{ text: "o0"', '    prompt: "Two for £3?"\n    options: [{ text: "o0"')), ['content/market/wen.yaml', 'prompt has a currency symbol']],
+    ['a stall missing a safety trigger', (f) => (f['content/market/spice.yaml'] = stall(options(3), 'spice').replace('  allergen_note:\n', '  allergen_notes:\n')), ['content/market/spice.yaml', 'triggers.allergen_note: required trigger is missing']],
+    ['a stall safety trigger that lets the AI speak', (f) => (f['content/market/bram.yaml'] = stall(options(3), 'bram').replace('  religious_rules:\n    ai: never', '  religious_rules:\n    ai: allowed')), ['content/market/bram.yaml', 'triggers.religious_rules: a safety line must be ai: never']],
+    ['one question id in two stalls', (f) => (f['content/market/spice.yaml'] = stall(options(3), 'spice').replace('id: spice-q1', 'id: wen-q1')), ['wen-q1', 'question id is also used at content/market/']],
+    ['a missing seasonality file', (f) => delete f['data/seasonality.yaml'], ['data/seasonality.yaml', 'missing']],
+    ['a season table naming an id missing from the graph', (f) => (f['data/seasonality.yaml'] = seasonality({ now: 'unobtainium' })), ['data/seasonality.yaml', 'unobtainium']],
+    ['a season label that counts down', (f) => (f['data/seasonality.yaml'] = seasonality({ label: 'Only two weeks left' })), ['data/seasonality.yaml', 'deadline or scarcity words']],
+    ['a seasonal question for a region the table lacks', (f) => (f['content/market/wen.yaml'] = `${stall()}seasonal:\n  nowhere:\n    "11":\n      - { id: wen-s1, game: ripeness, prompt: "P", options: ${options(3)}, explain: "E", contains: [onion] }\n`), ['content/market/wen.yaml', 'seasonal.nowhere', 'not in the season table']],
     ['no recipes', (f) => delete f['recipes/x/y/z.cook'], ['recipes', 'no recipes']],
     ['a .yml file in place of .yaml', (f) => (f['content/cooks/bob.yml'] = cook({ id: 'bob' })), ['content/cooks/bob.yml', 'not loaded']],
     ['a recipe with the wrong extension', (f) => (f['recipes/x/y/w.cooklang'] = recipe()), ['recipes/x/y/w.cooklang', 'not loaded']],
@@ -323,6 +384,16 @@ describe('compileContent: each check fails with the path and the offending value
     const files = valid();
     mutate(files);
     expectProblem(files, ...needles);
+  });
+});
+
+describe('compileContent: one bad stall file reports only its own problem (fix round 1, M5)', () => {
+  it('a strict-schema miss in wen.yaml does not also blame data/stalls.json for naming wen', () => {
+    const files = valid();
+    files['content/market/wen.yaml'] = stall().replace('games:\n', 'colour: green\ngames:\n');
+    const problems = problemsOf(files);
+    expect(problems.some((p) => p.startsWith('content/market/wen.yaml') && p.includes('colour'))).toBe(true);
+    expect(problems.filter((p) => p.startsWith('data/stalls.json')), problems.join('\n')).toEqual([]);
   });
 });
 
@@ -346,6 +417,7 @@ describe('compileContent: unclaimed-file allowlist', () => {
 
 describe('compileContent: real repo fidelity', () => {
   const files = readContentFiles(repoRoot);
+  // (The pins are checked in market.test.ts; fidelity is about what the compiler keeps.)
   const content = compileContent(files);
   const src = (path: string): unknown => parseYaml(files[path]);
 
@@ -397,13 +469,13 @@ describe('compileContent: real repo fidelity', () => {
 
   it('drops writer-only keys from the client bundle', () => {
     expect(Object.values(content.pan.triggers).some((t) => 'when' in t || 'notes' in t)).toBe(false);
-    for (const stall of Object.values(content.stalls))
+    for (const stall of Object.values(compileMarket(content).stalls))
       expect(Object.values(stall.triggers).some((t) => 'when' in t || 'notes' in t)).toBe(false);
     expect(Object.values(content.bureau.forms).some((f) => 'purpose' in f)).toBe(false);
   });
 
   it('stays within the 400 KB bundle budget', () => {
-    const bytes = Buffer.byteLength(`export default ${JSON.stringify(content)};`);
+    const bytes = Buffer.byteLength(contentModule(content));
     console.info(`compiled content module: ${(bytes / 1024).toFixed(1)} KB`);
     expect(bytes).toBeLessThan(400 * 1024);
   });

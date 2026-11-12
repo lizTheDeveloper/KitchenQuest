@@ -1,13 +1,29 @@
 // The one fold over a progress history. grantsFor, deriveProgress and compactHistory all read it, so the device
 // and the API, compacted or not, see the same facts. Internal to progress/: not exported from the package.
+//
+// FOLD_VERSION (M6 Step 7 review I1): bump it with ANY change to what the fold computes or to the shape of
+// `ProgressView` or `Facts` (a new field, a changed rule for a tier, a step, a key). The API's snapshot hash includes
+// it, so every stored snapshot (a base folded by older code) is ignored and rebuilt from the ledgers instead of
+// carrying the old fold forward. `fold-version.test.ts` pins the shape: it fingerprints a full fold and compares it
+// with FOLD_SHAPES[FOLD_VERSION]; a shape change fails until a NEW version is added (old entries are never edited).
+import { scoreAnswer } from '../market/round';
 import { isValidDate } from '../rules/active';
 import { EMPTY_TOOLKIT, toolkitFromEvents } from '../toolkit/toolkit';
 import type { ToolkitState } from '../toolkit/types';
 import type { Catalogue, ProgressEvent, ProgressHistory, ProgressSnapshot, ProgressView, RewardGrant } from './types';
 import { isoWeek } from './week';
 
+/** The fold's version (see the header). Exported from the package: the API's snapshot hash reads it. */
+export const FOLD_VERSION = 1;
+
+/**
+ * The shape fingerprint of the view and facts at each FOLD_VERSION (`fold-version.test.ts` computes it). Append a new
+ * version's entry when the shape changes; never edit an old one.
+ */
+export const FOLD_SHAPES: Readonly<Record<number, string>> = { 1: '4e3185af' };
+
 /** The JSON-safe facts a snapshot carries beside its view (C15). */
-interface Facts {
+export interface Facts {
   v: 1;
   /** Every event id seen, for the duplicate check. */
   ids: string[];
@@ -41,6 +57,7 @@ export interface FoldState {
   questStartedOn: Map<string, string>;
   cookedOn: Map<string, Set<string>>;
   framesCookedOn: Map<string, Set<string>>;
+  marketAnswered: Map<string, { correct: boolean; lastAt: string }>;
 }
 
 /** A grant key: JSON so an id holding ':' can never collide with another key. */
@@ -53,6 +70,7 @@ function grantKey(g: RewardGrant, e: ProgressEvent): string | null {
   if (g.kind === 'stamp') {
     if (g.stamp === 'quest_done' && e.kind === 'quest_done') return key('quest', e.quest);
     if (g.stamp === 'market_run' && e.kind === 'market_run') return key('market', isoWeek(e.at));
+    if (g.stamp === 'market_game' && e.kind === 'stall_round') return key('stall', e.stall, isoWeek(e.at));
     return null;
   }
   if (g.kind !== 'xp') return null;
@@ -71,6 +89,7 @@ function grantKey(g: RewardGrant, e: ProgressEvent): string | null {
       return e.kind === 'market_run' ? key('market', isoWeek(e.at)) : null;
     case 'nourishment': // counted per date in `nourish`
     case 'refresh': // once per refresh by freshness itself
+    case 'market_game': // once per question, read from `marketAnswered` (the events), not a key
       return null;
   }
 }
@@ -98,6 +117,7 @@ function fromBase(base: ProgressSnapshot | null): FoldState {
     questStartedOn: new Map(),
     cookedOn: new Map(),
     framesCookedOn: new Map(),
+    marketAnswered: new Map(),
   };
   if (!base) return s;
   // A stored snapshot is read defensively: a field that isn't the right shape counts as empty, never as a throw.
@@ -120,6 +140,8 @@ function fromBase(base: ProgressSnapshot | null): FoldState {
   for (const [q, d] of entries(v.questStartedOn)) if (typeof d === 'string' && isValidDate(d)) s.questStartedOn.set(q, d);
   for (const [r, ds] of entries(v.cookedOn)) s.cookedOn.set(r, new Set(strings(ds)));
   for (const [fr, ds] of entries(v.framesCookedOn)) s.framesCookedOn.set(fr, new Set(strings(ds)));
+  for (const [q, a] of entries(v.marketAnswered))
+    if (isObj(a) && typeof a.lastAt === 'string' && isValidDate(a.lastAt)) s.marketAnswered.set(q, { correct: a.correct === true, lastAt: a.lastAt });
   return s;
 }
 
@@ -131,6 +153,24 @@ const addTo = (m: Map<string, Set<string>>, k: string, v: string) => {
 
 /** The cooks an accepted cook stands in for (I3); stored data is not trusted, so a malformed field is none. */
 export const standsInFor = (e: { standsInFor?: unknown }): string[] => strings(e.standsInFor);
+
+/**
+ * A stall round's answers into `marketAnswered`: each pick scored from the stall file (never a stored flag), "ever
+ * correct" only ever turning on, `lastAt` the latest date. Stored data is not trusted: a malformed answer is skipped,
+ * and a question the catalogue no longer holds keeps its date but can't turn correct.
+ */
+function applyAnswers(s: FoldState, e: Extract<ProgressEvent, { kind: 'stall_round' }>, cat: Catalogue): void {
+  const stall = cat.market?.get(e.stall);
+  const answers: unknown = e.answers;
+  if (!Array.isArray(answers)) return;
+  for (const a of answers as unknown[]) {
+    if (!isObj(a) || typeof a.q !== 'string' || typeof a.pick !== 'number') continue;
+    const entry = stall?.questions.get(a.q);
+    const correct = entry !== undefined && scoreAnswer(entry.question, a.pick).correct;
+    const was = s.marketAnswered.get(a.q);
+    s.marketAnswered.set(a.q, { correct: correct || was?.correct === true, lastAt: was !== undefined && was.lastAt > e.at ? was.lastAt : e.at });
+  }
+}
 
 /** Apply one accepted event's own facts (not its grants) to the state. */
 export function applyEvent(s: FoldState, e: ProgressEvent, cat: Catalogue): void {
@@ -158,6 +198,9 @@ export function applyEvent(s: FoldState, e: ProgressEvent, cat: Catalogue): void
       break;
     case 'quest_done':
       if (!s.questsDone.includes(e.quest)) s.questsDone.push(e.quest);
+      break;
+    case 'stall_round':
+      applyAnswers(s, e, cat);
       break;
     case 'lesson':
     case 'drill':
@@ -234,6 +277,7 @@ export function viewOf(s: FoldState): ProgressView {
     questStartedOn: Object.fromEntries(s.questStartedOn),
     cookedOn: sortedRecord(s.cookedOn),
     framesCookedOn: sortedRecord(s.framesCookedOn),
+    marketAnswered: Object.fromEntries([...s.marketAnswered].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([q, a]) => [q, { ...a }])),
   };
 }
 

@@ -157,7 +157,7 @@ describe('checkPlan and planFlags', () => {
     // Onigiri + parippu: dal (protein), shallot and garlic (allium → veg_fruit), rice (grain).
     expect(planFlags(plan([{ day: 0, kind: 'dish', slug: ONIGIRI, servings: 6 }, { day: 1, kind: 'dish', slug: PARIPPU, servings: 3 }]), planCtx())).toBe('balanced');
     // Unresolved names that sound like every group, plus a food-groups id the graph doesn't hold: never balanced.
-    const vague = new Map([['test/vague', dish('leela', ['mixed greens', 'kale', 'grain bowl', 'split moong dal'])]]);
+    const vague = new Map([['test/vague', dish('leela', ['mixed greens', 'samphire', 'grain bowl', 'split moong dal'])]]);
     expect(planFlags(plan([{ day: 0, kind: 'dish', slug: 'test/vague', servings: 2 }]), planCtx({ recipes: vague }))).toBe('gap_green');
   });
 

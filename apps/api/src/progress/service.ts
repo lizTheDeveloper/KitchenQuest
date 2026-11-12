@@ -1,7 +1,9 @@
 import {
   deriveProgress,
   grantsForBatch,
+  isHealthRevealing,
   isValidDate,
+  MAX_ROUND_ANSWERS,
   type Catalogue,
   type FreshnessThresholds,
   type GrantResult,
@@ -16,9 +18,12 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import { audit } from '../audit/audit.js';
 import { lockLiveUser } from '../auth/live-user.js';
+import type { Keyring } from '../crypto/keyring.js';
 import { lockUserProgress } from '../db/advisory-locks.js';
+import { QUESTION_ID_MAX, STALL_ID_MAX } from '../catalog.js';
 import { mealLogs, PROGRESS_KINDS } from '../db/schema.js';
-import { insertEvents, loadHistory, type Tx } from './store.js';
+import { catalogueHash, loadHistoryWithSnapshot, maybeWriteSnapshot, type SnapshotLog } from './snapshot.js';
+import { insertEvents, loadFullHistory, recordedFacts, type Tx } from './store.js';
 
 /** At most this many events in one POST /progress/events (more is a 400); a device log goes up in chunks. */
 export const MAX_EVENTS_PER_REQUEST = 100;
@@ -39,6 +44,14 @@ const day = z.string().max(10);
 const ref = z.string().max(REF_MAX);
 const num = z.number();
 const claims = z.array(ref).max(MAX_CLAIMS).optional();
+/**
+ * A stall round's caps (M6 Step 6): a stall id, each question id, and a pick (a file option index, 3–4 options). The id
+ * caps are the catalogue's, which boot holds every stall file to (M6 Step 7, Task 6 review M2), so no id the content
+ * holds can be refused here.
+ */
+const STALL_MAX = STALL_ID_MAX;
+const QUESTION_MAX = QUESTION_ID_MAX;
+const MAX_PICK = 3;
 
 /**
  * Core's `ProgressEvent`, exactly: one strict shape per kind, so a key outside the shape (an amount, a level, trust,
@@ -56,6 +69,20 @@ const EventShape = z.discriminatedUnion('kind', [
   z.object({ id, kind: z.literal('recognized'), at: day, quest: ref, technique: ref }).strict(),
   z.object({ id, kind: z.literal('market_run'), at: day, weekStart: day }).strict(),
   z.object({ id, kind: z.literal('meal_logged'), at: day, minute: num, mealLogId: z.uuid() }).strict(),
+  // M6: no key beside the stall and the answers (a forged "correct" flag or a score is `bad_event`); core
+  // then decides each answer against the stall file and the player's rules.
+  z
+    .object({
+      id,
+      kind: z.literal('stall_round'),
+      at: day,
+      stall: z.string().max(STALL_MAX),
+      answers: z
+        .array(z.object({ q: z.string().max(QUESTION_MAX), pick: z.number().int().min(0).max(MAX_PICK) }).strict())
+        .min(1)
+        .max(MAX_ROUND_ANSWERS),
+    })
+    .strict(),
   z
     .object({
       id,
@@ -79,22 +106,29 @@ export const EventsBody = z
   .strict();
 
 export interface ProgressDeps {
+  /** Seals and opens the bodies of sealed kinds (every `stall_round`, M6 Step 6) with the player's data key. */
+  keyring: Keyring;
   catalogue: Catalogue;
   rewards: RewardsData;
   thresholds: FreshnessThresholds;
   /**
-   * The player's rules and content (I3), loaded only when an event carries a `standsInFor` claim: core keeps the claim
-   * only when it holds for them. Without it a claim is dropped (`stand_in_dropped`) and the cook earns as any cook.
+   * The player's rules and content (I3), loaded only when an event carries a `standsInFor` claim or the batch holds a
+   * `stall_round` (M6): core keeps the claim only when it holds for them, and accepts a round only when every question
+   * is one their rules would show. Without it a claim is dropped (`stand_in_dropped`) and the cook earns as any cook,
+   * and a round is rejected `rules_unknown`.
    */
   rules?: () => Promise<RulesContext>;
   /**
    * Share-locks the player's active `health_data` grant and says whether there is one (the app's `consentHeldIn`;
    * progress/ imports nothing from consent/). Asked only when the batch holds a `meal_logged` event: those are
-   * accepted only with `health_data`, the gate of POST /meals (I1 ruling). Absent → no meal-log event is accepted.
+   * accepted only with `health_data`, the gate of POST /meals (I1 ruling). Also asked when the batch holds an event core
+   * `isHealthRevealing` names (a Protein Counter round, M6 Ruling 17): those need it too. Absent → neither is accepted.
    */
   healthConsent?: () => Promise<boolean>;
   /** The daily write cap (the app's `assertUnderWriteCap` on 'progress.record'): throws a 429 before anything is read or written. */
   writeCap?: () => Promise<void>;
+  /** The request's logger, for the content-free warning of an unreadable snapshot (M6 Step 7). */
+  log?: SnapshotLog;
 }
 
 export interface RecordResult {
@@ -107,7 +141,8 @@ export interface RecordResult {
   /**
    * Events not recorded, each with why: core's `ProgressProblem`s, `bad_event` (a shape outside the event's, a client
    * id that is not a UUID), `unknown_kind`, `bad_date` (outside the window or before the epoch), `upload_only`,
-   * `consent_required` (a meal-log event without `health_data`), `unknown_meal_log` (not the player's own log of that day).
+   * `consent_required` (a meal-log event, or a health-revealing stall round, without `health_data`), `unknown_meal_log`
+   * (not the player's own log of that day), `rules_unknown` (a stall round whose player's rules couldn't be read).
    */
   rejected: { clientId: string; problems: string[] }[];
   /** Accepted events with something set aside, e.g. `stand_in_dropped` (the claim was dropped, never the event). */
@@ -160,8 +195,9 @@ function evaluate(candidates: ProgressEvent[], history: ProgressHistory, deps: P
 /**
  * Records a batch of progress events for the player, inside the caller's transaction (Ruling 7). Order:
  * `lockLiveUser` (401) → advisory `progress:` (the last advisory lock) → the daily write cap (429) → when the batch has
- * a `meal_logged` event, the `health_data` grant (share-locked: the consent row comes after the advisory locks) →
- * load the whole history (`base: null`; the account never compacts) → per event, in the order sent:
+ * a `meal_logged` event or a health-revealing `stall_round`, the `health_data` grant (share-locked: the consent row comes after the advisory locks) →
+ * load the history (from the sealed snapshot plus the events after it when usable, M6 Step 7; else the whole ledgers,
+ * `base: null`) → per event, in the order sent:
  * - a shape outside core's `ProgressEvent`, or a client id that is not a UUID → rejected `bad_event` (`unknown_kind`
  *   for a kind core doesn't have);
  * - a client id already stored (an erased event's id stays seen through its grants) → `duplicate`;
@@ -170,13 +206,17 @@ function evaluate(candidates: ProgressEvent[], history: ProgressHistory, deps: P
  *   a technique already imported → `duplicate`;
  * - a `meal_logged` event without `health_data` → `consent_required`; one whose `mealLogId` is not the player's own
  *   log eaten on `at` → `unknown_meal_log`; a log that already has its event → `duplicate`;
- * then the rest, sorted by `at` (stable), go through core `grantsForBatch` with the player's rules (see `evaluate`):
+ * - a `stall_round` core `isHealthRevealing` names (any Protein Counter question, or one the catalogue doesn't hold:
+ *   fail closed) without `health_data` → `consent_required`; a base round needs no consent (M6 Ruling 17);
+ * then the rest, sorted by `at` (stable), go through core `grantsForBatch` with the player's rules (fetched when an
+ * event claims `standsInFor` or the batch holds a `stall_round`; see `evaluate`):
  * an event with problems is rejected and stores nothing; the others are stored as core returned them (a dropped claim
- * stripped) with their grants.
+ * stripped) with their grants; every `stall_round` sealed (`insertEvents`).
  *
  * The daily cap is per event (C14): core's `too_many_events` rejects only an event past MAX_PROGRESS_EVENTS_PER_DAY
  * for its `at`, and the rest of the batch is still recorded. Never fails the whole batch for one bad event.
  * Audits 'progress.record' with counts only (no ids, slugs or quests), when anything was recorded; the write cap counts those.
+ * Then, still under `progress:`, refreshes the snapshot when more than SNAPSHOT_EVERY events follow it (`maybeWriteSnapshot`).
  */
 export async function recordEventsIn(
   tx: Tx,
@@ -213,11 +253,12 @@ export async function recordEventsIn(
     parsed.push(e);
   }
 
-  // Consent before the data rows (the lock order), and only when a meal-log event asks for it.
+  // Consent before the data rows (the lock order), and only when a meal-log event or a health-revealing round asks for it.
   const meals = parsed.filter((e): e is Extract<ProgressEvent, { kind: 'meal_logged' }> => e.kind === 'meal_logged');
-  const health = meals.length > 0 && deps.healthConsent !== undefined ? await deps.healthConsent() : false;
+  const revealing = new Set(parsed.filter((e) => isHealthRevealing(e, deps.catalogue)));
+  const health = (meals.length > 0 || revealing.size > 0) && deps.healthConsent !== undefined ? await deps.healthConsent() : false;
   const eatenOn = new Map<string, string>();
-  if (health) {
+  if (health && meals.length > 0) {
     const ids = [...new Set(meals.map((m) => m.mealLogId ?? ''))];
     const own = await tx
       .select({ id: mealLogs.id, eatenOn: mealLogs.eatenOn })
@@ -226,9 +267,16 @@ export async function recordEventsIn(
     for (const r of own) eatenOn.set(r.id, r.eatenOn);
   }
 
-  const history = await loadHistory(tx, userId);
-  const seen = new Set([...history.events.map((e) => e.id), ...history.grants.map((g) => g.eventId)]);
-  const claimed = new Set(history.events.map(claimOf).filter((c): c is string => c !== null));
+  // From the snapshot when it is usable (M6 Step 7): `base` then folds the older events, so what was seen and claimed
+  // is read from the tables (the same sets M5 built from the whole history).
+  const hash = catalogueHash(deps.catalogue, deps.rewards, deps.thresholds);
+  const history = await loadHistoryWithSnapshot(tx, deps.keyring, userId, deps.catalogue, hash, deps.log);
+  const { seen, claimed } = await recordedFacts(
+    tx,
+    userId,
+    parsed.map((e) => e.id),
+    meals.map((m) => m.mealLogId ?? '').filter((m) => m !== ''),
+  );
   const oldest = opts.upload ? PROGRESS_EPOCH : [PROGRESS_EPOCH, addDays(today, -LIVE_DAYS_BACK)].sort()[1];
   const newest = addDays(today, DAYS_AHEAD);
   const inWindow = (d: string) => !isValidDate(d) || (d >= oldest && d <= newest);
@@ -264,6 +312,10 @@ export async function recordEventsIn(
         continue;
       }
     }
+    if (revealing.has(e) && !health) {
+      rejected.push({ clientId: e.id, problems: ['consent_required'] });
+      continue;
+    }
     const claim = claimOf(e);
     if (claim !== null && claimed.has(claim)) {
       duplicate.push(e.id);
@@ -274,7 +326,8 @@ export async function recordEventsIn(
   // Array.prototype.sort is stable: events of the same day keep the order they were sent in.
   candidates.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
 
-  const rules = deps.rules && candidates.some((e) => Object.hasOwn(e, 'standsInFor')) ? await deps.rules() : undefined;
+  const needsRules = candidates.some((e) => Object.hasOwn(e, 'standsInFor') || e.kind === 'stall_round');
+  const rules = deps.rules && needsRules ? await deps.rules() : undefined;
   const { results, covered } = evaluate(candidates, history, deps, rules);
   duplicate.push(...covered);
 
@@ -285,7 +338,7 @@ export async function recordEventsIn(
     else if (r.problems.includes('duplicate_id')) duplicate.push(r.event.id);
     else rejected.push({ clientId: r.event.id, problems: [...r.problems] });
   }
-  await insertEvents(tx, userId, kept, at);
+  await insertEvents(tx, deps.keyring, userId, kept, at);
   if (kept.length > 0) {
     await audit(
       tx,
@@ -300,8 +353,10 @@ export async function recordEventsIn(
       at,
     );
   }
+  // Still under `progress:`, after the events and grants (progress_snapshots is last in the table order).
+  if (kept.length > 0) await maybeWriteSnapshot(tx, deps.keyring, userId, deps.catalogue, hash, at, deps.log);
   const view = deriveProgress(
-    { events: [...history.events, ...kept.map((r) => r.event)], grants: [...history.grants, ...kept.flatMap((r) => r.grants)], base: null },
+    { events: [...history.events, ...kept.map((r) => r.event)], grants: [...history.grants, ...kept.flatMap((r) => r.grants)], base: history.base },
     deps.catalogue,
   );
   return {
@@ -313,7 +368,28 @@ export async function recordEventsIn(
   };
 }
 
-/** The view of the player's stored history (GET /progress); call it inside one read transaction (M1). */
-export async function progressViewOf(db: Pick<Tx, 'select'>, userId: string, catalogue: Catalogue): Promise<ProgressView> {
-  return deriveProgress(await loadHistory(db, userId), catalogue);
+/** What a snapshot needs to be usable for a read: the hash of the catalogue, rewards and freshness in force. */
+export interface SnapshotUse {
+  rewards: RewardsData;
+  thresholds: FreshnessThresholds;
+  log?: SnapshotLog;
+}
+
+/**
+ * The view of the player's stored history (GET /progress); call it inside one read transaction (M1). From the
+ * snapshot plus the events after it when `snapshot` gives the rewards and freshness in force (M6 Step 7), else from the
+ * whole ledgers: the same view either way.
+ */
+export async function progressViewOf(
+  db: Pick<Tx, 'select' | 'transaction'>,
+  keyring: Keyring,
+  userId: string,
+  catalogue: Catalogue,
+  snapshot?: SnapshotUse,
+): Promise<ProgressView> {
+  const history =
+    snapshot === undefined
+      ? await loadFullHistory(db, keyring, userId)
+      : await loadHistoryWithSnapshot(db, keyring, userId, catalogue, catalogueHash(catalogue, snapshot.rewards, snapshot.thresholds), snapshot.log);
+  return deriveProgress(history, catalogue);
 }

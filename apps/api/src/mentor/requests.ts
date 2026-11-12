@@ -12,6 +12,15 @@ const MAKE_MY = new RegExp(String.raw`\bmake\b(?! (for|with|me|us|some|a|an|it)\
 const MOVE_ITEM = new RegExp(String.raw`\b(add|remove|put|take|cross|tick)\b[^.!?;]{0,30}\b(to|from|off|out of|in|into|on|onto) (my|our|the) ${RECORD}\b`);
 
 /**
+ * M6 Step 8: ticking the market list, in any tense: "tick the shallots", "tick off the onion", "ticked the eggs",
+ * "cross the dal off", "checked them all off". Fix round 1 (m4): never the animal, a health context ("a tick bite",
+ * "bitten by a tick", "tick-borne", "ticks on the dog", "deer ticks"): "tick" after a determiner or a preposition, or
+ * before bite/bit/borne/fever/on/in, is a noun; "off" must stand alone ("off-lead" is not it).
+ */
+export const TICK_PATTERN =
+  /(?<!\b(?:a|an|the|one|two|some|any|no|those|these|that|this|deer|dog|by|for|of|from|with|my|your)\s+)\btick(?:s|ed|ing)?\b(?![\s-]+(?:bites?|bit|bitten|biting|borne|fever|disease|on|in|off (?:me|him|her|them|the dog|the cat))\b)|\b(?:check|cross)(?:es|ed|ing)?\b(?:\s+[^\s.!?;]+){0,4}\s+off(?![\w-])/i;
+
+/**
  * The player's own words ask the game to change one of their records (fix round 4,
  * R9): a turn that made no card then says the scripted `write.not_done` line, so a
  * request is never met with silence or a made-up "done". Read per sentence. A change
@@ -24,6 +33,7 @@ export function isWriteRequest(text: string, graph: IngredientGraph): boolean {
       (s) =>
         (CHANGE_VERB.test(s) && (RECORD_WORD.test(s) || severityFromText(s, graph) !== null || parseRuleStatement(s, graph) !== null)) ||
         MAKE_MY.test(s) ||
-        MOVE_ITEM.test(s),
+        MOVE_ITEM.test(s) ||
+        TICK_PATTERN.test(s),
     );
 }

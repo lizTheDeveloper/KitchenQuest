@@ -27,3 +27,23 @@ test('progress/, quests/, the toolkit, week/ and book/ never mention entitlement
 test('progress/, quests/, week/ and book/ never import the recipe parser (browser-safe through engine.ts)', () => {
   for (const file of [...files('progress'), ...files('quests'), 'toolkit/one-more.ts', ...files('week'), ...files('book')]) expect(readFileSync(join(SRC, file), 'utf8'), file).not.toMatch(/recipe\/parse|@cooklang/);
 });
+
+// M6 Step 1: the market's deciding code. Chalkboard prices are example numbers (Ruling 5), so the word "price" is
+// allowed here, but nothing sells, nothing counts days, and nothing is random or reads the clock.
+const MARKET = files('market');
+
+test('market/ never sells, counts a run of days, reads the clock or chance, or reaches for progress/, I/O or entitlements', () => {
+  expect(MARKET.length).toBeGreaterThanOrEqual(6);
+  for (const file of MARKET) {
+    const src = readFileSync(join(SRC, file), 'utf8');
+    expect(src, file).not.toMatch(/entitle|guild|subscription|purchase|payment|checkout|affiliate|basket/i);
+    expect(src, file).not.toMatch(/streak|consecutive|daysInARow|combo|multiplier|leaderboard|countdown|setTimeout|setInterval/i);
+    expect(src, file).not.toMatch(/Date\.now|new Date\(|Math\.random|crypto|performance\.now/);
+    expect(src, file).not.toMatch(/recipe\/parse|@cooklang|node:|fetch\(|localStorage|indexedDB/);
+    for (const m of src.matchAll(/from\s+['"]([^'"]+)['"]/g)) {
+      expect(m[1], file).toMatch(/^\.\.?\//);
+      // Rewards are Step 3's, applied by the caller: the market decides nothing about them.
+      expect(m[1], file).not.toMatch(/progress/);
+    }
+  }
+});
