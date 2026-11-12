@@ -63,7 +63,7 @@ export async function boot(env: NodeJS.ProcessEnv): Promise<{ port: number; clos
 
   `cast.pan` is Piper northern_english_male; `gpuCast.pan` is Kokoro `bm_fable`. The `files` arrays are filled by the operator in Step 3.
 
-- [ ] **2.1 Write the failing tests.**
+- [x] **2.1 Write the failing tests.**
 ```ts
 // licences.test.ts
 test('every allowed model: licence ∈ ALLOWED_LICENCES, commercial true, attribution non-empty when CC-BY*', ...);
@@ -96,12 +96,12 @@ test('a string field is a compile error (// @ts-expect-error, checked by tsc in 
 test('a full session (hello, listen, 50 frames, end, speak, cancel, a second listen closed mid-utterance, a throwing engine whose message holds "zebrapeanut71") reaches transcript and audio_end, then: identical snapshots, no write spy call, neither marker nor the PCM as hex/base64/decimal in captured output', ...);
 test('positive control: the same run with a deliberately leaking fake (writes the PCM to TMPDIR and logs the transcript) FAILS each assertion', ...);
 ```
-- [ ] **2.2 Run** `npm test -w @kitchenquest/voice` → FAIL.
-- [ ] **2.3 Implement.**
+- [x] **2.2 Run** `npm test -w @kitchenquest/voice` → FAIL.
+- [x] **2.3 Implement.**
   - One `Session` per connection, holding at most one utterance and one speech at a time.
   - The frame buffer is a preallocated `Int16Array` sized to `MAX_UTTERANCE_MS`, zero-filled on release.
   - Engine errors send `failed` and log `engine_error` with no message.
   - The token is compared in constant time.
   - `boot` refuses production until Step 3's bench gate exists (a stub that always refuses).
-- [ ] **2.4 Run** `npm test -w @kitchenquest/voice`, `npm run typecheck`, `npm run lint` → PASS. The repo's `npm test` → only `eval-gate.test.ts` fails.
-- [ ] **2.5 Commit** `feat(voice): the voice service with fake engines, licence manifest and the memory-only proof`
+- [x] **2.4 Run** `npm test -w @kitchenquest/voice`, `npm run typecheck`, `npm run lint` → PASS. The repo's `npm test` → only `eval-gate.test.ts` fails.
+- [x] **2.5 Commit** `feat(voice): the voice service with fake engines, licence manifest and the memory-only proof`
