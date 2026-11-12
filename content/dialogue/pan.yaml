@@ -1899,6 +1899,52 @@ triggers:
       - "Nothing came through. Voice arrives in a later delivery. The text box works now."
       - "Hold-to-talk is fitted but not yet connected. I'm a pan; I'm good at waiting. Type in the meantime."
 
+  # M7 Step 5: the lines the API's voice route speaks itself (Ruling 15). Step 6 adds the rest of voice.* and removes
+  # voice.not_yet. All written, never the model's; plain on safety (voice §0.8).
+  # REVIEW: voice.check_screen is the fallback for anything the Pan won't say aloud; it must stay var-free (cacheable).
+  voice.check_screen:
+    ai: never
+    when: A spoken item could not be said safely aloud (too long, a variable that failed the filter, or a line with variables the device holds). The screen has it.
+    lines:
+      - "It's on the screen; read it there."
+      - "That one's on the screen. Have a look there."
+
+  # REVIEW: a canon step is read aloud only when the dish is ✅ with no swap (Ruling 11); otherwise this.
+  voice.step_on_screen:
+    ai: never
+    when: Cook mode asked for a step to be read, but the dish has a swap or is not cleared today, so the step is shown, not spoken.
+    lines:
+      - "This step's on the screen. Read it there; it has your swaps in it."
+      - "Read this one on the screen. It changed for you, and I'd rather you saw it."
+
+  # REVIEW: the heard card's spoken half. The words are as heard, never corrected; only a tap confirms them (Ruling 4).
+  voice.heard_check:
+    ai: never
+    when: The Pan heard food or rule words in a transcript and shows the heard card; no health wording, so no spelling.
+    vars:
+      terms: "the words as heard, e.g. 'rice and kiwi'"
+    lines:
+      - "I heard {terms}. Tap the card if that's right."
+      - "I think you said {terms}. Check the card and tap it if I got it right."
+
+  # REVIEW: spelled letter by letter from code (§7.6b.2), because mishearing an allergen is the worst failure mode.
+  voice.heard_check_spelled:
+    ai: never
+    when: As voice.heard_check, with health wording present, so the heard words are spelled out too.
+    vars:
+      terms: "the words as heard, e.g. 'sesame'"
+      spelled: "the same words spelled by code, e.g. 'S-E-S-A-M-E'"
+    lines:
+      - "I heard {terms}: {spelled}. Tap the card if that's right."
+      - "I think you said {terms}. That's {spelled}. Tap the card if I got it right."
+
+  voice.too_long:
+    ai: never
+    when: An utterance ran past the time limit, or its transcript is too long to check. Nothing was acted on.
+    lines:
+      - "That was too long for me to take in at once. Type it instead, or say it in shorter pieces."
+      - "I lost the thread there; it ran long. The text box will take the whole thing."
+
   toolkit.rusty_invite:
     ai: allowed
     when: Shown beside a Rusty technique on the knife roll. An invitation, never a warning (spec §17).

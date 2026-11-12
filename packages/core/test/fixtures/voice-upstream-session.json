@@ -1,5 +1,5 @@
 {
-  "description": "M7 P1: one scripted API <-> voice service session. Each entry is a JSON message (`msg`) or a binary audio frame (`frame`: core encodeFrame of `samples` zero samples under `id`). `from` is the side that sends it: `api` (parsed by parseUpstreamClientMsg) or `service` (parsed by parseUpstreamServerMsg). Replayed by apps/voice's integration test (Step 2) and the API's wsUpstream test (Step 5).",
+  "description": "M7 P1: one scripted API <-> voice service session. Each entry is a JSON message (`msg`) or a binary audio frame (`frame`: core encodeFrame of `samples` zero samples under `id`). `from` is the side that sends it: `api` (parsed by parseUpstreamClientMsg) or `service` (parsed by parseUpstreamServerMsg). Replayed by apps/voice's integration test (Step 2) and the API's wsUpstream test (Step 5). The speak chunks are exactly what the API's renderSpeak makes (Step 5): id 2 is the heard item of utterance 1, id 4 the line voice.check_screen variant 0.",
   "messages": [
     { "from": "api", "msg": { "t": "hello", "v": 1 } },
     { "from": "service", "msg": { "t": "ready", "stt": "faster-whisper-base.en-int8", "tts": "piper-en_GB-northern_english_male-medium", "sampleRate": 22050 } },
@@ -8,14 +8,14 @@
     { "from": "api", "frame": { "id": 1, "samples": 320 } },
     { "from": "api", "msg": { "t": "end", "id": 1 } },
     { "from": "service", "msg": { "t": "transcript", "id": 1, "text": "I can't eat sesame" } },
-    { "from": "api", "msg": { "t": "speak", "id": 2, "voice": "pan", "chunks": [{ "text": "I heard sesame,", "cache": false }, { "text": "S. E. S. A. M. E. Is that right?", "cache": false }] } },
+    { "from": "api", "msg": { "t": "speak", "id": 2, "voice": "pan", "chunks": [{ "text": "I heard sesame:", "cache": false }, { "text": "S. E. S. A. M. E.", "cache": false }, { "text": "Tap the card if that's right.", "cache": false }] } },
     { "from": "service", "frame": { "id": 2, "samples": 441 } },
     { "from": "service", "frame": { "id": 2, "samples": 441 } },
     { "from": "service", "msg": { "t": "audio_end", "id": 2, "audioMs": 40 } },
     { "from": "api", "msg": { "t": "listen", "id": 3, "hint": [] } },
     { "from": "api", "frame": { "id": 3, "samples": 320 } },
     { "from": "api", "msg": { "t": "cancel", "id": 3 } },
-    { "from": "api", "msg": { "t": "speak", "id": 4, "voice": "pan", "chunks": [{ "text": "It's on the screen; read it there.", "cache": true }] } },
+    { "from": "api", "msg": { "t": "speak", "id": 4, "voice": "pan", "chunks": [{ "text": "It's on the screen;", "cache": true }, { "text": "read it there.", "cache": true }] } },
     { "from": "service", "msg": { "t": "failed", "id": 4, "kind": "tts" } },
     { "from": "api", "msg": { "t": "listen", "id": 5, "hint": ["peanut"] } },
     { "from": "api", "msg": { "t": "end", "id": 5 } },

@@ -121,6 +121,12 @@ export const REQUIRED_PAN_TRIGGERS: readonly string[] = [
   // M6 Step 10: Form 1-A's code loads on first open (first paint); this is said when it can't.
   'intake.unavailable',
   'voice.not_yet',
+  // M7 Step 5: the voice route speaks these itself (the fallbacks and the heard card's spoken half).
+  'voice.check_screen',
+  'voice.step_on_screen',
+  'voice.heard_check',
+  'voice.heard_check_spelled',
+  'voice.too_long',
   'toolkit.rusty_invite',
   // M4: the mentor (server agent and scripted engine) emits these by id.
   'rule.unknown_term',

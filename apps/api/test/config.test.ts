@@ -244,3 +244,60 @@ describe('the eval gate at production boot (M4 final I-3)', () => {
     expect(errors).toHaveLength(1);
   });
 });
+
+describe('loadConfig: voice (M7 Step 5, P-11)', () => {
+  const TOKEN = 'v'.repeat(32);
+  const voiceEnv = { ...goodEnv, VOICE_ENABLED: 'true', VOICE_SERVICE_URL: 'ws://127.0.0.1:3100', VOICE_SERVICE_TOKEN: TOKEN };
+  /** A processors register with hetzner's DPA as given (the committed one says "needed"). */
+  const register = (status: string) => {
+    const dir = mkdtempSync(join(tmpdir(), 'kq-processors-'));
+    const file = join(dir, 'processors.json');
+    writeFileSync(file, JSON.stringify({ version: 1, processors: [{ id: 'hetzner', dpa_status: status }] }));
+    return pathToFileURL(file);
+  };
+
+  it('voice is off by default, and with it off no other voice variable is read', () => {
+    expect(loadConfig(goodEnv).voice).toBeNull();
+    expect(loadConfig({ ...goodEnv, VOICE_ENABLED: 'false', VOICE_SERVICE_URL: 'nonsense', VOICE_SERVICE_TOKEN: '' }).voice).toBeNull();
+    expect(() => loadConfig({ ...goodEnv, VOICE_ENABLED: 'yes' })).toThrow(/VOICE_ENABLED/);
+  });
+
+  it('parses an enabled voice config: the service URL and the token as bytes, the token kept out of JSON', () => {
+    const c = loadConfig(voiceEnv);
+    expect(c.voice?.serviceUrl.href).toBe('ws://127.0.0.1:3100/');
+    expect(c.voice?.token.equals(Buffer.from(TOKEN, 'utf8'))).toBe(true);
+    expect(JSON.stringify(c)).not.toContain(TOKEN);
+    expect(JSON.stringify(c.voice)).not.toContain('token');
+  });
+
+  it('VOICE_ENABLED=true needs a ws:// or wss:// VOICE_SERVICE_URL and a VOICE_SERVICE_TOKEN, naming each', () => {
+    for (const url of ['', 'http://127.0.0.1:3100', 'not a url', 'ws://user:pw@127.0.0.1:3100', 'ws://127.0.0.1:3100/?q=1']) {
+      expect(() => loadConfig({ ...voiceEnv, VOICE_SERVICE_URL: url }), url).toThrow(/VOICE_SERVICE_URL/);
+    }
+    expect(() => loadConfig({ ...voiceEnv, VOICE_SERVICE_TOKEN: '' })).toThrow(/VOICE_SERVICE_TOKEN/);
+    const env: Record<string, string> = { ...voiceEnv };
+    delete env.VOICE_SERVICE_TOKEN;
+    expect(() => loadConfig(env)).toThrow(/VOICE_SERVICE_TOKEN/);
+    // Outside production a short token and ws:// to any host are fine (development).
+    expect(loadConfig({ ...voiceEnv, VOICE_SERVICE_TOKEN: 'dev', VOICE_SERVICE_URL: 'ws://voice.example.com:3100' }).voice).not.toBeNull();
+  });
+
+  it('production refuses VOICE_ENABLED=true with ws:// to a public host, a short token, or hetzner\'s DPA not signed', () => {
+    const signed = register('signed');
+    const prod = { ...voiceEnv, ...prodMail };
+    // The committed register: hetzner's DPA is "needed".
+    expect(() => loadConfig(prod)).toThrow(/VOICE_ENABLED: .*hetzner.*DPA is not signed/);
+    expect(() => loadConfig(prod, { processorsRegister: register('needed') })).toThrow(/VOICE_ENABLED: .*hetzner/);
+    // Signed: private-network ws:// (RFC 1918, loopback) and any wss:// pass.
+    for (const url of ['ws://10.0.0.5:3100', 'ws://172.16.0.9:3100', 'ws://172.31.255.1:3100', 'ws://192.168.1.20:3100', 'ws://127.0.0.1:3100', 'wss://voice.example.com']) {
+      expect(loadConfig({ ...prod, VOICE_SERVICE_URL: url }, { processorsRegister: signed }).voice?.serviceUrl.protocol, url).toMatch(/^wss?:$/);
+    }
+    // ws:// to a public address or a name (which could resolve anywhere) is refused.
+    for (const url of ['ws://voice.example.com:3100', 'ws://8.8.8.8:3100', 'ws://172.32.0.1:3100', 'ws://11.0.0.1:3100', 'ws://localhost.example.com']) {
+      expect(() => loadConfig({ ...prod, VOICE_SERVICE_URL: url }, { processorsRegister: signed }), url).toThrow(/VOICE_SERVICE_URL: .*wss:\/\/ or a private/);
+    }
+    expect(() => loadConfig({ ...prod, VOICE_SERVICE_TOKEN: 'short' }, { processorsRegister: signed })).toThrow(/VOICE_SERVICE_TOKEN: .*32 bytes/);
+    // Voice off in production is fine whatever the register says.
+    expect(loadConfig({ ...goodEnv, ...prodMail }).voice).toBeNull();
+  });
+});

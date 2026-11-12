@@ -1,8 +1,14 @@
 import { isIP } from 'node:net';
 import { z } from 'zod';
-import { AI_PROCESSOR_IDS, processorsNotReady } from './ai/processors.js';
+import { AI_PROCESSOR_IDS, PROCESSORS_REGISTER, processorsNotReady, VOICE_PROCESSOR_IDS } from './ai/processors.js';
 import type { AiConfig } from './ai/openrouter.js';
 import { Keyring, parseDataKeys, parseKey, type SecretKey } from './crypto/keyring.js';
+
+/** The voice service: its WebSocket URL on the private network and the bearer token it checks. */
+export interface VoiceConfig {
+  serviceUrl: URL;
+  token: Buffer;
+}
 
 /** Fastify `trustProxy`: off, all proxies, a hop count, or the proxies' addresses/CIDRs. */
 type TrustProxy = boolean | number | string[];
@@ -24,6 +30,12 @@ export interface Config {
   port: number;
   /** null when AI_ENABLED is not true: the mentor runs scripted only. The API key is left out of JSON. */
   ai: AiConfig | null;
+  /**
+   * M7 Step 5: the private voice service (`apps/voice`), or null when VOICE_ENABLED is not true (text only; the
+   * voice routes are not registered). `token` is the shared bearer secret, kept out of JSON so a logged config never
+   * carries it.
+   */
+  voice: VoiceConfig | null;
   /**
    * Recipe list and detail reads per player per minute, when not RECIPE_READS_PER_MINUTE (120). Never read from the
    * environment: a test knob (Task 9 fix round 1), so the 429 path is proven without 120 round-trips.
@@ -196,11 +208,72 @@ function loadAi(env: NodeJS.ProcessEnv, issues: Issue[]): AiConfig | null {
   return ai;
 }
 
-/** Throws an Error whose message names every bad variable. */
-export function loadConfig(env: NodeJS.ProcessEnv): Config {
+const VoiceSwitch = z.object({
+  VOICE_ENABLED: z.enum(['true', 'false'], { error: 'VOICE_ENABLED must be "true" or "false"' }).default('false'),
+});
+
+/** The production token floor, as apps/voice's own (`MIN_PRODUCTION_TOKEN_BYTES`). */
+const MIN_PRODUCTION_VOICE_TOKEN_BYTES = 32;
+
+/** A private address the voice traffic may cross in clear: RFC 1918, or loopback (the same box). IP literals only. */
+function isPrivateHost(hostname: string): boolean {
+  const host = hostname.replace(/^\[|\]$/g, '');
+  if (isIP(host) === 6) return host === '::1';
+  if (isIP(host) !== 4) return false;
+  const [a, b] = host.split('.').map(Number);
+  return a === 10 || a === 127 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+}
+
+const VOICE_DPA_NOT_SIGNED =
+  "the hosting provider's (hetzner) DPA is not signed in docs/compliance/processors.json (P-11, C-34). Leave VOICE_ENABLED=false until it is.";
+
+/** Voice config, or null when voice is off; with voice off no other voice variable is read (M7 Step 5). */
+function loadVoice(env: NodeJS.ProcessEnv, issues: Issue[], register: URL): VoiceConfig | null {
+  const sw = VoiceSwitch.safeParse(env);
+  if (!sw.success) {
+    issues.push(...sw.error.issues);
+    return null;
+  }
+  if (sw.data.VOICE_ENABLED !== 'true') return null;
+  const production = env.NODE_ENV === 'production';
+  // P-11: in production voice stays off until the voice processors' DPAs are signed.
+  if (production && processorsNotReady(VOICE_PROCESSOR_IDS, register).length > 0) issues.push({ path: ['VOICE_ENABLED'], message: VOICE_DPA_NOT_SIGNED });
+  const rawUrl = env.VOICE_SERVICE_URL ?? '';
+  let serviceUrl: URL | null = null;
+  try {
+    // The one URL built from the environment (processors.test.ts names it): the private voice service, P-11 gated above.
+    serviceUrl = new URL(rawUrl);
+  } catch {
+    serviceUrl = null;
+  }
+  if (serviceUrl === null || (serviceUrl.protocol !== 'ws:' && serviceUrl.protocol !== 'wss:') || serviceUrl.username !== '' || serviceUrl.password !== '' || serviceUrl.search !== '' || serviceUrl.hash !== '') {
+    issues.push({ path: ['VOICE_SERVICE_URL'], message: 'VOICE_SERVICE_URL must be the voice service\'s ws:// or wss:// URL (no credentials or query), e.g. ws://127.0.0.1:3100' });
+    serviceUrl = null;
+  } else if (production && serviceUrl.protocol === 'ws:' && !isPrivateHost(serviceUrl.hostname)) {
+    issues.push({ path: ['VOICE_SERVICE_URL'], message: 'in production VOICE_SERVICE_URL must be wss:// or a private (RFC 1918 or loopback) address: audio never crosses a public network in clear' });
+  }
+  const rawToken = env.VOICE_SERVICE_TOKEN ?? '';
+  const token = Buffer.from(rawToken, 'utf8');
+  if (rawToken === '') issues.push({ path: ['VOICE_SERVICE_TOKEN'], message: 'VOICE_SERVICE_TOKEN is required when VOICE_ENABLED=true: the secret apps/voice checks' });
+  else if (production && token.length < MIN_PRODUCTION_VOICE_TOKEN_BYTES) {
+    issues.push({ path: ['VOICE_SERVICE_TOKEN'], message: `VOICE_SERVICE_TOKEN must be at least ${MIN_PRODUCTION_VOICE_TOKEN_BYTES} bytes in production (openssl rand -base64 32)` });
+  }
+  if (serviceUrl === null || rawToken === '') return null;
+  const voice: VoiceConfig = { serviceUrl, token };
+  // Kept off JSON so a logged config never carries the token.
+  Object.defineProperty(voice, 'token', { enumerable: false });
+  return voice;
+}
+
+/**
+ * Throws an Error whose message names every bad variable. `opts.processorsRegister` replaces the committed
+ * docs/compliance/processors.json (tests only).
+ */
+export function loadConfig(env: NodeJS.ProcessEnv, opts: { processorsRegister?: URL } = {}): Config {
   const r = Env.safeParse(env);
   const issues: Issue[] = r.success ? [] : [...r.error.issues];
   const ai = loadAi(env, issues);
+  const voice = loadVoice(env, issues, opts.processorsRegister ?? PROCESSORS_REGISTER);
   if (!r.success || issues.length > 0) {
     const lines = issues.map((i) => `${String(i.path[0] ?? 'env')}: ${i.message}`);
     throw new Error(`Invalid configuration:\n${lines.join('\n')}`);
@@ -217,5 +290,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     trustProxy: e.TRUST_PROXY,
     port: e.PORT,
     ai,
+    voice,
   };
 }
