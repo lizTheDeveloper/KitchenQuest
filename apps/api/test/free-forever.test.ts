@@ -207,7 +207,7 @@ const loop = defaultLoopContent();
 type Q = { id: string; options: { correct?: boolean }[] };
 /** The written right answer's file index (Ruling 2: `pick` is the option's index in file order). */
 const right = (q: Q): number => q.options.findIndex((o) => o.correct === true);
-const stallQs = (stall: string, n: number): Q[] => loop.market.stalls.get(stall)!.questions.slice(0, n) as Q[];
+const stallQs = (stall: string, n: number): Q[] => loop.market.stalls.get(stall)!.questions.slice(0, n);
 const pcQs = (n: number): Q[] => (loop.market.stalls.get('bram')!.variants!.protein_counter!.questions as Q[]).slice(0, n);
 const seasonalQ = (id: string): Q =>
   Object.values(loop.market.stalls.get('wen')!.seasonal ?? {}).flatMap((m) => Object.values(m).flat()).find((q) => q.id === id) as Q;

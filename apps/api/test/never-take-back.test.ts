@@ -207,7 +207,7 @@ describe('stall-round grants survive (M6 Step 11)', () => {
   type Q = { id: string; contains?: string[]; options: { correct?: boolean }[] };
   const loopC = defaultLoopContent();
   const right = (q: Q) => q.options.findIndex((o) => o.correct === true);
-  const qs = (stall: string): Q[] => loopC.market.stalls.get(stall)!.questions as Q[];
+  const qs = (stall: string): Q[] => loopC.market.stalls.get(stall)!.questions;
   const roundOf = (stall: string, list: Q[], at = TODAY): ProgressEvent => ({ id: eid(), kind: 'stall_round', at, stall, answers: list.map((q) => ({ q: q.id, pick: right(q) })) });
   const VEGETARIAN = { target: { kind: 'category', ids: ['meat', 'fish', 'shellfish', 'gelatin'] }, type: 'avoid', severity: 'preference' };
   const SOY = { target: { kind: 'ingredient', ids: ['soy'] }, type: 'avoid', severity: 'allergy' };
