@@ -372,7 +372,7 @@ describe('tools — the model can only propose', () => {
     await makeApp(ai);
     const p = await player(AI_HEALTH);
     await turn(p.cookie, 'what should I cook tonight?');
-    expect(ai.requests[0].tools.map((t) => t.name)).toEqual(['propose_rule', 'propose_meal_log', 'propose_profile', 'propose_pantry_change', 'propose_plan', 'propose_navigation']);
+    expect(ai.requests[0].tools.map((t) => t.name)).toEqual(['propose_rule', 'propose_meal_log', 'propose_profile', 'propose_pantry_change', 'propose_plan', 'propose_check_off', 'propose_navigation']);
     const q = await player(HEALTH);
     await turn(q.cookie, 'what should I cook tonight?');
     expect(ai.requests[1].tools.map((t) => t.name)).toEqual(['propose_profile', 'propose_plan', 'propose_navigation']);

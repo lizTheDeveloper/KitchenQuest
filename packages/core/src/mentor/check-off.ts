@@ -163,14 +163,15 @@ export function checkOffShaped(text: string, graph: IngredientGraph, terms: read
 
 /**
  * M6 Step 8: the same closed grammar with no market run open (none, or the week's run is done). True when the message
- * would be claimed by `checkOffIntent` had every item been an open row: each item a food the graph names, under the
- * same whole-message and health checks. The turn then answers `market.no_run` with a chip to the list, and nothing is
- * written, ticked or sent to the model.
+ * would be claimed by `checkOffIntent` had every item been an open row, and every clause says what the player GOT: each
+ * item a food the graph names, under the same whole-message and health checks. The turn then answers `market.no_run`
+ * with a chip to the list, and nothing is written, ticked or sent to the model. A missing clause never counts: with no
+ * list, "no eggs left" is M4's pantry removal, as it always was.
  */
 export function checkOffWithoutRun(text: string, graph: IngredientGraph, terms: readonly RuleTerm[]): boolean {
   const read = clausesOf(text);
   if (read === null || codeCardHealth(read.masked, graph, terms)) return false;
-  return read.clauses.every((c) => c.items.every((item) => graph.resolve(normalizeName(item).replace(DETERMINER, '')) !== null));
+  return read.clauses.every((c) => c.kind === 'got' && c.items.every((item) => graph.resolve(normalizeName(item).replace(DETERMINER, '')) !== null));
 }
 
 /**

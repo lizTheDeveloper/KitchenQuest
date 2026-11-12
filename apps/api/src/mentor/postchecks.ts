@@ -359,13 +359,16 @@ export function applyPostChecks(
   );
 }
 
+/** A tick of the market list, in any tense ("ticked", "checked off", "crossed them off"). */
+const TICK_WORDS = /\b(tick(s|ed|ing)?|(check|cross)(es|ed|ing)?\b[^.!?]{0,30}\boff)\b/i;
+
 /**
- * M6 Step 8: the model's own text (never shown, R9) claims a write ("I've ticked the shallots for you") on a turn that
- * made no card: the claim is replaced by `write.not_done`, never a bare `didnt_understand`, so a tick the model only
- * said it made is never left to look done.
+ * M6 Step 8: the model's own text (never shown, R9) claims a market-list tick ("I've ticked the shallots for you") on a
+ * turn that made no card: the reply is `write.not_done`, never a bare `didnt_understand`, so a tick the model only said
+ * it made never looks done. Only a tick claim: M4's other write claims keep their scripted lines (R9).
  */
-export function claimsWriteWithoutCard(modelText: string, cards: number): boolean {
-  if (cards > 0 || modelText.trim() === '') return false;
+export function claimsTickWithoutCard(modelText: string, cards: number): boolean {
+  if (cards > 0 || !TICK_WORDS.test(screenText(modelText))) return false;
   const f = filterReply(modelText, { finish: 'stop' });
   return !f.ok && f.reason === 'write_claim';
 }

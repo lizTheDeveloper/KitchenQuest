@@ -139,10 +139,6 @@ export function loadPanPrompt(bank: PanBank, voiceGuide: URL = VOICE_MD): PanPro
     exampleCall('example_4', 'propose_plan', { pick: 2, after: 'Wednesday' }),
     // Fix round 5 (5b): ONE generic two-call example (a shopping day and a pick in one message), worded unlike any
     // eval case (prompt.test checks that no 4-word span is shared with one).
-    // M6 Step 8: ONE generic check-off example (Ruling 14), worded unlike any eval case (prompt.test's span check): the
-    // player's item words only, a got list and a missing one; the game matches them to the open market list.
-    { role: 'user', content: 'Found the leeks, but the stall had sold out of parsnips.' },
-    exampleCall('example_6', 'propose_check_off', { got: ['leeks'], missing: ['parsnips'] }),
     { role: 'user', content: 'Thursday is my shopping day now. Choose two dishes for the days after Thursday.' },
     {
       role: 'assistant',
@@ -152,6 +148,10 @@ export function loadPanPrompt(bank: PanBank, voiceGuide: URL = VOICE_MD): PanPro
         { id: 'example_5b', name: 'propose_plan', arguments: JSON.stringify({ pick: 2, after: 'Thursday' }) },
       ],
     },
+    // M6 Step 8: ONE generic check-off example (Ruling 14), worded unlike any eval case (prompt.test's span check): the
+    // player's item words only, a got list and a missing one; the game matches them to the open market list.
+    { role: 'user', content: 'Found the leeks, but the stall had sold out of parsnips.' },
+    exampleCall('example_6', 'propose_check_off', { got: ['leeks'], missing: ['parsnips'] }),
   ];
   return { system, examples };
 }

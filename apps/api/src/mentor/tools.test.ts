@@ -78,6 +78,7 @@ describe('every tool schema (m4)', () => {
       propose_pantry_change: ['add', 'remove'],
       propose_plan: [],
       propose_navigation: ['to'],
+      propose_check_off: [],
     });
   });
   test('a call with the optional fields left out parses, each as null', () => {
@@ -85,5 +86,8 @@ describe('every tool schema (m4)', () => {
     expect(parseToolCall({ id: 'c', name: 'propose_rule', arguments: JSON.stringify({ term: 'sesame' }) })?.args).toEqual({ term: 'sesame', severity: null });
     expect(parseToolCall({ id: 'c', name: 'propose_meal_log', arguments: JSON.stringify({ when: 'today', description: 'soup' }) })?.args).toEqual({ slot: null, when: 'today', dish: null, servings: null, description: 'soup' });
     expect(parseToolCall({ id: 'c', name: 'propose_navigation', arguments: JSON.stringify({ to: 'market' }) })?.args).toEqual({ to: 'market', id: null });
+    // M6 Step 8: a check-off with only one list given parses with the other empty.
+    expect(parseToolCall({ id: 'c', name: 'propose_check_off', arguments: JSON.stringify({ got: ['leeks'] }) })?.args).toEqual({ got: ['leeks'], missing: [] });
+    expect(parseToolCall({ id: 'c', name: 'propose_check_off', arguments: JSON.stringify({ got: 'leeks' }) })).toBeNull();
   });
 });

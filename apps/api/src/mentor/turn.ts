@@ -83,7 +83,7 @@ import { isHealthText } from './health.js';
 import { line, listWords, type PanBank } from './lines.js';
 import type { MemoryFlags, MemoryHistory } from './memory.js';
 import { currentRun, modelCheckOff, noRunParts } from './check-off-turn.js';
-import { applyPostChecks, claimsWriteWithoutCard } from './postchecks.js';
+import { applyPostChecks, claimsTickWithoutCard } from './postchecks.js';
 import { buildPromptContext, minimiseHistory, renderMessages, type PanPrompt } from './prompt.js';
 import { createProposal, hasOpenHealthProposal, openProposalsOfConversation } from './proposals.js';
 import { isWriteRequest } from './requests.js';
@@ -549,8 +549,8 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
     const checkOff = calls.some((c) => c.name === 'propose_check_off') ? { run: await currentRun(tx, deps, userId, f.req.localDate), raw: f.raw } : undefined;
     if (calls.length > 0) reply = cardsFromCalls(deps, calls, f.req, persist, recipes, pantry, saved, { planCtx, recipes: index, ...(checkOff ? { checkOff } : {}) });
     else if (f.mode === 'rule_help') reply = { parts: [], cards: [], toolTurn: false }; // R3: rule help only
-    // M6 Step 8: a model that only SAID it ticked or saved something gets write.not_done too (its text is never shown).
-    else reply = scriptedReply(f.stripped, dishNamed, writeRequest || claimsWriteWithoutCard(f.result.text, 0));
+    // M6 Step 8: a model that only SAID it ticked the list gets write.not_done too (its text is never shown).
+    else reply = scriptedReply(f.stripped, dishNamed, writeRequest || claimsTickWithoutCard(f.result.text, 0));
     // A bare "didn't understand" gives way to any ask that follows.
     const dropBareFallback = () => {
       if (reply.parts.length === 1 && reply.parts[0].kind === 'line' && reply.parts[0].line.trigger === 'didnt_understand') reply.parts = [];
