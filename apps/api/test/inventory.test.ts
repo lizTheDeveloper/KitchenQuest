@@ -127,6 +127,14 @@ describe('M7 Step 4 columns', () => {
     expect(p5).not.toMatch(/not in the current schema|planned M2/);
     expect(doc).not.toMatch(/profiles\.accessibility_voice/);
   });
+
+  it('m3: P-5 states the self-read as J-8 does (counted while health_data is in force), and audit events carry no value', () => {
+    const doc = readFileSync(INVENTORY, 'utf8');
+    const p5 = doc.split('\n').find((l) => l.startsWith('| P-5 |'))!;
+    expect(p5).not.toMatch(/when it opened the row/);
+    expect(p5).toMatch(/counts a self-read `voice` while `health_data` is in force/);
+    expect(p5).toContain('`voice.settings`');
+  });
 });
 
 const ROADMAP = new URL('../../../docs/compliance/ROADMAP.md', import.meta.url);

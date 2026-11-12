@@ -9,6 +9,7 @@ import { NOTICES } from '../src/consent/notices.js';
 import { grant } from '../src/entitlements/entitlements.js';
 import { CaptureMailer } from '../src/mail/mailer.js';
 import type { Db } from '../src/types.js';
+import { openFor } from '../src/crypto/userkeys.js';
 import { readAccessibility, setAccessibility } from '../src/voice/settings.js';
 import { signIn } from './helpers/auth.js';
 import { testConfig } from './helpers/config.js';
@@ -42,7 +43,7 @@ afterEach(async () => {
 
 const call = (cookie: string, opts: InjectOptions) => app.inject({ ...opts, cookies: { kq_session: cookie } });
 const put = (cookie: string, on: unknown) => call(cookie, { method: 'PUT', url: '/voice/accessibility', payload: { on } });
-const status = (cookie: string) => call(cookie, { method: 'GET', url: '/voice/status' });
+const status = (cookie: string) => call(cookie, { method: 'GET', url: '/voice/status?localDate=2026-11-12&localTime=10:00' });
 
 async function player(withHealth: boolean): Promise<{ cookie: string; id: string }> {
   const cookie = await signIn(app, mailer, `voice${++seq}@example.com`);
@@ -84,6 +85,22 @@ describe('PUT /voice/accessibility (C-19, Ruling 6)', () => {
     await expect(readAccessibility(db, config.keyring, b.id)).rejects.toThrow();
     // Positive control: A's own row still opens.
     expect(await readAccessibility(db, config.keyring, a.id)).toBe(true);
+  });
+
+  it('m2: the blob is bound to its AAD: with the same user key, another table or row id fails to open; the true context opens', async () => {
+    const a = await player(true);
+    expect((await put(a.cookie, true)).statusCode).toBe(204);
+    const raw = Buffer.from((await rowsOf(a.id))[0].sealed);
+    const ctx = { table: 'voice_settings', userId: a.id, rowId: a.id };
+    // Positive control: the very same key and context open it (so a failure below is the AAD, not the key).
+    await expect(openFor(db, config.keyring, ctx, raw)).resolves.toMatchObject({ accessibility: true });
+    for (const wrong of [
+      { ...ctx, table: 'rules' },
+      { ...ctx, table: 'progress_snapshots' },
+      { ...ctx, rowId: '00000000-0000-4000-8000-000000000000' },
+    ]) {
+      await expect(openFor(db, config.keyring, wrong, raw), JSON.stringify(wrong)).rejects.toThrow();
+    }
   });
 
   it('the database refuses a plain value in voice_settings.sealed (the sealing check)', async () => {
@@ -137,7 +154,7 @@ describe('PUT /voice/accessibility (C-19, Ruling 6)', () => {
 
   it('needs a session', async () => {
     expect((await app.inject({ method: 'PUT', url: '/voice/accessibility', payload: { on: true } })).statusCode).toBe(401);
-    expect((await app.inject({ method: 'GET', url: '/voice/status' })).statusCode).toBe(401);
+    expect((await app.inject({ method: 'GET', url: '/voice/status?localDate=2026-11-12&localTime=10:00' })).statusCode).toBe(401);
   });
 
   it('setAccessibility on a deleted account is a 401 and writes nothing', async () => {
@@ -165,7 +182,7 @@ describe('the accessibility row and the data rights', () => {
     expect((await call(del.cookie, { method: 'DELETE', url: '/me/consents/health_data', payload: { healthData: 'delete' } })).statusCode).toBe(204);
     expect(await rowsOf(del.id)).toHaveLength(0);
     const actions = (await sql<{ action: string }[]>`select action from audit_events where subject_user_id = ${del.id} order by id`).map((r) => r.action);
-    expect(actions).toEqual(['auth.sign_in', 'consent.grant', 'voice.accessibility', 'consent.withdraw', 'health_data.delete']);
+    expect(actions).toEqual(['auth.sign_in', 'consent.grant', 'voice.settings', 'consent.withdraw', 'health_data.delete']);
   });
 
   it('a withdraw-with-delete with only the voice row deleted still writes health_data.delete', async () => {
@@ -256,8 +273,10 @@ describe('no value of the setting in audit events or logs', () => {
     expect(shape(offLines)).toEqual(shape(onLines));
 
     const events = await sql<{ action: string; target: string | null; actor_id: string | null; request_id: string | null }[]>`
-      select action, target, actor_id, request_id from audit_events where subject_user_id = ${a.id} and action = 'voice.accessibility' order by id`;
+      select action, target, actor_id, request_id from audit_events where subject_user_id = ${a.id} and action = 'voice.settings' order by id`;
     expect(events).toHaveLength(2);
+    // m5: the action is neutral; no event is named for the accessibility need.
+    expect(await sql`select 1 from audit_events where action like '%accessib%'`).toHaveLength(0);
     for (const e of events) {
       expect(e.target).toBeNull();
       expect(e.request_id).toEqual(expect.any(String));

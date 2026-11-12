@@ -52,6 +52,10 @@ describe('the voice allowance boundary (M7 Step 4, Ruling 5)', () => {
     expect(importers).toEqual(['voice/status-routes.ts']);
   });
 
+  it('m1: GET /voice/status reads the setting once, through voiceState (status-routes.ts never calls accessibilityInForce)', () => {
+    expect(readFileSync(join(SRC, 'voice/status-routes.ts'), 'utf8')).not.toMatch(/accessibilityInForce|readAccessibility/);
+  });
+
   it('grant() refuses the retired accessibility_voice kind', async () => {
     const { grant } = await import('../src/entitlements/entitlements.js');
     await expect(grant({ insert: () => { throw new Error('reached the insert'); } } as never, 'u', 'accessibility_voice', 'manual', new Date())).rejects.toThrow(

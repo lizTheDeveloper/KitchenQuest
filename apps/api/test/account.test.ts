@@ -264,7 +264,7 @@ describe('GET /me/export', () => {
       'notes.create',
       'shared_table.create',
       'progress.record',
-      'voice.accessibility',
+      'voice.settings',
       'account.export',
     ]);
     // Pan conversations with their messages, and proposals, decrypted (C-12).
