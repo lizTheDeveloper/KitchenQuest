@@ -86,14 +86,9 @@ function checkChalkboard(
   texts: readonly { at: string; text: string }[],
   bad: (msg: string) => void,
 ): void {
-  let exact = true;
-  board.forEach((e, k) => {
-    if (cents(e.price) % e.servings !== 0 || Math.abs(cents(e.price) - e.price * 100) > 1e-6) {
-      bad(`chalkboard[${k}] ${shown(e.price)} ÷ ${e.servings} is not exact to the cent; pick numbers that divide exactly`);
-      exact = false;
-    }
-  });
-  if (!exact) return; // the figures can't be checked against a board that needs rounding
+  const inexact = [...board.entries()].filter(([, e]) => cents(e.price) % e.servings !== 0 || Math.abs(cents(e.price) - e.price * 100) > 1e-6);
+  for (const [k, e] of inexact) bad(`chalkboard[${k}] ${shown(e.price)} ÷ ${e.servings} is not exact to the cent; pick numbers that divide exactly`);
+  if (inexact.length > 0) return; // the figures can't be checked against a board that needs rounding
   const per = board.map((e) => cents(e.price) / e.servings); // in cents
   const c = options.findIndex((o: unknown) => isObject(o) && o.correct === true);
   if (c >= 0 && per.some((p, k) => k !== c && !(per[c] < p))) bad(`options[${c}] is correct but is not the strict cheapest per serving`);
@@ -306,7 +301,7 @@ export function validateStallFile(d: unknown, graph: IngredientGraph, opts: { kn
             }
             return { price: e.price as number, servings: e.servings as number };
           });
-          if (entries.every((x) => x !== null)) checkChalkboard(q, options, entries as { price: number; servings: number }[], texts, bad);
+          if (entries.every((x) => x !== null)) checkChalkboard(q, options, entries, texts, bad);
         }
       } else if (q.game === 'value') {
         const priced = texts.find((t) => PRICE_TEXT.some((re) => re.test(t.text)));
