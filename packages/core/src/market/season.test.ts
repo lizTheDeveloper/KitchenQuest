@@ -351,3 +351,39 @@ describe('seasonNote and dishSeasonNote (fix round 1, I1): season text only for 
     expect(dishSeasonNote(dish(['cranberry'], true), 'test-vale', TABLE, c())).toEqual([]);
   });
 });
+
+describe('fix round 1, M1: the mutants the review found alive', () => {
+  test("seasonalAgrees: a child region's block is checked against its same-country parent's months", () => {
+    const w = clone(WEN);
+    // The East Vale has no month 12 of its own; the Vale has kale "now" in month 12.
+    w.seasonal!['test-east-vale'] = { '12': [seasonal('wen-east-12-kale', 'kale', [NOW, STORED, TRAVELLED], NOW)] };
+    expect(seasonalAgrees(w, WITH_CHILD)).toEqual([]);
+    w.seasonal!['test-east-vale']['12'] = [seasonal('wen-east-12-kale', 'kale', [NOW, STORED, TRAVELLED], STORED)];
+    expect(seasonalAgrees(w, WITH_CHILD).join('\n')).toMatch(/wen-east-12-kale.*correct option "Local, stored/);
+  });
+
+  test('seasonalAgrees: a seasonal question with no correct option is reported', () => {
+    const w = clone(WEN);
+    for (const o of w.seasonal!['test-vale']['11'][0].options) o.correct = false;
+    expect(seasonalAgrees(w, TABLE).join('\n')).toMatch(/wen-vale-11-cranberry: no correct option/);
+  });
+
+  test('validateSeasonTable: an id that is not its own key, and a duplicate category label', () => {
+    const problems = validateSeasonTable({ 'test-vale': { ...clone(VALE), id: 'test-dale' } }, graph);
+    expect(problems.join('\n')).toMatch(/test-vale: id "test-dale" is not its key/);
+    const labels = validateSeasonTable({ 'test-vale': { ...clone(VALE), categories: [{ id: 'now', label: NOW }, { id: 'stored', label: NOW }], months: {} } }, graph);
+    expect(labels.join('\n')).toMatch(/duplicate category label/);
+  });
+
+  test("seasonRegionFor: apostrophes and full stops are dropped, not read as spaces (Hawai'i, St. John's)", () => {
+    const t: SeasonTable = {
+      'test-hi': region({ id: 'test-hi', match: { countries: ['United States'], regions: ['hawaii'] } }),
+      'test-nl': region({ id: 'test-nl', match: { countries: ['Canada'], regions: ["st john's"] } }),
+    };
+    expect(seasonRegionFor(p('USA', "Hawai'i"), t)).toBe('test-hi');
+    expect(seasonRegionFor(p('USA', 'Hawaiʻi'), t)).toBe('test-hi'); // the ʻokina (U+02BB) and ʼ (U+02BC) drop too
+    expect(seasonRegionFor(p('USA', 'Hawaiʼi'), t)).toBe('test-hi');
+    expect(seasonRegionFor(p('Canada', 'St. Johns'), t)).toBe('test-nl');
+    expect(seasonRegionFor(p('Canada', 'st johns, nl'), t)).toBe('test-nl');
+  });
+});

@@ -49,13 +49,13 @@ const KEBAB = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const CATEGORY_ID = /^[a-z][a-z0-9_]*$/;
 const MONTH_KEY = /^(?:[1-9]|1[0-2])$/;
 
-/** Lower-cased, accents removed, apostrophes and full stops dropped, other punctuation a space, spaces collapsed. */
+/** Lower-cased, accents removed, apostrophes (and the ʻokina) and full stops dropped, other punctuation a space, spaces collapsed. */
 function normalizePhrase(text: string): string {
   return text
     .normalize('NFD')
     .replace(/\p{M}+/gu, '')
     .toLowerCase()
-    .replace(/['’.]/g, '')
+    .replace(/['’ʻʼ.]/g, '')
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .trim();
 }
