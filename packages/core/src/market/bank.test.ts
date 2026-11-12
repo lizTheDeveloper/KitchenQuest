@@ -163,13 +163,16 @@ describe('questionStatus and stallBank (spec §2.2, §3.5)', () => {
       { q: 'is pink pork safe', a: 'Whole cuts of pork are safe at 63°C with a rest.' },
       { q: 'what fat for pastry', a: 'Lard makes it flaky.' },
     ]);
-    const noPork = faqFor(BRAM, ctx([NO_PORK]));
-    expect(noPork[0].a).toBe(MEDICAL_LINE); // "meat" is ❓ under a partial rule, and there is no a_if_blocked
-    expect(noPork[1].a).toBe('Use a thermometer for any whole cut.');
-    expect(noPork[2].a).toBe(MEDICAL_LINE); // lard: ⛔, no a_if_blocked
+    // Chips naming pork (⛔) or meat (❓ under a partial rule) are dropped (fix round 1, I1); the lard answer is ⛔
+    // with no a_if_blocked, so its chip shows the safety line.
+    expect(faqFor(BRAM, ctx([NO_PORK]))).toEqual([{ q: 'what fat for pastry', a: MEDICAL_LINE }]);
+    // a_if_blocked when the chip is fine but the answer isn't.
+    expect(faqFor({ ...BRAM, faq: [{ q: ['is pink safe for whole cuts'], a: 'Whole cuts of pork are safe at 63°C.', a_if_blocked: 'Use a thermometer for any whole cut.' }] }, ctx([NO_PORK]))).toEqual([
+      { q: 'is pink safe for whole cuts', a: 'Use a thermometer for any whole cut.' },
+    ]);
     // At the Protein Counter, its own FAQ; a_if_blocked is itself checked.
-    expect(faqFor(BRAM, ctx([VEGETARIAN, SOY]))[0]).toEqual({ q: 'is tempeh fermented', a: 'Ask me about chickpeas instead: they keep for a year.' });
-    expect(faqFor(BRAM, ctx([VEGETARIAN, SOY, avoid('chickpea')]))[0]).toEqual({ q: 'is tempeh fermented', a: MEDICAL_LINE });
+    expect(faqFor(BRAM, ctx([VEGETARIAN, SOY]))[0]).toEqual({ q: 'what does fermenting do', a: 'Ask me about chickpeas instead: they keep for a year.' });
+    expect(faqFor(BRAM, ctx([VEGETARIAN, SOY, avoid('chickpea')]))[0]).toEqual({ q: 'what does fermenting do', a: MEDICAL_LINE });
     // The spice stall has no medical line: its allergen note.
     expect(faqFor(SPICE, ctx([COELIAC]))[0]).toEqual({ q: 'spice blend allergens', a: ALLERGEN_LINE });
     expect(faqFor(SPICE, ctx([]))[0].a).toBe('Asafoetida usually has wheat flour in it.');
@@ -192,5 +195,21 @@ describe('questionStatus and stallBank (spec §2.2, §3.5)', () => {
     expect(stallBank({ ...BRAM, questions: [q] }, ctx([avoid('peanut')])).questions).toEqual([]);
     expect(questionStatus(q, ctx([avoid('sesame')]))).toBe('ok');
   });
-});
 
+  test("fix round 1, I1: faqFor drops an entry whose chip names a ⛔ or ❓ ingredient (the reviewer's three)", () => {
+    const chips = (rules: Rule[]) => faqFor(BRAM, ctx(rules)).map((f) => f.q);
+    // "no pork" (often religious): no tappable "is pink pork safe" at Bram's.
+    expect(chips([])).toContain('is pink pork safe');
+    expect(chips([NO_PORK])).not.toContain('is pink pork safe');
+    // Vegetarian + soy + allium at the Protein Counter: no "is soy safe".
+    expect(chips([VEGETARIAN])).toContain('is soy safe');
+    expect(chips([VEGETARIAN, SOY, avoid('allium')])).not.toContain('is soy safe');
+    // Coeliac: no chip naming gluten.
+    expect(chips([VEGETARIAN])).toContain('is tempeh gluten free');
+    expect(chips([VEGETARIAN, COELIAC])).not.toContain('is tempeh gluten free');
+    // ❓ counts: a label-dependent item in a chip under any rule.
+    const sauce = { ...SPICE, faq: [{ q: ['can i use soy sauce'], a: 'Yes, a splash.' }] };
+    expect(faqFor(sauce, ctx([])).map((f) => f.q)).toEqual(['can i use soy sauce']);
+    expect(faqFor(sauce, ctx([avoid('peanut')]))).toEqual([]);
+  });
+});

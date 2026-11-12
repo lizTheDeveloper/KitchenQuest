@@ -87,6 +87,7 @@ describe('never safe (spec §2.2): nothing a stall shows is ⛔ or ❓', () => {
         for (const id of Object.keys(tips)) if (tipFor(file, id, ctx) !== null) expect(aloneOk(id, rules), `tip ${id}`).toBe(true);
         // FAQ: an answer that isn't the safety line names nothing that isn't ✅ alone.
         for (const f of faqFor(file, ctx)) {
+          for (const id of scan(f.q)) expect(aloneOk(id, rules), `faq chip ${f.q} names ${id}`).toBe(true);
           if (f.a === MEDICAL_LINE || f.a === ALLERGEN_LINE) continue;
           for (const id of scan(f.a)) expect(aloneOk(id, rules), `faq ${f.q} names ${id}`).toBe(true);
         }

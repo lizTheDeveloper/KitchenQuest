@@ -111,9 +111,10 @@ function safetyLine(stall: StallFile, side: { triggers: Record<string, StallTrig
 }
 
 /**
- * Ruling 21: each FAQ entry as its chip (`q[0]`) and the answer to show. When `a` names anything ⛔ or ❓ (no
- * substitutions), `a_if_blocked` (itself checked the same way), else the stall's generic safety line (`medical`; the
- * Spice Merchant's `allergen_note`). An entry with nothing safe to say is left out.
+ * Ruling 21: each FAQ entry as its chip (`q[0]`) and the answer to show. An entry whose chip names anything ⛔ or ❓
+ * (no substitutions) is left out (fix round 1, I1). When `a` names anything ⛔ or ❓, `a_if_blocked` (itself checked
+ * the same way), else the stall's generic safety line (`medical`; the Spice Merchant's `allergen_note`). An entry
+ * with nothing safe to say is left out.
  */
 export function faqFor(stall: StallFile, ctx: MarketCtx): { q: string; a: string }[] {
   const side = sideOf(stall, stallVariant(stall, ctx));
@@ -122,7 +123,8 @@ export function faqFor(stall: StallFile, ctx: MarketCtx): { q: string; a: string
   const out: { q: string; a: string }[] = [];
   for (const f of side.faq as readonly StallFaq[]) {
     const q = f.q[0];
-    if (typeof q !== 'string' || q.trim() === '') continue;
+    // The chip is shown text too (fix round 1, I1): a chip naming anything ⛔ or ❓ drops the whole entry.
+    if (typeof q !== 'string' || q.trim() === '' || !ok(q)) continue;
     const a = ok(f.a) ? f.a : f.a_if_blocked !== undefined && ok(f.a_if_blocked) ? f.a_if_blocked : fallback;
     if (a !== null) out.push({ q, a });
   }

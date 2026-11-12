@@ -88,8 +88,10 @@ export const BRAM: StallFile = {
         paneer: { pick: 'Firm and milky-white.', store: 'Fridge, in water, two days.' },
       },
       faq: [
-        { q: ['is tempeh fermented', 'tempeh'], a: 'Yes: tempeh is soybeans bound by a friendly mould.', a_if_blocked: 'Ask me about chickpeas instead: they keep for a year.' },
+        { q: ['what does fermenting do', 'fermented'], a: 'Yes: tempeh is soybeans bound by a friendly mould.', a_if_blocked: 'Ask me about chickpeas instead: they keep for a year.' },
         { q: ['how much protein do i need'], a: 'Enough, from a variety of foods.' },
+        { q: ['is soy safe'], a: 'For most people, yes: a legume eaten for centuries.' },
+        { q: ['is tempeh gluten free'], a: 'Plain tempeh is; flavoured ones vary, so read the label.' },
       ],
     },
   },
