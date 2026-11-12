@@ -4,6 +4,7 @@ import {
   clockForSlot,
   dropMealsMatchingRemovals,
   HARD_WEEK_PATTERN,
+  INJECTION_MARKER,
   normalizeName,
   planClauseHasHealth,
   normalizeTurn,
@@ -204,6 +205,26 @@ const mealDescription = (value: string | null, text: string): string | null => {
   return filterReply(v, { finish: 'stop' }).ok && !touchesHealth(v) ? v : null;
 };
 
+/** A leading list marker on a pasted line: "-", "*", "•", "·", or "1." / "1)". */
+const LIST_MARKER = /^\s*(?:[-*•·]|\d+[.)])\s+/;
+
+/**
+ * M6 Step 8 fix round 2 (controller ruling, code wins; S19): a model `dish` that is a multi-line pasted block keeps only
+ * the block's FIRST non-empty line, and only when that line is the player's verbatim text, holds no injection marker,
+ * and passes the output filter and the health screen (`mealString`, which the caller applies). A leading list marker
+ * is stripped only when what is left is still verbatim. The later lines are never used, so nothing pasted below the
+ * first line (an ingredient list, an injected note) can reach a card. Null when that line fails; a one-line value is
+ * returned as it is.
+ */
+function blockDish(value: string | null, text: string): string | null {
+  if (value === null || !/\n/.test(value)) return value;
+  const first = value.split('\n').map((l) => l.trim()).find((l) => l !== '');
+  if (first === undefined || INJECTION_MARKER.test(first)) return null;
+  const unmarked = first.replace(LIST_MARKER, '').trim();
+  const line = unmarked !== first && unmarked !== '' && mealString(unmarked, text) !== null ? unmarked : first;
+  return mealString(line, text) !== null ? line : null;
+}
+
 /** The graph or a rule term knows the term, so it is an ingredient name and no claim (fix round 5). */
 const knownTerm = (term: string, graph: IngredientGraph, ruleTerms: readonly RuleTerm[]): boolean =>
   graph.resolve(term) !== null || ruleTerms.some((t) => t.phrases.some((p) => forms(p).some((f) => forms(term).includes(f))));
@@ -339,7 +360,7 @@ export function applyPostChecks(
         // M4: a meal the player's text names (a pasted recipe counts: it is data, and the card asks).
         // R5: each free field must be the player's text and pass the screen, else it is dropped.
         const description = mealDescription(call.args.description, stripped);
-        const dish = mealString(call.args.dish, stripped);
+        const dish = mealString(blockDish(call.args.dish, stripped), stripped);
         if (description !== null || dish !== null) out.push({ name: 'propose_meal_log', args: { ...call.args, description, dish } });
         break;
       }

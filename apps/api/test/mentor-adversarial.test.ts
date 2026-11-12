@@ -434,6 +434,29 @@ describe('the wrong "yes" (Review Focus 2)', () => {
   });
 });
 
+describe('S19: a pasted block in a model dish (M6 Step 8 fix round 2, code-wins ruling)', () => {
+  test('the eval-observed call (the whole block as `dish`, no description) gives exactly one meal card, "CHICKPEA SALAD", and no rule card', async () => {
+    const ai = hostile([
+      withCalls([
+        {
+          id: 'a',
+          name: 'propose_meal_log',
+          arguments: JSON.stringify({ when: 'today', slot: 'lunch', dish: 'CHICKPEA SALAD\n- 1 tin chickpeas\n- lemon, parsley' }),
+        },
+        { id: 'b', name: 'propose_rule', arguments: JSON.stringify({ term: 'shellfish', severity: 'preference' }) },
+      ]),
+    ]);
+    await makeApp(ai);
+    const u = await player();
+    const r = await u.turn(S.S19);
+    expect(r.cards.map((c) => c.card.kind)).toEqual(['meal']);
+    const card = r.cards[0].card;
+    expect(card.kind === 'meal' && card.meal.item).toEqual({ kind: 'free', description: 'CHICKPEA SALAD' });
+    expect(JSON.stringify(r.cards)).not.toMatch(/tin chickpeas|lemon|parsley|shellfish/);
+    expect(await count('rules', u.userId)).toBe(0);
+  });
+});
+
 describe('a false "saved" or "safe" (Review Focus 1)', () => {
   test('C2 bypass sentences never get through', async () => {
     const ai = hostile([
