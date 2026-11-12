@@ -154,13 +154,13 @@ export function heardCheck(transcript: string, graph: IngredientGraph, terms: re
     }
     return null;
   };
-  const soundAt = (i: number): SoundAlike | undefined => (isStop(toks[i].word) ? undefined : ranked(toks[i].word)[0]);
+  const soundAt = (i: number): SoundAlike | undefined => (isStop(toks[i].word) ? undefined : ranked(toks[i].word).at(0));
   /** Two words heard for one food, when they win over what their words name alone. */
   const pairAt = (i: number, exact: { len: number; id: string } | null): boolean => {
     if (!health || i + 1 >= toks.length || toks[i + 1].broken) return false;
     const [a, b] = [toks[i].word, toks[i + 1].word];
     if (/\d/.test(a + b) || (isStop(a) && isStop(b))) return false;
-    const best = ranked(`${a} ${b}`)[0];
+    const best = ranked(`${a} ${b}`).at(0);
     // With a stop word in it ("all mond", "loop in"), only an exact sound counts: "my son" is not miso.
     if (best === undefined || ((isStop(a) || isStop(b)) && best.distance > 0)) return false;
     if (exact !== null) return exact.len === 1 && !isStop(a) && best.distance <= 0 && best.id !== exact.id;
@@ -214,7 +214,7 @@ export function applyHeardChoice(transcript: string, check: HeardCheck, choice: 
   const folded = foldConfusables(transcript);
   const spans: { start: number; end: number; name: string }[] = [];
   check.terms.forEach((term, i) => {
-    const k = choice[i];
+    const k = choice.at(i);
     if (k === null || k === undefined || !Number.isInteger(k) || k < 0 || k >= term.alternatives.length) return;
     const pattern = new RegExp(`(?<![\\p{L}\\p{N}])${term.heard.split(' ').map(escape).join('[^\\p{L}\\p{N}]+')}(?![\\p{L}\\p{N}])`, 'giu');
     for (const m of folded.matchAll(pattern)) spans.push({ start: m.index, end: m.index + m[0].length, name: term.alternatives[k].name });

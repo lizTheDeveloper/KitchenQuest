@@ -6,7 +6,7 @@ import type { ParsedRecipe } from '../recipe/types';
 /** Spelled letters: two or more single capitals joined by hyphens ("P-E-A-N-U-T"), as core `spell` writes them. */
 const SPELLED = /(?<![\p{L}\p{N}-])\p{Lu}(?:-\p{Lu})+(?![\p{L}\p{N}-])/gu;
 /** Emoji and their joiners, variation selectors, skin tones and keycaps. */
-const EMOJI = /[\p{Extended_Pictographic}\p{Regional_Indicator}\u{1F3FB}-\u{1F3FF}‍︎️⃣]/gu;
+const EMOJI = /\p{Extended_Pictographic}|\p{Regional_Indicator}|[\u{1F3FB}-\u{1F3FF}]|\u200D|\uFE0E|\uFE0F|\u20E3/gu;
 
 /**
  * Text as the Pan should say it: spelled letters spoken one by one ("P-E-A-N-U-T" → "P. E. A. N. U. T."), footnote

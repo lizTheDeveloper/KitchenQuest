@@ -31,8 +31,8 @@ export function parseUpstreamClientMsg(x: unknown): UpstreamClientMsg | null {
     case 'listen': {
       if (!hasExactKeys(x, ['t', 'id', 'hint']) || !isU32(x.id) || !Array.isArray(x.hint)) return null;
       const hint = x.hint as unknown[];
-      if (hint.length > HINT_MAX_WORDS || !hint.every((w) => isShortString(w, HINT_WORD_MAX))) return null;
-      return { t: 'listen', id: x.id, hint: [...(hint as string[])] };
+      if (hint.length > HINT_MAX_WORDS || !hint.every((w): w is string => isShortString(w, HINT_WORD_MAX))) return null;
+      return { t: 'listen', id: x.id, hint: [...hint] };
     }
     case 'end':
     case 'cancel':

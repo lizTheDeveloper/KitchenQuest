@@ -71,7 +71,7 @@ export function phoneticKey(word: string): string {
         else push('K');
         break;
       case 'h':
-        if (isVowel(next) && !'csptg'.includes(prev ?? '')) push('H');
+        if (isVowel(next) && !(i > 0 && 'csptg'.includes(prev))) push('H');
         break;
       case 'k':
         if (prev !== 'c') push('K');
