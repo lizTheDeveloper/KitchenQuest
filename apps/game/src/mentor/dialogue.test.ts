@@ -86,6 +86,8 @@ describe('dialogue engine', () => {
       examples: 'curry leaf or epazote',
       // M5 Step 9: reward lines (progress/announce.ts supplies each from the grant).
       level: '3', stamp: 'A Quest, Completed With Thanks', friend: 'Doña Marisol',
+      // M6 Step 5: the market's lines (Steps 8–10 supply these).
+      swap: 'shallot', category: 'Local, stored from the autumn harvest', stall: 'Old Wen',
     };
     for (const id of REQUIRED_PAN_TRIGGERS) expect(createDialogue(content.pan).say(id, sample).text, id).not.toMatch(/[{}]/);
   });

@@ -15,13 +15,14 @@ function deepFreeze<T>(value: T): T {
 }
 
 /** The whole bank or nothing: a module missing a stall, the table or its version is refused, never half-used. */
-function checked(market: MarketContent | undefined): MarketContent {
-  const stalls = market?.stalls as Record<string, unknown> | undefined;
-  const missing = STALL_IDS.filter((id) => id !== 'general' && (stalls === undefined || typeof stalls[id] !== 'object' || stalls[id] === null));
-  if (market === undefined || missing.length > 0 || typeof market.seasonality !== 'object' || market.seasonality === null || typeof market.version !== 'string') {
+function checked(module: unknown): MarketContent {
+  const m = (typeof module === 'object' && module !== null ? module : {}) as { stalls?: unknown; seasonality?: unknown; version?: unknown };
+  const stalls = (typeof m.stalls === 'object' && m.stalls !== null ? m.stalls : {}) as Record<string, unknown>;
+  const missing = STALL_IDS.filter((id) => id !== 'general' && (typeof stalls[id] !== 'object' || stalls[id] === null));
+  if (missing.length > 0 || typeof m.seasonality !== 'object' || m.seasonality === null || typeof m.version !== 'string') {
     throw new Error(`market content is incomplete${missing.length > 0 ? ` (missing ${missing.join(', ')})` : ''}`);
   }
-  return deepFreeze(market);
+  return deepFreeze(m as MarketContent);
 }
 
 /**

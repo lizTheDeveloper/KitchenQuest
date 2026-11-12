@@ -9,14 +9,14 @@ import { contentPaths, readContentFiles } from './content/read';
 const VIRTUAL_ID = 'virtual:kq-content';
 const RESOLVED_ID = `\0${VIRTUAL_ID}`;
 /** The lazy market module (M6 Step 5): only the market screens import it, through src/market/content.ts. */
-export const MARKET_VIRTUAL_ID = 'virtual:kq-market';
+const MARKET_VIRTUAL_ID = 'virtual:kq-market';
 const RESOLVED_MARKET_ID = `\0${MARKET_VIRTUAL_ID}`;
 
 /**
  * What the first-paint module carries: no stalls and no Season's Table (both are in `virtual:kq-market`), and no
  * ingredient provenance (`source`, `fdcId`: no screen reads them; M6 Step 4 ruling, first paint).
  */
-export function clientContent(content: GameContent): ClientContent {
+function clientContent(content: GameContent): ClientContent {
   const { stalls: _stalls, seasonality: _seasonality, ...client } = content;
   return {
     ...client,

@@ -54,7 +54,7 @@ const MONTH_KEY = /^(?:[1-9]|1[0-2])$/;
  * as Wen's option and as the Season's Table note. Words that count down, hurry or call something scarce are rejected,
  * matched as whole words on the normalised label; so is an exclamation mark. Out of season is "well-travelled".
  */
-// M6 Step 5: "not for long", "no longer", "almost", "nearly" added (a countdown said without a number).
+// M6 Step 5: "not for long", "no longer", "almost", "nearly" added (a deadline said without a number).
 const PRESSURE_WORDS = /\b(?:left|lasts?|hurry|rush|ends?|ending|gone|goes|only|limited|soon|fast|quick(?:ly)?|grab|miss|final|remaining|running out|before|scarce|rare|while|to go|days?|weeks?|hours?|(?:for|much|any|no) longer|for long|not long|last chance|almost|nearly)\b/;
 
 /** Lower-cased, accents removed, apostrophes (and the ʻokina) and full stops dropped, other punctuation a space, spaces collapsed. */
