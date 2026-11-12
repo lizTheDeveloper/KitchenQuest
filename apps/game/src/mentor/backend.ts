@@ -1,12 +1,7 @@
-import type { PanReply, TurnContext } from './reply';
+import type { MentorInput, PanReply, TurnContext } from './reply';
 import type { ScriptedEngine } from './scripted';
 
-/**
- * What the player said. M7 Step 6 (P9): typed text, or a speech-to-text transcript (untrusted user text, §7.6) with,
- * after a tap on its heard card, the words that tap confirmed (Ruling 4). Step 9's `transcriptTurn` runs the device's
- * heard check before any backend sees a transcript.
- */
-export type MentorInput = { kind: 'text'; text: string } | { kind: 'transcript'; text: string; heard?: { words: string[] } };
+export type { MentorInput } from './reply';
 export interface MentorBackend {
   readonly kind: 'scripted' | 'ai';
   reply(input: MentorInput, ctx: TurnContext): Promise<PanReply>;

@@ -562,12 +562,13 @@ export function mountMentorPanel(root: HTMLElement, opts: {
         case 'retry': {
           const btn = h('button', { type: 'button', class: 'btn btn-secondary pan-retry' }, 'Try again');
           const li = addLi('pan-item pan-retry-item', btn);
-          const text = item.text;
+          const { input } = item;
           btn.addEventListener('click', () => {
             if (pending) return;
             li.remove();
-            addBubble('you', text);
-            void reply({ kind: 'text', text });
+            addBubble('you', input.text);
+            // M7 I2: sent again unchanged (kind and heard words included), so a transcript meets the heard gate again.
+            void reply(input);
           });
           break;
         }

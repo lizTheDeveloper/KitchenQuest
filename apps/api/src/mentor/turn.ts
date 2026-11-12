@@ -142,11 +142,20 @@ const respond = (
   replyId: randomUUID(),
 });
 
+/** Replies kept nowhere, not even in `recentReplies` (fix round 1, M1). */
+const NOT_KEPT = new WeakSet<TurnResponse>();
+
 /**
- * M7 Step 6 (stage 3a): an answer that writes nothing: no `messages` row, no stored or in-memory history, no card. A
- * heard card or `voice.too_long` is this: the misheard words are never kept, not even as the player's message.
+ * M7 Step 6 (stage 3b): an answer that keeps nothing of what was said: no `messages` row, no stored or in-memory
+ * history, no card, no usage row and no `recentReplies` entry. A heard card or `voice.too_long` is this: the misheard
+ * words are never kept, not even as the player's message. Stage 1 has already opened the conversation and recorded the
+ * turn's `turnKey` (content-free; a retry with that key is a J2 repeat, so a confirmed retry needs a new key).
  */
-const respondNoStore = (conversationId: string, route: TurnResponse['route'], parts: ReplyPart[]): TurnResponse => respond(conversationId, route, parts);
+const respondNoStore = (conversationId: string, route: TurnResponse['route'], parts: ReplyPart[]): TurnResponse => {
+  const r = respond(conversationId, route, parts);
+  NOT_KEPT.add(r);
+  return r;
+};
 
 /** The player's message as stored (C-12): a transcript is marked `spoken`, inside the seal only (M7 Step 6). */
 const playerMessage = (text: string, req: TurnRequest): StoredMessage =>
@@ -683,7 +692,7 @@ function refusalParts(e: unknown): ReplyPart[] {
 }
 
 /**
- * Stage 3b: a plain "yes", "no" or "undo" (Step 8). Core's `shortReplyTarget`
+ * Stage 3a: a plain "yes", "no" or "undo" (Step 8). Core's `shortReplyTarget`
  * decides which card it means, as the client's engine does for local cards:
  * only a single card from the previous Pan turn, never a severe one for a
  * typed yes, never a guess between two. Returns null when the turn goes on
@@ -871,9 +880,13 @@ async function checkOffRoute(deps: TurnDeps, userId: string, raw: string, req: T
  */
 export async function runTurn(deps: TurnDeps, userId: string, req: TurnRequest, requestId: string): Promise<TurnResponse> {
   const now = deps.now();
+  // Fix round 1 (M2): the generation when the turn began; a forget, withdrawal or delete meanwhile drops the reply.
+  const gen = recentReplies.generation(userId);
   const r = await turnAt(deps, userId, req, requestId, now);
   // M7 Ruling 15: every reply is kept (its written lines, in memory only), so the voice route can speak it by id.
-  recentReplies.put(userId, r.replyId, r.parts, now.getTime());
+  // Fix round 1 (M1): except a gated turn's (`respondNoStore`): nothing of the misheard words is kept anywhere; the
+  // device speaks the heard card with the `heard` speak item, rendered from the socket's own transcript.
+  if (!NOT_KEPT.has(r)) recentReplies.put(userId, r.replyId, r.parts, now.getTime(), gen);
   return r;
 }
 
@@ -918,14 +931,15 @@ async function turnAt(deps: TurnDeps, userId: string, req: TurnRequest, requestI
   const fixed = preRoute(intent);
   if (fixed !== null) return respond(id, 'deterministic', [{ kind: 'line', line: fixed }]);
 
-  // 3b. A plain yes, no or undo answers a card through the write guard, before the consent gate (Step 8).
+  // 3a. A plain yes, no or undo answers a card through the write guard, before the consent gate (Step 8).
   const short = await shortReply(deps, userId, intent, opened, req, now, requestId);
   if (short !== null) return short;
 
-  // 3a. M7 Ruling 4 (§7.6): a transcript naming a food, a rule term or a sound-alike of one goes no further until a tap
+  // 3b. M7 Ruling 4 (§7.6): a transcript naming a food, a rule term or a sound-alike of one goes no further until a tap
   // on its heard card confirms exactly the words heard (`input.heard.words`). It runs on the raw transcript: core's
   // heard check strips page events from the whole text first and blocks (`tooLong`) past MAX_TEXT, never reading a cut
-  // text. A blocking check is refused and the player asked to type; it is never confirmed. Nothing is kept either way.
+  // text. A blocking check is refused and the player asked to type; it is never confirmed. Nothing of the words is kept
+  // either way (`respondNoStore`).
   if (req.input.kind === 'transcript') {
     const chk = heardCheck(raw, deps.catalog.graph, deps.catalog.ruleTerms);
     if (chk?.tooLong) return respondNoStore(id, 'deterministic', [line('voice.too_long')]);

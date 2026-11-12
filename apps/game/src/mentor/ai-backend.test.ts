@@ -148,11 +148,26 @@ describe('AI backend', () => {
     expect(turns(calls)).toHaveLength(2);
     expect(late).toHaveLength(1);
     expect(said(late[0])).toEqual(['ai.try_again']);
-    expect(late[0].items).toContainEqual({ kind: 'retry', text: 'My market day is Saturday.' });
+    expect(late[0].items).toContainEqual({ kind: 'retry', input: { kind: 'text', text: 'My market day is Saturday.' } });
     // Only once.
     await vi.advanceTimersByTimeAsync(RETRY_AFTER_MS * 3);
     expect(turns(calls)).toHaveLength(2);
     expect(writes.some((w) => w.includes('Saturday'))).toBe(false);
+  });
+
+  test('M7 Step 6 fix round 1 (I2): a failed transcript turn offers Try again with the whole transcript input, never as text', async () => {
+    const { backend, calls, late } = setup({ consents: BOTH, mentorTurn: () => fail(503) });
+    const input = { kind: 'transcript' as const, text: "I'm allergic to sesame", heard: { words: ['sesame'] } };
+    await backend.reply(input, ctx());
+    await vi.advanceTimersByTimeAsync(RETRY_AFTER_MS);
+    // The automatic retry resent the transcript unchanged.
+    expect(turns(calls).map((c) => (c.args[0] as TurnRequest).input)).toEqual([input, input]);
+    expect(late[0].items).toContainEqual({ kind: 'retry', input });
+    // An unconfirmed transcript stays one too: its Try again goes back to the server's heard gate.
+    const bare = setup({ consents: BOTH, mentorTurn: () => fail(503) });
+    await bare.backend.reply({ kind: 'transcript', text: 'got the shallots' }, ctx());
+    await vi.advanceTimersByTimeAsync(RETRY_AFTER_MS);
+    expect(bare.late[0].items).toContainEqual({ kind: 'retry', input: { kind: 'transcript', text: 'got the shallots' } });
   });
 
   test.each([[0, 'network'], [429, 'rate_limited'], [200, 'bad_response']])('status %i (%s) falls back to the script', async (status, code) => {

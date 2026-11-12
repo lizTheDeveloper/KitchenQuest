@@ -183,7 +183,12 @@ export function createAiBackend(deps: {
       return;
     }
     if (!r.ok && r.status === 401) { await unlessGone(refreshAccount(client, store)); return; }
-    emit({ items: [say('ai.try_again'), { kind: 'retry', text: req.input.text }], cards: [], intents: [], actions: [], notice: null });
+    // M7 I2: the whole input, never its text alone (a transcript re-sent as text would skip the server's heard gate).
+    const again: MentorInput =
+      req.input.kind === 'transcript'
+        ? { kind: 'transcript', text: req.input.text, ...(req.input.heard === undefined ? {} : { heard: { words: [...req.input.heard.words] } }) }
+        : { kind: 'text', text: req.input.text };
+    emit({ items: [say('ai.try_again'), { kind: 'retry', input: again }], cards: [], intents: [], actions: [], notice: null });
   }
 
   /**

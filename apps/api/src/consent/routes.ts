@@ -83,7 +83,7 @@ export async function consentRoutes(app: FastifyInstance): Promise<void> {
     // M7 Step 6: the Pan's recent replies (Ruling 15) go with it.
     if (purpose === 'health_data') {
       app.mentor.memory.delete(`${req.user.id}:`);
-      recentReplies.clear(req.user.id);
+      recentReplies.clear(req.user.id, at.getTime());
     }
     // M7 Step 5 fix round 1 (I1): a voice or health_data withdrawal closes every open voice socket of the player, so
     // nothing more is heard under the old consent (GDPR Art. 7(3)); a re-opened socket runs every check again.

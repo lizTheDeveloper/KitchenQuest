@@ -5,7 +5,7 @@ import type { ApiClient } from '../api/client';
 import { content, graph } from '../content';
 import { RULES_INVALID_MESSAGE } from '../recipes/rules';
 import { createStore, type PlayerState } from '../state/store';
-import type { MentorBackend } from './backend';
+import type { MentorBackend, MentorInput } from './backend';
 import { CLOSED_TEXT } from './cards-view';
 import { createDialogue } from './dialogue';
 import { DEVICE_ONLY_FOOTNOTE, MAX_BUBBLES, mountMentorPanel, NOT_SAVED_TEXT, REJECT_FAILED_TEXT, THINKING_TEXT, type MentorMode } from './panel';
@@ -389,15 +389,19 @@ describe('items', () => {
     expect(root.querySelector('.consent-card')).toBeNull();
   });
 
-  test('a retry item offers Try again, which sends the same text', async () => {
-    const texts: string[] = [];
-    const backend: MentorBackend = { kind: 'scripted', reply: (i) => { if (i.kind === 'text') texts.push(i.text); return Promise.resolve(reply(['ok'])); } };
+  test('a retry item offers Try again, which sends the same input unchanged (M7 I2: a transcript stays a transcript, heard words and all)', async () => {
+    const sent: MentorInput[] = [];
+    const backend: MentorBackend = { kind: 'scripted', reply: (i) => { sent.push(i); return Promise.resolve(reply(['ok'])); } };
     const { root, pan } = mount({ backend });
-    pan.show({ items: [{ kind: 'retry', text: 'my market day is Saturday' }], cards: [], intents: [], actions: [], notice: null });
+    pan.show({ items: [{ kind: 'retry', input: { kind: 'text', text: 'my market day is Saturday' } }], cards: [], intents: [], actions: [], notice: null });
     button(root, 'Try again')!.click();
     await flush();
-    expect(texts).toEqual(['my market day is Saturday']);
     expect(button(root, 'Try again')).toBeUndefined();
+    const spoken: MentorInput = { kind: 'transcript', text: "I'm allergic to sesame", heard: { words: ['sesame'] } };
+    pan.show({ items: [{ kind: 'retry', input: spoken }], cards: [], intents: [], actions: [], notice: null });
+    button(root, 'Try again')!.click();
+    await flush();
+    expect(sent).toEqual([{ kind: 'text', text: 'my market day is Saturday' }, spoken]);
   });
 
   test('a late reply from the backend is shown', () => {

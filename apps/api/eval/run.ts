@@ -1,6 +1,6 @@
 /**
  * The Pan's permanent eval (spec §7.6b.9, spike §6.10): the spike's 41 cases, M5's P01–P04, M6's M01–M07 and M7's
- * transcript cases V01–V05 (Ruling 18: a confirmed transcript carries its heard words, `turnInput`), REPS runs
+ * transcript cases V01–V05 and V02b (Ruling 18: a confirmed transcript carries its heard words, `turnInput`), REPS runs
  * each, through the real app and the real model on OpenRouter. Never part of `npm test`.
  *
  *   OPENROUTER_API_KEY=… AI_PROVIDERS=tenstorrent TEST_DATABASE_URL=… npm run eval:mentor -w @kitchenquest/api

@@ -170,7 +170,7 @@ export async function mentorRoutes(app: FastifyInstance, catalog: Catalog, state
         await audit(tx, { actorKind: 'user', actorId: userId, subjectUserId: userId, action: 'mentor.forget', target: 'conversations', requestId }, now());
       }
       // M7 Step 6: the Pan's recent replies go too (all of the user's: they are not kept per conversation).
-      recentReplies.clear(userId);
+      recentReplies.clear(userId, now().getTime());
       return n;
     });
 

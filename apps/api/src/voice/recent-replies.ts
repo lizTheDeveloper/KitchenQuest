@@ -21,9 +21,27 @@ function lineOf(part: ReplyPart): LineRef | null {
 
 class RecentReplies {
   private readonly byUser = new Map<string, Kept[]>();
+  /**
+   * Step 6 fix round 1 (M2): a clear wins. Each user's generation (and when it last moved) is bumped by `clear`; a turn
+   * reads it when it starts and its `put` carries it, so a reply from a turn that was in flight across a forget, a
+   * health_data withdrawal or an account delete is dropped. A generation is swept once RECENT_REPLY_TTL_MS has passed
+   * since its clear: any put still carrying an older one is from a turn that started before the clear, so its reply
+   * (kept at the turn's start time) has expired by then anyway.
+   */
+  private readonly gens = new Map<string, { gen: number; at: number }>();
+  private seq = 0;
 
-  /** Keeps the reply's written lines (copies); the oldest of the user's replies past RECENT_REPLIES is dropped. */
-  put(userId: string, replyId: string, parts: readonly ReplyPart[], nowMs: number = Date.now()): void {
+  /** The user's current generation: read at a turn's start and passed to `put`. */
+  generation(userId: string): number {
+    return this.gens.get(userId)?.gen ?? 0;
+  }
+
+  /**
+   * Keeps the reply's written lines (copies); the oldest of the user's replies past RECENT_REPLIES is dropped. A put
+   * whose `gen` is not the user's current generation (a clear came since the turn began) keeps nothing.
+   */
+  put(userId: string, replyId: string, parts: readonly ReplyPart[], nowMs: number = Date.now(), gen: number = this.generation(userId)): void {
+    if (gen !== this.generation(userId)) return;
     const list = (this.byUser.get(userId) ?? []).filter((k) => k.replyId !== replyId && nowMs - k.at < RECENT_REPLY_TTL_MS);
     list.push({ replyId, at: nowMs, lines: parts.map(lineOf) });
     while (list.length > RECENT_REPLIES) list.shift();
@@ -38,13 +56,15 @@ class RecentReplies {
     return ref === undefined || ref === null ? null : copyRef(ref);
   }
 
-  /** Forgets the user's replies (account delete, forget: Step 6). */
-  clear(userId: string): void {
+  /** Forgets the user's replies (account delete, forget, health_data withdrawal: Step 6) and moves their generation. */
+  clear(userId: string, nowMs: number = Date.now()): void {
     this.byUser.delete(userId);
+    this.gens.set(userId, { gen: ++this.seq, at: nowMs });
   }
 
   /** Drops expired replies (app.ts sweeps every minute). */
   sweep(nowMs: number): void {
+    for (const [userId, g] of [...this.gens]) if (nowMs - g.at >= RECENT_REPLY_TTL_MS) this.gens.delete(userId);
     for (const [userId, list] of [...this.byUser]) {
       const live = list.filter((k) => nowMs - k.at < RECENT_REPLY_TTL_MS);
       if (live.length === 0) this.byUser.delete(userId);
