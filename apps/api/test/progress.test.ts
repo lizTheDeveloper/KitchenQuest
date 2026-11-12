@@ -690,6 +690,20 @@ describe('boot validation (C10)', () => {
     expect(load).toThrow(join(dir, rel));
   });
 
+  it('refuses a stall id over 40 or a question id over 80 characters, the event caps (M6 Step 7, Task 6 review M2)', () => {
+    const long = `wen-${'x'.repeat(77)}`; // 81
+    edit('content/market/wen.yaml', /^  - id: wen-avocado-ripe$/m, `  - id: ${long}`);
+    expect(load).toThrow(new RegExp(`content/market/wen\\.yaml: .*question id "${long}" is longer than 80 characters`));
+    // 80 is still fine.
+    edit('content/market/wen.yaml', `  - id: ${long}`, `  - id: ${long.slice(0, 80)}`);
+    expect(load).not.toThrow();
+    const stall = 's'.repeat(41);
+    const text = readFileSync(join(dir, 'content/market/spice.yaml'), 'utf8');
+    rmSync(join(dir, 'content/market/spice.yaml'));
+    writeFileSync(join(dir, `content/market/${stall}.yaml`), text.replace(/^id: spice$/m, `id: ${stall}`));
+    expect(load).toThrow(new RegExp(`${stall}\\.yaml: stall id "${stall}" is longer than 40 characters`));
+  });
+
   it('refuses YAML that does not parse, naming the file', () => {
     writeFileSync(join(dir, 'content/frames/green-sauce.yaml'), 'id: [unclosed');
     expect(load).toThrow(join(dir, 'content/frames/green-sauce.yaml'));

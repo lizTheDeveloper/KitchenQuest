@@ -216,6 +216,9 @@ describe('progress snapshot (M6 Step 7, Ruling 18)', () => {
     expect(replay.duplicate).toEqual([tail[0].id]);
     expect(replay.accepted).toHaveLength(1);
     expect(replay.view).toEqual(deriveProgress(await loadFullHistory(db, config.keyring, p.id), c));
+    // A claim held only by an event in the base (the meal log's one event) is still a duplicate, read from the tables.
+    const again = { id: randomUUID(), kind: 'meal_logged', at: TODAY, minute: 800, mealLogId: p.mealId };
+    expect((await post(p.cookie, [again])).duplicate).toEqual([again.id]);
   });
 
   it('DELETE /meals/:id (cascade) drops the snapshot in the same transaction; the next read rebuilds; XP unchanged', async () => {
