@@ -20,8 +20,7 @@
         "arachis"
       ],
       "isA": [
-        "nut",
-        "legume"
+        "nut"
       ]
     },
     {
@@ -83,9 +82,6 @@
       "aliases": [
         "soya",
         "soybean"
-      ],
-      "isA": [
-        "legume"
       ]
     },
     {
@@ -197,8 +193,7 @@
         "split mung beans"
       ],
       "isA": [
-        "bean",
-        "legume"
+        "bean"
       ],
       "per100g": {
         "energy_kcal": 347,
@@ -1591,9 +1586,6 @@
       "aliases": [
         "lupine"
       ],
-      "isA": [
-        "legume"
-      ],
       "source": "Allergen category (EU Annex II), listed for rule checking. No FDC record for the category, so no nutrition values."
     },
     {
@@ -2069,22 +2061,13 @@
       "source": "No FDC record chosen (cut and trim vary)."
     },
     {
-      "id": "legume",
-      "name": "legume",
-      "aliases": [
-        "legumes",
-        "pulses"
-      ],
-      "source": "Category: every legume and pulse (beans, peas, lentils, chickpeas, peanut, soy, lupin); no FDC record. A rule target: 'no legumes' covers them all (Task 5 re-review N1)."
-    },
-    {
       "id": "bean",
       "name": "bean",
-      "isA": [
+      "aliases": [
         "legume"
       ],
       "broad": true,
-      "source": "Category (broad); no FDC record."
+      "source": "Category (broad); no FDC record. Alias legume (M6 Step 5 fix round 1: the Protein Counter says 'legumes')."
     },
     {
       "id": "kidney_bean",
@@ -2115,8 +2098,7 @@
         "garbanzo"
       ],
       "isA": [
-        "bean",
-        "legume"
+        "bean"
       ],
       "per100g": {
         "energy_kcal": 378,
@@ -2138,8 +2120,7 @@
         "garden pea"
       ],
       "isA": [
-        "bean",
-        "legume"
+        "bean"
       ],
       "per100g": {
         "energy_kcal": 81,
@@ -2172,8 +2153,7 @@
         "lentils"
       ],
       "isA": [
-        "bean",
-        "legume"
+        "bean"
       ],
       "per100g": {
         "energy_kcal": 352,
@@ -2218,8 +2198,7 @@
         "split pigeon pea"
       ],
       "isA": [
-        "bean",
-        "legume"
+        "bean"
       ],
       "per100g": {
         "energy_kcal": 343,

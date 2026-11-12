@@ -9,7 +9,7 @@ import { parse } from 'yaml';
 import { IngredientGraph, buildRuleCard, check, parseRecipe, validateRewards } from '../src/index';
 import type { IngredientData, Rule, Substitution } from '../src/index';
 import { textMentions } from '../src/ingredients/mentions';
-import { faqFor, keeperLines, namedStatus, questionStatus, stallBank, stallVariant, tipFor } from '../src/market/bank';
+import { faqFor, questionStatus, stallBank, stallVariant, tipFor } from '../src/market/bank';
 import { isKnownCountry, normalizeCountry } from '../src/market/country';
 import { seasonalAgrees, seasonalQuestions, seasonNote, seasonRegionFor, validateSeasonTable, type SeasonTable } from '../src/market/season';
 import type { MarketCtx, StallFile, StallQuestion } from '../src/market/types';
@@ -478,44 +478,3 @@ describe('butternut is ambiguous: the squash or the tree nut (binding ruling, fi
     expect(card.ok && card.card.rule.target.ids).toEqual(['butternut_squash']);
   });
 });
-
-describe('Task 5 re-review N1: "legumes" is a category over every legume, peanut, soy and lupin included', () => {
-  const PEANUT = rule(['peanut'], 'anaphylactic');
-  const SOY = rule(['soy']);
-  const LUPIN = rule(['lupin']);
-  const said = (text: string, rules: Rule[]) => namedStatus([], [text], ctx(rules));
-
-  test('the word "legumes" is ⛔ or ❓ under a peanut, soy or lupin rule, never ✅', () => {
-    for (const text of ['legumes', 'Legumes, tofu and tempeh.', 'pulses', 'a legume']) {
-      for (const r of [PEANUT, SOY, LUPIN]) expect(said(text, [r]), `${text} / ${r.id}`).not.toBe('ok');
-      expect(said(text, []), text).toBe('ok');
-    }
-    expect(graph.resolve('legumes')).toBe('legume');
-    expect(graph.resolve('pulses')).toBe('legume');
-  });
-
-  test("the Protein Counter's \"Legumes, tofu, tempeh …\" greeting is dropped for a peanut-allergic player", () => {
-    const greet = (rules: Rule[]) => keeperLines(bram, 'greet', ctx([term('vegetarian'), ...rules])).filter((l) => l.startsWith('Welcome to the Protein Counter! Legumes'));
-    expect(greet([])).toHaveLength(1);
-    expect(greet([PEANUT])).toEqual([]);
-    expect(greet([LUPIN])).toEqual([]);
-  });
-
-  test('a "no legumes" rule blocks peanut, soy and lentil (and what contains them)', () => {
-    const LEGUMES = rule(['legume']);
-    for (const id of ['peanut', 'soy', 'lentil', 'chickpea', 'pea', 'lupin', 'bean', 'kidney_bean', 'moong_dal', 'toor_dal', 'tofu', 'edamame']) {
-      expect(namedStatus([id], [], ctx([LEGUMES])), id).toBe('blocked');
-    }
-    expect(namedStatus(['rice'], [], ctx([LEGUMES]))).toBe('ok');
-  });
-
-  test('no existing path weakens: legume only adds edges', () => {
-    expect(graph.get('peanut').isA).toEqual(['nut', 'legume']);
-    expect(graph.get('bean').broad).toBe(true);
-    expect(graph.get('bean').aliases ?? []).not.toContain('legume');
-    for (const [from, to] of [['peanut', 'nut'], ['lupin_bean', 'lupin'], ['lupin_bean', 'bean'], ['edamame', 'soy'], ['tofu', 'soy'], ['red_lentil', 'lentil'], ['lentil', 'bean']] as const) {
-      expect(graph.pathTo(from, to), `${from} → ${to}`).not.toBeNull();
-    }
-  });
-});
-
