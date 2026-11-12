@@ -63,8 +63,11 @@ function clausesOf(text: string): { clauses: Clause[]; masked: string } | null {
   let joiner = false;
   for (const m of s.matchAll(CUT)) {
     pieces.push({ joiner, text: s.slice(pos, m.index) });
-    const word = m[2] ?? m[3];
-    joiner = word === undefined ? /^,+$/.test(m[1] ?? '') : word === 'and' && (m[1] === undefined || /^,+$/.test(m[1]));
+    // Groups that did not take part are undefined at run time (the types say string).
+    const punct = m.at(1);
+    const word = m.at(2) ?? m.at(3);
+    const commaOnly = punct === undefined || /^,+$/.test(punct);
+    joiner = word === undefined ? punct !== undefined && commaOnly : word === 'and' && commaOnly;
     pos = m.index + m[0].length;
   }
   pieces.push({ joiner, text: s.slice(pos) });

@@ -151,7 +151,7 @@ describe('the closed grammar: ticks at once, with an Undo (C31)', () => {
         { name: 'shallots', addedOn: TODAY, source: 'market' },
         { name: 'white onion', addedOn: TODAY, source: 'market' },
       ]);
-      if (ai !== null) expect((ai as ReturnType<typeof fakeAi>).requests).toHaveLength(0);
+      if (ai !== null) expect(ai.requests).toHaveLength(0);
       await app.close();
     }
   });
