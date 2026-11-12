@@ -138,7 +138,7 @@ async function wenRounds(page: Page, where: Where) {
   await expect.poll(async () => (await where.events(page)).filter((e) => e.kind === 'stall_round' && e.at === TODAY).length).toBe(1);
   const round = (await where.events(page)).find((e) => e.kind === 'stall_round' && e.at === TODAY) as Extract<ProgressEvent, { kind: 'stall_round' }>;
   expect(round.answers).toEqual([{ q: q1, pick: rightPick(q1) }, { q: q2, pick: wrongPick(q2) }]);
-  await expect.poll(async () => (await where.grants(page)).length - before).toBe(2);
+  await expect.poll(async () => (await where.grants(page)).length - before, { timeout: 15_000 }).toBe(2);
   const earned = (await where.grants(page)).slice(before);
   expect(earned.map((g) => (g.kind === 'xp' ? `xp ${g.amount} ${g.reason}` : g.kind === 'stamp' ? `stamp ${g.stamp}` : g.kind))).toEqual(['xp 5 market_game', 'stamp market_game']);
   await expect.poll(async () => (await toasts(page)).filter((t) => stampLine(t, 'Old Wen')).length).toBe(1);
@@ -151,7 +151,8 @@ async function wenRounds(page: Page, where: Where) {
   expect(seen).toContain(q2);
   expect(await bodyText(page)).not.toMatch(LOSS);
   await expect.poll(async () => (await where.events(page)).filter((e) => e.kind === 'stall_round' && e.at === TODAY).length).toBe(2);
-  expect((await where.grants(page)).length - before).toBe(2);
+  // Signed in, the account's grants are the server's once it answers (M9: no wall-clock wait, poll the store).
+  await expect.poll(async () => (await where.grants(page)).length - before, { timeout: 15_000 }).toBe(2);
   await page.evaluate(() => new Promise((r) => { requestAnimationFrame(() => { r(null); }); }));
   expect((await toasts(page)).filter((t) => stampLine(t, 'Old Wen'))).toHaveLength(1);
   expect((await toasts(page)).join(' ')).not.toMatch(LOSS);
@@ -214,6 +215,11 @@ async function rulesChange(page: Page, where: Where, addRule: (rule: object) => 
   const grants = await where.grants(page);
   const events = (await where.events(page)).length;
   const before = await view();
+  // What was bought so far: the ticked rows (the stall-swap row is ticked when taken).
+  await go(page, '#/market');
+  await page.locator('.market-tick').first().waitFor();
+  const bought = await page.locator('.market-tick:checked').evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.key!));
+  expect(bought).toContain('stock:onion');
   await addRule(COCONUT);
   await go(page, '#/plan');
   await page.locator(`.plan-item[data-slug="${PARIPPU}"][data-status="blocked"]`).waitFor();
@@ -225,7 +231,8 @@ async function rulesChange(page: Page, where: Where, addRule: (rule: object) => 
   // Parippu's unticked rows are gone (M5 C20); its ticked rows and the stall-swap row stay, as bought.
   const rows = await page.locator('.market-row').evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.key));
   // Its out-of-stock shallots row goes with them (C23); the onion taken in its place stays.
-  expect(rows.sort()).toEqual(['garlic', 'moong_dal', 'mustard_seed', 'stock:onion'].sort());
+  expect(rows.sort()).toEqual(bought.sort());
+  expect(rows.length).toBeLessThan(10);
   // Nothing earned is taken back.
   expect(await where.grants(page)).toEqual(grants);
   expect((await where.events(page)).length).toBe(events);
@@ -291,6 +298,141 @@ async function proteinCounter(page: Page, addRule: (rule: object) => Promise<voi
   }
 }
 
+// ---- Signed in, the AI on: a small stateful fake of the API (mocked /api/** only; the server's decisions are mocked
+// the way Steps 6–8 make them: a grant for a first right answer and one stamp a stall a week, the run recomputed under
+// the rules, the grammar card applied at once, a model card only on its tap). ----
+
+/** Parippu's rows on the server's run, for 3 servings (the device computes the same list). */
+const RUN_ROWS = (): ListItem[] => [
+  ['curry_leaf_sprig', 'curry leaf sprig', 'wen', '1'], ['garlic', 'garlic clove', 'wen', '1'], ['grated_coconut', 'grated coconut', 'wen', '60 g'],
+  ['green_chili', 'green chillies', 'wen', '2'], ['shallot', 'shallots', 'wen', '3'], ['moong_dal', 'split moong dal', 'okafor-sato', '100 g'],
+  ['cumin_seed', 'cumin seeds', 'spice', '0.5 tsp'], ['dried_red_chili', 'dried red chillies', 'spice', '2'], ['mustard_seed', 'mustard seeds', 'spice', '0.5 tsp'],
+  ['turmeric', 'turmeric', 'spice', '0.25 tsp'], ['coconut_oil', 'coconut oil', 'general', '1 tbsp'], ['ghee', 'ghee', 'general', '1 tsp'],
+  ['pappadam', 'pappadam', 'general', '3'], ['salt', 'salt', 'general', '0.75 tsp'],
+].map(([key, name, stall, text]) => {
+  const [q, unit] = text.split(' ');
+  return { key, name, ingredientId: key, stall: stall as ListItem['stall'], forDishes: [PARIPPU], ticked: false, amounts: [{ quantity: Number(q), unit: unit ?? null, text }] };
+});
+
+interface ServerFake {
+  rules: (object & { id: string })[]; profile: { country: string | null; region: string | null };
+  run: MarketRunView; view: ProgressView; posted: ProgressEvent[]; granted: RewardGrant[]; calls: string[];
+}
+function newServer(): ServerFake {
+  const marketAnswered = Object.fromEntries(stalls.wen.questions.map((q) => [q.id, { correct: true, lastAt: '2026-10-19' }]));
+  return {
+    rules: [], profile: { country: PNW.country, region: PNW.region }, posted: [], granted: [], calls: [],
+    run: { id: 'run1', weekStart: MONDAY, doneAt: null, items: RUN_ROWS() },
+    view: { xp: 0, level: 1, stamps: 0, trust: {}, toolkit: { techniques: {} }, questsDone: [], questSteps: {}, questStartedOn: {}, cookedOn: {}, framesCookedOn: {}, marketAnswered },
+  };
+}
+const blocksCoconut = (f: ServerFake) => f.rules.some((r) => JSON.stringify(r).includes('"coconut"'));
+/** The server's recompute (C20, C23): under a rule that blocks parippu, only its ticked and stall-swap rows stay. */
+function recomputed(f: ServerFake): MarketRunView {
+  if (f.run.doneAt === null && blocksCoconut(f)) f.run.items = f.run.items.filter((i) => i.ticked || i.stockSwap !== undefined);
+  return f.run;
+}
+const inHalfAnHour = () => new Date(Date.now() + 30 * 60_000).toISOString();
+const line = (trigger: string, vars: Record<string, string> = {}) => ({ kind: 'line', line: { trigger, vars } });
+
+async function serverApi(page: Page, f: ServerFake): Promise<void> {
+  const consents = {
+    consents: ['health_data', 'ai_health'].map((purpose) => ({ purpose, noticeVersion: purpose === 'health_data' ? 'v3' : 'v1', noticeSha256: 'x', method: 'tap', grantedAt: '2026-11-01T00:00:00Z', withdrawnAt: null, endedReason: null, current: true })),
+    needsReconsent: [], notices: {},
+  };
+  const grantCheckOff = (keys: string[], source: 'grammar' | 'model', id: string) => {
+    const card = buildCheckOffCard(f.run, keys, [], source)!;
+    return { proposalId: id, expiresAt: inHalfAnHour(), card };
+  };
+  const tick = (key: string) => { const row = f.run.items.find((i) => i.key === key); if (row) row.ticked = true; };
+  await page.route((u) => u.pathname.startsWith('/api/'), async (route: Route) => {
+    const req = route.request();
+    const path = new URL(req.url()).pathname.replace(/^\/api/, '');
+    const m = req.method();
+    f.calls.push(`${m} ${path}`);
+    const body = () => req.postDataJSON() as Record<string, unknown>;
+    if (path === '/me') return route.fulfill(json(200, { id: 'u1', email: 'cook@example.com', entitlements: [] }));
+    if (path === '/me/consents') return route.fulfill(json(200, consents));
+    if (path === '/profile') return route.fulfill(json(200, { marketDays: [], mealsPerWeek: null, ...f.profile, mealWindows: [] }));
+    if (path === '/rules') return route.fulfill(json(200, { rules: f.rules }));
+    if (path === '/pantry') return route.fulfill(json(200, { items: [] }));
+    if (path === '/progress') return route.fulfill(json(200, { view: f.view }));
+    if (path === '/progress/events') {
+      const { events } = body() as { events: ProgressEvent[] };
+      const accepted = events.map((e) => {
+        f.posted.push(e);
+        const grants: RewardGrant[] = [];
+        if (e.kind === 'stall_round') {
+          let n = 0;
+          for (const a of e.answers) {
+            const correct = a.pick === rightPick(a.q);
+            const was = f.view.marketAnswered[a.q]?.correct === true;
+            f.view.marketAnswered[a.q] = { correct: was || correct, lastAt: e.at };
+            if (correct && !was) { grants.push({ id: `${e.id}#${n++}`, eventId: e.id, isoDay: e.at, kind: 'xp', amount: 5, reason: 'market_game' }); f.view.xp += 5; }
+          }
+          const stamped = f.posted.some((p) => p !== e && p.kind === 'stall_round' && p.stall === e.stall && p.at >= MONDAY);
+          if (!stamped) { grants.push({ id: `${e.id}#${n++}`, eventId: e.id, isoDay: e.at, kind: 'stamp', stamp: 'market_game' }); f.view.stamps += 1; }
+        }
+        f.granted.push(...grants);
+        return { clientId: e.id, grants };
+      });
+      return route.fulfill(json(200, { accepted, duplicate: [], rejected: [], warnings: [], view: f.view }));
+    }
+    if (path === '/plans/current') {
+      const plan = { weekStart: MONDAY, items: [{ day: 6, kind: 'dish', slug: PARIPPU, servings: 3 }], hard: false, slot: 'unanswered', id: 'plan1' };
+      return route.fulfill(json(200, { plan, weekStart: MONDAY, checks: [{ item: plan.items[0], status: blocksCoconut(f) ? 'blocked' : 'ok', findings: [] }] }));
+    }
+    if (path === '/market-runs/current') return route.fulfill(json(200, { run: recomputed(f) }));
+    if (path === '/market-runs') return route.fulfill(json(200, recomputed(f)));
+    if (path === '/market-runs/run1/ticks') {
+      const b = body() as { key: string; ticked: boolean };
+      f.run.items.find((i) => i.key === b.key)!.ticked = b.ticked;
+      return route.fulfill(json(200, f.run));
+    }
+    if (path === '/market-runs/run1/stock') {
+      const b = body() as { key: string; action: string; toId?: string };
+      const row = f.run.items.find((i) => i.key === b.key)!;
+      if (b.action === 'out') { row.outOfStock = true; row.ticked = false; }
+      if (b.action === 'take' && b.key === 'shallot' && b.toId === 'onion') {
+        row.outOfStock = true; row.ticked = false;
+        f.run.items.splice(f.run.items.indexOf(row), 0, { key: 'stock:onion', name: 'onion', ingredientId: 'onion', stall: 'wen', forDishes: [PARIPPU], stockSwap: { from: 'shallot' }, ticked: true });
+      } else if (b.action === 'take') return route.fulfill(json(400, { error: { code: 'stock_invalid', message: 'x' } }));
+      return route.fulfill(json(200, f.run));
+    }
+    if (path === '/market-runs/run1/finish') { f.run.doneAt ??= NOW.toISOString(); return route.fulfill(json(200, f.run)); }
+    if (path === '/mentor/turn') {
+      const text = ((body().input as { text?: string }).text ?? '').toLowerCase();
+      if (text === 'got the moong dal') {
+        // The closed grammar's card (C30, C31): applied at once by the server, with an Undo.
+        tick('moong_dal');
+        const c = grantCheckOff(['moong_dal'], 'grammar', 'P1');
+        return route.fulfill(json(200, {
+          conversationId: 'c1', route: 'deterministic', notice: null, toolTurn: false,
+          parts: [line('market.checkoff_readback', { summary: c.card.summary }), line('market.ticked_pantry', { items: 'split moong dal' })],
+          cards: [c],
+          actions: [{ kind: 'confirmed', proposalId: 'P1', trail: { id: 'P1', origin: 'server', kind: 'check_off', summary: '1 ticked', undoUntil: new Date(Date.now() + UNDO_WINDOW_MS).toISOString() } }],
+        }));
+      }
+      if (text === 'no fennel') {
+        return route.fulfill(json(200, { conversationId: 'c1', route: 'scripted', notice: null, toolTurn: false, parts: [line('rule.ask_keep_off')], cards: [], actions: [] }));
+      }
+      // The model's propose_check_off: a card that ticks nothing until the tap.
+      const c = grantCheckOff(['green_chili'], 'model', 'P2');
+      return route.fulfill(json(200, { conversationId: 'c1', route: 'ai', notice: null, toolTurn: true, parts: c.card.readback.map((l) => ({ kind: 'line', line: l })), cards: [c], actions: [] }));
+    }
+    if (path === '/mentor/proposals/P2/confirm') {
+      tick('green_chili');
+      return route.fulfill(json(200, {
+        trail: { id: 'P2', origin: 'server', kind: 'check_off', summary: '1 ticked', undoUntil: new Date(Date.now() + UNDO_WINDOW_MS).toISOString() },
+        parts: [line('market.ticked_pantry', { items: 'green chillies' })],
+      }));
+    }
+    return route.fulfill(json(404, { error: { code: 'not_found', message: `no mock for ${m} ${path}` } }));
+  });
+}
+/** Signed in, the server decides (§2.1): what it was sent and what it granted. */
+const onServer = (f: ServerFake): Where => ({ events: async () => f.posted, grants: async () => f.granted });
+
 const CANVAS = [{ width: 400, canvas: false }, { width: 1280, canvas: true }] as const;
 const noCanvas = (on: boolean) => async (page: Page) => { if (!on) await page.route('**/assets/phaser-*.js', (r) => r.abort()); };
 const canvasErrors = (errors: string[], canvas: boolean) => errors.filter((e) => canvas || e !== 'Failed to load resource: net::ERR_FAILED');
@@ -321,4 +463,116 @@ describe('a market week (M6 Step 11)', () => {
       expect(canvasErrors(app.consoleErrors, canvas)).toEqual([]);
     });
   }
+
+  for (const { width, canvas } of CANVAS) {
+    it(`signed in, AI on (${width} px, canvas ${canvas ? 'on' : 'off'}): the whole week, with mocked turns and a model card that waits for its tap`, async () => {
+      const f = newServer();
+      app = await openApp('/#/stalls', {
+        reducedMotion: true, width, seed: SEED(true, { progress: { events: [], grants: [], base: null, pendingUpload: [] }, localProfile: null }),
+        beforeGoto: async (page) => { await page.clock.install({ time: NOW }); await page.clock.resume(); await noCanvas(canvas)(page); await serverApi(page, f); },
+      });
+      const { page } = app;
+      await expect.poll(async () => (await stored(page)).account ?? null).not.toBeNull();
+      if (canvas) await page.waitForFunction(() => (window as unknown as { __kqScene?: string | null }).__kqScene === 'Market');
+      await wenRounds(page, onServer(f));
+      expect(f.posted.filter((e) => e.kind === 'stall_round')).toHaveLength(2);
+      await theList(page);
+      const tickedOnServer = async (_p: Page, key: string) => f.run.items.find((i) => i.key === key)?.ticked;
+      await checkOffByGrammar(page, tickedOnServer);
+      // A model-proposed check-off card (Ruling 14): nothing ticks before the tap.
+      await page.locator('#pan-button').click();
+      await tell(page, 'I grabbed some of those green chilli things');
+      const modelCard = page.locator('.pan-checkoff-card').last();
+      await page.waitForFunction(() => [...document.querySelectorAll<HTMLElement>('.pan-checkoff-card')].at(-1)?.dataset.state === 'pending');
+      expect(f.calls.filter((c) => c.includes('/confirm'))).toEqual([]);
+      expect(f.run.items.find((i) => i.key === 'green_chili')?.ticked).toBe(false);
+      await modelCard.getByRole('button', { name: 'Tick these' }).click();
+      await page.waitForFunction(() => [...document.querySelectorAll<HTMLElement>('.pan-checkoff-card')].at(-1)?.dataset.state === 'applied');
+      expect(f.calls.filter((c) => c.includes('/confirm'))).toEqual(['POST /mentor/proposals/P2/confirm']);
+      expect(f.run.items.find((i) => i.key === 'green_chili')?.ticked).toBe(true);
+      await page.keyboard.press('Escape');
+      await cookLabel(page);
+      const addRule = async (rule: object) => { f.rules.push({ ...rule, id: `s${f.rules.length + 1}` }); await page.reload(); };
+      const view = async () => (await page.evaluate(() => fetch('/api/progress').then((r) => r.json() as Promise<{ view: ProgressView }>))).view;
+      await rulesChange(page, onServer(f), addRule, view);
+      await moveToKerala(page, async () => { f.profile = { country: KERALA.country, region: KERALA.region }; await page.reload(); });
+      await proteinCounter(page, addRule);
+      // The region never left the device in a URL (P-5), and no stall answer did either.
+      expect(f.calls.filter((c) => /washington|kerala|wen-|bram-|pick=/i.test(c))).toEqual([]);
+      expect(canvasErrors(app.consoleErrors, canvas)).toEqual([]);
+    });
+  }
+});
+
+describe('regional honesty and no gating (M6 Step 11)', () => {
+  /** Seven profiles; only the Pacific Northwest one has a calendar (Ruling 9: no default region, no fallback). */
+  const PROFILES: [string, LocalProfile | null][] = [
+    ['no profile', null],
+    ['UK', { ...PNW, country: 'United Kingdom', region: null }],
+    ['Kerala, India', KERALA],
+    ['Oaxaca, Mexico', { ...PNW, country: 'Mexico', region: 'Oaxaca' }],
+    ['Lagos, Nigeria', { ...PNW, country: 'Nigeria', region: 'Lagos' }],
+    ['Melbourne, Australia', { ...PNW, country: 'Australia', region: 'Melbourne' }],
+    // "Washington" alone could be DC: core gives null on ambiguity (Step 2 I2), so it gets no calendar either.
+    ['Washington (ambiguous), USA', { ...PNW, region: 'Washington' }],
+    ['Washington State, USA', PNW],
+  ];
+  const usScoped = new Set(stalls.bram.questions.filter((q) => (q.countries ?? []).length > 0).map((q) => q.id));
+
+  it('only the Washington State, USA profile gets seasonal content; US label questions only for US profiles', async () => {
+    app = await openApp('/#/stalls', {
+      reducedMotion: true, width: 400, seed: SEED(false),
+      beforeGoto: async (page) => { await page.clock.install({ time: NOW }); await page.clock.resume(); },
+    });
+    const { page } = app;
+    for (const [label, profile] of PROFILES) {
+      await patch(page, { localProfile: profile });
+      await page.reload();
+      await go(page, '#/stalls');
+      const pnw = label === 'Washington State, USA';
+      const us = profile?.country === 'United States';
+      // The hub names Wen's seasonal game only where there is a calendar.
+      await page.locator('.stall-button-games', { hasText: /\S/ }).first().waitFor();
+      expect((await page.locator('.stall-button[data-stall="wen"] .stall-button-games').textContent()) ?? '', label).toMatch(pnw ? /Seasonal or well-travelled\?/ : /^(?!.*Seasonal)/);
+      // Wen, with every base question solved: the round is seasonal only for the Pacific Northwest.
+      await openStall(page, 'wen');
+      expect((await currentQ(page))?.startsWith('wen-pnw-'), label).toBe(pnw);
+      const notes = await page.locator('.stall-note').allTextContents();
+      expect(notes.filter((n) => lineOf('market.no_calendar').includes(n)), `${label}: no_calendar`).toHaveLength(pnw ? 0 : 1);
+      const text = await bodyText(page);
+      if (!pnw) for (const w of PNW_WORDS) expect(text, `${label}: ${w}`).not.toContain(w);
+      // Bram's first round: a US-scoped label question only for a US profile.
+      await openStall(page, 'bram');
+      const seen = await playThrough(page, () => 'right');
+      expect(seen.some((id) => usScoped.has(id)), `${label}: ${seen.join(',')}`).toBe(us);
+    }
+  });
+
+  it('with every stall unvisited, the list ticks every row, finishes and lists everything; Cook stays enabled beside the drill-first hint', async () => {
+    app = await openApp('/#/market', {
+      reducedMotion: true, width: 400, seed: SEED(false, { progress: { events: [], grants: [], base: null, pendingUpload: [] } }),
+      beforeGoto: async (page) => { await page.clock.install({ time: NOW }); await page.clock.resume(); },
+    });
+    const { page } = app;
+    await page.locator('.market-tick').first().waitFor();
+    const keys = await page.locator('.market-tick').evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.key!));
+    expect(keys.sort()).toEqual(RUN_ROWS().map((r) => r.key).sort());
+    for (const key of keys) {
+      await page.locator(`.market-tick[data-key="${key}"]`).click();
+      await page.locator(`.market-tick[data-key="${key}"]:checked`).waitFor();
+    }
+    await shopDone(page);
+    expect((await stored(page)).localWeek.runs[0].items.every((i) => i.ticked)).toBe(true);
+    expect((await page.locator('.market-row').evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.key!))).sort()).toEqual(keys.sort());
+    // No stall was visited, and nothing waited on one.
+    expect((await stored(page)).progress.events.filter((e) => e.kind === 'stall_round')).toEqual([]);
+    await go(page, `#/recipe/${PARIPPU}`);
+    await page.locator('.drill-first').waitFor();
+    expect(await page.locator('.cook-button').isDisabled()).toBe(false);
+    await go(page, `#/cook/${PARIPPU}`);
+    await page.locator('.cook-head .drill-first').waitFor();
+    expect(await page.getByRole('button', { name: /Next step/ }).isDisabled()).toBe(false);
+    // (An errand that completes after a wrong stall answer: market-day.e2e.test.ts, Marisol's black_bean errand.)
+    expect(app.consoleErrors).toEqual([]);
+  });
 });
