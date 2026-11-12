@@ -38,6 +38,11 @@ entries:
   - { group: non_word, said: "No nuts for me, I'm allergic", saidId: nut, heard: "No nots for me, I'm allergic", heardWord: nots, source: synthetic }
   - { group: non_word, said: "I can't eat nuts", saidId: nut, heard: "I can't eat nots", heardWord: nots, holdout: true, source: synthetic }
   - { group: non_word, said: "Allergic to celery and mustard", saidId: mustard, heard: "Allergic to salary and mustered", heardWord: mustered, source: synthetic }
+  # Fix round 2 (N2): a short word right after the trigger, sounding exactly like an allergen.
+  - { group: non_word, said: "I'm allergic to soy", saidId: soy, heard: "I'm allergic to so", heardWord: so, source: synthetic }
+  - { group: non_word, said: "I can't eat soy", saidId: soy, heard: "I can't eat so", heardWord: so, source: synthetic }
+  - { group: non_word, said: "Allergic to soy and milk", saidId: soy, heard: "Allergic to so and milk", heardWord: so, source: synthetic }
+  - { group: non_word, said: "I'm intolerant to whey", saidId: whey, heard: "I'm intolerant to we", heardWord: we, holdout: true, source: synthetic }
 
   # One food heard as two words.
   - { group: split, said: "I'm allergic to pecans", saidId: pecan, heard: "I'm allergic to pea cans", heardWord: pea cans, source: synthetic }

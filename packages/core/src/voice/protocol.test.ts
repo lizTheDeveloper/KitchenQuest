@@ -142,7 +142,7 @@ describe('the mentor protocol carries voice (M7)', () => {
     const bare: TurnRequest['input'] = { kind: 'transcript', text: 'next step' };
     // @ts-expect-error: heard words travel only with a transcript
     const wrong: TurnRequest['input'] = { kind: 'text', text: 'hi', heard: { words: [] } };
-    const part: ReplyPart = { kind: 'heard', check: { tooLong: false, terms: [{ heard: 'selfish', spelled: 'S-E-L-F-I-S-H', id: null, alternatives: [] }], speakSpelling: true } };
+    const part: ReplyPart = { kind: 'heard', check: { tooLong: false, terms: [{ heard: 'selfish', spelled: 'S-E-L-F-I-S-H', id: null, at: [2], alternatives: [] }], speakSpelling: true } };
     // @ts-expect-error: every response carries a replyId (M7, Ruling 15)
     const noId: TurnResponse = { conversationId: null, route: 'scripted', parts: [], cards: [], actions: [], notice: null, toolTurn: false };
     const withId: TurnResponse = { ...noId, replyId: 'r-1' };
@@ -168,6 +168,10 @@ describe('fix round 1: transcripts are bounded, never truncated (I2)', () => {
       { kind: 'text', text: 'x'.repeat(MAX_TEXT + 1) },
       { kind: 'transcript', text: '' },
       { kind: 'transcript', text: '   ' },
+      // fix round 2 (N6): blank once whitespace and zero-width characters are trimmed
+      { kind: 'text', text: String.fromCharCode(0x200b) },
+      { kind: 'transcript', text: ` ${String.fromCharCode(0x200b, 0x2060, 0xfeff)} ` },
+      { kind: 'transcript', text: 'a', heard: { words: [String.fromCharCode(0x200b)] } },
       { kind: 'text', text: 'hi', heard: { words: [] } },
       { kind: 'transcript', text: 'a', heard: { words: ['x'.repeat(MAX_TEXT + 1)] } },
       { kind: 'transcript', text: 'a', heard: { words: Array.from({ length: MAX_TEXT + 1 }, () => 'a') } },

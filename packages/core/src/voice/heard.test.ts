@@ -8,6 +8,7 @@ import { MAX_TEXT } from '../mentor/intents';
 import { severityFromText } from '../mentor/parse';
 import { isMajorAllergen } from '../mentor/route';
 import type { RuleTerm } from '../mentor/rule-terms';
+import { spell } from '../mentor/spell';
 import { MAX_ALTERNATIVES } from './constants';
 import { applyHeardChoice, hasHealthWording, heardCheck, heardConfirmed, STOP_WORDS, tryHeardChoice, type HeardCheck } from './heard';
 import { editDistance, phoneticKey } from './phonetic';
@@ -15,6 +16,8 @@ import { editDistance, phoneticKey } from './phonetic';
 const graph = IngredientGraph.fromData(ingredients);
 const terms = ruleTerms as RuleTerm[];
 const check = (text: string) => heardCheck(text, graph, terms);
+const tryChoice = (text: string, chk: HeardCheck, choice: readonly (number | null)[]) => tryHeardChoice(text, chk, choice, graph);
+const applyChoice = (text: string, chk: HeardCheck, choice: readonly (number | null)[]) => applyHeardChoice(text, chk, choice, graph);
 const altIds = (text: string, heard: string) => check(text)!.terms.find((t) => t.heard === heard)!.alternatives.map((a) => a.id);
 
 describe('heardCheck', () => {
@@ -79,16 +82,16 @@ describe('applyHeardChoice and heardConfirmed', () => {
     const chk = check(text)!;
     expect(chk.terms.map((t) => t.heard)).toEqual(['selfish', 'rice']);
     const shell = chk.terms[0].alternatives.findIndex((a) => a.id === 'shellfish');
-    expect(applyHeardChoice(text, chk, [shell, null])).toBe('Allergic to shellfish and rice, thanks');
-    expect(applyHeardChoice(text, chk, [null, null])).toBe(text);
-    expect(applyHeardChoice(text, chk, [])).toBe(text);
+    expect(applyChoice(text, chk, [shell, null])).toBe('Allergic to shellfish and rice, thanks');
+    expect(applyChoice(text, chk, [null, null])).toBe(text);
+    expect(applyChoice(text, chk, [])).toBe(text);
     const rye = chk.terms[1].alternatives.findIndex((a) => a.id === 'rye');
-    expect(applyHeardChoice(text, chk, [null, rye])).toBe('Allergic to Selfish and rye, thanks');
+    expect(applyChoice(text, chk, [null, rye])).toBe('Allergic to Selfish and rye, thanks');
     // an out-of-range choice changes nothing
-    expect(applyHeardChoice(text, chk, [99, -1])).toBe(text);
+    expect(applyChoice(text, chk, [99, -1])).toBe(text);
     // a word inside another word is never touched
     const rices = 'allergic to rice, not ricecakes';
-    expect(applyHeardChoice(rices, check(rices)!, [check(rices)!.terms[0].alternatives.findIndex((a) => a.id === 'rye')])).toBe('allergic to rye, not ricecakes');
+    expect(applyChoice(rices, check(rices)!, [check(rices)!.terms[0].alternatives.findIndex((a) => a.id === 'rye')])).toBe('allergic to rye, not ricecakes');
 
     expect(heardConfirmed(chk, ['selfish', 'rice'])).toBe(true);
     expect(heardConfirmed(chk, ['rice', 'selfish'])).toBe(false);
@@ -103,7 +106,7 @@ describe('applyHeardChoice and heardConfirmed', () => {
   test('after a choice, the new text checks to the chosen food', () => {
     const text = 'allergic to selfish';
     const chk = check(text)!;
-    const fixed = applyHeardChoice(text, chk, [chk.terms[0].alternatives.findIndex((a) => a.id === 'shellfish')]);
+    const fixed = applyChoice(text, chk, [chk.terms[0].alternatives.findIndex((a) => a.id === 'shellfish')]);
     expect(check(fixed)!.terms.map((t) => [t.heard, t.id])).toEqual([['shellfish', 'shellfish']]);
   });
 });
@@ -134,9 +137,11 @@ describe('fix round 1: allergen-shaped stop words (I1)', () => {
       .filter((a) => a.id === 'bean' || isMajorAllergen(a.id, graph));
     let tried = 0;
     for (const w of STOP_WORDS) {
-      if ([...w].length < 3 || /[^a-z]/.test(w) || hasHealthWording(w)) continue;
+      // Fix round 2 (N2): no skip for short words or health words. Words of 1–2 letters count on an exact allergen
+      // sound in the term position (right after "allergic to"), which is where this sentence puts them.
+      if (/[^a-z]/.test(w)) continue;
       const k = phoneticKey(w);
-      const near = allergens.filter((a) => a.key.length > 0 && (editDistance(k, a.key) === 0 || (w.length >= 4 && Math.min(k.length, a.key.length) > 1 && editDistance(k, a.key) === 1)));
+      const near = allergens.filter((a) => a.key.length > 0 && (editDistance(k, a.key) === 0 || ([...w].length >= 4 && Math.min(k.length, a.key.length) > 1 && editDistance(k, a.key) === 1)));
       if (near.length === 0) continue;
       tried++;
       const t = check(`I'm allergic to ${w}`)?.terms.find((x) => x.heard === w);
@@ -149,6 +154,7 @@ describe('fix round 1: allergen-shaped stop words (I1)', () => {
   });
 
   test('without health wording a stop word never gets a card', () => {
+    void hasHealthWording;
     for (const t of ['what now', 'not yet', 'say that again', 'wait a moment']) expect(check(t), t).toBeNull();
   });
 });
@@ -199,16 +205,16 @@ describe('fix round 1: severity is never lowered by a heard choice (I3)', () => 
       tooLong: false,
       speakSpelling: true,
       terms: [
-        { heard: 'selfish', spelled: 'S-E-L-F-I-S-H', id: null, alternatives: [{ id: 'shellfish', name: 'shellfish', spelled: 'S-H-E-L-L-F-I-S-H' }] },
-        { heard: 'epipen', spelled: 'E-P-I-P-E-N', id: null, alternatives: [{ id: 'apple', name: 'apple', spelled: 'A-P-P-L-E' }] },
+        { heard: 'selfish', spelled: 'S-E-L-F-I-S-H', id: null, at: [4], alternatives: [{ id: 'shellfish', name: 'shellfish', spelled: 'S-H-E-L-L-F-I-S-H' }] },
+        { heard: 'epipen', spelled: 'E-P-I-P-E-N', id: null, at: [8], alternatives: [{ id: 'apple', name: 'apple', spelled: 'A-P-P-L-E' }] },
       ],
     };
-    expect(tryHeardChoice(text, forged, [null, 0])).toEqual({ ok: false, reason: 'severity_lowered', text });
-    expect(applyHeardChoice(text, forged, [null, 0])).toBe(text);
+    expect(tryChoice(text, forged, [null, 0])).toEqual({ ok: false, reason: 'severity_lowered', text });
+    expect(applyChoice(text, forged, [null, 0])).toBe(text);
     // the same choice set with only the safe swap is applied
-    expect(tryHeardChoice(text, forged, [0, null])).toEqual({ ok: true, text: "I'm allergic to shellfish, I carry an epipen" });
+    expect(tryChoice(text, forged, [0, null])).toEqual({ ok: true, text: "I'm allergic to shellfish, I carry an epipen" });
     // both together: rejected as a whole
-    expect(tryHeardChoice(text, forged, [0, 0]).ok).toBe(false);
+    expect(tryChoice(text, forged, [0, 0]).ok).toBe(false);
   });
 
   test('every choice on every fixture-like transcript keeps severity at or above the original', () => {
@@ -218,7 +224,7 @@ describe('fix round 1: severity is never lowered by a heard choice (I3)', () => 
       chk.terms.forEach((t, i) =>
         t.alternatives.forEach((_, k) => {
           const choice = chk.terms.map((_, j) => (j === i ? k : null));
-          const r = tryHeardChoice(text, chk, choice);
+          const r = tryChoice(text, chk, choice);
           if (r.ok) expect(rank(severityFromText(r.text, graph)), `${text} / ${t.heard}→${k}`).toBeGreaterThanOrEqual(rank(severityFromText(text, graph)));
         }),
       );
@@ -237,13 +243,153 @@ describe('fix round 1: a choice applies to the text the check read (M1)', () => 
     const chk = check(text)!;
     const k = chk.terms[0].alternatives.findIndex((a) => a.id === id);
     expect(k).toBeGreaterThanOrEqual(0);
-    const r = tryHeardChoice(text, chk, [k]);
+    const r = tryChoice(text, chk, [k]);
     expect(r).toEqual({ ok: true, text: want });
     expect(check(r.text)!.terms.map((t) => t.id)).toEqual([id]);
   });
 
   test('a choice that matches nothing is reported, not silently dropped', () => {
     const chk = check('allergic to selfish')!;
-    expect(tryHeardChoice('allergic to something else', chk, [0])).toEqual({ ok: false, reason: 'not_applied', text: 'allergic to something else' });
+    expect(tryChoice('allergic to something else', chk, [0])).toEqual({ ok: false, reason: 'not_applied', text: 'allergic to something else' });
+  });
+});
+
+// Fix round 2 (review-task1-fix1.md N1–N6).
+describe('fix round 2: the severity guard reads severity as production does (N1)', () => {
+  const sev = (s: string | null) => (s === null ? 0 : ['preference', 'intolerance', 'allergy', 'anaphylactic'].indexOf(s) + 1);
+  const at = (heard: string, index: number, alt: { id: string; name: string }): HeardCheck => ({
+    tooLong: false,
+    speakSpelling: true,
+    terms: [{ heard, spelled: spell(heard), id: null, at: [index], alternatives: [{ ...alt, spelled: spell(alt.name) }] }],
+  });
+
+  test('intolerance and preference: a choice that drops them is refused', () => {
+    // tokens: i m intolerant to milk → milk is token 4; i don t like egg → egg is token 4
+    expect(tryChoice("I'm intolerant to milk", at('milk', 4, { id: 'term:coeliac', name: 'coeliac' }), [0]).ok).toBe(false);
+    expect(tryChoice("I don't like egg", at('egg', 4, { id: 'term:vegetarian', name: 'vegetarian' }), [0])).toEqual({ ok: false, reason: 'severity_lowered', text: "I don't like egg" });
+    expect(tryChoice("I'm intolerant to bean and milk", at('bean and', 4, { id: 'peanut', name: 'peanut' }), [0]).ok).toBe(false);
+    // a swap that keeps the level is applied
+    expect(tryChoice("I'm intolerant to milk", at('milk', 4, { id: 'egg', name: 'egg' }), [0])).toEqual({ ok: true, text: "I'm intolerant to egg" });
+  });
+
+  test('the graph is required', () => {
+    const chk = check("I'm allergic to selfish")!;
+    // @ts-expect-error: the guard needs the graph (N1)
+    expect(() => tryHeardChoice("I'm allergic to selfish", chk, [0])).toThrow();
+  });
+
+  test('sweep: across allergy, anaphylaxis, intolerance and preference templates and graph foods, 0 accepted choices lower severity', () => {
+    const templates = [
+      "I'm allergic to X",
+      "I'm allergic to X, I carry an epipen",
+      "I'm intolerant to X",
+      "I'm intolerant to X and milk",
+      "I don't like X",
+      'X makes me bloated, I avoid it',
+    ];
+    const labels = graph.labels().filter((_, i) => i % 3 === 0);
+    let tried = 0;
+    let lowered = 0;
+    const levels = new Set<number>();
+    for (const tpl of templates)
+      for (const label of labels) {
+        const text = tpl.replace('X', label);
+        const before = sev(severityFromText(text, graph));
+        levels.add(before);
+        const chk = check(text);
+        if (chk === null || chk.tooLong) continue;
+        chk.terms.forEach((t, i) =>
+          t.alternatives.forEach((_, k) => {
+            tried++;
+            const r = tryChoice(text, chk, chk.terms.map((_, j) => (j === i ? k : null)));
+            if (r.ok && sev(severityFromText(r.text, graph)) < before) lowered++;
+          }),
+        );
+      }
+    expect(levels).toEqual(new Set([1, 2, 3, 4]));
+    expect(tried).toBeGreaterThan(1000);
+    expect(lowered).toBe(0);
+  });
+});
+
+describe('fix round 2: allergen sound-alikes inside health wording and short words (N2)', () => {
+  test.each([
+    ["I'm allergic to dietary", 'dietary', 'milk'],
+    ["I'm allergic to ate", 'ate', 'oats'],
+    ["I can't eat ate", 'ate', 'oats'],
+    ["I'm allergic to so", 'so', 'soy'],
+    ["can't eat so", 'so', 'soy'],
+    ['allergic to so and milk', 'so', 'soy'],
+    ["I'm allergic to it.", 'it', 'oats'],
+    ['allergic to ok', 'ok', 'egg'],
+  ])('"%s" → a card for "%s" offering %s', (text, heard, allergen) => {
+    const t = check(text)?.terms.find((x) => x.heard === heard);
+    expect(t, JSON.stringify(check(text)?.terms.map((x) => x.heard))).toBeDefined();
+    expect(t!.alternatives.map((a) => a.id)).toContain(allergen);
+  });
+
+  test('a short word counts only in the term position: right after the trigger, then the end, a break, "and" or "or"', () => {
+    for (const text of ['so I am allergic to sesame', "I'm allergic to it because of the sauce", 'allergic to sesame so far']) {
+      const heard = check(text)!.terms.map((t) => t.heard);
+      expect(heard, text).not.toContain('so');
+      expect(heard, text).not.toContain('it');
+    }
+  });
+
+  test('the trigger words themselves stay out: "I can\'t eat sesame" is still one term', () => {
+    expect(check("I can't eat sesame")!.terms.map((t) => t.heard)).toEqual(['sesame']);
+    expect(check("I'm allergic to sesame")!.terms.map((t) => t.heard)).toEqual(['sesame']);
+  });
+});
+
+describe('fix round 2: a choice rewrites only its own occurrences (N3)', () => {
+  test('"kill" the term is rewritten; "kill me" the severity cue is not', () => {
+    const text = "I'm allergic to kill, it could kill me";
+    const chk = check(text)!;
+    const t = chk.terms.findIndex((x) => x.heard === 'kill');
+    expect(t).toBeGreaterThanOrEqual(0);
+    const k = chk.terms[t].alternatives.findIndex((a) => graph.has(a.id));
+    const r = tryChoice(text, chk, chk.terms.map((_, j) => (j === t ? k : null)));
+    expect(r).toEqual({ ok: true, text: `I'm allergic to ${chk.terms[t].alternatives[k].name}, it could kill me` });
+  });
+
+  test('every occurrence the check made a term is rewritten; a position whose words differ is not_applied', () => {
+    const text = 'allergic to selfish, yes selfish';
+    const chk = check(text)!;
+    expect(chk.terms[0].at).toEqual([2, 5]);
+    expect(tryChoice(text, chk, [0])).toEqual({ ok: true, text: 'allergic to shellfish, yes shellfish' });
+    expect(tryChoice('allergic to sesame, yes selfish', chk, [0]).ok).toBe(false);
+  });
+});
+
+describe('fix round 2: the guard and the cap measure the same normal text (N4)', () => {
+  test('whitespace padding that keeps the normal form under the cap is still guarded', () => {
+    const text = `I'm allergic to selfish,${' '.repeat(480)} I carry an epipen`;
+    const forged: HeardCheck = {
+      tooLong: false,
+      speakSpelling: true,
+      terms: [{ heard: 'epipen', spelled: 'E-P-I-P-E-N', id: null, at: [8], alternatives: [{ id: 'apple', name: 'apple', spelled: 'A-P-P-L-E' }] }],
+    };
+    expect(tryChoice(text, forged, [0])).toEqual({ ok: false, reason: 'severity_lowered', text });
+  });
+
+  test('a normal form over MAX_TEXT is refused as too_long, even with a check that says otherwise', () => {
+    const text = `${'and then we stirred the pot '.repeat(20)}allergic to selfish`;
+    const forged: HeardCheck = { tooLong: false, speakSpelling: true, terms: [{ heard: 'selfish', spelled: 'S-E-L-F-I-S-H', id: null, at: [122], alternatives: [{ id: 'shellfish', name: 'shellfish', spelled: 'S-H-E-L-L-F-I-S-H' }] }] };
+    expect(tryChoice(text, forged, [0])).toEqual({ ok: false, reason: 'too_long', text });
+  });
+});
+
+describe('fix round 2: cook chatter without health wording gets no card (N5)', () => {
+  test.each(["what's for dinner", 'what should I make for lunch', 'what did I have for lunch yesterday', 'I had toast for lunch', 'what is for supper tonight', 'any snacks left'])(
+    '"%s" → null',
+    (text) => {
+      expect(check(text)).toBeNull();
+    },
+  );
+
+  test('a named food in chatter still gets a card, without spoken spelling; I1 still holds under health wording', () => {
+    expect(check('I had peanuts for lunch')).toMatchObject({ speakSpelling: false, terms: [{ heard: 'peanuts', id: 'peanut' }] });
+    expect(check("what's for dinner, I'm allergic to what")!.terms.map((t) => t.heard)).toContain('what');
   });
 });
