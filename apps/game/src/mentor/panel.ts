@@ -697,7 +697,7 @@ export function mountMentorPanel(root: HTMLElement, opts: {
       if (talk.getAttribute('aria-pressed') !== 'true') return;
       talk.setAttribute('aria-pressed', 'false');
       talk.textContent = 'Hold to talk';
-      void reply({ kind: 'voice' });
+      // M7 Step 6: the talk control sends nothing until Step 9 wires the voice controller (no voice.not_yet any more).
     };
     talk.addEventListener('pointerdown', press);
     talk.addEventListener('pointerup', release);

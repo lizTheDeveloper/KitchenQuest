@@ -1,5 +1,5 @@
 // Fix round 1 (M3, M4): the voice module's public surface is exactly the Step 1 interface, re-exported by core.
-// M7 Step 5 (carry 1) adds the close codes of both protocols.
+// M7 Step 5 (carry 1) adds the close codes of both protocols; Step 6 the heard card's shared line (`heardLine`).
 import { expect, test } from 'vitest';
 import * as engine from '../engine';
 import * as core from '../index';
@@ -12,7 +12,7 @@ const INTERFACE = [
   // protocols
   'VOICE_PROTOCOL_VERSION', 'VOICE_CLOSE_CODES', 'voiceCloseReason', 'UPSTREAM_CLOSE', 'UPSTREAM_REFUSAL', 'upstreamClose', 'upstreamRefusal', 'encodeFrame', 'decodeFrame', 'parseClientMsg', 'parseServerMsg', 'parseTurnInput', 'parseUpstreamClientMsg', 'parseUpstreamServerMsg',
   // heard check
-  'phoneticKey', 'KNOWN_CONFUSIONS', 'soundAlikes', 'heardCheck', 'applyHeardChoice', 'tryHeardChoice', 'heardConfirmed', 'isRuleTermId',
+  'phoneticKey', 'KNOWN_CONFUSIONS', 'soundAlikes', 'heardCheck', 'applyHeardChoice', 'tryHeardChoice', 'heardConfirmed', 'isRuleTermId', 'heardLine', 'HEARD_CHECK_TRIGGER', 'HEARD_CHECK_SPELLED_TRIGGER',
   // speech, commands, filler
   'speechText', 'speechChunks', 'stepSpeech', 'cookCommand', 'fillerFor',
 ];

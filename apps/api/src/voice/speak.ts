@@ -5,16 +5,17 @@
 import {
   check,
   heardCheck,
+  heardLine,
+  HEARD_CHECK_SPELLED_TRIGGER,
+  HEARD_CHECK_TRIGGER,
   planWeekStart,
   stockSwapsFor,
-  listWords,
   MAX_SPEAK_CHARS,
   MAX_SPEAK_ITEMS,
   SPEAK_VAR_MAX,
   speechChunks,
   speechText,
   stepSpeech,
-  type HeardCheck,
   type IngredientGraph,
   type LineRef,
   type RuleTerm,
@@ -49,16 +50,14 @@ export function isSpeakable(x: unknown): x is SpeakableText {
 
 const CHECK_SCREEN = 'voice.check_screen';
 const STEP_ON_SCREEN = 'voice.step_on_screen';
-const HEARD_CHECK = 'voice.heard_check';
-const HEARD_CHECK_SPELLED = 'voice.heard_check_spelled';
 const TOO_LONG = 'voice.too_long';
 /** Every trigger renderSpeak says itself, each with its variables: the voice route checks the bank has them at boot. */
 export const SPOKEN_TRIGGERS: Readonly<Record<string, readonly string[]>> = {
   [CHECK_SCREEN]: [],
   [STEP_ON_SCREEN]: [],
   [TOO_LONG]: [],
-  [HEARD_CHECK]: ['terms'],
-  [HEARD_CHECK_SPELLED]: ['spelled', 'terms'],
+  [HEARD_CHECK_TRIGGER]: ['terms'],
+  [HEARD_CHECK_SPELLED_TRIGGER]: ['spelled', 'terms'],
 };
 
 export interface SpeakContext {
@@ -112,13 +111,6 @@ function fixed(bank: PanBank, trigger: string): Piece {
   return { text, cache: true };
 }
 
-/** The heard card's spoken half, from this socket's own transcript (§7.6b.2: the spelling comes from code). */
-function heardLine(check: HeardCheck): LineRef {
-  const terms = listWords(check.terms.map((t) => t.heard));
-  if (!check.speakSpelling) return { trigger: HEARD_CHECK, vars: { terms } };
-  return { trigger: HEARD_CHECK_SPELLED, vars: { terms, spelled: check.terms.map((t) => t.spelled).join(', ') } };
-}
-
 async function piecesOf(item: SpeakItem, ctx: SpeakContext): Promise<Piece[] | null> {
   const { bank } = ctx;
   switch (item.kind) {
@@ -151,6 +143,7 @@ async function piecesOf(item: SpeakItem, ctx: SpeakContext): Promise<Piece[] | n
       if (check === null) return null;
       // Contract (core heard-types.ts, N7): tooLong first. It was not read: refuse, and ask the player to type.
       if (check.tooLong) return [fixed(bank, TOO_LONG)];
+      // The heard card's line from core (shared with the mentor turn's heard part, §7.6b.2: spelled by code).
       const p = refPiece(bank, heardLine(check));
       return p === null ? null : [p];
     }

@@ -7,7 +7,7 @@ import type { ApiClient } from '../api/client';
 import type { ApiResult, ConsentPurpose, Consents } from '../api/types';
 import { localDate } from '../recipes/rules';
 import type { PlayerStore } from '../state/store';
-import type { MentorBackend } from './backend';
+import type { MentorBackend, MentorInput } from './backend';
 import type { Dialogue } from './dialogue';
 import type { PanItem, PanReply, ServerCardView, TurnContext } from './reply';
 import type { ScriptedEngine } from './scripted';
@@ -190,10 +190,15 @@ export function createAiBackend(deps: {
    * A new player turn: its own `turnKey` (J2), which its automatic retry reuses (the same request), so the server
    * processes it once. `answering` names the one server card a plain yes or no answers (I-1).
    */
-  const request = (text: string, answering?: string): TurnRequest => {
+  const request = (input: MentorInput, answering?: string): TurnRequest => {
     const now = deps.now();
+    // M7 Step 6 (P9): a transcript goes as `input.kind: 'transcript'`, with the words its heard card's tap confirmed.
+    const sent: TurnRequest['input'] =
+      input.kind === 'transcript'
+        ? { kind: 'transcript', text: input.text, ...(input.heard === undefined ? {} : { heard: { words: [...input.heard.words] } }) }
+        : { kind: 'text', text: input.text };
     return {
-      conversationId: conversation.id, input: { kind: 'text', text }, localDate: localDate(now), localTime: hhmm(now), screen: deps.screen(), intakeStep: deps.intakeStep(),
+      conversationId: conversation.id, input: sent, localDate: localDate(now), localTime: hhmm(now), screen: deps.screen(), intakeStep: deps.intakeStep(),
       ...(answering === undefined ? {} : { answering }), turnKey: crypto.randomUUID(),
     };
   };
@@ -203,10 +208,11 @@ export function createAiBackend(deps: {
     ctx.intakeStep === 'allergies' || ctx.openCards.some((c) => c.card.kind === 'rule' || c.card.kind === 'meal') ||
     isHealthText(stripped, deps.graph, deps.ruleTerms);
 
-  async function send(text: string, ctx: TurnContext, answering?: string): Promise<PanReply> {
+  async function send(input: MentorInput, ctx: TurnContext, answering?: string): Promise<PanReply> {
+    const { text } = input;
     // Turned off (or the account switched) while this turn waited its place: the script answers and nothing is sent (G5).
     if (isDisposed()) return engine.reply(text, ctx);
-    const req = request(text, answering);
+    const req = request(input, answering);
     const gen = conversation.gen;
     const r = await unlessGone(client.mentorTurn(req));
     if (r === 'gone') return engine.reply(text, ctx);
@@ -223,8 +229,9 @@ export function createAiBackend(deps: {
     return scripted;
   }
 
-  /** A text turn, in its place in the queue. */
-  async function answer(text: string, ctx: TurnContext): Promise<PanReply> {
+  /** A text or transcript turn, in its place in the queue. */
+  async function answer(input: MentorInput, ctx: TurnContext): Promise<PanReply> {
+    const { text } = input;
     // Released by a dispose: the script answers, nothing is asked of the server.
     if (isDisposed()) return engine.reply(text, ctx);
     const stripped = stripPageEvents(text).text.trim();
@@ -237,12 +244,12 @@ export function createAiBackend(deps: {
       if (recent.length > 0 && ctx.openCards.length > 1) return lines('confirm.tap_card');
       const [one] = recent;
       if (recent.length !== 1 || one.origin === 'local') return engine.reply(text, ctx);
-      return send(text, ctx, one.proposalId);
+      return send(input, ctx, one.proposalId);
     }
     // A plain undo goes by the newest live trail entry (pre-flight C36).
     if (intent === 'undo') {
       const newest = ctx.trail.at(-1);
-      return newest?.origin === 'server' ? send(text, ctx) : engine.reply(text, ctx);
+      return newest?.origin === 'server' ? send(input, ctx) : engine.reply(text, ctx);
     }
     if (isHealthTurn(stripped, ctx)) {
       const ok = await hasAiHealth();
@@ -250,7 +257,7 @@ export function createAiBackend(deps: {
       if (ok === 'gone') return engine.reply(text, ctx);
       if (!ok) return offerAiHealth(await engine.reply(text, ctx));
     }
-    return send(text, ctx);
+    return send(input, ctx);
   }
 
   return {
@@ -267,17 +274,14 @@ export function createAiBackend(deps: {
       return () => { listeners.delete(fn); };
     },
     reply(input, ctx) {
-      if (input.kind === 'voice') return Promise.resolve(lines('voice.not_yet'));
-      const { text } = input;
-      return serial(() => answer(text, ctx));
+      return serial(() => answer(input, ctx));
     },
     deliver(input, ctx) {
       // Queued now, in arrival order; the reply is never shown, only its conversation id is kept.
       serial(async () => {
-        const { text } = input;
-        if (isHealthTurn(stripPageEvents(text).text.trim(), ctx) && (await hasAiHealth()) !== true) return;
+        if (isHealthTurn(stripPageEvents(input.text).text.trim(), ctx) && (await hasAiHealth()) !== true) return;
         if (isDisposed()) return;
-        const req = request(text);
+        const req = request(input);
         const gen = conversation.gen;
         const r = await unlessGone(client.mentorTurn(req));
         if (r !== 'gone' && !isDisposed() && r.ok && isTurnResponse(r.data)) keepId(gen, r.data.conversationId);

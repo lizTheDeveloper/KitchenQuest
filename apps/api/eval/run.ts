@@ -1,5 +1,6 @@
 /**
- * The Pan's permanent eval (spec §7.6b.9, spike §6.10): the spike's 41 cases, M5's P01–P04 and M6's M01–M07, REPS runs
+ * The Pan's permanent eval (spec §7.6b.9, spike §6.10): the spike's 41 cases, M5's P01–P04, M6's M01–M07 and M7's
+ * transcript cases V01–V05 (Ruling 18: a confirmed transcript carries its heard words, `turnInput`), REPS runs
  * each, through the real app and the real model on OpenRouter. Never part of `npm test`.
  *
  *   OPENROUTER_API_KEY=… AI_PROVIDERS=tenstorrent TEST_DATABASE_URL=… npm run eval:mentor -w @kitchenquest/api
@@ -30,7 +31,7 @@ import { MENTOR_TOOLS } from '../src/mentor/tools.js';
 import { RECIPES_DIR, syncCanon } from '../src/recipes/sync.js';
 import { loadRunById } from '../src/week/store.js';
 import { testDb, type Sql } from '../test/helpers/db.js';
-import { CASES, type EvalCase } from './cases.js';
+import { CASES, turnInput, type EvalCase } from './cases.js';
 import { judge, meetsBar, REPS, type EvalResult, type Observed } from './checks.js';
 import { evalHash } from './hash.js';
 import { changedRecords, recordsSnapshot } from './snapshot.js';
@@ -240,9 +241,17 @@ async function seedExpiredPlanCard(app: FastifyInstance, userId: string): Promis
   });
 }
 
-/** Seeds: an open, read-back severe peanut card in the conversation, saved peanut and lactose rules, an expired plan card, or an open market run. */
+/**
+ * Seeds: an open, read-back severe peanut card in the conversation, saved peanut and lactose rules, an expired plan card,
+ * an open market run, or (M7 Step 6, V04) milk in the pantry, so a spoken removal names a row the player has.
+ */
 async function seed(app: FastifyInstance, call: (o: InjectOptions) => Promise<{ statusCode: number; json: <T>() => T }>, userId: string, c: EvalCase): Promise<Seeded> {
   if (c.seed === 'plan_card_expired') return seedExpiredPlanCard(app, userId);
+  if (c.seed === 'pantry_milk') {
+    const res = await call({ method: 'POST', url: '/pantry/changes', payload: { add: [{ name: 'milk', ingredientId: 'milk' }], removeNames: [], removeIds: [], confirmed: true } });
+    if (res.statusCode !== 200) throw new Error(`seed pantry ${res.statusCode}`);
+    return { conversationId: null };
+  }
   if (c.seed === 'market_run_open') return seedMarketRun(call);
   if (c.seed === 'peanut_saved') {
     for (const [ids, severity] of [[['peanut'], 'anaphylactic'], [['milk'], 'intolerance']] as const) {
@@ -305,7 +314,7 @@ async function runOnce(app: FastifyInstance, sql: Sql, c: EvalCase, n: number): 
     url: '/mentor/turn',
     payload: {
       conversationId,
-      input: { kind: 'text', text: c.text },
+      input: turnInput(c, catalog.graph, catalog.ruleTerms),
       localDate: now.toISOString().slice(0, 10),
       localTime: '18:30',
       screen: null,

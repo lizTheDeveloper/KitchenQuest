@@ -19,6 +19,9 @@ import {
   marketDayStated,
   codeCardHealth,
   correctionAsks,
+  heardCheck,
+  heardConfirmed,
+  heardLine,
   correctionScope,
   CORRECTION_COUNT_TRIGGER,
   CORRECTION_TIME_TRIGGER,
@@ -89,6 +92,8 @@ import { goPart, planCardContext, planReply, type PlanCardContext, type WeekSour
 import { MENTOR_TOOLS, parseToolCall, type ToolArgs } from './tools.js';
 import { confirmProposal, confirmProposalIn, latestUndoable, rejectProposalIn, undoWriteIn } from './writes.js';
 import type { RecipeIndex } from '../recipes/recipe-index.js';
+import { recentReplies } from '../voice/recent-replies.js';
+import { voiceRegistry } from '../voice/registry.js';
 
 export interface TurnDeps {
   db: Db;
@@ -136,6 +141,16 @@ const respond = (
   // M7 Ruling 15: every response gets its own id, so a `speak` can name one of its line parts.
   replyId: randomUUID(),
 });
+
+/**
+ * M7 Step 6 (stage 3a): an answer that writes nothing: no `messages` row, no stored or in-memory history, no card. A
+ * heard card or `voice.too_long` is this: the misheard words are never kept, not even as the player's message.
+ */
+const respondNoStore = (conversationId: string, route: TurnResponse['route'], parts: ReplyPart[]): TurnResponse => respond(conversationId, route, parts);
+
+/** The player's message as stored (C-12): a transcript is marked `spoken`, inside the seal only (M7 Step 6). */
+const playerMessage = (text: string, req: TurnRequest): StoredMessage =>
+  req.input.kind === 'transcript' ? { role: 'player', text, spoken: true } : { role: 'player', text };
 
 /**
  * Stage 1: open the conversation and bump its turn (live user → conversation row), and read what the gates need.
@@ -623,7 +638,7 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
     const ids = reply.cards.map(() => randomUUID());
     // The transcript holds what the player saw: the scripted reply, never the model's text (R9).
     const msgs: StoredMessage[] = [
-      { role: 'player', text: f.stripped },
+      playerMessage(f.stripped, f.req),
       { role: 'pan', parts: reply.parts, proposalIds: ids },
     ];
     const append = () => appendMessages(tx, deps.keyring, deps.memory, userId, f.opened.conversationId, msgs, persist, now);
@@ -730,7 +745,10 @@ async function shortReply(
     case 'confirm':
       try {
         // A plan card's week window reads the player's local date (Step 6 I2); a plan the rules now refuse is closed.
-        const r = await confirmProposal(deps.db, deps, userId, target.ref, 'typed_yes', undefined, now, requestId, undefined, req.localDate, {
+        // M7 Ruling 12: a transcript's strict yes is a spoken yes. The write guard holds it to the typed yes's rule (never a
+        // severe card: `shortReplyTarget` already answers one with the tap line); heard cards are no proposals at all.
+        const channel = req.input.kind === 'transcript' ? 'spoken_yes' : 'typed_yes';
+        const r = await confirmProposal(deps.db, deps, userId, target.ref, channel, undefined, now, requestId, undefined, req.localDate, {
           conversationId: id,
           turnSeq: opened.turnSeq,
         });
@@ -777,7 +795,7 @@ async function codeRoute(deps: TurnDeps, userId: string, raw: string, req: TurnR
     if (!(await lockConversation(tx, userId, id))) return respond(id, 'deterministic', built.parts);
     const ids = built.card === null ? [] : [randomUUID()];
     const stripped = stripPageEvents(raw).text.trim();
-    await appendMessages(tx, deps.keyring, deps.memory, userId, id, [{ role: 'player', text: stripped }, { role: 'pan', parts: built.parts, proposalIds: ids }], true, now);
+    await appendMessages(tx, deps.keyring, deps.memory, userId, id, [playerMessage(stripped, req), { role: 'pan', parts: built.parts, proposalIds: ids }], true, now);
     const cards: ServerCard[] = [];
     if (built.card !== null) cards.push(await createProposal(tx, deps.keyring, { userId, conversationId: id, turnSeq: opened.turnSeq, card: built.card, id: ids[0] }, now));
     return respond(id, 'deterministic', built.parts, null, { cards });
@@ -824,7 +842,7 @@ async function checkOffRoute(deps: TurnDeps, userId: string, raw: string, req: T
       const proposalId = randomUUID();
       const stripped = stripPageEvents(raw).text.trim();
       const store = (parts: ReplyPart[]) =>
-        appendMessages(tx, deps.keyring, deps.memory, userId, id, [{ role: 'player', text: stripped }, { role: 'pan', parts, proposalIds: [proposalId] }], persist, now);
+        appendMessages(tx, deps.keyring, deps.memory, userId, id, [playerMessage(stripped, req), { role: 'pan', parts, proposalIds: [proposalId] }], persist, now);
       const server = await createProposal(tx, deps.keyring, { userId, conversationId: id, turnSeq: opened.turnSeq, card, id: proposalId }, now);
       if (!persist) {
         const parts: ReplyPart[] = [...readback, line('consent.health_first'), { kind: 'consent', purpose: 'health_data' }];
@@ -853,9 +871,16 @@ async function checkOffRoute(deps: TurnDeps, userId: string, raw: string, req: T
  */
 export async function runTurn(deps: TurnDeps, userId: string, req: TurnRequest, requestId: string): Promise<TurnResponse> {
   const now = deps.now();
-  // 1. The raw text is kept for the injection cut (C4); everything else reads the stripped text.
+  const r = await turnAt(deps, userId, req, requestId, now);
+  // M7 Ruling 15: every reply is kept (its written lines, in memory only), so the voice route can speak it by id.
+  recentReplies.put(userId, r.replyId, r.parts, now.getTime());
+  return r;
+}
+
+async function turnAt(deps: TurnDeps, userId: string, req: TurnRequest, requestId: string, now: Date): Promise<TurnResponse> {
+  // 1. The raw text is kept for the injection cut (C4); everything else reads the stripped text. M7: a transcript is
+  // untrusted user text like typed text (§7.6), read the same way; stage 3a adds its heard gate.
   const deadline = AbortSignal.timeout(MENTOR_TURN_DEADLINE_MS);
-  // M7 Step 1: a transcript's text is read like typed text here; its heard gate comes in Step 6.
   const raw = req.input.text;
   const stripped = stripPageEvents(raw).text.trim();
   const intent = classifyTurn(stripped);
@@ -881,6 +906,9 @@ export async function runTurn(deps: TurnDeps, userId: string, req: TurnRequest, 
   // 2b. A child: the grown-up line for the rest of the conversation; nothing kept (§19).
   if (intent === 'child' || deps.childFlags.has(childKey, now.getTime())) {
     deps.childFlags.add(childKey, now.getTime());
+    // M7 Ruling 17: and the per-user voice block, on every add (the refresh too, so its TTL slides with the flag's):
+    // every voice socket of the user closes, and hello and listen are refused, whatever the device says (§19).
+    voiceRegistry.childFlagged(userId, now.getTime());
     return respond(id, 'deterministic', [line('child.grownup')]);
   }
 
@@ -893,6 +921,18 @@ export async function runTurn(deps: TurnDeps, userId: string, req: TurnRequest, 
   // 3b. A plain yes, no or undo answers a card through the write guard, before the consent gate (Step 8).
   const short = await shortReply(deps, userId, intent, opened, req, now, requestId);
   if (short !== null) return short;
+
+  // 3a. M7 Ruling 4 (§7.6): a transcript naming a food, a rule term or a sound-alike of one goes no further until a tap
+  // on its heard card confirms exactly the words heard (`input.heard.words`). It runs on the raw transcript: core's
+  // heard check strips page events from the whole text first and blocks (`tooLong`) past MAX_TEXT, never reading a cut
+  // text. A blocking check is refused and the player asked to type; it is never confirmed. Nothing is kept either way.
+  if (req.input.kind === 'transcript') {
+    const chk = heardCheck(raw, deps.catalog.graph, deps.catalog.ruleTerms);
+    if (chk?.tooLong) return respondNoStore(id, 'deterministic', [line('voice.too_long')]);
+    if (chk !== null && !heardConfirmed(chk, req.input.heard?.words)) {
+      return respondNoStore(id, 'deterministic', [{ kind: 'heard', check: chk }, { kind: 'line', line: heardLine(chk) }]);
+    }
+  }
 
   // 3c. M6 Step 8 (C30): the closed check-off grammar, for a safe whole message only, before the health gate.
   const checkedOff = await checkOffRoute(deps, userId, raw, req, opened, now, requestId);

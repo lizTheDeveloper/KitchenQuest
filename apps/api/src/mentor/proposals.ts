@@ -239,7 +239,7 @@ export async function markDecided(
   tx: Tx,
   id: string,
   status: 'confirmed' | 'rejected' | 'undone',
-  channel: 'tap' | 'typed_yes' | null,
+  channel: 'tap' | 'typed_yes' | 'spoken_yes' | null,
   writeRef: string | null,
   undo: unknown,
   keyring: Keyring,

@@ -1,0 +1,2 @@
+ALTER TABLE "mentor_proposals" DROP CONSTRAINT "mentor_proposals_channel_check";--> statement-breakpoint
+ALTER TABLE "mentor_proposals" ADD CONSTRAINT "mentor_proposals_channel_check" CHECK ("mentor_proposals"."channel" in ('tap', 'typed_yes', 'spoken_yes'));

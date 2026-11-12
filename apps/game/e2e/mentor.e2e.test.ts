@@ -79,18 +79,22 @@ describe('mentor panel', () => {
     expect(app.requests.filter((u) => new URL(u).pathname !== '/api/me').slice(before).filter((u) => new URL(u).pathname.startsWith('/api/'))).toEqual([]);
   });
 
-  it('hold-to-talk plays voice.not_yet', async () => {
+  // M7 Step 6: voice.not_yet is gone; the talk control sends and says nothing until Step 9 wires the voice controller.
+  it('hold-to-talk presses and releases, and sends and says nothing yet', async () => {
     app = await openApp('/', { reducedMotion: true });
     const { page } = app;
     await page.locator('#pan-button').click();
+    const bubbles = await page.locator('#pan-panel .bubble').count();
+    const before = app.requests.length;
     await page.locator('#pan-talk').focus();
     await page.keyboard.down('Space');
     expect(await page.locator('#pan-talk').getAttribute('aria-pressed')).toBe('true');
     expect(await page.locator('#pan-talk').textContent()).toBe('Listening…');
     await page.keyboard.up('Space');
     expect(await page.locator('#pan-talk').getAttribute('aria-pressed')).toBe('false');
-    await lastPan(page).waitFor();
-    expect(lines('voice.not_yet')).toContain((await lastPan(page).textContent())!);
+    await page.waitForTimeout(300);
+    expect(await page.locator('#pan-panel .bubble').count()).toBe(bubbles);
+    expect(app.requests.slice(before).filter((u) => new URL(u).pathname.startsWith('/api/mentor'))).toEqual([]);
   });
 
   it('Escape closes the panel and focuses the Pan button', async () => {

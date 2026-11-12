@@ -10,7 +10,7 @@ import { isMajorAllergen } from '../mentor/route';
 import type { RuleTerm } from '../mentor/rule-terms';
 import { spell } from '../mentor/spell';
 import { MAX_ALTERNATIVES } from './constants';
-import { applyHeardChoice, hasHealthWording, heardCheck, heardConfirmed, STOP_WORDS, tryHeardChoice, type HeardCheck } from './heard';
+import { applyHeardChoice, hasHealthWording, heardCheck, heardConfirmed, heardLine, STOP_WORDS, tryHeardChoice, type HeardCheck } from './heard';
 import { editDistance, phoneticKey } from './phonetic';
 
 const graph = IngredientGraph.fromData(ingredients);
@@ -707,5 +707,19 @@ describe('fix round 5: more openers; cook words after an opener make no terms; s
     expect(check('no selfish at dinner please')).toMatchObject({ speakSpelling: false });
     expect(check('no selfish at dinner please')!.terms.map((t) => t.heard)).toEqual(['selfish']);
     expect(check("no salt please, I'm allergic")!.speakSpelling).toBe(true);
+  });
+});
+
+describe('heardLine (M7 Step 6: the one place the heard card\'s line is made)', () => {
+  test('health wording → voice.heard_check_spelled with the words as heard and spell\'s spelling; else voice.heard_check, unspelled', () => {
+    expect(heardLine(heardCheck("i'm allergic to sesame and pea cans", graph, terms)!)).toEqual({
+      trigger: 'voice.heard_check_spelled',
+      vars: { terms: 'sesame and pea cans', spelled: 'S-E-S-A-M-E, P-E-A C-A-N-S' },
+    });
+    expect(heardLine(heardCheck("we're out of milk", graph, terms)!)).toEqual({ trigger: 'voice.heard_check', vars: { terms: 'milk' } });
+  });
+
+  test('a blocking check has no heard line (the caller says voice.too_long)', () => {
+    expect(() => heardLine({ tooLong: true, terms: [], speakSpelling: false })).toThrow(/tooLong/);
   });
 });

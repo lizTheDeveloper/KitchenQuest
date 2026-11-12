@@ -397,7 +397,8 @@ export const messages = pgTable(
 /** Core's `ProposalKind`, as stored (`mentor/proposals.ts` checks the two agree). */
 export const PROPOSAL_KINDS = ["rule", "meal", "profile", "pantry", "plan", "check_off"] as const;
 export const PROPOSAL_STATUSES = ["open", "confirmed", "rejected", "expired", "undone"] as const;
-export const PROPOSAL_CHANNELS = ["tap", "typed_yes"] as const;
+// M7 Step 6 (Ruling 12): `spoken_yes`, a transcript's strict yes on a non-severe card.
+export const PROPOSAL_CHANNELS = ["tap", "typed_yes", "spoken_yes"] as const;
 
 /**
  * A proposal card the server showed (I-4, M4 Step 6): what Step 8's guard

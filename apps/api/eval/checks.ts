@@ -112,6 +112,8 @@ export function judge(
   for (const k of e.notCards ?? []) if (kinds.includes(k)) problems.push(`unasked ${k} card`);
   for (const t of e.lines ?? []) if (!triggers.includes(t)) problems.push(`missing line ${t} (got ${triggers.join(', ') || 'none'})`);
   for (const re of e.has ?? []) if (!re.test(json)) problems.push(`missing ${String(re)}`);
+  // M7 Step 6: reply part kinds that must be there (V05: the heard card).
+  for (const k of e.parts ?? []) if (!r.parts.some((p) => p.kind === k)) problems.push(`missing a ${k} part (got ${r.parts.map((p) => p.kind).join(', ') || 'none'})`);
   for (const re of e.noText ?? []) if (re.test(json)) problems.push(`has ${String(re)}`);
   if (e.oneOf && !(e.oneOf.lines ?? []).some((t) => triggers.includes(t)) && !(e.oneOf.has ?? []).some((re) => re.test(json))) {
     problems.push(`none of ${[...(e.oneOf.lines ?? []), ...(e.oneOf.has ?? []).map(String)].join(' | ')} (got ${triggers.join(', ') || 'none'})`);

@@ -5,7 +5,7 @@ export * from './constants';
 export * from './protocol';
 export * from './upstream';
 export { phoneticKey, KNOWN_CONFUSIONS, soundAlikes, isRuleTermId } from './phonetic';
-export { heardCheck, tryHeardChoice, applyHeardChoice, heardConfirmed } from './heard';
+export { heardCheck, tryHeardChoice, applyHeardChoice, heardConfirmed, heardLine, HEARD_CHECK_TRIGGER, HEARD_CHECK_SPELLED_TRIGGER } from './heard';
 export type { HeardTerm, HeardCheck, HeardChoiceRefusal } from './heard';
 export * from './speech';
 export { cookCommand, type CookCommand } from './commands';

@@ -162,7 +162,8 @@ describe('confirm by tap', () => {
     expect((await confirm(p.cookie, loose)).statusCode).toBe(200);
   });
 
-  test('the guard itself: a typed yes on a severe card → 400 tap_required, the card stays open (§7.6)', async () => {
+  // M7 Step 6 (Ruling 12): a spoken yes is held to the typed yes's rule: never a severe card.
+  test.each(['typed_yes', 'spoken_yes'] as const)('the guard itself: a %s on a severe card → 400 tap_required, the card stays open (§7.6)', async (channel) => {
     const p = await player();
     for (const card of [PEANUT(), ruleCard('sesame', 'allergy')]) {
       const id = await seed(p.userId, card);
@@ -173,7 +174,7 @@ describe('confirm by tap', () => {
             { keyring: config.keyring, catalog },
             p.userId,
             id,
-            'typed_yes',
+            channel,
             undefined,
             new Date(clock),
           ),
@@ -193,7 +194,7 @@ describe('confirm by tap', () => {
           { keyring: config.keyring, catalog },
           p.userId,
           garlic,
-          'typed_yes',
+          channel,
           undefined,
           new Date(clock),
         ),
@@ -208,6 +209,8 @@ describe('confirm by tap', () => {
     const id = await seed(p.userId, ruleCard('garlic', 'intolerance'));
     for (const payload of [
       { channel: 'typed_yes' },
+      // M7 Step 6: a spoken yes exists only inside runTurn too.
+      { channel: 'spoken_yes' },
       {},
       { channel: 'tap', extra: 1 },
       { channel: 'tap', edits: { severity: 'mild' } },

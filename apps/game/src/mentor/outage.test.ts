@@ -39,7 +39,9 @@ describe('local safety answers (mirror of the server turn.ts)', () => {
     const { safety } = make();
     expect(triggers(safety.reply(t('should I take antibiotics for my rash'), ctx))).toEqual(['rule.medical_deflect']);
     expect(safety.reply(t('thank you'), ctx)).toBeNull();
-    expect(safety.reply({ kind: 'voice' }, ctx)).toBeNull();
+    // M7 Step 6: a transcript gets the same answers first (§19), and nothing for any other turn.
+    expect(triggers(safety.reply({ kind: 'transcript', text: 'should I take antibiotics for my rash' }, ctx))).toEqual(['rule.medical_deflect']);
+    expect(safety.reply({ kind: 'transcript', text: 'thank you' }, ctx)).toBeNull();
   });
 
   test('F1: after a child turn every later turn gets child.grownup, and an emergency gets no rule ask; reset forgets it', () => {

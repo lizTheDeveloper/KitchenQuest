@@ -22,6 +22,7 @@ import {
   users,
 } from '../db/schema.js';
 import { ApiError } from '../errors.js';
+import { recentReplies } from '../voice/recent-replies.js';
 import { voiceRegistry } from '../voice/registry.js';
 import { loadMeals } from '../meals/store.js';
 import { loadConversationsForExport } from '../mentor/conversations.js';
@@ -420,6 +421,8 @@ export async function accountRoutes(app: FastifyInstance, progressDeps: Pick<Pro
     });
     // The mentor's in-memory history goes too (C-12): nothing of the account is kept.
     app.mentor.memory.delete(`${userId}:`);
+    // M7 Step 6: and the Pan's recent replies (Ruling 15).
+    recentReplies.clear(userId);
     // M7 Step 5 fix round 1 (I1): and every open voice socket of the account closes.
     voiceRegistry.closeUser(userId, 'signed_out');
     reply.clearCookie(SESSION_COOKIE, SESSION_COOKIE_OPTIONS);

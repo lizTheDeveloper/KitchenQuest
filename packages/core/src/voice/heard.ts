@@ -6,6 +6,8 @@ import { IngredientGraph } from '../ingredients/graph';
 import { pluralForms, words } from '../ingredients/mentions';
 import { foldConfusables, HEALTH_PATTERN, MAX_TEXT, normalizeText, stripPageEventsFull } from '../mentor/intents';
 import { ALLERGY_NEGATIONS, DIET_WORD_PATTERN, RULE_TRIGGER_PATTERN, SEVERITY_PATTERNS, severityFromText } from '../mentor/parse';
+import type { LineRef } from '../mentor/cards';
+import { listWords } from '../mentor/outcomes';
 import type { RuleTerm } from '../mentor/rule-terms';
 import { spell } from '../mentor/spell';
 import { MAX_ALTERNATIVES } from './constants';
@@ -516,4 +518,21 @@ export function applyHeardChoice(transcript: string, check: HeardCheck, choice: 
 export function heardConfirmed(check: HeardCheck, words: readonly string[] | undefined): boolean {
   // A blocking or empty check is never confirmed (fix round 1, I2).
   return !check.tooLong && check.terms.length > 0 && words !== undefined && words.length === check.terms.length && check.terms.every((t, i) => words[i] === t.heard);
+}
+
+/** The heard card's spoken and written line triggers (pan.yaml; `voice.heard_check_spelled` with health wording). */
+export const HEARD_CHECK_TRIGGER = 'voice.heard_check';
+export const HEARD_CHECK_SPELLED_TRIGGER = 'voice.heard_check_spelled';
+
+/**
+ * M7 Step 6 (carry: one shared place): the heard card's line, `voice.heard_check {terms}` or, with health wording,
+ * `voice.heard_check_spelled {terms, spelled}`. The words are as heard, the spelling is core `spell`'s (§7.6b.2: from
+ * code, never the model). The mentor turn sends it beside the `heard` part; the voice route speaks it. A blocking
+ * (`tooLong`) check has no heard line: the caller says `voice.too_long`.
+ */
+export function heardLine(check: HeardCheck): LineRef {
+  if (check.tooLong) throw new Error('heardLine: a tooLong check has no heard line (say voice.too_long)');
+  const terms = listWords(check.terms.map((t) => t.heard));
+  if (!check.speakSpelling) return { trigger: HEARD_CHECK_TRIGGER, vars: { terms } };
+  return { trigger: HEARD_CHECK_SPELLED_TRIGGER, vars: { terms, spelled: check.terms.map((t) => t.spelled).join(', ') } };
 }

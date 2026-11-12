@@ -5,6 +5,7 @@ import { lockUserPlan, lockUserProgress } from '../db/advisory-locks.js';
 import { requireUser } from '../auth/session.js';
 import { CONSENT_PURPOSES } from '../db/schema.js';
 import { ApiError } from '../errors.js';
+import { recentReplies } from '../voice/recent-replies.js';
 import { voiceRegistry } from '../voice/registry.js';
 import { deleteHealthDataIn } from './health-data.js';
 import { consentHistory, grantConsent, isConsentPurpose, withdrawConsentIn } from './ledger.js';
@@ -79,7 +80,11 @@ export async function consentRoutes(app: FastifyInstance): Promise<void> {
       if (purpose === 'health_data' && healthData === 'delete') await deleteHealthDataIn(tx, req.user.id, at, withdrew, req.id);
     });
     // Withdrawing health_data (keep or delete) also forgets the mentor's in-memory history (C-12).
-    if (purpose === 'health_data') app.mentor.memory.delete(`${req.user.id}:`);
+    // M7 Step 6: the Pan's recent replies (Ruling 15) go with it.
+    if (purpose === 'health_data') {
+      app.mentor.memory.delete(`${req.user.id}:`);
+      recentReplies.clear(req.user.id);
+    }
     // M7 Step 5 fix round 1 (I1): a voice or health_data withdrawal closes every open voice socket of the player, so
     // nothing more is heard under the old consent (GDPR Art. 7(3)); a re-opened socket runs every check again.
     if (purpose === 'voice' || purpose === 'health_data') voiceRegistry.closeUser(req.user.id, 'consent_required');

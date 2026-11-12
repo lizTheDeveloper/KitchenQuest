@@ -28,7 +28,7 @@ content/
     quick-tomato-sauce.yaml
 ```
 
-Beside this folder, `data/techniques.yaml` holds the Technique Toolkit: the technique ids and display names (`id`, `name`) that recipe `skills:` and quest `drill` steps refer to, and the freshness thresholds (`warm_after_days: 42`, `rusty_after_days: 120`, spec §17), which are tunable data, not code. The Pan has two lines for the toolkit and voice: `toolkit.rusty_invite` (an invitation beside a Rusty technique, never a warning; variable `{technique}`) and `voice.not_yet` (hold-to-talk before live voice exists; removed when voice ships). The game build compiles all of this folder, `recipes/` and `data/` and fails, naming the file, if any of it is invalid: a missing required Pan trigger, a cook or recipe that points at something that doesn't exist, a riddle without exactly one correct option, and so on.
+Beside this folder, `data/techniques.yaml` holds the Technique Toolkit: the technique ids and display names (`id`, `name`) that recipe `skills:` and quest `drill` steps refer to, and the freshness thresholds (`warm_after_days: 42`, `rusty_after_days: 120`, spec §17), which are tunable data, not code. The Pan has a line for the toolkit, `toolkit.rusty_invite` (an invitation beside a Rusty technique, never a warning; variable `{technique}`), and the live-voice lines (M7), all `ai: never` and plain on safety: the heard card (`voice.heard_check {terms}`, `voice.heard_check_spelled {terms, spelled}`, `voice.heard_retry`), the fillers said while a spoken turn runs (`voice.filler.thinking`, `voice.filler.ledger`), the allowance's rest states (`voice.resting {until}`, `voice.resting_today`: a state, never a number, a countdown or the Guild), the fallbacks the Pan says instead of reading something aloud (`voice.check_screen`, `voice.step_on_screen`), the outcomes (`voice.unavailable`, `voice.consent_needed`, `voice.too_long`, `voice.didnt_catch`) and hands-free (`voice.hands_free_on`, `voice.hands_free_off`, `voice.hands_free_idle`). `voice.check_screen` and the fillers take no variables, so their audio may be cached; a line with variables is never cached. The game build compiles all of this folder, `recipes/` and `data/` and fails, naming the file, if any of it is invalid: a missing required Pan trigger, a cook or recipe that points at something that doesn't exist, a riddle without exactly one correct option, and so on.
 
 All files are YAML, 2-space indent, UTF-8. Strings are double-quoted. Variables are `{curly}`.
 
@@ -499,6 +499,10 @@ Each line below was flagged during M6 (Steps 1–11, from the SDD ledger and the
 - [ ] **Ruling 15:** the market is a hub (`#/stalls`) over the market scene, not one scrolling market.
 - [ ] **Ruling 16:** the drill-first hint, built advisory on the recipe and cook screens (defer to M10, or narrow to the recipe screen: only the strip hook in `cook/cook-screen.ts` changes).
 - [ ] **Ruling 23:** the keeper keeps the display name "Mr. Okafor-Sato" (listed above).
+
+## Content review for the founder: everything M7 flagged, in one place
+
+- [ ] **The Pan's `voice.*` lines** (Steps 5 and 6, `dialogue/pan.yaml`, each with a `# REVIEW:` flag): the heard card's spoken half and its "Say it again" line, the fillers ("Let me write that in the ledger…", §7.6b.8), the rest states (Ruling 5: no number, countdown or Guild), the fallbacks, the outcome lines and the hands-free lines. `voice.not_yet` is gone.
 
 ## Review flags
 

@@ -1,8 +1,12 @@
-import type { Dialogue } from './dialogue';
 import type { PanReply, TurnContext } from './reply';
 import type { ScriptedEngine } from './scripted';
 
-export type MentorInput = { kind: 'text'; text: string } | { kind: 'voice' };
+/**
+ * What the player said. M7 Step 6 (P9): typed text, or a speech-to-text transcript (untrusted user text, §7.6) with,
+ * after a tap on its heard card, the words that tap confirmed (Ruling 4). Step 9's `transcriptTurn` runs the device's
+ * heard check before any backend sees a transcript.
+ */
+export type MentorInput = { kind: 'text'; text: string } | { kind: 'transcript'; text: string; heard?: { words: string[] } };
 export interface MentorBackend {
   readonly kind: 'scripted' | 'ai';
   reply(input: MentorInput, ctx: TurnContext): Promise<PanReply>;
@@ -15,19 +19,17 @@ export interface MentorBackend {
    * other turns so its child flag and turn counter advance. The server's reply is never shown. Same consent gate as a
    * normal turn: health text without `ai_health` is not sent (fix round 4).
    */
-  deliver?(input: Extract<MentorInput, { kind: 'text' }>, ctx: TurnContext): void;
+  deliver?(input: MentorInput, ctx: TurnContext): void;
 }
 
 /** The path that always works: written lines and code-built cards, no network (M4 Step 9). */
-export function createScriptedBackend(engine: ScriptedEngine, dialogue: Dialogue): MentorBackend {
+export function createScriptedBackend(engine: ScriptedEngine): MentorBackend {
   return {
     kind: 'scripted',
     reply(input, ctx) {
-      // Deferred so a throw from the engine or dialogue.say still arrives as a rejection, as callers expect.
-      return Promise.resolve().then((): PanReply | Promise<PanReply> =>
-        input.kind === 'voice'
-          ? { items: [{ kind: 'said', said: dialogue.say('voice.not_yet') }], cards: [], intents: [], actions: [], notice: null }
-          : engine.reply(input.text, ctx));
+      // Deferred so a throw from the engine still arrives as a rejection, as callers expect.
+      // A transcript is read like typed text here: the device's heard gate (Step 9) runs before any backend.
+      return Promise.resolve().then((): PanReply | Promise<PanReply> => engine.reply(input.text, ctx));
     },
   };
 }

@@ -169,6 +169,13 @@
       "when": 1794511167002,
       "tag": "0023_voice_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1794517874645,
+      "tag": "0024_tired_scorpion",
+      "breakpoints": true
     }
   ]
 }

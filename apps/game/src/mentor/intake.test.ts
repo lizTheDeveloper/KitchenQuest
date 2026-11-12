@@ -131,7 +131,7 @@ function setup(opts: { patch?: Partial<PlayerState>; consents?: Consents; ai?: (
   const recipes = Object.entries(content.recipes).map(([slug, r]) => ({ slug, title: r.meta.title }));
   const engine = createScriptedEngine({ dialogue, graph, ruleTerms: content.ruleTerms, recipes, now: () => T0 });
   const writer = createCardWriter({ client, store, dialogue, graph, ruleTerms: content.ruleTerms, now: () => T0 });
-  const backend = opts.ai ? opts.ai(client, store) : createScriptedBackend(engine, dialogue);
+  const backend = opts.ai ? opts.ai(client, store) : createScriptedBackend(engine);
   const panel = mountMentorPanel(root, {
     mode: 'standard', backend, dialogue, writer, engine, client, forms: content.bureau.forms, store, reducedMotion: () => true, now: () => T0,
   });
@@ -451,7 +451,7 @@ describe('Fix round 1 (I1): begin() itself never starts after a child turn', () 
     const engine = createScriptedEngine({ dialogue, graph, ruleTerms: content.ruleTerms, recipes: [], now: () => T0 });
     const client = {} as ApiClient;
     const writer = createCardWriter({ client, store, dialogue, graph, ruleTerms: content.ruleTerms, now: () => T0 });
-    const panel = mountMentorPanel(root, { mode: 'standard', backend: createScriptedBackend(engine, dialogue), dialogue, writer, engine, client, forms: content.bureau.forms, store, reducedMotion: () => true, now: () => T0 });
+    const panel = mountMentorPanel(root, { mode: 'standard', backend: createScriptedBackend(engine), dialogue, writer, engine, client, forms: content.bureau.forms, store, reducedMotion: () => true, now: () => T0 });
     const child = createChildFlag();
     child.set();
     const intake = createIntake({ panel, engine, ai: null, store, client, dialogue, signedIn: () => false, graph, ruleTerms: content.ruleTerms, form: content.bureau.forms.intake, child });

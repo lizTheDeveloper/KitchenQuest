@@ -283,10 +283,21 @@ describe('AI backend', () => {
     warn.mockRestore();
   });
 
-  test('voice gets voice.not_yet with no call', async () => {
-    const { backend, calls } = setup({});
-    expect(said(await backend.reply({ kind: 'voice' }, ctx()))).toEqual(['voice.not_yet']);
-    expect(calls).toEqual([]);
+  test('M7 Step 6 (P9): a transcript is sent as input.kind transcript, with its heard words only when given; it takes the same health gate as text', async () => {
+    const { backend, calls } = setup({ consents: BOTH, mentorTurn: () => ok(response({ parts: [line('didnt_understand')] })) });
+    await backend.reply({ kind: 'transcript', text: 'tell me a joke' }, ctx());
+    await backend.reply({ kind: 'transcript', text: "I'm allergic to sesame", heard: { words: ['sesame'] } }, ctx({ turn: 2 }));
+    await backend.reply(text('hello'), ctx({ turn: 3 }));
+    expect(turns(calls).map((c) => (c.args[0] as TurnRequest).input)).toEqual([
+      { kind: 'transcript', text: 'tell me a joke' },
+      { kind: 'transcript', text: "I'm allergic to sesame", heard: { words: ['sesame'] } },
+      { kind: 'text', text: 'hello' },
+    ]);
+    // Without ai_health a health transcript stays on the device, exactly as typed health text does.
+    const without = setup({ consents: () => ok(consents(['health_data'])) });
+    const r = await without.backend.reply({ kind: 'transcript', text: "I'm allergic to sesame", heard: { words: ['sesame'] } }, ctx());
+    expect(turns(without.calls)).toEqual([]);
+    expect(r.items).toContainEqual({ kind: 'consent', purpose: 'ai_health' });
   });
 
   test('I2: dispose cancels the queued retry; nothing is sent or shown after it', async () => {
@@ -307,7 +318,7 @@ describe('AI backend', () => {
     const { client, calls } = fakeClient({ consents: BOTH, mentorTurn: () => fail(503) });
     const backend = switchingBackend(store, (kind) => (kind === 'ai'
       ? createAiBackend({ client, engine, dialogue, store, graph, ruleTerms: content.ruleTerms, now: () => T0, events: new EventTarget(), screen: () => null, intakeStep: () => null })
-      : createScriptedBackend(engine, dialogue)));
+      : createScriptedBackend(engine)));
     expect(backend.kind).toBe('ai');
     await backend.reply(text('tell me a joke'), ctx());
     store.update((s) => ({ ...s, settings: { ...s.settings, aiMentor: false } }));
