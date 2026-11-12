@@ -367,7 +367,7 @@ describe('errand stall question: a hung lookup (I2)', () => {
     try {
       const slow = () => new Promise<typeof m>((r) => { setTimeout(() => { r(m); }, LOOKUP_TIMEOUT_MS - 100); });
       let done = false;
-      const a = errandQuestions({ ...deps({ signedIn: true, getProfile: hung }), load: slow as never })(step).then((v) => { done = true; return v; });
+      const a = errandQuestions({ ...deps({ signedIn: true, getProfile: hung }), load: slow })(step).then((v) => { done = true; return v; });
       await vi.advanceTimersByTimeAsync(LOOKUP_TIMEOUT_MS + 10);
       expect(done).toBe(true);
       expect(await a).toBeNull();
