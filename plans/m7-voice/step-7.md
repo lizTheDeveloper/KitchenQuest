@@ -40,15 +40,15 @@ This step lands those carries and adds the eval check for Ruling 18. It recomput
 | Ruling 18 | `checks.ts` gains `modelCalled` (from the runner's model-call counter) | `checks.test.ts`: V05 with a model call recorded fails; V01 without one fails |
 | P15 | `bench/run.ts --selftest` runs the whole bench loop against fake engines and an in-test stub API HTTP+WS server (no network, no import from `apps/api`) | `apps/voice/test/bench-selftest.test.ts`: one utterance end to end yields a `BenchRun` that `parseBenchRun` accepts |
 
-- [ ] **7.1 Write the failing tests** in the right-hand column. Then change `eval-gate.test.ts`:
+- [x] **7.1 Write the failing tests** in the right-hand column. Then change `eval-gate.test.ts`:
   - the case count is derived: it asserts `results.length === CASES.length × REPS` and that every `CASES` id is present, with no literal count (B7);
   - `EVAL_FILES` equals the recomputed closure, which now includes core `voice/*`, `apps/api/src/voice/registry.ts` and `apps/api/src/voice/recent-replies.ts`;
   - it asserts that `apps/api/src/voice/routes.ts` is **not** in the closure (P3).
-- [ ] **7.2 Run** `npm test -w @kitchenquest/core`, `npm test -w @kitchenquest/api -- mentor progress week eval checks`, `npm test -w @kitchenquest/game -- week content`, `npm test -w @kitchenquest/voice -- bench-selftest` → FAIL on the new tests.
-- [ ] **7.3 Implement** each fix. Recompute `EVAL_FILES` with `test/helpers/import-closure.ts`, and update `hash.ts`'s list and comment.
-- [ ] **7.4 Run** every suite except the gate → PASS: `npm run typecheck`, `npm run lint`, `npm test` (only `eval-gate.test.ts` fails), `npm run build -w @kitchenquest/game`.
-- [ ] **7.5 Eval: one run, by the implementer.** `OPENROUTER_API_KEY=proxy-injected NODE_USE_ENV_PROXY=1 npm run eval:mentor -w @kitchenquest/api` (synthetic data only). The bar is 0 hard fails and ≥ 95% of tool cases; V05 is a hard (safety) case. Commit `last-pass.json`. On a failure, report **BLOCKED** with the per-case results: no prompt tuning, no re-run.
-- [ ] **7.6 Run** `npm test` in every workspace, gate included → PASS. Only now do Steps 1–7 get their one PR, with the D5 sections.
-- [ ] **7.7 Commit** as two commits:
+- [x] **7.2 Run** `npm test -w @kitchenquest/core`, `npm test -w @kitchenquest/api -- mentor progress week eval checks`, `npm test -w @kitchenquest/game -- week content`, `npm test -w @kitchenquest/voice -- bench-selftest` → FAIL on the new tests.
+- [x] **7.3 Implement** each fix. Recompute `EVAL_FILES` with `test/helpers/import-closure.ts`, and update `hash.ts`'s list and comment.
+- [x] **7.4 Run** every suite except the gate → PASS: `npm run typecheck`, `npm run lint`, `npm test` (only `eval-gate.test.ts` fails), `npm run build -w @kitchenquest/game`.
+- [x] **7.5 Eval: one run, by the implementer.** `OPENROUTER_API_KEY=proxy-injected NODE_USE_ENV_PROXY=1 npm run eval:mentor -w @kitchenquest/api` (synthetic data only). The bar is 0 hard fails and ≥ 95% of tool cases; V05 is a hard (safety) case. Commit `last-pass.json`. On a failure, report **BLOCKED** with the per-case results: no prompt tuning, no re-run.
+- [x] **7.6 Run** `npm test` in every workspace, gate included → PASS. Only now do Steps 1–7 get their one PR, with the D5 sections.
+- [x] **7.7 Commit** as two commits:
   - `fix(m6-carries): batched eval-gated Minors`, for the carry rows;
   - `chore(eval): record the M7 eval pass (transcript cases V01–V05, C01)`, for `hash.ts`, the checks, the gate test and `last-pass.json`.
