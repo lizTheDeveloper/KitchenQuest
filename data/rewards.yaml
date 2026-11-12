@@ -8,11 +8,14 @@ xp:
   frame: 20
   market_run: 20
   refresh: 15
+  # M6 Ruling 1: per stall question, the first time it is answered correctly (once ever).
+  market_game: 5
   # Ruling 5: flat per qualifying log, blind to what or how much was eaten.
   nourishment: { per_log: 5, max_per_day: 3, min_gap_minutes: 120 }
 # Cumulative XP for level 2, 3, …; strictly increasing.
 levels: [100, 250, 450, 700, 1000, 1400, 1900, 2500]
-stamps: { quest_done: 1, certificate: 1, market_run: 1 }
+# market_game (M6 Ruling 1): one per stall per ISO week for any finished stall round, whatever the answers.
+stamps: { quest_done: 1, certificate: 1, market_run: 1, market_game: 1 }
 trust:
   # names[0] is Stranger and names[1] Guest (the cook's quest done); then one name per weeks_for_level entry.
   names: [Stranger, Guest, Acquainted, Trusted apprentice, Family friend, Keeper of the dish]

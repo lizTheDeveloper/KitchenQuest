@@ -104,6 +104,7 @@ function techniqueEventsOf(state: ToolkitState, e: ProgressEvent, cat: Catalogue
       return [{ kind: 'imported', technique: e.technique, at: e.at, tier: e.tier, firstAt: e.firstAt, lastUsedAt: e.lastUsedAt, recipes: [...e.recipes] }];
     case 'quest_step':
     case 'market_run':
+    case 'stall_round':
     case 'meal_logged':
       return [];
     default:

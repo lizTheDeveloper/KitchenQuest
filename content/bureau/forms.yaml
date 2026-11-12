@@ -475,6 +475,7 @@ stamp_names:
   quest_done: "A Quest, Completed With Thanks"
   certificate: "Certificate of Technique"
   market_run: "Market Run, Complete"
+  market_game: "A Stall Round, Played Through"
 
 # ----------------------------------------------------------------------------
 # General footnote pool for UI copy. Tag = where it may appear.

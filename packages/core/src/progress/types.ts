@@ -1,3 +1,4 @@
+import type { StallFile, StallQuestion } from '../market/types';
 import type { Tier, ToolkitState } from '../toolkit/types';
 
 /**
@@ -41,15 +42,22 @@ export type ProgressEvent =
        */
       mealLogId?: string;
     }
+  /**
+   * A finished stall round (M6 Rulings 1 and 2). `answers` are the question ids answered and each pick's FILE index
+   * (`scoreAnswer`'s `pick`), in answer order. There is no "correct" flag: core scores each pick from the stall file.
+   * Only what was answered is here, never which questions the round showed (M2 privacy carry): a question the rules
+   * dropped leaves no trace. A Protein Counter round is health-revealing (`isHealthRevealing`, Ruling 17).
+   */
+  | { id: string; kind: 'stall_round'; at: string; stall: string; answers: { q: string; pick: number }[] }
   /** An M3 device toolkit record (Ruling 8). Grants nothing. */
   | { id: string; kind: 'imported'; at: string; technique: string; tier: Tier; firstAt: string; lastUsedAt: string; recipes: string[] };
 
 export type ProgressEventKind = ProgressEvent['kind'];
 
-export type XpReason = 'lesson' | 'drill' | 'cook' | 'frame' | 'quest' | 'market_run' | 'nourishment' | 'refresh';
+export type XpReason = 'lesson' | 'drill' | 'cook' | 'frame' | 'quest' | 'market_run' | 'nourishment' | 'refresh' | 'market_game';
 
 /** The stamp kinds; each has a `stamps` amount in data/rewards.yaml and a `stamp_names` entry (Step 4, C13). */
-export type StampId = 'quest_done' | 'certificate' | 'market_run';
+export type StampId = 'quest_done' | 'certificate' | 'market_run' | 'market_game';
 
 /**
  * What an event earned, fixed when granted. Never negative, never reversed (spec §6).
@@ -79,6 +87,18 @@ export interface Catalogue {
   >;
   techniques: ReadonlySet<string>;
   frames: ReadonlyMap<string, { technique: string }>;
+  /**
+   * The market stalls (M6), by stall id: each question the stall file holds, with the bank it is in, and the file
+   * itself (for `stallVariant` and `questionStatus` with the player's rules). Built with `marketCatalogue`. Optional
+   * until the API (Step 6) and the device (Step 9) fill it: without it, every `stall_round` is `bad_event`.
+   */
+  market?: ReadonlyMap<string, MarketStall>;
+}
+
+/** One stall in `Catalogue.market`. `variant` is the bank the question is in ('seasonal': Wen's `seasonal` block). */
+export interface MarketStall {
+  questions: ReadonlyMap<string, { question: StallQuestion; variant: 'base' | 'protein_counter' | 'seasonal' }>;
+  file: StallFile;
 }
 
 export interface ProgressView {
@@ -97,6 +117,11 @@ export interface ProgressView {
   cookedOn: Record<string, string[]>;
   /** frame id → local dates of `frame_cooked` (the book's frames section, Step 11). */
   framesCookedOn: Record<string, string[]>;
+  /**
+   * Stall question id → whether it was ever answered correctly (scored from the stall file) and the local date it was
+   * last answered: `nextRound`'s `AnsweredMap`. Only what was answered; never what a round showed.
+   */
+  marketAnswered: Record<string, { correct: boolean; lastAt: string }>;
 }
 
 /**
@@ -124,6 +149,8 @@ export interface RewardsData {
     frame: number;
     market_run: number;
     refresh: number;
+    /** M6 Ruling 1: per stall question, the first time it is answered correctly, once ever. */
+    market_game: number;
     /** Ruling 5: flat per qualifying log, blind to what or how much was eaten. */
     nourishment: { per_log: number; max_per_day: number; min_gap_minutes: number };
   };
