@@ -149,6 +149,7 @@ describe('progress sync', () => {
     let release: (() => void) | null = null;
     const store = createStore(null);
     const client = {
+      getProgress: () => Promise.resolve({ ok: true, status: 200, data: { view: VIEW } }),
       postProgressEvents: async (events: ProgressEvent[]) => {
         await new Promise<void>((r) => { release = r; });
         return ok({ accepted: events.map((e) => ({ clientId: e.id, grants: [] })) });
@@ -277,6 +278,7 @@ describe('progress sync', () => {
     const posts: ProgressEvent[][] = [];
     const time = fakeTime();
     const client = {
+      getProgress: () => Promise.resolve({ ok: true, status: 200, data: { view: VIEW } }),
       postProgressEvents: async (events: ProgressEvent[]) => {
         posts.push(events);
         if (posts.length === 1) {
@@ -321,6 +323,7 @@ describe('progress sync', () => {
     const store = createStore(null);
     const posts: ProgressEvent[][] = [];
     const client = {
+      getProgress: () => Promise.resolve({ ok: true, status: 200, data: { view: VIEW } }),
       postProgressEvents: async (events: ProgressEvent[]) => {
         posts.push(events);
         if (posts.length === 1) await new Promise<void>((r) => { release = r; });
