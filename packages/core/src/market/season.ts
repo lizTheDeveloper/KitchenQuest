@@ -49,6 +49,13 @@ const KEBAB = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const CATEGORY_ID = /^[a-z][a-z0-9_]*$/;
 const MONTH_KEY = /^(?:[1-9]|1[0-2])$/;
 
+/**
+ * Fix round 1, M2 (never rule 5, "scarcity only mirrors real seasons"): a category label is player-facing copy, shown
+ * as Wen's option and as the Season's Table note. Words that count down, hurry or call something scarce are rejected,
+ * matched as whole words on the normalised label; so is an exclamation mark. Out of season is "well-travelled".
+ */
+const PRESSURE_WORDS = /\b(?:left|lasts?|hurry|rush|ends?|ending|gone|goes|only|limited|soon|fast|quick(?:ly)?|grab|miss|final|remaining|running out|before|scarce|rare|while|to go|days?|weeks?|hours?)\b/;
+
 /** Lower-cased, accents removed, apostrophes (and the ʻokina) and full stops dropped, other punctuation a space, spaces collapsed. */
 function normalizePhrase(text: string): string {
   return text
@@ -302,6 +309,7 @@ export function validateSeasonTable(d: unknown, graph: IngredientGraph): string[
         }
         if (declared.has(c.id)) say(`duplicate category id "${c.id}"`);
         if (labels.has(c.label)) say(`duplicate category label "${c.label}"`);
+        if (c.label.includes('!') || PRESSURE_WORDS.test(normalizePhrase(c.label))) say(`category label "${c.label}" uses deadline or scarcity words`);
         declared.add(c.id);
         labels.add(c.label);
       }

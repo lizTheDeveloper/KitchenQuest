@@ -387,3 +387,31 @@ describe('fix round 1, M1: the mutants the review found alive', () => {
     expect(seasonRegionFor(p('Canada', 'st johns, nl'), t)).toBe('test-nl');
   });
 });
+
+describe('fix round 1, M2: category labels are player-facing copy, screened for pressure (never rule 5)', () => {
+  const withLabel = (label: string): SeasonTable => ({ 'test-vale': { ...clone(VALE), categories: [{ id: 'now', label: NOW }, { id: 'stored', label }], months: {} } });
+  const PRESSURE = [
+    'Last few weeks: get it now',
+    'Only 2 weeks left',
+    'Hurry, ends soon',
+    'Gone by Friday',
+    'Limited supply',
+    'Running out fast',
+    'Grab it before it goes',
+    "Don't miss it",
+    'Final days',
+    '3 days to go',
+    'Rare this year!',
+    'Scarce now',
+  ];
+  test.each(PRESSURE)('rejects %j', (label) => {
+    expect(validateSeasonTable(withLabel(label), graph).join('\n')).toMatch(/label .*deadline or scarcity/);
+  });
+
+  test('neutral labels pass, Wen\'s four among them', () => {
+    for (const label of [STORED, TRAVELLED, MONSOON, ALL_YEAR, 'Depends: ask the farmer', 'Grown in a greenhouse here', 'Dried or preserved']) {
+      expect(validateSeasonTable(withLabel(label), graph), label).toEqual([]);
+    }
+    expect(validateSeasonTable(TABLE, graph)).toEqual([]);
+  });
+});
