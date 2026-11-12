@@ -11,6 +11,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { encodeFrame, type UpstreamServerMsg } from '@kitchenquest/core';
 import { afterEach, beforeEach, expect, test } from 'vitest';
 import { connect, freePort, TEST_TOKEN, type Client } from './helpers';
+import { unitEnvironment, unitExecStart } from './unit-file';
 
 const MARKER = 'zebrapeanut71';
 const HINT_WORD = 'sesame';
@@ -22,10 +23,14 @@ const tsxDir = dirname(require.resolve('tsx/package.json'));
 const tsxLoader = pathToFileURL(join(tsxDir, (JSON.parse(readFileSync(join(tsxDir, 'package.json'), 'utf8')) as { exports: { '.': string } }).exports['.'])).href;
 const preload = new URL('./fixtures/fault-preload.mjs', import.meta.url).href;
 /**
- * As `npm run dev` runs main. main's own warning handler is what keeps stderr content-free (N2); the flag only spares
- * the log line for core's WebAssembly ExperimentalWarning. `--no-warnings=X` would hide every other warning too.
+ * As production runs main: the Node flags and the tsx setting come from deploy/kq-voice.service itself (Step 3).
+ * main's own warning handler is what keeps stderr content-free (N2). On Node 22 `--disable-warning=ExperimentalWarning`
+ * has no effect here: it only filters Node's default warning printer, which main removes, so core's WebAssembly
+ * ExperimentalWarning is still logged by name like any other (tested below). `--no-warnings` is never used.
  */
-const NODE_FLAGS = ['--disable-warning=ExperimentalWarning'];
+const UNIT = unitExecStart();
+const NODE_FLAGS = UNIT.flags.filter((f, i, all) => f !== '--import' && all[i - 1] !== '--import');
+const UNIT_TSX_DISABLE_CACHE = unitEnvironment().TSX_DISABLE_CACHE;
 const mainTs = fileURLToPath(new URL('../src/main.ts', import.meta.url));
 
 let root = '';
@@ -56,14 +61,15 @@ interface Child {
   kill(): void;
 }
 
-async function startMain(): Promise<Child> {
+async function startMain(over: NodeJS.ProcessEnv = {}): Promise<Child> {
   const port = await freePort();
   let out = '';
   let err = '';
   const child = spawn(process.execPath, [...NODE_FLAGS, '--import', tsxLoader, '--import', preload, mainTs], {
     cwd: dirs[2],
-    // tsx's compile cache would otherwise land in TMPDIR: source code, not audio, but it would mask a real write.
-    env: { TSX_DISABLE_CACHE: '1', PATH: process.env.PATH, TMPDIR: dirs[0], HOME: dirs[1], VOICE_SERVICE_TOKEN: TEST_TOKEN, VOICE_PORT: String(port), VOICE_ENGINE: 'fake' },
+    // TSX_DISABLE_CACHE as the unit sets it: tsx's compile cache would otherwise land in TMPDIR (source code, not
+    // audio, but a write all the same, and one that would mask a real one). The control below runs without it.
+    env: { TSX_DISABLE_CACHE: UNIT_TSX_DISABLE_CACHE, PATH: process.env.PATH, TMPDIR: dirs[0], HOME: dirs[1], VOICE_SERVICE_TOKEN: TEST_TOKEN, VOICE_PORT: String(port), VOICE_ENGINE: 'fake', ...over },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   child.stdout.on('data', (d: Buffer) => (out += d.toString('utf8')));
@@ -194,4 +200,29 @@ test('positive control: an engine that prints its error is caught by the same ch
   child.kill();
   await child.exited;
   expect(clean(child).problems).toEqual(expect.arrayContaining(['stderr not empty', 'marker', 'pcm hex']));
+});
+
+test('Step 3: with the unit\'s --disable-warning=ExperimentalWarning, core\'s ExperimentalWarning is still logged by name (the flag has no effect once main removes the printer); stderr stays empty', async () => {
+  expect(NODE_FLAGS).toEqual(['--disable-warning=ExperimentalWarning']);
+  const child = await startMain();
+  child.kill();
+  expect(await child.exited).toBe(0);
+  const { stdoutLines, problems } = clean(child);
+  expect(problems).toEqual([]);
+  expect(stdoutLines).toContainEqual({ kind: 'warning', experimental: true });
+});
+
+test('Step 3: run as the unit runs it, main leaves TMPDIR untouched; positive control: without TSX_DISABLE_CACHE, tsx writes its compile cache there and the snapshot check fails', async () => {
+  expect(UNIT_TSX_DISABLE_CACHE).toBe('1');
+  const before = snapshot(dirs[0]);
+  const ok = await startMain();
+  ok.kill();
+  await ok.exited;
+  expect(snapshot(dirs[0])).toEqual(before);
+
+  const cached = await startMain({ TSX_DISABLE_CACHE: undefined });
+  cached.kill();
+  await cached.exited;
+  expect(snapshot(dirs[0])).not.toEqual(before);
+  expect(Object.keys(snapshot(dirs[0])).some((k) => k.startsWith('tsx-'))).toBe(true);
 });

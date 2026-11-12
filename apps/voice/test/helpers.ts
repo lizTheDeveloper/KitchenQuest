@@ -28,6 +28,12 @@ export function testConfig(over: Partial<VoiceConfig> = {}): VoiceConfig {
     sttModel: 'faster-whisper-base.en',
     cast: { model: 'piper-en_GB-northern_english_male-medium', voice: 'northern_english_male' },
     maxConnections: 4,
+    host: '127.0.0.1',
+    workerEngine: 'echo',
+    modelsDir: '/nonexistent/kq-voice-models',
+    python: 'python3',
+    workers: 1,
+    acceptLatencyMiss: undefined,
     ...over,
   };
 }
@@ -46,9 +52,9 @@ export interface Client {
 }
 
 /** `authorization` is the whole header value; null sends none. */
-export function connect(port: number, authorization: string | null = `Bearer ${TEST_TOKEN}`): Promise<Client> {
+export function connect(port: number, authorization: string | null = `Bearer ${TEST_TOKEN}`, host = '127.0.0.1'): Promise<Client> {
   const headers: Record<string, string> = authorization === null ? {} : { authorization };
-  const ws = new WebSocket(`ws://127.0.0.1:${port}/`, { headers });
+  const ws = new WebSocket(`ws://${host}:${port}/`, { headers });
   const received: Received[] = [];
   let cursor = 0;
   const waiters: (() => void)[] = [];

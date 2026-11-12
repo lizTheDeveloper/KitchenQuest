@@ -1,6 +1,6 @@
 // M7 Step 2: the checked licence manifest (spec §7.7, Rulings 2 and 14). Every model and engine the voice service may
 // load is in data/voice-models.json, and these tests hold it to the licensing rules.
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
@@ -93,23 +93,24 @@ describe('the voice licence manifest', () => {
     expect(config.engine).toBe(env.VOICE_ENGINE);
     expect(config.maxConnections).toBe(Number(env.VOICE_MAX_CONNECTIONS));
     expect(config.port).toBe(Number(env.VOICE_PORT));
+    // Step 3's worker variables load as written too: the real worker engine, the repo's models directory, one worker
+    // per CPU when VOICE_WORKERS is blank, and no accepted latency miss (it is commented out).
+    expect(env).toMatchObject({ VOICE_ENGINE: 'worker', VOICE_WORKER_ENGINE: 'real', VOICE_MODELS_DIR: 'apps/voice/models', VOICE_PYTHON: 'python3', VOICE_WORKERS: '', VOICE_HOST: '127.0.0.1' });
+    expect(env.VOICE_ACCEPT_LATENCY_MISS).toBeUndefined();
+    expect(text).toMatch(/^# VOICE_ACCEPT_LATENCY_MISS=$/m);
+    expect(config).toMatchObject({ workerEngine: 'real', python: 'python3', host: '127.0.0.1' });
+    expect(config.modelsDir).toBe(fileURLToPath(new URL('../models', import.meta.url)));
   });
 
-  const workerDir = fileURLToPath(new URL('../worker/', import.meta.url));
-  const workerPresent = existsSync(workerDir);
-  test.skipIf(!workerPresent)(
-    'apps/voice/worker/ is checked when present: its SPDX header is GPL-3.0-or-later (skipped with a message until Step 3 creates it, then required; B2)',
-    () => {
-      const files = walk(workerDir).filter((f) => f.endsWith('.py'));
-      expect(files.length).toBeGreaterThan(0);
-      for (const f of files) expect(readFileSync(f, 'utf8').split('\n').slice(0, 3).join('\n'), f).toMatch(/SPDX-License-Identifier: GPL-3\.0-or-later/);
-    },
-  );
-  if (!workerPresent) {
-    test('apps/voice/worker/ does not exist yet: the SPDX check above is skipped until M7 Step 3 creates the worker', () => {
-      expect(existsSync(workerDir)).toBe(false);
-    });
-  }
+  test('apps/voice/worker/ exists and every Python file in it carries SPDX-License-Identifier: GPL-3.0-or-later in its first lines (required from Step 3, B2)', () => {
+    const workerDir = fileURLToPath(new URL('../worker/', import.meta.url));
+    const files = walk(workerDir).filter((f) => f.endsWith('.py'));
+    expect(files.map((f) => f.slice(workerDir.length))).toContain('kq_voice_worker.py');
+    for (const f of files) expect(readFileSync(f, 'utf8').split('\n').slice(0, 3).join('\n'), f).toMatch(/SPDX-License-Identifier: GPL-3\.0-or-later/);
+    // Nothing under src imports from the worker directory: Node reaches it over stdio only (Ruling 14).
+    const src = fileURLToPath(new URL('../src/', import.meta.url));
+    for (const f of walk(src)) expect(readFileSync(f, 'utf8'), f).not.toMatch(/from ['"][^'"]*worker\/[^'"]*['"]/);
+  });
 });
 
 describe('parseManifest', () => {

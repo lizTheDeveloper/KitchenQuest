@@ -4,12 +4,13 @@ import { execFile } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { encodeFrame } from '@kitchenquest/core';
+import { connect as netConnect, type Socket } from 'node:net';
+import { encodeFrame, HANDS_FREE_IDLE_MS } from '@kitchenquest/core';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { boot } from '../src/boot';
 import { fakeStt, fakeTts } from '../src/engines/fake';
 import type { LogKind } from '../src/log';
-import { CONGESTED_GRACE_MS, createVoiceServer, MAX_BUFFERED, socketIo } from '../src/server';
+import { CONGESTED_GRACE_MS, createVoiceServer, HEADERS_TIMEOUT_MS, IDLE_TIMEOUT_MS, MAX_BUFFERED, MAX_PRE_UPGRADE, REQUEST_TIMEOUT_MS, socketIo } from '../src/server';
 import { connect, freePort, testConfig, TEST_TOKEN, upgradeStatus } from './helpers';
 
 const servers: { close(): Promise<void> }[] = [];
@@ -24,6 +25,9 @@ async function start(maxConnections = 2) {
     stt: fakeStt(() => 'hello'),
     tts: fakeTts(),
     log: (kind, fields) => logs.push([kind, fields]),
+    // The I3 probes open 300 sockets at once to test the upgrade handler itself; the default pre-upgrade cap
+    // (MAX_PRE_UPGRADE, Step 3) would cut most of them before their headers, which its own test covers.
+    limits: { preUpgrade: 1000 },
   });
   servers.push(server);
   const port = await server.listen(0);
@@ -101,7 +105,7 @@ describe('createVoiceServer', () => {
 });
 
 describe('boot (P11)', () => {
-  test('a dev env boots the fake engines on VOICE_PORT and answers hello; production refuses until the Step 3 bench gate exists', async () => {
+  test('a dev env boots the fake engines on VOICE_PORT and answers hello; production refuses the fake engine and a short token', async () => {
     const port = await freePort();
     const service = await boot({ VOICE_SERVICE_TOKEN: TEST_TOKEN, VOICE_PORT: String(port), VOICE_ENGINE: 'fake' });
     expect(service.port).toBe(port);
@@ -111,10 +115,9 @@ describe('boot (P11)', () => {
     expect(await c.next()).toMatchObject({ kind: 'msg', msg: { t: 'ready', stt: 'fake-stt', tts: 'fake-tts' } });
     c.ws.close();
     await c.closed;
-    await expect(boot({ VOICE_SERVICE_TOKEN: TEST_TOKEN, VOICE_PORT: String(port), VOICE_ENGINE: 'worker' })).rejects.toThrow(/Step 3/);
-    // Production: refused by config first (fake engine, empty files), and by the gate even when config would pass.
-    await expect(boot({ NODE_ENV: 'production', VOICE_SERVICE_TOKEN: TEST_TOKEN, VOICE_ENGINE: 'fake' })).rejects.toThrow(/VOICE_ENGINE=fake/);
-    await expect(boot({ NODE_ENV: 'production', VOICE_SERVICE_TOKEN: TEST_TOKEN, VOICE_ENGINE: 'worker' })).rejects.toThrow(/files/);
+    // Production: refused by config first (the fake engine, a short token); the bench gate is bench-gate.test.ts.
+    await expect(boot({ NODE_ENV: 'production', VOICE_SERVICE_TOKEN: 'p'.repeat(32), VOICE_ENGINE: 'fake' })).rejects.toThrow(/VOICE_ENGINE=fake/);
+    await expect(boot({ NODE_ENV: 'production', VOICE_SERVICE_TOKEN: TEST_TOKEN.slice(0, 31), VOICE_ENGINE: 'worker' })).rejects.toThrow(/32 bytes/);
   });
 });
 
@@ -297,5 +300,89 @@ describe('fix round 3 (review F2): a congested close ends the session at once', 
     socket.resume();
     const code = await Promise.race([c.closed, new Promise((r) => setTimeout(() => r('still open'), 3000))]);
     expect(code).toBe(1006);
+  });
+});
+
+describe('Step 3: slow headers, pre-upgrade sockets, silent sockets and the bind address (N3, review M2, C-38)', () => {
+  async function startWith(limits: Parameters<typeof createVoiceServer>[0]['limits'], config = testConfig()) {
+    const logs: [LogKind, Record<string, number | boolean> | undefined][] = [];
+    const server = createVoiceServer({ config, stt: fakeStt(() => 'hello'), tts: fakeTts(), log: (kind, fields) => logs.push([kind, fields]), limits });
+    servers.push(server);
+    return { port: await server.listen(0), logs };
+  }
+
+  /** A raw TCP client; resolves with how long the server took to close it, and what it answered. */
+  function rawSocket(port: number, host = '127.0.0.1'): { sock: Socket; closed: Promise<{ ms: number; data: string }> } {
+    const started = Date.now();
+    const sock = netConnect(port, host);
+    let data = '';
+    sock.on('data', (d: Buffer) => (data += d.toString('latin1')));
+    sock.on('error', () => {});
+    return { sock, closed: new Promise((resolve) => sock.once('close', () => resolve({ ms: Date.now() - started, data }))) };
+  }
+
+  test(`N3: fixed header and request timeouts (${HEADERS_TIMEOUT_MS} ms, ${REQUEST_TIMEOUT_MS} ms): a client trickling its headers a byte at a time is cut off`, async () => {
+    expect(HEADERS_TIMEOUT_MS).toBeLessThanOrEqual(REQUEST_TIMEOUT_MS);
+    expect(REQUEST_TIMEOUT_MS).toBeLessThanOrEqual(5000);
+    const { port, logs } = await startWith(undefined);
+    const { sock, closed } = rawSocket(port);
+    const header = `GET / HTTP/1.1\r\nHost: x\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nAuthorization: Bearer ${TEST_TOKEN}\r\nX-Pad: ${'a'.repeat(200)}`;
+    let i = 0;
+    const drip = setInterval(() => {
+      if (!sock.destroyed && i < header.length) sock.write(header[i++]);
+    }, 50);
+    const { ms } = await closed;
+    clearInterval(drip);
+    expect(i).toBeLessThan(header.length); // cut off mid-headers, never upgraded
+    expect(ms).toBeGreaterThanOrEqual(HEADERS_TIMEOUT_MS - 100);
+    expect(ms).toBeLessThan(HEADERS_TIMEOUT_MS + 1500);
+    expect(logs.some(([k]) => k === 'conn_open')).toBe(false);
+  });
+
+  test(`N3: at most MAX_PRE_UPGRADE (${MAX_PRE_UPGRADE}) sockets may wait before their upgrade; one over is destroyed at once, and a slot frees when one goes`, async () => {
+    const { port } = await startWith({ preUpgrade: 3 });
+    const idle = [rawSocket(port), rawSocket(port), rawSocket(port)];
+    await new Promise((r) => setTimeout(r, 100));
+    const over = rawSocket(port);
+    const { ms, data } = await over.closed;
+    expect(ms).toBeLessThan(500);
+    expect(data).toBe(''); // never read, never answered
+    expect(idle.every((s) => !s.sock.destroyed)).toBe(true);
+    // An authorised upgrade is refused only while the slots are full: free one and it goes through.
+    idle[0].sock.destroy();
+    await idle[0].closed;
+    await new Promise((r) => setTimeout(r, 50));
+    expect(await upgradeStatus(port, { authorization: `Bearer ${TEST_TOKEN}` })).toBe(101);
+    for (const s of idle) s.sock.destroy();
+  });
+
+  test('review M2: a socket that never says hello, or goes silent after it, is closed with 4408; one that keeps talking stays open', async () => {
+    expect(IDLE_TIMEOUT_MS).toBeGreaterThan(HANDS_FREE_IDLE_MS); // a hands-free cook can be quiet that long
+    const { port, logs } = await startWith({ helloMs: 200, idleMs: 400 });
+    const mute = await connect(port);
+    const quiet = await connect(port);
+    quiet.send({ t: 'hello', v: 1 });
+    await quiet.next();
+    const chatty = await connect(port);
+    chatty.send({ t: 'hello', v: 1 });
+    await chatty.next();
+    const t0 = Date.now();
+    const talk = setInterval(() => chatty.send({ t: 'cancel', id: 1 }), 100);
+    expect(await mute.closed).toBe(4408);
+    expect(Date.now() - t0).toBeLessThan(400);
+    expect(await quiet.closed).toBe(4408);
+    await new Promise((r) => setTimeout(r, 300));
+    clearInterval(talk);
+    expect(chatty.ws.readyState).toBe(chatty.ws.OPEN);
+    expect(await chatty.closed).toBe(4408); // and once it stops, it goes too
+    expect(logs.filter(([k, f]) => k === 'conn_close' && f?.code === 4408)).toHaveLength(3);
+  });
+
+  test('C-38: the server binds config.host only (127.0.0.2 here): the same port on 127.0.0.1 refuses the connection', async () => {
+    const { port } = await startWith(undefined, testConfig({ host: '127.0.0.2' }));
+    const ok = await connect(port, `Bearer ${TEST_TOKEN}`, '127.0.0.2');
+    ok.ws.close();
+    await ok.closed;
+    await expect(connect(port, `Bearer ${TEST_TOKEN}`, '127.0.0.1')).rejects.toThrow(/ECONNREFUSED/);
   });
 });
