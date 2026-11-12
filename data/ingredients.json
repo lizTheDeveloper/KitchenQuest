@@ -2564,9 +2564,7 @@
       "id": "winter_squash",
       "name": "winter squash",
       "aliases": [
-        "butternut squash",
-        "acorn squash",
-        "butternut"
+        "acorn squash"
       ],
       "per100g": {
         "energy_kcal": 34,
@@ -3110,6 +3108,53 @@
       ],
       "labelDependent": true,
       "source": "Usually sesame and bonito; label-dependent. No FDC record."
+    },
+    {
+      "id": "butternut",
+      "name": "butternut",
+      "broad": true,
+      "source": "Ambiguous: butternut squash or the butternut tree nut (Juglans cinerea). Broad: a rule asks which; a bare line reads as both. No FDC record."
+    },
+    {
+      "id": "butternut_squash",
+      "name": "butternut squash",
+      "isA": [
+        "winter_squash",
+        "butternut"
+      ],
+      "per100g": {
+        "energy_kcal": 45,
+        "protein_g": 1,
+        "fat_g": 0.1,
+        "carb_g": 11.69,
+        "fiber_g": 2,
+        "sugars_g": 2.2,
+        "sodium_mg": 4
+      },
+      "fdcId": 169295,
+      "source": "FDC 169295 (Squash, winter, butternut, raw)."
+    },
+    {
+      "id": "butternut_nut",
+      "name": "butternut tree nut",
+      "aliases": [
+        "butternut nut",
+        "white walnut"
+      ],
+      "isA": [
+        "tree_nut",
+        "butternut"
+      ],
+      "per100g": {
+        "energy_kcal": 612,
+        "protein_g": 24.9,
+        "fat_g": 56.98,
+        "carb_g": 12.05,
+        "fiber_g": 4.7,
+        "sodium_mg": 1
+      },
+      "fdcId": 170570,
+      "source": "FDC 170570 (Nuts, butternuts, dried). A tree nut."
     }
   ]
 }

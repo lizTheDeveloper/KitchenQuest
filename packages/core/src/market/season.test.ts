@@ -91,7 +91,7 @@ describe('seasonOf', () => {
     expect(seasonOf('winter_squash', 'test-vale', 11, TABLE, graph)).toEqual({ category: 'stored', label: STORED, isNow: false });
     expect(seasonOf('strawberry', 'test-vale', 11, TABLE, graph)).toEqual({ category: 'travelled', label: TRAVELLED, isNow: false });
     // butternut isA winter_squash: the ancestor's category.
-    expect(seasonOf('butternut', 'test-vale', 11, TABLE, graph)?.category).toBe('stored');
+    expect(seasonOf('test_butternut', 'test-vale', 11, TABLE, graph)?.category).toBe('stored');
     // The child's own month first: winter squash is "now" in the East Vale in November.
     expect(seasonOf('winter_squash', 'test-east-vale', 11, WITH_CHILD, graph)?.category).toBe('now');
     // Not in the child's month 11: the parent's month 11.
@@ -110,11 +110,11 @@ describe('seasonOf', () => {
   });
 
   test('seasonOf: own id beats an ancestor; ancestors breadth first', () => {
-    const t: SeasonTable = { v: region({ id: 'v', months: { '5': { now: ['squash'], stored: ['butternut'], travelled: ['winter_squash'] } } }) };
-    expect(seasonOf('butternut', 'v', 5, t, graph)?.category).toBe('stored');
+    const t: SeasonTable = { v: region({ id: 'v', months: { '5': { now: ['squash'], stored: ['test_butternut'], travelled: ['winter_squash'] } } }) };
+    expect(seasonOf('test_butternut', 'v', 5, t, graph)?.category).toBe('stored');
     // winter_squash is nearer than squash.
     const t2: SeasonTable = { v: region({ id: 'v', months: { '5': { now: ['squash'], travelled: ['winter_squash'] } } }) };
-    expect(seasonOf('butternut', 'v', 5, t2, graph)?.category).toBe('travelled');
+    expect(seasonOf('test_butternut', 'v', 5, t2, graph)?.category).toBe('travelled');
   });
 
   test('seasonOf: a parent in another country is never followed, even if the data says so', () => {
@@ -135,7 +135,7 @@ describe('seasonOf', () => {
     expect(seasonOf('coconut', 'test-coast', 11, TABLE, graph)).toEqual({ category: 'all_year', label: ALL_YEAR, isNow: false });
     expect(COAST.categories.map((c) => c.id)).not.toContain('stored');
     // Winter squash is "stored" in the Vale; the Coast has no such word for anything.
-    for (const id of ['winter_squash', 'butternut', 'cranberry', 'jackfruit', 'kale', 'coconut', 'strawberry']) {
+    for (const id of ['winter_squash', 'test_butternut', 'cranberry', 'jackfruit', 'kale', 'coconut', 'strawberry']) {
       for (let m = 1; m <= 12; m++) {
         const s = seasonOf(id, 'test-coast', m, TABLE, graph);
         if (s !== null) {
@@ -324,7 +324,7 @@ describe('seasonNote and dishSeasonNote (fix round 1, I1): season text only for 
   });
 
   test('a ❓ item gets no note (winter squash could be butternut, which the rules avoid)', () => {
-    const rules = [avoid('butternut')];
+    const rules = [avoid('test_butternut')];
     expect(check(dish(['winter squash']), rules, graph, [], NOV).status).toBe('unverified');
     expect(seasonOf('winter_squash', 'test-vale', 11, TABLE, graph)).not.toBeNull();
     expect(seasonNote('winter_squash', 'test-vale', TABLE, c(rules))).toBeNull();

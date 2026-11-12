@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
 import { parse } from 'yaml';
-import { IngredientGraph, check, parseRecipe, validateRewards } from '../src/index';
+import { IngredientGraph, buildRuleCard, check, parseRecipe, validateRewards } from '../src/index';
 import type { IngredientData, Rule, Substitution } from '../src/index';
 import { textMentions } from '../src/ingredients/mentions';
 import { faqFor, questionStatus, stallBank, stallVariant, tipFor } from '../src/market/bank';
@@ -264,6 +264,7 @@ const NEW_NODE_EDGES: Record<string, { isA?: string[]; contains?: string[]; unsa
   carrot: {}, potato: {}, winter_squash: {}, zucchini: {}, kale: {}, leek: { isA: ['allium', 'fodmap_fructan'] }, green_onion: { isA: ['allium', 'fodmap_fructan'] }, mushroom: {}, lemon: {}, mandarin: {}, parsnip: {}, asparagus: {}, nettle: {},
   coriander: {}, cilantro: { isA: ['herb', 'coriander'] }, cabbage: {}, brussels_sprout: {}, ginger: {}, fennel: {}, chili: {},
   cumin: {}, coriander_seed: { isA: ['coriander'] }, cardamom: {}, cinnamon: {}, clove: {}, black_pepper: {}, paprika: { isA: ['chili'] }, fennel_seed: { isA: ['fennel'] }, star_anise: {}, nutmeg: {}, saffron: {}, bay_leaf: {}, oregano: {},
+  butternut: { broad: true }, butternut_squash: { isA: ['winter_squash', 'butternut'] }, butternut_nut: { isA: ['tree_nut', 'butternut'] },
   mexican_oregano: { unsafeFor: ['oregano'] }, asafoetida: { contains: ['wheat'], labelDependent: true }, garam_masala: { labelDependent: true }, curry_powder: { labelDependent: true }, furikake: { contains: ['sesame', 'fish', 'soy', 'wheat'], labelDependent: true },
 };
 
@@ -275,7 +276,7 @@ describe('the market graph nodes (data/ingredients.json, M6 Step 4)', () => {
       expect(got, id).toEqual({ isA: want.isA, contains: want.contains, unsafeFor: want.unsafeFor, labelDependent: want.labelDependent, broad: want.broad });
       expect(typeof n.source, id).toBe('string');
     }
-    expect(Object.keys(NEW_NODE_EDGES)).toHaveLength(85);
+    expect(Object.keys(NEW_NODE_EDGES)).toHaveLength(88); // 85, plus the butternut ruling's three
     // The existing nodes Step 4 touched: only new isA edges (stricter), and cumin_seed's bare "cumin" moved to `cumin`.
     expect(graph.get('cumin_seed').isA).toEqual(['cumin']);
     expect(graph.resolve('cumin')).toBe('cumin');
@@ -354,7 +355,7 @@ describe('fix round 1 (review C1, C2, I1, I2; data check)', () => {
   const statusOf = (line: string, rules: Rule[]) => check(recipe([line]), rules, graph, subs, DAY).status;
 
   test('C1: the bare words resolve again, so textMentions sees them in stall text', () => {
-    const bare: Record<string, string> = { paneer: 'paneer', oregano: 'oregano', clove: 'clove', cloves: 'clove', carrot: 'carrot', carrots: 'carrot', ginger: 'ginger', nettle: 'nettle', nettles: 'nettle', lentil: 'lentil', lentils: 'lentil', berries: 'berry', butternut: 'winter_squash' };
+    const bare: Record<string, string> = { paneer: 'paneer', oregano: 'oregano', clove: 'clove', cloves: 'clove', carrot: 'carrot', carrots: 'carrot', ginger: 'ginger', nettle: 'nettle', nettles: 'nettle', lentil: 'lentil', lentils: 'lentil', berries: 'berry', butternut: 'butternut' };
     for (const [word, id] of Object.entries(bare)) {
       expect(graph.resolve(word), word).toBe(id);
       expect(textMentions([`a little ${word} here`], graph), word).toContain(id);
@@ -421,5 +422,40 @@ describe('fix round 1 (review C1, C2, I1, I2; data check)', () => {
     for (const t of ['wheat', 'gluten', 'barley']) expect(statusOf('tempeh', [term('vegetarian'), rule([t])]), t).toBe('blocked');
     expect(statusOf('tempeh', [rule(['rice'])])).toBe('ok'); // not label-dependent: tempeh still reaches other rule-holders
     for (const t of ['soy', 'wheat', 'gluten', 'sesame', 'fish']) expect(statusOf('furikake', [rule([t])]), t).toBe('blocked');
+  });
+});
+
+describe('butternut is ambiguous: the squash or the tree nut (binding ruling, fix round 1)', () => {
+  const recipe = (line: string) =>
+    parseRecipe(`---\ntitle: T\ncountry: X\nregion: Y\ncredit: Z\ncook: Z\ndifficulty: 1\nskills: [stirring]\nservings: 1\nlicense: CC-BY-SA-4.0\nstatus: draft\n---\n\nAdd @${line}{50%g}.\n`);
+  const statusOf = (line: string, rules: Rule[]) => check(recipe(line), rules, graph, subs, DAY).status;
+  const TREE_NUT = rule(['tree_nut'], 'anaphylactic');
+
+  test('"allergic to butternuts" offers a choice (squash or tree nut) through the which-kind card, never a squash-only card', () => {
+    for (const term of ['butternut', 'butternuts', 'Butternuts']) {
+      const r = buildRuleCard({ term, severity: 'anaphylactic' }, graph, terms as never);
+      expect(r.ok, term).toBe(false);
+      if (r.ok) continue;
+      expect(r.reason, term).toBe('ambiguous');
+      if (r.reason === 'ambiguous') expect(r.options.map((o) => o.id).sort(), term).toEqual(['butternut_nut', 'butternut_squash']);
+    }
+    // The nut choice takes the tree-nut path.
+    expect(graph.pathTo('butternut_nut', 'tree_nut')).toEqual(['butternut_nut', 'tree_nut']);
+  });
+
+  test('a stall line or recipe line naming a bare "butternut" is hidden under a tree-nut rule (read as both, the worst case)', () => {
+    expect(statusOf('butternut', [TREE_NUT])).not.toBe('ok');
+    expect(statusOf('butternuts', [TREE_NUT])).not.toBe('ok');
+    const q = { ...wen.questions[0], id: 't-butternut', contains: [], prompt: 'Wen holds up a butternut. Which one is ready?' } as StallQuestion;
+    expect(questionStatus(q, ctx([TREE_NUT]))).not.toBe('ok');
+    expect(questionStatus(q, ctx([]))).toBe('ok');
+  });
+
+  test('"butternut squash" stays unambiguous: the squash, not blocked under a tree-nut rule', () => {
+    expect(graph.resolve('butternut squash')).toBe('butternut_squash');
+    expect(graph.pathTo('butternut_squash', 'winter_squash')).not.toBeNull();
+    expect(statusOf('butternut squash', [TREE_NUT])).toBe('ok');
+    const card = buildRuleCard({ term: 'butternut squash', severity: 'allergy' }, graph, terms as never);
+    expect(card.ok && card.card.rule.target.ids).toEqual(['butternut_squash']);
   });
 });

@@ -9,11 +9,11 @@ import type { ParsedRecipe } from '../recipe/types';
 import type { SeasonRegion, SeasonTable } from './season';
 import type { StallFile, StallOption, StallQuestion } from './types';
 
-/** Test-only produce (not in data/ingredients.json yet). `butternut` is a kind of `winter_squash`, a kind of `squash`. */
+/** Test-only produce (not in data/ingredients.json yet). `test_butternut` is a kind of `winter_squash`, a kind of `squash`. */
 const EXTRA: IngredientNode[] = [
   { id: 'squash', name: 'squash' },
   { id: 'winter_squash', name: 'winter squash', isA: ['squash'] },
-  { id: 'butternut', name: 'butternut pumpkin', isA: ['winter_squash'] }, // named apart from the real alias "butternut" (M6 Step 4 fix round 1)
+  { id: 'test_butternut', name: 'butternut pumpkin', isA: ['winter_squash'] }, // test-only: the real "butternut" is the ambiguous category (M6 Step 4)
   { id: 'cranberry', name: 'cranberry' },
   { id: 'strawberry', name: 'strawberry' },
   { id: 'mango', name: 'mango' },

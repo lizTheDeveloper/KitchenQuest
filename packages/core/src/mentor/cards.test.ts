@@ -55,7 +55,7 @@ describe('buildRuleCard', () => {
     const c = card('nuts', 'allergy');
     expect(c.rule.target).toEqual({ kind: 'category', ids: ['nut'] });
     // Subcategories lead their members, so tree nut never hides behind "and N more".
-    expect(c.display.covers).toBe('nut, peanut, tree nut, almond, brazil nut, cashew, chestnut, hazelnut and 5 more');
+    expect(c.display.covers).toBe('nut, peanut, tree nut, almond, brazil nut, butternut tree nut, cashew, chestnut and 6 more');
     expect(c.display.severity).toBe('an allergy');
   });
 
@@ -136,7 +136,7 @@ describe('buildRuleCard', () => {
   test('every built rule passes validateRules', () => {
     // A broad category ("herbs", C1 ruling) is never a rule target: its labels get the which-kind ask instead.
     const broad = data.ingredients.filter((n) => n.broad === true);
-    expect(broad.map((n) => n.id)).toEqual(['herb', 'bean', 'berry']); // M6 Step 4 added bean and berry
+    expect(broad.map((n) => n.id)).toEqual(['herb', 'bean', 'berry', 'butternut']); // M6 Step 4 added bean, berry and butternut (squash or tree nut)
     for (const label of broad.flatMap((n) => [n.name, ...(n.aliases ?? [])])) expect(buildRuleCard({ term: label, severity: null }, graph, terms)).toMatchObject({ ok: false, line: { trigger: 'rule.which_kind' } });
     const labels = [
       ...data.ingredients.filter((n) => n.broad !== true).flatMap((n) => [n.name, ...(n.aliases ?? [])]),

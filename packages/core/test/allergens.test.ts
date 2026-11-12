@@ -161,7 +161,8 @@ describe('EU 14 / US 9 allergen members', () => {
   });
 
   it('tree nut descendants are every tree nut, and not peanut or coconut', () => {
-    expect(graph.descendants('tree_nut').sort()).toEqual([...TREE_NUTS].sort());
+    // The butternut tree nut joined in M6 Step 4 (the butternut ruling).
+    expect(graph.descendants('tree_nut').sort()).toEqual([...TREE_NUTS, 'butternut_nut'].sort());
     expect(graph.descendants('nut')).toEqual(expect.arrayContaining([...TREE_NUTS, 'tree_nut', 'peanut']));
     expect(graph.ancestors('coconut')).toEqual([]);
   });
