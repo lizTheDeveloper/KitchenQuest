@@ -147,11 +147,9 @@ describe('wsUpstream (P1)', () => {
 
     const pcm: { samples: number; rate: number }[] = [];
     const heard = await speakable([{ kind: 'heard', utteranceId: 1 }], { 1: "I can't eat sesame" });
-    expect(await link.speak(2, 'pan', heard, (p, rate) => pcm.push({ samples: p.length, rate }))).toEqual({ audioMs: 40 });
-    expect(pcm).toEqual([
-      { samples: 441, rate: 22050 },
-      { samples: 441, rate: 22050 },
-    ]);
+    expect(await link.speak(2, 'pan', heard, (p, rate) => pcm.push({ samples: p.length, rate }))).toEqual({ audioMs: 60 });
+    // One frame per chunk, as the fixture (and apps/voice's scripted TTS) has it.
+    expect(pcm).toEqual(Array.from({ length: 3 }, () => ({ samples: 441, rate: 22050 })));
 
     link.listen(3, []);
     link.frame(3, new Int16Array(320));
