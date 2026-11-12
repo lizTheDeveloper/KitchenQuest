@@ -104,6 +104,42 @@ export function dropEvents(s: PlayerState, key: string | null, ids: Iterable<str
   });
 }
 
+/** A grant key core's fold uses up for a stall round's weekly stamp (fold.ts `key('stall', …)`): it names the stall. */
+const STALL_KEY = '["stall",';
+
+/**
+ * M6 final review I1: after a `health_data` withdraw-with-delete, account `key`'s health-revealing records leave this
+ * device too, as the server erased them: every `stall_round` (Protein Counter rounds among them) and `meal_logged`
+ * event, the answered question ids a compacted base holds (`marketAnswered`, and the stall stamp keys that name a
+ * stall), and the cached account view's `marketAnswered` (the server's next view replaces it). Every grant stays, so
+ * XP, level and stamps never drop (core folds a grant whose event is gone, as `eraseEvents` does). The epoch makes the
+ * erasure stick on merge with another tab's older copy.
+ */
+export function eraseHealthEvents(s: PlayerState, key: string): PlayerState {
+  if (!Object.hasOwn(s.accountProgress, key)) return s;
+  const old = s.accountProgress[key];
+  const p = old.progress;
+  const gone = new Set(p.events.filter((e) => e.kind === 'stall_round' || e.kind === 'meal_logged').map((e) => e.id));
+  let base = p.base;
+  if (base !== null) {
+    const facts = isObj(base.facts) ? base.facts : {};
+    const keys = Array.isArray(facts.keys) ? facts.keys : [];
+    base = {
+      view: { ...base.view, marketAnswered: {} },
+      facts: { ...facts, keys: keys.filter((k) => !(typeof k === 'string' && k.startsWith(STALL_KEY))) },
+    };
+  }
+  const view = old.view === null ? null : { ...old.view, marketAnswered: {} };
+  const progress: DeviceProgress = {
+    events: p.events.filter((e) => !gone.has(e.id)),
+    grants: p.grants,
+    base,
+    pendingUpload: p.pendingUpload.filter((id) => !gone.has(id)),
+    epoch: (p.epoch ?? 0) + 1,
+  };
+  return { ...s, accountProgress: { ...s.accountProgress, [key]: { progress, view } } };
+}
+
 /** A partition's log: the guest's is `progress`; an account's lives in `accountProgress` (empty until it has one). */
 export function partitionOf(s: PlayerState, key: string | null): DeviceProgress {
   if (key === null) return s.progress;
@@ -384,10 +420,13 @@ export function mergeProgress(a: DeviceProgress, b: DeviceProgress, opts: { pend
     seen.add(e.id);
     events.push(e);
   }
+  // A grant goes with its event, except one whose event neither copy holds (M6 final I1: an erased stall round or meal
+  // log keeps its grants, so XP never drops); a grant the base already covers, or of a skipped repeat import, goes.
+  const listed = new Set([...a.events, ...b.events].map((e) => e.id));
   const grantIds = new Set<string>();
   const grants: RewardGrant[] = [];
   for (const g of [...a.grants, ...b.grants]) {
-    if (grantIds.has(g.id) || !seen.has(g.eventId)) continue;
+    if (grantIds.has(g.id) || covered.has(g.eventId) || (!seen.has(g.eventId) && listed.has(g.eventId))) continue;
     grantIds.add(g.id);
     grants.push(g);
   }

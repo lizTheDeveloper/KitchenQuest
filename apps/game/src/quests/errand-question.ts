@@ -5,7 +5,7 @@
 // Leela's shallot errand matches none, since Wen has no shallot question). No question passes → nothing is shown.
 // The answer is kept as a one-answer `stall_round` (never in Family Table); the step's completion never depends on it.
 import {
-  keeperLines, nextRound, seasonalQuestions, stallBank,
+  keeperLines, nextRound, questionStatus, seasonalQuestions, stallBank,
   type AnsweredMap, type IngredientGraph, type MarketCtx, type StallFile, type StallQuestion,
 } from '@kitchenquest/core/engine';
 import type { ApiClient } from '../api/client';
@@ -41,6 +41,10 @@ export function errandQuestionFor(
   item: string, stall: StallFile, ctx: MarketCtx, regionId: string | null, month: number, table: MarketContent['seasonality'],
   answered: AnsweredMap, graph: IngredientGraph,
 ): StallQuestion | null {
+  // The Pan's `errand.question` line names the errand's item, while a question may match only through an ancestor:
+  // the item itself must be ✅ for these rules too, so that line never names a ⛔ or ❓ food (M6 final, defensive).
+  const named: StallQuestion = { id: 'errand-item', game: '', prompt: '', options: [], explain: '', contains: [item] };
+  if (questionStatus(named, ctx) !== 'ok') return null;
   const ids = new Set([item, ...(graph.has(item) ? graph.ancestors(item) : [])]);
   const seasonal = stall.seasonal === undefined ? [] : seasonalQuestions(stall, regionId, month, table);
   const bank = stallBank(stall, ctx, seasonal);
@@ -67,13 +71,18 @@ export function errandQuestions(deps: {
     if (!isKeeper(step.stall)) return null;
     const stallId = step.stall;
     const partition = partitionKey(deps.store.get());
-    const wait = deps.timeoutMs ?? LOOKUP_TIMEOUT_MS;
-    // I2: a slow or stalled market chunk never holds the errand: no question, and the step goes on as in M5.
-    const market = await within(load(), wait, null);
+    // M6 final I2: Family Table as the question is built. On then, nothing is kept, even if it is switched off before
+    // the answer (another tab): a child's answer never becomes the grown-up's.
+    const familyTableAtStart = deps.store.get().settings.familyTable;
+    // I2 (Step 10) and M8 (final): one deadline for the market chunk and the profile read together, so a stalled pair
+    // never holds the errand longer than `wait` in all; then no question, and the step goes on as in M5.
+    const end = Date.now() + (deps.timeoutMs ?? LOOKUP_TIMEOUT_MS);
+    const left = () => Math.max(0, end - Date.now());
+    const market = await within(load(), left(), null);
     if (market === null) return null;
     withMarket(market);
     const stall: ClientStall = market.stalls[stallId];
-    const profile = await within(profileFor(deps.store.get(), deps.client), wait, null);
+    const profile = await within(profileFor(deps.store.get(), deps.client), left(), null);
     if (profile === null) return null;
     const ctxNow = (): MarketCtx | null => {
       const rules = activeRules(deps.store.get(), appGraph);
@@ -102,7 +111,7 @@ export function errandQuestions(deps: {
         // Never into another account's partition (Step 9 M4), and each answer re-judged under the rules now (I2).
         if (partitionKey(deps.store.get()) !== partition) return;
         const kept = answers.filter((a) => stillAnswerable(stall, a.q, ctxNow()));
-        recordRound({ store: deps.store, record: (events) => deps.service.record(events) }, stallId, kept, deps.today());
+        recordRound({ store: deps.store, record: (events) => deps.service.record(events) }, stallId, kept, deps.today(), { familyTableAtStart });
       },
     };
   };

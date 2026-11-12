@@ -7,7 +7,8 @@ import type { BureauForm } from '../content/types';
 import { getMentor } from '../mentor';
 import { createDialogue } from '../mentor/dialogue';
 import { renderConsentCard } from '../mentor/consent-card';
-import type { PlayerStore } from '../state/store';
+import { progressService } from '../progress';
+import { eraseHealthEvents, partitionKey, type PlayerStore } from '../state/store';
 import { contentText, h } from '../ui/dom';
 import { openModal } from '../ui/modal';
 
@@ -73,12 +74,16 @@ export function mentorSection(store: PlayerStore, client: ApiClient, forms: Reco
 
     /**
      * After the account's health details are deleted: nothing of them stays in the Pan's conversation on screen, and
-     * the cached account rules are dropped until a refresh loads them again (fail closed while offline).
+     * the cached account rules are dropped until a refresh loads them again (fail closed while offline). M6 final I1:
+     * `as` (the account the delete was asked for) also loses its stall rounds and meal-log events on this device, and
+     * the answered question ids its base and cached view hold; their grants stay. The server's view is then asked again.
      */
-    const afterDelete = async () => {
+    const afterDelete = async (as: string | null) => {
       try { getMentor().clearConversation(); } catch { /* the panel isn't mounted (tests) */ }
+      if (as !== null) store.update((st) => eraseHealthEvents(st, as));
       // The cached copy is now stale: drop it first, so an offline or rate-limited refresh leaves checks failing closed.
       store.update((st) => (st.accountRules === null ? st : { ...st, accountRules: null }));
+      if (as !== null) void progressService().then((svc) => svc.sync.refreshAccountView(), () => undefined);
       await refreshAccount(client, store);
     };
 
@@ -115,11 +120,12 @@ export function mentorSection(store: PlayerStore, client: ApiClient, forms: Reco
           });
           yes.addEventListener('click', () => {
             yes.disabled = true;
+            const as = partitionKey(store.get());
             void client.withdrawConsent('health_data', 'delete').then((r) => {
               close();
               if (!(r.ok || r.status === 404)) { status.textContent = copy('ui.settings.offline'); return; }
               status.textContent = copy('ui.settings.health_deleted');
-              void afterDelete();
+              void afterDelete(as);
               void load();
             });
           });
@@ -136,6 +142,7 @@ export function mentorSection(store: PlayerStore, client: ApiClient, forms: Reco
       const withdraw = (healthData?: 'keep' | 'delete') => {
         slot.replaceChildren();
         box.disabled = true;
+        const as = partitionKey(store.get());
         void client.withdrawConsent(purpose, healthData).then((r) => {
           box.disabled = false;
           if (!(r.ok || r.status === 404)) { show(grant); status.textContent = copy('ui.settings.offline'); return; }
@@ -145,7 +152,7 @@ export function mentorSection(store: PlayerStore, client: ApiClient, forms: Reco
               ? copy('ui.settings.health_deleted')
               : copy('ui.settings.health_kept');
           // Deleted rules (or a withdraw that ended the AI permission too) show at once.
-          if (healthData === 'delete') void afterDelete();
+          if (healthData === 'delete') void afterDelete(as);
           else if (purpose === 'health_data') void refreshAccount(client, store);
           void load();
           box.focus();

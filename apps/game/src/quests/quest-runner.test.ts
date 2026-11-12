@@ -358,6 +358,40 @@ describe('errand stall question: a hung lookup (I2)', () => {
     } finally { vi.useRealTimers(); }
   });
 
+  test('M8 (final): one deadline for both: a market chunk that takes 2.9 s, then a hung profile read → null by 3 s in all', async () => {
+    const { errandQuestions } = await import('./errand-question');
+    const { LOOKUP_TIMEOUT_MS } = await import('../shell/within');
+    const { loadMarket } = await import('../market/content');
+    const m = await loadMarket();
+    vi.useFakeTimers();
+    try {
+      const slow = () => new Promise<typeof m>((r) => { setTimeout(() => { r(m); }, LOOKUP_TIMEOUT_MS - 100); });
+      let done = false;
+      const a = errandQuestions({ ...deps({ signedIn: true, getProfile: hung }), load: slow as never })(step).then((v) => { done = true; return v; });
+      await vi.advanceTimersByTimeAsync(LOOKUP_TIMEOUT_MS + 10);
+      expect(done).toBe(true);
+      expect(await a).toBeNull();
+    } finally { vi.useRealTimers(); }
+  });
+
+  test('final I2: a question built in Family Table keeps nothing, even when Family Table is switched off before the answer', async () => {
+    const { errandQuestions } = await import('./errand-question');
+    const d = deps({});
+    d.store.update((s) => ({ ...s, settings: { ...s.settings, familyTable: true } }));
+    const sent: unknown[] = [];
+    const asked = await errandQuestions({ ...d, service: { ...d.service, record: (e) => { sent.push(e); return Promise.resolve([]); } } })(step);
+    expect(asked).not.toBeNull();
+    d.store.update((s) => ({ ...s, settings: { ...s.settings, familyTable: false } })); // another tab, say
+    asked!.record([{ q: asked!.question.id, pick: 0 }]);
+    expect(sent).toEqual([]);
+    // Built with Family Table off, the same answer is kept.
+    const plain = deps({});
+    const kept: unknown[] = [];
+    const b = await errandQuestions({ ...plain, service: { ...plain.service, record: (e) => { kept.push(e); return Promise.resolve([]); } } })(step);
+    b!.record([{ q: b!.question.id, pick: 0 }]);
+    expect(kept).toHaveLength(1);
+  });
+
   test('the runner goes on to the M5 errand step (pantry or tap) when the lookup gives up', async () => {
     const { errandQuestions } = await import('./errand-question');
     const q: Quest = {

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { Page, Request } from 'playwright';
@@ -269,6 +270,52 @@ describe('Form 1-A intake by conversation (M4 Step 11)', () => {
     await expect.poll(() => calls.length).toBe(2);
     expect(calls[1]).toEqual({ method: 'DELETE', path: '/api/me/consents/health_data', body: { healthData: 'delete' } });
     await expect.poll(() => box.isChecked()).toBe(false);
+    expect(app.consoleErrors).toEqual([]);
+  });
+
+  it('M6 final I1: a health_data withdraw-with-delete erases the account\'s stall rounds and answered ids on this device; XP stays', async () => {
+    const email = 'cook@example.com';
+    const key = createHash('sha256').update(email).digest('hex');
+    const at = '2026-11-09';
+    const view = { xp: 5, level: 1, stamps: 1, trust: {}, toolkit: { techniques: {} }, questsDone: [], questSteps: {}, questStartedOn: {}, cookedOn: {}, framesCookedOn: {}, marketAnswered: { 'bram-pc-most-protein': { correct: true, lastAt: at } } };
+    let deleted = false;
+    app = await openApp('/#/settings', {
+      reducedMotion: true,
+      seed: {
+        aiDisclosureSeen: true, intake: { step: 'done' }, account: { email },
+        accountProgress: { [key]: { view, progress: {
+          events: [{ id: 'r1', kind: 'stall_round', at, stall: 'bram', answers: [{ q: 'bram-pc-most-protein', pick: 0 }] }],
+          grants: [{ id: 'r1#0', eventId: 'r1', isoDay: at, kind: 'xp', amount: 5, reason: 'market_game' }, { id: 'r1#1', eventId: 'r1', isoDay: at, kind: 'stamp', stamp: 'market_game' }],
+          base: null, pendingUpload: [],
+        } } },
+      } as never,
+      beforeGoto: async (page) => {
+        await page.route((u) => u.pathname === '/api/me', (r) => r.fulfill(json(200, { id: 'u1', email, entitlements: [] })));
+        await page.route((u) => u.pathname === '/api/rules', (r) => r.fulfill(json(200, { rules: [] })));
+        // The server erased the rounds: its next view has no answered ids.
+        await page.route((u) => u.pathname === '/api/progress', (r) => r.fulfill(json(200, { view: deleted ? { ...view, marketAnswered: {} } : view })));
+        await page.route((u) => u.pathname.startsWith('/api/me/consents'), (r) => {
+          const req = r.request();
+          if (req.method() === 'DELETE') { deleted = true; return r.fulfill({ status: 204 }); }
+          const rec = { purpose: 'health_data', noticeVersion: 'v3', noticeSha256: 'x', method: 'tap', grantedAt: '2026-11-01T00:00:00Z', withdrawnAt: null, endedReason: null, current: true };
+          return r.fulfill(json(200, { consents: deleted ? [] : [rec], needsReconsent: [], notices: { health_data: { version: 'v3', text: 'HEALTH NOTICE V3' }, ai_health: { version: 'v1', text: 'AI NOTICE TEXT' } } }));
+        });
+      },
+    });
+    const { page } = app;
+    const part = async () => ((await stored(page)).accountProgress as Record<string, { progress: { events: { kind: string }[]; grants: unknown[] }; view: { xp: number; marketAnswered: object } | null }>)[key];
+    const box = page.getByLabel('Let the Bureau keep my health details');
+    await page.locator('#set-health-data:not([disabled])').waitFor();
+    await expect.poll(() => box.isChecked()).toBe(true);
+    expect((await part()).progress.events.map((e) => e.kind)).toEqual(['stall_round']);
+    await box.click();
+    await page.getByRole('group', { name: 'Stop keeping health details?' }).getByRole('button', { name: 'Stop, and delete it now' }).click();
+    await expect.poll(() => box.isChecked()).toBe(false);
+    await expect.poll(async () => (await part()).progress.events.length).toBe(0);
+    const p = await part();
+    expect(p.progress.grants).toHaveLength(2); // XP and the stamp never drop
+    expect(p.view?.xp).toBe(5);
+    expect(JSON.stringify(await stored(page))).not.toContain('bram-pc');
     expect(app.consoleErrors).toEqual([]);
   });
 

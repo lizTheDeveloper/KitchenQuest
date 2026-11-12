@@ -138,8 +138,6 @@ export function stallScreen(deps: StallScreenDeps): Screen {
       const doc = el.ownerDocument;
       const win = doc.defaultView;
       const store = appCtx.store;
-      // M4: the partition a round belongs to is the one live when the stall opened; another account's never takes it.
-      const partition = partitionKey(store.get());
       const heading = h('h1', { tabindex: -1 }, SCREEN_TITLES.stall);
       const status = statusLine('stall-status');
       el.replaceChildren(heading, status.el);
@@ -161,6 +159,16 @@ export function stallScreen(deps: StallScreenDeps): Screen {
       let round: RoundHandle | null = null;
       /** How many of the round's answers are already recorded (a page hide records them early, M5). */
       let kept = 0;
+      /**
+       * M6 final I2 and M4: what the round started under. A round begun in Family Table keeps nothing even if Family
+       * Table is switched off before it ends (another tab, say), so a child's answers never become the grown-up's and
+       * never skip the consent card. A round belongs to the partition live when it started; another account's never
+       * takes it (the stall can outlive an account switch, so this is per round, not per mount).
+       */
+      let roundFamilyTable = false;
+      let roundPartition: string | null = null;
+      /** A round dropped for an account switch: the next draw says so (M4: never silent). */
+      let lost = false;
       let token = 0;
 
       const today = () => localDate(appCtx.now());
@@ -168,22 +176,30 @@ export function stallScreen(deps: StallScreenDeps): Screen {
         const rules = activeRules(store.get(), graph);
         return marketCtxFor(rules.status === 'ready' ? rules.rules : null, profile, today(), graph, [...content.substitutions]);
       };
-      /** Record the round's answers not yet kept, each re-judged under the rules now (I2); never into another partition (M4). */
-      const settle = () => {
+      /**
+       * Record the round's answers not yet kept, each re-judged under the rules now (I2); never into another partition
+       * (M4), and never from a round that began, or is now, in Family Table (final I2). True when answers were dropped
+       * for an account switch.
+       */
+      const settle = (): boolean => {
         const r = round;
-        if (r === null) return;
+        if (r === null) return false;
         const fresh = r.answers().slice(kept);
         kept = r.answers().length;
-        if (fresh.length === 0 || svc === null || partitionKey(store.get()) !== partition) return;
+        if (fresh.length === 0 || svc === null || roundFamilyTable) return false;
+        if (partitionKey(store.get()) !== roundPartition) return true;
         const c = ctxNow();
         const valid = fresh.filter((a) => stillAnswerable(stall, a.q, c));
-        recordRound({ store, record: (events) => svc.record(events) }, id, valid, today());
+        recordRound({ store, record: (events) => svc.record(events) }, id, valid, today(), { familyTableAtStart: roundFamilyTable });
+        return false;
       };
-      const endRound = () => { if (round !== null && !round.ended()) settle(); round = null; kept = 0; };
+      const endRound = () => { if (round !== null && !round.ended() && settle()) lost = true; round = null; kept = 0; };
 
       const draw = async () => {
         const my = ++token;
         endRound();
+        // M5: the old round's buttons answer nothing while the redraw waits (profile, consent): they go inert at once.
+        for (const b of el.querySelectorAll<HTMLButtonElement>('.stall-round button')) b.disabled = true;
         const account = store.get().account?.email ?? null;
         if (profileFor_ !== account) { profile = await profileFor(store.get(), deps.client); profileFor_ = account; }
         if (my !== token || gone) return;
@@ -219,7 +235,8 @@ export function stallScreen(deps: StallScreenDeps): Screen {
 
         // Bank states, said plainly and never which: no calendar (once), a smaller bank, an empty one.
         const notes = [plan.noCalendar ? say('market.no_calendar', date) : null, plan.dropped > 0 || plan.round.length === 0 ? say('market.bank_small', `${id}|${date}`) : null];
-        if (svc === null && !familyTable) notes.push(UNKEPT); // M7: said, never silent
+        if ((svc === null || lost) && !familyTable) notes.push(UNKEPT); // M7, M4: said, never silent
+        lost = false;
         body.push(h('div', { class: 'stall-notes' }, ...notes.filter((t): t is string => t !== null).map((t) => contentText('p', t, { class: 'stall-note' }))));
         const roundSlot = h('div', { class: 'stall-round-slot' });
         body.push(status.el, roundSlot);
@@ -230,6 +247,8 @@ export function stallScreen(deps: StallScreenDeps): Screen {
             roundSlot.replaceChildren(h('p', null, 'There are no questions for you at this stall today. ', h('a', { href: routeHref({ name: 'stalls' }) }, 'Visit another stall'), '.'));
             return;
           }
+          roundFamilyTable = store.get().settings.familyTable;
+          roundPartition = partitionKey(store.get());
           round = renderRound(roundSlot, {
             questions: plan.round,
             keeper: name,
@@ -246,7 +265,7 @@ export function stallScreen(deps: StallScreenDeps): Screen {
             itemName: (i) => (graph.has(i) ? graph.get(i).name : null),
             priceFootnote: priceFootnote(),
             onEnd: (how) => {
-              settle();
+              const dropped = settle();
               round = null;
               kept = 0;
               if (how === 'left') {
@@ -262,7 +281,7 @@ export function stallScreen(deps: StallScreenDeps): Screen {
               // The keeper's farewell, rules-checked like every keeper line (none safe → none shown).
               const bye = pickLine(keeperLines(file, 'farewell', ctx), `${id}|farewell|${date}`);
               const farewell = bye === null ? null : h('p', { class: 'stall-said' }, h('span', { class: 'stall-speaker' }, `${name}: `), contentText('span', bye));
-              roundSlot.replaceChildren(done, ...(farewell ? [farewell] : []), h('div', { class: 'button-row' }, again, h('a', { class: 'btn btn-secondary', href: routeHref({ name: 'stalls' }) }, 'Back to the stalls')));
+              roundSlot.replaceChildren(done, ...(farewell ? [farewell] : []), ...(dropped ? [contentText('p', UNKEPT, { class: 'stall-note' })] : []), h('div', { class: 'button-row' }, again, h('a', { class: 'btn btn-secondary', href: routeHref({ name: 'stalls' }) }, 'Back to the stalls')));
               done.focus();
             },
           });

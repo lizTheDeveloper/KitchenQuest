@@ -371,6 +371,71 @@ describe('fix round 1 (review-task9)', async () => {
     expect(sent).toEqual([]);
   });
 
+  test('final I2: a round begun in Family Table is never recorded, even when Family Table is switched off mid-round (another tab)', async () => {
+    // A Protein Counter round, signed in: Family Table skips the consent card, so this is the worst case.
+    const s = ft(store({ account: { email: 'a@example.com' }, accountRules: [VEGETARIAN] }));
+    const { el, sent, screen } = await open(s, 'bram', { consent: 'missing' });
+    expect(shownIds(el)[0]).toMatch(/^bram-pc-/);
+    el.querySelector<HTMLButtonElement>('.stall-option')!.click();
+    el.querySelector<HTMLButtonElement>('.stall-next')!.click();
+    el.querySelector<HTMLButtonElement>('.stall-option')!.click();
+    s.update((x) => ({ ...x, settings: { ...x.settings, familyTable: false } }));
+    await flush();
+    screen.unmount?.();
+    expect(sent).toEqual([]);
+    // Signed out the same: a base round begun in Family Table keeps nothing after the switch.
+    const t = ft(store());
+    const b = await open(t, 'wen');
+    b.el.querySelector<HTMLButtonElement>('.stall-option')!.click();
+    t.update((x) => ({ ...x, settings: { ...x.settings, familyTable: false } }));
+    await flush();
+    // The redraw starts a new round in standard mode: that one is kept.
+    b.el.querySelector<HTMLButtonElement>('.stall-option')!.click();
+    b.screen.unmount?.();
+    expect(b.sent).toHaveLength(1);
+    expect(roundIds(b.sent)).toHaveLength(1);
+  });
+
+  test('final M4: after an account switch the stall keeps the new account\'s rounds, and says the dropped one was not kept', async () => {
+    const s = store();
+    const { el, sent, screen } = await open(s, 'wen');
+    el.querySelector<HTMLButtonElement>('.stall-option')!.click();
+    s.update((x) => ({ ...x, account: { email: 'b@example.com' }, accountRules: [] }));
+    await flush();
+    expect(sent).toEqual([]); // the round begun signed out is never filed under b
+    expect(el.textContent).toContain("can't be kept just now");
+    el.querySelector<HTMLButtonElement>('.stall-option')!.click();
+    screen.unmount?.();
+    expect(sent).toHaveLength(1); // b's own round is kept
+  });
+
+  test('final M5: while a redraw waits on consents(), the old round\'s buttons are inert', async () => {
+    const s = store({ account: { email: 'a@example.com' }, accountRules: [VEGETARIAN] });
+    let release: (() => void) | null = null;
+    const slow = {
+      getProfile: () => Promise.resolve({ ok: true, status: 200, data: { ...PNW, country: null, region: null } }),
+      consents: () => new Promise((r) => { release = () => { r({ ok: true, status: 200, data: { consents: [{ purpose: 'health_data', withdrawnAt: null, current: true }], needsReconsent: [], notices: {} } }); }; }),
+    } as unknown as Pick<ApiClient, 'getProfile' | 'consents'>;
+    const screen = stallScreen({ client: slow, progress: () => Promise.resolve({ record: () => Promise.resolve([]), view: () => EMPTY_VIEW }), askConsent: () => undefined });
+    const el = document.createElement('div');
+    document.body.replaceChildren(el);
+    const mounting = screen.mount(el, { name: 'stall', id: 'bram' }, { store: s, now: () => NOW, navigate: () => undefined });
+    await flush();
+    release!();
+    await mounting;
+    await flush();
+    expect(el.querySelector('.stall-option')).not.toBeNull();
+    s.update((x) => ({ ...x, accountRules: [VEGETARIAN, avoid('category', 'soy')] })); // a rules change mid-round
+    await flush();
+    const old = [...el.querySelectorAll<HTMLButtonElement>('.stall-round button')];
+    expect(old.length).toBeGreaterThan(0);
+    expect(old.every((b) => b.disabled)).toBe(true);
+    release!();
+    await flush();
+    expect(el.querySelector<HTMLButtonElement>('.stall-option')!.disabled).toBe(false); // the redrawn round answers
+    screen.unmount?.();
+  });
+
   test('M5: closing or reloading the tab mid-round records the answers so far, once', async () => {
     const { el, sent, screen } = await open(store(), 'wen');
     el.querySelector<HTMLButtonElement>('.stall-option')!.click();
