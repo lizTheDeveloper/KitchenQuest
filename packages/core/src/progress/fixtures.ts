@@ -2,7 +2,6 @@
 // three cooks, their dishes and quests, plus a same-cook second dish and a sacred dish for the edge cases.
 import { BRAM, graph as marketGraph, SEASONAL_STRAWBERRY, subs as marketSubs, WEN } from '../market/fixtures';
 import type { RulesContext } from '../quests/alternatives';
-import type { Rule } from '../rules/types';
 import type { FreshnessThresholds } from '../toolkit/types';
 import { grantsFor, marketCatalogue } from './rewards';
 import type { Catalogue, ProgressEvent, ProgressHistory, RewardGrant, RewardsData } from './types';
@@ -48,7 +47,7 @@ export const MARKET_CAT: Catalogue = {
 };
 
 /** The player's rules for a stall round, over the market fixtures' graph and the shipped substitutions. */
-export const rulesCtx = (rules: Rule[] = []): RulesContext => ({ rules, graph: marketGraph, subs: marketSubs, recipes: new Map() });
+export const rulesCtx = (rules: RulesContext['rules'] = []): RulesContext => ({ rules, graph: marketGraph, subs: marketSubs, recipes: new Map() });
 
 export const EMPTY: ProgressHistory = { events: [], grants: [], base: null };
 

@@ -52,6 +52,17 @@ describe('stockSwaps (Ruling 11)', () => {
     expect(stockSwaps(row, SIMPLE_WEEK, simpleCtx({ subs: [{ ...toParsley, unsafeFor: [] }], rules: [PEANUT] }))).toHaveLength(1);
   });
 
+  test('a substitute the rules engine would itself swap is never offered: lard under "no pork" is ⛔ to buy, not 🔁', () => {
+    // check() calls the dish 🔁 (lard → neutral oil), but the player would be sent to buy lard: never.
+    const recipes = new Map([...canon, [SIMPLE, dish('leela', ['coriander', 'salt'])]]);
+    const toLard: Substitution = { from: 'coriander', to: 'lard' };
+    const ctx = ctxWith({ recipes, subs: [...subs, toLard], rules: [PORK] });
+    const row = rowOf(marketList(SIMPLE_WEEK, ctx, [], STALLS), 'coriander');
+    expect(checkWithStockSwaps(recipes.get(SIMPLE)!, [{ from: 'coriander', to: 'lard' }], [PORK], graph, ctx.subs, MONDAY).status).toBe('swap');
+    expect(stockSwaps(row, SIMPLE_WEEK, ctx)).toEqual([]);
+    expect(stockSwaps(row, SIMPLE_WEEK, { ...ctx, rules: [] })).toHaveLength(1);
+  });
+
   test('a swap whose result is ❓ for any dish it serves is not offered', () => {
     // Tamari is label-dependent: ❓ under any rule. Onion stays ✅ under a peanut rule.
     const tamari: Substitution = { from: 'shallot', to: 'tamari' };
