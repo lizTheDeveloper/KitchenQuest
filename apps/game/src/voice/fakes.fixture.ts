@@ -92,7 +92,7 @@ export function fakeAudio(extra: Record<string, unknown> = {}): FakeAudio {
     out.getUserMedia.calls.push(c);
     if (gate) await gate;
     if (out.fail.gum) throw out.fail.gum;
-    const tracks: FakeTrack[] = [0, 1].map(() => ({ stopped: false, stop() { this.stopped = true; } }));
+    const tracks: FakeTrack[] = [0, 1].map((): FakeTrack => ({ stopped: false, stop() { this.stopped = true; } }));
     out.tracks.push(...tracks);
     return { getTracks: () => tracks };
   };

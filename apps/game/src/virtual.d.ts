@@ -16,3 +16,11 @@ declare module 'virtual:kq-market' {
   const market: MarketContent;
   export default market;
 }
+
+/** M7 Step 8: the voice build switches (build/voice-provider.ts, build/hands-free-gate.ts). */
+interface ImportMetaEnv {
+  /** `browser` (Web Speech) only on the dev server (Ruling 1); any build refuses it. Unset or `service` otherwise. */
+  readonly VITE_VOICE_PROVIDER?: string;
+  /** `on` shows hands-free in cook mode; a build refuses it until the browser echo checklist passed (Ruling 7, C9). */
+  readonly VITE_HANDS_FREE?: string;
+}

@@ -43,7 +43,7 @@ export const HELLO_TIMEOUT_MS = 10_000;
 /** Opens the socket, sends `hello` first, and resolves once the API answers `ready`. */
 export function openVoiceSocket(win: Window, hello: Extract<ClientMsg, { t: 'hello' }>): Promise<VoiceSocket> {
   const scheme = win.location.protocol === 'https:' ? 'wss' : 'ws';
-  const ws = new win.WebSocket(`${scheme}://${win.location.host}/api/voice`);
+  const ws = new (win as Window & { WebSocket: typeof WebSocket }).WebSocket(`${scheme}://${win.location.host}/api/voice`);
   ws.binaryType = 'arraybuffer';
   const listeners = new Set<(m: ServerMsg) => void>();
   const audio = new Set<(id: number, pcm: Int16Array) => void>();
@@ -95,7 +95,7 @@ export function openVoiceSocket(win: Window, hello: Extract<ClientMsg, { t: 'hel
     for (const fn of listeners) fn(msg);
   };
 
-  const send = (data: string | Uint8Array) => {
+  const send = (data: string | Uint8Array<ArrayBuffer>) => {
     if (!done && ws.readyState === OPEN) ws.send(data);
   };
   return new Promise<VoiceSocket>((resolve, reject) => {
@@ -104,7 +104,7 @@ export function openVoiceSocket(win: Window, hello: Extract<ClientMsg, { t: 'hel
       state,
       closed,
       send: (m) => send(JSON.stringify(m)),
-      frame: (id, pcm) => send(encodeFrame(id, pcm)),
+      frame: (id, pcm) => send(encodeFrame(id, pcm) as Uint8Array<ArrayBuffer>),
       on: (fn) => { listeners.add(fn); return () => { listeners.delete(fn); }; },
       onAudio: (fn) => { audio.add(fn); return () => { audio.delete(fn); }; },
       close: () => end('network'),
