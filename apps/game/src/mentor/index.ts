@@ -7,7 +7,6 @@ import { reducedMotion } from '../shell/motion';
 import { parseRoute } from '../shell/router';
 import { createScriptedBackend, type MentorBackend } from './backend';
 import { createChildFlag } from './child-flag';
-import { deviceId } from '../state/device-id';
 import { lazyBackend } from './lazy-backend';
 import { createLocalSafety, newConversation, scriptedWhenUnavailable, type ConversationRef } from './outage';
 import { createDialogue, type Dialogue } from './dialogue';
@@ -56,71 +55,6 @@ export function historyOptions(store: PlayerStore): {
   const session = () => store.get().account?.email ?? '';
   if (settings.familyTable) return { history: dialogueHistory, session };
   return { history: dialogueHistory, onHistory: (h) => { store.update((s) => ({ ...s, dialogueHistory: h })); }, session };
-}
-
-/** Fix round 1 (I-4): a Family Table report that failed is sent again after this long, doubling to the cap. */
-const FAMILY_TABLE_RETRY_MS = 5_000;
-const FAMILY_TABLE_RETRY_MAX_MS = 300_000;
-
-/**
- * M7 Ruling 17: the device's Family Table setting goes to the API's per-user voice block now (a signed-in start), on
- * every change, and on signing in, so the server refuses voice even if a device bug opened a socket. Signed out there is
- * no account to block. Fix round 1 (I-4): only a 2xx confirms a report; a failed one (offline, a 429, a 5xx, a throw) is
- * sent again with a growing backoff, and at once on `online`, until it lands, the setting changes or the player signs
- * out. Meanwhile the device itself refuses the microphone in Family Table (the controller throws; talk.ts hides), so
- * the guarantee never rests on the report alone. Fix round 2: every report names this install (`deviceId`), and the
- * server lifts the block only when the device that set it reports off, so a second device's start-up `{on:false}`
- * clears nothing. Returns the unsubscribe.
- */
-export function reportFamilyTable(
-  store: PlayerStore, client: Pick<ApiClient, 'setFamilyTable'>,
-  opts: {
-    setTimer?: (fn: () => void, ms: number) => unknown; clearTimer?: (t: unknown) => void; events?: Pick<EventTarget, 'addEventListener' | 'removeEventListener'>;
-    /** Fix round 2: this install's id (state/device-id.ts), so the server's block is per device. */
-    deviceId?: () => string;
-  } = {},
-): () => void {
-  const device = opts.deviceId ?? (() => deviceId());
-  const setTimer = opts.setTimer ?? ((fn: () => void, ms: number) => setTimeout(fn, ms));
-  const clearTimer = opts.clearTimer ?? ((t: unknown) => { clearTimeout(t as ReturnType<typeof setTimeout>); });
-  const keyOf = (s: PlayerState) => (s.account === null ? null : `${s.account.email}|${String(s.settings.familyTable)}`);
-  let confirmed: string | null = null;
-  let sending: string | null = null;
-  let timer: unknown = null;
-  let backoff = FAMILY_TABLE_RETRY_MS;
-  const stopTimer = () => { if (timer !== null) clearTimer(timer); timer = null; };
-  const attempt = () => {
-    const s = store.get();
-    const key = keyOf(s);
-    if (key === null || key === confirmed || key === sending) return;
-    stopTimer();
-    sending = key;
-    const settle = (ok: boolean) => {
-      if (sending === key) sending = null;
-      const now = keyOf(store.get());
-      if (now !== key) { attempt(); return; } // the setting or the account moved on meanwhile: report that instead
-      if (ok) { confirmed = key; backoff = FAMILY_TABLE_RETRY_MS; return; }
-      timer = setTimer(() => { timer = null; attempt(); }, backoff);
-      backoff = Math.min(backoff * 2, FAMILY_TABLE_RETRY_MAX_MS);
-    };
-    client.setFamilyTable(s.settings.familyTable, device()).then((r) => { settle(r.ok); }, () => { settle(false); });
-  };
-  const onStore = (s: PlayerState) => {
-    const key = keyOf(s);
-    if (key === null) { stopTimer(); confirmed = null; backoff = FAMILY_TABLE_RETRY_MS; return; }
-    if (key === confirmed) { stopTimer(); return; }
-    if (timer !== null && sending === null && key === lastTried) return; // waiting out the backoff for this report
-    if (key !== lastTried) { backoff = FAMILY_TABLE_RETRY_MS; stopTimer(); }
-    lastTried = key;
-    attempt();
-  };
-  let lastTried: string | null = keyOf(store.get());
-  const onOnline = () => { if (timer !== null) { stopTimer(); attempt(); } };
-  const events = opts.events ?? (typeof window === 'undefined' ? undefined : window);
-  events?.addEventListener('online', onOnline);
-  attempt();
-  const unsubscribe = store.subscribe(onStore);
-  return () => { unsubscribe(); stopTimer(); events?.removeEventListener('online', onOnline); };
 }
 
 /** Which backend a player gets: Family Table → scripted (§19); signed in with the AI mentor on → AI; otherwise scripted. */
@@ -291,7 +225,9 @@ export function mountMentor(
     current = { panel, backend, familyTable, resetChild: () => { child.reset(); if (conversation) newConversation(conversation); } };
   };
   build();
-  reportFamilyTable(store, client);
+  // Ruling 17's report (family-report.ts) loads lazily, off first paint; the device refuses the microphone in Family
+  // Table on its own meanwhile, so nothing waits on it.
+  void import('./family-report').then((m) => { m.reportFamilyTable(store, client); }).catch((err: unknown) => { console.error(err); });
   store.subscribe((s) => {
     if (current === null || s.settings.familyTable === current.familyTable) return;
     const wasOpen = current.panel.isOpen();

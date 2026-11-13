@@ -89,7 +89,7 @@ test('N4: after a sign-out, the next Pan line leaves no earlier line history in 
 
 describe('M7 Ruling 17: the Family Table report', () => {
   test('a signed-in start reports it, then every change and every sign-in; signed out, or an unrelated change, sends nothing', async () => {
-    const { reportFamilyTable } = await import('./index');
+    const { reportFamilyTable } = await import('./family-report');
     const store = createStore(null);
     const sent: boolean[] = [];
     const client = { setFamilyTable: (on: boolean) => { sent.push(on); return Promise.resolve({ ok: true as const, status: 204, data: null }); } };
@@ -101,8 +101,11 @@ describe('M7 Ruling 17: the Family Table report', () => {
     expect(sent).toEqual([true]); // signing in reports it
     store.update((s) => ({ ...s, dialogueHistory: { x: [1] } }));
     expect(sent).toEqual([true]);
+    // Each report settles before the next goes (fix round 3, N-5).
     store.update((s) => ({ ...s, settings: { ...s.settings, familyTable: false } }));
+    await new Promise((r) => setTimeout(r, 0));
     store.update((s) => ({ ...s, settings: { ...s.settings, familyTable: true } }));
+    await new Promise((r) => setTimeout(r, 0));
     expect(sent).toEqual([true, false, true]);
     stop();
     // At every signed-in start, whatever it was before.
@@ -134,7 +137,7 @@ describe('fix round 1 (I-4): the Family Table report is confirmed only by a 2xx 
   }
 
   test('a failed {on:true} is sent again after a growing backoff, and on `online`, until a 2xx; then nothing more', async () => {
-    const { reportFamilyTable } = await import('./index');
+    const { reportFamilyTable } = await import('./family-report');
     const r = rig(['fail', 'throw', 'fail', 'ok']);
     reportFamilyTable(r.store, r.client, r.opts);
     await new Promise((res) => setTimeout(res, 0));
@@ -154,7 +157,7 @@ describe('fix round 1 (I-4): the Family Table report is confirmed only by a 2xx 
   });
 
   test('retrying stops on sign-out; a change to Family Table off sends {on:false} instead', async () => {
-    const { reportFamilyTable } = await import('./index');
+    const { reportFamilyTable } = await import('./family-report');
     const r = rig(['fail', 'ok']);
     reportFamilyTable(r.store, r.client, r.opts);
     await new Promise((res) => setTimeout(res, 0));
@@ -176,7 +179,7 @@ describe('fix round 1 (I-4): the Family Table report is confirmed only by a 2xx 
 
 describe('fix round 2: the report names this install, so another device\'s start-up report clears nothing', () => {
   test('A in Family Table and B not: B\'s start-up {on:false} leaves A\'s block; A\'s id is the same after a reload', async () => {
-    const { reportFamilyTable } = await import('./index');
+    const { reportFamilyTable } = await import('./family-report');
     const { deviceId } = await import('../state/device-id');
     // A fake of the API's per-device set (apps/api voice/family-devices.ts and family-routes.ts).
     const set = new Set<string>();
@@ -206,5 +209,66 @@ describe('fix round 2: the report names this install, so another device\'s start
     a2.update((x) => ({ ...x, settings: { ...x.settings, familyTable: false } }));
     await new Promise((r) => setTimeout(r, 0));
     expect(blocked).toBe(false);
+  });
+});
+
+describe('fix round 3: the Family Table report (N-4, N-5)', () => {
+  const flushAll = () => new Promise((r) => setTimeout(r, 0));
+  const opts = (timers: unknown[]) => ({ setTimer: (fn: () => void) => { timers.push(fn); return fn; }, clearTimer: (t: unknown) => { const i = timers.indexOf(t); if (i >= 0) timers.splice(i, 1); }, events: new EventTarget(), deviceId: () => '0f1e2d3c-4b5a-4968-8776-655443322110' });
+  const ft = () => { const s = createStore(null); s.update((x) => ({ ...x, account: { email: 'a@b.c' }, settings: { ...x.settings, familyTable: true } })); return s; };
+
+  test('N-4: a 400 or a 404 (voice not offered) is final: no retry; 0, 429 and 5xx are retried', async () => {
+    const { reportFamilyTable } = await import('./family-report');
+    for (const status of [400, 404]) {
+      const timers: unknown[] = [];
+      let sent = 0;
+      reportFamilyTable(ft(), { setFamilyTable: () => { sent++; return Promise.resolve({ ok: false as const, status, error: { code: 'x', message: '' } }); } }, opts(timers));
+      await flushAll();
+      expect(sent, String(status)).toBe(1);
+      expect(timers, String(status)).toEqual([]);
+    }
+    for (const status of [0, 429, 502]) {
+      const timers: unknown[] = [];
+      reportFamilyTable(ft(), { setFamilyTable: () => Promise.resolve({ ok: false as const, status, error: { code: 'x', message: '' } }) }, opts(timers));
+      await flushAll();
+      expect(timers, String(status)).toHaveLength(1);
+    }
+  });
+
+  test('N-5: reports go one at a time, in order: quick toggles on→off→on end with the server told on, last', async () => {
+    const { reportFamilyTable } = await import('./family-report');
+    const store = ft();
+    const calls: { on: boolean; done: () => void }[] = [];
+    let inFlight = 0;
+    let most = 0;
+    const client = {
+      setFamilyTable: (on: boolean) => new Promise<{ ok: true; status: number; data: null }>((res) => {
+        inFlight++;
+        most = Math.max(most, inFlight);
+        calls.push({ on, done: () => { inFlight--; res({ ok: true, status: 204, data: null }); } });
+      }),
+    };
+    reportFamilyTable(store, client, opts([]));
+    store.update((s) => ({ ...s, settings: { ...s.settings, familyTable: false } }));
+    store.update((s) => ({ ...s, settings: { ...s.settings, familyTable: true } }));
+    store.update((s) => ({ ...s, settings: { ...s.settings, familyTable: false } }));
+    store.update((s) => ({ ...s, settings: { ...s.settings, familyTable: true } }));
+    expect(calls.map((c) => c.on)).toEqual([true]);
+    calls[0].done();
+    await flushAll();
+    // The first answered while the setting was on again: nothing left to say.
+    expect(calls.map((c) => c.on)).toEqual([true]);
+    store.update((s) => ({ ...s, settings: { ...s.settings, familyTable: false } }));
+    store.update((s) => ({ ...s, settings: { ...s.settings, familyTable: true } }));
+    store.update((s) => ({ ...s, settings: { ...s.settings, familyTable: false } }));
+    expect(calls.map((c) => c.on)).toEqual([true, false]);
+    calls[1].done();
+    await flushAll();
+    expect(calls.map((c) => c.on)).toEqual([true, false]); // still off: confirmed
+    store.update((s) => ({ ...s, settings: { ...s.settings, familyTable: true } }));
+    calls[2].done();
+    await flushAll();
+    expect(calls.map((c) => c.on)).toEqual([true, false, true]);
+    expect(most).toBe(1);
   });
 });

@@ -123,9 +123,11 @@ export function mountMentorPanel(root: HTMLElement, opts: {
 
   let talkRow: HTMLElement | null = null;
   let talk: Promise<{ stop(): void } | null> | null = null;
+  // Fix round 3: only a signed-in player can talk (Ruling 8), so only then does the talk control's code load; a
+  // signed-out open loads nothing more (the intake-lazy flake: that import competed with a safety answer).
   const loadTalk = () => {
     const row = talkRow;
-    if (row === null) return;
+    if (row === null || store.get().account === null) return;
     talk ??= import('./talk').then((m) => (destroyed ? null : m.mountTalk(row, {
       store, client, dialogue, backend, ...(opts.child ? { child: opts.child } : {}), ...(opts.conversationId ? { conversationId: opts.conversationId } : {}),
       ...(opts.voice ? { voice: opts.voice } : {}),
@@ -728,6 +730,8 @@ export function mountMentorPanel(root: HTMLElement, opts: {
     panel.append(form, talkRow);
   }
 
+  // Signing in while the panel is open loads the talk control then.
+  const stopTalkLoad = store.subscribe(() => { if (open && talk === null) loadTalk(); });
   const onDocKey = (ev: KeyboardEvent) => { if (ev.key === 'Escape') api.close(); };
   const api: MentorPanel = {
     mode,
@@ -773,6 +777,7 @@ export function mountMentorPanel(root: HTMLElement, opts: {
     destroy() {
       destroyed = true;
       void talk?.then((t) => t?.stop());
+      stopTalkLoad();
       doc.removeEventListener('keydown', onDocKey);
       opener?.removeEventListener('click', onOpener);
       stopLate?.();

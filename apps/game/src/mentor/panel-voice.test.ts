@@ -16,7 +16,7 @@ import { HEARD_YES } from './heard-card';
 import { mountMentorPanel, type MentorMode } from './panel';
 import type { CardView, PanReply } from './reply';
 import { createScriptedEngine } from './scripted';
-import { TALK_BLOCKED_LABEL, TALK_LABEL, TALK_OFF_LABEL, UNAVAILABLE_BACKOFF_MS } from './talk';
+import { MIC_READY_TEXT, TALK_BLOCKED_LABEL, TALK_LABEL, TALK_OFF_LABEL, UNAVAILABLE_BACKOFF_MS } from './talk';
 import { createWeekTurn } from './week-turn';
 import type { CardWriter } from './writer';
 
@@ -379,7 +379,7 @@ describe('talking to the Pan (M7 Step 9)', () => {
     expect(said()).toBe(2);
   });
 
-  test('fix round 1 (I-2): a server child refusal says child.grownup once; a cleared conversation behaves the same, never silently', async () => {
+  test('fix round 1 (I-2): a server child refusal says voice.child_block once (round 3, N-2); a cleared conversation behaves the same, never silently', async () => {
     const r = await rig();
     const refuse = async () => {
       r.press();
@@ -393,7 +393,7 @@ describe('talking to the Pan (M7 Step 9)', () => {
       await flush();
     };
     await refuse();
-    const grownup = () => [...r.root.querySelectorAll('.bubble.pan')].filter((b) => lines('child.grownup').includes(b.textContent)).length;
+    const grownup = () => [...r.root.querySelectorAll('.bubble.pan')].filter((b) => lines('voice.child_block').includes(b.textContent)).length;
     expect(grownup()).toBe(1);
     expect(r.btn()!.dataset.phase).toBe('blocked');
     // The conversation is cleared (the device's own child flag forgets): the control is back, and the same refusal
@@ -474,4 +474,74 @@ describe('talking to the Pan (M7 Step 9)', () => {
     expect(off.audio.win.location.hash).toBe('#/settings');
     expect(takeFocus('voice-settings')).toBe(true);
   });
+
+  test('fix round 3 (the intake-lazy flake): signed out, opening the panel never loads the talk control; signing in while it is open loads it', async () => {
+    const r = await rig({ patch: { account: null } });
+    expect(r.btn()).toBeNull(); // talk.ts never loaded: nothing of it is drawn
+    expect(r.row()!.hidden).toBe(true);
+    r.store.update((s) => ({ ...s, account: { email: 'cook@example.com' } }));
+    await vi.waitFor(() => { expect(r.btn()).not.toBeNull(); });
+    expect(r.row()!.hidden).toBe(false);
+  });
+
+  test('fix round 3 (I-A): an allow given after letting go shows "microphone ready" in the status line, without taking focus', async () => {
+    const r = await rig();
+    const allow = r.audio.hold();
+    r.press();
+    await r.ready();
+    r.release();
+    const other = document.createElement('input');
+    document.body.append(other);
+    other.focus();
+    allow();
+    await flush();
+    expect(r.root.querySelector('.pan-talk-state')!.textContent).toBe(MIC_READY_TEXT);
+    expect(document.activeElement).toBe(other);
+  });
+
+  test('fix round 3 (N-1): a refused microphone names the browser\'s permission (voice.mic_blocked), not the generic line', async () => {
+    const r = await rig();
+    r.audio.fail.gum = Object.assign(new Error('denied'), { name: 'NotAllowedError' });
+    r.press();
+    await r.ready();
+    await flush();
+    r.release();
+    const said = [...r.root.querySelectorAll('.bubble.pan')].map((b) => b.textContent);
+    expect(said.filter((t) => lines('voice.mic_blocked').includes(t))).toHaveLength(1);
+    expect(said.some((t) => lines('voice.unavailable').includes(t))).toBe(false);
+    expect(lines('voice.mic_blocked').every((l) => /browser/.test(l))).toBe(true);
+  });
+
+  test('fix round 3 (N-2): a server child block on this device says the neutral voice.child_block, not the line to a child', async () => {
+    const r = await rig();
+    r.press();
+    await flush();
+    const ws = r.sockets.at(-1)!;
+    ws.open();
+    ws.serverSend({ t: 'closed', reason: 'child' });
+    ws.serverClose(4451);
+    await flush();
+    r.release();
+    const said = [...r.root.querySelectorAll('.bubble.pan')].map((b) => b.textContent);
+    expect(said.filter((t) => lines('voice.child_block').includes(t))).toHaveLength(1);
+    expect(said.some((t) => lines('child.grownup').includes(t))).toBe(false);
+  });
+
+  test('fix round 3 (N-3): a press that ended with no listen does not leave the control "engaged": a later drop takes no focus', async () => {
+    const r = await rig();
+    const ws = await utter(r, 'what should I cook'); // a first, complete turn
+    await flush(20);
+    const listens = ws.json().filter((m) => m.t === 'listen').length;
+    r.press();
+    r.release(); // let go before the microphone opened: no listen goes
+    await flush(20);
+    expect(ws.json().filter((m) => m.t === 'listen')).toHaveLength(listens);
+    const other = document.createElement('input');
+    document.body.append(other);
+    other.focus();
+    ws.serverClose(1006);
+    await flush();
+    expect(document.activeElement).toBe(other);
+  });
 });
+

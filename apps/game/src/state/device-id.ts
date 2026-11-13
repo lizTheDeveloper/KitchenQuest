@@ -5,15 +5,27 @@ import { safeLocalStorage } from './store';
 
 export const DEVICE_KEY = 'kq.device.v1';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-/** Without storage (private mode, blocked site data) the id lasts this page's life. */
-let memo: string | null = null;
+/** Fix round 3 (N-6): the id this page settled on, per storage (and for no storage): every call gives the same one. */
+const memo = new WeakMap<object, string>();
+const NO_STORAGE = {};
 
 export function deviceId(storage: Storage | null = safeLocalStorage()): string {
+  const slot = storage ?? NO_STORAGE;
+  const known = memo.get(slot);
   try {
     const v = storage?.getItem(DEVICE_KEY) ?? null;
-    if (v !== null && UUID.test(v)) return v;
-  } catch { /* storage unavailable */ }
-  const id = storage === null ? (memo ??= crypto.randomUUID()) : crypto.randomUUID();
-  try { storage?.setItem(DEVICE_KEY, id); } catch { memo ??= id; return memo; }
+    if (v !== null && UUID.test(v)) { memo.set(slot, v); return v; }
+    // Removed (delete everything): a new install's id. Anything else not a UUID: this page's id, written back.
+    if (known !== undefined && !(v === null && storage !== null)) {
+      try { storage?.setItem(DEVICE_KEY, known); } catch { /* kept in memory */ }
+      return known;
+    }
+  } catch {
+    // Unreadable storage: the id this page already has, or a new one kept for the page's life.
+    if (known !== undefined) return known;
+  }
+  const id = crypto.randomUUID();
+  memo.set(slot, id);
+  try { storage?.setItem(DEVICE_KEY, id); } catch { /* kept in memory for this page */ }
   return id;
 }

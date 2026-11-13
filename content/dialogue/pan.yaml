@@ -2019,6 +2019,21 @@ triggers:
     lines:
       - "Voice is off while Family Table mode is on for your account. Type to me instead; everything else works."
 
+  # REVIEW: fix round 3 (N-1): the browser refused the microphone. Says what to fix, plainly; typing is named.
+  voice.mic_blocked:
+    ai: never
+    when: The browser did not let the game use the microphone (the permission was refused or no microphone was found). Nothing was heard.
+    lines:
+      - "Your browser didn't let me use the microphone. You can allow it in the browser's settings for this site, or type to me instead."
+
+  # REVIEW: fix round 3 (N-2): the server refused voice because a child spoke in one of the account's conversations
+  # (Ruling 17), maybe on another device. Neutral: it may well be read by the grown-up.
+  voice.child_block:
+    ai: never
+    when: The server refused voice for a while because a child spoke in one of this account's conversations (on this or another device). Typing works.
+    lines:
+      - "Voice is paused for a while on this account, because a child was talking to me. Type to me instead; everything else works."
+
   # REVIEW: hands-free is cook mode only, off by default (Ruling 7). Tapping talk always stops the Pan.
   voice.hands_free_on:
     ai: never

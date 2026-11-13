@@ -23,3 +23,13 @@ describe('familyDevices', () => {
     expect(familyDevices.on(u, 'd0')).toBe(true); // a known one still is
   });
 });
+
+describe('fix round 3 (N-7): past the cap', () => {
+  test('a device that could not be remembered keeps the block: the remembered ones all going off does not lift it', () => {
+    const u = 'user-fd-3';
+    for (let i = 0; i < MAX_FAMILY_DEVICES; i++) familyDevices.on(u, `d${i}`);
+    expect(familyDevices.on(u, 'unremembered')).toBe(false);
+    for (let i = 0; i < MAX_FAMILY_DEVICES - 1; i++) expect(familyDevices.off(u, `d${i}`)).toBe(false);
+    expect(familyDevices.off(u, `d${MAX_FAMILY_DEVICES - 1}`)).toBe(false); // the set is empty, but one device was never recorded
+  });
+});

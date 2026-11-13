@@ -5,17 +5,21 @@
 // it clears the registry; a device in Family Table reports again at its next start, and refuses the microphone itself
 // meanwhile.
 
-/** At most this many devices per user are remembered (abuse only). Past it, `on` still blocks; only removal is lost. */
+/**
+ * At most this many devices per user are remembered (abuse only). Past it, `on` still blocks, and (fix round 3, N-7)
+ * the user is marked: an `off` never lifts the block while a device that reported on was not recorded; a restart does.
+ */
 export const MAX_FAMILY_DEVICES = 32;
 
 class FamilyDevices {
   private readonly byUser = new Map<string, Set<string>>();
+  private readonly overflow = new Set<string>();
 
   /** The device is in Family Table now. True when it is remembered (false only past MAX_FAMILY_DEVICES). */
   on(userId: string, deviceId: string): boolean {
     let set = this.byUser.get(userId);
     if (set === undefined) this.byUser.set(userId, (set = new Set()));
-    if (!set.has(deviceId) && set.size >= MAX_FAMILY_DEVICES) return false;
+    if (!set.has(deviceId) && set.size >= MAX_FAMILY_DEVICES) { this.overflow.add(userId); return false; }
     set.add(deviceId);
     return true;
   }
@@ -29,7 +33,7 @@ class FamilyDevices {
     if (set === undefined || !set.delete(deviceId)) return false;
     if (set.size > 0) return false;
     this.byUser.delete(userId);
-    return true;
+    return !this.overflow.has(userId);
   }
 
   /** Counts only, for tests. */

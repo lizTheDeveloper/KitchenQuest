@@ -52,6 +52,11 @@ export interface VoiceController {
   onTranscript(fn: (text: string, tooLong: boolean, utteranceId: number) => void): () => void;
   onPhase(fn: (p: VoicePhase, state: VoiceState | null) => void): () => void;
   onProblem(fn: (p: VoiceProblem) => void): () => void;
+  /**
+   * Fix round 3 (I-A): the browser granted the microphone after the player had let go (on a first press they let go to
+   * answer its prompt). Nothing was heard and the microphone is closed again; the caller says it is ready.
+   */
+  onMicReady(fn: () => void): () => void;
   /** Fix round 2 (Step 9, I-2): the API answered a hello (`ready`): voice is open for this account now. */
   onReady(fn: (state: VoiceState) => void): () => void;
   /**
@@ -111,6 +116,7 @@ export function createVoiceController(deps: {
   const phaseFns = new Set<(p: VoicePhase, s: VoiceState | null) => void>();
   const problems = new Set<(p: VoiceProblem) => void>();
   const readyFns = new Set<(s: VoiceState) => void>();
+  const micReadyFns = new Set<() => void>();
   const handsOff = new Set<(w: HandsFreeOff) => void>();
 
   let phase: VoicePhase = 'idle';
@@ -236,7 +242,12 @@ export function createVoiceController(deps: {
         // R1: live tracks, before the context has started: stop them now if nothing wants them, else keep the stop.
         // Step 9 (G3): a rule that forbids a microphone now (a device-only child flag has no store change and no frame
         // yet) stops them at once and closes the controller.
-        if (!wantMic() || closed || forbidden(store.get(), deps.childOn()) !== null) { stop(); pendingStopped = true; guard(); } else pendingStop = stop;
+        if (!wantMic() || closed || forbidden(store.get(), deps.childOn()) !== null) {
+          stop();
+          pendingStopped = true;
+          // I-A: granted, but the press had already ended: the permission result is never silent.
+          if (!guard() && !wantMic()) for (const fn of [...micReadyFns]) fn();
+        } else pendingStop = stop;
       },
     }).then(
       (m): Mic | null | Promise<Mic | null> => {
@@ -529,6 +540,7 @@ export function createVoiceController(deps: {
     onPhase(fn) { phaseFns.add(fn); return () => { phaseFns.delete(fn); }; },
     onProblem(fn) { problems.add(fn); return () => { problems.delete(fn); }; },
     onReady(fn) { readyFns.add(fn); return () => { readyFns.delete(fn); }; },
+    onMicReady(fn) { micReadyFns.add(fn); return () => { micReadyFns.delete(fn); }; },
     onHandsFreeOff(fn) { handsOff.add(fn); return () => { handsOff.delete(fn); }; },
 
     close(reason = 'off') {
@@ -553,6 +565,7 @@ export function createVoiceController(deps: {
       phaseFns.clear();
       problems.clear();
       readyFns.clear();
+      micReadyFns.clear();
       handsOff.clear();
     },
   };

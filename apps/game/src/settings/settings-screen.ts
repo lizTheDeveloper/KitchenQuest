@@ -2,7 +2,8 @@ import { SCREEN_TITLES } from '../shell/titles';
 import type { ApiClient } from '../api/client';
 import { type AppContext, type Screen } from '../shell/app';
 import { deleteOfflineCopy, skipServiceWorkerOnce } from '../pwa/register';
-import { deleteDeviceData, safeLocalStorage, STORE_KEY, type PlayerSettings } from '../state/store';
+import { deviceId } from '../state/device-id';
+import { deleteDeviceData, safeLocalStorage, STORE_KEY, type PlayerSettings, type PlayerState } from '../state/store';
 import { h } from '../ui/dom';
 import { content } from '../content';
 import { accountSection } from './account-section';
@@ -15,6 +16,19 @@ const DELETE_STEP_MS = 3000;
 
 const within = <T>(p: Promise<T>, ms: number): Promise<T | null> =>
   Promise.race([p, new Promise<null>((resolve) => { setTimeout(() => resolve(null), ms); })]);
+
+/**
+ * The first steps of "Delete everything on this device", signed in: M7 Step 9 fix round 3, a Family Table device
+ * first tells the server this install left Family Table (`{ on: false }` with its own id, Ruling 17), because its id
+ * goes with the device data and could otherwise never lift the account's voice block; then the session ends. Each step
+ * is bounded by `ms`, and a failed report never holds the delete up. True when signed out (or never signed in).
+ */
+export async function signOutBeforeDelete(api: Pick<ApiClient, 'logout' | 'setFamilyTable'>, s: Pick<PlayerState, 'account' | 'signOutPending' | 'settings'>, device: string, ms: number): Promise<boolean> {
+  const signedIn = s.account !== null || s.signOutPending;
+  if (!signedIn) return true;
+  if (s.account !== null && s.settings.familyTable) await within(api.setFamilyTable(false, device).catch(() => null), ms);
+  return (await within(api.logout(), ms))?.ok === true;
+}
 
 export function settingsScreen(api: ApiClient): Screen {
   let stops: (() => void)[] = [];
@@ -58,10 +72,12 @@ export function settingsScreen(api: ApiClient): Screen {
           void (async () => {
             // Signed in: end the session first, or the next start would sign this device straight back in.
             // Read again now: the account may have changed (another tab, a refresh) since the box opened.
-            const nowSignedIn = ctx.store.get().account !== null || ctx.store.get().signOutPending;
+            const now = ctx.store.get();
+            // Read before the store stops saving: the device id goes with the data below.
+            const device = deviceId();
             // From here on nothing in this tab (a refresh, a setting) may write the data back.
             ctx.store.stopSaving();
-            const loggedOut = !nowSignedIn || (await within(api.logout(), DELETE_STEP_MS))?.ok === true;
+            const loggedOut = await signOutBeforeDelete(api, now, device, DELETE_STEP_MS);
             // The offline copy first (Kitchen Quest's caches and its service worker), each bounded by its own
             // timeout: removing the data makes other tabs reload, and they must not find the worker still there.
             await deleteOfflineCopy(navigator, 'caches' in window ? window.caches : undefined, DELETE_STEP_MS);

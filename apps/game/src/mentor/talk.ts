@@ -61,6 +61,8 @@ export const TALK_LABEL = 'Hold to talk';
 export const TALK_OFF_LABEL = 'Talk out loud';
 /** Fix round 2 (I-2): the server holds a child or Family Table block for this account; a press asks again. */
 export const TALK_BLOCKED_LABEL = 'Voice is off for now';
+/** Fix round 3 (I-A): the browser's "Allow" came after the player let go: nothing was heard, press again. */
+export const MIC_READY_TEXT = "The microphone's ready. Hold the button and speak.";
 const HINT_BLOCKED = 'Voice is off for your account right now. Press to check again; typing always works.';
 const HINT_ON = 'Hold the button, or hold Space or Enter on it, and speak. Let go to send.';
 const HINT_OFF = 'Voice is off. This opens Settings, where you can turn it on.';
@@ -194,7 +196,8 @@ export function mountTalk(row: HTMLElement, hooks: TalkHooks): { stop(): void } 
     if (p === 'consent_required') { if (!told) { told = true; askConsent(); } return; }
     if (p === 'signed_out') { void refreshAccount(client, store); return; }
     if (p === 'family_table' || p === 'child') return; // the controller closed itself
-    tell(lines(['voice.unavailable']));
+    // N-1: a refused microphone says what to fix (the browser's permission); anything else the plain line.
+    tell(lines([p === 'microphone' ? 'voice.mic_blocked' : 'voice.unavailable']));
   };
 
   const onPhase = (c: VoiceController, phase: VoicePhase, s: VoiceState | null) => {
@@ -205,6 +208,9 @@ export function mountTalk(row: HTMLElement, hooks: TalkHooks): { stop(): void } 
     else if (phase === 'waiting') state.textContent = 'The Pan is answering.';
     else if (phase === 'speaking') state.textContent = 'The Pan is speaking. Hold to interrupt.';
     else if (phase === 'off') state.textContent = '';
+    // N-3: a press that ended with no turn on its way leaves nothing under way. Cleared after the current task, so
+    // a problem reported in the same task as this idle (a dropped socket) still counts as the press's.
+    if (phase === 'idle' && !held) queueMicrotask(() => { if (c === ctl && !held && c.phase === 'idle') engaged = false; });
     // I-2: a server-held child or Family Table close (the device's own rules drop the controller before it closes).
     if (phase === 'off' && (c.closedReason === 'child' || c.closedReason === 'family_table') && allowed()) {
       serverBlock = c.closedReason;
@@ -214,7 +220,8 @@ export function mountTalk(row: HTMLElement, hooks: TalkHooks): { stop(): void } 
       held = false;
       if (!blockSaid) {
         blockSaid = true;
-        hooks.show(lines([serverBlock === 'child' ? 'child.grownup' : 'voice.family_table']));
+        // N-2: neutral wording: on a second device it is read by a grown-up.
+        hooks.show(lines([serverBlock === 'child' ? 'voice.child_block' : 'voice.family_table']));
         if (engaged) hooks.focusText();
       }
       draw('off');
@@ -274,6 +281,8 @@ export function mountTalk(row: HTMLElement, hooks: TalkHooks): { stop(): void } 
     ctl = c;
     c.onPhase((p, s) => { onPhase(c, p, s); });
     c.onProblem((p) => { onProblem(c, p); });
+    // I-A: a grant given after the player let go: say the microphone is ready (status line, no focus taken).
+    c.onMicReady(() => { if (c === ctl) state.textContent = MIC_READY_TEXT; });
     // Fix round 2 (I-2): the API answered: any server block has lifted, and the next block is said again.
     c.onReady(() => { if (c !== ctl || serverBlock === null) return; serverBlock = null; blockSaid = false; draw(); });
     c.onTranscript((text, tooLong, id) => { void spokenTurn(c, text, tooLong, id); });
@@ -299,6 +308,8 @@ export function mountTalk(row: HTMLElement, hooks: TalkHooks): { stop(): void } 
     if (!held) return;
     held = false;
     ctl?.release();
+    // N-3: let go before anything was heard (no controller yet, or back to idle): nothing is under way any more.
+    queueMicrotask(() => { if (!held && (ctl === null || ctl.phase === 'idle')) engaged = false; });
   };
 
   btn.addEventListener('pointerdown', (ev) => {

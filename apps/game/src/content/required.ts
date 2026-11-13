@@ -140,6 +140,9 @@ export const REQUIRED_PAN_TRIGGERS: readonly string[] = [
   'voice.hands_free_idle',
   // Fix round 1 (I-2): the server's Family Table block.
   'voice.family_table',
+  // Fix round 3 (N-1, N-2).
+  'voice.mic_blocked',
+  'voice.child_block',
   'toolkit.rusty_invite',
   // M4: the mentor (server agent and scripted engine) emits these by id.
   'rule.unknown_term',

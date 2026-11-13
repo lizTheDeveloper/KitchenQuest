@@ -26,3 +26,11 @@ describe('M7 Step 9 fix round 2: the per-install device id', () => {
     expect(deviceId(null)).toBe(deviceId(null));
   });
 });
+
+describe('fix round 3 (N-6)', () => {
+  test('a storage whose reads throw but writes work still gives one id for the page, never a new one per call', () => {
+    const s = { getItem: () => { throw new Error('denied'); }, setItem: () => undefined } as unknown as Storage;
+    const a = deviceId(s);
+    expect(deviceId(s)).toBe(a);
+  });
+});

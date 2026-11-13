@@ -707,7 +707,7 @@ describe('createVoiceController', () => {
     expect(r.sockets.at(-1)!.json().filter((m) => m.t === 'listen')).toHaveLength(0);
   });
 
-  test('fix round 1 (I-3): a permission refusal answered after the player let go is still reported; an allow after release opens nothing and reports nothing', async () => {
+  test('fix round 1 (I-3), round 3 (I-A): a permission refusal answered after the player let go is still reported; an allow after release opens nothing and says the microphone is ready', async () => {
     const r = rig();
     const answer = r.audio.hold(); // the browser's permission prompt: the player lets go to answer it
     const c = r.make();
@@ -727,14 +727,43 @@ describe('createVoiceController', () => {
     const ac = a.make();
     const ap: string[] = [];
     ac.onProblem((p) => ap.push(p));
+    let readyCues = 0;
+    ac.onMicReady(() => { readyCues++; });
     ac.press();
     const ws = await ready(a);
     ac.release();
     allow();
     await flush();
     expect(ap).toEqual([]);
+    // I-A: the grant is never silent: one cue, so the player knows to press again.
+    expect(readyCues).toBe(1);
     expect(a.audio.tracks.length).toBeGreaterThan(0);
     expect(a.audio.tracks.every((t) => t.stopped)).toBe(true);
     expect(ws.json().filter((m) => m.t === 'listen')).toHaveLength(0);
+  });
+
+  test('fix round 3 (I-A): no ready cue when the player is still holding (the mic is used), or once the controller closed', async () => {
+    const r = rig();
+    const c = r.make();
+    let cues = 0;
+    c.onMicReady(() => { cues++; });
+    c.press();
+    await ready(r);
+    await flush();
+    expect(r.audio.tracks.some((t) => !t.stopped)).toBe(true);
+    c.release();
+    await flush();
+    expect(cues).toBe(0);
+    const k = rig();
+    const allow = k.audio.hold();
+    const kc = k.make();
+    let kcues = 0;
+    kc.onMicReady(() => { kcues++; });
+    kc.press();
+    await ready(k);
+    kc.close('child');
+    allow();
+    await flush();
+    expect(kcues).toBe(0);
   });
 });
