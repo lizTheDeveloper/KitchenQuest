@@ -16,8 +16,11 @@
 // process while that is so (docs/compliance/ROADMAP.md, M7 deploy note; review m1).
 import { readFileSync } from 'node:fs';
 import {
+  CHILD_PATTERNS,
   decodeFrame,
   encodeFrame,
+  normalizeText,
+  stripPageEventsFull,
   FRAME_MS,
   MAX_TEXT,
   MAX_UTTERANCE_MS,
@@ -48,7 +51,7 @@ import { sttHint } from './hint.js';
 import { localOffsetMinutes } from './local-clock.js';
 import { voiceRegistry } from './registry.js';
 import { cardReadback, renderSpeak, SPOKEN_TRIGGERS, stepCleared, type SpeakContext } from './speak.js';
-import { VoiceUpstreamError, type UpstreamFailure, type VoiceLink, type VoiceUpstream } from './upstream.js';
+import { OVER_CAP_SCAN_UNITS, VoiceUpstreamError, type UpstreamFailure, type VoiceLink, type VoiceUpstream } from './upstream.js';
 
 /** The longest a client message may be: a 20 ms frame is 644 bytes, a speak a few hundred bytes of JSON. */
 export const MAX_CLIENT_PAYLOAD = 16 * 1024;
@@ -488,11 +491,16 @@ class VoiceSocket {
           const input = parseTurnInput({ kind: 'transcript', text });
           if (input === null) {
             if ([...text].length <= MAX_TEXT) this.send({ t: 'failed', id: u.clientId, kind: 'stt' });
-            else if (!u.tooLongSent) this.send({ t: 'too_long', id: u.clientId });
+            else {
+              if (!u.tooLongSent) this.send({ t: 'too_long', id: u.clientId });
+              this.childCheck(text.slice(0, OVER_CAP_SCAN_UNITS));
+            }
             return;
           }
           this.keepTranscript(u.clientId, input.text);
           this.send({ t: 'transcript', id: u.clientId, text: input.text });
+          // m-1: past MAX_UTTERANCE_MS the device takes no turn from it, so its child words are checked here.
+          if (u.tooLongSent) this.childCheck(input.text);
         },
         async (e: unknown) => {
           if (this.utter !== u) return;
@@ -505,10 +513,23 @@ class VoiceSocket {
           this.release(u);
           if (failure === 'too_long') {
             if (!u.tooLongSent) this.send({ t: 'too_long', id: u.clientId });
+            if (e instanceof VoiceUpstreamError && e.overCap !== undefined) this.childCheck(e.overCap);
           } else this.upstreamFailed(u.clientId, e, 'upstream');
         },
       )
       .catch(() => logKind(this.log, 'voice_answer_failed'));
+  }
+
+  /**
+   * M7 Step 10 fix round 5 (F4-1 child half, m-1; controller ruling): a transcript the device will not send as a turn
+   * (refused as too long, or after `too_long`) is scanned whole, uncapped, with core's child detection, as the
+   * device's own over-long scan reads it. A child sets the per-user block and closes every socket of the user
+   * (Ruling 17), as a child flag set by a turn does. Nothing is kept or logged. The emergency half needs a protocol
+   * field (core, hashed): carried to Step 11.
+   */
+  private childCheck(text: string): void {
+    const full = normalizeText(stripPageEventsFull(text).text);
+    if (CHILD_PATTERNS.some((p) => p.test(full))) voiceRegistry.childFlagged(this.userId, this.app.deps.now().getTime());
   }
 
   private keepTranscript(id: number, text: string): void {

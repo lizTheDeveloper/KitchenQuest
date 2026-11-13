@@ -10,6 +10,7 @@ import { createDialogue } from '../mentor/dialogue';
 import { mountMentorPanel, type MentorPanel } from '../mentor/panel';
 import type { PanReply } from '../mentor/reply';
 import { createScriptedEngine } from '../mentor/scripted';
+import { createLocalSafety } from '../mentor/outage';
 import type { CardWriter } from '../mentor/writer';
 import { createStore } from '../state/store';
 import { cookScreen } from './cook-screen';
@@ -222,5 +223,62 @@ describe('fix round 4 (controller ruling): an over-long hands-free transcript is
     expect(u.panTexts()).toHaveLength(before + 1); // only the cue itself
     expect(u.lines('voice.too_long')).toContain(u.panTexts().at(-1));
     u.screen.unmount?.();
+  });
+});
+
+describe('fix round 5 (F4-2): read-aloud off, an emergency or child reply in hands-free still opens the docked panel without focus, and an emergency is spoken', () => {
+  async function mountQuiet() {
+    const store = createStore(null);
+    store.update((s) => ({ ...s, account: { email: 'cook@example.test' }, aiDisclosureSeen: true, settings: { ...s.settings, voice: { ...s.settings.voice, on: true, handsFree: true, readAloud: false } } }));
+    const dialogue = createDialogue(content.pan);
+    const child = createChildFlag();
+    const engine = createScriptedEngine({ dialogue, graph, ruleTerms: content.ruleTerms, recipes: [], now: () => T0, child });
+    const local = createLocalSafety({ dialogue, graph, child });
+    const inputs: MentorInput[] = [];
+    // The device's own safety answers come first, as the AI backend's local safety gives them.
+    const backend: MentorBackend = { kind: 'ai', reply: (i, ctx) => { inputs.push(i); return Promise.resolve(local.reply(i, ctx)?.reply ?? { items: [], cards: [], intents: [], actions: [], notice: null }); } };
+    const root = document.createElement('div');
+    document.body.append(root);
+    holder.panel = mountMentorPanel(root, {
+      mode: 'standard', backend, dialogue, writer: {} as CardWriter, engine, client: {} as ApiClient, forms: content.bureau.forms, store,
+      child, reducedMotion: () => true, now: () => T0, conversationId: () => null,
+    });
+    const el = document.createElement('div');
+    document.body.append(el);
+    const screen = cookScreen();
+    await screen.mount(el, { name: 'cook', slug: 'india/kerala/parippu' }, { store, now: () => T0, navigate: () => undefined });
+    el.querySelector<HTMLButtonElement>('.hands-free-toggle')!.click();
+    await vi.waitFor(() => { expect(made.controllers).toHaveLength(1); });
+    const focused = el.querySelector<HTMLButtonElement>('.cook-controls .btn-primary')!;
+    focused.focus();
+    return { c: made.controllers[0], child, screen, focused, shown: () => !document.getElementById('pan-panel')!.hidden };
+  }
+
+  test('an emergency (normal length, and at the end of an over-long transcript): the panel opens docked, focus stays, and rule.emergency is spoken', async () => {
+    for (const tooLong of [false, true]) {
+      const t = await mountQuiet();
+      t.c.hear(`${tooLong ? `${RADIO} ` : ''}I ate peanuts and my throat is closing, I can't breathe`, tooLong);
+      await flush();
+      expect(t.shown()).toBe(true);
+      expect(document.activeElement).toBe(t.focused);
+      expect(document.documentElement.dataset.handsFree).toBe('on');
+      expect(JSON.stringify(t.c.said.at(-1))).toContain('rule.emergency');
+      t.screen.unmount?.();
+      holder.panel?.destroy();
+      made.controllers.length = 0;
+      document.body.replaceChildren();
+    }
+  });
+
+  test('a child (over-long): the child flag closes voice, and the panel opens without focus to show child.grownup', async () => {
+    const t = await mountQuiet();
+    t.c.hear(`${RADIO} hello I'm 9 years old and I want to cook`, true);
+    await flush();
+    expect(t.child.on).toBe(true);
+    expect(t.c.closedReason).toBe('child');
+    expect(t.shown()).toBe(true);
+    expect(document.activeElement).toBe(t.focused);
+    expect([...document.querySelectorAll('#pan-panel .bubble.pan .bubble-text')].some((b) => content.pan.triggers['child.grownup'].lines.includes(b.textContent ?? ''))).toBe(true);
+    t.screen.unmount?.();
   });
 });

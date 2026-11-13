@@ -42,8 +42,15 @@ export type UpstreamFailure =
   /** We cancelled it, replaced it or closed the link. */
   | 'cancelled';
 
+/** M7 Step 10 fix round 5 (F4-1): the most of an over-cap transcript kept for the route's child scan, in memory only. */
+export const OVER_CAP_SCAN_UNITS = 4000;
+
 export class VoiceUpstreamError extends Error {
-  constructor(public readonly kind: UpstreamFailure) {
+  /**
+   * `overCap`: for `too_long`, the over-cap transcript itself (at most OVER_CAP_SCAN_UNITS), so the route can scan it
+   * for a child before refusing it (fix round 5). Never sent on, kept, logged, or put in the message.
+   */
+  constructor(public readonly kind: UpstreamFailure, public readonly overCap?: string) {
     super(`voice upstream: ${kind}`);
     this.name = 'VoiceUpstreamError';
   }
@@ -284,7 +291,8 @@ function connect(ws: WebSocket, t: UpstreamTiming, signal: AbortSignal): Promise
         if (u === undefined || u.done) return;
         u.done = true;
         settle(u.waiter);
-        return u.waiter.reject(new VoiceUpstreamError('too_long'));
+        // Fix round 5 (F4-1): the text goes with the refusal for the route's child scan only.
+        return u.waiter.reject(new VoiceUpstreamError('too_long', typeof r.text === 'string' ? r.text.slice(0, OVER_CAP_SCAN_UNITS) : undefined));
       }
       shut('bad_message');
     });

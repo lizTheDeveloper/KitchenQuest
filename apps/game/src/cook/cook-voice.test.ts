@@ -543,3 +543,31 @@ describe('M7 Step 10 fix round 4', () => {
     expect(r.stops).toEqual(['idle']);
   });
 });
+
+describe('M7 Step 10 fix round 5 (F4-2): an emergency or child reply is always shown and spoken in hands-free', () => {
+  const safety = (trigger: string): PanReply => ({ items: [{ kind: 'said', said: { trigger, text: `[${trigger}]`, ai: 'never', index: 0 } }], cards: [], intents: [], actions: [], notice: null });
+  test('read-aloud off: rule.emergency (a normal turn or the over-long scan) opens the panel (needsTap) and is spoken all the same; a plain reply is not', async () => {
+    for (const tooLong of [false, true]) {
+      const r = rig({ readAloud: false, toPan: () => Promise.resolve(safety('rule.emergency')) });
+      r.c.hear('my throat is closing', tooLong);
+      await flush();
+      expect(r.answered.map((a) => a.tap)).toEqual([true]);
+      expect(spokenLines(r.c)).toEqual(['rule.emergency']);
+    }
+    const plain = rig({ readAloud: false });
+    plain.c.hear('how long do I keep stirring');
+    await flush();
+    expect(plain.answered.map((a) => a.tap)).toEqual([false]);
+    expect(plain.c.said).toEqual([{ items: [], said: [] }]);
+  });
+
+  test('a child reply: the panel opens even though voice closed meanwhile (the child flag closes it); nothing more is said', async () => {
+    let r: ReturnType<typeof rig> | null = null;
+    r = rig({ readAloud: false, toPan: () => { r!.c.close(); return Promise.resolve(safety('child.grownup')); } });
+    r.c.hear("I'm 9 years old");
+    await flush();
+    expect(r.stops).toEqual(['closed']);
+    expect(r.answered.map((a) => a.tap)).toEqual([true]);
+    expect(r.c.said).toEqual([]);
+  });
+});

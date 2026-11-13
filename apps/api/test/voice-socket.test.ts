@@ -13,6 +13,7 @@ import type { Db } from '../src/types.js';
 import { FREE_VOICE_SECONDS_PER_30_DAYS, VOICE_COST_MICROUSD_PER_SECOND } from '../src/voice/constants.js';
 import { MAX_UTTERANCES_PER_USER, TRANSCRIPTS_KEPT } from '../src/voice/routes.js';
 import { setAccessibility } from '../src/voice/settings.js';
+import { voiceRegistry } from '../src/voice/registry.js';
 import { signIn } from './helpers/auth.js';
 import { testConfig } from './helpers/config.js';
 import { testDb, type Sql } from './helpers/db.js';
@@ -358,6 +359,51 @@ describe('ids, timeouts and usage (carries 2, 5, 7)', () => {
     await c.next((m) => m.t === 'audio_end' && m.id === 5);
     expect(upstream.speeches.at(-1)!.chunks.map((x) => x.text).join(' ')).toBe("I heard sesame: S. E. S. A. M. E. Tap the card if that's right.");
   });
+
+  // M7 Step 10 fix round 5 (F4-1, child half; controller ruling): an over-long transcript is scanned whole for a child
+  // before it is refused, and a match sets the per-user block (Ruling 17) through the existing registry call.
+  const RADIO = 'and now the travel news on the ring road where traffic is slow '.repeat(9);
+  test('fix round 5 (F4-1): a child phrase at the end of a 600-character transcript → too_long, then every socket of the user closes with child, and the block is set; plain over-long chatter blocks nothing', async () => {
+    const child = `${RADIO}hello I'm 9 years old and I want to cook`;
+    expect([...child].length).toBeGreaterThanOrEqual(600);
+    await start({ transcribe: (u) => (u.frames === 2 ? child : RADIO + RADIO) });
+    const p = await player();
+    const { c } = await ready(p.cookie);
+    c.send({ t: 'listen', id: 1, mode: 'hold' });
+    c.frame(1);
+    c.frame(1);
+    c.send({ t: 'end', id: 1 });
+    expect(await c.next((m) => m.t !== 'ready')).toEqual({ t: 'too_long', id: 1 });
+    expect(await c.next((m) => m.t === 'closed')).toEqual({ t: 'closed', reason: 'child' });
+    expect(voiceRegistry.blocked(p.id, clock)).toBe('child');
+    // Control: 1100 characters of chatter, no child: too_long, the socket stays open, no block.
+    const q = await player();
+    const { c: d } = await ready(q.cookie);
+    d.send({ t: 'listen', id: 1, mode: 'hold' });
+    d.frame(1);
+    d.send({ t: 'end', id: 1 });
+    expect(await d.next((m) => m.t !== 'ready')).toEqual({ t: 'too_long', id: 1 });
+    await settle();
+    expect(d.msgs.some((m) => m.t === 'closed')).toBe(false);
+    expect(voiceRegistry.blocked(q.id, clock)).toBeNull();
+  });
+
+  test('fix round 5 (m-1): an utterance past MAX_UTTERANCE_MS whose transcript (within MAX_TEXT) names a child: too_long, the transcript, then the block (the device sends no turn for it)', async () => {
+    await start({ transcribe: () => "hello I'm 9 years old" });
+    const p = await player();
+    const { c } = await ready(p.cookie);
+    c.send({ t: 'listen', id: 1, mode: 'hold' });
+    for (let i = 0; i < MAX_UTTERANCE_MS / FRAME_MS + 2; i++) c.frame(1);
+    c.send({ t: 'end', id: 1 });
+    expect(await c.next((m) => m.t !== 'ready')).toEqual({ t: 'too_long', id: 1 });
+    expect(await c.next((m) => m.t === 'transcript')).toEqual({ t: 'transcript', id: 1, text: "hello I'm 9 years old" });
+    expect(await c.next((m) => m.t === 'closed')).toEqual({ t: 'closed', reason: 'child' });
+    expect(voiceRegistry.blocked(p.id, clock)).toBe('child');
+  });
+
+  // F4-1, the emergency half: carried to M7 Step 11 by controller ruling (it needs a field in core voice/protocol.ts,
+  // which is hashed, so one eval run). The recorded case for Step 11 to pick up:
+  test.todo('Step 11 (F4-1, emergency half): a 600-character transcript ending "... I ate peanuts and my throat is closing, I can\'t breathe" → the device is told the over-long utterance held an emergency (e.g. too_long with safety: "emergency"), and shows and speaks rule.emergency; no text over MAX_TEXT ever reaches the device');
 
   test(`a socket keeps its last ${TRANSCRIPTS_KEPT} transcripts for heard items, and none after close`, async () => {
     await start({ transcribe: () => 'peanut' });

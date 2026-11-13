@@ -92,6 +92,12 @@ export interface CookVoiceDeps {
 }
 
 const END_WAIT = { items: [] as SpeakItem[], said: [] as string[] };
+/**
+ * Fix round 5 (F4-2): an emergency or child reply (the fixed lines; the device's, the server's, or the over-long
+ * scan's) is always shown, opening the panel without focus, and an emergency is always spoken, read-aloud or not.
+ */
+const SAFETY_TRIGGERS: ReadonlySet<string> = new Set(['rule.emergency', 'child.grownup']);
+const isSafety = (r: PanReply): boolean => r.items.some((i) => i.kind === 'said' && SAFETY_TRIGGERS.has(i.said.trigger));
 /** What a reply can hold that only a tap answers (I5). */
 const TAP_ITEMS: ReadonlySet<PanItem['kind']> = new Set(['heard', 'choices', 'quick', 'consent']);
 const needsTap = (r: PanReply): boolean => r.cards.length > 0 || r.items.some((i) => TAP_ITEMS.has(i.kind));
@@ -168,6 +174,16 @@ export function startCookVoice(deps: CookVoiceDeps): CookVoice {
    */
   let answerCueAt = -Infinity;
   let tappedSince = false;
+  /**
+   * F4-2: a safety reply is shown (the panel opens, without focus) even when voice has just closed (a child's words
+   * close it) or a newer turn began, and spoken whatever read-aloud says, while the controller is still open.
+   */
+  const safetyFirst = (r: PanReply): boolean => {
+    if (!isSafety(r)) return false;
+    deps.answered(r, true);
+    if (on) c.say(speakPlan(r.items, r.cards, { replyId: r.replyId ?? null }));
+    return true;
+  };
   const speakReply = (r: PanReply) => {
     if (!deps.readAloud()) { c.say(END_WAIT); return; }
     c.say(speakPlan(r.items, r.cards, { replyId: r.replyId ?? null }));
@@ -198,6 +214,7 @@ export function startCookVoice(deps: CookVoiceDeps): CookVoice {
     // scanned first for an emergency or a child (their fixed reply, drawn and spoken); otherwise voice.too_long.
     if (tooLong) {
       void deps.toPan(text, utteranceId, true).then((r) => {
+        if (r !== null && safetyFirst(r)) return;
         if (!on || mine !== turn) return;
         if (r === null) { speakSaid(deps.say('voice.too_long')); return; }
         deps.answered(r, needsTap(r));
@@ -222,6 +239,7 @@ export function startCookVoice(deps: CookVoiceDeps): CookVoice {
       case null: break; // everything else: the Pan's (the heard check first)
     }
     void deps.toPan(text, utteranceId).then((r) => {
+      if (r !== null && safetyFirst(r)) return;
       if (!on || mine !== turn) return; // stopped, or the player spoke again meanwhile: drawn, never said over it
       if (r === null) { c.say(END_WAIT); return; }
       deps.answered(r, needsTap(r));
