@@ -365,8 +365,10 @@ export function createVoiceController(deps: {
     if (holding) ctl.release();
     stopHandsFree('hidden');
   };
+  /** A test window may have no events of its own. */
+  const winEvents = win as Partial<Pick<Window, 'addEventListener' | 'removeEventListener'>>;
   doc?.addEventListener('visibilitychange', onVisibility);
-  win.addEventListener?.('pagehide', onPageHide);
+  winEvents.addEventListener?.('pagehide', onPageHide);
 
   function stopHandsFree(w: HandsFreeOff) {
     if (!handsFree) return;
@@ -500,7 +502,7 @@ export function createVoiceController(deps: {
       unProvider();
       unStore();
       doc?.removeEventListener('visibilitychange', onVisibility);
-      win.removeEventListener?.('pagehide', onPageHide);
+      winEvents.removeEventListener?.('pagehide', onPageHide);
       clearIdle();
       setPhase('off');
       transcripts.clear();

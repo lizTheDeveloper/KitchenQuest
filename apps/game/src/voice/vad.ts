@@ -28,7 +28,7 @@ export interface Vad {
 /** Speech is this much above the noise floor. */
 export const SPEECH_MARGIN_DB = 10;
 /** While a cook timer sounds (and its tail), speech must last longer than the alarm and its echo (I2). */
-export const TIMER_MIN_MS = 600;
+const TIMER_MIN_MS = 600;
 /** The timer's raise outlives `setRaised('timer', false)` by this long: the room's echo of the beep (I2). */
 export const TIMER_TAIL_MS = 500;
 /** How fast the floor follows a quieter room (per frame) and a louder one. Slow up, so speech never becomes the floor. */
