@@ -24,6 +24,13 @@ declare module 'virtual:kq-settings' {
   export default settings;
 }
 
+declare module 'virtual:kq-cook-voice' {
+  /** The lazy cook-voice module (M7 Step 10 fix round 1): hands-free cook mode's `voice.cook.*` cues. */
+  import type { CookVoiceContent } from './content/types';
+  const cookVoice: CookVoiceContent;
+  export default cookVoice;
+}
+
 /** M7 Step 8: the voice build switches (build/voice-provider.ts, build/hands-free-gate.ts). */
 interface ImportMetaEnv {
   /** `browser` (Web Speech) only on the dev server (Ruling 1); any build refuses it. Unset or `service` otherwise. */

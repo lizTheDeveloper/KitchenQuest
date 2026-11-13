@@ -2058,6 +2058,39 @@ triggers:
       - "It's gone quiet, so I've stopped listening. Hold to talk when you need me."
       - "I've turned hands-free off for now. Hold the talk button to wake me."
 
+  # REVIEW: hands-free cook mode's own spoken cues (M7 Step 10 fix round 1). Var-free, so the API can say them (Ruling
+  # 15); they ship in the lazy cook-voice module, not first paint. A spoken stop never stops a running timer (I3), and
+  # a spoken "next" never finishes the dish (I4): finishing and any choice between timers are a tap.
+  voice.cook.timer_started:
+    ai: never
+    when: Hands-free, the player said "start the timer" and this step's timer started. It shows in the timer tray.
+    lines:
+      - "Timer started. It's in the tray on the screen."
+
+  voice.cook.no_timer:
+    ai: never
+    when: Hands-free, the player said "start the timer" but this step has no timer that isn't already running.
+    lines:
+      - "There's no timer to start on this step."
+
+  voice.cook.timer_stopped:
+    ai: never
+    when: Hands-free, the player said "stop the timer" and the one timer that had just gone off was cleared. A running timer is never stopped by voice.
+    lines:
+      - "Stopped the timer that just went off. Any others are still running."
+
+  voice.cook.timer_which:
+    ai: never
+    when: Hands-free, the player said "stop the timer" but no timer had just gone off, or more than one had. Nothing was stopped.
+    lines:
+      - "Which timer? Tap it to stop it."
+
+  voice.cook.last_step:
+    ai: never
+    when: Hands-free, the player said "next" on the last step. Finishing the dish is a tap only, so nothing finished.
+    lines:
+      - "That's the last step. Tap Done when it's served."
+
   toolkit.rusty_invite:
     ai: allowed
     when: Shown beside a Rusty technique on the knife roll. An invitation, never a warning (spec §17).
@@ -2320,6 +2353,12 @@ triggers:
     when: "Settings, Voice: under the 'Talk out loud' box."
     lines:
       - "Off until you turn it on. The Pan listens only while you hold the talk button. Typing always works."
+
+  ui.settings.voice.read_hint:
+    ai: never
+    when: "Settings, Voice: under 'Read the Pan's replies aloud' (M7 Step 10 fix round 1, M7)."
+    lines:
+      - "This is about the Pan's replies. In hands-free cook mode, a step you ask for out loud is read either way."
 
   ui.settings.voice.off_withdraws:
     ai: never

@@ -141,6 +141,9 @@ export interface SettingsContent {
   voiceCredits: { id: string; kind: 'stt' | 'tts'; licence: string; source: string; attribution: string | null }[];
 }
 
+/** The lazy cook-voice module, `virtual:kq-cook-voice` (M7 Step 10 fix round 1): the `voice.cook.*` cues. */
+export interface CookVoiceContent { copy: Record<string, LineTrigger> }
+
 /** A stall as shipped: `persona` and the writers' trigger `when`/`notes` dropped (no model reads them in M6, Ruling 21). */
 export type ClientStall = Omit<StallFile, 'persona' | 'variants'> & { variants?: { protein_counter?: Omit<StallVariantFile, 'persona'> } };
 

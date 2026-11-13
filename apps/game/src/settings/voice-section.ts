@@ -105,7 +105,7 @@ export function voiceSection(store: PlayerStore, client: ApiClient, opts: { now?
     });
 
     // 2. Read-aloud; 3. hands-free (only in a build whose echo checklist passed, C9).
-    const read = h('input', { type: 'checkbox', id: 'set-voice-read' });
+    const read = h('input', { type: 'checkbox', id: 'set-voice-read', 'aria-describedby': 'set-voice-read-hint' });
     read.checked = v.readAloud;
     read.addEventListener('change', () => { set({ readAloud: read.checked }); });
     const handsFree = import.meta.env.VITE_HANDS_FREE === 'on' ? h('input', { type: 'checkbox', id: 'set-voice-hands-free' }) : null;
@@ -188,6 +188,7 @@ export function voiceSection(store: PlayerStore, client: ApiClient, opts: { now?
       h('p', { class: 'field-hint', id: 'set-voice-off-hint' }, settingsCopy('ui.settings.voice.off_withdraws')),
       onSlot,
       h('div', { class: 'field' }, read, h('label', { for: 'set-voice-read' }, "Read the Pan's replies aloud")),
+      h('p', { class: 'field-hint', id: 'set-voice-read-hint' }, settingsCopy('ui.settings.voice.read_hint')),
       ...(handsFree ? [h('div', { class: 'field' }, handsFree, h('label', { for: 'set-voice-hands-free' }, 'Hands-free in cook mode'))] : []),
       h('div', { class: 'field' }, access, h('label', { for: 'set-voice-access' }, 'I need voice to use Kitchen Quest')),
       h('p', { class: 'field-hint', id: 'set-voice-access-hint' }, settingsCopy('ui.settings.voice.accessibility_hint')),

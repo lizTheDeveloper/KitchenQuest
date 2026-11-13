@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Plugin, Rolldown } from 'vite';
-import type { ClientContent, GameContent, MarketContent, SettingsContent } from '../src/content/types';
+import type { ClientContent, CookVoiceContent, GameContent, MarketContent, SettingsContent } from '../src/content/types';
 import { compileContent, ContentError } from './content/compile';
 import { compileMarket, parsePinsFile, PINS_PATH, type MarketPins } from './content/market';
 import { contentPaths, readContentFiles } from './content/read';
@@ -20,6 +20,15 @@ const RESOLVED_SETTINGS_ID = `\0${SETTINGS_VIRTUAL_ID}`;
 /** Pan triggers that are Settings screen copy: shipped in `virtual:kq-settings`, not in first paint. */
 const SETTINGS_COPY = /^ui\.settings\./;
 const VOICE_MODELS_PATH = 'data/voice-models.json';
+/**
+ * The lazy cook-voice module (M7 Step 10 fix round 1, first paint): hands-free cook mode's spoken cues (`voice.cook.*`
+ * in pan.yaml), read only by the lazy cook-voice.ts.
+ */
+const COOK_VOICE_VIRTUAL_ID = 'virtual:kq-cook-voice';
+const RESOLVED_COOK_VOICE_ID = `\0${COOK_VOICE_VIRTUAL_ID}`;
+const COOK_VOICE_COPY = /^voice\.cook\./;
+/** Triggers that ship in a lazy module, never in first paint. */
+const lazyCopy = (id: string): boolean => SETTINGS_COPY.test(id) || COOK_VOICE_COPY.test(id);
 
 /**
  * What the first-paint module carries: no stalls and no Season's Table (both are in `virtual:kq-market`), no
@@ -31,7 +40,7 @@ function clientContent(content: GameContent): ClientContent {
   const { persona: _panPersona, ...pan } = client.pan;
   return {
     ...client,
-    pan: { ...pan, triggers: Object.fromEntries(Object.entries(pan.triggers).filter(([id]) => !SETTINGS_COPY.test(id))) },
+    pan: { ...pan, triggers: Object.fromEntries(Object.entries(pan.triggers).filter(([id]) => !lazyCopy(id))) },
     cooks: Object.fromEntries(Object.entries(client.cooks).map(([id, { persona: _persona, ...cook }]) => [id, cook])),
     ingredients: {
       ...client.ingredients,
@@ -70,6 +79,10 @@ const settingsModule = (content: GameContent, models: string): string => {
   const copy: SettingsContent['copy'] = Object.fromEntries(Object.entries(content.pan.triggers).filter(([id]) => SETTINGS_COPY.test(id)));
   return `export default ${JSON.stringify({ copy, voiceCredits: voiceCredits(models) } satisfies SettingsContent)};`;
 };
+
+/** The lazy cook-voice module's text: the `voice.cook.*` cues. */
+const cookVoiceModule = (content: GameContent): string =>
+  `export default ${JSON.stringify({ copy: Object.fromEntries(Object.entries(content.pan.triggers).filter(([id]) => COOK_VOICE_COPY.test(id))) } satisfies CookVoiceContent)};`;
 
 /** The committed option-order pins (Ruling 2). A missing or unreadable file fails the build. */
 export function readPins(repoRoot: string): MarketPins {
@@ -118,6 +131,7 @@ export function kqContent(opts: { repoRoot: string }): Plugin {
       if (id === VIRTUAL_ID) return RESOLVED_ID;
       if (id === MARKET_VIRTUAL_ID) return RESOLVED_MARKET_ID;
       if (id === SETTINGS_VIRTUAL_ID) return RESOLVED_SETTINGS_ID;
+      if (id === COOK_VOICE_VIRTUAL_ID) return RESOLVED_COOK_VOICE_ID;
       return undefined;
     },
     // Validate up front, so invalid content fails the build even before anything imports the module.
@@ -131,6 +145,7 @@ export function kqContent(opts: { repoRoot: string }): Plugin {
     load(id) {
       if (id === RESOLVED_ID) return contentModule(compile(this));
       if (id === RESOLVED_MARKET_ID) return marketModule(compileMarket(compile(this)));
+      if (id === RESOLVED_COOK_VOICE_ID) return cookVoiceModule(compile(this));
       if (id === RESOLVED_SETTINGS_ID) {
         const compiled = compile(this);
         try {
@@ -147,7 +162,7 @@ export function kqContent(opts: { repoRoot: string }): Plugin {
       const inputs = ['content/', 'recipes/', 'data/', PINS_PATH].map((d) => join(repoRoot, d));
       const refresh = (file: string): void => {
         if (!inputs.some((dir) => file.startsWith(dir))) return;
-        for (const id of [RESOLVED_ID, RESOLVED_MARKET_ID, RESOLVED_SETTINGS_ID]) {
+        for (const id of [RESOLVED_ID, RESOLVED_MARKET_ID, RESOLVED_SETTINGS_ID, RESOLVED_COOK_VOICE_ID]) {
           const mod = server.moduleGraph.getModuleById(id);
           if (mod) server.moduleGraph.invalidateModule(mod);
         }

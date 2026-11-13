@@ -138,6 +138,12 @@ export const REQUIRED_PAN_TRIGGERS: readonly string[] = [
   'voice.hands_free_on',
   'voice.hands_free_off',
   'voice.hands_free_idle',
+  // M7 Step 10 fix round 1: hands-free cook mode's spoken cues (in the lazy cook-voice module, not first paint).
+  'voice.cook.timer_started',
+  'voice.cook.no_timer',
+  'voice.cook.timer_stopped',
+  'voice.cook.timer_which',
+  'voice.cook.last_step',
   // Fix round 1 (I-2): the server's Family Table block.
   'voice.family_table',
   // Fix round 3 (N-1, N-2).
@@ -264,6 +270,7 @@ export const REQUIRED_PAN_TRIGGERS: readonly string[] = [
   'ui.settings.voice.signed_out',
   'ui.settings.voice.on_hint',
   'ui.settings.voice.off_withdraws',
+  'ui.settings.voice.read_hint',
   'ui.settings.voice.withdrawn',
   'ui.settings.voice.withdraw_failed',
   'ui.settings.voice.accessibility_hint',

@@ -10,6 +10,7 @@ import { content } from './index';
 import type { ClientContent, MarketContent } from './types';
 import { VOICE_ALLOWLIST } from './voice-allowlist';
 import { settingsTriggers, voiceCredits } from '../settings/settings-copy';
+import { cookVoiceTriggers } from '../cook/cook-voice-copy';
 
 /** One scanned string: where it comes from (file, path) and which line kinds it belongs to. */
 interface Scanned {
@@ -61,6 +62,8 @@ function collect(c: ClientContent): Scanned[] {
   for (const [id, t] of Object.entries(c.pan.triggers)) t.lines.forEach((l, i) => add(PAN, `triggers.${id}[${i}]`, l, kindsOf(id)));
   // M7 Step 9: the Settings screen's copy ships in its lazy module (pan.yaml `ui.settings.*`), and is scanned the same.
   for (const [id, t] of Object.entries(settingsTriggers)) t.lines.forEach((l, i) => add(PAN, `triggers.${id}[${i}]`, l, kindsOf(id)));
+  // M7 Step 10 fix round 1: hands-free cook mode's cues ship in their own lazy module (pan.yaml `voice.cook.*`).
+  for (const [id, t] of Object.entries(cookVoiceTriggers)) t.lines.forEach((l, i) => add(PAN, `triggers.${id}[${i}]`, l, kindsOf(id)));
   // Settings → Voice's credits (data/voice-models.json): shown on screen too.
   for (const [i, m] of voiceCredits.entries()) if (m.attribution !== null) add('data/voice-models.json', `models.${m.id}.attribution[${i}]`, m.attribution);
   for (const [id, cook] of Object.entries(c.cooks)) for (const [where, text] of strings(cook, '')) add(`content/cooks/${id}.yaml`, where, text);

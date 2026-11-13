@@ -535,3 +535,19 @@ describe('M7 Step 9: Settings copy and voice credits are lazy (first paint)', ()
     expect(voiceCredits.some((m) => /ryan/.test(m.id))).toBe(false);
   });
 });
+
+describe('M7 Step 10 fix round 1: hands-free cook mode\'s cues are lazy (first paint)', () => {
+  it('no voice.cook.* trigger ships in the first-paint content; each is in the lazy cook-voice module, var-free and never the model\'s', async () => {
+    const { cookVoiceTriggers } = await import('../cook/cook-voice-copy');
+    expect(Object.keys(content.pan.triggers).filter((id) => id.startsWith('voice.cook.'))).toEqual([]);
+    const required = REQUIRED_PAN_TRIGGERS.filter((id) => id.startsWith('voice.cook.'));
+    expect(required).toHaveLength(5);
+    expect(Object.keys(cookVoiceTriggers).sort()).toEqual([...required].sort());
+    for (const id of required) {
+      const t = cookVoiceTriggers[id];
+      expect(t.lines.length, id).toBeGreaterThan(0);
+      expect(t.ai, id).toBe('never');
+      for (const l of t.lines) expect(l, id).not.toMatch(/[{}]/); // Ruling 15: the API can say only a var-free line
+    }
+  });
+});

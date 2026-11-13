@@ -81,6 +81,9 @@ describe('Settings → Voice', () => {
     expect(t.box('set-voice-read')!.checked).toBe(true);
     t.tick('set-voice-read', false);
     expect(t.store.get().settings.voice.readAloud).toBe(false);
+    // M7 Step 10 fix round 1 (M7): its hint says it covers the Pan's replies; a step asked for by voice is read anyway.
+    const hint = t.s.el.querySelector(`#${t.box('set-voice-read')!.getAttribute('aria-describedby') ?? 'none'}`);
+    expect(hint?.textContent).toBe(settingsCopy('ui.settings.voice.read_hint'));
   });
 
   test('accessibility without health_data shows Form 3-C; on → PUT /voice/accessibility; the copy names the fair-use ceiling', async () => {
