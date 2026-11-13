@@ -913,7 +913,7 @@ describe('M7 Step 9 (M6 fix review N3): the server\'s grants for every accepted 
     const deviceOf = (id: string) => part(store, A).grants.filter((g) => g.eventId === id);
     expect(deviceOf(refused.id).length).toBeGreaterThan(0); // the device judged it earned
     expect(deviceOf(given.id).length).toBeGreaterThan(0);
-    server[given.id] = [{ id: `${given.id}#server`, eventId: given.id, isoDay: '2026-11-10', kind: 'xp', amount: 7, reason: 'cooked' } as RewardGrant];
+    server[given.id] = [{ id: `${given.id}#server`, eventId: given.id, isoDay: '2026-11-10', kind: 'xp', amount: 7, reason: 'cook' }];
     online = true;
     await sync.uploadDeviceLog();
     expect(deviceOf(refused.id)).toEqual([]);

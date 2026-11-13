@@ -192,6 +192,14 @@ input[type="email"] { width: min(100%, 22rem); }
 }
 .pan-talk-row { margin-top: .75rem; }
 #pan-talk[aria-pressed="true"] { background: var(--ember); color: var(--iron); }
+/* M7 Step 9: the talk control's state and the spoken bubble's mark; the heard card; Settings → Voice. */
+.pan-talk-row[hidden] { display: none; }
+.pan-talk-state:empty { display: none; }
+.bubble-note { font-size: .85em; opacity: .85; }
+.heard-terms { list-style: none; margin: .5rem 0; padding: 0; }
+.heard-words { margin: .25rem 0; overflow-wrap: anywhere; }
+.heard-alt[aria-pressed="true"] { background: var(--ember); color: var(--iron); }
+.voice-credits { overflow-wrap: anywhere; }
 
 /* Pan cards and the write trail: the Bureau form slip, small (M4 Step 10) */
 .pan-item { list-style: none; }

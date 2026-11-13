@@ -9,12 +9,12 @@ import {
   classifyTurn, heardCheck, heardConfirmed, heardLine, stripPageEvents, tryHeardChoice,
   type HeardCheck, type IngredientGraph, type RuleTerm,
 } from '@kitchenquest/core/engine';
-import type { MentorBackend } from './backend';
 import type { Dialogue } from './dialogue';
 import type { MentorInput, PanItem, PanReply, TurnContext } from './reply';
 
 export interface VoiceTurnDeps {
-  backend: MentorBackend;
+  /** The panel's backend (backend.ts `MentorBackend`; named by shape, so the scripted engine can reach this module). */
+  backend: { reply(input: MentorInput, ctx: TurnContext): Promise<PanReply> };
   graph: IngredientGraph;
   ruleTerms: readonly RuleTerm[];
   dialogue: Dialogue;
@@ -98,12 +98,13 @@ export function confirmHeard(
 }
 
 const isStr = (x: unknown): x is string => typeof x === 'string';
-/** A server `heard` part's check, shape-checked before it is drawn (a malformed one is dropped: didnt_understand). */
+const isObj = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x);
+const isAlt = (a: unknown): boolean => isObj(a) && isStr(a.id) && isStr(a.name) && isStr(a.spelled);
+const isTerm = (t: unknown): boolean => isObj(t) && isStr(t.heard) && isStr(t.spelled) && Array.isArray(t.at) && t.at.every(Number.isInteger)
+  && Array.isArray(t.alternatives) && t.alternatives.every(isAlt);
+/** A server `heard` part's check, shape-checked before it is drawn (a malformed one is dropped). */
 export function isHeardCheck(x: unknown): x is HeardCheck {
-  const c = x as Partial<HeardCheck> | null;
-  return typeof c === 'object' && c !== null && c.tooLong === false && typeof c.speakSpelling === 'boolean' && Array.isArray(c.terms) && c.terms.length > 0
-    && c.terms.every((t) => typeof t === 'object' && t !== null && isStr(t.heard) && isStr(t.spelled) && Array.isArray(t.at) && t.at.every(Number.isInteger)
-      && Array.isArray(t.alternatives) && t.alternatives.every((a) => typeof a === 'object' && a !== null && isStr(a.id) && isStr(a.name) && isStr(a.spelled)));
+  return isObj(x) && x.tooLong === false && typeof x.speakSpelling === 'boolean' && Array.isArray(x.terms) && x.terms.length > 0 && x.terms.every(isTerm);
 }
 
 /** A server heard part (P7) as the panel's heard item: confirming sends the server's own words back. */

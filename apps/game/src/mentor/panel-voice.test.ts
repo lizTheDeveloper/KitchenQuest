@@ -258,7 +258,7 @@ describe('talking to the Pan (M7 Step 9)', () => {
     r.release();
     await flush();
     const said = [...r.root.querySelectorAll('.bubble.pan')].map((b) => b.textContent);
-    expect(said.filter((t) => lines('voice.unavailable').includes(t!))).toHaveLength(1);
+    expect(said.filter((t) => lines('voice.unavailable').includes(t))).toHaveLength(1);
     expect(document.activeElement?.id).toBe('pan-text');
     expect(r.inputs).toEqual([]);
     expect(r.sockets).toHaveLength(1);
@@ -311,7 +311,7 @@ describe('talking to the Pan (M7 Step 9)', () => {
     await r.ready({ kind: 'resting', until: '2026-11-19' });
     r.release();
     await flush();
-    const text = r.root.querySelector('.bubbles')!.textContent!;
+    const text = r.root.querySelector('.bubbles')!.textContent;
     expect(text).toContain('Thursday 19 November');
     expect(text).not.toMatch(/\d+\s*(min|minutes|s|left|remaining)\b/);
     expect(r.audio.getUserMedia.calls).toHaveLength(0);

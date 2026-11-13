@@ -56,4 +56,26 @@ describe('the real build (M6 Step 5)', () => {
     expect(js.length).toBeGreaterThan(0);
     for (const f of [...js.map((x) => `assets/${x}`), 'sw.js']) expect(read(f), f).not.toMatch(/webkitSpeechRecognition|SpeechRecognition/);
   });
+
+  test('M7 Step 9 (Step 8 M5): the dist inspected holds the voice client the game now imports (positive control), lazily, and no shipped file holds browser speech', () => {
+    const files = [...readdirSync(`${dist}assets`).filter((f) => f.endsWith('.js')).map((f) => `assets/${f}`), 'sw.js'];
+    // The game reaches ../voice (talk.ts → import('../voice')): its controller ships, so this is the real dist under test.
+    const voice = files.filter((f) => read(f).includes('voice: no microphone in Family Table'));
+    expect(voice).toHaveLength(1);
+    const name = voice[0].replace(/^assets\//, '');
+    // Reached by a dynamic import from another chunk, and not in first paint.
+    expect(files.some((f) => f !== voice[0] && read(f).includes(name))).toBe(true);
+    expect(read('index.html').includes(name)).toBe(false);
+    expect(files.some((f) => /^assets\/capture-worklet-[\w-]+\.js$/.test(f))).toBe(true);
+    // The scan bites: the same pattern finds browser speech when it is there (positive control on the check itself).
+    const speech = /webkitSpeechRecognition|SpeechRecognition/;
+    expect(speech.test(`${read(voice[0])}\nnew webkitSpeechRecognition();`)).toBe(true);
+    for (const f of files) expect(speech.test(read(f)), f).toBe(false);
+    // The Settings copy is lazy too (first paint): no first-paint file holds a ui.settings line.
+    const html = read('index.html');
+    const firstPaint = [...html.matchAll(/(?:src|href)="\/(assets\/[^"]+\.js)"/g)].map((m) => m[1]);
+    expect(firstPaint.length).toBeGreaterThan(1);
+    for (const f of firstPaint) expect(read(f).includes('ui.settings.voice.ready'), f).toBe(false);
+    expect(files.some((f) => read(f).includes('Voice is ready.'))).toBe(true);
+  });
 });

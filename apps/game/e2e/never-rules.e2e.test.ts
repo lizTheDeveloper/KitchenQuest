@@ -5,7 +5,7 @@ import { parse } from 'yaml';
 import type { Request } from 'playwright';
 import { VOICE_ALLOWLIST } from '../src/content/voice-allowlist';
 import type { PlayerState } from '../src/state/store';
-import { offOrigin, openApp, PAN_READY, type OpenedApp } from './helpers';
+import { offOrigin, openApp, PAN_READY, writesBesidesFamilyTableReport, type OpenedApp } from './helpers';
 import {
   CHROME_BANNED, CONTENT_BANNED, COUNTDOWN, LOOP_NEVER, LOOP_SCREENS, M6_NEVER, MARKET_SCREENS, MENTOR_BANNED, LINE_SOURCES, RESCUE_SEED, lineMatcher, RUSTY_SEED, SCREENS, WEEK_SEED, allowlistedAt, bannedPattern,
   cookThrough, loopApi, openScreen,
@@ -373,7 +373,7 @@ describe('never rules, the weekly loop (M5 Step 12)', () => {
     const logged = (st: PlayerState) => Object.values(st.accountProgress ?? {}).map((a) => ({ events: a.progress.events, grants: a.progress.grants, pending: a.progress.pendingUpload }));
     expect(logged(after).every((a) => a.events.length === 0 && a.grants.length === 0 && a.pending.length === 0)).toBe(true);
     expect(logged(before).length).toBeLessThanOrEqual(logged(after).length);
-    expect(sent.filter((r) => r.method() !== 'GET').map((r) => `${r.method()} ${new URL(r.url()).pathname}`)).toEqual([]);
+    expect(writesBesidesFamilyTableReport(sent)).toEqual([]);
   });
 
   it('the Recipe Book export file says nothing the never rules forbid (signed in with notes, and in Family Table mode)', async () => {

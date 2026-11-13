@@ -93,6 +93,9 @@ describe('checkFirstPaintBudget', () => {
 
   test('no voice module is in the first-paint graph; first paint ≤ 359.6 KB (Step 7 baseline 357.6 KB + 2 KB, ruling round)', () => {
     expect(M7_FIRST_PAINT_CAP_BYTES).toBe(Math.floor(359.6 * 1024));
+    // B8, Step 9's measured number, with the talk control's row and Settings → Voice in (the real dist is asserted
+    // against the cap in e2e/budget.e2e.test.ts): the Settings copy moved to its lazy module paid for both.
+    expect(M7_STEP9_FIRST_PAINT_KB).toBeLessThanOrEqual(M7_FIRST_PAINT_CAP_BYTES / 1024);
     expect(M7_FIRST_PAINT_CAP_BYTES).toBeLessThan(FIRST_PAINT_TARGET_BYTES);
     const at = bundle(chunk('assets/index-a.js', { isEntry: true, code: 'a'.repeat(M7_FIRST_PAINT_CAP_BYTES) }));
     expect(checkFirstPaintBudget(at, 'index', { target: M7_FIRST_PAINT_CAP_BYTES })).toEqual([]);
@@ -126,6 +129,9 @@ describe('checkFirstPaintBudget', () => {
     expect(checkFirstPaintBudget(fine, 'index')).toEqual([]);
   });
 });
+
+/** M7 Step 9's measured first paint (KB, `KQ_APP_ORIGIN=https://example.test npm run build`), recorded for B8. */
+const M7_STEP9_FIRST_PAINT_KB = 357.4;
 
 // The real build's check (first paint ≤ 360 KB, no stall content in it, the market chunk lazy and precached) is
 // e2e/budget.e2e.test.ts: it reads the dist/ that e2e/setup.ts builds, instead of a second build here that would

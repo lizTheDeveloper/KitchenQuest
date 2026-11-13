@@ -74,7 +74,15 @@ export async function fakeApi(page: Page, fake: Fake, opts: FakeOptions): Promis
       const b = body() as { events: ProgressEvent[]; upload?: boolean };
       fake.events.push(...b.events);
       fake.uploads.push(b.upload === true);
-      return route.fulfill(json(200, { accepted: b.events.map((e) => ({ clientId: e.id, grants: [] })), duplicate: [], rejected: [], warnings: [], view: ACCOUNT_VIEW }));
+      // M7 Step 9 (M6 fix review N3): the server's grants replace the device's for every accepted event, so this fake
+      // answers with the grants the server's core computes for them. Same core, same catalogue, one account: they are
+      // the device's own, read from the page (the server agrees with the device here).
+      const mine = await page.evaluate(({ k, ids }) => {
+        const st = JSON.parse(localStorage.getItem(k) ?? '{}') as { progress?: { grants?: { eventId: string }[] }; accountProgress?: Record<string, { progress: { grants: { eventId: string }[] } }> };
+        return [...(st.progress?.grants ?? []), ...Object.values(st.accountProgress ?? {}).flatMap((p) => p.progress.grants)].filter((g) => ids.includes(g.eventId));
+      }, { k: 'kq.player.v1', ids: b.events.map((e) => e.id) });
+      const accepted = b.events.map((e) => ({ clientId: e.id, grants: mine.filter((g) => g.eventId === e.id) }));
+      return route.fulfill(json(200, { accepted, duplicate: [], rejected: [], warnings: [], view: ACCOUNT_VIEW }));
     }
     if (path === '/plans/current') return route.fulfill(json(200, { plan: fake.plan ? { ...fake.plan, id: 'plan1' } : null, weekStart: WEEK, checks: [] }));
     if (path === `/plans/${WEEK}` && m === 'PUT') {

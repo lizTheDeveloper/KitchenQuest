@@ -20,6 +20,7 @@ import { content, graph } from '../content';
 import { routeHref } from '../shell/router';
 import type { PlayerStore } from '../state/store';
 import { h } from '../ui/dom';
+import type * as VoiceModule from '../voice';
 import type { VoiceController, VoicePhase, VoiceProblem } from '../voice';
 import type { MentorBackend } from './backend';
 import type { ChildFlag } from './child-flag';
@@ -28,7 +29,7 @@ import type { ConsentAnswer, PanReply, TurnContext } from './reply';
 import { restingUntil } from './resting';
 import { transcriptTurn } from './voice-turn';
 
-export type VoiceLib = typeof import('../voice');
+type VoiceLib = typeof VoiceModule;
 
 export interface TalkHooks {
   store: PlayerStore;

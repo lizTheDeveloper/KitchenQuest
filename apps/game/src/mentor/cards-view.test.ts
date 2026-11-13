@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { buildMealCard, buildPantryCard, buildProfileCard, buildRuleCard, UNDO_WINDOW_MS, type Severity, type TrailEntry } from '@kitchenquest/core/engine';
 import { content, graph } from '../content';
-import { EXPIRED_TEXT, renderCard, renderTrail } from './cards-view';
+import { EXPIRED_TEXT, renderCard, renderTrail, TAP_ONLY_TEXT } from './cards-view';
 import type { CardView } from './reply';
 
 const T0 = new Date('2026-11-10T12:00:00Z');
@@ -21,6 +21,15 @@ beforeEach(() => { document.body.replaceChildren(); now = T0; });
 afterEach(() => { vi.useRealTimers(); });
 
 describe('renderCard', () => {
+  test('M7 Ruling 12 (carry 12): a severe rule card says only a tap confirms it; a non-severe card does not (a spoken yes may)', () => {
+    const severe = renderCard(local(rule('sesame', 'allergy')), { forms, now: () => now, onConfirm: vi.fn(), onReject: vi.fn() });
+    expect(severe.querySelector('.pan-card-tap-only')?.textContent).toBe(TAP_ONLY_TEXT);
+    expect(TAP_ONLY_TEXT).toMatch(/tap/);
+    const mild = renderCard(local(rule('sesame', 'intolerance')), { forms, now: () => now, onConfirm: vi.fn(), onReject: vi.fn() });
+    expect(mild.querySelector('.pan-card-tap-only')).toBeNull();
+    expect(renderCard(local(buildProfileCard({ mealsPerWeek: 3 })), { forms, now: () => now, onConfirm: vi.fn(), onReject: vi.fn() }).querySelector('.pan-card-tap-only')).toBeNull();
+  });
+
   test('a severe rule card shows the spelling and has no confirm on Enter in the text box', () => {
     const onConfirm = vi.fn();
     const card = renderCard(local(rule('sesame', 'allergy')), { forms, now: () => now, onConfirm, onReject: vi.fn() });

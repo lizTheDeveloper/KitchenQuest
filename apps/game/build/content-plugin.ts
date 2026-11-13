@@ -18,8 +18,8 @@ const RESOLVED_MARKET_ID = `\0${MARKET_VIRTUAL_ID}`;
 const SETTINGS_VIRTUAL_ID = 'virtual:kq-settings';
 const RESOLVED_SETTINGS_ID = `\0${SETTINGS_VIRTUAL_ID}`;
 /** Pan triggers that are Settings screen copy: shipped in `virtual:kq-settings`, not in first paint. */
-export const SETTINGS_COPY = /^ui\.settings\./;
-export const VOICE_MODELS_PATH = 'data/voice-models.json';
+const SETTINGS_COPY = /^ui\.settings\./;
+const VOICE_MODELS_PATH = 'data/voice-models.json';
 
 /**
  * What the first-paint module carries: no stalls and no Season's Table (both are in `virtual:kq-market`), no
@@ -48,7 +48,7 @@ export const marketModule = (market: MarketContent): string => `export default $
  * Every `allowed` model's credit (Settings → Voice, "Voice credits"): what it is, its licence, its source and the
  * attribution its licence asks for (null when it asks for none). A model of any other status is never listed.
  */
-export function voiceCredits(json: string): SettingsContent['voiceCredits'] {
+function voiceCredits(json: string): SettingsContent['voiceCredits'] {
   const problem = (what: string) => new ContentError([`${VOICE_MODELS_PATH}: ${what}`]);
   let data: unknown;
   try { data = JSON.parse(json); } catch { throw problem('is not JSON'); }
@@ -66,7 +66,7 @@ export function voiceCredits(json: string): SettingsContent['voiceCredits'] {
 }
 
 /** The lazy Settings module's text: the `ui.settings.*` copy and the voice credits. */
-export const settingsModule = (content: GameContent, models: string): string => {
+const settingsModule = (content: GameContent, models: string): string => {
   const copy: SettingsContent['copy'] = Object.fromEntries(Object.entries(content.pan.triggers).filter(([id]) => SETTINGS_COPY.test(id)));
   return `export default ${JSON.stringify({ copy, voiceCredits: voiceCredits(models) } satisfies SettingsContent)};`;
 };

@@ -34,7 +34,7 @@ export function voiceStateLine(state: VoiceState): string {
   }
 }
 
-export function voiceSection(store: PlayerStore, client: ApiClient, opts: { now?: () => Date; forms?: Record<string, BureauForm> } = {}): { el: HTMLElement; stop(): void } {
+export function voiceSection(store: PlayerStore, client: ApiClient, opts: { now?: () => Date; forms?: Record<string, BureauForm> } = {}): { el: HTMLElement; stop: () => void } {
   const now = opts.now ?? (() => new Date());
   const forms = opts.forms ?? content.bureau.forms;
   const body = h('div', { class: 'voice-settings' });

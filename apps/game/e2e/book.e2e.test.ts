@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { parse } from 'yaml';
 import type { Page, Request } from 'playwright';
 import { afterEach, describe, expect, it } from 'vitest';
-import { expectNoA11yViolations, openApp, PAN_READY, type OpenedApp } from './helpers';
+import { expectNoA11yViolations, openApp, PAN_READY, writesBesidesFamilyTableReport, type OpenedApp } from './helpers';
 
 const pan = parse(readFileSync(fileURLToPath(new URL('../../../content/dialogue/pan.yaml', import.meta.url)), 'utf8')) as { triggers: Record<string, { lines: string[] }> };
 const EXPORTED = pan.triggers['book.exported'].lines;
@@ -90,7 +90,7 @@ describe('the Recipe Book (M5 Step 11)', () => {
     expect(html).not.toContain('Your margin notes');
     expect(html).not.toContain('Shared at your table');
     expect(sent.filter((r) => /\/api\/(notes|shared-table)/.test(new URL(r.url()).pathname))).toEqual([]);
-    expect(sent.filter((r) => r.method() !== 'GET')).toEqual([]);
+    expect(writesBesidesFamilyTableReport(sent)).toEqual([]);
   });
 
   it('signed out: the book shows the device\'s progress, no notes, and still downloads', async () => {

@@ -1,7 +1,7 @@
 import type { Page, Request } from 'playwright';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { PlayerState } from '../src/state/store';
-import { expectNoA11yViolations, openApp, PAN_READY, type OpenedApp } from './helpers';
+import { expectNoA11yViolations, openApp, PAN_READY, writesBesidesFamilyTableReport, type OpenedApp } from './helpers';
 
 const SLUG = 'india/kerala/parippu';
 const json = (status: number, body: unknown) => ({ status, contentType: 'application/json', body: JSON.stringify(body) });
@@ -111,7 +111,6 @@ describe('cook → log (M5 Step 11)', () => {
     await cookToTheEnd(page);
     await page.waitForFunction(() => location.hash === '#/kitchen');
     expect(await page.locator('.after-cook').count()).toBe(0);
-    const writes = sent.filter((r) => r.method() !== 'GET');
-    expect(writes.map((r) => new URL(r.url()).pathname)).toEqual([]);
+    expect(writesBesidesFamilyTableReport(sent)).toEqual([]);
   });
 });

@@ -79,32 +79,22 @@ describe('mentor panel', () => {
     expect(app.requests.filter((u) => new URL(u).pathname !== '/api/me').slice(before).filter((u) => new URL(u).pathname.startsWith('/api/'))).toEqual([]);
   });
 
-  // M7 Step 6: voice.not_yet is gone; the talk control sends and says nothing until Step 9 wires the voice controller.
-  it('hold-to-talk presses and releases, and sends and says nothing yet', async () => {
-    // Fix round 1: intake done, so no opening lines arrive while the control is pressed (they made the count flaky).
-    app = await openApp('/', { reducedMotion: true, seed: PAN_READY });
+  // M7 Step 9: the talk control is real now. Signed out it is not there at all (Ruling 8), and nothing asks for the
+  // microphone or opens the voice socket. (The spoken path itself runs in e2e/voice, Step 11, on the fake media device.)
+  it('signed out there is no talk control, and nothing asks for the microphone or opens the voice socket', async () => {
+    app = await openApp('/', {
+      reducedMotion: true, seed: PAN_READY,
+      initScript: 'window.__gum = 0; if (navigator.mediaDevices) navigator.mediaDevices.getUserMedia = () => { window.__gum++; return Promise.reject(new Error("no")); };',
+    });
     const { page } = app;
     await page.locator('#pan-button').click();
-    // Whatever the panel says on opening has settled before the count is taken.
-    const settled = async () => {
-      for (let last = -1; ; ) {
-        const n = await page.locator('#pan-panel li').count();
-        if (n === last) return n;
-        last = n;
-        await page.waitForTimeout(250);
-      }
-    };
-    const bubbles = await settled();
-    const before = app.requests.length;
-    await page.locator('#pan-talk').focus();
-    await page.keyboard.down('Space');
-    expect(await page.locator('#pan-talk').getAttribute('aria-pressed')).toBe('true');
-    expect(await page.locator('#pan-talk').textContent()).toBe('Listening…');
-    await page.keyboard.up('Space');
-    expect(await page.locator('#pan-talk').getAttribute('aria-pressed')).toBe('false');
+    await page.locator('#pan-panel .pan-talk-row').waitFor({ state: 'attached' });
     await page.waitForTimeout(500);
-    expect(await page.locator('#pan-panel li').count()).toBe(bubbles);
-    expect(app.requests.slice(before).filter((u) => new URL(u).pathname.startsWith('/api/mentor'))).toEqual([]);
+    expect(await page.locator('#pan-talk').isVisible()).toBe(false);
+    expect(await page.evaluate(() => (window as unknown as { __gum: number }).__gum)).toBe(0);
+    expect(app.requests.filter((u) => new URL(u).pathname.startsWith('/api/voice'))).toEqual([]);
+    // Typing still works, as always.
+    expect(await page.locator('#pan-text').isVisible()).toBe(true);
   });
 
   it('Escape closes the panel and focuses the Pan button', async () => {

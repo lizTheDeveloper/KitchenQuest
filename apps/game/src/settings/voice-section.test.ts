@@ -116,9 +116,9 @@ describe('Settings → Voice', () => {
     for (const state of states) {
       const t = setup({ status: { state, accessibility: false, enabled: true } });
       await flush();
-      const line = t.s.el.querySelector('#voice-state')!.textContent!;
+      const line = t.s.el.querySelector('#voice-state')!.textContent;
       expect(line).toBe(voiceStateLine(state));
-      const all = t.s.el.textContent!;
+      const all = t.s.el.textContent;
       expect(all).not.toMatch(/\d+\s*(min|minutes|s|left|remaining)\b/i);
       expect(t.s.el.querySelector('progress, meter, [role="timer"]')).toBeNull();
       expect(all).not.toMatch(/guild|upgrade|premium/i);
@@ -138,7 +138,7 @@ describe('Settings → Voice', () => {
     const t = setup();
     await flush();
     expect(t.box('set-voice-hands-free')).toBeNull();
-    const items = [...t.s.el.querySelectorAll('.voice-credits li')].map((li) => li.textContent!);
+    const items = [...t.s.el.querySelectorAll('.voice-credits li')].map((li) => li.textContent);
     expect(items).toHaveLength(voiceCredits.length);
     for (const m of voiceCredits) {
       const li = items.find((x) => x.startsWith(m.id))!;

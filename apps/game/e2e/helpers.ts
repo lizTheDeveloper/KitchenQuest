@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright';
-import { chromium, type BrowserContext, type ConsoleMessage, type Page, type Response } from 'playwright';
+import { chromium, type BrowserContext, type ConsoleMessage, type Page, type Request, type Response } from 'playwright';
 import { expect, inject } from 'vitest';
 import { STORE_KEY, type PlayerState } from '../src/state/store';
 
@@ -85,6 +85,19 @@ export async function expectNoA11yViolations(page: Page, label: string): Promise
   const { violations } = await new AxeBuilder({ page }).analyze();
   const bad = violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
   expect(bad.map((v) => v.id), `${label}: axe violations`).toEqual([]);
+}
+
+/**
+ * M7 Ruling 17: what a Family Table session wrote to the API, besides the device's Family Table report
+ * (`PUT /api/voice/family-table { on: true }`: the setting itself, so the server refuses voice too; never a record).
+ * Asserts the report is sent, signed in, and only ever says on.
+ */
+export function writesBesidesFamilyTableReport(sent: Request[]): string[] {
+  const report = (r: Request) => r.method() === 'PUT' && new URL(r.url()).pathname === '/api/voice/family-table';
+  const reports = sent.filter(report);
+  expect(reports.length, 'the Family Table report (Ruling 17)').toBeGreaterThan(0);
+  for (const r of reports) expect(r.postDataJSON()).toEqual({ on: true });
+  return sent.filter((r) => r.method() !== 'GET' && !report(r)).map((r) => `${r.method()} ${new URL(r.url()).pathname}`);
 }
 
 export async function expectNoHorizontalScroll(page: Page): Promise<void> {
