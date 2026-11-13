@@ -62,6 +62,8 @@ export interface CookVoice {
   timerSounding(on: boolean): void;
   /** Fix round 2 (concern 5): speak a reply drawn in the panel outside a spoken turn (a heard card's tap). */
   speak(r: PanReply): void;
+  /** Fix round 4: the player answered by a tap (a card stamped or turned down, a heard card): `tap_answer` may be said again. */
+  tapped(): void;
 }
 
 export interface CookVoiceDeps {
@@ -69,8 +71,12 @@ export interface CookVoiceDeps {
   hooks: CookVoiceHooks;
   localDate: () => string;
   doc: Document;
-  /** The Pan's spoken turn: the player's bubble and the reply drawn in the panel (heard check first). The reply, or null. */
-  toPan(text: string, utteranceId: number): Promise<PanReply | null>;
+  /**
+   * The Pan's spoken turn: the player's bubble and the reply drawn in the panel (heard check first). The reply, or
+   * null. Fix round 4: `tooLong` asks only for the over-long safety scan (an emergency or a child: their fixed reply,
+   * drawn); null means none was found and nothing was drawn or sent.
+   */
+  toPan(text: string, utteranceId: number, tooLong?: boolean): Promise<PanReply | null>;
   /** A scripted first-paint Pan line, drawn in the panel (`getMentor().say`): the line as said. */
   say(trigger: string, vars?: Record<string, string>): Said;
   /** A reply drawn in the panel (`getMentor().show`): the lazy cues. */
@@ -156,6 +162,12 @@ export function startCookVoice(deps: CookVoiceDeps): CookVoice {
   const lastStep = () => hooks.currentStep() >= hooks.stepCount() - 1;
   /** The cards already told "tap it" (once per card). */
   const cued = new Set<string>();
+  /**
+   * Fix round 4: `tap_answer` (a spoken yes or no with no card) is said once per session; again only after a tap
+   * answer, or once HANDS_FREE_IDLE_MS has passed since it was last said. Otherwise nothing is said or drawn.
+   */
+  let answerCueAt = -Infinity;
+  let tappedSince = false;
   const speakReply = (r: PanReply) => {
     if (!deps.readAloud()) { c.say(END_WAIT); return; }
     c.say(speakPlan(r.items, r.cards, { replyId: r.replyId ?? null }));
@@ -164,21 +176,35 @@ export function startCookVoice(deps: CookVoiceDeps): CookVoice {
   const heard = (text: string, tooLong: boolean, utteranceId: number) => {
     if (!on) return;
     const mine = ++turn;
-    // Carry 3 (Step 8 I1): only real words are speech; noise that ended empty never keeps hands-free awake.
-    if (text.trim() !== '') armIdle();
     // Fix rounds 2 and 3 (N1, N2): a spoken yes or no is never sent, whatever its length (a radio holding the VAD open
-    // for MAX_UTTERANCE_MS can still come back as "yes please"); a waiting card hears "tap it" once.
+    // for MAX_UTTERANCE_MS can still come back as "yes please"); a waiting card hears "tap it" once. Fix round 4: a
+    // swallowed answer is no speech for the idle timer (a radio that only says "yes" can't hold the microphone open).
     if (isAnswer(text)) {
       const fresh = deps.openCards().filter((k) => !cued.has(k));
+      const now = Date.now();
       if (fresh.length > 0) {
         for (const k of fresh) cued.add(k);
         cue('voice.cook.tap_card');
-      } else if (deps.openCards().length === 0) cue('voice.cook.tap_answer'); // m3: never dropped without a word
-      else c.say(END_WAIT);
+      } else if (deps.openCards().length === 0 && (tappedSince || now - answerCueAt >= HANDS_FREE_IDLE_MS)) {
+        answerCueAt = now; // m3, rate-limited (fix round 4)
+        tappedSince = false;
+        cue('voice.cook.tap_answer');
+      } else c.say(END_WAIT);
       return;
     }
-    // N1: an over-long utterance is never sent to the Pan (nor read as a command): tap or type it instead.
-    if (tooLong) { speakSaid(deps.say('voice.too_long')); return; }
+    // Carry 3 (Step 8 I1): only real words are speech; noise that ended empty never keeps hands-free awake.
+    if (text.trim() !== '') armIdle();
+    // N1: an over-long utterance is never sent as a turn (nor read as a command). Fix round 4: its whole text is
+    // scanned first for an emergency or a child (their fixed reply, drawn and spoken); otherwise voice.too_long.
+    if (tooLong) {
+      void deps.toPan(text, utteranceId, true).then((r) => {
+        if (!on || mine !== turn) return;
+        if (r === null) { speakSaid(deps.say('voice.too_long')); return; }
+        deps.answered(r, needsTap(r));
+        speakReply(r);
+      }, () => { if (on && mine === turn) speakSaid(deps.say('voice.too_long')); });
+      return;
+    }
     let command = cookCommand(text);
     // I4: on the last step, chatter is no command (it goes to the Pan); a deliberate "next" is answered, never obeyed.
     if (command === 'next' && lastStep()) {
@@ -246,5 +272,6 @@ export function startCookVoice(deps: CookVoiceDeps): CookVoice {
     },
     timerSounding(sounding) { if (on) c.timerSounding(sounding); },
     speak(r) { if (on && deps.readAloud()) speakReply(r); },
+    tapped() { tappedSince = true; },
   };
 }

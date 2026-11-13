@@ -463,10 +463,12 @@ export function runCookMode(el: HTMLElement, ctx: AppContext, src: CookModeSourc
       const unChild = port.onChild(() => { if (port.childOn()) c.close('child'); });
       if (alarm.sounding) c.timerSounding(true);
       const released = release;
+      // Fix round 4: a card stamped or turned down by a tap: a later spoken yes or no may be told "tap" again.
+      let unTapped: () => void = () => undefined;
       const voice = cv.startCookVoice({
         controller: c, hooks: voiceHooks, localDate: () => localDate(ctx.now()), doc,
         // I5: the panel is not opened for a reply: it is spoken, and `answered` shows that it came.
-        toPan: (text, id) => port.spoken(text, id),
+        toPan: (text, id, tooLong) => port.spoken(text, id, tooLong),
         say: (t, v) => mentor.say(t, v),
         show: (r) => { mentor.show(r); },
         answered: onAnswered,
@@ -474,6 +476,7 @@ export function runCookMode(el: HTMLElement, ctx: AppContext, src: CookModeSourc
         readAloud: () => ctx.store.get().settings.voice.readAloud,
         onStop: () => {
           port.setSpeaker(null);
+          unTapped();
           answered.replaceChildren(); // m2
           unMic();
           unChild();
@@ -489,8 +492,9 @@ export function runCookMode(el: HTMLElement, ctx: AppContext, src: CookModeSourc
       });
       if (!voice.on) return;
       hf = { voice, ctl: c };
+      unTapped = mentor.onCardDone(() => { voice.tapped(); });
       // Concern 5: a heard card's tap reply is spoken by cook mode's controller (the talk control is off meanwhile).
-      port.setSpeaker((r) => { voice.speak(r); });
+      port.setSpeaker((r) => { voice.tapped(); voice.speak(r); });
       dock(true);
       alarm.setHook((on) => { voice.timerSounding(on); });
       void wake.hold(true).then(showWake);

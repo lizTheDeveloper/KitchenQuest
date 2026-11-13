@@ -60,34 +60,43 @@ export interface LocalSafety {
  * to the loaded AI backend's queue (ai-backend.ts `deliver`, same consent gate, reply ignored). A turn answered only
  * because a child spoke earlier is never sent anywhere.
  */
+/**
+ * The device's fixed safety reply for `intent` (an emergency, a child, a medical question), or null for any other.
+ * M7 Step 10 fix round 4: shared with the over-long transcript scan (voice-turn.ts `overLongSafety`), which reads the
+ * whole text itself, so a too-long utterance gets the same reply a typed one does.
+ */
+export function safetyReply(intent: string, raw: string, deps: { dialogue: Dialogue; graph: IngredientGraph; child: ChildFlag }): PanReply | null {
+  const { dialogue, graph, child } = deps;
+  const say = (trigger: string, vars: Record<string, string> = {}): PanItem => ({ kind: 'said', said: dialogue.say(trigger, vars) });
+  let items: PanItem[];
+  if (intent === 'emergency') {
+    items = [say('rule.emergency')];
+    if (!child.on && emergencyStatesRule(raw, graph)) {
+      // I-2: every allergen named gets its ask (it ends with rule.ask_keep_off when nothing is named), as on the server.
+      for (const ask of emergencyRuleAsks(raw, [], graph)) items.push(say(ask.trigger, ask.vars));
+    }
+  } else if (intent === 'child' || child.on) {
+    child.set();
+    items = [say('child.grownup')];
+  } else if (intent === 'medical') {
+    items = [say('rule.medical_deflect')];
+  } else {
+    return null;
+  }
+  return { items, cards: [], intents: [], actions: [], notice: null };
+}
+
 export function createLocalSafety(deps: { dialogue: Dialogue; graph: IngredientGraph; child?: ChildFlag }): LocalSafety {
-  const { dialogue, graph } = deps;
   // The conversation's one child flag (m-4), shared with the scripted engine and the intake.
   const child = deps.child ?? createChildFlag();
-  const say = (trigger: string, vars: Record<string, string> = {}): PanItem => ({ kind: 'said', said: dialogue.say(trigger, vars) });
+  const d = { dialogue: deps.dialogue, graph: deps.graph, child };
   return {
     reset() { child.reset(); },
     reply(input) {
       // M7 Step 6: a transcript gets the same answers first (§19: a child's speech never reaches the AI either).
-      const raw = input.text;
-      const intent = classifyTurn(stripPageEvents(raw).text.trim());
-      let items: PanItem[];
-      if (intent === 'emergency') {
-        items = [say('rule.emergency')];
-        if (!child.on && emergencyStatesRule(raw, graph)) {
-          // I-2: every allergen named gets its ask (it ends with rule.ask_keep_off when nothing is named), as on the server.
-          for (const ask of emergencyRuleAsks(raw, [], graph)) items.push(say(ask.trigger, ask.vars));
-        }
-      } else if (intent === 'child' || child.on) {
-        child.set();
-        items = [say('child.grownup')];
-      } else if (intent === 'medical') {
-        items = [say('rule.medical_deflect')];
-      } else {
-        return null;
-      }
-      const deliver = intent === 'emergency' || intent === 'child' || intent === 'medical';
-      return { reply: { items, cards: [], intents: [], actions: [], notice: null }, deliver };
+      const intent = classifyTurn(stripPageEvents(input.text).text.trim());
+      const reply = safetyReply(intent, input.text, d);
+      return reply === null ? null : { reply, deliver: intent === 'emergency' || intent === 'child' || intent === 'medical' };
     },
   };
 }

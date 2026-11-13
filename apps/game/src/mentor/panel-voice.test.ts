@@ -666,3 +666,43 @@ describe('M7 Step 10 fix round 3 (m1): a press just before cook mode claims voic
     r.release();
   });
 });
+
+describe('M7 Step 10 fix round 4 (controller ruling): hold-to-talk, an over-long transcript is scanned for an emergency or a child first', () => {
+  const RADIO = Array.from({ length: 6 }, () => 'and now the travel news on the ring road where traffic is slow').join(' ');
+  /** One held utterance the API ends as too long (`too_long`, then its transcript). */
+  async function utterTooLong(r: Rig, text: string) {
+    r.press();
+    const ws = await r.ready();
+    r.frames();
+    r.release();
+    await flush();
+    ws.serverSend({ t: 'too_long', id: listenId(ws) });
+    ws.serverSend({ t: 'transcript', id: listenId(ws), text });
+    await flush(20);
+    return ws;
+  }
+  const panTexts = (r: Rig) => [...r.root.querySelectorAll('.bubble.pan .bubble-text')].map((b) => b.textContent ?? '');
+  const lines = (t: string) => content.pan.triggers[t].lines;
+
+  test('an emergency phrase at the end: the emergency line, drawn and spoken; nothing sent', async () => {
+    const r = await rig();
+    const ws = await utterTooLong(r, `${RADIO} I ate peanuts and my throat is closing, I can't breathe`);
+    expect(r.inputs).toEqual([]);
+    expect(panTexts(r).some((x) => lines('rule.emergency').includes(x))).toBe(true);
+    expect(JSON.stringify(speaks(ws).at(-1))).toContain('rule.emergency');
+  });
+
+  test('a child phrase: the child flag, child.grownup, the talk control closed; plain chatter: voice.too_long only', async () => {
+    const r = await rig();
+    await utterTooLong(r, `${RADIO} hello I'm 9 years old and I want to cook`);
+    expect(r.child.on).toBe(true);
+    expect(panTexts(r).some((x) => lines('child.grownup').includes(x))).toBe(true);
+    expect(r.row()!.hidden).toBe(true);
+    expect(r.inputs).toEqual([]);
+    const u = await rig();
+    await utterTooLong(u, RADIO);
+    expect(u.inputs).toEqual([]);
+    expect(panTexts(u).some((x) => lines('voice.too_long').includes(x))).toBe(true);
+    expect(u.child.on).toBe(false);
+  });
+});

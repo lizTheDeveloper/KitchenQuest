@@ -27,7 +27,8 @@ import type { ChildFlag } from './child-flag';
 import type { Dialogue } from './dialogue';
 import type { ConsentAnswer, PanReply, TurnContext } from './reply';
 import { restingUntil } from './resting';
-import { transcriptTurn } from './voice-turn';
+import { overLongSafety, transcriptTurn } from './voice-turn';
+import { createChildFlag } from './child-flag';
 import { requestFocus } from '../shell/focus-intent';
 import { onVoiceOwner, voiceOwner } from './voice-owner';
 
@@ -254,7 +255,17 @@ export function mountTalk(row: HTMLElement, hooks: TalkHooks): { stop(): void } 
     if (c !== ctl) return;
     // M-1: a transcript came back, so voice works: an earlier outage's backoff starts over.
     backoffMs = UNAVAILABLE_BACKOFF_MS;
-    if (tooLong) { say(lines(['voice.too_long'])); engaged = false; return; }
+    if (tooLong) {
+      // Step 10 fix round 4 (controller ruling): an emergency or a child in an over-long utterance is never missed. The
+      // whole text is scanned on the device and only its fixed reply is drawn (and spoken); nothing is sent.
+      const safe = overLongSafety(text, { dialogue, graph, child: child ?? createChildFlag() });
+      if (safe === null) { say(lines(['voice.too_long'])); engaged = false; return; }
+      hooks.spoken(text);
+      const r = await hooks.turn(() => Promise.resolve(safe));
+      if (c === ctl) speak(r);
+      engaged = false;
+      return;
+    }
     const words = text.trim() !== '';
     if (words) hooks.spoken(text);
     let answered = false;

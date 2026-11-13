@@ -25,6 +25,7 @@ vi.mock('../mentor', () => ({
     say: (t: string) => { hfMock.lines.push(t); return { text: t, trigger: t, ai: 'never', index: 0 }; },
     cookVoice: () => hfMock.port,
     isOpen: () => false,
+    onCardDone: () => () => undefined,
     open: (opts?: unknown) => { hfMock.opened++; hfMock.opens.push(opts); },
     show: (r: { items: { kind: string; said?: { trigger: string } }[] }) => { hfMock.shown.push(r); for (const i of r.items) if (i.said) hfMock.lines.push(i.said.trigger); },
   }),

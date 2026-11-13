@@ -7,7 +7,7 @@ import type { PlayerStore } from '../state/store';
 import { typeInto } from '../ui/dialogue-box';
 import { h } from '../ui/dom';
 import type { MentorBackend, MentorInput } from './backend';
-import type { ChildFlag } from './child-flag';
+import { createChildFlag, type ChildFlag } from './child-flag';
 import { CLOSED_TEXT, closeCard, renderCard, renderTrail, setCardNote } from './cards-view';
 import { renderConsentCard } from './consent-card';
 import type { Dialogue, Said, Vars } from './dialogue';
@@ -25,8 +25,11 @@ interface CookVoicePort {
   /** The conversation's child flag (§19): the controller closes the moment it is set. */
   childOn(): boolean;
   onChild(fn: () => void): () => void;
-  /** The player's bubble (marked spoken), then Step 9's `transcriptTurn`, heard check first (Ruling 4), drawn. */
-  spoken(text: string, utteranceId: number): Promise<PanReply | null>;
+  /**
+   * The player's bubble (marked spoken), then Step 9's `transcriptTurn`, heard check first (Ruling 4), drawn. Fix round
+   * 4: `tooLong`: only the over-long safety scan; its reply drawn (with the bubble), else null and nothing drawn.
+   */
+  spoken(text: string, utteranceId: number, tooLong?: boolean): Promise<PanReply | null>;
   /** Fix round 2: the open cards' keys (in hands-free a spoken yes confirms none of them). */
   openCards(): string[];
   /** Fix round 2 (concern 5): who speaks the panel's own spoken-turn replies (a heard card's tap); null for nobody. */
@@ -784,9 +787,15 @@ export function mountMentorPanel(root: HTMLElement, opts: {
         onChild: (fn) => opts.child?.onChange(fn) ?? (() => undefined),
         openCards: () => [...cards.keys()],
         setSpeaker: (fn) => { speaker = fn; },
-        async spoken(text, utteranceId) {
+        async spoken(text, utteranceId, tooLong) {
+          const { transcriptTurn, overLongSafety } = await import('./voice-turn');
+          let safe: PanReply | null = null;
+          if (tooLong === true) {
+            safe = overLongSafety(text, { dialogue, graph, child: opts.child ?? createChildFlag() });
+            if (safe === null) return null;
+          }
           if (text.trim() !== '') addBubble('you', text, true);
-          const { transcriptTurn } = await import('./voice-turn');
+          if (safe !== null) { const r = safe; return turnWith(() => Promise.resolve(r)); }
           return turnWith((ctx) => transcriptTurn(text, utteranceId, ctx, { backend, graph, ruleTerms: content.ruleTerms, dialogue, ...(opts.child ? { child: opts.child } : {}) }));
         },
       };

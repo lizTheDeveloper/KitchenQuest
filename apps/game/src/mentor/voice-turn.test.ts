@@ -11,7 +11,7 @@ import { createChildFlag } from './child-flag';
 import { createDialogue } from './dialogue';
 import type { PanItem, PanReply, TurnContext } from './reply';
 import { createScriptedEngine } from './scripted';
-import { confirmHeard, transcriptTurn } from './voice-turn';
+import { confirmHeard, overLongSafety, transcriptTurn } from './voice-turn';
 
 const T0 = new Date('2026-11-13T18:05:00');
 const dialogue = createDialogue(content.pan);
@@ -219,5 +219,30 @@ describe('carry 12 (Ruling 12): a spoken yes counts only for a non-severe card',
     const yesSevere = await transcriptTurn('yes', 2, { ...ctx, turn: 2, openCards: [severe] }, deps);
     expect(yesSevere.intents).toEqual([]);
     expect(triggers(yesSevere)).toContain('rule.tap_needed');
+  });
+});
+
+/** Thirty seconds of a radio's talk (well past MAX_TEXT words for the heard check), then the words that matter. */
+const RADIO = Array.from({ length: 12 }, () => 'and now the travel news on the ring road where traffic is slow').join(' ');
+
+describe('M7 Step 10 fix round 4 (controller ruling): an over-long transcript is scanned for an emergency or a child before it is dropped', () => {
+  test('an emergency phrase at the end of a 30 s transcript: rule.emergency first, as a typed emergency (the asks follow); nothing is sent', () => {
+    const child = createChildFlag();
+    const r = overLongSafety(`${RADIO} I ate peanuts and my throat is closing, I can't breathe`, { dialogue, graph, child })!;
+    expect(RADIO.length).toBeGreaterThan(500); // past MAX_TEXT: a capped scan would never reach the end
+    expect(triggers(r)[0]).toBe('rule.emergency');
+    expect(r.cards).toEqual([]);
+    expect(child.on).toBe(false);
+  });
+
+  test('a child phrase sets the child flag (which closes voice) and says child.grownup; plain chatter gets null (the too-long cue)', () => {
+    const child = createChildFlag();
+    let told = 0;
+    child.onChange(() => { told++; });
+    const r = overLongSafety(`${RADIO} hello I'm 9 years old and I want to cook`, { dialogue, graph, child })!;
+    expect(triggers(r)).toEqual(['child.grownup']);
+    expect(child.on).toBe(true);
+    expect(told).toBe(1);
+    expect(overLongSafety(RADIO, { dialogue, graph, child: createChildFlag() })).toBeNull();
   });
 });

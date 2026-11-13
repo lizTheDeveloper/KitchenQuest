@@ -66,7 +66,7 @@ const quietDeps = {
 const noHooks: CookVoiceHooks = { next() {}, back() {}, timerStart: () => false, timerStop: () => 'which', currentStep: () => 0, stepCount: () => 3, speakStep: null };
 
 function rig(opts: {
-  speakStep?: { slug: string } | null; toPan?: (text: string, id: number) => Promise<PanReply | null>; readAloud?: boolean;
+  speakStep?: { slug: string } | null; toPan?: (text: string, id: number, tooLong?: boolean) => Promise<PanReply | null>; readAloud?: boolean;
   step?: number; timerStart?: () => boolean; timerStop?: () => 'stopped' | 'which'; cards?: () => string[];
 } = {}) {
   const c = fakeController();
@@ -76,6 +76,7 @@ function rig(opts: {
   /** Every Pan line drawn: the first-paint bank's (`say`) and the cues' (`show`). */
   const lines: string[] = [];
   const toPan: { text: string; id: number }[] = [];
+  const overLong: string[] = [];
   const stops: string[] = [];
   const answered: { r: PanReply; tap: boolean }[] = [];
   const hooks: CookVoiceHooks = {
@@ -89,7 +90,11 @@ function rig(opts: {
   };
   const voice = startCookVoice({
     controller: c, hooks, localDate: () => '2026-11-13', doc: document,
-    toPan: (text, id) => { toPan.push({ text, id }); return opts.toPan ? opts.toPan(text, id) : Promise.resolve(said('Keep it moving.')); },
+    toPan: (text, id, tooLong) => {
+      if (tooLong === true) { overLong.push(text); return opts.toPan ? opts.toPan(text, id, true) : Promise.resolve(null); }
+      toPan.push({ text, id });
+      return opts.toPan ? opts.toPan(text, id) : Promise.resolve(said('Keep it moving.'));
+    },
     say: (t) => { lines.push(t); return { trigger: t, text: `[${t}]`, ai: 'never', index: 1 }; },
     show: (r) => { for (const i of r.items) if (i.kind === 'said') lines.push(i.said.trigger); },
     answered: (r, tap) => { answered.push({ r, tap }); },
@@ -97,7 +102,7 @@ function rig(opts: {
     readAloud: () => opts.readAloud ?? true,
     onStop: (why) => { stops.push(why); },
   });
-  return { c, voice, log, lines, toPan, stops, answered, step: () => step };
+  return { c, voice, log, lines, toPan, overLong, stops, answered, step: () => step };
 }
 /** The var-free lines a controller was asked to speak (Ruling 15: by trigger and index, never text). */
 const spokenLines = (c: ReturnType<typeof fakeController>) => c.said.flatMap((p) => p.items).flatMap((i) => (i.kind === 'line' ? [i.trigger] : []));
@@ -189,6 +194,7 @@ describe('startCookVoice (M7 Step 10)', () => {
     // Fix round 3 (N1): a too-long utterance is never a command and is never sent: voice.too_long, said aloud.
     const t = rig();
     t.c.hear('next', true);
+    await flush();
     expect(t.log).toEqual([]);
     expect(t.toPan).toEqual([]);
     expect(spokenLines(t.c)).toEqual(['voice.too_long']);
@@ -455,7 +461,7 @@ describe('M7 Step 10 fix round 2 (controller ruling): in hands-free a spoken yes
 });
 
 describe('M7 Step 10 fix round 3', () => {
-  test('N1: "yes please" heard over 30 s of radio (too long) is never sent: the yes guard runs first, whatever the length', () => {
+  test('N1: "yes please" heard over 30 s of radio (too long) is never sent: the yes guard runs first, whatever the length', async () => {
     const r = rig({ cards: () => ['server:p-1'] });
     r.c.hear('yes please', true);
     r.c.hear('no', true);
@@ -463,6 +469,7 @@ describe('M7 Step 10 fix round 3', () => {
     expect(spokenLines(r.c)).toEqual(['voice.cook.tap_card']);
     // Any other too-long utterance: voice.too_long, and nothing sent.
     r.c.hear('how long do I keep stirring', true);
+    await flush();
     expect(r.toPan).toEqual([]);
     expect(spokenLines(r.c).at(-1)).toBe('voice.too_long');
   });
@@ -481,5 +488,58 @@ describe('M7 Step 10 fix round 3', () => {
     const q = rig({ cards: () => ['server:p-1'] });
     q.c.hear('no idea how long to stir this');
     expect(q.toPan.map((t) => t.text)).toEqual(['no idea how long to stir this']);
+  });
+});
+
+describe('M7 Step 10 fix round 4', () => {
+  test('emergency over-long: a too-long transcript goes to the Pan only for its safety scan; a safety reply is drawn and spoken; plain chatter gets the too-long cue', async () => {
+    const em = { ...said('Call 999.'), replyId: null };
+    const r = rig({ toPan: (_t, _id, tooLong) => Promise.resolve(tooLong === true ? em : null) });
+    r.c.hear('… my throat is closing', true);
+    await flush();
+    expect(r.overLong).toEqual(['… my throat is closing']);
+    expect(r.toPan).toEqual([]); // never as a turn
+    expect(r.answered).toEqual([{ r: em, tap: false }]);
+    expect(r.c.said.at(-1)!.items[0].kind).not.toBe('step');
+    expect(spokenLines(r.c)).not.toContain('voice.too_long');
+    const chat = rig();
+    chat.c.hear('the travel news on the ring road', true);
+    await flush();
+    expect(chat.overLong).toHaveLength(1);
+    expect(spokenLines(chat.c)).toEqual(['voice.too_long']);
+  });
+
+  test('tap_answer: once per session; again only after a tap answer, or once HANDS_FREE_IDLE_MS has passed since it was last said', () => {
+    vi.useFakeTimers();
+    const r = rig();
+    for (let i = 0; i < 4; i++) r.c.hear('yes');
+    expect(spokenLines(r.c)).toEqual(['voice.cook.tap_answer']);
+    expect(r.lines.filter((l) => l === 'voice.cook.tap_answer')).toHaveLength(1);
+    // After a tap answer (a card stamped or turned down), once more.
+    r.voice.tapped();
+    r.c.hear('no');
+    r.c.hear('no');
+    expect(spokenLines(r.c)).toEqual(['voice.cook.tap_answer', 'voice.cook.tap_answer']);
+    // Ten minutes after it was last said (real speech keeps hands-free awake meanwhile), once more.
+    vi.advanceTimersByTime(HANDS_FREE_IDLE_MS / 2);
+    r.c.hear('how long do I keep stirring');
+    vi.advanceTimersByTime(HANDS_FREE_IDLE_MS / 2 - 1);
+    r.c.hear('yes');
+    expect(spokenLines(r.c)).toHaveLength(2);
+    r.c.hear('how long do I keep stirring');
+    vi.advanceTimersByTime(1);
+    r.c.hear('yes');
+    expect(spokenLines(r.c)).toEqual(['voice.cook.tap_answer', 'voice.cook.tap_answer', 'voice.cook.tap_answer']);
+    expect(r.lines.filter((l) => l === 'voice.cook.tap_answer')).toHaveLength(3);
+  });
+
+  test('a swallowed yes or no does not re-arm the idle timer: a radio that only says "yes" can\'t hold the microphone open', () => {
+    vi.useFakeTimers();
+    const r = rig({ cards: () => ['server:p-1'] });
+    vi.advanceTimersByTime(HANDS_FREE_IDLE_MS - 1000);
+    r.c.hear('yes please');
+    r.c.hear('no');
+    vi.advanceTimersByTime(1000);
+    expect(r.stops).toEqual(['idle']);
   });
 });

@@ -24,7 +24,7 @@ vi.mock('../mentor', () => ({
 }));
 vi.mock('../progress', () => ({ progressService: () => Promise.reject(new Error('not in this test')) }));
 
-interface Ctl { hear(text: string): void; said: unknown[] }
+interface Ctl { hear(text: string, tooLong?: boolean): void; said: unknown[]; closedReason: string | null }
 const made = vi.hoisted(() => ({ controllers: [] as Ctl[] }));
 vi.mock('../voice', () => ({
   providerKind: () => 'service',
@@ -40,7 +40,7 @@ vi.mock('../voice', () => ({
       onTranscript(fn: (t: string, tooLong: boolean, id: number) => void) { transcripts.add(fn); return () => { transcripts.delete(fn); }; },
       onHandsFreeOff() { return () => undefined; }, onMic() { return () => undefined; }, onProblem() { return () => undefined; }, onPhase() { return () => undefined; },
       close(reason = 'off') { c.closedReason = reason; c.handsFree = false; },
-      hear(text: string) { for (const fn of [...transcripts]) fn(text, false, ++id); },
+      hear(text: string, tooLong = false) { for (const fn of [...transcripts]) fn(text, tooLong, ++id); },
     };
     made.controllers.push(c);
     return c;
@@ -161,5 +161,66 @@ describe('fix round 2 (controller ruling): in hands-free a spoken yes never conf
     expect(c.said.length).toBeGreaterThan(before);
     expect(JSON.stringify(c.said.at(-1))).toContain('"kind":"reply"');
     screen.unmount?.();
+  });
+});
+
+/** About 30 s of a radio's talk, inside the protocol's MAX_TEXT, then the words that matter. */
+const RADIO = Array.from({ length: 6 }, () => 'and now the travel news on the ring road where traffic is slow').join(' ');
+
+describe('fix round 4 (controller ruling): an over-long hands-free transcript is scanned for an emergency or a child first', () => {
+  async function mount() {
+    const store = createStore(null);
+    store.update((s) => ({ ...s, account: { email: 'cook@example.test' }, aiDisclosureSeen: true, settings: { ...s.settings, voice: { ...s.settings.voice, on: true, handsFree: true } } }));
+    const dialogue = createDialogue(content.pan);
+    const child = createChildFlag();
+    const engine = createScriptedEngine({ dialogue, graph, ruleTerms: content.ruleTerms, recipes: [], now: () => T0, child });
+    const inputs: MentorInput[] = [];
+    const backend: MentorBackend = { kind: 'ai', reply: (i) => { inputs.push(i); return Promise.resolve<PanReply>({ items: [], cards: [], intents: [], actions: [], notice: null }); } };
+    const root = document.createElement('div');
+    document.body.append(root);
+    holder.panel = mountMentorPanel(root, {
+      mode: 'standard', backend, dialogue, writer: {} as CardWriter, engine, client: {} as ApiClient, forms: content.bureau.forms, store,
+      child, reducedMotion: () => true, now: () => T0, conversationId: () => null,
+    });
+    const el = document.createElement('div');
+    document.body.append(el);
+    const screen = cookScreen();
+    await screen.mount(el, { name: 'cook', slug: 'india/kerala/parippu' }, { store, now: () => T0, navigate: () => undefined });
+    el.querySelector<HTMLButtonElement>('.hands-free-toggle')!.click();
+    await vi.waitFor(() => { expect(made.controllers).toHaveLength(1); });
+    const panTexts = () => [...document.querySelectorAll('#pan-panel .bubble.pan .bubble-text')].map((b) => b.textContent ?? '');
+    return { c: made.controllers[0], inputs, child, screen, panTexts, lines: (t: string) => content.pan.triggers[t].lines };
+  }
+
+  test('an emergency phrase at the end of a 30 s over-long transcript: the emergency line, drawn and spoken; nothing sent', async () => {
+    const t = await mount();
+    t.c.hear(`${RADIO} I ate peanuts and my throat is closing, I can't breathe`, true);
+    await flush();
+    expect(t.inputs).toEqual([]);
+    expect(t.panTexts().some((x) => t.lines('rule.emergency').includes(x))).toBe(true);
+    expect(JSON.stringify(t.c.said.at(-1))).toContain('rule.emergency');
+    t.screen.unmount?.();
+  });
+
+  test('a child phrase: the child flag (voice closes) and child.grownup; plain chatter: voice.too_long only, nothing else drawn and nothing sent', async () => {
+    const t = await mount();
+    t.c.hear(`${RADIO} hello I'm 9 years old and I want to cook`, true);
+    await flush();
+    expect(t.child.on).toBe(true);
+    expect(t.c.closedReason).toBe('child');
+    expect(t.panTexts().some((x) => t.lines('child.grownup').includes(x))).toBe(true);
+    expect(t.inputs).toEqual([]);
+    t.screen.unmount?.();
+    holder.panel?.destroy();
+    made.controllers.length = 0;
+    const u = await mount();
+    const before = u.panTexts().length;
+    u.c.hear(RADIO, true);
+    await flush();
+    expect(u.inputs).toEqual([]);
+    expect(JSON.stringify(u.c.said.at(-1))).toContain('voice.too_long');
+    expect(u.panTexts()).toHaveLength(before + 1); // only the cue itself
+    expect(u.lines('voice.too_long')).toContain(u.panTexts().at(-1));
+    u.screen.unmount?.();
   });
 });

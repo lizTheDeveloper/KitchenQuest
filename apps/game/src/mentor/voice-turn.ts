@@ -6,10 +6,12 @@
 // The device's scripted engine runs the same gate (`heardGate`, carry 1), so a transcript that reaches it by any path
 // (AI off, no ai_health, an outage, a retry) never builds a card from words nobody confirmed.
 import {
-  classifyTurn, heardCheck, heardConfirmed, heardLine, stripPageEvents, tryHeardChoice,
+  CHILD_PATTERNS, classifyTurn, heardCheck, heardConfirmed, heardLine, isEmergency, normalizeText, stripPageEvents, stripPageEventsFull, tryHeardChoice,
   type HeardCheck, type IngredientGraph, type RuleTerm,
 } from '@kitchenquest/core/engine';
+import type { ChildFlag } from './child-flag';
 import type { Dialogue } from './dialogue';
+import { safetyReply } from './outage';
 import type { MentorInput, PanItem, PanReply, TurnContext } from './reply';
 
 export interface VoiceTurnDeps {
@@ -115,4 +117,18 @@ export function serverHeardItem(check: HeardCheck, input: Transcript, deps: Voic
   const utteranceId = input.utteranceId ?? null;
   const serverWords = check.terms.map((t) => t.heard);
   return { kind: 'heard', check, utteranceId, onPick: (choice, ctx) => confirmHeard(input.text, check, choice, ctx, deps, { serverWords, utteranceId }) };
+}
+
+/**
+ * M7 Step 10 fix round 4 (controller ruling): a transcript too long to take in is never sent, but an emergency or a
+ * child in it is never missed. The whole text is scanned, uncapped (core `normalizeText` of `stripPageEventsFull`),
+ * emergency first, then child, in the API turn's order. An emergency gets the reply a typed one gets (rule.emergency,
+ * then its asks); a child sets the conversation's child flag (which closes voice) and gets child.grownup. Otherwise
+ * null: the caller says voice.too_long. Nothing is sent from here.
+ */
+export function overLongSafety(text: string, deps: { dialogue: Dialogue; graph: IngredientGraph; child: ChildFlag }): PanReply | null {
+  const full = normalizeText(stripPageEventsFull(text).text);
+  if (isEmergency(full)) return safetyReply('emergency', text, deps);
+  if (CHILD_PATTERNS.some((p) => p.test(full))) return safetyReply('child', text, deps);
+  return null;
 }
