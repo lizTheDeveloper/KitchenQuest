@@ -1,7 +1,8 @@
-import { HANDS_FREE_IDLE_MS, PRE_ROLL_MS, VAD_HANGOVER_MS, FRAME_MS, decodeFrame } from '@kitchenquest/core/engine';
-import { describe, expect, test } from 'vitest';
+import { HANDS_FREE_IDLE_MS, MAX_UTTERANCE_MS, PRE_ROLL_MS, VAD_HANGOVER_MS, FRAME_MS, decodeFrame } from '@kitchenquest/core/engine';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { createStore, type PlayerStore } from '../state/store';
 import { createVoiceController, type VoiceController, type VoicePhase } from './controller';
+import { TIMER_TAIL_MS, type Vad } from './vad';
 import { fakeAudio, socketWin, type FakeAudio, type FakeWebSocket } from './fakes.fixture';
 import type { Player } from './playback';
 import { serviceProvider, type VoiceProvider } from './providers';
@@ -42,7 +43,7 @@ interface Rig {
   make(): VoiceController;
 }
 
-function rig(opts: { familyTable?: boolean; voiceOn?: boolean } = {}): Rig {
+function rig(opts: { familyTable?: boolean; voiceOn?: boolean; vad?: () => Vad } = {}): Rig {
   const storage = memStorage();
   const page = memStorage();
   const store = createStore(storage);
@@ -59,6 +60,7 @@ function rig(opts: { familyTable?: boolean; voiceOn?: boolean } = {}): Rig {
     make: () => createVoiceController({
       win: audio.win, store, provider, conversationId: () => 'conv-1', childOn: () => child.on,
       earcon: () => sizzles.push(audio.getUserMedia.calls.length),
+      ...(opts.vad ? { createVad: opts.vad } : {}),
     }),
   };
   return r;
@@ -76,6 +78,19 @@ async function ready(r: Rig, state: unknown = { kind: 'available' }) {
 const frame = (r: Rig, db: number, n = 1) => { for (let i = 0; i < n; i++) r.audio.nodes.at(-1)!.port.emit(new Int16Array(320).fill(db > -30 ? 3000 : 3), db); };
 const phases = (c: VoiceController) => { const seen: VoicePhase[] = []; c.onPhase((p) => seen.push(p)); return seen; };
 const sentTypes = (ws: FakeWebSocket) => ws.json().map((m) => m.t);
+
+// Hands-free is a build switch (C9; fix round 1, M7): these tests run as a VITE_HANDS_FREE=on build.
+beforeEach(() => { vi.stubEnv('VITE_HANDS_FREE', 'on'); });
+afterEach(() => { vi.unstubAllEnvs(); });
+
+/** Captures the window's timers (the hands-free idle timer is the window's). */
+function windowTimers(r: Rig) {
+  const timers: { fn: () => void; ms: number; cleared: boolean }[] = [];
+  const w = r.audio.win as unknown as { setTimeout: unknown; clearTimeout: unknown };
+  w.setTimeout = (fn: () => void, ms: number) => { timers.push({ fn, ms, cleared: false }); return timers.length; };
+  w.clearTimeout = (id: number) => { if (timers[id - 1]) timers[id - 1].cleared = true; };
+  return { idle: () => timers.filter((t) => t.ms === HANDS_FREE_IDLE_MS && !t.cleared), all: timers };
+}
 
 describe('createVoiceController', () => {
   test('constructing in Family Table mode throws; getUserMedia is never called and no socket opened (spies)', () => {
@@ -268,6 +283,7 @@ describe('createVoiceController', () => {
     frame(r, -60, 30);
     expect(ws.frames()).toHaveLength(0);
     c.timerSounding(false);
+    frame(r, -60, TIMER_TAIL_MS / FRAME_MS); // the alarm's echo tail (fix round 1, I2)
     frame(r, -45, 20);
     expect(ws.frames().length).toBeGreaterThan(0);
   });
@@ -372,5 +388,166 @@ describe('createVoiceController', () => {
     expect(leaky.reached).toBe(true);
     expect(leaky.kept).toBe(true);
     expect(leaky.holdsWords).toBe(true);
+  });
+
+  test('fix round 1 (I1): the reviewer\'s probe, a minute of a steady fan in hands-free: bounded audio leaves, real speech over the fan is heard, and hands-free still times out', async () => {
+    const r = rig();
+    const timers = windowTimers(r);
+    const c = r.make();
+    const offs: string[] = [];
+    c.onHandsFreeOff((w) => offs.push(w));
+    c.startHandsFree();
+    const ws = await ready(r);
+    frame(r, -60, 50);
+    frame(r, -40, 3000); // the extractor fan, for a minute
+    // Bounded: no more than five seconds of the fan left the device.
+    expect(ws.frames().length * FRAME_MS).toBeLessThan(5000);
+    // The service heard nothing it could use in the fan (failed stt): no transcript, so the idle timer is not re-armed.
+    for (const m of ws.json().filter((x) => x.t === 'listen')) ws.serverSend({ t: 'failed', id: m.id, kind: 'stt' });
+    await flush();
+    // Recovered: the player over the fan starts a new listen, with frames.
+    const listensBefore = ws.json().filter((m) => m.t === 'listen').length;
+    const framesBefore = ws.frames().length;
+    frame(r, -15, 30);
+    frame(r, -40, 30);
+    expect(ws.json().filter((m) => m.t === 'listen').length).toBe(listensBefore + 1);
+    expect(ws.frames().length).toBeGreaterThan(framesBefore);
+    // Times out: noise never re-armed the idle timer (only a transcript does), so the one armed at start still runs.
+    expect(timers.idle()).toHaveLength(1);
+    timers.idle()[0].fn();
+    expect(c.handsFree).toBe(false);
+    expect(offs).toEqual(['idle']);
+    expect(r.audio.tracks.every((t) => t.stopped)).toBe(true);
+  });
+
+  test('fix round 1 (I1): only a real transcript re-arms the idle timer; an empty one does not', async () => {
+    const r = rig();
+    const timers = windowTimers(r);
+    const c = r.make();
+    c.startHandsFree();
+    const ws = await ready(r);
+    const speak = async (answer: unknown) => {
+      frame(r, -60, 50);
+      frame(r, -20, 20);
+      frame(r, -60, 20);
+      const id = ws.json().filter((m) => m.t === 'listen').at(-1)!.id;
+      ws.serverSend(answer === null ? { t: 'failed', id, kind: 'stt' } : { t: 'transcript', id, text: answer });
+      await flush();
+    };
+    const armed = () => timers.all.filter((t) => t.ms === HANDS_FREE_IDLE_MS).length;
+    const start = armed();
+    await speak(null);
+    expect(armed()).toBe(start);
+    await speak('next step');
+    expect(armed()).toBe(start + 1);
+  });
+
+  test('fix round 1 (I1): utterances that hit the cap back to back turn hands-free off ("noise")', async () => {
+    // A scripted VAD: every utterance runs to the cap.
+    let n = 0;
+    const capping = (): Vad => ({
+      push: (pcm) => {
+        n++;
+        if (n % 100 === 1) return { start: [pcm] };
+        if (n % 100 === 0) return { speech: pcm, end: true, capped: true };
+        return { speech: pcm };
+      },
+      setRaised: () => undefined,
+    });
+    const r = rig({ vad: capping });
+    const c = r.make();
+    const offs: string[] = [];
+    c.onHandsFreeOff((w) => offs.push(w));
+    c.startHandsFree();
+    await ready(r);
+    frame(r, -40, 100);
+    expect(c.handsFree).toBe(true); // one capped utterance is not yet noise
+    frame(r, -40, 100);
+    expect(c.handsFree).toBe(false);
+    expect(offs).toEqual(['noise']);
+    expect(r.audio.tracks.every((t) => t.stopped)).toBe(true);
+  });
+
+  test('fix round 1 (M1): the page hidden mid-press releases the press: end is sent and the microphone closes', async () => {
+    const r = rig();
+    const c = r.make();
+    c.press();
+    const ws = await ready(r);
+    frame(r, -20, 5);
+    r.doc.visibilityState = 'hidden';
+    r.doc.dispatchEvent(new Event('visibilitychange'));
+    expect(ws.json().at(-1)).toMatchObject({ t: 'end' });
+    expect(r.audio.tracks.every((t) => t.stopped)).toBe(true);
+    const sent = ws.frames().length;
+    frame(r, -20, 5);
+    expect(ws.frames().length).toBe(sent);
+  });
+
+  test('fix round 1 (M2): after a terminal close (consent_required, signed_out, bad_origin, unavailable) say() and press() open nothing; network may try again', async () => {
+    for (const [reason, code] of [['consent_required', 4412], ['signed_out', 4401], ['bad_origin', 4403], ['unavailable', 4503]] as const) {
+      const r = rig();
+      const c = r.make();
+      const problems: string[] = [];
+      c.onProblem((p) => problems.push(p));
+      c.say({ items: [{ kind: 'line', trigger: 'voice.check_screen', index: 0 }], said: [] });
+      const ws = await ready(r);
+      ws.serverSend({ t: 'closed', reason });
+      ws.serverClose(code);
+      await flush();
+      c.say({ items: [{ kind: 'line', trigger: 'voice.check_screen', index: 0 }], said: [] });
+      c.press();
+      c.startHandsFree();
+      await flush();
+      expect(r.sockets, reason).toHaveLength(1);
+      expect(r.audio.getUserMedia.calls, reason).toHaveLength(0);
+      expect(problems[0], reason).toBe(reason);
+      expect(problems.length, reason).toBeGreaterThan(1); // the press is told why
+    }
+    const n = rig();
+    const c = n.make();
+    c.say({ items: [{ kind: 'line', trigger: 'voice.check_screen', index: 0 }], said: [] });
+    const ws = await ready(n);
+    ws.serverClose(1006);
+    await flush();
+    c.press();
+    await flush();
+    expect(n.sockets).toHaveLength(2);
+  });
+
+  test('fix round 1 (M3): speech that starts while the last transcript is out is sent once it arrives, never lost', async () => {
+    const r = rig();
+    const c = r.make();
+    const got: string[] = [];
+    c.onTranscript((t) => got.push(t));
+    c.startHandsFree();
+    const ws = await ready(r);
+    frame(r, -60, 50);
+    frame(r, -20, 20);
+    frame(r, -60, 40); // ends: transcribing (and a pause longer than the pre-roll)
+    const first = ws.json().filter((m) => m.t === 'listen')[0].id;
+    expect(c.phase).toBe('transcribing');
+    frame(r, -20, 20); // the player goes on before the transcript is back
+    frame(r, -60, 20);
+    expect(ws.json().filter((m) => m.t === 'listen')).toHaveLength(1);
+    ws.serverSend({ t: 'transcript', id: first, text: 'next step' });
+    await flush();
+    const listens = ws.json().filter((m) => m.t === 'listen');
+    expect(listens).toHaveLength(2);
+    const second = listens[1].id as number;
+    expect(ws.frames().filter((f) => decodeFrame(f)!.id === second).length).toBe(PRE_ROLL_MS / FRAME_MS + 20 + VAD_HANGOVER_MS / FRAME_MS);
+    expect(ws.json().at(-1)).toEqual({ t: 'end', id: second });
+    expect(got).toEqual(['next step']);
+  });
+
+  test('fix round 1 (M7): startHandsFree does nothing in a build without VITE_HANDS_FREE=on (C9)', async () => {
+    vi.stubEnv('VITE_HANDS_FREE', '');
+    const r = rig();
+    const c = r.make();
+    c.startHandsFree();
+    await flush();
+    expect(c.handsFree).toBe(false);
+    expect(r.sockets).toHaveLength(0);
+    expect(r.audio.getUserMedia.calls).toHaveLength(0);
+    expect(MAX_UTTERANCE_MS).toBe(30_000);
   });
 });

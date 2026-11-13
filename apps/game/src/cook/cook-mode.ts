@@ -48,7 +48,8 @@ function amount(i: RecipeIngredient): string {
   return i.unit ? `${q} ${i.unit}` : q;
 }
 
-function beep(win: Window): void {
+/** The cook timer's alarm (exported for the voice VAD test, M7 Step 8 fix round 1: B9 is pinned on this very sound). */
+export function beep(win: Window): void {
   try {
     const Ctx = (win as unknown as { AudioContext?: typeof AudioContext }).AudioContext;
     if (!Ctx) return;

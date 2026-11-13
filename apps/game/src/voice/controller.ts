@@ -21,13 +21,15 @@ import { openMic, type Mic } from './capture';
 import { sizzle } from './earcon';
 import { VoiceSocketClosed } from './socket';
 import type { ProviderEvent, Speech, Utterance, VoiceProvider } from './providers';
-import { createVad, type Vad } from './vad';
+import { handsFreeBuild } from './providers';
+import { createVad, type Vad, type VadOptions } from './vad';
 
 export type VoicePhase = 'off' | 'idle' | 'listening' | 'transcribing' | 'waiting' | 'speaking' | 'resting';
 /** Why the controller closed: one of the rules that forbid a microphone, or the caller's own `close()`. */
 export type VoiceOffReason = 'family_table' | 'child' | 'signed_out' | 'off';
 /** Something the player should hear about: the socket closed (and why), or the microphone was refused. */
 export type VoiceProblem = VoiceCloseReason | 'network' | 'microphone';
+export type HandsFreeOff = 'idle' | 'hidden' | 'noise' | 'stopped' | 'closed';
 
 export interface VoiceController {
   readonly phase: VoicePhase;
@@ -50,14 +52,22 @@ export interface VoiceController {
   onTranscript(fn: (text: string, tooLong: boolean, utteranceId: number) => void): () => void;
   onPhase(fn: (p: VoicePhase, state: VoiceState | null) => void): () => void;
   onProblem(fn: (p: VoiceProblem) => void): () => void;
-  /** Hands-free turned itself off: `idle` (HANDS_FREE_IDLE_MS without speech), `hidden` (the page), `stopped` (asked). */
-  onHandsFreeOff(fn: (why: 'idle' | 'hidden' | 'stopped' | 'closed') => void): () => void;
+  /**
+   * Hands-free turned itself off: `idle` (HANDS_FREE_IDLE_MS without a transcript), `hidden` (the page), `noise`
+   * (utterances ran to the cap back to back: a steady sound, fix round 1 I1; Step 10 says `voice.hands_free_off`),
+   * `stopped` (asked, or the socket went), `closed`.
+   */
+  onHandsFreeOff(fn: (why: HandsFreeOff) => void): () => void;
   close(reason?: VoiceOffReason): void;
 }
 
 /** How far the Pan's own voice, or a cook timer's alarm, raises the VAD threshold (Review Focus 3, B9). */
 export const RAISED_DB = 12;
 const MAX_FRAMES = MAX_UTTERANCE_MS / FRAME_MS;
+/** Fix round 1 (I1): this many hands-free utterances in a row ending at the cap is noise: hands-free turns off. */
+const CAPPED_IN_A_ROW = 2;
+/** Fix round 1 (M2): the socket closed for one of these: nothing is reopened until the caller re-checks (a new controller). */
+const TERMINAL: readonly VoiceProblem[] = ['consent_required', 'signed_out', 'bad_origin', 'unavailable'];
 
 interface Live { u: Utterance; mode: 'hold' | 'handsFree'; frames: number; ending: boolean; epoch: number }
 
@@ -83,6 +93,7 @@ export function createVoiceController(deps: {
   openMic?: (win: Window) => Promise<Mic>;
   earcon?: (win: Window) => void;
   now?: () => Date;
+  createVad?: (o: VadOptions) => Vad;
 }): VoiceController {
   const { win, store, provider } = deps;
   const why = forbidden(store.get(), deps.childOn());
@@ -97,7 +108,7 @@ export function createVoiceController(deps: {
   const transcripts = new Set<(text: string, tooLong: boolean, id: number) => void>();
   const phaseFns = new Set<(p: VoicePhase, s: VoiceState | null) => void>();
   const problems = new Set<(p: VoiceProblem) => void>();
-  const handsOff = new Set<(w: 'idle' | 'hidden' | 'stopped' | 'closed') => void>();
+  const handsOff = new Set<(w: HandsFreeOff) => void>();
 
   let phase: VoicePhase = 'idle';
   let closed = false;
@@ -119,6 +130,12 @@ export function createVoiceController(deps: {
   let vadT = 0;
   const raised = { pan: false, timer: false };
   let idleTimer: number | null = null;
+  /** Fix round 1 (M3): hands-free speech heard while the last transcript is out; it is sent once that arrives. */
+  let deferred: { frames: Int16Array[]; ended: boolean } | null = null;
+  /** Fix round 1 (I1): hands-free utterances in a row that ran to the cap. */
+  let cappedRun = 0;
+  /** Fix round 1 (M2): a terminal close, after which nothing reopens. */
+  let terminal: VoiceProblem | null = null;
   /** Bumped by every press and release, so a slow hello or microphone answers only the press that asked. */
   let gesture = 0;
 
@@ -127,7 +144,16 @@ export function createVoiceController(deps: {
     phase = p;
     for (const fn of [...phaseFns]) fn(p, state);
   };
-  const problem = (p: VoiceProblem) => { for (const fn of [...problems]) fn(p); };
+  const problem = (p: VoiceProblem) => {
+    if (TERMINAL.includes(p)) terminal = p;
+    for (const fn of [...problems]) fn(p);
+  };
+  /** M2: true (and the caller told why) when a terminal close forbids reopening. */
+  const refused = (): boolean => {
+    if (terminal === null) return false;
+    problem(terminal);
+    return true;
+  };
   const wantMic = () => !closed && (holding || handsFree);
 
   const closeMic = () => {
@@ -167,6 +193,7 @@ export function createVoiceController(deps: {
     const l = live;
     live = null;
     early = [];
+    deferred = null;
     if (l !== null && !closed) l.u.cancel();
   };
 
@@ -239,9 +266,24 @@ export function createVoiceController(deps: {
       live = null;
       if (closed || l.epoch !== epoch || phase === 'resting') return; // the socket went, or the allowance refused it
       setPhase('waiting');
+      // I1: only a real transcript is speech; noise ends empty and never keeps hands-free awake.
+      if (l.mode === 'handsFree' && r.text !== '') armIdle();
       for (const fn of [...transcripts]) fn(r.text, r.tooLong, l.u.id);
+      runDeferred();
     });
   };
+
+  /** M3: speech heard while the last transcript was out goes now, as its own utterance. */
+  function runDeferred() {
+    const d = deferred;
+    deferred = null;
+    if (d === null || closed || !handsFree || live !== null) return;
+    if (speech !== null) stopSpeech();
+    const l = startListen('handsFree');
+    setPhase('listening');
+    for (const f of d.frames) push(l, f);
+    if (d.ended) finish(l);
+  }
 
   function onFrame(pcm: Int16Array, db: number) {
     if (guard()) return; // the child flag lives outside the store: every frame checks it
@@ -255,8 +297,9 @@ export function createVoiceController(deps: {
     if (!handsFree || vad === null) return;
     const r = vad.push(pcm, db, t);
     if (r.start) {
-      armIdle();
-      if (phase === 'transcribing' || phase === 'resting') return;
+      if (phase === 'resting') return;
+      // M3: the last transcript is still out: kept (in memory, bounded) until it arrives.
+      if (live !== null) { deferred = { frames: [...r.start], ended: false }; return; }
       if (speech !== null) stopSpeech(); // barge-in: BARGE_IN_MIN_MS over the raised threshold (Ruling 7)
       const l = startListen('handsFree');
       setPhase('listening');
@@ -264,9 +307,18 @@ export function createVoiceController(deps: {
       return;
     }
     const l = live;
-    if (l === null || l.mode !== 'handsFree' || l.ending) return;
-    if (r.speech) push(l, r.speech);
-    if (r.end) finish(l);
+    if (l !== null && l.mode === 'handsFree' && !l.ending) {
+      if (r.speech) push(l, r.speech);
+      if (r.end) finish(l);
+    } else if (deferred !== null && !deferred.ended) {
+      if (r.speech && deferred.frames.length < MAX_FRAMES) deferred.frames.push(r.speech);
+      if (r.end) deferred.ended = true;
+    }
+    if (r.end) {
+      // I1: utterances that run to the cap back to back are a steady sound, not a player.
+      cappedRun = r.capped ? cappedRun + 1 : 0;
+      if (cappedRun >= CAPPED_IN_A_ROW) stopHandsFree('noise');
+    }
   }
 
   const onProvider = (e: ProviderEvent) => {
@@ -303,13 +355,25 @@ export function createVoiceController(deps: {
   const unProvider = provider.onEvent(onProvider);
   const unStore = store.subscribe(() => { guard(); });
   const doc = (win as Partial<Window>).document;
-  const onVisibility = () => { if (doc?.visibilityState === 'hidden') stopHandsFree('hidden'); };
+  // Ruling 7, and fix round 1 (M1): a hidden page stops hands-free and releases a held press (a lost pointerup).
+  const onVisibility = () => {
+    if (doc?.visibilityState !== 'hidden') return;
+    if (holding) ctl.release();
+    stopHandsFree('hidden');
+  };
+  const onPageHide = () => {
+    if (holding) ctl.release();
+    stopHandsFree('hidden');
+  };
   doc?.addEventListener('visibilitychange', onVisibility);
+  win.addEventListener?.('pagehide', onPageHide);
 
-  function stopHandsFree(w: 'idle' | 'hidden' | 'stopped' | 'closed') {
+  function stopHandsFree(w: HandsFreeOff) {
     if (!handsFree) return;
     handsFree = false;
     vad = null;
+    deferred = null;
+    cappedRun = 0;
     clearIdle();
     if (live?.mode === 'handsFree' && !live.ending) dropLive();
     closeMicUnlessWanted();
@@ -326,7 +390,7 @@ export function createVoiceController(deps: {
 
     press() {
       // Resting: no microphone (Ruling 5). The caller shows the state line; a new controller asks again.
-      if (guard() || holding || phase === 'resting') return;
+      if (guard() || holding || phase === 'resting' || refused()) return;
       const g = ++gesture;
       if (speech !== null) stopSpeech(); // barge-in
       if (live !== null) dropLive(); // a newer press replaces an answer still on its way
@@ -363,9 +427,13 @@ export function createVoiceController(deps: {
     },
 
     startHandsFree() {
-      if (guard() || handsFree) return;
+      // C9 (fix round 1, M7): binding here too, not only in the UI.
+      if (guard() || handsFree || !handsFreeBuild() || refused()) return;
       handsFree = true;
-      vad = createVad({ hangoverMs: VAD_HANGOVER_MS, minSpeechMs: MIN_SPEECH_MS, preRollMs: PRE_ROLL_MS, raisedDb: RAISED_DB });
+      // I1: the cap counts the pre-roll, so an utterance never sends more than MAX_UTTERANCE_MS of frames.
+      vad = (deps.createVad ?? createVad)({
+        hangoverMs: VAD_HANGOVER_MS, minSpeechMs: MIN_SPEECH_MS, preRollMs: PRE_ROLL_MS, raisedDb: RAISED_DB, maxSpeechMs: MAX_UTTERANCE_MS - PRE_ROLL_MS,
+      });
       if (raised.timer) vad.setRaised('timer', true);
       if (raised.pan) vad.setRaised('pan', true);
       armIdle();
@@ -387,7 +455,7 @@ export function createVoiceController(deps: {
     },
 
     say(plan) {
-      if (closed) return;
+      if (closed || terminal !== null) return;
       if (plan.items.length === 0 && plan.said.length === 0) {
         if (phase === 'waiting') setPhase('idle');
         return;
@@ -432,6 +500,7 @@ export function createVoiceController(deps: {
       unProvider();
       unStore();
       doc?.removeEventListener('visibilitychange', onVisibility);
+      win.removeEventListener?.('pagehide', onPageHide);
       clearIdle();
       setPhase('off');
       transcripts.clear();
