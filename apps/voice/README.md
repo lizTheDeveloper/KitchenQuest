@@ -239,3 +239,23 @@ in a kitchen-like room, in **Chromium, Safari and Firefox**:
 
 Record each browser as `{ "browser": "chromium" | "safari" | "firefox", "echoBargeInPass": true | false }` in the run's
 `manual` list (`--manual`, or edit the result and re-check it with `npm test -w @kitchenquest/voice`).
+
+### The C9 browser checklist, in full (M7 Step 11)
+
+Every manual item the milestone carried, in one list. Run it on a laptop's speakers (no headphones) and, where marked, on
+a phone, in a kitchen-like room. `VITE_HANDS_FREE` **stays off until it is run and recorded** in `bench/latest.json`
+`manual[]` (Ruling 7); the e2e build's own record (`apps/game/e2e/fixtures/voice/latest.json`) is a test fixture and is
+never read by `npm run build`.
+
+| # | Item | Browsers | Pass when | Run headless? |
+|---|---|---|---|---|
+| 1 | **Echo and barge-in**: steps 1–5 above | Chromium, Safari, Firefox | as above | No: needs real speakers and a real microphone. **Operator.** |
+| 2 | **Beep end timing and alarm marking**: start a cook timer and let it ring while the Pan speaks and while hands-free listens; say "next" just after the beep stops | all three | no barge-in or utterance while it rings; "next" right after the beep is heard (the raised threshold drops when the beep ends) | Partly: the unit tests drive the real beep's `timerSounding(true/false)` with alarm-shaped energy (Step 8 I2, Step 10). The ear test is **operator** |
+| 3 | **Real fan and tap noise**: a cooker-hood fan on high, then a running tap, for a minute each, hands-free on | all three | no utterance from the noise; hands-free turns itself off (`voice.hands_free_off`, reason noise) rather than listening forever | No: synthetic noise in the VAD tests only (Step 8 fix round 1). **Operator** (tune `RAISED_DB` and the noise floor if it fails) |
+| 4 | **A held flat vowel of 3 s or more** ("aaaaah") | all three | heard as one utterance, ended by the hangover or `MAX_UTTERANCE_MS`; never split into many | No (VAD unit tests cover the shape). **Operator** |
+| 5 | **The real permission prompt while held**: first press on a fresh profile, keep holding while the browser asks, then Allow; repeat letting go before Allow | all three | Allow while held: listening starts; Allow after letting go: the "The microphone's ready. Hold the button and speak." cue, no listen; Block: `voice.mic_blocked` and the text box | **Partly run headless (Chromium):** the refused prompt → `voice.mic_blocked`, no listen, the text box works (`voice.e2e.test.ts`, `--deny-permission-prompt-for-testing`); the granted path with the fake permission UI. The real prompt UI and the "mic ready" cue after a late Allow: **operator** (unit-tested in `panel-voice.test.ts`) |
+| 6 | **Mobile Safari pointer behaviour** (iPhone): press and hold the talk button; scroll while holding; let a call or notification interrupt | Safari iOS | holding never selects text or opens the callout; a scroll or interruption ends the utterance (`pointercancel`, `lostpointercapture`); the microphone stops | No. **Operator** |
+| 7 | **Chromium fake-microphone end to end** | Chromium | — | **Run headless in CI:** `apps/game/e2e/voice.e2e.test.ts` (Chromium's `--use-fake-device-for-media-stream` with a synthetic clip): consent, hold-to-talk with Space and Enter, the heard card, filler, barge-in, resting, Family Table and child closes (no live track after), no audio at rest, and hands-free "next" in cook mode with the VAD on the fake clip (the test-only hands-free build) |
+
+Record the operator's results as `manual[]` entries (`browser`, `echoBargeInPass`, and for your own notes the items run);
+a failure for any browser keeps `VITE_HANDS_FREE` refused.

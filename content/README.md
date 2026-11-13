@@ -502,7 +502,29 @@ Each line below was flagged during M6 (Steps 1–11, from the SDD ledger and the
 
 ## Content review for the founder: everything M7 flagged, in one place
 
-- [ ] **The Pan's `voice.*` lines** (Steps 5 and 6, `dialogue/pan.yaml`, each with a `# REVIEW:` flag): the heard card's spoken half and its "Say it again" line, the fillers ("Let me write that in the ledger…", §7.6b.8), the rest states (Ruling 5: no number, countdown or Guild), the fallbacks, the outcome lines and the hands-free lines. `voice.not_yet` is gone.
+Each line below was flagged during M7 (Steps 1–11). None fails a scan: every one passes the voice scan and the M7 never-rules sweep (every voice line and state, in standard and Family Table mode: no timer, progress, meter, countdown, "x of y", streak, selling, HIPAA or "medical-grade"). They are listed because a person should read, and for the Pan's voice listen to, them before launch.
+
+**Every new `voice.*` trigger, safety ones first** (`dialogue/pan.yaml`, each `ai: never`, each with a `# REVIEW:` flag):
+
+- [ ] Safety and children: `voice.child_block` (a server child close; neutral wording, read by a grown-up on a second device), `voice.family_table` (a Family Table close), `voice.heard_check` and `voice.heard_check_spelled` (the heard card's spoken half: spelling only with health wording, Ruling 4), `voice.heard_retry` ("Say it again"), `voice.too_long` (an utterance too long to check: type it instead). An over-long emergency is answered with `rule.emergency` itself (Steps 10–11), not a voice line.
+- [ ] The microphone and the socket: `voice.consent_needed`, `voice.mic_blocked` (the browser refused the microphone), `voice.unavailable`, `voice.didnt_catch`.
+- [ ] The allowance (Ruling 5: a state, never a number, a countdown or the Guild): `voice.resting {until}`, `voice.resting_today`.
+- [ ] Fallbacks instead of reading aloud: `voice.check_screen` ("It's on the screen; read it there."), `voice.step_on_screen` (a step with a swap, a frame step, Ruling 11).
+- [ ] Fillers while a spoken turn runs (§7.6b.8): `voice.filler.thinking`, `voice.filler.ledger` ("Let me write that in the ledger…").
+- [ ] Hands-free: `voice.hands_free_on`, `voice.hands_free_off`, `voice.hands_free_idle`, and cook mode's cues `voice.cook.timer_started`, `voice.cook.no_timer`, `voice.cook.timer_stopped`, `voice.cook.timer_which` (names no timer: the screen does, Ruling 15), `voice.cook.tap_card` (a spoken yes confirms nothing in hands-free: tap the card), `voice.cook.tap_answer`, `voice.cook.last_step`. `voice.not_yet` is gone.
+- [ ] Settings → Voice copy (`ui.settings.voice.*`, lazy): the withdrawal line said before the tap (GDPR Art. 7(3)), the accessibility hint naming the abuse ceiling (C4), the resting states, "The microphone's ready" cue (chrome, `talk.ts`).
+
+**The Pan's voice: a human must listen.** The default CPU cast is Piper `en_GB-northern_english_male-medium` (CC BY-SA 4.0, credited in Settings); the GPU cast is Kokoro `bm_fable` (Apache-2.0). Neither has been chosen by ear: listen to samples of both reading the `voice.*` lines and a few cards, and pick (Ruling 2; a cast change is config, not code).
+
+**Open `[founder]` rulings (each built on its default; overridable)** — `plans/m7-voice/README.md`:
+
+- [ ] **Ruling 1** the voice stack: self-hosted STT/TTS; browser speech is a development stand-in only (refused by every build).
+- [ ] **Ruling 2** the CPU-first cast (faster-whisper base.en; Piper northern_english_male; Kokoro on GPU).
+- [ ] **Ruling 3** hosting and the latency gate (p50 ≤ 1.5 s, p90 ≤ 2.5 s; run the benchmark and decide CPU or GPU).
+- [ ] **Ruling 4** the heard check fires on any food, rule term or sound-alike, so in hands-free "how thin should the onions be" needs a tap. **Narrowing option (D6):** gate only when a write or health wording is present; a core change costing one eval run.
+- [ ] **Ruling 5** the allowance is one hour of the player's speech in a rolling 30 days (the business doc), which deviates from spec §16's "capped daily allowance"; the Pan's speech is never counted.
+- [ ] **Ruling 6** the accessibility need sealed under `health_data` (also `[lawyer]`: "necessary for the service" may suit better).
+- [ ] **Ruling 9** no microphone at all in Family Table until M13's on-device commands.
 
 ## Review flags
 

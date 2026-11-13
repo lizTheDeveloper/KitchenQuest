@@ -94,6 +94,19 @@ The market is a place to practise shopping, never a shop. Nothing is for sale, n
 - **New script:** `npm run content:pin -w @kitchenquest/game` pins each stall question's option order (`apps/game/build/content/market-pins.json`), because a saved answer is an option index. Run it when you add a question. A deliberate rewording of an existing option re-pins only that question: `-- --repin <question id>`. The build never writes the file, and it fails on an unpinned or re-ordered question.
 - M6 adds no environment variable.
 
+## Live voice (M7)
+
+Talk to the Pan out loud, and hear it answer. Text always works and is the default; voice is off until the player turns it on (Settings → Voice, with its own `voice` consent card), needs a signed-in account, and never runs for children or on a Family Table.
+
+- **Hold to talk** (the Pan panel's talk button, or Space or Enter on it). Audio goes over the same-origin voice socket (`/api/voice`) to the API, which forwards it to the self-hosted speech service (`apps/voice`, see its README). Audio is processed in memory and never stored; there is no voiceprint.
+- **The heard card.** A transcript that names a food, a rule term or a sound-alike shows the words as heard, spelled ("S-E-S-A-M-E"), and nothing goes anywhere until the player taps "Yes, that's what I said". A spoken yes never confirms a heard card or a severe rule.
+- **The Pan speaks only scripted lines and cards**, rendered by the API from its own data; the model's text is never spoken. A slow turn plays the sizzle and a filler line.
+- **Hands-free** (cook mode only) is behind `VITE_HANDS_FREE=on`, which the build refuses until the browser echo checklist is recorded in `apps/voice/bench/latest.json` (`apps/voice/README.md`). Until then only hold-to-talk ships.
+- **The allowance is a state, never a number:** available, resting until a date, or resting for today. Players who need voice for accessibility (Settings → Voice, under `health_data`) are unmetered; a daily abuse ceiling applies to everyone and is never sold.
+- **Tests.** `npm run test:e2e -w @kitchenquest/game` includes `voice.e2e.test.ts`, which drives Chromium's fake microphone (a synthetic tone clip, `apps/game/e2e/fixtures/voice/make.mjs`) against a scripted voice socket, and a second, test-only hands-free build. The API's voice tests use a fake upstream; `apps/voice` uses fake engines and an echo worker. No test touches the network, a real microphone, a GPU or model weights.
+- **Environment.** The game build needs `KQ_APP_ORIGIN` (the public origin, for the CSP's `wss://`). The API needs `VOICE_ENABLED`, `VOICE_SERVICE_URL` and `VOICE_SERVICE_TOKEN` (`.env.example`). The API must run as **one process** while the voice block is in memory (a launch blocker for scaling out: `docs/compliance/ROADMAP.md`).
+- See `docs/compliance/data-inventory.md` (V-1–V-7, P-5, L-9) and `docs/compliance/dpia.md` §6.1.
+
 ## Deploying the API
 
 A checklist for every production deploy:
