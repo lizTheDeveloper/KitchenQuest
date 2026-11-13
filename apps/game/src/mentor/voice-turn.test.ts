@@ -200,3 +200,23 @@ describe('carry 1 (M4, Step 6): the device scripted engine runs the heard gate b
     expect(heardOf(em)).toBeUndefined();
   });
 });
+
+describe('carry 12 (Ruling 12): a spoken yes counts only for a non-severe card', () => {
+  const recipes = Object.entries(content.recipes).map(([slug, r]) => ({ slug, title: r.meta.title }));
+  const engine = createScriptedEngine({ dialogue, graph, ruleTerms: content.ruleTerms, recipes, now: () => T0 });
+  const backend = createScriptedBackend(engine);
+  const deps = { backend, graph, ruleTerms: content.ruleTerms, dialogue };
+  const open = async (text: string) => (await backend.reply({ kind: 'text', text }, ctx)).cards[0];
+
+  test('spoken "yes" with a non-severe card open: the confirm intent (the writer\'s typed_yes); with a severe card: none, and the tap line', async () => {
+    const mild = await open("I'm intolerant to lactose");
+    expect(mild.card.kind === 'rule' && mild.card.severe).toBe(false);
+    const yesMild = await transcriptTurn('yes', 1, { ...ctx, turn: 2, openCards: [mild] }, deps);
+    expect(yesMild.intents).toEqual([{ kind: 'confirm', localId: mild.origin === 'local' ? mild.localId : '' }]);
+    const severe = await open("I'm allergic to sesame");
+    expect(severe.card.kind === 'rule' && severe.card.severe).toBe(true);
+    const yesSevere = await transcriptTurn('yes', 2, { ...ctx, turn: 2, openCards: [severe] }, deps);
+    expect(yesSevere.intents).toEqual([]);
+    expect(triggers(yesSevere)).toContain('rule.tap_needed');
+  });
+});

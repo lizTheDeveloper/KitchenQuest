@@ -131,7 +131,7 @@ describe('checkFirstPaintBudget', () => {
 });
 
 /** M7 Step 9's measured first paint (KB, `KQ_APP_ORIGIN=https://example.test npm run build`), recorded for B8. */
-const M7_STEP9_FIRST_PAINT_KB = 357.4;
+const M7_STEP9_FIRST_PAINT_KB = 357.7;
 
 // The real build's check (first paint ≤ 360 KB, no stall content in it, the market chunk lazy and precached) is
 // e2e/budget.e2e.test.ts: it reads the dist/ that e2e/setup.ts builds, instead of a second build here that would
