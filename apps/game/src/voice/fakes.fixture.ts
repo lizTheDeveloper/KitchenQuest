@@ -20,6 +20,8 @@ export interface FakeAudio {
   fail: { gum?: Error; addModule?: Error };
   /** Contexts made from now on start suspended. */
   startSuspended?: boolean;
+  /** Their resume() never settles (no user activation: Web Audio keeps it pending). */
+  resumeHangs?: boolean;
   /** Holds getUserMedia until `release()`. */
   hold(): () => void;
 }
@@ -57,7 +59,8 @@ class FakeAudioContext {
   }
   createBufferSource() { return new FakeSource(this); }
   createGain() { return { gain: { value: 1, setValueAtTime() {}, exponentialRampToValueAtTime() {} }, connect() {}, disconnect() {} }; }
-  resume() { this.resumed++; this.state = 'running'; return Promise.resolve(); }
+  hangResume = false;
+  resume() { this.resumed++; if (this.hangResume) return new Promise<void>(() => undefined); this.state = 'running'; return Promise.resolve(); }
   close() { this.state = 'closed'; return Promise.resolve(); }
 }
 
@@ -82,6 +85,7 @@ export function fakeAudio(extra: Record<string, unknown> = {}): FakeAudio {
       super();
       out.contexts.push(this);
       if (out.startSuspended) this.state = 'suspended';
+      if (out.resumeHangs) this.hangResume = true;
       if (out.fail.addModule) this.failAddModule = out.fail.addModule;
     }
   }
@@ -100,7 +104,7 @@ export function fakeAudio(extra: Record<string, unknown> = {}): FakeAudio {
     out.tracks.push(...tracks);
     return { getTracks: () => tracks };
   };
-  out.win = { navigator: { mediaDevices: { getUserMedia } }, AudioContext: Ctx, AudioWorkletNode: Node, ...extra } as unknown as Window;
+  out.win = { navigator: { mediaDevices: { getUserMedia } }, AudioContext: Ctx, AudioWorkletNode: Node, setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms), clearTimeout: (t: ReturnType<typeof setTimeout>) => clearTimeout(t), ...extra } as unknown as Window;
   return out;
 }
 

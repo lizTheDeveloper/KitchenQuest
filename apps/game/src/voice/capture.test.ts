@@ -1,5 +1,5 @@
-import { describe, expect, test } from 'vitest';
-import { openMic } from './capture';
+import { afterEach, describe, expect, test, vi } from 'vitest';
+import { openMic, RESUME_TIMEOUT_MS } from './capture';
 import { CAPTURE_PROCESSOR } from './capture-worklet';
 import { fakeAudio } from './fakes.fixture';
 
@@ -51,4 +51,36 @@ describe('openMic', () => {
     await openMic(b.win);
     expect(b.contexts[0].resumed).toBe(0);
   });
+
+  test('fix round 2 (R1): the tracks are handed over before anything else is awaited; a resume that never settles can still be stopped at once', async () => {
+    const a = fakeAudio();
+    a.startSuspended = true;
+    a.resumeHangs = true;
+    let stop: (() => void) | null = null;
+    let settled = false;
+    void openMic(a.win, { onStream: (s) => { stop = s; } }).then(() => { settled = true; }, () => { settled = true; });
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    expect(a.contexts[0].resumed).toBe(1);
+    expect(settled).toBe(false); // still waiting on the resume
+    expect(a.tracks.length).toBeGreaterThan(0);
+    expect(stop).not.toBeNull();
+    stop!();
+    expect(a.tracks.every((t) => t.stopped)).toBe(true);
+  });
+
+  test('fix round 2 (R1): a resume that has not settled after RESUME_TIMEOUT_MS stops the tracks, closes the context and fails', async () => {
+    vi.useFakeTimers();
+    const a = fakeAudio();
+    a.startSuspended = true;
+    a.resumeHangs = true;
+    const opened = openMic(a.win);
+    const failed = expect(opened).rejects.toThrow(/did not start/);
+    await vi.advanceTimersByTimeAsync(RESUME_TIMEOUT_MS + 1);
+    await failed;
+    expect(a.tracks.every((t) => t.stopped)).toBe(true);
+    expect(a.contexts[0].state).toBe('closed');
+    expect(RESUME_TIMEOUT_MS).toBeLessThanOrEqual(3000);
+  });
 });
+
+afterEach(() => { vi.useRealTimers(); });

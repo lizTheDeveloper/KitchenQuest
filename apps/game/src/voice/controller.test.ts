@@ -1,6 +1,7 @@
 import { HANDS_FREE_IDLE_MS, MAX_UTTERANCE_MS, PRE_ROLL_MS, VAD_HANGOVER_MS, FRAME_MS, decodeFrame } from '@kitchenquest/core/engine';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { createStore, type PlayerStore } from '../state/store';
+import { RESUME_TIMEOUT_MS } from './capture';
 import { createVoiceController, type VoiceController, type VoicePhase } from './controller';
 import { TIMER_TAIL_MS, type Vad } from './vad';
 import { fakeAudio, socketWin, type FakeAudio, type FakeWebSocket } from './fakes.fixture';
@@ -549,5 +550,63 @@ describe('createVoiceController', () => {
     expect(r.sockets).toHaveLength(0);
     expect(r.audio.getUserMedia.calls).toHaveLength(0);
     expect(MAX_UTTERANCE_MS).toBe(30_000);
+  });
+
+  test('fix round 2 (R1): while the microphone\'s resume never settles, close, the Family Table guard, release and hands-free stop each stop the tracks at once; a timeout stops them and says microphone', async () => {
+    const hung = async (act: (r: Rig, c: VoiceController) => void, mode: 'press' | 'handsFree') => {
+      const r = rig();
+      r.audio.startSuspended = true;
+      r.audio.resumeHangs = true;
+      const c = r.make();
+      if (mode === 'press') c.press(); else c.startHandsFree();
+      await ready(r);
+      expect(r.audio.tracks.length).toBeGreaterThan(0);
+      expect(r.audio.tracks.some((t) => !t.stopped)).toBe(true);
+      act(r, c);
+      expect(r.audio.tracks.every((t) => t.stopped)).toBe(true);
+    };
+    await hung((_r, c) => { c.close('child'); }, 'press');
+    await hung((r) => { r.store.update((s) => ({ ...s, settings: { ...s.settings, familyTable: true } })); }, 'press');
+    await hung((_r, c) => { c.release(); }, 'press');
+    await hung((_r, c) => { c.stopHandsFree(); }, 'handsFree');
+    // The timeout: the tracks stop and the player hears the microphone line.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true });
+    try {
+      const r = rig();
+      r.audio.startSuspended = true;
+      r.audio.resumeHangs = true;
+      const c = r.make();
+      const problems: string[] = [];
+      c.onProblem((p) => problems.push(p));
+      c.press();
+      await ready(r);
+      await vi.advanceTimersByTimeAsync(RESUME_TIMEOUT_MS + 1);
+      await flush();
+      expect(r.audio.tracks.every((t) => t.stopped)).toBe(true);
+      expect(problems).toContain('microphone');
+      expect(c.phase).toBe('idle');
+    } finally { vi.useRealTimers(); }
+  });
+
+  test('fix round 2 (F3): a second hands-free start while the transcript is out keeps the first held speech too', async () => {
+    const r = rig();
+    const c = r.make();
+    c.startHandsFree();
+    const ws = await ready(r);
+    frame(r, -60, 50);
+    frame(r, -20, 20);
+    frame(r, -60, 40); // the first utterance ends: transcribing
+    const first = ws.json().filter((m) => m.t === 'listen')[0].id;
+    frame(r, -20, 20); // held speech 1
+    frame(r, -60, 40);
+    frame(r, -20, 20); // held speech 2
+    frame(r, -60, 40);
+    ws.serverSend({ t: 'transcript', id: first, text: 'next step' });
+    await flush();
+    const listens = ws.json().filter((m) => m.t === 'listen');
+    expect(listens).toHaveLength(2);
+    const second = listens[1].id as number;
+    const each = PRE_ROLL_MS / FRAME_MS + 20 + VAD_HANGOVER_MS / FRAME_MS;
+    expect(ws.frames().filter((f) => decodeFrame(f)!.id === second).length).toBe(2 * each);
   });
 });

@@ -90,7 +90,7 @@ export function createVoiceController(deps: {
   conversationId: () => string | null;
   childOn: () => boolean;
   /** Test seams: the microphone, the earcon and the clock. */
-  openMic?: (win: Window) => Promise<Mic>;
+  openMic?: (win: Window, opts?: { onStream?: (stop: () => void) => void }) => Promise<Mic>;
   earcon?: (win: Window) => void;
   now?: () => Date;
   createVad?: (o: VadOptions) => Vad;
@@ -156,9 +156,17 @@ export function createVoiceController(deps: {
   };
   const wantMic = () => !closed && (holding || handsFree);
 
+  /** R1: the tracks of a microphone still opening (its context starting), stoppable before its handle arrives. */
+  let pendingStop: (() => void) | null = null;
+  let pendingStopped = false;
   const closeMic = () => {
     mic?.close();
     mic = null;
+    if (pendingStop !== null) {
+      pendingStop();
+      pendingStop = null;
+      pendingStopped = true;
+    }
   };
   const closeMicUnlessWanted = () => { if (!wantMic()) closeMic(); };
 
@@ -218,11 +226,19 @@ export function createVoiceController(deps: {
 
   const ensureMic = (): Promise<Mic | null> => {
     if (mic !== null) return Promise.resolve(mic);
-    micOpening ??= mic$(win).then(
+    if (micOpening === null) pendingStopped = false;
+    micOpening ??= mic$(win, {
+      onStream: (stop) => {
+        // R1: live tracks, before the context has started: stop them now if nothing wants them, else keep the stop.
+        if (!wantMic() || closed) { stop(); pendingStopped = true; } else pendingStop = stop;
+      },
+    }).then(
       (m) => {
         micOpening = null;
+        pendingStop = null;
         // Closed (Family Table, a child, …) or no longer wanted while the browser asked: stopped the moment it arrives.
-        if (!wantMic() || guard()) {
+        if (pendingStopped || !wantMic() || guard()) {
+          pendingStopped = false;
           m.close();
           return null;
         }
@@ -232,6 +248,8 @@ export function createVoiceController(deps: {
       },
       () => {
         micOpening = null;
+        pendingStop = null;
+        pendingStopped = false;
         if (!closed) problem('microphone');
         return null;
       },
@@ -299,7 +317,15 @@ export function createVoiceController(deps: {
     if (r.start) {
       if (phase === 'resting') return;
       // M3: the last transcript is still out: kept (in memory, bounded) until it arrives.
-      if (live !== null) { deferred = { frames: [...r.start], ended: false }; return; }
+      if (live !== null) {
+        // Fix round 2 (F3): a second start while the transcript is still out is added to the held speech, never over it.
+        if (deferred === null) deferred = { frames: [...r.start], ended: false };
+        else {
+          deferred.frames.push(...r.start.slice(0, Math.max(0, MAX_FRAMES - deferred.frames.length)));
+          deferred.ended = false;
+        }
+        return;
+      }
       if (speech !== null) stopSpeech(); // barge-in: BARGE_IN_MIN_MS over the raised threshold (Ruling 7)
       const l = startListen('handsFree');
       setPhase('listening');
