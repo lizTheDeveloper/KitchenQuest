@@ -22,6 +22,11 @@ export async function openApp(
   return openAt(new URL(path, inject('baseUrl')).toString(), opts);
 }
 
+/** M7 Step 11: open the hands-free build (VITE_HANDS_FREE=on against the test fixture record; e2e/setup.ts). */
+export function openHandsFreeApp(path: string, opts: OpenOptions = {}): Promise<OpenedApp> {
+  return openAt(new URL(path, inject('handsFreeUrl')).toString(), opts);
+}
+
 /** Open a component fixture served from source (e2e/fixtures), not part of the production build. */
 export function openFixture(path: string, opts: { width?: number; reducedMotion?: boolean } = {}): Promise<OpenedApp> {
   return openAt(new URL(path, inject('fixtureUrl')).toString(), opts);
@@ -30,6 +35,8 @@ export function openFixture(path: string, opts: { width?: number; reducedMotion?
 interface OpenOptions {
   seed?: Partial<PlayerState>; reducedMotion?: boolean; width?: number; serviceWorkers?: 'allow' | 'block';
   userAgent?: string;
+  /** Extra Chromium flags (M7 Step 11: the fake microphone). */
+  launchArgs?: string[];
   /** Runs in the page before any of the app's scripts, on every load. */
   initScript?: string;
   /** Runs before the first navigation: register `page.route` mocks for `/api/**` here. */
@@ -44,7 +51,7 @@ const isApiStatusLog = (m: ConsoleMessage) =>
   m.text().startsWith('Failed to load resource') && /^\/api\//.test(new URL(m.location().url || 'about:blank', 'http://x').pathname);
 
 async function openAt(url: string, opts: OpenOptions): Promise<OpenedApp> {
-  const browser = await chromium.launch();
+  const browser = await chromium.launch(opts.launchArgs ? { args: opts.launchArgs } : {});
   const context = await browser.newContext({
     viewport: { width: opts.width ?? 1280, height: 800 },
     serviceWorkers: opts.serviceWorkers ?? 'block',

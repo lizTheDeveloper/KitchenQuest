@@ -17,10 +17,14 @@ const api = {
   '/api': { target: process.env.KQ_API_ORIGIN ?? 'http://localhost:3000', ws: true, rewrite: (p: string) => p.replace(/^\/api/, '') },
 };
 
+// M7 Step 11: the hands-free gate reads the operator's record (apps/voice/bench/latest.json). Only a Vitest run (the
+// e2e setup's hands-free build) may point it at the test fixture instead; `npm run build` never sets VITEST.
+const handsFreeRecord = process.env.VITEST === 'true' ? process.env.KQ_TEST_HANDS_FREE_RECORD : undefined;
+
 export default defineConfig({
   base: '/',
   // The M7 gates run first, so a refused build fails before any work (Ruling 1, C9, B8).
-  plugins: [kqVoiceProvider(), kqHandsFree(), kqCsp(), kqContent({ repoRoot }), kqAssets({ repoRoot }), kqServiceWorker(), kqSecurityHeaders(), kqFirstPaintBudget('index')],
+  plugins: [kqVoiceProvider(), kqHandsFree(handsFreeRecord), kqCsp(), kqContent({ repoRoot }), kqAssets({ repoRoot }), kqServiceWorker(), kqSecurityHeaders(), kqFirstPaintBudget('index')],
   server: { port: 5173, fs: { allow: [repoRoot] }, proxy: api },
   preview: { proxy: api },
   build: {

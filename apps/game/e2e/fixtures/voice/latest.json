@@ -1,0 +1,8 @@
+{
+  "note": "TEST FIXTURE ONLY (M7 Step 11). Lets the e2e setup build the hands-free UI. It records no real browser run and is read only when Vitest builds (vite.config.ts: KQ_TEST_HANDS_FREE_RECORD). The real gate is apps/voice/bench/latest.json, written by the operator after the C9 browser checklist.",
+  "manual": [
+    { "browser": "chromium", "echoBargeInPass": true, "fixture": true },
+    { "browser": "safari", "echoBargeInPass": true, "fixture": true },
+    { "browser": "firefox", "echoBargeInPass": true, "fixture": true }
+  ]
+}

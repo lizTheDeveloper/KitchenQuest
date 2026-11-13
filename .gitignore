@@ -1,5 +1,6 @@
 node_modules/
 dist/
+dist-hands-free/
 .vite/
 .DS_Store
 *.log
