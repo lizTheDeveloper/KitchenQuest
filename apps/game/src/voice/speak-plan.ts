@@ -1,6 +1,6 @@
 // M7 Step 8: what the Pan says aloud is only what is on screen, named by id, never by text or variables (Ruling 15).
 // The API renders every spoken line itself from server-held data.
-import { MAX_SPEAK_ITEMS, type SpeakItem } from '@kitchenquest/core/engine';
+import { HEARD_CHECK_SPELLED_TRIGGER, HEARD_CHECK_TRIGGER, MAX_SPEAK_ITEMS, type SpeakItem } from '@kitchenquest/core/engine';
 import { content } from '../content';
 import type { Said } from '../mentor/dialogue';
 import type { CardView, PanItem } from '../mentor/reply';
@@ -26,7 +26,10 @@ function lineItem(s: Said, replyId: string | null): SpeakItem {
  * - server line parts → `{ kind: 'reply', replyId, part }`; server cards → `{ kind: 'card', proposalId }`;
  * - device-only lines: var-free → `{ kind: 'line', trigger, index }`, else `voice.check_screen`;
  * - local cards, consent cards and the rules notice → `voice.check_screen`;
- * - never a retry, quick-answer or choice label.
+ * - never a retry, quick-answer or choice label;
+ * - P8: a heard item with its utterance → `{ kind: 'heard', utteranceId }`: the API says the heard card's line from its
+ *   own transcript, spelled by code (Ruling 15). Its written line (`voice.heard_check(_spelled)`) is then not said
+ *   again; a heard item with no utterance is said by that line alone (by the reply's id, or `voice.check_screen`).
  * Repeats of `voice.check_screen` in a row are said once; past MAX_SPEAK_ITEMS the rest is `voice.check_screen`.
  */
 export function speakPlan(items: readonly PanItem[], cards: readonly CardView[], reply: { replyId: string | null }): { items: SpeakItem[]; said: string[] } {
@@ -38,11 +41,16 @@ export function speakPlan(items: readonly PanItem[], cards: readonly CardView[],
     out.push({ item, text });
   };
   const fallback = () => add({ ...CHECK_SCREEN }, checkScreenText());
+  const heardSpoken = items.some((i) => i.kind === 'heard' && i.utteranceId !== null);
   for (const i of items) {
     switch (i.kind) {
       case 'said':
       case 'go':
+        if (heardSpoken && (i.said.trigger === HEARD_CHECK_TRIGGER || i.said.trigger === HEARD_CHECK_SPELLED_TRIGGER)) break;
         add(lineItem(i.said, reply.replyId), i.said.text);
+        break;
+      case 'heard':
+        if (i.utteranceId !== null) add({ kind: 'heard', utteranceId: i.utteranceId }, checkScreenText());
         break;
       case 'consent':
       case 'rules_error':

@@ -22,6 +22,8 @@ export interface FakeAudio {
   startSuspended?: boolean;
   /** Their resume() never settles (no user activation: Web Audio keeps it pending). */
   resumeHangs?: boolean;
+  /** Their resume() settles after this long (a slow start that does settle: Step 9, G1). */
+  resumeAfterMs?: number;
   /** Holds getUserMedia until `release()`. */
   hold(): () => void;
 }
@@ -60,7 +62,14 @@ class FakeAudioContext {
   createBufferSource() { return new FakeSource(this); }
   createGain() { return { gain: { value: 1, setValueAtTime() {}, exponentialRampToValueAtTime() {} }, connect() {}, disconnect() {} }; }
   hangResume = false;
-  resume() { this.resumed++; if (this.hangResume) return new Promise<void>(() => undefined); this.state = 'running'; return Promise.resolve(); }
+  resumeAfterMs: number | undefined;
+  resume() {
+    this.resumed++;
+    if (this.hangResume) return new Promise<void>(() => undefined);
+    if (this.resumeAfterMs !== undefined) return new Promise<void>((r) => { setTimeout(() => { this.state = 'running'; r(); }, this.resumeAfterMs); });
+    this.state = 'running';
+    return Promise.resolve();
+  }
   close() { this.state = 'closed'; return Promise.resolve(); }
 }
 
@@ -86,6 +95,7 @@ export function fakeAudio(extra: Record<string, unknown> = {}): FakeAudio {
       out.contexts.push(this);
       if (out.startSuspended) this.state = 'suspended';
       if (out.resumeHangs) this.hangResume = true;
+      if (out.resumeAfterMs !== undefined) this.resumeAfterMs = out.resumeAfterMs;
       if (out.fail.addModule) this.failAddModule = out.fail.addModule;
     }
   }

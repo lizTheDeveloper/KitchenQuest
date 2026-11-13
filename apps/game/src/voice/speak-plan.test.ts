@@ -77,3 +77,23 @@ describe('speakPlan (Ruling 15)', () => {
     expect(speakPlan([], [], { replyId: 'r' })).toEqual({ items: [], said: [] });
   });
 });
+
+describe('speakPlan: the heard card (P8)', () => {
+  test('a heard item becomes { kind: "heard", utteranceId }; the plan carries no text or vars anywhere', () => {
+    const check = { tooLong: false, speakSpelling: true, terms: [{ heard: 'sesame', spelled: 'S-E-S-A-M-E', id: 'sesame', at: [3], alternatives: [] }] };
+    const line = dialogue.say('voice.heard_check_spelled', { terms: 'sesame', spelled: 'S-E-S-A-M-E' });
+    const heard: PanItem = { kind: 'heard', check, utteranceId: 12, onPick: () => Promise.reject(new Error('never')) };
+    // The device's own heard card: its written line is said by the API from its own transcript, once.
+    const plan = speakPlan([said(line), heard], [], { replyId: null });
+    expect(plan.items).toEqual([{ kind: 'heard', utteranceId: 12 }]);
+    // A server heard card: its line part is not said twice either.
+    expect(speakPlan([said({ ...line, part: 0 }), heard], [], { replyId: 'r-1' }).items).toEqual([{ kind: 'heard', utteranceId: 12 }]);
+    // No utterance (a retried turn): the line alone, by the reply's id, or voice.check_screen (it has variables).
+    const none: PanItem = { ...heard, utteranceId: null };
+    expect(speakPlan([said({ ...line, part: 0 }), none], [], { replyId: 'r-1' }).items).toEqual([{ kind: 'reply', replyId: 'r-1', part: 0 }]);
+    expect(speakPlan([said(line), none], [], { replyId: null }).items).toEqual([CHECK_SCREEN]);
+    for (const k of plan.items.flatMap(keysOf)) expect(['kind', 'utteranceId']).toContain(k);
+    expect(JSON.stringify(plan.items)).not.toMatch(/sesame|S-E-S/i);
+    expect(parseClientMsg({ t: 'speak', id: 1, items: plan.items })).not.toBeNull();
+  });
+});

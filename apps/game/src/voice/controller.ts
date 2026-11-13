@@ -230,27 +230,39 @@ export function createVoiceController(deps: {
     micOpening ??= mic$(win, {
       onStream: (stop) => {
         // R1: live tracks, before the context has started: stop them now if nothing wants them, else keep the stop.
-        if (!wantMic() || closed) { stop(); pendingStopped = true; } else pendingStop = stop;
+        // Step 9 (G3): a rule that forbids a microphone now (a device-only child flag has no store change and no frame
+        // yet) stops them at once and closes the controller.
+        if (!wantMic() || closed || forbidden(store.get(), deps.childOn()) !== null) { stop(); pendingStopped = true; guard(); } else pendingStop = stop;
       },
     }).then(
-      (m) => {
+      (m): Mic | null | Promise<Mic | null> => {
         micOpening = null;
         pendingStop = null;
+        const stopped = pendingStopped;
         // Closed (Family Table, a child, …) or no longer wanted while the browser asked: stopped the moment it arrives.
-        if (pendingStopped || !wantMic() || guard()) {
+        if (stopped || !wantMic() || guard()) {
           pendingStopped = false;
           m.close();
-          return null;
+          // Step 9 (G1): a press or a hands-free start since its tracks were stopped wants a microphone: a fresh one.
+          return stopped && wantMic() ? ensureMic() : null;
         }
         mic = m;
         m.onFrame(onFrame);
         return m;
       },
-      () => {
+      (): Mic | null | Promise<Mic | null> => {
         micOpening = null;
         pendingStop = null;
+        const stopped = pendingStopped;
         pendingStopped = false;
-        if (!closed) problem('microphone');
+        if (closed) return null;
+        // G1: stopped, then wanted again before it failed: try a fresh one.
+        if (stopped && wantMic()) return ensureMic();
+        // Step 9 (G2): the player already let go: nothing to tell them.
+        if (!wantMic()) return null;
+        // G1: hands-free is never left on with no microphone.
+        if (handsFree) stopHandsFree('stopped');
+        problem('microphone');
         return null;
       },
     );

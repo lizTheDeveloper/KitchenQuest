@@ -609,4 +609,101 @@ describe('createVoiceController', () => {
     const each = PRE_ROLL_MS / FRAME_MS + 20 + VAD_HANGOVER_MS / FRAME_MS;
     expect(ws.frames().filter((f) => decodeFrame(f)!.id === second).length).toBe(2 * each);
   });
+
+  test('Step 9 carry (G1): a press, or a hands-free start, in the mic-start window after a release opens the microphone afresh; hands-free is never on with no microphone', async () => {
+    const r = rig();
+    r.audio.startSuspended = true;
+    r.audio.resumeAfterMs = 60;
+    const c = r.make();
+    const problems: string[] = [];
+    c.onProblem((p) => problems.push(p));
+    c.press();
+    const ws = await ready(r);
+    c.release(); // the first open's tracks are stopped while its context is still starting
+    expect(r.audio.tracks.every((t) => t.stopped)).toBe(true);
+    c.press(); // within the same window
+    await new Promise((res) => setTimeout(res, 200));
+    await flush();
+    // Not silently dead: a second microphone, live, and a listen on its way.
+    expect(r.audio.getUserMedia.calls).toHaveLength(2);
+    expect(r.audio.tracks.slice(2).every((t) => !t.stopped)).toBe(true);
+    expect(ws.json().filter((m) => m.t === 'listen')).toHaveLength(1);
+    expect(c.phase).toBe('listening');
+    expect(problems).toEqual([]);
+    c.close();
+    // Hands-free: stop then start in the window → on, with a live microphone.
+    const h = rig();
+    h.audio.startSuspended = true;
+    h.audio.resumeAfterMs = 60;
+    const hc = h.make();
+    hc.startHandsFree();
+    await ready(h);
+    hc.stopHandsFree();
+    hc.startHandsFree();
+    await new Promise((res) => setTimeout(res, 200));
+    await flush();
+    expect(hc.handsFree).toBe(true);
+    expect(h.audio.tracks.some((t) => !t.stopped)).toBe(true);
+    // Refused outright meanwhile: hands-free turns off and the player is told, never "on" and deaf.
+    const d = rig();
+    const dc = d.make();
+    const dp: string[] = [];
+    dc.onProblem((p) => dp.push(p));
+    const offs: string[] = [];
+    dc.onHandsFreeOff((w) => offs.push(w));
+    d.audio.fail.gum = new Error('NotAllowedError');
+    dc.startHandsFree();
+    await ready(d);
+    await flush();
+    expect(dc.handsFree).toBe(false);
+    expect(offs).toEqual(['stopped']);
+    expect(dp).toEqual(['microphone']);
+  });
+
+  test('Step 9 carry (G2): no microphone problem after the player already let go (the start times out after the release)', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true });
+    try {
+      const r = rig();
+      r.audio.startSuspended = true;
+      r.audio.resumeHangs = true;
+      const c = r.make();
+      const problems: string[] = [];
+      c.onProblem((p) => problems.push(p));
+      c.press();
+      await ready(r);
+      c.release();
+      await vi.advanceTimersByTimeAsync(RESUME_TIMEOUT_MS + 1);
+      await flush();
+      expect(r.audio.tracks.every((t) => t.stopped)).toBe(true);
+      expect(problems).toEqual([]);
+      expect(c.phase).toBe('idle');
+      // Positive control: still held when it times out → the problem is reported.
+      const h = rig();
+      h.audio.startSuspended = true;
+      h.audio.resumeHangs = true;
+      const hc = h.make();
+      const hp: string[] = [];
+      hc.onProblem((p) => hp.push(p));
+      hc.press();
+      await ready(h);
+      await vi.advanceTimersByTimeAsync(RESUME_TIMEOUT_MS + 1);
+      await flush();
+      expect(hp).toEqual(['microphone']);
+    } finally { vi.useRealTimers(); }
+  });
+
+  test('Step 9 carry (G3): a device-only child flag closes a microphone that is still starting, at once (tracks handed over: stopped, controller closed)', async () => {
+    const r = rig();
+    const release = r.audio.hold(); // the permission prompt is up
+    const c = r.make();
+    c.press();
+    await ready(r);
+    r.child.on = true; // set on the device only: no store change, no server close, no frame yet
+    release();
+    await flush();
+    expect(r.audio.tracks.length).toBeGreaterThan(0);
+    expect(r.audio.tracks.every((t) => t.stopped)).toBe(true);
+    expect(c.closedReason).toBe('child');
+    expect(r.sockets.at(-1)!.json().filter((m) => m.t === 'listen')).toHaveLength(0);
+  });
 });
