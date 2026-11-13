@@ -4,7 +4,8 @@ import {
 import type { ApiClient } from '../api/client';
 import type { ApiResult, ProgressPostResponse } from '../api/types';
 import { content } from '../content';
-import { applyServerErasure, dropEvents, dropEventsKeepGrants, healthDeletesOf, partitionKey, partitionOf, withPartition, type PlayerState, type PlayerStore } from '../state/store';
+import { healthDeletesOf } from '../state/health-deletes';
+import { applyServerErasure, dropEvents, dropEventsKeepGrants, partitionKey, partitionOf, withPartition, type PlayerState, type PlayerStore } from '../state/store';
 import { catalogueOf } from './catalogue';
 import { appendEvents, historyOf, markUploaded } from './log';
 

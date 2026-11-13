@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { recordTechnique } from '@kitchenquest/core/engine';
-import { accountKey, accountViewOf, applyServerErasure, createStore, eraseHealthEvents, healthDeletesOf, markHealthDelete, prunePartition, deleteDeviceData, importM3Toolkit, mergePartitions, mergeProgress, partitionKey, partitionOf, STORE_KEY, withPartition } from './store';
+import { healthDeletesOf, markHealthDelete } from './health-deletes';
+import { accountKey, accountViewOf, applyServerErasure, createStore, eraseHealthEvents, prunePartition, deleteDeviceData, importM3Toolkit, mergePartitions, mergeProgress, partitionKey, partitionOf, STORE_KEY, withPartition } from './store';
 
 function memStorage(init: Record<string, string> = {}): Storage {
   const m = new Map(Object.entries(init));

@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import type { Plugin } from 'vite';
 
 /** The voice benchmark's record (Step 3), whose `manual[]` holds the operator's browser echo checklist. */
-export const BENCH_LATEST = fileURLToPath(new URL('../../voice/bench/latest.json', import.meta.url));
+const BENCH_LATEST = fileURLToPath(new URL('../../voice/bench/latest.json', import.meta.url));
 const BROWSERS = ['chromium', 'safari', 'firefox'] as const;
 
 /**

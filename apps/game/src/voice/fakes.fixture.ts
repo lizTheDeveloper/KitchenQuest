@@ -1,8 +1,8 @@
 // Test doubles for the browser's audio and socket APIs (M7 Step 8). Never a real microphone or network (Global
 // Constraints): every test drives these by hand.
-export interface FakeTrack { stopped: boolean; stop(): void }
+interface FakeTrack { stopped: boolean; stop(): void }
 
-export class FakePort {
+class FakePort {
   onmessage: ((e: { data: unknown }) => void) | null = null;
   closed = false;
   close() { this.closed = true; }
@@ -22,7 +22,7 @@ export interface FakeAudio {
   hold(): () => void;
 }
 
-export class FakeSource {
+class FakeSource {
   started: number | null = null;
   stopped = false;
   onended: (() => void) | null = null;
@@ -36,7 +36,7 @@ export class FakeSource {
   finish() { if (!this.stopped) { this.stopped = true; this.onended?.(); } }
 }
 
-export class FakeAudioContext {
+class FakeAudioContext {
   static instances: FakeAudioContext[] = [];
   currentTime = 0;
   sampleRate = 48_000;

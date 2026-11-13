@@ -38,7 +38,7 @@ const CLOSING = 2;
 const CLOSED = 3;
 
 /** How long `hello` may wait for `ready`. */
-export const HELLO_TIMEOUT_MS = 10_000;
+const HELLO_TIMEOUT_MS = 10_000;
 
 /** Opens the socket, sends `hello` first, and resolves once the API answers `ready`. */
 export function openVoiceSocket(win: Window, hello: Extract<ClientMsg, { t: 'hello' }>): Promise<VoiceSocket> {

@@ -2,7 +2,7 @@
 // under `import.meta.env.DEV`, and every build refuses VITE_VOICE_PROVIDER=browser, so no build ever holds it: Chrome's
 // recogniser sends audio to an unreviewed processor that the CSP does not govern.
 import type { VoiceMode, VoiceState } from '@kitchenquest/core/engine';
-import type { Speech, Utterance, VoiceProvider } from './providers';
+import type { Speech, Utterance, VoiceProvider } from './provider-types';
 
 interface Recognition {
   lang: string; interimResults: boolean; continuous: boolean;

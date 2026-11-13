@@ -8,7 +8,8 @@ import { getMentor } from '../mentor';
 import { createDialogue } from '../mentor/dialogue';
 import { renderConsentCard } from '../mentor/consent-card';
 import { progressService } from '../progress';
-import { eraseHealthEvents, markHealthDelete, partitionKey, type PlayerStore } from '../state/store';
+import { markHealthDelete } from '../state/health-deletes';
+import { eraseHealthEvents, partitionKey, type PlayerStore } from '../state/store';
 import { contentText, h } from '../ui/dom';
 import { openModal } from '../ui/modal';
 

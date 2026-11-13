@@ -1,35 +1,18 @@
 // M7 Step 8: the game's voice seam (Ruling 1). `service` is the API's voice socket (the self-hosted STT/TTS behind it);
 // `browser` is Web Speech, a development stand-in reachable only on the dev server (`import.meta.env.DEV`), and refused
 // by every build (build/voice-provider.ts). Replies are matched by id, and every listen and speak gets a fresh one.
-import { MAX_SPEAK_ITEMS, type ServerMsg, type SpeakItem, type VoiceCloseReason, type VoiceMode, type VoiceState } from '@kitchenquest/core/engine';
+import { MAX_SPEAK_ITEMS, type ServerMsg, type VoiceState } from '@kitchenquest/core/engine';
 import type { PlayerStore } from '../state/store';
 import { createPlayer, type Player } from './playback';
+import type { ProviderEvent, VoiceProvider } from './provider-types';
 import { openVoiceSocket, VoiceSocketClosed, type VoiceSocket } from './socket';
 
-export interface Utterance {
-  readonly id: number;
-  push(pcm: Int16Array): void;
-  end(): Promise<{ text: string; tooLong: boolean }>;
-  cancel(): void;
-}
-export interface Speech { readonly done: Promise<void>; stop(): void }
-/** What the provider learns between calls: a new allowance state, or the socket gone (and why). */
-export type ProviderEvent = { kind: 'state'; state: VoiceState } | { kind: 'closed'; reason: VoiceCloseReason | 'network' };
-
-export interface VoiceProvider {
-  readonly kind: 'service' | 'browser';
-  hello(conversationId: string | null, localDate: string): Promise<VoiceState>;
-  listen(mode: VoiceMode): Utterance;
-  /** browser: speaks `said` locally; service: sends `items` (Ruling 15: no text leaves the device). */
-  speak(items: SpeakItem[], said: readonly string[]): Speech;
-  onEvent(fn: (e: ProviderEvent) => void): () => void;
-  close(): void;
-}
+export type { ProviderEvent, Speech, Utterance, VoiceProvider } from './provider-types';
 
 /** An utterance's answer may take this long after `end` before it is given up (an answer the API never sends). */
-export const END_TIMEOUT_MS = 20_000;
+const END_TIMEOUT_MS = 20_000;
 /** A speech that never ends is given up after this long. */
-export const SPEAK_TIMEOUT_MS = 60_000;
+const SPEAK_TIMEOUT_MS = 60_000;
 
 const EMPTY = { text: '', tooLong: false } as const;
 const pad = (n: number) => String(n).padStart(2, '0');

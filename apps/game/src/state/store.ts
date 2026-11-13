@@ -54,7 +54,7 @@ const EMPTY_PROGRESS: DeviceProgress = { events: [], grants: [], base: null, pen
  * shown while `/progress` hasn't answered, so nothing drops after a reload). Read, shown and synced only while that
  * account is signed in; hidden (never deleted, never shown, never uploaded elsewhere) while it isn't.
  */
-interface AccountPartition {
+export interface AccountPartition {
   progress: DeviceProgress;
   view: ProgressView | null;
   /**
@@ -102,23 +102,11 @@ export function prunePartition(s: PlayerState, key: string): PlayerState {
     events, grants: old.progress.grants.filter((g) => ids.has(g.eventId) || !held.has(g.eventId)), base: null, pendingUpload: events.map((e) => e.id),
     epoch: (old.progress.epoch ?? 0) + 1,
   };
-  return { ...s, accountProgress: { ...s.accountProgress, [key]: { progress, view: null, ...(old.erasure === undefined ? {} : { erasure: old.erasure }), ...countOf(old) } } };
+  return { ...s, accountProgress: { ...s.accountProgress, [key]: { progress, view: null, ...(old.erasure === undefined ? {} : { erasure: old.erasure }), ...countOf(old.healthDeletes) } } };
 }
 
-/** The `healthDeletes` field to carry over, or none. */
-const countOf = (a: Pick<AccountPartition, 'healthDeletes'> | undefined): Pick<AccountPartition, 'healthDeletes'> =>
-  a?.healthDeletes === undefined || a.healthDeletes === 0 ? {} : { healthDeletes: a.healthDeletes };
-
-/** M6 fix review N2: the health deletes this device has asked for account `key` (0 when none, or no partition). */
-export function healthDeletesOf(s: Pick<PlayerState, 'accountProgress'>, key: string): number {
-  return Object.hasOwn(s.accountProgress, key) ? s.accountProgress[key].healthDeletes ?? 0 : 0;
-}
-
-/** Counts one more health delete for account `key` (its partition made if it has none). Nothing else changes. */
-export function markHealthDelete(s: PlayerState, key: string): PlayerState {
-  const old: AccountPartition = Object.hasOwn(s.accountProgress, key) ? s.accountProgress[key] : { progress: EMPTY_PROGRESS, view: null };
-  return { ...s, accountProgress: { ...s.accountProgress, [key]: { ...old, healthDeletes: (old.healthDeletes ?? 0) + 1 } } };
-}
+/** The `healthDeletes` count to carry over (M6 N2; state/health-deletes.ts), or none. */
+const countOf = (n: number | undefined) => (n ? { healthDeletes: n } : {});
 
 /** Remove events (and their grants) from partition `key` for good: they are the server's now (N1, N5). */
 export function dropEvents(s: PlayerState, key: string | null, ids: Iterable<string>): PlayerState {
@@ -230,8 +218,7 @@ export interface PlayerSettings {
    */
   voice: VoiceSettings;
 }
-export interface VoiceSettings { on: boolean; readAloud: boolean; handsFree: boolean }
-export const DEFAULT_VOICE_SETTINGS: Readonly<VoiceSettings> = Object.freeze({ on: false, readAloud: true, handsFree: false });
+interface VoiceSettings { on: boolean; readAloud: boolean; handsFree: boolean }
 /** A market run kept on this device (C40's shape) and the pantry row each tick added, by list key (Ruling 16). */
 export interface LocalRun extends MarketRunView { pantryIds: Record<string, string> }
 /**
@@ -303,7 +290,7 @@ function freshState(): PlayerState {
     v: 1, firstOpenedAt: null, lastOpenedAt: null,
     localRules: [], accountRules: null, account: null,
     toolkit: EMPTY_TOOLKIT, cookProgress: null, dialogueHistory: {}, progress: EMPTY_PROGRESS, accountProgress: {},
-    settings: { showCalories: false, reducedMotion: 'system', familyTable: false, iosNoteDismissed: false, aiMentor: true, rescueNudges: true, voice: { ...DEFAULT_VOICE_SETTINGS } },
+    settings: { showCalories: false, reducedMotion: 'system', familyTable: false, iosNoteDismissed: false, aiMentor: true, rescueNudges: true, voice: { on: false, readAloud: true, handsFree: false } },
     rulesUnreadable: false, signOutPending: false,
     localProfile: null, localPantry: [], localWeek: { plans: [], runs: [] }, rescue: {}, intake: { step: null }, aiDisclosureSeen: false, aiHealthOffered: false,
   };
@@ -326,8 +313,7 @@ const isProgress = (x: unknown): boolean =>
   isStrArray(x.pendingUpload) &&
   (x.epoch === undefined || (typeof x.epoch === 'number' && Number.isInteger(x.epoch) && x.epoch >= 0));
 const isPartitions = (x: unknown): boolean =>
-  isObj(x) && Object.values(x).every((a) => isObj(a) && isProgress(a.progress) && (a.view === null || isObj(a.view)) && (a.erasure === undefined || typeof a.erasure === 'string') &&
-    (a.healthDeletes === undefined || (typeof a.healthDeletes === 'number' && Number.isSafeInteger(a.healthDeletes) && a.healthDeletes >= 0)));
+  isObj(x) && Object.values(x).every((a) => isObj(a) && isProgress(a.progress) && (a.view === null || isObj(a.view)) && (a.erasure === undefined || typeof a.erasure === 'string') && (a.healthDeletes === undefined || (Number.isSafeInteger(a.healthDeletes) && (a.healthDeletes as number) >= 0)));
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 /** Every core `IntakeStep`: a step core adds fails to compile here until it is listed. */
 const INTAKE_STEP_SET: Readonly<Record<IntakeStep, true>> = { market_day: true, meals_per_week: true, region: true, allergies: true, pantry: true };
@@ -397,11 +383,8 @@ function merge(p: Record<string, unknown>): PlayerState | null {
   }
   if (s.reducedMotion !== undefined && s.reducedMotion !== 'system' && s.reducedMotion !== 'on' && s.reducedMotion !== 'off') return null;
   // M7: a stored copy from before voice has none (the defaults); a field that is there must be a boolean.
-  if (s.voice !== undefined && !isObj(s.voice)) return null;
-  const sv: Record<string, unknown> = isObj(s.voice) ? s.voice : {};
-  for (const k of ['on', 'readAloud', 'handsFree'] as const) {
-    if (sv[k] !== undefined && typeof sv[k] !== 'boolean') return null;
-  }
+  const sv: Record<string, unknown> = s.voice === undefined ? {} : isObj(s.voice) ? s.voice : { on: null };
+  if (Object.values(sv).some((v) => v !== undefined && typeof v !== 'boolean')) return null;
   return {
     v: 1,
     firstOpenedAt: (has('firstOpenedAt') ? p.firstOpenedAt : d.firstOpenedAt) as string | null,
@@ -422,11 +405,7 @@ function merge(p: Record<string, unknown>): PlayerState | null {
       iosNoteDismissed: (s.iosNoteDismissed as boolean | undefined) ?? ds.iosNoteDismissed,
       aiMentor: (s.aiMentor as boolean | undefined) ?? ds.aiMentor,
       rescueNudges: (s.rescueNudges as boolean | undefined) ?? ds.rescueNudges,
-      voice: {
-        on: (sv.on as boolean | undefined) ?? ds.voice.on,
-        readAloud: (sv.readAloud as boolean | undefined) ?? ds.voice.readAloud,
-        handsFree: (sv.handsFree as boolean | undefined) ?? ds.voice.handsFree,
-      },
+      voice: { ...ds.voice, ...(Object.fromEntries(Object.entries(sv).filter(([k]) => k in ds.voice)) as Partial<VoiceSettings>) },
     },
     rulesUnreadable: (has('rulesUnreadable') ? p.rulesUnreadable : d.rulesUnreadable) as boolean,
     signOutPending: (has('signOutPending') ? p.signOutPending : d.signOutPending) as boolean,
@@ -536,9 +515,7 @@ export function mergePartitions(
       merged = { progress: mergeProgress(pa.progress, pb.progress, opts), view: pb.view ?? pa.view, ...(erasure === undefined ? {} : { erasure }) };
     }
     // M6 fix review N2: a health delete counted in either copy stays counted, whichever copy wins.
-    const count = Math.max(pa?.healthDeletes ?? 0, pb.healthDeletes ?? 0);
-    const { healthDeletes: _drop, ...rest } = merged;
-    accounts.set(key, { ...rest, ...countOf({ healthDeletes: count }) });
+    accounts.set(key, { ...merged, ...countOf(Math.max(pa?.healthDeletes ?? 0, pb.healthDeletes ?? 0)) });
   }
   return { progress: mergeProgress(a.progress, b.progress, opts), accountProgress: Object.fromEntries(accounts) };
 }
