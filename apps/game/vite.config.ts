@@ -3,19 +3,24 @@ import { defineConfig } from 'vite';
 import { kqAssets } from './build/assets-plugin';
 import { kqFirstPaintBudget } from './build/budget-plugin';
 import { kqContent } from './build/content-plugin';
+import { kqCsp } from './build/csp';
+import { kqHandsFree } from './build/hands-free-gate';
 import { kqSecurityHeaders } from './build/headers-plugin';
 import { kqServiceWorker } from './build/sw-plugin';
+import { kqVoiceProvider } from './build/voice-provider';
 
 const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
 const here = (p: string) => fileURLToPath(new URL(p, import.meta.url));
-// The M2 API, reached same-origin under /api (production: the reverse proxy does the same).
+// The M2 API, reached same-origin under /api (production: the reverse proxy does the same). `ws: true`: the M7 voice
+// socket (`/api/voice`) goes through it too.
 const api = {
-  '/api': { target: process.env.KQ_API_ORIGIN ?? 'http://localhost:3000', rewrite: (p: string) => p.replace(/^\/api/, '') },
+  '/api': { target: process.env.KQ_API_ORIGIN ?? 'http://localhost:3000', ws: true, rewrite: (p: string) => p.replace(/^\/api/, '') },
 };
 
 export default defineConfig({
   base: '/',
-  plugins: [kqContent({ repoRoot }), kqAssets({ repoRoot }), kqServiceWorker(), kqSecurityHeaders(), kqFirstPaintBudget('index')],
+  // The M7 gates run first, so a refused build fails before any work (Ruling 1, C9, B8).
+  plugins: [kqVoiceProvider(), kqHandsFree(), kqCsp(), kqContent({ repoRoot }), kqAssets({ repoRoot }), kqServiceWorker(), kqSecurityHeaders(), kqFirstPaintBudget('index')],
   server: { port: 5173, fs: { allow: [repoRoot] }, proxy: api },
   preview: { proxy: api },
   build: {
