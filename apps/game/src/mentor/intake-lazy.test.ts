@@ -44,6 +44,10 @@ describe('the intake is lazy (Form 1-A)', () => {
     // Opened: the import starts (and hangs); an emergency still answers at once.
     m.panel.open();
     expect(importIntake).toHaveBeenCalledTimes(1);
+    // M7 Step 9 fix round 3 (the flake): opening also loads the week's code for real (`import('./week-turn')`, after
+    // this file's `vi.resetModules`), whose cold evaluation is not the claim measured here. Let real dynamic imports
+    // settle first; the intake's fake import above still never resolves.
+    await vi.dynamicImportSettled();
     const before = document.querySelectorAll('.bubble.pan').length;
     m.send('call an ambulance, anaphylaxis');
     const t1 = Date.now();
@@ -131,6 +135,7 @@ describe('the intake is lazy (Form 1-A)', () => {
       const m = await mount(importIntake, { aiDisclosureSeen: true });
       m.panel.open();
       await new Promise((r) => setTimeout(r, 10));
+      await vi.dynamicImportSettled(); // as above: the week code's real import is not what is timed
       const before = m.panText().length;
       m.send(text);
       const t0 = Date.now();
