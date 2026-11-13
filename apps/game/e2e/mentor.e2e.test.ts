@@ -129,7 +129,7 @@ describe('mentor panel', () => {
   });
 
   it('Family Table mode has no text box, form or talk button', async () => {
-    app = await openApp('/', { reducedMotion: true, seed: { settings: { showCalories: false, reducedMotion: 'system', familyTable: true, iosNoteDismissed: false, aiMentor: true, rescueNudges: true } } });
+    app = await openApp('/', { reducedMotion: true, seed: { settings: { showCalories: false, reducedMotion: 'system', familyTable: true, iosNoteDismissed: false, aiMentor: true, rescueNudges: true, voice: { on: false, readAloud: true, handsFree: false } } } });
     const { page } = app;
     await page.locator('#pan-button').click();
     expect(await page.locator('#pan-panel textarea, #pan-panel input, #pan-panel form, #pan-talk').count()).toBe(0);
@@ -141,7 +141,7 @@ describe('mentor panel', () => {
     await app.page.locator('#pan-button').click();
     await expectNoA11yViolations(app.page, 'standard');
     await app.close();
-    app = await openApp('/', { reducedMotion: true, seed: { settings: { showCalories: false, reducedMotion: 'system', familyTable: true, iosNoteDismissed: false, aiMentor: true, rescueNudges: true } } });
+    app = await openApp('/', { reducedMotion: true, seed: { settings: { showCalories: false, reducedMotion: 'system', familyTable: true, iosNoteDismissed: false, aiMentor: true, rescueNudges: true, voice: { on: false, readAloud: true, handsFree: false } } } });
     await app.page.locator('#pan-button').click();
     await expectNoA11yViolations(app.page, 'familyTable');
   });
@@ -274,7 +274,7 @@ describe('mentor cards, trail and AI backend (M4 Step 10)', () => {
   it('family table: no textbox, no /api/mentor request', async () => {
     app = await openApp('/', {
       reducedMotion: true,
-      seed: { settings: { showCalories: false, reducedMotion: 'system', familyTable: true, iosNoteDismissed: false, aiMentor: true, rescueNudges: true } },
+      seed: { settings: { showCalories: false, reducedMotion: 'system', familyTable: true, iosNoteDismissed: false, aiMentor: true, rescueNudges: true, voice: { on: false, readAloud: true, handsFree: false } } },
       beforeGoto: signedIn(() => Promise.resolve()),
     });
     const { page } = app;

@@ -333,13 +333,16 @@ export function createVoiceController(deps: {
       holding = true;
       early = [];
       setPhase('listening');
+      // Read through a call: an await may have closed it, or a release or a newer press moved on, meanwhile.
+      const stale = () => closed || g !== gesture;
+      const held = () => holding;
       void (async () => {
         let s: VoiceState;
-        try { s = await ensureHello(); } catch { if (g === gesture && !closed) { holding = false; setPhase('idle'); } return; }
-        if (closed || g !== gesture) return;
+        try { s = await ensureHello(); } catch { if (!stale()) { holding = false; setPhase('idle'); } return; }
+        if (stale()) return;
         if (s.kind !== 'available') { holding = false; setPhase('resting'); return; }
-        if (holding && (await ensureMic()) === null && g === gesture && !closed) { holding = false; setPhase('idle'); return; }
-        if (closed || g !== gesture || !holding) return;
+        if (held() && (await ensureMic()) === null && !stale()) { holding = false; setPhase('idle'); return; }
+        if (stale() || !held()) return;
         const l = startListen('hold');
         const waiting = early;
         early = [];

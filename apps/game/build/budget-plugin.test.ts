@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { checkFirstPaintBudget, firstPaint, FIRST_PAINT_BUDGET_BYTES, FIRST_PAINT_TARGET_BYTES, marketChunk } from './budget-plugin';
+import { checkFirstPaintBudget, firstPaint, FIRST_PAINT_BUDGET_BYTES, FIRST_PAINT_TARGET_BYTES, M7_FIRST_PAINT_CAP_BYTES, marketChunk } from './budget-plugin';
 
 type Chunk = { type: 'chunk'; fileName: string; name: string; isEntry: boolean; code: string; imports: string[]; dynamicImports: string[]; moduleIds?: string[] };
 const chunk = (fileName: string, o: Partial<Chunk> = {}): Chunk =>
@@ -89,6 +89,26 @@ describe('checkFirstPaintBudget', () => {
     expect(checkFirstPaintBudget(via, 'index', { marketMarker: MARKER }).join()).toMatch(/market-m\.js/);
     const inlined = bundle(chunk('assets/index-a.js', { isEntry: true, code: `const m={"version":"${MARKER}"}` }));
     expect(checkFirstPaintBudget(inlined, 'index', { marketMarker: MARKER }).join()).toMatch(/market module .*index-a\.js/);
+  });
+
+  test('no voice module is in the first-paint graph; first paint ≤ 359.6 KB (Step 7 baseline 357.6 KB + 2 KB, ruling round)', () => {
+    expect(M7_FIRST_PAINT_CAP_BYTES).toBe(Math.floor(359.6 * 1024));
+    expect(M7_FIRST_PAINT_CAP_BYTES).toBeLessThan(FIRST_PAINT_TARGET_BYTES);
+    const at = bundle(chunk('assets/index-a.js', { isEntry: true, code: 'a'.repeat(M7_FIRST_PAINT_CAP_BYTES) }));
+    expect(checkFirstPaintBudget(at, 'index', { target: M7_FIRST_PAINT_CAP_BYTES })).toEqual([]);
+    const over = bundle(chunk('assets/index-a.js', { isEntry: true, code: 'a'.repeat(M7_FIRST_PAINT_CAP_BYTES + 1) }));
+    expect(checkFirstPaintBudget(over, 'index', { target: M7_FIRST_PAINT_CAP_BYTES }).join()).toMatch(/over the 359\.6 KB target/);
+    // The voice client lazy: fine. In first paint, directly or through another chunk: fails, naming the module.
+    const voice = (fileName: string) => chunk(fileName, { moduleIds: ['/repo/apps/game/src/voice/controller.ts', '/repo/apps/game/src/voice/vad.ts'] });
+    const lazy = bundle(chunk('assets/index-a.js', { isEntry: true, dynamicImports: ['assets/voice-v.js'] }), voice('assets/voice-v.js'));
+    expect(checkFirstPaintBudget(lazy, 'index')).toEqual([]);
+    const direct = bundle(chunk('assets/index-a.js', { isEntry: true, imports: ['assets/voice-v.js'] }), voice('assets/voice-v.js'));
+    expect(checkFirstPaintBudget(direct, 'index').join()).toMatch(/first paint loads the voice client .*src\/voice\/controller\.ts.*voice-v\.js/);
+    const inlined = bundle(chunk('assets/index-a.js', { isEntry: true, moduleIds: ['/repo/apps/game/src/main.ts', '/repo/apps/game/src/voice/index.ts'] }));
+    expect(checkFirstPaintBudget(inlined, 'index').join()).toMatch(/voice client/);
+    // Another app's voice path (say core's voice protocol, which first paint may well hold) is not the client.
+    const core = bundle(chunk('assets/index-a.js', { isEntry: true, moduleIds: ['/repo/packages/core/src/voice/protocol.ts'] }));
+    expect(checkFirstPaintBudget(core, 'index')).toEqual([]);
   });
 
   test('a chunk bundling a test, a fixture or a raw data file fails (Step 2 review M4: the fixture in core src/ imports data)', () => {

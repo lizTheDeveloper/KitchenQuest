@@ -88,7 +88,7 @@ const ACCOUNT_VIEW: ProgressView = {
   toolkit: { techniques: { legumes: tried(LAST_WEEK), 'heat-control': tried(LAST_WEEK), patience: tried(LAST_WEEK) } },
   questsDone: [], questSteps: {}, questStartedOn: {}, cookedOn: { [FRIJOLES]: [LAST_WEEK] }, framesCookedOn: {}, marketAnswered: {},
 };
-const settings = (aiMentor: boolean) => ({ showCalories: false, reducedMotion: 'system' as const, familyTable: false, iosNoteDismissed: false, aiMentor, rescueNudges: false });
+const settings = (aiMentor: boolean) => ({ showCalories: false, reducedMotion: 'system' as const, familyTable: false, iosNoteDismissed: false, aiMentor, rescueNudges: false, voice: { on: false, readAloud: true, handsFree: false } });
 const BASE: Partial<PlayerState> = {
   intake: { step: 'done' }, aiDisclosureSeen: true, firstOpenedAt: NOW.toISOString(), lastOpenedAt: NOW.toISOString(),
 };

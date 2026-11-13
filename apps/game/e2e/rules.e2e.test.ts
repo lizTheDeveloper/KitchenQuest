@@ -97,7 +97,7 @@ describe('Your rules (M4 Step 11)', () => {
   it('it works with the AI off and the API down', async () => {
     app = await openApp('/#/rules', {
       reducedMotion: true, width: 360,
-      seed: { ...PAN_READY, localRules: [unknownId] as never, settings: { showCalories: false, reducedMotion: 'system', familyTable: false, iosNoteDismissed: false, aiMentor: false, rescueNudges: true } },
+      seed: { ...PAN_READY, localRules: [unknownId] as never, settings: { showCalories: false, reducedMotion: 'system', familyTable: false, iosNoteDismissed: false, aiMentor: false, rescueNudges: true, voice: { on: false, readAloud: true, handsFree: false } } },
       beforeGoto: (page) => page.route((u) => u.pathname.startsWith('/api/'), (r) => r.abort()),
     });
     const { page } = app;

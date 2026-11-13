@@ -46,20 +46,23 @@ export function createFramer(inRate: number): Framer {
 }
 
 // The AudioWorkletGlobalScope (absent in tests and on the main thread, where only the framer is used).
-declare const sampleRate: number;
 interface WorkletPort { postMessage(m: unknown, transfer: Transferable[]): void }
-declare const AudioWorkletProcessor: { new (): { readonly port: WorkletPort } } | undefined;
-declare const registerProcessor: ((name: string, ctor: unknown) => void) | undefined;
+const scope = globalThis as unknown as {
+  sampleRate?: number;
+  AudioWorkletProcessor?: new () => { readonly port: WorkletPort };
+  registerProcessor?: (name: string, ctor: unknown) => void;
+};
 
-if (typeof registerProcessor === 'function' && typeof AudioWorkletProcessor === 'function') {
-  const Base = AudioWorkletProcessor;
+if (scope.registerProcessor !== undefined && scope.AudioWorkletProcessor !== undefined) {
+  const Base = scope.AudioWorkletProcessor;
+  const rate = scope.sampleRate ?? SAMPLE_RATE_IN;
   class CaptureProcessor extends Base {
-    private readonly framer = createFramer(sampleRate);
+    private readonly framer = createFramer(rate);
     process(inputs: Float32Array[][]): boolean {
-      const channel = inputs[0]?.[0];
+      const channel = inputs.at(0)?.at(0);
       if (channel !== undefined) for (const f of this.framer.push(channel)) this.port.postMessage(f, [f.pcm.buffer]);
       return true;
     }
   }
-  registerProcessor(CAPTURE_PROCESSOR, CaptureProcessor);
+  scope.registerProcessor(CAPTURE_PROCESSOR, CaptureProcessor);
 }

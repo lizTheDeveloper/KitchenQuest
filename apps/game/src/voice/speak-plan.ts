@@ -11,7 +11,7 @@ export const CHECK_SCREEN: Readonly<Extract<SpeakItem, { kind: 'line' }>> = Obje
 const TRIGGER = /^[a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+$/;
 const VAR = /\{[A-Za-z_][A-Za-z0-9_]*\}/;
 
-const checkScreenText = (): string => content.pan.triggers[CHECK_SCREEN.trigger]?.lines[0] ?? '';
+const checkScreenText = (): string => (Object.hasOwn(content.pan.triggers, CHECK_SCREEN.trigger) ? content.pan.triggers[CHECK_SCREEN.trigger].lines.at(0) ?? '' : '');
 
 /** A line as a speak item: a server part by the reply's id; a var-free device line by trigger and index; else the fallback. */
 function lineItem(s: Said, replyId: string | null): SpeakItem {

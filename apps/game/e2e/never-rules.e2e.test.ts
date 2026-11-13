@@ -199,7 +199,7 @@ describe('never rules, every screen', () => {
 
 describe('never rules, the weekly loop (M5 Step 12)', () => {
   const pan = parse(readFileSync(fileURLToPath(new URL('../../../content/dialogue/pan.yaml', import.meta.url)), 'utf8')) as { triggers: Record<string, { lines: string[] }> };
-  const ftSettings = { showCalories: false, reducedMotion: 'system' as const, familyTable: true, iosNoteDismissed: false, aiMentor: false, rescueNudges: true };
+  const ftSettings = { showCalories: false, reducedMotion: 'system' as const, familyTable: true, iosNoteDismissed: false, aiMentor: false, rescueNudges: true, voice: { on: false, readAloud: true, handsFree: false } };
   const stored = (page: Page) => page.evaluate(() => JSON.parse(localStorage.getItem('kq.player.v1') ?? '{}') as PlayerState);
 
   it('the scan bites: every planted line is caught, and the allowlist excuses only an exact line inside [data-content]', () => {

@@ -104,7 +104,7 @@ describe('free forever (§16)', () => {
       { id: 'oil', name: 'sunflower oil', ingredientId: 'neutral_oil' },
     ];
     const fake = newFake();
-    const settings = { showCalories: false, reducedMotion: 'system' as const, familyTable: false, iosNoteDismissed: false, aiMentor: false, rescueNudges: true };
+    const settings = { showCalories: false, reducedMotion: 'system' as const, familyTable: false, iosNoteDismissed: false, aiMentor: false, rescueNudges: true, voice: { on: false, readAloud: true, handsFree: false } };
     app = await openApp('/#/plan', {
       reducedMotion: true, seed: { ...PAN_READY, settings },
       beforeGoto: async (page) => {
@@ -199,7 +199,7 @@ describe('free forever (§16)', () => {
 
   it('M6: capped, AI off, no entitlements: every stall and its rounds and rewards, the Season\'s Table, list amounts, a stall swap and check-off by tap; nothing sells', async () => {
     const f = market.newServer();
-    const settings = { showCalories: false, reducedMotion: 'system' as const, familyTable: false, iosNoteDismissed: false, aiMentor: false, rescueNudges: false };
+    const settings = { showCalories: false, reducedMotion: 'system' as const, familyTable: false, iosNoteDismissed: false, aiMentor: false, rescueNudges: false, voice: { on: false, readAloud: true, handsFree: false } };
     app = await openApp('/#/stalls', {
       reducedMotion: true, seed: { ...PAN_READY, settings },
       beforeGoto: async (page) => { await page.clock.install({ time: market.NOW }); await page.clock.resume(); await market.serverApi(page, f, { turn: 'capped' }); },

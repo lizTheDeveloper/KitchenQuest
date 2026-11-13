@@ -8,6 +8,13 @@ export const FIRST_PAINT_BUDGET_BYTES = 400 * 1024;
  * those into the page's modulepreloads), so that total, not the entry alone, must stay at or under it.
  */
 export const FIRST_PAINT_TARGET_BYTES = 360 * 1024;
+/**
+ * M7 (B8, Step 7 ruling round): voice may grow first paint by at most 2 KB over Step 7's measured 357.6 KB, so Steps 8
+ * and 9 build against this cap. The target and the hard budget stay as they are.
+ */
+export const M7_FIRST_PAINT_CAP_BYTES = Math.floor(359.6 * 1024);
+/** The game's voice client (M7 Step 8): a lazy library, reached only by `import('../voice')`. */
+const VOICE_CLIENT = /\/apps\/game\/src\/voice\//;
 
 interface ChunkLike { type: 'chunk'; fileName: string; name: string; isEntry: boolean; code: string; imports: string[]; moduleIds?: string[] }
 type BundleLike = Record<string, ChunkLike | { type: 'asset' }>;
@@ -64,6 +71,7 @@ export function marketChunk(bundle: BundleLike, marker: string): { files: string
  * - the first-paint total (entry plus its static imports) over `target` (default 360 KB; 400 KB is the hard budget);
  * - the entry being Phaser, or Phaser among its static imports (Phaser may only arrive through a dynamic import);
  * - a first-paint chunk carrying the market module (`marketMarker`): the stalls are lazy;
+ * - a first-paint chunk bundling the voice client (apps/game/src/voice/): it is lazy too (M7 B8);
  * - any chunk of the bundle holding a test, a fixture or a raw data file (`NOT_FOR_THE_CLIENT`).
  */
 export function checkFirstPaintBudget(bundle: BundleLike, entry: string, opts: { marketMarker?: string | null; target?: number } = {}): string[] {
@@ -82,6 +90,11 @@ export function checkFirstPaintBudget(bundle: BundleLike, entry: string, opts: {
     for (const c of chunksOf(bundle)) {
       if (fp.files.includes(c.fileName) && c.code.includes(marker)) problems.push(`first paint loads the market module (stall content) in ${c.fileName}; it must be a lazy chunk`);
     }
+  }
+  for (const c of chunksOf(bundle)) {
+    if (!fp.files.includes(c.fileName)) continue;
+    const voice = (c.moduleIds ?? []).find((id) => VOICE_CLIENT.test(id.replaceAll('\\', '/')));
+    if (voice !== undefined) problems.push(`first paint loads the voice client (${voice}) in ${c.fileName}; it must be a lazy chunk`);
   }
   for (const c of chunksOf(bundle)) {
     for (const id of c.moduleIds ?? []) {
@@ -110,13 +123,13 @@ export function kqFirstPaintBudget(entry = 'index'): Plugin {
       order: 'post',
       handler(_opts, bundle) {
         const marker = marketVersion?.() ?? null;
-        const problems = checkFirstPaintBudget(bundle, entry, { marketMarker: marker });
+        const problems = checkFirstPaintBudget(bundle, entry, { marketMarker: marker, target: M7_FIRST_PAINT_CAP_BYTES });
         const market = marker === null ? null : marketChunk(bundle, marker);
         if (marker === null) problems.push('the kq-content plugin gave no market version, so the market chunk cannot be checked');
         else if (market === null) problems.push('no chunk carries the market module (virtual:kq-market)');
         if (problems.length > 0) this.error(`First-paint budget: ${problems.join('; ')}`);
         const fp = firstPaint(bundle, entry);
-        if (fp) this.info(`first paint: ${KB(fp.bytes)} KB JS in ${fp.files.length} chunks (target ${KB(FIRST_PAINT_TARGET_BYTES)} KB, hard budget ${KB(FIRST_PAINT_BUDGET_BYTES)} KB)`);
+        if (fp) this.info(`first paint: ${KB(fp.bytes)} KB JS in ${fp.files.length} chunks (M7 cap ${KB(M7_FIRST_PAINT_CAP_BYTES)} KB, target ${KB(FIRST_PAINT_TARGET_BYTES)} KB, hard budget ${KB(FIRST_PAINT_BUDGET_BYTES)} KB)`);
         if (market) this.info(`market chunk (lazy): ${KB(market.bytes)} KB JS in ${market.files.join(', ')}`);
       },
     },

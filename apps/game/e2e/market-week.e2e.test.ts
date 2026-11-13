@@ -28,7 +28,7 @@ const LOSS = /\b(lost|lose|losing|loses|deduct\w*|minus|taken back|take back|for
 const PNW_WORDS = [seasonTable['pnw-usa'].name, 'Pacific Northwest', ...seasonTable['pnw-usa'].categories.map((c) => c.label)];
 const MEAT_WORDS = /\b(beef|chicken|pork|lamb|mutton|veal|bacon|ham|brisket|chuck|steak|mince|thighs?)\b/i;
 
-const SETTINGS = (aiMentor: boolean) => ({ showCalories: false, reducedMotion: 'system' as const, familyTable: false, iosNoteDismissed: false, aiMentor, rescueNudges: false });
+const SETTINGS = (aiMentor: boolean) => ({ showCalories: false, reducedMotion: 'system' as const, familyTable: false, iosNoteDismissed: false, aiMentor, rescueNudges: false, voice: { on: false, readAloud: true, handsFree: false } });
 const COCONUT = { target: { kind: 'ingredient' as const, ids: ['coconut'] }, type: 'avoid' as const, severity: 'anaphylactic' as const };
 const SOY = { target: { kind: 'ingredient' as const, ids: ['soy'] }, type: 'avoid' as const, severity: 'allergy' as const };
 const VEGETARIAN = { target: { kind: 'category' as const, ids: ['meat', 'fish', 'shellfish', 'gelatin'] }, type: 'avoid' as const, severity: 'preference' as const };

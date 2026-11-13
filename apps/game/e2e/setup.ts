@@ -15,6 +15,8 @@ export default async function setup({ provide }: TestProject) {
   // service worker). Build exactly what `npm run build` ships.
   const nodeEnv = process.env.NODE_ENV;
   process.env.NODE_ENV = 'production';
+  // M7 B8: a build names the game's origin for its CSP's connect-src (the voice socket). The preview's own, here.
+  process.env.KQ_APP_ORIGIN ??= `http://localhost:${PORT}`;
   try {
     await build({ root, logLevel: 'warn', configLoader: 'runner' });
   } finally {

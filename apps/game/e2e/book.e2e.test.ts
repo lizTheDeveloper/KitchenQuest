@@ -77,7 +77,7 @@ describe('the Recipe Book (M5 Step 11)', () => {
 
   it('Family Table (fix I1): dishes, dates and techniques only; no notes, no tally, no text box, no writes; the export holds no notes', async () => {
     const sent: Request[] = [];
-    const settings = { showCalories: false, reducedMotion: 'system' as const, familyTable: true, iosNoteDismissed: false, aiMentor: false, rescueNudges: false };
+    const settings = { showCalories: false, reducedMotion: 'system' as const, familyTable: true, iosNoteDismissed: false, aiMentor: false, rescueNudges: false, voice: { on: false, readAloud: true, handsFree: false } };
     app = await openApp(`/#/book/${PARIPPU}`, { reducedMotion: true, seed: { ...PAN_READY, settings }, beforeGoto: (page) => signedIn(page, sent) });
     const { page } = app;
     await page.locator('.book-techniques').waitFor();

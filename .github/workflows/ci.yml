@@ -54,6 +54,9 @@ jobs:
       - run: npm test
   game:
     runs-on: ubuntu-latest
+    env:
+      # M7 B8: a game build names its origin, for the CSP's connect-src (the voice socket). CI's is a placeholder.
+      KQ_APP_ORIGIN: https://example.test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

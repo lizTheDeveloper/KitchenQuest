@@ -10,7 +10,7 @@ const GRANTED = {
   consents: [{ purpose: 'health_data', noticeVersion: 'v3', noticeSha256: 'x', method: 'tap', grantedAt: '2026-11-01T00:00:00Z', withdrawnAt: null, endedReason: null, current: true }],
   needsReconsent: [], notices: NOTICES,
 };
-const settings = (familyTable: boolean) => ({ showCalories: false, reducedMotion: 'system' as const, familyTable, iosNoteDismissed: false, aiMentor: false, rescueNudges: false });
+const settings = (familyTable: boolean) => ({ showCalories: false, reducedMotion: 'system' as const, familyTable, iosNoteDismissed: false, aiMentor: false, rescueNudges: false, voice: { on: false, readAloud: true, handsFree: false } });
 
 let app: OpenedApp | null = null;
 afterEach(async () => { await app?.close(); app = null; });

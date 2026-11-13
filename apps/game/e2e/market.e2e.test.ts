@@ -20,7 +20,7 @@ const stampLine = (text: string, stall: string) => pan.triggers['stamp_earned.ma
 const VEGETARIAN = { id: 'r-veg', target: { kind: 'category' as const, ids: ['meat', 'fish', 'shellfish', 'gelatin'] }, type: 'avoid' as const, severity: 'preference' as const };
 const SIGNED_OUT_AI_OFF: Partial<PlayerState> = {
   ...PAN_READY, firstOpenedAt: new Date().toISOString(), lastOpenedAt: new Date().toISOString(),
-  settings: { showCalories: false, reducedMotion: 'system', familyTable: false, iosNoteDismissed: false, aiMentor: false, rescueNudges: false },
+  settings: { showCalories: false, reducedMotion: 'system', familyTable: false, iosNoteDismissed: false, aiMentor: false, rescueNudges: false, voice: { on: false, readAloud: true, handsFree: false } },
 };
 /** Pressure words a round may never show (Review Focus 2). */
 const PRESSURE = /\b\d+\s*(\/|of)\s*\d+\b|in a row|streak|\bscore\b|countdown|\blives\b|seconds? left|hurry/i;

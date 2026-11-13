@@ -6,7 +6,7 @@ import type { Speech, Utterance, VoiceProvider } from './providers';
 
 interface Recognition {
   lang: string; interimResults: boolean; continuous: boolean;
-  onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+  onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string } | undefined>> }) => void) | null;
   onend: (() => void) | null; onerror: (() => void) | null;
   start(): void; stop(): void; abort(): void;
 }

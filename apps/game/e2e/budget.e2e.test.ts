@@ -4,7 +4,8 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
-import { FIRST_PAINT_TARGET_BYTES } from '../build/budget-plugin';
+import { FIRST_PAINT_TARGET_BYTES, M7_FIRST_PAINT_CAP_BYTES } from '../build/budget-plugin';
+import { wsOriginFor } from '../build/csp';
 
 const dist = fileURLToPath(new URL('../dist/', import.meta.url));
 const read = (p: string): string => readFileSync(`${dist}${p.replace(/^\//, '')}`, 'utf8');
@@ -24,6 +25,9 @@ describe('the real build (M6 Step 5)', () => {
     const bytes = code.reduce((n, c) => n + Buffer.byteLength(c), 0);
     console.info(`first paint ${(bytes / 1024).toFixed(1)} KB in ${firstPaint.length} files`);
     expect(bytes).toBeLessThanOrEqual(FIRST_PAINT_TARGET_BYTES);
+    // M7 B8: at most 2 KB over Step 7's 357.6 KB, and none of it the voice client (a lazy chunk).
+    expect(bytes).toBeLessThanOrEqual(M7_FIRST_PAINT_CAP_BYTES);
+    for (const c of code) expect(c.includes('kq-capture')).toBe(false);
     for (const text of STALL_ONLY) expect(code.some((c) => c.includes(text)), text).toBe(false);
 
     // The market chunk: one file, holding the stalls, never preloaded, and precached by the service worker.
@@ -39,5 +43,17 @@ describe('the real build (M6 Step 5)', () => {
     console.info(`market chunk ${kb.toFixed(1)} KB`);
     expect(kb).toBeGreaterThan(80);
     expect(kb).toBeLessThan(200);
+  });
+
+  test("M7 Step 8: the built index.html's CSP has connect-src 'self' and the voice socket's origin, and media-src 'self'; no build holds browser speech", () => {
+    const html = read('index.html');
+    const csp = /http-equiv="Content-Security-Policy" content="([^"]+)"/.exec(html)?.[1] ?? '';
+    expect(csp).toContain(`connect-src 'self' ${wsOriginFor(process.env.KQ_APP_ORIGIN ?? 'http://localhost:4173')};`);
+    expect(csp).toContain("media-src 'self'");
+    expect(html).not.toContain('%KQ_WS_ORIGIN%');
+    // Ruling 1 (C6): Web Speech is dev-only, so no shipped file names it.
+    const js = readdirSync(`${dist}assets`).filter((f) => f.endsWith('.js'));
+    expect(js.length).toBeGreaterThan(0);
+    for (const f of [...js.map((x) => `assets/${x}`), 'sw.js']) expect(read(f), f).not.toMatch(/webkitSpeechRecognition|SpeechRecognition/);
   });
 });
