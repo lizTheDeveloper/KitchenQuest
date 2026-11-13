@@ -194,10 +194,15 @@ async function cookLabel(page: Page) {
 }
 
 /** Step 7: a coconut rule, then a soy rule. `addRule` files the rule the player's way. */
-async function rulesChange(page: Page, where: Where, addRule: (rule: object) => Promise<void>, view: () => Promise<ProgressView | null>) {
+/**
+ * `view`: the account's own view (GET /progress), signed in. M6 Task 11 review m2: no longer a silent null-skip. A device
+ * player has no server view (null here, said so): their XP, level and stamps are derived from the device's grants,
+ * which are compared above. Signed in, the view must be there, before and after.
+ */
+async function rulesChange(page: Page, where: Where, addRule: (rule: object) => Promise<void>, view: (() => Promise<ProgressView>) | null) {
   const grants = await where.grants(page);
   const events = (await where.events(page)).length;
-  const before = await view();
+  const before = view === null ? null : await view();
   // What was bought so far: the ticked rows (the stall-swap row is ticked when taken).
   await go(page, '#/market');
   await page.locator('.market-tick').first().waitFor();
@@ -219,11 +224,13 @@ async function rulesChange(page: Page, where: Where, addRule: (rule: object) => 
   // Nothing earned is taken back.
   expect(await where.grants(page)).toEqual(grants);
   expect((await where.events(page)).length).toBe(events);
-  const after = await view();
-  if (before !== null && after !== null) {
-    expect(after.xp).toBe(before.xp);
-    expect(after.level).toBe(before.level);
-    expect(after.stamps).toBe(before.stamps);
+  if (view !== null) {
+    const after = await view();
+    expect(before).not.toBeNull();
+    expect(after).toBeTruthy();
+    expect(after.xp).toBe(before!.xp);
+    expect(after.level).toBe(before!.level);
+    expect(after.stamps).toBe(before!.stamps);
   }
   // That's the shop done (it earns the run's own XP and stamp); the list is a record from here on.
   await shopDone(page);
@@ -308,7 +315,7 @@ describe('a market week (M6 Step 11)', () => {
         await patch(page, { localRules: [...s.localRules, { ...rule, id: `r${s.localRules.length + 1}` } as PlayerState['localRules'][number]] });
         await page.reload();
       };
-      await rulesChange(page, DEVICE, addRule, async () => null);
+      await rulesChange(page, DEVICE, addRule, null);
       await moveToKerala(page, async () => { await patch(page, { localProfile: KERALA }); await page.reload(); });
       await proteinCounter(page, addRule);
       expect(canvasErrors(app.consoleErrors, canvas)).toEqual([]);

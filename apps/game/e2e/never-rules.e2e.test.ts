@@ -83,7 +83,10 @@ function marketHits(r: { chrome: string[]; content: string[]; wholes: string[] }
 /** No pressure by structure: no timer, no <progress>, no <meter>, no progressbar; and a footnote under every chalkboard. */
 async function marketStructure(page: Page, cookMode: boolean): Promise<{ pressure: string[]; boards: number; footnotes: string[] }> {
   return page.evaluate((cook) => {
-    const pressure = cook ? [] : [...document.querySelectorAll('[role="timer"], [role="progressbar"], progress, meter, [aria-live="assertive"][data-countdown]')].map((e) => e.outerHTML.slice(0, 100));
+    // M6 Task 11 review m3: cook mode's own cooking timers are the recipe's (a role="timer" is allowed there), but a
+    // progress bar or meter is never: only the timer is exempt, not the whole check.
+    const sel = cook ? '[role="progressbar"], progress, meter, [aria-live="assertive"][data-countdown]' : '[role="timer"], [role="progressbar"], progress, meter, [aria-live="assertive"][data-countdown]';
+    const pressure = [...document.querySelectorAll(sel)].map((e) => e.outerHTML.slice(0, 100));
     const boards = [...document.querySelectorAll('.stall-chalkboard')];
     return { pressure, boards: boards.length, footnotes: boards.map((b) => b.querySelector('.stall-price-note')?.textContent?.trim() ?? '') };
   }, cookMode);
@@ -162,6 +165,15 @@ describe('never rules, every screen', () => {
     expect(ids.length).toBeGreaterThan(20);
     const bad = ids.flatMap((id) => pan.triggers[id].lines.filter((l) => VOICE_PRESSURE.test(l) || VOICE_SELLS.test(l) || VOICE_CLAIMS.test(l)).map((l) => `${id}: ${l}`));
     expect(bad).toEqual([]);
+  });
+
+  it('M6 Task 11 m3: in cook mode a timer is the recipe\'s, but a planted <progress> or <meter> is still caught (positive control)', async () => {
+    const sc = SCREENS.find((x) => x.cookMode === true && x.market === true)!;
+    app = await openScreen(sc);
+    const { page } = app;
+    expect((await marketStructure(page, true)).pressure).toEqual([]);
+    await page.evaluate(() => { document.querySelector('#view')!.append(document.createElement('progress'), document.createElement('meter')); });
+    expect((await marketStructure(page, true)).pressure).toHaveLength(2);
   });
 
   for (const familyTable of [false, true]) {

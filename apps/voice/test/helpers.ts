@@ -1,5 +1,6 @@
 // Shared test helpers: a config with no environment, and a plain `ws` client that queues what the server sends.
 import { decodeFrame, parseUpstreamServerMsg, type UpstreamServerMsg } from '@kitchenquest/core';
+import { readFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { createServer } from 'node:net';
 import WebSocket from 'ws';
@@ -7,16 +8,37 @@ import type { VoiceConfig } from '../src/config';
 
 export const TEST_TOKEN = 'test-token-0123456789-0123456789-abcdef';
 
-/** A port that was free a moment ago (VOICE_PORT refuses 0). */
-export function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const s = createServer();
-    s.once('error', reject);
-    s.listen(0, '127.0.0.1', () => {
-      const { port } = s.address() as { port: number };
-      s.close(() => resolve(port));
+/**
+ * VOICE_PORT refuses 0.
+ *
+ * A port a child process can bind a moment later. M7 Step 11 (the parallel-load flake, root cause): a port from
+ * `listen(0)` is in the kernel's ephemeral range, which every outgoing connection on the machine also draws from (the
+ * API suite's database and HTTP clients, run alongside, make thousands). Between our close and the child's bind, one of
+ * them could take it, and the child failed to start or the probe reached the wrong socket. So the port is picked below
+ * the ephemeral range (Linux: /proc/sys/net/ipv4/ip_local_port_range), where nothing is handed out automatically, and
+ * checked free by binding it here first.
+ */
+export async function freePort(): Promise<number> {
+  const low = ephemeralLow();
+  for (;;) {
+    const port = 20_000 + Math.floor(Math.random() * (low - 20_000));
+    const ok = await new Promise<boolean>((resolve) => {
+      const s = createServer();
+      s.once('error', () => resolve(false));
+      s.listen(port, '127.0.0.1', () => s.close(() => resolve(true)));
     });
-  });
+    if (ok) return port;
+  }
+}
+
+function ephemeralLow(): number {
+  try {
+    const low = Number(readFileSync('/proc/sys/net/ipv4/ip_local_port_range', 'utf8').trim().split(/\s+/)[0]);
+    if (Number.isInteger(low) && low > 21_000) return low;
+  } catch {
+    // not Linux: IANA's dynamic range starts at 49152
+  }
+  return 32_768;
 }
 
 export function testConfig(over: Partial<VoiceConfig> = {}): VoiceConfig {

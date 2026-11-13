@@ -5,8 +5,20 @@ import { IngredientGraph } from '../ingredients/graph';
 import type { RuleTerm } from './rule-terms';
 import * as M from './index';
 
-// Timed with Date.now() (src has no DOM or node types). Every exported text function caps its input at MAX_TEXT and stays linear, so a hostile
-// 40k-character message can't stall the server or the client (fix round 2, R2).
+// Every exported text function caps its input at MAX_TEXT and stays linear, so a hostile 40k-character message can't
+// stall the server or the client (fix round 2, R2).
+//
+// M7 Step 11 (the load flake, root cause): this was timed with Date.now(), wall-clock time, which also counts every
+// moment the test process waits for a CPU while other suites run beside it. It is now this process's own CPU time
+// (process.cpuUsage: user + system), which another process's load does not add to. The 50 ms bound is unchanged.
+// (src has no node types, so the call is typed here; a runner without it falls back to the wall clock.)
+type CpuUsage = { user: number; system: number };
+const proc = (globalThis as { process?: { cpuUsage(prev?: CpuUsage): CpuUsage } }).process;
+const cpuMs = (): number => {
+  if (proc === undefined) return Date.now();
+  const u = proc.cpuUsage();
+  return (u.user + u.system) / 1000;
+};
 const graph = IngredientGraph.fromData(ingredients);
 const terms = ruleTerms as RuleTerm[];
 const N = 40_000;
@@ -73,9 +85,9 @@ const FUNCTIONS: [string, (s: string) => unknown][] = [
 
 test.each(FUNCTIONS)('%s finishes each 40k-character input in under 50 ms', (_name, fn) => {
   for (const [input, text] of Object.entries(INPUTS)) {
-    const t0 = Date.now();
+    const t0 = cpuMs();
     fn(text);
-    expect(Date.now() - t0, input).toBeLessThan(50);
+    expect(cpuMs() - t0, input).toBeLessThan(50);
   }
 });
 

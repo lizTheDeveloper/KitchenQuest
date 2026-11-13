@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import type { Locator, Page } from 'playwright';
 import { parse } from 'yaml';
 import { VOICE_ALLOWLIST } from '../src/content/voice-allowlist';
-import type { PlayerState } from '../src/state/store';
+import { STORE_KEY, type PlayerState } from '../src/state/store';
 import { openApp, type OpenedApp } from './helpers';
 
 /**
@@ -402,6 +402,19 @@ async function planCardApi(page: Page): Promise<void> {
     cards: [{ proposalId: 'P1', expiresAt: inHalfAnHour(), card }],
   })));
 }
+/**
+ * M7 Step 11 (the a11y "partial move" flake, root cause): the plan screen reads the account once, when its week has
+ * loaded, to decide on the move offer. On a cold load that raced the sign-in answer (/api/me): under load the week came
+ * first, the screen was drawn signed out with no offer, and the case timed out waiting for it. A signed-in case means the
+ * screen drawn signed in, so: wait until the account is stored, then draw the screen afresh.
+ */
+async function mountedSignedIn(page: Page, hash: string): Promise<void> {
+  await page.waitForFunction((k) => (JSON.parse(localStorage.getItem(k) ?? '{}') as { account?: unknown }).account != null, STORE_KEY);
+  await page.evaluate(() => { location.hash = '#/'; });
+  await page.locator('h1').first().waitFor();
+  await page.evaluate((h) => { location.hash = h; }, hash);
+  await page.locator('.plan-body, .market-body').first().waitFor();
+}
 /** Fix round 1 (I2): a partial move: the plan lands, the run's ticks can't follow (`week.move_partial`). */
 async function partialMoveApi(page: Page): Promise<void> {
   await loopApi(page);
@@ -481,7 +494,7 @@ export const LOOP_SCREENS: ScreenCase[] = [
   },
   {
     label: 'plan (signed in): the move-this-week card', loop: true, countdown: true, path: '/#/plan', seed: WEEK_SEED, beforeGoto: loopApi,
-    open: (p) => p.locator('.week-move-offer').waitFor(), primary: (p) => p.locator('.week-move-offer').getByRole('button', { name: 'Move it' }),
+    open: async (p) => { await mountedSignedIn(p, '#/plan'); await p.locator('.week-move-offer').waitFor(); }, primary: (p) => p.locator('.week-move-offer').getByRole('button', { name: 'Move it' }),
   },
 
   // Fix round 1 (I1): the Pan panel's Form 7-W plan card, from the server (⛔ and ❓ rows) and from the script.
@@ -555,6 +568,7 @@ export const LOOP_SCREENS: ScreenCase[] = [
   {
     label: 'plan (signed in): a partial move', loop: true, countdown: true, path: '/#/plan', seed: MOVE_RUN_SEED, beforeGoto: partialMoveApi,
     open: async (p) => {
+      await mountedSignedIn(p, '#/plan');
       const offer = p.locator('.week-move-offer');
       await offer.getByRole('button', { name: 'Move it' }).click();
       await p.waitForFunction(() => (document.querySelector('.week-move-offer [role="status"]')?.textContent ?? '').trim().length > 0);

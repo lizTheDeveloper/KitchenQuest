@@ -18,6 +18,11 @@ afterEach(async () => {
   await Promise.all(servers.splice(0).map((s) => s.close()));
 });
 
+/** Waits until the server's own bookkeeping (a log line, a freed slot) has happened; the test's timeout bounds it. */
+async function until(done: () => boolean): Promise<void> {
+  while (!done()) await new Promise((r) => setTimeout(r, 5));
+}
+
 async function start(maxConnections = 2) {
   const logs: [LogKind, Record<string, number | boolean> | undefined][] = [];
   const server = createVoiceServer({
@@ -55,7 +60,9 @@ describe('createVoiceServer', () => {
     expect(await upgradeStatus(port, { authorization: `Bearer ${TEST_TOKEN}`, origin: 'http://localhost:5173' })).toBe(403);
     expect(logs).toEqual([['auth_fail', { origin: true }]]);
     expect(await upgradeStatus(port, { authorization: `Bearer ${TEST_TOKEN}` })).toBe(101);
-    await new Promise((r) => setTimeout(r, 20));
+    // M7 Step 11 (the load flake, root cause): the server logs that upgrade's close when it sees it, which under load
+    // came after a fixed 20 ms. Wait for that line itself, so it can't land among the next ones.
+    await until(() => logs.some(([k]) => k === 'conn_close'));
 
     logs.length = 0;
     const a = await connect(port);
@@ -63,7 +70,7 @@ describe('createVoiceServer', () => {
     expect(await a.next()).toMatchObject({ kind: 'msg', msg: { t: 'ready', stt: 'fake-stt', tts: 'fake-tts', sampleRate: 22_050 } });
     a.ws.send('{not json');
     expect(await a.closed).toBe(4400);
-    await new Promise((r) => setTimeout(r, 20));
+    await until(() => logs.some(([k]) => k === 'conn_close'));
     expect(logs.map(([k]) => k)).toEqual(['conn_open', 'bad_message', 'conn_close']);
 
     // An unknown message shape and an undecodable frame are bad too.
@@ -80,9 +87,11 @@ describe('createVoiceServer', () => {
     const c1 = await connect(port);
     const c2 = await connect(port);
     expect(await upgradeStatus(port, { authorization: `Bearer ${TEST_TOKEN}` })).toBe(503);
+    // The slot frees when the server sees c1 close (its conn_close), not when c1 does: wait for that, not a fixed 20 ms.
+    const closes = logs.filter(([k]) => k === 'conn_close').length;
     c1.ws.close();
     await c1.closed;
-    await new Promise((r) => setTimeout(r, 20));
+    await until(() => logs.filter(([k]) => k === 'conn_close').length > closes);
     const c4 = await connect(port);
     c4.send({ t: 'hello', v: 1 });
     expect((await c4.next()).kind).toBe('msg');
@@ -399,7 +408,7 @@ describe('Step 3: slow headers, pre-upgrade sockets, silent sockets and the bind
     clearInterval(talk);
     expect(chatty.ws.readyState).toBe(chatty.ws.OPEN);
     expect(await chatty.closed).toBe(4408); // and once it stops, it goes too
-    await new Promise((r) => setTimeout(r, 50)); // the server's own close event, and its log line
+    await until(() => logs.filter(([k, f]) => k === 'conn_close' && f?.code === 4408).length >= 3); // the server's own close events
     expect(logs.filter(([k, f]) => k === 'conn_close' && f?.code === 4408)).toHaveLength(3);
   });
 

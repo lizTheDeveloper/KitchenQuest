@@ -3,7 +3,7 @@
 // off, keeps every safety and logging feature, and the mentor never answers with 402 or 403.
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import type { MarketRunView, Plan, ProgressEvent, ProgressView, RewardGrant, TurnResponse } from '@kitchenquest/core';
+import { seasonRegionFor, type MarketRunView, type Plan, type ProgressEvent, type ProgressView, type RewardGrant, type TurnResponse } from '@kitchenquest/core';
 import type { FastifyInstance, InjectOptions } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { AiProvider } from '../src/ai/provider.js';
@@ -218,14 +218,16 @@ const VEGETARIAN = { target: { kind: 'category', ids: ['meat', 'fish', 'shellfis
 
 /**
  * Everything the M6 market keeps free, with no AI and no entitlement: a round at every stall (the seasonal round for
- * a Washington, USA profile, and the Protein Counter under a vegetarian rule), the list with amounts, a stall swap,
+ * a Washington State, USA profile (core resolves it to pnw-usa; a bare "Washington" resolves to no region), and the Protein Counter under a vegetarian rule), the list with amounts, a stall swap,
  * a check-off by the scripted grammar (at the cap, AI off or on), a tick by tap, finish, and the export. `ids` fixes
  * the events' client ids, so two players can send identical events.
  */
 async function everyMarketFeature(cookie: string, ids: string[] = Array.from({ length: 6 }, () => randomUUID())) {
   const consents = (await call(cookie, { method: 'GET', url: '/me/consents' })).json<{ consents: { purpose: string; current: boolean }[] }>();
   if (!consents.consents.some((c) => c.purpose === 'health_data' && c.current)) expect((await grant(cookie, 'health_data')).statusCode).toBe(201);
-  expect((await call(cookie, { method: 'PUT', url: '/profile', payload: { country: 'United States', region: 'Washington' } })).statusCode).toBe(200);
+  // M6 Task 11 review m1: the region that actually resolves, so the seasonal round below is the PNW one (pinned here).
+  expect(seasonRegionFor({ country: 'United States', region: 'Washington State' }, loop.market.seasonality)).toBe('pnw-usa');
+  expect((await call(cookie, { method: 'PUT', url: '/profile', payload: { country: 'United States', region: 'Washington State' } })).statusCode).toBe(200);
   const plan: Plan = { weekStart: WEEK, hard: false, slot: 'declined', items: [{ day: 6, kind: 'dish', slug: PARIPPU, servings: 3 }] };
   expect((await call(cookie, { method: 'PUT', url: `/plans/${WEEK}`, payload: { plan, confirmed: true, today: TODAY } })).statusCode).toBe(200);
   const opened = await call(cookie, { method: 'POST', url: '/market-runs', payload: { weekStart: WEEK, today: TODAY } });

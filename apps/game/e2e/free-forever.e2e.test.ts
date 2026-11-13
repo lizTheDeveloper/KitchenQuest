@@ -197,7 +197,7 @@ describe('free forever (§16)', () => {
     expect(app.consoleErrors).toEqual([]);
   });
 
-  it('M6: capped, AI off, no entitlements: every stall and its rounds and rewards, the Season\'s Table, list amounts, a stall swap and check-off by tap; nothing sells', async () => {
+  it('M6: capped, AI off, no entitlements: every stall and its rounds and rewards, the Season\'s Table, list amounts, a stall swap, check-off by tap and by the scripted grammar; nothing sells', async () => {
     const f = market.newServer();
     const settings = { showCalories: false, reducedMotion: 'system' as const, familyTable: false, iosNoteDismissed: false, aiMentor: false, rescueNudges: false, voice: { on: false, readAloud: true, handsFree: false } };
     app = await openApp('/#/stalls', {
@@ -239,6 +239,16 @@ describe('free forever (§16)', () => {
     expect(f.calls).toContain('POST /market-runs/run1/stock');
     await page.locator('.market-tick[data-key="garlic"]').click();
     await expect.poll(() => f.run.items.find((i) => i.key === 'garlic')?.ticked).toBe(true);
+    // M6 Task 11 review m5: a check-off by the scripted grammar at the cap, AI off: the card ticks at once, with an Undo.
+    await page.locator('#pan-button').click();
+    await page.locator('#pan-text').fill('got the moong dal');
+    await page.keyboard.press('Enter');
+    const card = page.locator('.pan-checkoff-card').last();
+    await card.waitFor();
+    await page.waitForFunction(() => [...document.querySelectorAll<HTMLElement>('.pan-checkoff-card')].at(-1)?.dataset.state === 'applied');
+    expect(await card.getByRole('button', { name: 'Undo' }).count()).toBe(1);
+    await expect.poll(() => f.run.items.find((i) => i.key === 'moong_dal')?.ticked).toBe(true);
+    await page.keyboard.press('Escape');
     await page.getByRole('button', { name: "That's the shop done" }).click();
     await expect.poll(() => f.run.doneAt).not.toBeNull();
     await noSale('#/market');
