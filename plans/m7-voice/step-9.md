@@ -63,7 +63,7 @@ export function voiceSection(store: PlayerStore, client: ApiClient): { el: HTMLE
   5. Barge-in → the audio stops; the reply is still drawn (Ruling 10).
   6. A child flag set → the controller closes and the button hides.
 
-- [ ] **9.1 Write the failing tests.**
+- [x] **9.1 Write the failing tests.**
 ```ts
 // voice-turn.test.ts (fake backend)
 test('"I can\'t eat sesame" → heard item with utteranceId and voice.heard_check_spelled; backend.reply never called', ...);
@@ -89,7 +89,7 @@ test('the state line has no digit followed by min/minutes/s/left/remaining, no <
 test('the hands-free toggle is absent unless VITE_HANDS_FREE is on; voice credits list every allowed model\'s attribution', ...);
 // budget-plugin.test.ts: first paint ≤ 359.6 KB (Step 7 baseline 357.6 KB + 2 KB, ruling round) with the toggle and the button in (B8)
 ```
-- [ ] **9.2 Run** `npm test -w @kitchenquest/game -- voice-turn heard-card speak-plan panel voice-section content budget` → FAIL.
-- [ ] **9.3 Implement.**
-- [ ] **9.4 Run** `npm test -w @kitchenquest/game`, `npm run typecheck`, the game build (first paint recorded) → PASS. No `EVAL_FILES` path changed since Step 7.
-- [ ] **9.5 Commit** `feat(game): talk to the Pan — hold-to-talk, heard card, fillers, spoken replies, Settings → Voice`
+- [x] **9.2 Run** `npm test -w @kitchenquest/game -- voice-turn heard-card speak-plan panel voice-section content budget` → FAIL.
+- [x] **9.3 Implement.**
+- [x] **9.4 Run** `npm test -w @kitchenquest/game`, `npm run typecheck`, the game build (first paint recorded) → PASS. No `EVAL_FILES` path changed since Step 7.
+- [x] **9.5 Commit** `feat(game): talk to the Pan — hold-to-talk, heard card, fillers, spoken replies, Settings → Voice`
