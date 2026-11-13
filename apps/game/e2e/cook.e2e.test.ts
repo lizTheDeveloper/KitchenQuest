@@ -95,6 +95,52 @@ describe('cook mode', () => {
     expect(app.consoleErrors).toEqual([]);
   });
 
+  it('M7 Step 10 fix round 1 (I5): on a 400 px phone, the Pan\'s panel as hands-free docks it leaves the safety strip and the step\'s start in view, every part of the step can be scrolled above it, and it takes no focus', async () => {
+    // A phone that can keep the screen awake (as hands-free holds it): no "can't keep the screen awake" note.
+    app = await openApp(COOK, { reducedMotion: true, width: 400, initScript: WAKE_STUB });
+    const { page } = app;
+    await progress(app).waitFor();
+    // A hands-free build is refused without the recorded echo checklist (C9), so the docked layout is set as cook
+    // mode sets it while hands-free is on, and the panel opened as hands-free opens it: no focus, the page unmoved.
+    await page.evaluate(() => { document.documentElement.dataset.handsFree = 'on'; });
+    await page.locator('#pan-button').click();
+    await page.locator('#pan-panel').waitFor();
+    await page.evaluate(() => { (document.activeElement as HTMLElement | null)?.blur(); window.scrollTo(0, 0); });
+    await page.keyboard.press('ArrowRight'); // the arrows still drive the steps
+    expect(await progress(app).textContent()).toBe('Step 2 of 7');
+    const box = async (sel: string) => (await page.locator(sel).first().boundingBox())!;
+    const panel = await box('#pan-panel');
+    expect(panel.y + panel.height).toBeLessThanOrEqual(800);
+    const strip = await box('.safety-strip');
+    expect(strip.y).toBeGreaterThanOrEqual(0);
+    expect(strip.y + strip.height, 'the safety strip ends above the docked panel').toBeLessThanOrEqual(panel.y);
+    const step = await box('.cook-step');
+    expect(step.y + 40, 'the step starts above the docked panel').toBeLessThanOrEqual(panel.y);
+    // The page is padded for the dock: the step's end scrolls above the panel too (nothing is ever hidden under it).
+    await page.locator('.cook-step').evaluate((e) => { e.scrollIntoView({ block: 'end' }); });
+    const end = await box('.cook-step');
+    expect(end.y + end.height).toBeLessThanOrEqual((await box('#pan-panel')).y);
+    await expectNoHorizontalScroll(page);
+  });
+
+  it('M7 Step 10 fix round 1 (I2, I4): a running timer has its own Stop button; Done with a timer running warns and names it first', async () => {
+    app = await openApp(COOK, { reducedMotion: true, width: 400 });
+    const { page } = app;
+    await progress(app).waitFor();
+    await page.keyboard.press('ArrowRight');
+    await page.locator('button.timer-start', { hasText: 'Start 20:00 timer' }).click();
+    const stop = page.getByRole('button', { name: 'Stop the 20 minutes timer for step 2' });
+    expect(await stop.count()).toBe(1);
+    await expectNoA11yViolations(page, 'cook with a timer and its Stop button');
+    for (let i = 0; i < 10 && (await page.getByRole('button', { name: 'Done ▶' }).count()) === 0; i++) await page.getByRole('button', { name: /Next step/ }).click();
+    await page.getByRole('button', { name: 'Done ▶' }).click();
+    expect(await page.getByRole('alert').filter({ hasText: 'Still running: 20 minutes for step 2' }).count()).toBe(1);
+    expect(await progress(app).textContent()).toBe('Step 7 of 7'); // nothing finished yet
+    await stop.click();
+    expect(await page.getByRole('group', { name: 'Running timers' }).isHidden()).toBe(true);
+    expect(app.consoleErrors).toEqual([]);
+  });
+
   it('has no accessibility violations with a timer running', async () => {
     app = await openApp(COOK, { reducedMotion: true, width: 400 });
     const { page } = app;

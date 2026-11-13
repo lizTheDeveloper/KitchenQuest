@@ -271,6 +271,16 @@ input[type="email"] { width: min(100%, 22rem); }
 .wake-note { padding: .5rem .75rem; background: var(--iron); box-shadow: 0 0 0 2px var(--sky); }
 .wake-toggle[aria-pressed="true"], .hands-free-toggle[aria-pressed="true"] { background: var(--ember); color: var(--iron); }
 .listening-pill { display: inline-block; padding: .125rem .5rem; box-shadow: 0 0 0 2px var(--sky); }
+/* M7 Step 10 fix round 1: the tray's Stop buttons (I2), Done's running-timers warning (I4), "The Pan answered" (I5). */
+.timer-stop { margin-left: .5rem; padding: .125rem .5rem; }
+.timer-stop[hidden], .finish-warning[hidden] { display: none; }
+.finish-warning { padding: .5rem .75rem; background: var(--iron); box-shadow: 0 0 0 2px var(--saffron); }
+.pan-answered:empty { display: none; }
+/* I5: while hands-free is on, the Pan's panel docks low and short, so the step and the safety strip stay in view. */
+html[data-hands-free] .pan-panel { left: 8px; right: 8px; bottom: 8px; width: auto; max-height: 25vh; padding: .5rem .75rem; }
+html[data-hands-free] .pan-panel .bubbles { max-height: none; margin: .5rem 0; }
+html[data-hands-free] { scroll-padding-bottom: 27vh; }
+html[data-hands-free] #screen { padding-bottom: 27vh; }
 .cook-step { margin: 1.5rem 0; }
 .cook-text { font-size: 1.75rem; line-height: 1.6; overflow-wrap: anywhere; margin: 0 0 1rem; }
 .cook-section { margin: 0 0 .5rem; }

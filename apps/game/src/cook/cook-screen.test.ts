@@ -10,15 +10,16 @@ import { cookWithNotes } from './with-notes';
 // M6 Step 10: signed in, cook mode reads this week's run on demand (GET /market-runs/current) through the panel's client.
 const runRead = vi.hoisted((): { run: unknown; calls: number; hang: boolean } => ({ run: null, calls: 0, hang: false }));
 // M7 Step 10: the panel's hands-free port and the lines said, when a test gives them.
-const hfMock = vi.hoisted(() => ({
-  port: null as null | { conversationId(): string | null; childOn(): boolean; onChild(fn: () => void): () => void; spoken(text: string, id: number): Promise<unknown> },
-  lines: [] as string[],
-  opened: 0,
-  /** Fix round 1 (I5): how the panel was opened each time. */
-  opens: [] as unknown[],
-  shown: [] as unknown[],
-  reply: null as unknown,
-}));
+interface HfMock {
+  port: null | { conversationId(): string | null; childOn(): boolean; onChild(fn: () => void): () => void; spoken(text: string, id: number): Promise<unknown> };
+  lines: string[];
+  opened: number;
+  /** Fix round 1 (I5): how the panel was opened each time, what was shown, and the Pan's next reply. */
+  opens: unknown[];
+  shown: unknown[];
+  reply: object | null;
+}
+const hfMock = vi.hoisted((): HfMock => ({ port: null, lines: [], opened: 0, opens: [], shown: [], reply: null }));
 vi.mock('../mentor', () => ({
   getMentor: () => ({
     say: (t: string) => { hfMock.lines.push(t); return { text: t, trigger: t, ai: 'never', index: 0 }; },
@@ -523,7 +524,7 @@ describe('M7 Step 10 fix round 1', () => {
       advance: (ms: number) => { now += ms; document.dispatchEvent(new Event('visibilitychange')); },
       progress: () => el.querySelector('.cook-progress')!.textContent,
       nextBtn,
-      toStep: (n: number) => { while (t.progress() !== `Step ${n} of 7`) el.querySelector<HTMLButtonElement>(t.progress()!.startsWith(`Step ${n + 1}`) || Number(/Step (\d+)/.exec(t.progress()!)![1]) > n ? '.cook-controls .btn-secondary' : '.cook-controls .btn-primary')!.click(); },
+      toStep: (n: number) => { while (t.progress() !== `Step ${n} of 7`) el.querySelector<HTMLButtonElement>(t.progress().startsWith(`Step ${n + 1}`) || Number(/Step (\d+)/.exec(t.progress())![1]) > n ? '.cook-controls .btn-secondary' : '.cook-controls .btn-primary')!.click(); },
       trayItems: () => [...el.querySelectorAll<HTMLElement>('.timer-item')].map((li) => li.querySelector('.timer-text')!.textContent),
       startFirstTimer: () => { el.querySelector<HTMLButtonElement>('[data-timer-start]')!.click(); },
       hf: async () => {
@@ -595,11 +596,11 @@ describe('M7 Step 10 fix round 1', () => {
     // Nothing has gone off yet: a spoken stop asks which, and every timer is still running.
     c.hear('stop the timer');
     expect(spokenCues(c).at(-1)).toBe('voice.cook.timer_which');
-    expect(t.trayItems().filter((x) => !x!.endsWith('done'))).toHaveLength(ovenCount + 1);
+    expect(t.trayItems().filter((x) => !x.endsWith('done'))).toHaveLength(ovenCount + 1);
     // The short one goes off (30 seconds or a few minutes); the oven's is still running.
-    const shortSecs = Number(/(\d+):(\d+)/.exec(short.textContent!)!.slice(1).reduce((a, b) => String(Number(a) * 60 + Number(b))));
+    const shortSecs = Number(/(\d+):(\d+)/.exec(short.textContent)!.slice(1).reduce((a, b) => String(Number(a) * 60 + Number(b))));
     t.advance(shortSecs * 1000 + 300);
-    const running = () => t.trayItems().filter((x) => !x!.endsWith('done'));
+    const running = () => t.trayItems().filter((x) => !x.endsWith('done'));
     expect(running().length).toBe(ovenCount);
     c.hear('stop the alarm');
     expect(spokenCues(c).at(-1)).toBe('voice.cook.timer_stopped');
@@ -656,7 +657,7 @@ describe('M7 Step 10 fix round 1', () => {
     status.querySelector('button')!.click();
     expect(hfMock.opens.at(-1)).toBeUndefined(); // the player's own tap: a normal open (focus into the panel)
     // A heard card: the panel opens by itself, without focus.
-    hfMock.reply = { ...(hfMock.reply as object), items: [{ kind: 'heard', check: { terms: [] }, utteranceId: 2, onPick: () => Promise.resolve(hfMock.reply) }] };
+    hfMock.reply = { ...hfMock.reply, items: [{ kind: 'heard', check: { terms: [] }, utteranceId: 2, onPick: () => Promise.resolve(hfMock.reply) }] };
     c.hear('I cannot eat sesame');
     await flush();
     expect(hfMock.opens.at(-1)).toEqual({ focus: false });

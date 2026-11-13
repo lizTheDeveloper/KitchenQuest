@@ -89,7 +89,7 @@ const ANSWERED_OPEN = 'Open the Pan';
  * Fix round 1 (I2, I3): a timer that finished this recently is still "sounding": it has a Stop button, and a spoken
  * stop may clear it. A running timer is stopped only by its own button, never by voice.
  */
-export const TIMER_SOUNDING_MS = 15_000;
+const TIMER_SOUNDING_MS = 15_000;
 
 /** Runs cook mode in `el` for `src`. Returns the teardown. */
 export function runCookMode(el: HTMLElement, ctx: AppContext, src: CookModeSource): () => void {

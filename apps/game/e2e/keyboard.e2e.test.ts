@@ -125,6 +125,9 @@ describe('keyboard only, kitchen to certificate and back', () => {
     expect(await page.locator('.cook-progress').textContent()).toBe('Step 7 of 7');
     await tabTo(page, 'Done ▶', named(/^Done/));
     await press(page, 'Enter');
+    // M7 Step 10 fix round 1 (I4): the step 2 timer is still running, so Done names it first; Enter again finishes.
+    expect(await page.getByRole('alert').filter({ hasText: 'Still running:' }).textContent()).toContain('for step 2');
+    await press(page, 'Enter');
     const cert = page.getByRole('dialog', { name: /Certificate of a Dish Cooked/ });
     await cert.waitFor();
     await tabTo(page, 'Continue', named('Continue'));
