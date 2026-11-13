@@ -16,6 +16,7 @@ import { grant as grantEntitlement } from '../src/entitlements/entitlements.js';
 import { WRITES_PER_DAY } from '../src/usage/write-cap.js';
 import { CaptureMailer } from '../src/mail/mailer.js';
 import { FREE_AI_TURNS_PER_DAY } from '../src/mentor/constants.js';
+import { FREE_VOICE_SECONDS_PER_30_DAYS } from '../src/voice/constants.js';
 import { RECIPES_DIR, syncCanon } from '../src/recipes/sync.js';
 import type { Db } from '../src/types.js';
 import { signIn } from './helpers/auth.js';
@@ -426,6 +427,23 @@ describe('free forever (§16)', () => {
     expect((await call(cookie, { method: 'GET', url: '/voice/status?localDate=2026-11-10&localTime=18:00' })).json().state.kind).toBe('resting');
   });
 
+  it('M7 Step 11: at the free voice limit (resting) text turns, every safety path, export and delete still work; the state never names the Guild', async () => {
+    await makeApp(null);
+    const cookie = await signIn(app, mailer, `voicecap${++seq}@example.com`);
+    const userId = (await call(cookie, { method: 'GET', url: '/me' })).json<{ id: string }>().id;
+    // The whole free allowance used in the last day (no entitlement, no accessibility need).
+    await db.insert(usageEvents).values({ userId, feature: 'voice_stt', units: FREE_VOICE_SECONDS_PER_30_DAYS, costMicroUsd: 0, createdAt: new Date(NOW.getTime() - HOUR) });
+    const status = await call(cookie, { method: 'GET', url: '/voice/status?localDate=2026-11-10&localTime=18:00' });
+    expect(status.json<{ state: { kind: string } }>().state.kind).toMatch(/^resting/);
+    expect(status.body).not.toMatch(SELLS);
+    // Text still works, and the safety paths answer before anything else: an emergency, a child.
+    expect((await turn(cookie, 'what should I cook tonight')).route).toBe('scripted'); // the AI is off here: the device's script answers
+    expect(JSON.stringify(await turn(cookie, "I ate peanuts and my throat is closing, I can't breathe"))).toContain('rule.emergency');
+    expect(JSON.stringify(await turn(cookie, "hello I'm 9 years old"))).toContain('child.grownup');
+    await everyFreeFeature(cookie);
+    await deleteAccount(cookie);
+  });
+
   it('no response body in this file sells (never rule 7), the export\'s processor register aside', () => {
     expect(allBodies.length).toBeGreaterThan(20);
     for (const { url, body } of allBodies) {
@@ -442,7 +460,7 @@ describe('free forever (§16)', () => {
   });
 
   it('no mentor response in this file sells (never rule 7)', () => {
-    expect(turnBodies.length).toBe(8 + 4);
+    expect(turnBodies.length).toBe(8 + 4 + 3);
     for (const b of turnBodies) expect(b).not.toMatch(SELLS);
   });
 });

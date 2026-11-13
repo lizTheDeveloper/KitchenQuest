@@ -6,6 +6,7 @@ import type { Request } from 'playwright';
 import { VOICE_ALLOWLIST } from '../src/content/voice-allowlist';
 import type { PlayerState } from '../src/state/store';
 import { offOrigin, openApp, PAN_READY, writesBesidesFamilyTableReport, type OpenedApp } from './helpers';
+import { fakeVoiceApi, newVoiceFake } from './voice-fake';
 import {
   CHROME_BANNED, CONTENT_BANNED, COUNTDOWN, LOOP_NEVER, LOOP_SCREENS, M6_NEVER, MARKET_SCREENS, MENTOR_BANNED, LINE_SOURCES, RESCUE_SEED, lineMatcher, RUSTY_SEED, SCREENS, WEEK_SEED, allowlistedAt, bannedPattern,
   cookThrough, loopApi, openScreen,
@@ -146,6 +147,45 @@ describe('never rules, every screen', () => {
     const forms = JSON.stringify(read('bureau/forms.yaml').forms ?? read('bureau/forms.yaml'));
     expect(forms.match(/HIPAA|medical-grade|\b(guild|upgrade|subscri\w*|premium)\b|\$\s?\d/gi) ?? []).toEqual([]);
   });
+
+  // M7 Step 11: every voice surface, in every mode: no timer, progress or meter; no countdown, "x of y" or streak; no
+  // selling; no HIPAA or medical-grade (§16 never rules 7 and 8, Ruling 5, §20). Patterns are never weakened (M5 R24).
+  const VOICE_PRESSURE = /\b\d+\s*(s|sec|seconds|min|minutes)\s*(left|remaining)\b|\b\d+\s+(of|out of)\s+\d+\b|\bstreaks?\b/i;
+  const VOICE_SELLS = /\b(guild|upgrade|subscri\w*|premium)\b|\$\s?\d/i;
+  const VOICE_CLAIMS = /HIPAA|medical-grade/i;
+  it('M7: every voice line and voice state (pan.yaml voice.* and ui.settings.voice.*, every variant) is free of pressure, selling and HIPAA claims; the patterns catch their positive controls', () => {
+    for (const [re, t] of [[VOICE_PRESSURE, '20 seconds left'], [VOICE_PRESSURE, '3 of 5 minutes'], [VOICE_PRESSURE, 'a 4-day streak'], [VOICE_SELLS, 'upgrade for more voice'], [VOICE_SELLS, '$5 a month'], [VOICE_CLAIMS, 'HIPAA compliant']] as const) {
+      expect(re.test(t), t).toBe(true);
+    }
+    const pan = parse(readFileSync(fileURLToPath(new URL('../../../content/dialogue/pan.yaml', import.meta.url)), 'utf8')) as { triggers: Record<string, { lines: string[] }> };
+    const ids = Object.keys(pan.triggers).filter((id) => /^(voice\.|ui\.settings\.voice\.)/.test(id));
+    expect(ids.length).toBeGreaterThan(20);
+    const bad = ids.flatMap((id) => pan.triggers[id].lines.filter((l) => VOICE_PRESSURE.test(l) || VOICE_SELLS.test(l) || VOICE_CLAIMS.test(l)).map((l) => `${id}: ${l}`));
+    expect(bad).toEqual([]);
+  });
+
+  for (const familyTable of [false, true]) {
+    for (const state of [{ kind: 'available' }, { kind: 'resting', until: '2026-11-20' }, { kind: 'resting_today' }] as const) {
+      it(`M7: Settings → Voice and the Pan's talk control${familyTable ? ' (Family Table)' : ''}, voice ${state.kind}: no timer, progress, meter, countdown, streak, selling or HIPAA`, async () => {
+        const fake = newVoiceFake({ state });
+        app = await openApp('/#/settings', {
+          reducedMotion: true,
+          seed: { ...PAN_READY, settings: { showCalories: false, reducedMotion: 'system', familyTable, iosNoteDismissed: false, aiMentor: true, rescueNudges: true, voice: { on: true, readAloud: true, handsFree: false } } },
+          beforeGoto: (page) => fakeVoiceApi(page, fake),
+        });
+        const { page } = app;
+        if (!familyTable) await page.locator('#voice-state', { hasText: /\S/ }).waitFor();
+        await page.locator('#pan-button').click();
+        await page.waitForTimeout(200);
+        const text = await page.evaluate(() => document.body.innerText);
+        expect(await page.locator('[role="timer"], progress, meter').count()).toBe(0);
+        expect(text.match(VOICE_PRESSURE) ?? []).toEqual([]);
+        expect(text.match(VOICE_SELLS) ?? []).toEqual([]);
+        expect(text.match(VOICE_CLAIMS) ?? []).toEqual([]);
+        if (familyTable) expect(await page.locator('#pan-talk, #voice-settings:not([hidden])').count()).toBe(0);
+      });
+    }
+  }
 
   for (const sc of SCREENS) {
     it(sc.label, async () => {

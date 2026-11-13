@@ -109,12 +109,35 @@ describe('voice: consent, spell-back and the heard gate (§7.6, Ruling 4)', () =
     await page.locator('#pan-panel .heard-card').getByRole('button', { name: HEARD_YES }).click();
     await page.locator('#pan-panel .pan-card', { hasText: '27-B/ALLERGEN' }).waitFor();
     const confirms = () => fake.requests.filter((r) => r.url().includes('/confirm'));
-    await sayIt(page, fake, 'yes');
+    await sayIt(page, fake, 'yes', 'Enter'); // hold-to-talk works with Enter as with Space
     await expect.poll(() => fake.turns.length).toBe(2);
     expect(fake.turns[1]).toMatchObject({ input: { kind: 'transcript', text: 'yes' } });
     const tap = lines('rule.tap_needed').map((l) => l.replace('{ingredient}', 'sesame'));
     await expect.poll(async () => tap.includes((await panTexts(page)).at(-1) ?? '')).toBe(true);
     expect(confirms()).toEqual([]);
+  });
+});
+
+describe('voice: the microphone permission (C9 checklist items run headless)', () => {
+  it('the browser refuses the microphone: voice.mic_blocked, no listen, and the text box still works', async () => {
+    const fake = newVoiceFake();
+    // The fake device without the fake permission UI, and the permission explicitly denied.
+    app = await openApp('/#/settings', {
+      reducedMotion: true, launchArgs: ['--use-fake-device-for-media-stream', '--deny-permission-prompt-for-testing'], initScript: GUM_SPY,
+      seed: { ...PAN_READY, settings: settings() }, beforeGoto: (page) => fakeVoiceApi(page, fake, { turn: () => lineTurn('thanks') }),
+    });
+    const page = app.page;
+    await signedIn(page);
+    await page.locator('#pan-button').click();
+    await page.locator('#pan-talk').focus();
+    await page.keyboard.down('Space');
+    await expect.poll(() => gum(page)).toBe(1);
+    await page.keyboard.up('Space');
+    await expect.poll(async () => lines('voice.mic_blocked').includes((await panTexts(page)).at(-1) ?? '')).toBe(true);
+    expect(fake.sent.filter((m) => m.t === 'listen')).toEqual([]);
+    await page.locator('#pan-text').fill('hello there');
+    await page.keyboard.press('Enter');
+    await expect.poll(() => fake.turns.length).toBe(1);
   });
 });
 
