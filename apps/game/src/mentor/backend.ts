@@ -23,8 +23,8 @@ export function createScriptedBackend(engine: ScriptedEngine): MentorBackend {
     kind: 'scripted',
     reply(input, ctx) {
       // Deferred so a throw from the engine still arrives as a rejection, as callers expect.
-      // A transcript is read like typed text here: the device's heard gate (Step 9) runs before any backend.
-      return Promise.resolve().then((): PanReply | Promise<PanReply> => engine.reply(input.text, ctx));
+      // M7 Step 9 (carry 1): a transcript meets the device heard gate first (`replyTo`).
+      return Promise.resolve().then((): PanReply | Promise<PanReply> => engine.replyTo(input, ctx));
     },
   };
 }

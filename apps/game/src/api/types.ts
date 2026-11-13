@@ -51,6 +51,12 @@ export interface Consents {
 }
 
 
+/**
+ * GET /voice/status?localDate&localTime (M7 Step 4): the allowance as a state only (Ruling 5), whether the sealed
+ * accessibility need is on, and whether this server offers voice at all.
+ */
+export interface VoiceStatus { state: import('@kitchenquest/core/engine').VoiceState; accessibility: boolean; enabled: boolean }
+
 /** The mentor wire protocol and card shapes, from core, so the game and the API never drift (M4). */
 export type { ConfirmRequest, ConfirmResponse, MealEntry, PantryItem, ReplyPart, TurnRequest, TurnResponse } from '@kitchenquest/core/engine';
 

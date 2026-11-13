@@ -8,7 +8,7 @@ import {
 import { localDate } from '../recipes/rules';
 import type { ChildFlag } from './child-flag';
 import type { Dialogue } from './dialogue';
-import type { CardView, LocalCardView, LocalIntent, PanItem, PanReply, TurnContext } from './reply';
+import type { CardView, LocalCardView, LocalIntent, MentorInput, PanItem, PanReply, TurnContext } from './reply';
 import type { WeekTurn } from './week-turn';
 
 /**
@@ -21,6 +21,12 @@ import type { WeekTurn } from './week-turn';
 export interface ScriptedEngine {
   /** Steps 1–3 resolve without waiting on anything; a plan or navigation turn may wait for the week's code (Ruling 1). */
   reply(text: string, ctx: TurnContext): Promise<PanReply>;
+  /**
+   * M7 Step 9 (carry 1): a turn by its input. Text is `reply`; a transcript meets the device heard gate first
+   * (voice-turn.ts `heardGate`, lazy): one naming a food, a rule term or a sound-alike gets the heard card, never a
+   * card, until a tap confirms its words.
+   */
+  replyTo(input: MentorInput, ctx: TurnContext): Promise<PanReply>;
   /** A local rule card for the option the player tapped in a `choices` item. */
   cardFromChoice(id: string, severity: Severity | null, turn: number): LocalCardView;
 }
@@ -221,7 +227,13 @@ export function createScriptedEngine(deps: {
     return reply(items, { cards: cards.map((c) => view(c, ctx.turn)) });
   }
 
-  return {
+  const engine: ScriptedEngine = {
+    replyTo(input, ctx) {
+      if (input.kind === 'text') return engine.reply(input.text, ctx);
+      const backend = { kind: 'scripted' as const, reply: (i: MentorInput, c: TurnContext) => engine.replyTo(i, c) };
+      return import('./voice-turn').then((m) => m.heardGate(input, { backend, graph, ruleTerms, dialogue, ...(deps.child ? { child: deps.child } : {}) }) ?? engine.reply(input.text, ctx));
+    },
+
     reply(text, ctx) {
       // Steps 1–3 are answered at once: an emergency, medical, child or allowance line never waits on any import.
       let first: PanReply | string;
@@ -247,4 +259,5 @@ export function createScriptedEngine(deps: {
       return view(built.card, turn);
     },
   };
+  return engine;
 }

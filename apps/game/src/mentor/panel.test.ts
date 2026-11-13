@@ -657,7 +657,7 @@ describe('go chip (M5 Step 10, Ruling 15)', () => {
     // After a child spoke, the reply is lines only: no chip.
     window.location.hash = '#/kitchen';
     const child: MentorBackend = { kind: 'scripted', reply: () => Promise.resolve({ ...reply([]), items: [say('child.grownup'), go('plan')] }) };
-    const flag = { on: true, set() {}, reset() {} };
+    const flag = { on: true, set() {}, reset() {}, onChange: () => () => undefined };
     document.body.replaceChildren();
     const root2 = document.createElement('div');
     document.body.append(root2);
@@ -751,7 +751,7 @@ test('M1: a card re-offered after plan_changed without its id or expiry is never
 
 test('N5: a child turn while the week code loads: the plan card is never drawn', async () => {
   let release!: () => void;
-  const flag = { on: false, set() { this.on = true; }, reset() { this.on = false; } };
+  const flag = { on: false, set() { this.on = true; }, reset() { this.on = false; }, onChange: () => () => undefined };
   document.body.replaceChildren();
   const root = document.createElement('div');
   document.body.append(root);

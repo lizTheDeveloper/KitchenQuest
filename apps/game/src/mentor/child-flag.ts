@@ -8,13 +8,18 @@ export interface ChildFlag {
   readonly on: boolean;
   set(): void;
   reset(): void;
+  /** M7 Step 9: told at once on every set and reset (the talk control closes the microphone the moment it is set, G3). */
+  onChange(fn: () => void): () => void;
 }
 
 export function createChildFlag(): ChildFlag {
   let on = false;
+  const fns = new Set<() => void>();
+  const tell = (v: boolean) => { on = v; for (const fn of [...fns]) fn(); };
   return {
     get on() { return on; },
-    set() { on = true; },
-    reset() { on = false; },
+    set() { tell(true); },
+    reset() { tell(false); },
+    onChange(fn) { fns.add(fn); return () => { fns.delete(fn); }; },
   };
 }

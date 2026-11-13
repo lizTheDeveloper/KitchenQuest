@@ -3,6 +3,7 @@ import content from 'virtual:kq-content';
 import type { LineBank, LineTrigger } from '../content/types';
 import { REQUIRED_PAN_TRIGGERS } from '../content/required';
 import { COMMON_DEFAULTS, createDialogue, defaultFor, DialogueError, fillLine, resolveTrigger } from './dialogue';
+import { settingsTriggers } from '../settings/settings-copy';
 
 const bank = (triggers: Record<string, Partial<LineTrigger> & { lines: string[] }>): LineBank => ({
   triggers: Object.fromEntries(Object.entries(triggers).map(([k, v]) => [k, { ai: 'never', ...v }])),
@@ -93,7 +94,9 @@ describe('dialogue engine', () => {
       // M7 Step 6: voice.resting's day (Step 9 supplies it from GET /voice/status).
       until: 'Thursday 19 November',
     };
-    for (const id of REQUIRED_PAN_TRIGGERS) expect(createDialogue(content.pan).say(id, sample).text, id).not.toMatch(/[{}]/);
+    // M7 Step 9: the Settings screen's copy ships in its lazy module; it renders from there.
+    const all = { triggers: { ...content.pan.triggers, ...settingsTriggers } };
+    for (const id of REQUIRED_PAN_TRIGGERS) expect(createDialogue(all).say(id, sample).text, id).not.toMatch(/[{}]/);
   });
 
   test.each([['undefined', undefined], ['null', null], ['empty string', '']])('a %s var counts as missing', (_n, v) => {

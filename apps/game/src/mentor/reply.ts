@@ -1,4 +1,4 @@
-import type { CardAction, IntakeStep, NavTarget, ProposalCard, Severity, TrailEntry, TurnNotice } from '@kitchenquest/core/engine';
+import type { CardAction, HeardCheck, IntakeStep, NavTarget, ProposalCard, Severity, TrailEntry, TurnNotice } from '@kitchenquest/core/engine';
 import type { Said } from './dialogue';
 
 /**
@@ -39,19 +39,31 @@ export type PanItem =
    * round 1, I2: a transcript stays a transcript, with its heard words, so it meets the server's heard gate again and is
    * stored as spoken). It lives in memory only (N-4).
    */
-  | { kind: 'retry'; input: MentorInput };
+  | { kind: 'retry'; input: MentorInput }
+  /**
+   * M7 Step 9 (Ruling 4): the heard card. The words a transcript named, as heard and spelled, with their sound-alikes;
+   * nothing in it has been acted on. Only a tap on its buttons goes on: `onPick(choice, ctx)` is the confirmed turn
+   * (`choice[i]`: an index into `check.terms[i].alternatives`, or null for the words as heard). From the device's own
+   * heard check or a server `heard` part (P7). `utteranceId`: the utterance it was heard in, so its spoken half is the
+   * API's own (a `heard` speak item, P8); null when there is none (a retried turn).
+   */
+  | { kind: 'heard'; check: HeardCheck; utteranceId: number | null; onPick(choice: (number | null)[], ctx: TurnContext): Promise<PanReply> };
 
 /**
  * What the player said. M7 Step 6 (P9): typed text, or a speech-to-text transcript (untrusted user text, §7.6) with,
  * after a tap on its heard card, the words that tap confirmed (Ruling 4). Step 9's `transcriptTurn` runs the device's
  * heard check before any backend sees a transcript. A transcript is the spoken kind: the server stores it `spoken`.
  */
-export type MentorInput = { kind: 'text'; text: string } | { kind: 'transcript'; text: string; heard?: { words: string[] } };
+export type MentorInput =
+  | { kind: 'text'; text: string }
+  /** `utteranceId` (M7 Step 9): the voice utterance it came from, on the device only (never sent: the turn names none). */
+  | { kind: 'transcript'; text: string; heard?: { words: string[] }; utteranceId?: number };
 
 /** A request from the engine to the panel's writer (pre-flight C10). CardAction stays the record of a write the SERVER completed. */
 export type LocalIntent = { kind: 'confirm' | 'reject'; localId: string } | { kind: 'undo' };
 
-export interface PanReply { items: PanItem[]; cards: CardView[]; intents: LocalIntent[]; actions: CardAction[]; notice: TurnNotice }
+/** `replyId` (M7 Step 9): the server reply's id (`TurnResponse.replyId`), so its line parts are spoken by id (Ruling 15). */
+export interface PanReply { items: PanItem[]; cards: CardView[]; intents: LocalIntent[]; actions: CardAction[]; notice: TurnNotice; replyId?: string | null }
 
 /**
  * What the panel knows when it asks for a reply: the Pan turn number, the cards still open, the intake step, and

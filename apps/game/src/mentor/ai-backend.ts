@@ -14,6 +14,7 @@ import type { ScriptedEngine } from './scripted';
 import { withNotice, type ConversationRef } from './outage';
 import { partsToItems } from './writer';
 import { isDate, isServerCard, isStr, KINDS } from './card-shape';
+import { isHeardCheck, serverHeardItem } from './voice-turn';
 
 /** A failed turn is tried again once by itself after this long, or on the next `online` event if that comes first (pre-flight C23). */
 export const RETRY_AFTER_MS = 5_000;
@@ -99,7 +100,9 @@ export function createAiBackend(deps: {
   }
 
   /** Lines, choices and consent from the server; a part that isn't one of ours (or names no line) is dropped. */
-  const itemsOf = (parts: readonly ReplyPart[]): PanItem[] => parts.flatMap((p, part) => {
+  const itemsOf = (parts: readonly ReplyPart[], input?: MentorInput): PanItem[] => parts.flatMap((p, part): PanItem[] => {
+    // M7 Step 9 (P7): a server heard part is the heard card, for a transcript turn only; a malformed one is dropped.
+    if (p.kind === 'heard') return input?.kind === 'transcript' && isHeardCheck(p.check) ? [serverHeardItem(p.check, input, { backend: self, graph: deps.graph, ruleTerms: deps.ruleTerms, dialogue })] : [];
     try {
       // M7 Step 8: a line rendering a server part carries that part's index, so it is spoken by the reply's id and the
       // index (a `reply` speak item), never by its text (Ruling 15).
@@ -111,16 +114,16 @@ export function createAiBackend(deps: {
   });
 
   /** The server's reply as panel items and cards. Never empty (§7.6b.5): nothing usable gives didnt_understand. */
-  function mapServer(res: TurnResponse, turn: number): PanReply {
+  function mapServer(res: TurnResponse, turn: number, input?: MentorInput): PanReply {
     const good = res.cards.filter(isServerCard);
     const actions = res.actions.filter(isAction);
-    const items = itemsOf(res.parts);
+    const items = itemsOf(res.parts, input);
     // A malformed card is dropped with didnt_understand; a reply of only model text (dropped, R9) gets it too (M4).
     if (good.length < res.cards.length || (items.length === 0 && good.length === 0 && actions.length === 0)) items.push(say('didnt_understand'));
     const cards: ServerCardView[] = good.map((c) => ({
       origin: 'server', proposalId: c.proposalId, expiresAt: c.expiresAt, card: c.card, issuedTurn: turn, conversationId: res.conversationId,
     }));
-    return { items, cards, intents: [], actions, notice: res.notice };
+    return { items, cards, intents: [], actions, notice: res.notice, replyId: typeof res.replyId === 'string' ? res.replyId : null };
   }
 
   /** 'gone' when the backend was disposed meanwhile (J1): the caller answers from the script and offers nothing. */
@@ -131,9 +134,9 @@ export function createAiBackend(deps: {
     return r.ok && granted(r.data, 'health_data') && granted(r.data, 'ai_health');
   }
 
-  async function fromResponse(res: TurnResponse, text: string, ctx: TurnContext): Promise<PanReply> {
-    if (res.route !== 'scripted') return mapServer(res, ctx.turn);
-    const scripted = { ...(await engine.reply(text, ctx)), notice: res.notice };
+  async function fromResponse(res: TurnResponse, input: MentorInput, ctx: TurnContext): Promise<PanReply> {
+    if (res.route !== 'scripted') return mapServer(res, ctx.turn, input);
+    const scripted = { ...(await engine.replyTo(input, ctx)), notice: res.notice };
     switch (res.notice) {
       case 'ai_unavailable': return prefixed([say('mentor.ai_unavailable')], scripted);
       case 'rate_limited': return prefixed([say('rate_limited')], scripted);
@@ -216,22 +219,21 @@ export function createAiBackend(deps: {
     isHealthText(stripped, deps.graph, deps.ruleTerms);
 
   async function send(input: MentorInput, ctx: TurnContext, answering?: string): Promise<PanReply> {
-    const { text } = input;
     // Turned off (or the account switched) while this turn waited its place: the script answers and nothing is sent (G5).
-    if (isDisposed()) return engine.reply(text, ctx);
+    if (isDisposed()) return engine.replyTo(input, ctx);
     const req = request(input, answering);
     const gen = conversation.gen;
     const r = await unlessGone(client.mentorTurn(req));
-    if (r === 'gone') return engine.reply(text, ctx);
+    if (r === 'gone') return engine.replyTo(input, ctx);
     if (r.ok && isTurnResponse(r.data)) {
       keepId(gen, r.data.conversationId);
-      return fromResponse(r.data, text, ctx);
+      return fromResponse(r.data, input, ctx);
     }
     if (!r.ok && r.status === 401) {
       await unlessGone(refreshAccount(client, store));
-      return engine.reply(text, ctx);
+      return engine.replyTo(input, ctx);
     }
-    const scripted = prefixed([say('mentor.ai_unavailable')], await engine.reply(text, ctx));
+    const scripted = prefixed([say('mentor.ai_unavailable')], await engine.replyTo(input, ctx));
     if (r.ok || isOutage(r)) scheduleRetry(req, ctx, scripted);
     return scripted;
   }
@@ -240,7 +242,7 @@ export function createAiBackend(deps: {
   async function answer(input: MentorInput, ctx: TurnContext): Promise<PanReply> {
     const { text } = input;
     // Released by a dispose: the script answers, nothing is asked of the server.
-    if (isDisposed()) return engine.reply(text, ctx);
+    if (isDisposed()) return engine.replyTo(input, ctx);
     const stripped = stripPageEvents(text).text.trim();
     const intent = classifyTurn(stripped);
     // A plain yes or no: a local card is the engine's; two open cards of either origin are never guessed between.
@@ -250,24 +252,24 @@ export function createAiBackend(deps: {
       const recent = ctx.openCards.filter((c) => c.issuedTurn === ctx.turn - 1);
       if (recent.length > 0 && ctx.openCards.length > 1) return lines('confirm.tap_card');
       const [one] = recent;
-      if (recent.length !== 1 || one.origin === 'local') return engine.reply(text, ctx);
+      if (recent.length !== 1 || one.origin === 'local') return engine.replyTo(input, ctx);
       return send(input, ctx, one.proposalId);
     }
     // A plain undo goes by the newest live trail entry (pre-flight C36).
     if (intent === 'undo') {
       const newest = ctx.trail.at(-1);
-      return newest?.origin === 'server' ? send(input, ctx) : engine.reply(text, ctx);
+      return newest?.origin === 'server' ? send(input, ctx) : engine.replyTo(input, ctx);
     }
     if (isHealthTurn(stripped, ctx)) {
       const ok = await hasAiHealth();
       // J1: disposed while asking: the script answers, and no consent card is offered (it may well be granted).
-      if (ok === 'gone') return engine.reply(text, ctx);
-      if (!ok) return offerAiHealth(await engine.reply(text, ctx));
+      if (ok === 'gone') return engine.replyTo(input, ctx);
+      if (!ok) return offerAiHealth(await engine.replyTo(input, ctx));
     }
     return send(input, ctx);
   }
 
-  return {
+  const self: MentorBackend & { readonly conversationId: string | null } = {
     kind: 'ai',
     get conversationId() { return conversation.id; },
     dispose() {
@@ -295,4 +297,5 @@ export function createAiBackend(deps: {
       }).catch(() => { /* Nothing visible depends on it. */ });
     },
   };
+  return self;
 }

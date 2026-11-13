@@ -37,9 +37,14 @@ describe('scriptedWhenUnavailable (the shipped fallback)', () => {
   });
 
   test('M7 Step 6: a transcript gets the script and the notice, as text does; an emergency transcript the emergency line first', async () => {
+    // M7 Step 9 (carry 1): unconfirmed, the script answers with the heard card and builds no card; confirmed, the card.
     const r = await fallback({ kind: 'transcript', text: "I'm allergic to sesame" }, ctx);
     expect(triggers(r)[0]).toBe('mentor.ai_unavailable');
-    expect(triggers(r)).toContain('rule.readback');
+    expect(r.items.some((i) => i.kind === 'heard')).toBe(true);
+    expect(r.cards).toEqual([]);
+    const confirmed = await fallback({ kind: 'transcript', text: "I'm allergic to sesame", heard: { words: ['sesame'] } }, ctx);
+    expect(triggers(confirmed)[0]).toBe('mentor.ai_unavailable');
+    expect(triggers(confirmed)).toContain('rule.readback');
     expect(triggers(await fallback({ kind: 'transcript', text: emergency.text }, ctx))[0]).toBe('rule.emergency');
   });
 });

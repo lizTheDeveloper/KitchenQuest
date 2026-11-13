@@ -302,3 +302,19 @@ describe('M5 Step 11: the Recipe Book routes', () => {
     expect(body(3)).toEqual({ entry, confirmed: true, today: '2026-11-11' });
   });
 });
+
+describe('M7 Step 9: the voice routes', () => {
+  const body = (i: number): unknown => JSON.parse(calls[i].init.body!);
+  test('GET /voice/status sends the player\'s localDate and localTime (required, carry 3); the two PUTs send exactly { on }', async () => {
+    for (let i = 0; i < 3; i++) script.push(json(200, {}));
+    await client.voiceStatus('2026-11-13', '18:05');
+    await client.setAccessibility(true);
+    await client.setFamilyTable(false);
+    expect(calls.map((c) => `${c.init.method} ${c.url}`)).toEqual([
+      'GET /api/voice/status?localDate=2026-11-13&localTime=18%3A05', 'PUT /api/voice/accessibility', 'PUT /api/voice/family-table',
+    ]);
+    expect(calls[0].init.body).toBeUndefined();
+    expect(body(1)).toEqual({ on: true });
+    expect(body(2)).toEqual({ on: false });
+  });
+});
