@@ -8,7 +8,7 @@ let seq = 0;
  * A consent card in the Pan panel (Form 3-C): the API's notice text verbatim, never rewritten (C-30 draft wording),
  * in a `[data-content]` element, with the form's own buttons. Saying no costs nothing: play goes on.
  */
-export function renderConsentCard(purpose: 'health_data' | 'ai_health', opts: {
+export function renderConsentCard(purpose: 'health_data' | 'ai_health' | 'voice', opts: {
   form: BureauForm; notice: { version: string; text: string }; onAgree(): void | Promise<void>; onDecline(): void;
 }): HTMLElement {
   const { form } = opts;

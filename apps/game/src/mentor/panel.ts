@@ -15,6 +15,7 @@ import type { CardView, CheckOffSlot, ConsentAnswer, LocalIntent, PanelTrail, Pa
 import type { ScriptedEngine } from './scripted';
 import type { CardWriter, UndoOutcome, WriteOutcome } from './writer';
 import { navRoute } from './nav';
+import type { TalkHooks } from './talk';
 
 /** The panel keeps the last this-many bubbles; older ones are removed so a long session can't grow without end. */
 export const MAX_BUBBLES = 50;
@@ -84,6 +85,10 @@ export function mountMentorPanel(root: HTMLElement, opts: {
   child?: ChildFlag;
   /** M5 Step 10 (Ruling 1): the week's code, which draws a plan card's day rows. Without it no plan card is drawn. */
   week?: () => Promise<WeekTurn>;
+  /** M7 Step 9: the AI conversation's server id (the voice socket's hello names it). */
+  conversationId?: () => string | null;
+  /** M7 Step 9, test seams: the voice library and its window (talk.ts). */
+  voice?: TalkHooks['voice'];
 }): MentorPanel {
   // Spec §19: in Family Table mode children never reach the AI. Refuse before touching the DOM.
   if (opts.mode === 'familyTable' && opts.backend.kind !== 'scripted') {
@@ -116,7 +121,18 @@ export function mountMentorPanel(root: HTMLElement, opts: {
   const cardDone = (view: CardView, result: 'confirmed' | 'rejected') => { for (const fn of [...doneListeners]) fn(view, result); };
   let intercept: ((text: string, ctx: TurnContext) => Promise<PanReply> | null) | null = null;
 
-  let talkBtn: HTMLButtonElement | null = null;
+  let talkRow: HTMLElement | null = null;
+  let talk: Promise<{ stop(): void } | null> | null = null;
+  const loadTalk = () => {
+    const row = talkRow;
+    if (row === null) return;
+    talk ??= import('./talk').then((m) => (destroyed ? null : m.mountTalk(row, {
+      store, client, dialogue, backend, ...(opts.child ? { child: opts.child } : {}), ...(opts.conversationId ? { conversationId: opts.conversationId } : {}),
+      ...(opts.voice ? { voice: opts.voice } : {}),
+      spoken: (text) => { addBubble('you', text, true); }, turn: turnWith, show: render, focusText: () => { (textBox ?? closeBtn).focus(); },
+      consent: (onAnswer) => { renderConsent('voice', onAnswer); }, setSpeaker: (fn) => { speaker = fn; },
+    })), (err: unknown) => { console.error(err); talk = null; return null; });
+  };
   let textBox: HTMLTextAreaElement | null = null;
   let open = false;
   let turn = 0;
@@ -156,9 +172,11 @@ export function mountMentorPanel(root: HTMLElement, opts: {
   };
 
   const typers = new WeakMap<Element, { finish(): void }>();
-  const addBubble = (who: 'pan' | 'you', text: string): void => {
+  const addBubble = (who: 'pan' | 'you', text: string, spoken?: boolean): void => {
     const body = h('span', { class: 'bubble-text' });
-    addLi(`bubble ${who}`, body);
+    // M7 Step 9: a transcript is the player's bubble, marked spoken (on screen and for a screen reader).
+    const li = addLi(`bubble ${who}`, body);
+    if (spoken) { li.classList.add('spoken'); li.append(h('span', { class: 'bubble-note' }, ' (spoken)')); }
     if (who === 'pan') {
       body.setAttribute('data-content', '');
       typers.set(body, typeInto(body, text, opts.reducedMotion()));
@@ -473,12 +491,12 @@ export function mountMentorPanel(root: HTMLElement, opts: {
 
   // --- Items ---------------------------------------------------------------------------------------------------
 
-  function renderConsent(purpose: 'health_data' | 'ai_health', onAnswer?: (answer: ConsentAnswer) => void): void {
+  function renderConsent(purpose: 'health_data' | 'ai_health' | 'voice', onAnswer?: (answer: ConsentAnswer) => void): void {
     const li = addLi('pan-item pan-consent-item');
     void client.consents().then((r) => {
       if (destroyed) return; // nobody saw this card: it is not "offered" (aiHealthOffered stays false)
       const notice = r.ok ? r.data.notices[purpose] : undefined;
-      const form = forms[purpose === 'ai_health' ? 'consent_ai' : 'consent_health'] as BureauForm | undefined;
+      const form = forms[purpose === 'health_data' ? 'consent_health' : purpose === 'ai_health' ? 'consent_ai' : 'consent_voice'] as BureauForm | undefined;
       if (notice === undefined || form === undefined) {
         li.replaceChildren(h('p', { class: 'pan-note', role: 'status' }, CONSENT_UNAVAILABLE_TEXT));
         // Couldn't load is not a no (fix round 1, I1): whoever asked keeps the question open.
@@ -529,6 +547,22 @@ export function mountMentorPanel(root: HTMLElement, opts: {
     }));
   }
 
+  /** M7 Step 9: the heard card (heard-card.ts, lazy; only voice draws one). Only its taps go on (Ruling 4). */
+  let speaker: ((r: PanReply) => void) | null = null;
+  function renderHeard(item: Extract<PanItem, { kind: 'heard' }>): void {
+    const li = addLi('pan-item pan-heard-item');
+    const startedIn = epoch;
+    void import('./heard-card').then(({ renderHeardCard }) => {
+      if (destroyed || startedIn !== epoch || !li.isConnected) return;
+      const spoken = async (get: (ctx: TurnContext) => Promise<PanReply>) => { const r = await turnWith(get); if (r) speaker?.(r); };
+      li.replaceChildren(renderHeardCard(item.check, {
+        yes: (choice) => { if (!childBlocks()) void spoken((ctx) => item.onPick(choice, ctx)); },
+        again: () => { const r: PanReply = { items: [{ kind: 'said', said: dialogue.say('voice.heard_retry') }], cards: [], intents: [], actions: [], notice: null }; render(r); speaker?.(r); doc.getElementById('pan-talk')?.focus(); },
+        type: () => { (textBox ?? closeBtn).focus(); },
+      }));
+    }, (err: unknown) => { console.error(err); li.remove(); sayLine('didnt_understand'); });
+  }
+
   function renderItems(items: readonly PanItem[], replyCards: readonly CardView[]): void {
     for (const item of items) {
       switch (item.kind) {
@@ -559,6 +593,7 @@ export function mountMentorPanel(root: HTMLElement, opts: {
           btn.addEventListener('click', () => { win.location.hash = routeHref(to); });
           break;
         }
+        case 'heard': renderHeard(item); break;
         case 'retry': {
           const btn = h('button', { type: 'button', class: 'btn btn-secondary pan-retry' }, 'Try again');
           const li = addLi('pan-item pan-retry-item', btn);
@@ -618,7 +653,7 @@ export function mountMentorPanel(root: HTMLElement, opts: {
   };
 
   /** One Pan turn: bump the turn, show that the Pan is thinking, render the reply (never silent on a throw). */
-  const turnWith = async (get: (ctx: TurnContext) => Promise<PanReply>): Promise<void> => {
+  const turnWith = async (get: (ctx: TurnContext) => Promise<PanReply>): Promise<PanReply | null> => {
     turn++;
     setPending(true);
     const startedIn = epoch;
@@ -631,10 +666,11 @@ export function mountMentorPanel(root: HTMLElement, opts: {
     } finally {
       setPending(false);
     }
-    if (startedIn !== epoch) return; // the conversation was cleared while this turn was on its way
+    if (startedIn !== epoch || destroyed) return null; // the conversation was cleared while this turn was on its way
     render(r);
+    return r;
   };
-  const reply = (input: MentorInput): Promise<void> => turnWith((ctx) => {
+  const reply = (input: MentorInput): Promise<PanReply | null> => turnWith((ctx) => {
     // C-1: an emergency, medical or child text always goes to the backend first, never to an intercept (the intake):
     // the backend answers it on the device and sets the conversation's sticky child flag, so a child's later turns
     // (intake answers included) never reach the AI. The intake's step simply waits.
@@ -687,35 +723,9 @@ export function mountMentorPanel(root: HTMLElement, opts: {
       if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing) { ev.preventDefault(); form.requestSubmit(); }
     });
 
-    talkBtn = h('button', { id: 'pan-talk', type: 'button', class: 'btn btn-secondary', 'aria-pressed': 'false' }, 'Hold to talk');
-    const talk = talkBtn;
-    const press = () => {
-      if (talk.getAttribute('aria-pressed') === 'true') return;
-      talk.setAttribute('aria-pressed', 'true');
-      talk.textContent = 'Listening…';
-    };
-    const release = () => {
-      if (talk.getAttribute('aria-pressed') !== 'true') return;
-      talk.setAttribute('aria-pressed', 'false');
-      talk.textContent = 'Hold to talk';
-      // M7 Step 6: the talk control sends nothing until Step 9 wires the voice controller (no voice.not_yet any more).
-    };
-    talk.addEventListener('pointerdown', press);
-    talk.addEventListener('pointerup', release);
-    talk.addEventListener('pointerleave', release);
-    talk.addEventListener('pointercancel', release);
-    talk.addEventListener('blur', release);
-    talk.addEventListener('keydown', (ev) => {
-      if (ev.key !== ' ' && ev.key !== 'Enter') return;
-      ev.preventDefault();
-      if (!ev.repeat) press();
-    });
-    talk.addEventListener('keyup', (ev) => {
-      if (ev.key !== ' ' && ev.key !== 'Enter') return;
-      ev.preventDefault();
-      release();
-    });
-    panel.append(form, h('div', { class: 'pan-talk-row' }, talkBtn));
+    // M7 Step 9: the talk control is lazy (talk.ts); first paint has only its empty row, hidden until it loads.
+    talkRow = h('div', { class: 'pan-talk-row', hidden: true });
+    panel.append(form, talkRow);
   }
 
   const onDocKey = (ev: KeyboardEvent) => { if (ev.key === 'Escape') api.close(); };
@@ -730,6 +740,7 @@ export function mountMentorPanel(root: HTMLElement, opts: {
       doc.addEventListener('keydown', onDocKey);
       (textBox ?? closeBtn).focus();
       showDisclosure();
+      loadTalk();
       for (const fn of [...openListeners]) fn();
     },
     close() {
@@ -761,6 +772,7 @@ export function mountMentorPanel(root: HTMLElement, opts: {
     },
     destroy() {
       destroyed = true;
+      void talk?.then((t) => t?.stop());
       doc.removeEventListener('keydown', onDocKey);
       opener?.removeEventListener('click', onOpener);
       stopLate?.();

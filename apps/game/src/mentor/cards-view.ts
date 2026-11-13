@@ -97,6 +97,9 @@ export function closeCard(el: HTMLElement, why: string): void {
   setCardNote(el, why);
 }
 
+/** M7 Ruling 12, on a severe rule card. */
+export const TAP_ONLY_TEXT = 'Only a tap confirms a severe rule. Saying or typing "yes" won\'t.';
+
 /** A short status line on the card (closed, expired, not saved yet). Empty text clears it. */
 export function setCardNote(el: HTMLElement, text: string): void {
   let note = el.querySelector<HTMLElement>('.pan-card-note');
@@ -146,7 +149,9 @@ export function renderCard(view: CardView, opts: {
     : h('button', { type: 'button', class: 'btn btn-secondary pan-card-reject' }, NOT_NOW);
   const stamp = contentText('div', content.bureau.stamps[form.stamp] ?? form.stamp.toUpperCase(), { class: 'bureau-stamp', 'aria-hidden': 'true' });
   const footnote = opts.footnote ? h('p', { class: 'bureau-footnote pan-card-footnote' }, opts.footnote) : null;
-  const el = bureauSlip(form, uid('pan-card-title'), dl, footnote, h('div', { class: 'bureau-buttons' }, confirmBtn, rejectBtn), stamp);
+  // M7 Ruling 12: a severe rule is confirmed by a tap only; a typed or spoken yes never does, and the card says so.
+  const tapOnly = card.kind === 'rule' && card.severe ? h('p', { class: 'bureau-footnote pan-card-tap-only' }, TAP_ONLY_TEXT) : null;
+  const el = bureauSlip(form, uid('pan-card-title'), dl, footnote, tapOnly, h('div', { class: 'bureau-buttons' }, confirmBtn, rejectBtn), stamp);
   el.dataset.origin = view.origin;
   el.dataset.kind = card.kind;
 
