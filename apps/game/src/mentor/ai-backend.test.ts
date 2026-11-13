@@ -36,7 +36,7 @@ const consents = (purposes: ('health_data' | 'ai_health')[]): Consents => ({
 const BOTH = () => ok(consents(['health_data', 'ai_health']));
 
 const response = (patch: Partial<TurnResponse>): TurnResponse =>
-  ({ conversationId: 'c1', route: 'deterministic', parts: [], cards: [], actions: [], notice: null, toolTurn: false, ...patch });
+  ({ conversationId: 'c1', route: 'deterministic', parts: [], cards: [], actions: [], notice: null, toolTurn: false, replyId: 'r1', ...patch });
 const line = (trigger: string) => ({ kind: 'line' as const, line: { trigger, vars: {} } });
 const said = (r: { items: PanItem[] }) => r.items.flatMap((i) => (i.kind === 'said' ? [i.said.trigger] : []));
 
@@ -148,11 +148,26 @@ describe('AI backend', () => {
     expect(turns(calls)).toHaveLength(2);
     expect(late).toHaveLength(1);
     expect(said(late[0])).toEqual(['ai.try_again']);
-    expect(late[0].items).toContainEqual({ kind: 'retry', text: 'My market day is Saturday.' });
+    expect(late[0].items).toContainEqual({ kind: 'retry', input: { kind: 'text', text: 'My market day is Saturday.' } });
     // Only once.
     await vi.advanceTimersByTimeAsync(RETRY_AFTER_MS * 3);
     expect(turns(calls)).toHaveLength(2);
     expect(writes.some((w) => w.includes('Saturday'))).toBe(false);
+  });
+
+  test('M7 Step 6 fix round 1 (I2): a failed transcript turn offers Try again with the whole transcript input, never as text', async () => {
+    const { backend, calls, late } = setup({ consents: BOTH, mentorTurn: () => fail(503) });
+    const input = { kind: 'transcript' as const, text: "I'm allergic to sesame", heard: { words: ['sesame'] } };
+    await backend.reply(input, ctx());
+    await vi.advanceTimersByTimeAsync(RETRY_AFTER_MS);
+    // The automatic retry resent the transcript unchanged.
+    expect(turns(calls).map((c) => (c.args[0] as TurnRequest).input)).toEqual([input, input]);
+    expect(late[0].items).toContainEqual({ kind: 'retry', input });
+    // An unconfirmed transcript stays one too: its Try again goes back to the server's heard gate.
+    const bare = setup({ consents: BOTH, mentorTurn: () => fail(503) });
+    await bare.backend.reply({ kind: 'transcript', text: 'got the shallots' }, ctx());
+    await vi.advanceTimersByTimeAsync(RETRY_AFTER_MS);
+    expect(bare.late[0].items).toContainEqual({ kind: 'retry', input: { kind: 'transcript', text: 'got the shallots' } });
   });
 
   test.each([[0, 'network'], [429, 'rate_limited'], [200, 'bad_response']])('status %i (%s) falls back to the script', async (status, code) => {
@@ -283,10 +298,21 @@ describe('AI backend', () => {
     warn.mockRestore();
   });
 
-  test('voice gets voice.not_yet with no call', async () => {
-    const { backend, calls } = setup({});
-    expect(said(await backend.reply({ kind: 'voice' }, ctx()))).toEqual(['voice.not_yet']);
-    expect(calls).toEqual([]);
+  test('M7 Step 6 (P9): a transcript is sent as input.kind transcript, with its heard words only when given; it takes the same health gate as text', async () => {
+    const { backend, calls } = setup({ consents: BOTH, mentorTurn: () => ok(response({ parts: [line('didnt_understand')] })) });
+    await backend.reply({ kind: 'transcript', text: 'tell me a joke' }, ctx());
+    await backend.reply({ kind: 'transcript', text: "I'm allergic to sesame", heard: { words: ['sesame'] } }, ctx({ turn: 2 }));
+    await backend.reply(text('hello'), ctx({ turn: 3 }));
+    expect(turns(calls).map((c) => (c.args[0] as TurnRequest).input)).toEqual([
+      { kind: 'transcript', text: 'tell me a joke' },
+      { kind: 'transcript', text: "I'm allergic to sesame", heard: { words: ['sesame'] } },
+      { kind: 'text', text: 'hello' },
+    ]);
+    // Without ai_health a health transcript stays on the device, exactly as typed health text does.
+    const without = setup({ consents: () => ok(consents(['health_data'])) });
+    const r = await without.backend.reply({ kind: 'transcript', text: "I'm allergic to sesame", heard: { words: ['sesame'] } }, ctx());
+    expect(turns(without.calls)).toEqual([]);
+    expect(r.items).toContainEqual({ kind: 'consent', purpose: 'ai_health' });
   });
 
   test('I2: dispose cancels the queued retry; nothing is sent or shown after it', async () => {
@@ -307,7 +333,7 @@ describe('AI backend', () => {
     const { client, calls } = fakeClient({ consents: BOTH, mentorTurn: () => fail(503) });
     const backend = switchingBackend(store, (kind) => (kind === 'ai'
       ? createAiBackend({ client, engine, dialogue, store, graph, ruleTerms: content.ruleTerms, now: () => T0, events: new EventTarget(), screen: () => null, intakeStep: () => null })
-      : createScriptedBackend(engine, dialogue)));
+      : createScriptedBackend(engine)));
     expect(backend.kind).toBe('ai');
     await backend.reply(text('tell me a joke'), ctx());
     store.update((s) => ({ ...s, settings: { ...s.settings, aiMentor: false } }));

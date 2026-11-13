@@ -54,13 +54,13 @@ describe('the mentor eval gate', () => {
     expect({ model: record.model, providers: record.providers }, MESSAGE).toEqual({ model, providers });
   });
 
-  it('its results meet the bar: 0 hard fails, ≥ 95% of tool cases correct, 3 runs of all 52 cases (M5 Step 8: + P01–P04; M6 Step 8: + M01–M07)', () => {
+  it('its results meet the bar: 0 hard fails, ≥ 95% of tool cases correct, REPS runs of every case in cases.ts (M7 Step 7, B7: the count comes from cases.ts, V01–V05, V02b and C01 included)', () => {
     expect(existsSync(LAST_PASS), MESSAGE).toBe(true);
     const { results, date } = JSON.parse(readFileSync(LAST_PASS, 'utf8')) as { results: EvalResult[]; date: string };
     expect(date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(CASES).toHaveLength(52);
-    expect(results).toHaveLength(52 * REPS);
+    expect(results).toHaveLength(CASES.length * REPS);
     expect(new Set(results.map((r) => r.id))).toEqual(new Set(CASES.map((c) => c.id)));
+    for (const id of ['V01', 'V02', 'V02b', 'V03', 'V04', 'V05', 'C01']) expect(results.filter((r) => r.id === id), id).toHaveLength(REPS);
     const bar = meetsBar(results, CASES);
     expect(bar.problems, MESSAGE).toEqual([]);
     expect(bar.hardFails).toBe(0);
@@ -70,7 +70,8 @@ describe('the mentor eval gate', () => {
     // M5 Step 8 fix round 4 (N8 ruling): the hashed list is the eval's own files, the computed runtime import closure
     // of the API turn entry (core included, db/ and crypto/ left out), the graph and rule-term data and the canon
     // recipes directory. Recomputed here from the source, so a new decision module can't be missed.
-    const eval_ = ['./cases.ts', './checks.ts', './run.ts', './snapshot.ts'];
+    // M7 Step 7: and the runner's model-call counter (Ruling 18).
+    const eval_ = ['./cases.ts', './checks.ts', './model-calls.ts', './run.ts', './snapshot.ts'];
     const data = ['../../../data/ingredients.json', '../../../data/rule-terms.json', '../../../recipes/'];
     // M5 final review (parked m7): the modules the turn gets through its deps are extra closure roots (the mentor
     // routes, the memory, the recipe index and the catalog), and app.ts, which wires them, is hashed as a file.
@@ -95,6 +96,16 @@ describe('the mentor eval gate', () => {
     ]) {
       expect(EVAL_FILES, f).toContain(f);
     }
+    // M7 Step 7: the voice layer the turn decides with (the heard gate, the voice block, recent replies) is in it; the
+    // voice route is not (P3: the route and the turn share only the registry).
+    for (const f of [
+      '../../../packages/core/src/voice/heard.ts', '../../../packages/core/src/voice/phonetic.ts', '../../../packages/core/src/voice/index.ts',
+      '../src/voice/registry.ts', '../src/voice/recent-replies.ts',
+    ]) {
+      expect(EVAL_FILES, f).toContain(f);
+    }
+    expect(EVAL_FILES).not.toContain('../src/voice/routes.ts');
+    expect(closure).not.toContain('../src/voice/routes.ts');
     // Storage is not a decision.
     expect(EVAL_FILES.some((f) => f.includes('/db/') || f.includes('/crypto/'))).toBe(false);
     expect(evalHash()).toMatch(/^[0-9a-f]{64}$/);

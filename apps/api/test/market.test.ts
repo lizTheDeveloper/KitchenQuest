@@ -257,6 +257,106 @@ describe('stall rounds (M6 Step 6)', () => {
     expect(await grantRows(p.id)).toEqual([]);
   });
 
+  it('M7 Step 7 (M6 final M13): a Protein Counter round and a base round seal to the same length (one 1024-byte bucket) and open without the pad', async () => {
+    const p = await player();
+    await addRule(p.cookie, NO_MEAT);
+    const pc = round('bram', [['bram-pc-parmesan', 0], ['bram-pc-tempeh', 2]]);
+    const base = round('wen', [['wen-avocado-ripe', 0]]);
+    const two = round('wen', [['wen-pear-neck', 0], ['wen-lemon-juicy', 0]]);
+    expect((await post(p.cookie, [pc, base, two])).rejected).toEqual([]);
+    const lengths = await sql<{ n: number }[]>`select octet_length(sealed)::int as n from progress_events where user_id = ${p.id} and kind = 'stall_round'`;
+    expect(lengths).toHaveLength(3);
+    expect(new Set(lengths.map((l) => l.n)).size).toBe(1);
+    // AES-GCM adds the header, iv and tag to the 1024-byte plaintext: the padded JSON is exactly one bucket.
+    for (const row of await eventRows(p.id)) {
+      const body = await openEventBody(db, config.keyring, p.id, row.id, row.sealed!);
+      expect(Object.keys(body)).not.toContain('_pad');
+    }
+    // They still read back whole: the view and the export are what was posted.
+    expect(await view(p.cookie)).toMatchObject({ xp: 20 }); // parmesan, avocado, pear and lemon right first time
+    const events = (await call(p.cookie, { method: 'GET', url: '/me/export' })).json<{ progress: { events: { id: string }[] } }>().progress.events;
+    expect(events.find((e) => e.id === pc.id)).toEqual({ ...pc, createdAt: NOW.toISOString() });
+  });
+
+  it('M7 Step 7 (M6 final M12): recordedFacts\' two lookups use the new indexes (EXPLAIN), and behave as before', async () => {
+    const p = await player({ consent: false });
+    const imported = { id: randomUUID(), kind: 'imported', at: TODAY, technique: 'grains', tier: 'seen', firstAt: TODAY, lastUsedAt: TODAY, recipes: [] };
+    const r = round('wen', [['wen-avocado-ripe', 0]]);
+    const first = await call(p.cookie, { method: 'POST', url: '/progress/events', payload: { events: [r, imported], upload: true } });
+    expect(first.statusCode, first.body).toBe(200);
+    // Behaviour unchanged: the same ids again are duplicates; a second import of the technique is no new claim.
+    const second = { ...imported, id: randomUUID() };
+    const again = await call(p.cookie, { method: 'POST', url: '/progress/events', payload: { events: [r, second], upload: true } });
+    expect(again.json<Posted>().duplicate).toEqual([r.id, second.id]);
+    const plan = async (query: string, params: string[]): Promise<string> =>
+      sql.begin(async (tx) => {
+        await tx`set local enable_seqscan = off`;
+        const rows = await tx.unsafe(`explain (format json) ${query}`, params);
+        return JSON.stringify(rows);
+      });
+    // The exact shapes `recordedFacts` sends (progress/store.ts), with nothing to read from a meal log.
+    const grants = await plan(`select "body"->>'eventId' from "reward_grants" where ("reward_grants"."user_id" = $1 and "reward_grants"."body"->>'eventId' in ($2, $3))`, [p.id, r.id, randomUUID()]);
+    expect(grants).toContain('reward_grants_user_event_idx');
+    const claims = await plan(`select "kind", "body"->>'technique', "meal_log_id" from "progress_events" where ("progress_events"."user_id" = $1 and ("progress_events"."kind" = 'imported' or false))`, [p.id]);
+    expect(claims).toContain('progress_events_user_imported_idx');
+  });
+
+  it('M7 Step 7 (M6 fix review N1): every health_data delete gives the account a new erasure id, returned by GET /progress and POST /progress/events', async () => {
+    const p = await player();
+    const erasure = async () => (await call(p.cookie, { method: 'GET', url: '/progress' })).json<{ healthErasure: string | null }>().healthErasure;
+    expect(await erasure()).toBeNull();
+    await post(p.cookie, [round('wen', [['wen-avocado-ripe', 0]])]);
+    expect((await withdraw(p.cookie, 'delete')).statusCode).toBe(204);
+    const first = await erasure();
+    expect(first).toMatch(/^[0-9a-f-]{36}$/);
+    // The same id until the next delete; a post answers with it too.
+    expect(await erasure()).toBe(first);
+    const posted = await call(p.cookie, { method: 'POST', url: '/progress/events', payload: { events: [round('wen', [['wen-pear-neck', 0]])] } });
+    expect(posted.json<{ healthErasure: string | null }>().healthErasure).toBe(first);
+    // A "keep" withdrawal erases nothing: no new id. A later delete ("delete health data now" or another withdrawal) does.
+    await consent(p.cookie);
+    expect((await withdraw(p.cookie, 'keep')).statusCode).toBe(204);
+    expect(await erasure()).toBe(first);
+    await consent(p.cookie);
+    expect((await withdraw(p.cookie, 'delete')).statusCode).toBe(204);
+    const second = await erasure();
+    expect(second).not.toBeNull();
+    expect(second).not.toBe(first);
+    // Another player's erasure is never seen here.
+    const q = await player();
+    expect((await call(q.cookie, { method: 'GET', url: '/progress' })).json<{ healthErasure: string | null }>().healthErasure).toBeNull();
+  });
+
+  it('M7 Step 7 fix round 1 (I1): a post from a device that has not seen the current erasure id gets its stall rounds refused as erased; nothing of them is stored', async () => {
+    const p = await player();
+    await addRule(p.cookie, NO_MEAT);
+    const postWith = (events: unknown[], erasure?: string | null) =>
+      call(p.cookie, { method: 'POST', url: '/progress/events', payload: { events, ...(erasure === undefined ? {} : { erasure }) } });
+    // Before any erasure, a post with no id (an older client, a new device) is accepted as before.
+    expect((await postWith([round('wen', [['wen-avocado-ripe', 0]])])).json<Posted>().rejected).toEqual([]);
+    // Device B, offline, plays a Protein Counter round and a base round; meanwhile device A deletes health data.
+    const pc = round('bram', [['bram-pc-parmesan', 0]]);
+    const base = round('wen', [['wen-pear-neck', 0]]);
+    const cooked = { id: randomUUID(), kind: 'cooked', at: TODAY, recipe: PARIPPU, planned: false };
+    expect((await withdraw(p.cookie, 'delete')).statusCode).toBe(204);
+    await consent(p.cookie);
+    const current = (await call(p.cookie, { method: 'GET', url: '/progress' })).json<{ healthErasure: string }>().healthErasure;
+    // B comes back and uploads with the id it last saw (none): the rounds are refused, content-free; the cook is kept.
+    for (const stale of [undefined, null, randomUUID()]) {
+      const res = await postWith([pc, base, cooked], stale);
+      expect(res.statusCode, res.body).toBe(200);
+      const body = res.json<Posted & { healthErasure: string }>();
+      expect(body.rejected).toEqual([{ clientId: pc.id, problems: ['erased'] }, { clientId: base.id, problems: ['erased'] }]);
+      expect(body.healthErasure).toBe(current);
+    }
+    expect((await eventRows(p.id)).map((r) => r.kind)).toEqual(['cooked']);
+    // With the current id (B has erased its copy and plays again), a round is accepted.
+    const fresh = round('wen', [['wen-lemon-juicy', 0]]);
+    expect((await postWith([fresh], current)).json<Posted>().accepted.map((a) => a.clientId)).toEqual([fresh.id]);
+    // The field is checked: anything but a string or null is a 400.
+    expect((await postWith([], 7 as unknown as string)).statusCode).toBe(400);
+  });
+
   it('Catalogue.market holds every boot-loaded stall, each question with its bank', () => {
     const loop = defaultLoopContent();
     expect([...loop.market.stalls.keys()].sort()).toEqual(['bram', 'okafor-sato', 'spice', 'wen']);

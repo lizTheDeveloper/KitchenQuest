@@ -56,6 +56,18 @@
         "@fontsource/pixelify-sans",
         "@fontsource/vt323"
       ]
+    },
+    "apps/voice": {
+      "entry": [
+        "test/**/*.test.ts",
+        "test/fixtures/fault-engines.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "test/**/*.ts",
+        "bench/**/*.ts",
+        "*.ts"
+      ]
     }
   }
 }

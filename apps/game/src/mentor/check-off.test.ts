@@ -54,7 +54,7 @@ function mountPanel(store: PlayerStore, client: ApiClient = noClient) {
   document.body.append(root);
   const p = parts(store, client);
   const pan = mountMentorPanel(root, {
-    week: p.week, mode: store.get().settings.familyTable ? 'familyTable' : 'standard', backend: createScriptedBackend(p.engine, p.dialogue),
+    week: p.week, mode: store.get().settings.familyTable ? 'familyTable' : 'standard', backend: createScriptedBackend(p.engine),
     dialogue: p.dialogue, writer: p.writer, engine: p.engine, client, forms: content.bureau.forms, store, reducedMotion: () => true, now: () => NOW,
   });
   const send = async (text: string) => {

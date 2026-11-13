@@ -1,0 +1,70 @@
+# Kitchen Quest voice service (apps/voice), M7 Step 3. Install as /etc/systemd/system/kq-voice.service.
+# See apps/voice/README.md ("Deploying" and "Host hardening"). Checked by apps/voice/test/deploy.test.ts.
+#
+# C-18: audio is processed in memory and never stored. The service gets a read-only filesystem except a private /tmp
+# (PrivateTmp, its own and emptied at stop; nothing else is made writable), no swap, no core dumps and no devices (so
+# no microphone), and runs with tsx's compile cache off, so nothing lands in that /tmp either.
+# C-38: the service binds VOICE_HOST, loopback by default; set it in voice.env to the private interface address when
+# the API runs on another box. Config refuses the wildcard, a public address and a hostname.
+# No network but loopback (IPAddressDeny/Allow): models load offline, and an engine or library that ignores the offline
+# variables cannot reach anything. When the API is on another box, allow its address in a drop-in (README).
+
+[Unit]
+Description=Kitchen Quest voice service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kq-voice
+Group=kq-voice
+WorkingDirectory=/opt/kitchenquest/apps/voice
+# The secrets (VOICE_SERVICE_TOKEN) and box settings (VOICE_HOST, VOICE_PYTHON, VOICE_MODELS_DIR, VOICE_WORKERS)
+# live in this root-owned 0600 file, which overrides the Environment= defaults below.
+EnvironmentFile=/etc/kitchenquest/voice.env
+Environment=VOICE_HOST=127.0.0.1
+Environment=VOICE_PORT=3100
+# The security-relevant values are set on the command line, so voice.env cannot override them (fix round 1, M3):
+# production (the Ruling 3 gate), the real worker engine, offline models, onnxruntime telemetry off (1.31 otherwise
+# writes a device id and a .ses file), and no tsx compile cache.
+# --disable-warning, never the blanket no-warnings flag: main.ts logs every warning by name, and its handler is what
+# keeps stderr content-free; on Node 22 this flag changes nothing there (see main.ts).
+ExecStart=/usr/bin/env NODE_ENV=production VOICE_ENGINE=worker VOICE_WORKER_ENGINE=real HF_HUB_OFFLINE=1 ORT_DISABLE_TELEMETRY=1 TSX_DISABLE_CACHE=1 /usr/bin/node --disable-warning=ExperimentalWarning --import tsx src/main.ts
+Restart=on-failure
+RestartSec=2
+
+# No core dumps (Review Focus 2, B3), no swap-backed buffers.
+LimitCORE=0
+MemorySwapMax=0
+# A read-only filesystem, except the private /tmp.
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+UMask=0077
+# No devices, no privileges, nothing but IP and Unix sockets, and IP to loopback only.
+PrivateDevices=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+IPAddressDeny=any
+IPAddressAllow=localhost
+# Kernel, syscall and namespace hardening (fix round 1, M2). MemoryDenyWriteExecute is impossible with V8's JIT.
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+SystemCallFilter=@system-service
+SystemCallArchitectures=native
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RemoveIPC=yes
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

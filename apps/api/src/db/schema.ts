@@ -32,6 +32,12 @@ export const users = pgTable("users", {
   email: citext("email").notNull().unique(),
   ageConfirmedAt: ts("age_confirmed_at").notNull(),
   createdAt: ts("created_at").notNull().defaultNow(),
+  /**
+   * M7 Step 7 (M6 fix review N1): a random id, new on every `health_data` delete (`deleteHealthDataIn`), null before the
+   * first. Content-free (no time, no count): `GET /progress` and `POST /progress/events` return it as `healthErasure`, so
+   * each of the account's signed-in devices erases its own copy of the erased stall rounds when it next syncs.
+   */
+  healthErasure: uuid("health_erasure"),
 });
 
 export const loginTokens = pgTable(
@@ -122,7 +128,11 @@ export const canonRecipes = pgTable("canon_recipes", {
   syncedAt: ts("synced_at").notNull().defaultNow(),
 });
 
-/** Never holds price, payment or card data; payments live with the payment provider. */
+/**
+ * Never holds price, payment or card data; payments live with the payment provider. Never an accessibility need either
+ * (M7 Step 4, Ruling 6, C-19): that is health data, sealed in `voice_settings`; the check refuses the retired
+ * `accessibility_voice` kind (migration 0022 deleted any such row first).
+ */
 export const entitlements = pgTable(
   "entitlements",
   {
@@ -136,7 +146,10 @@ export const entitlements = pgTable(
     endsAt: ts("ends_at"),
     createdAt: ts("created_at").notNull().defaultNow(),
   },
-  (t) => [index("entitlements_user_id_idx").on(t.userId)],
+  (t) => [
+    index("entitlements_user_id_idx").on(t.userId),
+    check("entitlements_retired_kind_check", sql`${t.kind} <> 'accessibility_voice'`),
+  ],
 );
 
 /** Content-free: counts and cost only, never a prompt, transcript or response. */
@@ -260,7 +273,7 @@ export const auditEvents = pgTable(
   ],
 );
 
-export const SELF_READ_RESOURCES = ["rules", "meals", "pantry", "progress", "plans", "notes"] as const;
+export const SELF_READ_RESOURCES = ["rules", "meals", "pantry", "progress", "plans", "notes", "voice"] as const;
 
 /**
  * C-5: the player's routine reads of their own health data, counted per user,
@@ -390,7 +403,8 @@ export const messages = pgTable(
 /** Core's `ProposalKind`, as stored (`mentor/proposals.ts` checks the two agree). */
 export const PROPOSAL_KINDS = ["rule", "meal", "profile", "pantry", "plan", "check_off"] as const;
 export const PROPOSAL_STATUSES = ["open", "confirmed", "rejected", "expired", "undone"] as const;
-export const PROPOSAL_CHANNELS = ["tap", "typed_yes"] as const;
+// M7 Step 6 (Ruling 12): `spoken_yes`, a transcript's strict yes on a non-severe card.
+export const PROPOSAL_CHANNELS = ["tap", "typed_yes", "spoken_yes"] as const;
 
 /**
  * A proposal card the server showed (I-4, M4 Step 6): what Step 8's guard
@@ -490,6 +504,10 @@ export const progressEvents = pgTable(
     uniqueIndex("progress_events_meal_log_idx")
       .on(t.userId, t.mealLogId)
       .where(sql`${t.mealLogId} is not null`),
+    // M7 Step 7 (M6 final M12): `recordedFacts` reads a player's imported claims on every post, without a ledger scan.
+    index("progress_events_user_imported_idx")
+      .on(t.userId)
+      .where(sql`${t.kind} = 'imported'`),
     check("progress_events_kind_check", sql`${t.kind} in (${inList(PROGRESS_KINDS)})`),
     check("progress_events_meal_log_check", sql`(${t.kind} = 'meal_logged') = (${t.mealLogId} is not null)`),
     check("progress_events_sealed_check", sql`(${t.kind} = 'stall_round') = (${t.sealed} is not null)`),
@@ -518,6 +536,8 @@ export const rewardGrants = pgTable(
   },
   (t) => [
     index("reward_grants_user_id_idx").on(t.userId),
+    // M7 Step 7 (M6 final M12): `recordedFacts` finds a batch's client ids among the grants (`body->>'eventId'`).
+    index("reward_grants_user_event_idx").on(t.userId, sql`(${t.body}->>'eventId')`),
     check("reward_grants_kind_check", sql`${t.kind} in (${inList(GRANT_KINDS)})`),
   ],
 );
@@ -635,4 +655,39 @@ export const sharedTable = pgTable(
     createdAt: ts("created_at").notNull().defaultNow(),
   },
   (t) => [index("shared_table_user_id_idx").on(t.userId)],
+);
+
+/**
+ * The plaintext length of every sealed `voice_settings` value, in bytes: `{ accessibility, pad }` is padded to it, so
+ * the blob of `true` and of `false` have one length (B4) and the row tells nothing by its size.
+ */
+export const VOICE_SETTINGS_PLAIN_BYTES = 64;
+/** A sealed blob's fixed overhead past its key id: the id-length byte, the 12-byte IV and the 16-byte tag (`crypto/seal.ts`). */
+const SEAL_OVERHEAD_BYTES = 1 + 12 + 16;
+
+/**
+ * P-5 (M7 Step 4, README Ruling 6, C-19): the player's self-declared accessibility need for voice, which makes voice
+ * unmetered (spec §16; the abuse ceiling still applies). A disability signal, so health data: `sealed` is
+ * `{ accessibility: boolean }` padded to VOICE_SETTINGS_PLAIN_BYTES, sealed S-U with AAD
+ * `{ table: 'voice_settings', userId, rowId: userId }` (one row per player). Written only with `health_data`. Once the
+ * player touches the setting the row is kept, with a sealed `false` when off (B4), so its existence says nothing;
+ * a `health_data` withdraw-with-delete and account delete (cascade) remove it. The check pins the sealed layout and
+ * length: a plain value, or a blob of another length, is refused. Never read by analytics, a prompt or a log.
+ */
+export const voiceSettings = pgTable(
+  "voice_settings",
+  {
+    userId: uuid("user_id")
+      .primaryKey()
+      .references(() => users.id, { onDelete: "cascade" }),
+    sealed: bytea("sealed").notNull(),
+    /** Set by every write from the app's injected clock. */
+    updatedAt: ts("updated_at").notNull(),
+  },
+  (t) => [
+    check(
+      "voice_settings_sealed_check",
+      sql`case when octet_length(${t.sealed}) = 0 then false else octet_length(${t.sealed}) = get_byte(${t.sealed}, 0) + ${sql.raw(String(SEAL_OVERHEAD_BYTES + VOICE_SETTINGS_PLAIN_BYTES))} end`,
+    ),
+  ],
 );

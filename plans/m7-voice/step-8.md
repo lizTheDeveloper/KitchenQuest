@@ -117,7 +117,7 @@ test('kqVoiceProvider: `vite build --mode staging` with VITE_VOICE_PROVIDER=brow
 test('kqHandsFree: VITE_HANDS_FREE=on fails without latest.json or with any failing browser, and passes with three passes', ...);
 test('kqCsp: the built index.html has connect-src \'self\' wss://<KQ_APP_ORIGIN host>; a build without KQ_APP_ORIGIN fails', ...);
 // budget-plugin.test.ts
-test('no voice module is in the first-paint graph; first paint ≤ M6 end + 2 KB', ...);
+test('no voice module is in the first-paint graph; first paint ≤ 359.6 KB (Step 7 baseline 357.6 KB + 2 KB, ruling round)', ...);
 ```
 - [ ] **8.2 Run** `npm test -w @kitchenquest/game -- voice build budget` → FAIL.
 - [ ] **8.3 Implement.**

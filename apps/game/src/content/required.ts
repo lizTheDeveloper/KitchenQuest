@@ -120,7 +120,24 @@ export const REQUIRED_PAN_TRIGGERS: readonly string[] = [
   'intake.ios_install',
   // M6 Step 10: Form 1-A's code loads on first open (first paint); this is said when it can't.
   'intake.unavailable',
-  'voice.not_yet',
+  // M7 Step 5: the voice route speaks these itself (the fallbacks and the heard card's spoken half).
+  'voice.check_screen',
+  'voice.step_on_screen',
+  'voice.heard_check',
+  'voice.heard_check_spelled',
+  'voice.too_long',
+  // M7 Step 6: the rest of the Pan's voice lines (the heard card, fillers, rest states, outcomes, hands-free).
+  'voice.heard_retry',
+  'voice.filler.thinking',
+  'voice.filler.ledger',
+  'voice.resting',
+  'voice.resting_today',
+  'voice.unavailable',
+  'voice.consent_needed',
+  'voice.didnt_catch',
+  'voice.hands_free_on',
+  'voice.hands_free_off',
+  'voice.hands_free_idle',
   'toolkit.rusty_invite',
   // M4: the mentor (server agent and scripted engine) emits these by id.
   'rule.unknown_term',

@@ -19,6 +19,9 @@ import {
   marketDayStated,
   codeCardHealth,
   correctionAsks,
+  heardCheck,
+  heardConfirmed,
+  heardLine,
   correctionScope,
   CORRECTION_COUNT_TRIGGER,
   CORRECTION_TIME_TRIGGER,
@@ -89,6 +92,8 @@ import { goPart, planCardContext, planReply, type PlanCardContext, type WeekSour
 import { MENTOR_TOOLS, parseToolCall, type ToolArgs } from './tools.js';
 import { confirmProposal, confirmProposalIn, latestUndoable, rejectProposalIn, undoWriteIn } from './writes.js';
 import type { RecipeIndex } from '../recipes/recipe-index.js';
+import { recentReplies } from '../voice/recent-replies.js';
+import { voiceRegistry } from '../voice/registry.js';
 
 export interface TurnDeps {
   db: Db;
@@ -125,7 +130,36 @@ const respond = (
   parts: ReplyPart[],
   notice: TurnNotice = null,
   extra: { cards?: ServerCard[]; toolTurn?: boolean; actions?: CardAction[] } = {},
-): TurnResponse => ({ conversationId, route, parts, cards: extra.cards ?? [], actions: extra.actions ?? [], notice, toolTurn: extra.toolTurn ?? false });
+): TurnResponse => ({
+  conversationId,
+  route,
+  parts,
+  cards: extra.cards ?? [],
+  actions: extra.actions ?? [],
+  notice,
+  toolTurn: extra.toolTurn ?? false,
+  // M7 Ruling 15: every response gets its own id, so a `speak` can name one of its line parts.
+  replyId: randomUUID(),
+});
+
+/** Replies kept nowhere, not even in `recentReplies` (fix round 1, M1). */
+const NOT_KEPT = new WeakSet<TurnResponse>();
+
+/**
+ * M7 Step 6 (stage 3b): an answer that keeps nothing of what was said: no `messages` row, no stored or in-memory
+ * history, no card, no usage row and no `recentReplies` entry. A heard card or `voice.too_long` is this: the misheard
+ * words are never kept, not even as the player's message. Stage 1 has already opened the conversation and recorded the
+ * turn's `turnKey` (content-free; a retry with that key is a J2 repeat, so a confirmed retry needs a new key).
+ */
+const respondNoStore = (conversationId: string, route: TurnResponse['route'], parts: ReplyPart[]): TurnResponse => {
+  const r = respond(conversationId, route, parts);
+  NOT_KEPT.add(r);
+  return r;
+};
+
+/** The player's message as stored (C-12): a transcript is marked `spoken`, inside the seal only (M7 Step 6). */
+const playerMessage = (text: string, req: TurnRequest): StoredMessage =>
+  req.input.kind === 'transcript' ? { role: 'player', text, spoken: true } : { role: 'player', text };
 
 /**
  * Stage 1: open the conversation and bump its turn (live user → conversation row), and read what the gates need.
@@ -364,7 +398,7 @@ async function lockConversation(tx: Tx, userId: string, conversationId: string):
 
 /**
  * Ingredient ids the turn accounts for: rule-card targets, ambiguous-term options, and the
- * non-allergen names a meal or pantry card carries. A meal or pantry card never covers a major
+ * non-allergen names a meal, pantry or (M7 Step 7) check-off card carries. A meal or pantry card never covers a major
  * allergen (fix round 1, C1): "peanut butter toast … allergic to peanuts" still asks about peanut.
  */
 export function coveredIds(reply: Reply, graph: IngredientGraph): string[] {
@@ -374,6 +408,10 @@ export function coveredIds(reply: Reply, graph: IngredientGraph): string[] {
   for (const c of reply.cards) {
     if (c.kind === 'meal') ids.push(...nonAllergenNamedIds(c.meal.item.kind === 'free' ? c.meal.item.description : c.summary, graph));
     if (c.kind === 'pantry') ids.push(...nonAllergenNamedIds([...c.add.map((a) => a.name), ...c.remove].join(', '), graph));
+    // M7 Step 7 (M6 final, the duplicate ask; eval C01): a check-off card's rows (its summary names them, from the run)
+    // are accounted for in the same way, so "got the shallots, I'm allergic to peanuts" asks about peanut once, never
+    // about the shallots the card covers. A major allergen on the card is still asked about.
+    if (c.kind === 'check_off') ids.push(...nonAllergenNamedIds(c.summary, graph));
   }
   ids.push(...reply.parts.flatMap((p) => (p.kind === 'choices' ? p.options.map((o) => o.id) : [])));
   // A which-kind ask ("herbs", C1) accounts for its broad category too: the ask is its answer, never a second ask.
@@ -446,6 +484,36 @@ interface FinishInput {
 }
 
 /**
+ * The code-card gate after the model (exported for mentor-gate.test.ts, M7 Step 7: M6 final M6, so a test can never
+ * pass on its own copy). M5 Step 8, fix round 2 (structural ruling): code builds a card itself only from a closed
+ * grammar that consumes the whole clause (core planWordsIn, reminderSlots, marketDayStated), and only when the model
+ * made no valid call of that kind (none, or one whose arguments didn't parse: a malformed call is never used) and the
+ * tool is offered (R4; rule help). Nothing at all on a message with a health term, symptom, severity, rule statement or
+ * diet cue (core codeCardHealth on the player's own words, checked FIRST): that message goes down M4's health path. A
+ * code card never suppresses its ask (`codeProfile` in finishTurn). Fix round 4: every clause of the message must be
+ * closed or neutral (N6, inside the core readers), and the health check is all of M4's gate except the bare meal-time
+ * words (N11, core codeCardHealth).
+ */
+export function codeCardGate(
+  raw: string,
+  dishes: readonly { slug: string; title: string }[],
+  catalog: Pick<Catalog, 'graph' | 'ruleTerms'>,
+  offered: ReadonlySet<string>,
+  calls: readonly ToolArgs[],
+): { words: ReturnType<typeof planWordsIn>; timed: ReturnType<typeof reminderSlots>; market: ReturnType<typeof marketDayStated> } {
+  const own = stripPageEvents(playerOwnWords(raw)).text;
+  if (codeCardHealth(own, catalog.graph, catalog.ruleTerms)) return { words: null, timed: [], market: null };
+  const graph = catalog.graph;
+  const words = offered.has('propose_plan') && !calls.some((c) => c.name === 'propose_plan') ? planWordsIn(raw, dishes, graph) : null;
+  const timed = offered.has('propose_profile') && !calls.some((c) => c.name === 'propose_profile') ? reminderSlots(raw, dishes, graph) : [];
+  const market =
+    offered.has('propose_profile') && !calls.some((c) => c.name === 'propose_profile' && c.args.market_days !== null && c.args.market_days.length > 0)
+      ? marketDayStated(raw, dishes, graph)
+      : null;
+  return { words, timed, market };
+}
+
+/**
  * Stages 7–9 in one transaction, in the README lock order: live user (a turn
  * racing an account delete is a 401, P5; the global cost and the player's usage
  * were already counted on their own, N6 and M-7) → consent row (share-locked; `persist` and the health cards are
@@ -469,24 +537,11 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
     deps.catalog.ruleTerms,
     { cooks: deps.week.loop.cooks, slugs: new Set(index.keys()) },
   ).filter((c) => !(c.name === 'propose_rule' && fine.has(graph.resolve(c.args.term) ?? '')));
-  // M5 Step 8, fix round 2 (structural ruling): code builds a card itself only from a closed grammar that consumes
-  // the whole clause (core planWordsIn, reminderSlots, marketDayStated), and only when the model made no valid call
-  // of that kind (none, or one whose arguments didn't parse: a malformed call is never used) and the tool is offered
-  // (R4; rule help). Nothing at all on a message with a health term, symptom, severity, rule statement or diet cue:
-  // that message goes down M4's health path first. A code card never suppresses its ask (`codeProfile` below).
-  // Fix round 4: every clause of the message must be closed or neutral (N6, inside the core readers), and the health
-  // check is all of M4's gate except the bare meal-time words (N11, core codeCardHealth).
-  const own = stripPageEvents(playerOwnWords(f.raw)).text;
-  const healthWords = codeCardHealth(own, graph, deps.catalog.ruleTerms);
+  // The code-card gate (`codeCardGate`): code's own plan and profile cards, only on a message with no health words.
   const dishes = [...index].map(([slug, r]) => ({ slug, title: r.meta.title }));
-  const words = !healthWords && offered.has('propose_plan') && !calls.some((c) => c.name === 'propose_plan') ? planWordsIn(f.raw, dishes, graph) : null;
+  const { words, timed, market } = codeCardGate(f.raw, dishes, deps.catalog, offered, calls);
   if (words !== null) calls.push({ name: 'propose_plan', args: { days: words.days, pick: words.pick, hard_week: words.hard, after: words.after } });
-  const timed = !healthWords && offered.has('propose_profile') && !calls.some((c) => c.name === 'propose_profile') ? reminderSlots(f.raw, dishes, graph) : [];
   if (timed.length > 0) calls.push({ name: 'propose_profile', args: { market_days: null, meals_per_week: null, region: null, country: null, meal_windows: timed } });
-  const market =
-    !healthWords && offered.has('propose_profile') && !calls.some((c) => c.name === 'propose_profile' && c.args.market_days !== null && c.args.market_days.length > 0)
-      ? marketDayStated(f.raw, dishes, graph)
-      : null;
   if (market !== null) {
     const profileCall = calls.find((c): c is Extract<ToolArgs, { name: 'propose_profile' }> => c.name === 'propose_profile');
     if (profileCall) profileCall.args.market_days = [WEEKDAY_NAMES[market]];
@@ -534,7 +589,7 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
     const persist = await consentHeldIn(tx, userId, 'health_data', now);
     const recipes = await tx.select({ slug: canonRecipes.slug, title: canonRecipes.title }).from(canonRecipes);
     const dishNamed = f.dishOnScreen || matchDish(f.stripped, recipes) !== null;
-    const writeRequest = isWriteRequest(f.stripped, graph);
+    const writeRequest = isWriteRequest(f.stripped, graph, deps.catalog.ruleTerms);
     let reply: Reply;
     // Read only when a removal needs resolving (no lock: the confirm locks the pantry and removes by id).
     const removes = calls.some((c) => c.name === 'propose_pantry_change' && c.args.remove.length > 0);
@@ -548,7 +603,7 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
     if (calls.length > 0) reply = cardsFromCalls(deps, calls, f.req, persist, recipes, pantry, saved, { planCtx, recipes: index, ...(checkOff ? { checkOff } : {}) });
     else if (f.mode === 'rule_help') reply = { parts: [], cards: [], toolTurn: false }; // R3: rule help only
     // M6 Step 8: a model that only SAID it ticked the list gets write.not_done too (its text is never shown).
-    else reply = scriptedReply(f.stripped, dishNamed, writeRequest || claimsTickWithoutCard(f.result.text, 0));
+    else reply = scriptedReply(f.stripped, dishNamed, writeRequest || claimsTickWithoutCard(f.result.text, 0, deps.catalog));
     // A bare "didn't understand" gives way to any ask that follows.
     const dropBareFallback = () => {
       if (reply.parts.length === 1 && reply.parts[0].kind === 'line' && reply.parts[0].line.trigger === 'didnt_understand') reply.parts = [];
@@ -556,7 +611,7 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
 
     // I5: a severe statement always ends with a rule outcome, naming the missed ingredient when code knows it.
     const keptRuleTerms = calls.flatMap((c) => (c.name === 'propose_rule' ? [c.args.term] : []));
-    // C1 over-ask: the non-allergen names a meal or pantry card carries are accounted for here too (never an allergen).
+    // C1 over-ask: the non-allergen names a meal, pantry or check-off card carries are accounted for here too (never an allergen).
     const mealNames = coveredIds({ ...reply, onFile: [], parts: [], cards: reply.cards.filter((c) => c.kind !== 'rule') }, graph).map((id) => graph.get(id).name);
     const ask = askForDroppedTerms(f.raw, [...keptRuleTerms, ...mealNames], hasRuleOutcome(reply), graph);
     if (ask !== null) {
@@ -613,7 +668,7 @@ async function finishTurn(deps: TurnDeps, userId: string, f: FinishInput, now: D
     const ids = reply.cards.map(() => randomUUID());
     // The transcript holds what the player saw: the scripted reply, never the model's text (R9).
     const msgs: StoredMessage[] = [
-      { role: 'player', text: f.stripped },
+      playerMessage(f.stripped, f.req),
       { role: 'pan', parts: reply.parts, proposalIds: ids },
     ];
     const append = () => appendMessages(tx, deps.keyring, deps.memory, userId, f.opened.conversationId, msgs, persist, now);
@@ -658,7 +713,7 @@ function refusalParts(e: unknown): ReplyPart[] {
 }
 
 /**
- * Stage 3b: a plain "yes", "no" or "undo" (Step 8). Core's `shortReplyTarget`
+ * Stage 3a: a plain "yes", "no" or "undo" (Step 8). Core's `shortReplyTarget`
  * decides which card it means, as the client's engine does for local cards:
  * only a single card from the previous Pan turn, never a severe one for a
  * typed yes, never a guess between two. Returns null when the turn goes on
@@ -720,7 +775,10 @@ async function shortReply(
     case 'confirm':
       try {
         // A plan card's week window reads the player's local date (Step 6 I2); a plan the rules now refuse is closed.
-        const r = await confirmProposal(deps.db, deps, userId, target.ref, 'typed_yes', undefined, now, requestId, undefined, req.localDate, {
+        // M7 Ruling 12: a transcript's strict yes is a spoken yes. The write guard holds it to the typed yes's rule (never a
+        // severe card: `shortReplyTarget` already answers one with the tap line); heard cards are no proposals at all.
+        const channel = req.input.kind === 'transcript' ? 'spoken_yes' : 'typed_yes';
+        const r = await confirmProposal(deps.db, deps, userId, target.ref, channel, undefined, now, requestId, undefined, req.localDate, {
           conversationId: id,
           turnSeq: opened.turnSeq,
         });
@@ -767,7 +825,7 @@ async function codeRoute(deps: TurnDeps, userId: string, raw: string, req: TurnR
     if (!(await lockConversation(tx, userId, id))) return respond(id, 'deterministic', built.parts);
     const ids = built.card === null ? [] : [randomUUID()];
     const stripped = stripPageEvents(raw).text.trim();
-    await appendMessages(tx, deps.keyring, deps.memory, userId, id, [{ role: 'player', text: stripped }, { role: 'pan', parts: built.parts, proposalIds: ids }], true, now);
+    await appendMessages(tx, deps.keyring, deps.memory, userId, id, [playerMessage(stripped, req), { role: 'pan', parts: built.parts, proposalIds: ids }], true, now);
     const cards: ServerCard[] = [];
     if (built.card !== null) cards.push(await createProposal(tx, deps.keyring, { userId, conversationId: id, turnSeq: opened.turnSeq, card: built.card, id: ids[0] }, now));
     return respond(id, 'deterministic', built.parts, null, { cards });
@@ -814,7 +872,7 @@ async function checkOffRoute(deps: TurnDeps, userId: string, raw: string, req: T
       const proposalId = randomUUID();
       const stripped = stripPageEvents(raw).text.trim();
       const store = (parts: ReplyPart[]) =>
-        appendMessages(tx, deps.keyring, deps.memory, userId, id, [{ role: 'player', text: stripped }, { role: 'pan', parts, proposalIds: [proposalId] }], persist, now);
+        appendMessages(tx, deps.keyring, deps.memory, userId, id, [playerMessage(stripped, req), { role: 'pan', parts, proposalIds: [proposalId] }], persist, now);
       const server = await createProposal(tx, deps.keyring, { userId, conversationId: id, turnSeq: opened.turnSeq, card, id: proposalId }, now);
       if (!persist) {
         const parts: ReplyPart[] = [...readback, line('consent.health_first'), { kind: 'consent', purpose: 'health_data' }];
@@ -843,7 +901,19 @@ async function checkOffRoute(deps: TurnDeps, userId: string, raw: string, req: T
  */
 export async function runTurn(deps: TurnDeps, userId: string, req: TurnRequest, requestId: string): Promise<TurnResponse> {
   const now = deps.now();
-  // 1. The raw text is kept for the injection cut (C4); everything else reads the stripped text.
+  // Fix round 1 (M2): the generation when the turn began; a forget, withdrawal or delete meanwhile drops the reply.
+  const gen = recentReplies.generation(userId);
+  const r = await turnAt(deps, userId, req, requestId, now);
+  // M7 Ruling 15: every reply is kept (its written lines, in memory only), so the voice route can speak it by id.
+  // Fix round 1 (M1): except a gated turn's (`respondNoStore`): nothing of the misheard words is kept anywhere; the
+  // device speaks the heard card with the `heard` speak item, rendered from the socket's own transcript.
+  if (!NOT_KEPT.has(r)) recentReplies.put(userId, r.replyId, r.parts, now.getTime(), gen);
+  return r;
+}
+
+async function turnAt(deps: TurnDeps, userId: string, req: TurnRequest, requestId: string, now: Date): Promise<TurnResponse> {
+  // 1. The raw text is kept for the injection cut (C4); everything else reads the stripped text. M7: a transcript is
+  // untrusted user text like typed text (§7.6), read the same way; stage 3a adds its heard gate.
   const deadline = AbortSignal.timeout(MENTOR_TURN_DEADLINE_MS);
   const raw = req.input.text;
   const stripped = stripPageEvents(raw).text.trim();
@@ -870,6 +940,9 @@ export async function runTurn(deps: TurnDeps, userId: string, req: TurnRequest, 
   // 2b. A child: the grown-up line for the rest of the conversation; nothing kept (§19).
   if (intent === 'child' || deps.childFlags.has(childKey, now.getTime())) {
     deps.childFlags.add(childKey, now.getTime());
+    // M7 Ruling 17: and the per-user voice block, on every add (the refresh too, so its TTL slides with the flag's):
+    // every voice socket of the user closes, and hello and listen are refused, whatever the device says (§19).
+    voiceRegistry.childFlagged(userId, now.getTime());
     return respond(id, 'deterministic', [line('child.grownup')]);
   }
 
@@ -879,9 +952,22 @@ export async function runTurn(deps: TurnDeps, userId: string, req: TurnRequest, 
   const fixed = preRoute(intent);
   if (fixed !== null) return respond(id, 'deterministic', [{ kind: 'line', line: fixed }]);
 
-  // 3b. A plain yes, no or undo answers a card through the write guard, before the consent gate (Step 8).
+  // 3a. A plain yes, no or undo answers a card through the write guard, before the consent gate (Step 8).
   const short = await shortReply(deps, userId, intent, opened, req, now, requestId);
   if (short !== null) return short;
+
+  // 3b. M7 Ruling 4 (§7.6): a transcript naming a food, a rule term or a sound-alike of one goes no further until a tap
+  // on its heard card confirms exactly the words heard (`input.heard.words`). It runs on the raw transcript: core's
+  // heard check strips page events from the whole text first and blocks (`tooLong`) past MAX_TEXT, never reading a cut
+  // text. A blocking check is refused and the player asked to type; it is never confirmed. Nothing of the words is kept
+  // either way (`respondNoStore`).
+  if (req.input.kind === 'transcript') {
+    const chk = heardCheck(raw, deps.catalog.graph, deps.catalog.ruleTerms);
+    if (chk?.tooLong) return respondNoStore(id, 'deterministic', [line('voice.too_long')]);
+    if (chk !== null && !heardConfirmed(chk, req.input.heard?.words)) {
+      return respondNoStore(id, 'deterministic', [{ kind: 'heard', check: chk }, { kind: 'line', line: heardLine(chk) }]);
+    }
+  }
 
   // 3c. M6 Step 8 (C30): the closed check-off grammar, for a safe whole message only, before the health gate.
   const checkedOff = await checkOffRoute(deps, userId, raw, req, opened, now, requestId);

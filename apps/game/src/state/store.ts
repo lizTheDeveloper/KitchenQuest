@@ -57,6 +57,12 @@ const EMPTY_PROGRESS: DeviceProgress = { events: [], grants: [], base: null, pen
 interface AccountPartition {
   progress: DeviceProgress;
   view: ProgressView | null;
+  /**
+   * M7 Step 7 (M6 fix review N1): the server's erasure id (`healthErasure` on GET /progress and POST /progress/events)
+   * this device last acted on. A different one means a `health_data` delete happened (on any device) since: the
+   * partition's stall rounds and meal-log events are erased here too (`applyServerErasure`).
+   */
+  erasure?: string;
 }
 
 const keyCache = new Map<string, string>();
@@ -83,11 +89,14 @@ export function prunePartition(s: PlayerState, key: string): PlayerState {
   // Already minimal (a start-up sweep over a pruned partition): nothing to write.
   if (old.view === null && old.progress.base === null && events.length === old.progress.events.length) return s;
   const ids = new Set(events.map((e) => e.id));
+  // M7 Step 7 fix round 1 (m1): a grant whose event the partition no longer holds at all (a round erased before it was
+  // uploaded) stays too, so XP never drops; the shown view is the max with the server's, so a kept grant never counts twice.
+  const held = new Set(old.progress.events.map((e) => e.id));
   const progress: DeviceProgress = {
-    events, grants: old.progress.grants.filter((g) => ids.has(g.eventId)), base: null, pendingUpload: events.map((e) => e.id),
+    events, grants: old.progress.grants.filter((g) => ids.has(g.eventId) || !held.has(g.eventId)), base: null, pendingUpload: events.map((e) => e.id),
     epoch: (old.progress.epoch ?? 0) + 1,
   };
-  return { ...s, accountProgress: { ...s.accountProgress, [key]: { progress, view: null } } };
+  return { ...s, accountProgress: { ...s.accountProgress, [key]: { progress, view: null, ...(old.erasure === undefined ? {} : { erasure: old.erasure }) } } };
 }
 
 /** Remove events (and their grants) from partition `key` for good: they are the server's now (N1, N5). */
@@ -98,6 +107,23 @@ export function dropEvents(s: PlayerState, key: string | null, ids: Iterable<str
   return withPartition(s, key, {
     events: p.events.filter((e) => !gone.has(e.id)),
     grants: p.grants.filter((g) => !gone.has(g.eventId)),
+    base: p.base,
+    pendingUpload: p.pendingUpload.filter((id) => !gone.has(id)),
+    epoch: (p.epoch ?? 0) + 1,
+  });
+}
+
+/**
+ * M7 Step 7 fix round 2 (R1): remove events from partition `key` but keep their grants: the server refused them as
+ * `erased` (recorded, as far as it can tell, before a health_data delete), so the record goes, and XP never drops.
+ */
+export function dropEventsKeepGrants(s: PlayerState, key: string, ids: Iterable<string>): PlayerState {
+  const gone = new Set(ids);
+  const p = partitionOf(s, key);
+  if (!p.events.some((e) => gone.has(e.id))) return s;
+  return withPartition(s, key, {
+    events: p.events.filter((e) => !gone.has(e.id)),
+    grants: p.grants,
     base: p.base,
     pendingUpload: p.pendingUpload.filter((id) => !gone.has(id)),
     epoch: (p.epoch ?? 0) + 1,
@@ -137,7 +163,21 @@ export function eraseHealthEvents(s: PlayerState, key: string): PlayerState {
     pendingUpload: p.pendingUpload.filter((id) => !gone.has(id)),
     epoch: (p.epoch ?? 0) + 1,
   };
-  return { ...s, accountProgress: { ...s.accountProgress, [key]: { progress, view } } };
+  return { ...s, accountProgress: { ...s.accountProgress, [key]: { ...old, progress, view } } };
+}
+
+/**
+ * M7 Step 7 (M6 fix review N1): the server says (`healthErasure`) the account's health data was erased, on this device
+ * or another. When this device has not yet acted on that erasure id, account `key`'s stall rounds and meal-log events
+ * are erased here exactly as on the deleting device (`eraseHealthEvents`: grants stay, so XP never drops), and the id is
+ * kept with the partition so the erasure runs once: rounds recorded after it are never dropped by the same id again.
+ */
+export function applyServerErasure(s: PlayerState, key: string, erasure: string): PlayerState {
+  const old = Object.hasOwn(s.accountProgress, key) ? s.accountProgress[key] : undefined;
+  if (old?.erasure === erasure) return s;
+  const erased = eraseHealthEvents(s, key);
+  const part: AccountPartition = Object.hasOwn(erased.accountProgress, key) ? erased.accountProgress[key] : { progress: EMPTY_PROGRESS, view: null };
+  return { ...erased, accountProgress: { ...erased.accountProgress, [key]: { ...part, erasure } } };
 }
 
 /** A partition's log: the guest's is `progress`; an account's lives in `accountProgress` (empty until it has one). */
@@ -257,7 +297,7 @@ const isProgress = (x: unknown): boolean =>
   isStrArray(x.pendingUpload) &&
   (x.epoch === undefined || (typeof x.epoch === 'number' && Number.isInteger(x.epoch) && x.epoch >= 0));
 const isPartitions = (x: unknown): boolean =>
-  isObj(x) && Object.values(x).every((a) => isObj(a) && isProgress(a.progress) && (a.view === null || isObj(a.view)));
+  isObj(x) && Object.values(x).every((a) => isObj(a) && isProgress(a.progress) && (a.view === null || isObj(a.view)) && (a.erasure === undefined || typeof a.erasure === 'string'));
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 /** Every core `IntakeStep`: a step core adds fails to compile here until it is listed. */
 const INTAKE_STEP_SET: Readonly<Record<IntakeStep, true>> = { market_day: true, meals_per_week: true, region: true, allergies: true, pantry: true };
@@ -448,7 +488,11 @@ export function mergePartitions(
     // A pruned partition (a higher epoch) replaces the older copy outright, view included: nothing removed comes back.
     if (!pa || eb > ea) accounts.set(key, pb);
     else if (ea > eb) accounts.set(key, pa);
-    else accounts.set(key, { progress: mergeProgress(pa.progress, pb.progress, opts), view: pb.view ?? pa.view });
+    else {
+      // N1 (M7 Step 7): the erasure id goes with the copies; the newer write's when both have one.
+      const erasure = pb.erasure ?? pa.erasure;
+      accounts.set(key, { progress: mergeProgress(pa.progress, pb.progress, opts), view: pb.view ?? pa.view, ...(erasure === undefined ? {} : { erasure }) });
+    }
   }
   return { progress: mergeProgress(a.progress, b.progress, opts), accountProgress: Object.fromEntries(accounts) };
 }

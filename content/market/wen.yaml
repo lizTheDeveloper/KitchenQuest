@@ -775,21 +775,26 @@ item_tips:
     pick: "Palm, not fingertips. Gentle give, darkening skin, and green under the stem cap means today. Rock-hard means a few days."
     # REVIEW: M6 Step 5 voice scan: reworded from "to hurry it" (the stall scarcity pattern). Content review.
     store: "Counter to ripen (paper bag with a banana to speed it up). Fridge once ripe, for a day or two more."
+    contains: [banana]
   tomato:
     pick: "Heavy for its size, smells like tomato at the stem, deep even colour, no soft spots."
     store: "Counter, stem side down, out of the sun. Fridge only if fully ripe and you can't eat it in time; warm it back up before eating."
   onion:
     pick: "Heavy, firm, with dry papery skin. Skip soft necks, sprouts and damp or powdery patches."
     store: "Cool, dark, dry, ventilated cupboard. Not the fridge (whole), and not next to the potatoes. Cut onion: covered, in the fridge, a few days."
+    contains: [potato]
   shallot:
     pick: "Firm and heavy with tight, dry skins. Avoid soft necks or green sprouts."
     store: "Like onions: cool, dark, dry, ventilated."
+    contains: [onion]
   garlic:
     pick: "Tight, firm cloves and dry skin. No green shoots, no soft spots."
     store: "Cool, dark, dry and airy. A whole head keeps for weeks; separated cloves dry out faster."
+    contains: [clove]
   potato:
     pick: "Firm, smooth, no green patches, no sprouts, no wrinkles."
     store: "Cool, dark, ventilated, away from onions. Cut away any green before cooking."
+    contains: [onion]
   carrot:
     pick: "Firm and bright, snap rather than bend. If the tops are on, they should be fresh and green."
     store: "Tops off, then in the fridge in a bag or crisper drawer. Weeks."
@@ -802,12 +807,14 @@ item_tips:
   cilantro:
     pick: "Perky, bright, no yellow leaves, no slime at the stems."
     store: "Stems in a jar of water in the fridge, loosely bagged. Change the water every two days."
+    contains: [water]
   lemon:
     pick: "Heavy for its size, thin smooth glossy skin, no soft spots."
     store: "Counter for a week; in a sealed bag in the fridge for a month."
   lime:
     pick: "Heavy, glossy, gives very slightly. A yellowish lime is riper and often juicier."
     store: "Like lemons: fridge in a bag keeps them juicy longest."
+    contains: [lemon]
   apple:
     pick: "Firm, no bruises or soft spots, stem intact."
     store: "Fridge keeps them crisp for weeks. Keep away from leafy greens; apples give off ethylene."
@@ -823,6 +830,7 @@ item_tips:
   berry:
     pick: "Plump, dry, no mould or juice stains in the box. Blueberries should have a dusty bloom."
     store: "Unwashed, in the fridge. Rinse just before eating. Frozen berries are excellent all year."
+    contains: [blueberry]
   kale:
     pick: "Crisp, deep-coloured leaves, no yellowing. Smaller leaves are more tender."
     store: "Fridge, loosely bagged, up to a week. Strip the tough stems before cooking."
@@ -844,6 +852,7 @@ item_tips:
   green_onion:
     pick: "Crisp, bright green tops and firm white ends."
     store: "Fridge, wrapped in a damp towel, or roots-down in a glass of water."
+    contains: [water]
   cranberry:
     pick: "Glossy, firm, deep red; they should bounce. Skip soft or shrivelled ones."
     store: "Fridge for weeks; freeze in the bag for months."
@@ -864,19 +873,25 @@ faq:
     a: "That's a choice about farming, taste and money, and reasonable people choose differently. For your cooking, the most important thing is that you buy vegetables and eat them. Fresh, frozen, organic or not: all better than none."
   - q: ["are frozen vegetables healthy", "frozen vs fresh", "is frozen veg ok"]
     a: "Yes. Frozen vegetables are picked and frozen quickly and keep their nutrients well. In winter they're often better than tired fresh ones. A bag of frozen peas is the best value in any shop."
+    contains: [pea]
     a_if_blocked: "Yes. Frozen vegetables are picked and frozen quickly and keep their goodness well. Choose the ones that suit your rules; the freezer has plenty."
   - q: ["do i need to wash produce", "how to wash vegetables", "wash fruit"]
     a: "Rinse under cool running water just before you use it, and rub firm things like potatoes with your hands or a brush. No soap or detergent. Pre-washed bagged salad that says 'ready to eat' doesn't need washing again."
+    contains: [potato, water]
     a_if_blocked: "Rinse produce under the cold tap just before you use it, and scrub the firm things with your hands or a brush. No soap. A bag marked 'ready to eat' is already washed."
   - q: ["what is ethylene", "fruits that ripen others", "keep fruit apart"]
     a: "A gas some fruit give off as they ripen: apples, bananas, avocados, pears, tomatoes. It speeds ripening nearby. Use it on purpose (avocado in a bag with a banana) and avoid it by accident (keep apples away from leafy greens)."
+    contains: [apple, avocado, banana, pear, tomato]
     a_if_blocked: "A gas some fruit give off as they ripen. It speeds up ripening nearby: handy on purpose, a nuisance by accident. Keep ripening fruit away from leafy greens."
   - q: ["how do i stop vegetables going off", "veg goes bad before i use it", "food waste"]
     a: "Eat the soft things first and the hard things last. Berries, herbs, salad and mushrooms early in the week; carrots, cabbage, squash, onions and apples later. Your pan will remind you. Your pan reminds everyone of everything."
+    contains: [apple, berry, cabbage, carrot, herb, mushroom, onion, squash]
     a_if_blocked: "Eat the soft, delicate things early in the week and the hard, sturdy things later. Your pan will remind you. Your pan reminds everyone of everything."
   - q: ["is ugly produce ok", "wonky vegetables", "bruised fruit"]
     a: "A crooked carrot is a carrot that's lived a little. Shape doesn't matter. Cut away small bruises and eat the rest. Mould, slime or a bad smell: that's when it's done."
+    contains: [carrot]
     a_if_blocked: "Odd shapes have lived a little; shape doesn't matter. Cut away small bruises and eat the rest. Mould, slime or a bad smell: that's when it's done."
   - q: ["how much produce should i buy", "how many vegetables for a week"]
     a: "Buy for the dishes you've planned, plus one or two easy things for snacking: apples, carrots, a bag of frozen veg. Better to come back for more than to compost a fridge drawer."
+    contains: [apple, carrot]
     a_if_blocked: "Enough for the dishes you've planned, plus one or two easy things to snack on. Coming back for more beats composting a fridge drawer."

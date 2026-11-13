@@ -36,7 +36,7 @@ export function lazyBackend(
       // Its own safety turn goes to the server through the loaded AI backend's queue; nothing if the code isn't loaded yet.
       const now = local?.(input, ctx) ?? null;
       if (now !== null) {
-        if (now.deliver && real && !disposed && input.kind === 'text') real.deliver?.(input, ctx);
+        if (now.deliver && real && !disposed) real.deliver?.(input, ctx);
         return now.reply;
       }
       let backend: MentorBackend;

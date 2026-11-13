@@ -140,6 +140,21 @@ export async function peekProposal(
   return row ? { kind: row.kind as ProposalKind, writeRef: row.writeRef } : null;
 }
 
+/**
+ * M7 Step 5 (Ruling 15): the card of the caller's proposal, opened, with no lock and nothing written; null when the id
+ * is not a uuid or not theirs. The voice route speaks its code-built read-back (§7.6b.2), never anything the client sent.
+ */
+export async function readProposalCard(db: Pick<Db, 'select'>, keyring: Keyring, userId: string, id: string): Promise<ProposalCard | null> {
+  if (!UUID.test(id)) return null;
+  const row = (
+    await db
+      .select({ sealed: mentorProposals.sealed })
+      .from(mentorProposals)
+      .where(and(eq(mentorProposals.id, id), eq(mentorProposals.userId, userId)))
+  ).at(0);
+  return row ? openFor<ProposalCard>(db, keyring, proposalSealContext(userId, id), row.sealed) : null;
+}
+
 /** The caller's proposals still open (not expired at `now`) from one turn of one conversation, oldest first. No lock. */
 export async function openProposalsOfTurn(
   tx: Tx,
@@ -224,7 +239,7 @@ export async function markDecided(
   tx: Tx,
   id: string,
   status: 'confirmed' | 'rejected' | 'undone',
-  channel: 'tap' | 'typed_yes' | null,
+  channel: 'tap' | 'typed_yes' | 'spoken_yes' | null,
   writeRef: string | null,
   undo: unknown,
   keyring: Keyring,

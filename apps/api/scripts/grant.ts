@@ -4,10 +4,13 @@ import { eq } from 'drizzle-orm';
 import { audit } from '../src/audit/audit.js';
 import { createDb } from '../src/db/client.js';
 import { users } from '../src/db/schema.js';
-import { ENTITLEMENT_KINDS, grant, type EntitlementKind } from '../src/entitlements/entitlements.js';
+import { ENTITLEMENT_KINDS, grant, RETIRED_ENTITLEMENT_KINDS, retiredKindMessage, type EntitlementKind } from '../src/entitlements/entitlements.js';
 
 const [email, kind, days] = process.argv.slice(2);
-const usage = `usage: npm run grant -w @kitchenquest/api -- <email> <${ENTITLEMENT_KINDS.join('|')}> [days]`;
+const grantable = ENTITLEMENT_KINDS.filter((k) => !RETIRED_ENTITLEMENT_KINDS.includes(k));
+const usage = `usage: npm run grant -w @kitchenquest/api -- <email> <${grantable.join('|')}> [days]`;
+// C-19 (M7 Step 4): the accessibility need is a sealed setting the player turns on themselves, never a grant.
+if (kind && RETIRED_ENTITLEMENT_KINDS.includes(kind as EntitlementKind)) throw new Error(retiredKindMessage(kind as EntitlementKind));
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error('DATABASE_URL is required');
 if (!email || !kind || !ENTITLEMENT_KINDS.includes(kind as EntitlementKind)) throw new Error(usage);

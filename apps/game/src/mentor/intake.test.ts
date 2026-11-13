@@ -131,7 +131,7 @@ function setup(opts: { patch?: Partial<PlayerState>; consents?: Consents; ai?: (
   const recipes = Object.entries(content.recipes).map(([slug, r]) => ({ slug, title: r.meta.title }));
   const engine = createScriptedEngine({ dialogue, graph, ruleTerms: content.ruleTerms, recipes, now: () => T0 });
   const writer = createCardWriter({ client, store, dialogue, graph, ruleTerms: content.ruleTerms, now: () => T0 });
-  const backend = opts.ai ? opts.ai(client, store) : createScriptedBackend(engine, dialogue);
+  const backend = opts.ai ? opts.ai(client, store) : createScriptedBackend(engine);
   const panel = mountMentorPanel(root, {
     mode: 'standard', backend, dialogue, writer, engine, client, forms: content.bureau.forms, store, reducedMotion: () => true, now: () => T0,
   });
@@ -320,7 +320,7 @@ describe('createIntake', () => {
       patch: { account: { email: 'a@b.c' }, accountRules: [] },
       mentorTurn: (req) => {
         bodies.push(req);
-        const res: TurnResponse = { conversationId: 'c1', route: 'ai', notice: null, toolTurn: true, actions: [], parts: [], cards: [] };
+        const res: TurnResponse = { conversationId: 'c1', route: 'ai', notice: null, toolTurn: true, actions: [], parts: [], cards: [], replyId: 'r1' };
         return Promise.resolve(ok(res));
       },
       ai: (client, store) => {
@@ -349,7 +349,7 @@ describe('createIntake', () => {
       mentorTurn: () => {
         n++;
         if (n === 1) return Promise.resolve({ ok: false, status: 503, error: { code: 'unavailable', message: '' } });
-        const res: TurnResponse = { conversationId: 'c1', route: 'scripted', notice: 'rate_limited', toolTurn: false, actions: [], parts: [], cards: [] };
+        const res: TurnResponse = { conversationId: 'c1', route: 'scripted', notice: 'rate_limited', toolTurn: false, actions: [], parts: [], cards: [], replyId: 'r2' };
         return Promise.resolve(ok(res));
       },
       ai: (client, store) => {
@@ -451,7 +451,7 @@ describe('Fix round 1 (I1): begin() itself never starts after a child turn', () 
     const engine = createScriptedEngine({ dialogue, graph, ruleTerms: content.ruleTerms, recipes: [], now: () => T0 });
     const client = {} as ApiClient;
     const writer = createCardWriter({ client, store, dialogue, graph, ruleTerms: content.ruleTerms, now: () => T0 });
-    const panel = mountMentorPanel(root, { mode: 'standard', backend: createScriptedBackend(engine, dialogue), dialogue, writer, engine, client, forms: content.bureau.forms, store, reducedMotion: () => true, now: () => T0 });
+    const panel = mountMentorPanel(root, { mode: 'standard', backend: createScriptedBackend(engine), dialogue, writer, engine, client, forms: content.bureau.forms, store, reducedMotion: () => true, now: () => T0 });
     const child = createChildFlag();
     child.set();
     const intake = createIntake({ panel, engine, ai: null, store, client, dialogue, signedIn: () => false, graph, ruleTerms: content.ruleTerms, form: content.bureau.forms.intake, child });

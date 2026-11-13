@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { recordTechnique } from '@kitchenquest/core/engine';
-import { accountKey, accountViewOf, createStore, eraseHealthEvents, prunePartition, deleteDeviceData, importM3Toolkit, mergePartitions, mergeProgress, partitionKey, partitionOf, STORE_KEY, withPartition } from './store';
+import { accountKey, accountViewOf, applyServerErasure, createStore, eraseHealthEvents, prunePartition, deleteDeviceData, importM3Toolkit, mergePartitions, mergeProgress, partitionKey, partitionOf, STORE_KEY, withPartition } from './store';
 
 function memStorage(init: Record<string, string> = {}): Storage {
   const m = new Map(Object.entries(init));
@@ -659,5 +659,66 @@ describe('M6 final review I1: a health_data withdraw-with-delete erases the devi
   it('leaves an account with no partition alone', () => {
     const s = createStore(null).get();
     expect(eraseHealthEvents(s, key)).toBe(s);
+  });
+});
+
+describe('M7 Step 7 (M6 fix review N1): the server erase signal', () => {
+  const key = accountKey('cook@example.test');
+  const at = '2026-11-09';
+  const round = { id: 'r1', kind: 'stall_round' as const, at, stall: 'bram', answers: [{ q: 'bram-pc-most-protein', pick: 2 }] };
+  const lesson = { id: 'l1', kind: 'lesson' as const, at, recipe: 'india/kerala/parippu' };
+  const grants = [{ id: 'r1#0', eventId: 'r1', isoDay: at, kind: 'xp' as const, amount: 5, reason: 'market_game' as const }];
+  const view = { xp: 5, level: 1, stamps: 0, trust: {}, toolkit: { techniques: {} }, questsDone: [], questSteps: {}, questStartedOn: {}, cookedOn: {}, framesCookedOn: {}, marketAnswered: { 'bram-pc-most-protein': { correct: true, lastAt: at } } };
+  const seeded = () => withPartition({ ...createStore(null).get(), account: { email: 'cook@example.test' } }, key, { events: [round, lesson], grants, pendingUpload: [], base: null }, view);
+  const E1 = '11111111-1111-4111-8111-111111111111';
+  const E2 = '22222222-2222-4222-8222-222222222222';
+
+  it('a new erasure id erases the partition\'s stall rounds as the deleting device did (grants stay) and is kept; the same id again changes nothing', () => {
+    const s = applyServerErasure(seeded(), key, E1);
+    expect(partitionOf(s, key).events.map((e) => e.id)).toEqual(['l1']);
+    expect(partitionOf(s, key).grants).toEqual(grants);
+    expect(accountViewOf(s, key)?.marketAnswered).toEqual({});
+    expect(s.accountProgress[key].erasure).toBe(E1);
+    expect(JSON.stringify(s.accountProgress)).not.toContain('bram-pc');
+    // Acted on once: a round recorded since stays when the same id comes back.
+    const later = withPartition(s, key, { ...partitionOf(s, key), events: [...partitionOf(s, key).events, { ...round, id: 'r2' }] });
+    expect(applyServerErasure(later, key, E1)).toBe(later);
+    // A newer erasure (another delete) erases again.
+    const again = applyServerErasure(later, key, E2);
+    expect(partitionOf(again, key).events.map((e) => e.id)).toEqual(['l1']);
+    expect(again.accountProgress[key].erasure).toBe(E2);
+  });
+
+  it('the id survives a sign-out prune, a merge with an older copy and a reload, so it is never acted on twice', () => {
+    const s = applyServerErasure(seeded(), key, E1);
+    expect(prunePartition(s, key).accountProgress[key].erasure).toBe(E1);
+    const merged = mergePartitions(seeded(), s);
+    expect(merged.accountProgress[key].erasure).toBe(E1);
+    expect(merged.accountProgress[key].progress.events.map((e) => e.id)).toEqual(['l1']);
+    const storage = memStorage();
+    const st = createStore(storage);
+    st.update(() => s);
+    expect(createStore(storage).get().accountProgress[key].erasure).toBe(E1);
+    // A stored erasure that is not a string is corrupt, never silently dropped.
+    expect(createStore(memStorage({ [STORE_KEY]: JSON.stringify({ v: 1, accountProgress: { [key]: { progress: { events: [], grants: [], base: null, pendingUpload: [] }, view: null, erasure: 7 } } }) })).notice).toBe('corrupt');
+  });
+
+  it('fix round 1 (m1): a grant of a round erased before it was uploaded survives the sign-out prune (XP never drops)', () => {
+    const pending = withPartition(seeded(), key, { events: [round, lesson], grants, pendingUpload: ['r1'], base: null }, view);
+    const erased = applyServerErasure(pending, key, E1);
+    expect(partitionOf(erased, key).grants).toEqual(grants);
+    const pruned = prunePartition(erased, key);
+    expect(partitionOf(pruned, key).grants).toEqual(grants);
+    expect(partitionOf(pruned, key).events).toEqual([]);
+    // A synced event's grant still goes with its event (the server holds both).
+    const synced = withPartition(seeded(), key, { events: [lesson], grants: [{ id: 'l1#0', eventId: 'l1', isoDay: at, kind: 'xp' as const, amount: 10, reason: 'lesson' as const }], pendingUpload: [], base: null }, view);
+    expect(partitionOf(prunePartition(synced, key), key).grants).toEqual([]);
+  });
+
+  it('with no partition for the account: the id is recorded, nothing else changes', () => {
+    const s = { ...createStore(null).get(), account: { email: 'cook@example.test' } };
+    const t = applyServerErasure(s, key, E1);
+    expect(t.accountProgress[key]).toMatchObject({ erasure: E1, view: null });
+    expect(partitionOf(t, key).events).toEqual([]);
   });
 });

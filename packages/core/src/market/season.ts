@@ -28,8 +28,12 @@ export interface SeasonRegion {
   status: 'draft' | 'reviewed';
   /** At least one citation. */
   sources: string[];
-  /** Phrases compared after normalisation. `regions: []` means the whole country. */
-  match: { countries: string[]; regions: string[] };
+  /**
+   * Phrases compared after normalisation. `regions: []` means the whole country. M7 Step 7 (M6 final M11): `exclude`,
+   * phrases that take a player out of this region whatever else matches ("ohio" for "Oregon, Ohio", "eastern
+   * washington"), matched the same way.
+   */
+  match: { countries: string[]; regions: string[]; exclude?: string[] };
   /** Ruling 9: a declared SAME-COUNTRY broader region that is itself in the table. */
   parent?: string;
   /** The region's own categories, 2–5 of them. The first is "in season now". */
@@ -76,6 +80,8 @@ function wholeWordPart(phrase: string, text: string): boolean {
 /** Whether a region's `match` takes a player in this country (as written) and region (normalised, or null). */
 function accepts(r: SeasonRegion, country: string | null, region: string | null): boolean {
   if (!countryInScope(r.match.countries, country)) return false;
+  // M7 Step 7 (M6 final M11): any exclude phrase in the player's region and this region never takes them.
+  if (region !== null && (r.match.exclude ?? []).some((ph) => wholeWordPart(normalizePhrase(ph), region))) return false;
   if (r.match.regions.length === 0) return true;
   return region !== null && r.match.regions.some((ph) => wholeWordPart(normalizePhrase(ph), region));
 }
@@ -83,7 +89,8 @@ function accepts(r: SeasonRegion, country: string | null, region: string | null)
 /**
  * The player's region id, or null. Normalise country and region (lowercase, strip accents and punctuation, collapse
  * spaces). A table region matches when its `countries` holds the country AND (its `regions` is [] OR one of its
- * `regions` phrases equals the region or is a whole-word part of it). Exactly one match → its id. Zero or more than one
+ * `regions` phrases equals the region or is a whole-word part of it) AND none of its `exclude` phrases is (M7 Step 7).
+ * Exactly one match → its id. Zero or more than one
  * → null. A null country → null. There is no default and no nearest guess.
  *
  * The country side is Step 1's `countryInScope`: aliases meet ("USA" = "United States"), and the UK's nations are
@@ -232,8 +239,9 @@ export function dishSeasonNote(recipe: ParsedRecipe, regionId: string | null, ta
 /** A region as far as `accepts` needs it, when its match block has the right shape; else null. */
 function matchable(r: unknown): SeasonRegion | null {
   if (!isObject(r) || !isObject(r.match)) return null;
-  const { countries, regions } = r.match;
+  const { countries, regions, exclude } = r.match;
   if (!Array.isArray(countries) || !countries.every(isText) || !Array.isArray(regions) || !regions.every((x) => typeof x === 'string')) return null;
+  if (exclude !== undefined && !(Array.isArray(exclude) && exclude.every((x) => typeof x === 'string'))) return null;
   return r as unknown as SeasonRegion;
 }
 
@@ -251,6 +259,7 @@ function matchable(r: unknown): SeasonRegion | null {
  *   the table's own phrases (each phrase under each of the table's countries, plus no region at all). Two phrases
  *   joined ("washington oregon") are not probed: any two same-country regions would "overlap" on such a player.
  *   That would make `seasonRegionFor` null for those players. It is reported, never resolved by picking one;
+ * - an `exclude` that is not a list of phrases, or a phrase that would cancel one of the region's own (M7 Step 7);
  * - and the shape around them (status, name, an unknown country name, an empty region phrase, a duplicate category).
  */
 export function validateSeasonTable(d: unknown, graph: IngredientGraph): string[] {
@@ -283,6 +292,19 @@ export function validateSeasonTable(d: unknown, graph: IngredientGraph): string[
       else
         for (const ph of regions) {
           if (typeof ph !== 'string' || normalizePhrase(ph) === '') say(`match.regions: region phrase ${JSON.stringify(ph)} is empty once normalised`);
+        }
+      // M7 Step 7 (M6 final M11): exclude phrases, none of which may cancel one of the region's own phrases.
+      const { exclude } = r.match;
+      if (exclude !== undefined && !Array.isArray(exclude)) say('match.exclude is not a list');
+      else
+        for (const ph of exclude ?? []) {
+          if (typeof ph !== 'string' || normalizePhrase(ph) === '') {
+            say(`match.exclude: phrase ${JSON.stringify(ph)} is empty once normalised`);
+            continue;
+          }
+          const own: unknown[] = Array.isArray(regions) ? regions : [];
+          const cancelled = own.find((x): x is string => typeof x === 'string' && wholeWordPart(normalizePhrase(ph), normalizePhrase(x)));
+          if (cancelled !== undefined) say(`match.exclude: "${ph}" would exclude the region's own phrase "${cancelled}"`);
         }
     }
 

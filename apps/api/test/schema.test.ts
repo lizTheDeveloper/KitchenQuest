@@ -17,11 +17,13 @@ describe('schema', () => {
       select table_name from information_schema.tables
       where table_schema = 'public' order by table_name`;
     const names = tables.map((r) => r.table_name);
-    for (const n of ['users', 'login_tokens', 'sessions', 'profiles', 'rules', 'canon_recipes', 'user_keys', 'consents', 'audit_events', 'self_read_counts', 'meal_logs', 'pantry_items', 'ai_cost_hours', 'progress_events', 'reward_grants', 'meal_plans', 'market_runs', 'margin_notes', 'shared_table', 'progress_snapshots']) {
+    for (const n of ['users', 'login_tokens', 'sessions', 'profiles', 'rules', 'canon_recipes', 'user_keys', 'consents', 'audit_events', 'self_read_counts', 'meal_logs', 'pantry_items', 'ai_cost_hours', 'progress_events', 'reward_grants', 'meal_plans', 'market_runs', 'margin_notes', 'shared_table', 'progress_snapshots', 'voice_settings']) {
       expect(names).toContain(n);
     }
     const applied = await t.sql`select count(*)::int as n from drizzle.__drizzle_migrations`;
-    expect(applied[0].n).toBe(22);
+    // M7 Step 6: 0024 adds `spoken_yes` to the proposal channel check. M7 Step 7: 0025 adds `users.health_erasure` (N1)
+    // and the two `recordedFacts` indexes (M12).
+    expect(applied[0].n).toBe(26);
   });
 
   it('cascades user deletion to sessions, profiles and rules', async () => {

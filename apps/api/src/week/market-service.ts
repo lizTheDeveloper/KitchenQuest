@@ -46,7 +46,8 @@ async function sealRun(tx: Tx, deps: WeekDeps, userId: string, runId: string, ru
  * their pantry ids, and every other row from core `marketList` over the plan, pantry and rules as they are now (a ⛔
  * dish adds none; ❓ lines are flagged; each row's `amounts`, M6 Ruling 12). A fresh row the existing run had marked
  * out of stock keeps `outOfStock` (M6 Step 6, C23); a row the recompute drops (its dish now ⛔, or the pantry holds it)
- * goes with its flag, as any unticked row does, and its ticked `stock:` row stays.
+ * goes with its flag, as any unticked row does, and its ticked `stock:` row stays; when the row comes back (the rule
+ * goes), it is out of stock again beside that swap (M7 Step 7, M6 final M14).
  */
 async function recompute(tx: Tx, deps: WeekDeps, userId: string, plan: Plan, existing: SealedRun | null): Promise<SealedRun> {
   const rules = await loadRules(tx, deps.keyring, userId);
@@ -54,7 +55,12 @@ async function recompute(tx: Tx, deps: WeekDeps, userId: string, plan: Plan, exi
   const fresh = marketList(plan, planContext(deps, plan.weekStart, rules), pantry, deps.loop.stallOf);
   const kept = (existing?.items ?? []).filter((i) => i.ticked || i.stockSwap !== undefined);
   const keptKeys = new Set(kept.map((i) => i.key));
-  const out = new Set((existing?.items ?? []).filter((i) => i.outOfStock === true).map((i) => i.key));
+  // M7 Step 7 (M6 final M14): a row a kept stall swap stands in for is out of stock too, so a dish that left the list (a
+  // rule blocked it) and came back returns beside its swap as swapped, never as a second, tickable row.
+  const out = new Set([
+    ...(existing?.items ?? []).filter((i) => i.outOfStock === true).map((i) => i.key),
+    ...kept.flatMap((i) => (i.stockSwap === undefined ? [] : [i.stockSwap.from])),
+  ]);
   const recomputed = fresh.filter((i) => !keptKeys.has(i.key)).map((i): ListItem => (out.has(i.key) ? { ...i, outOfStock: true, ticked: false } : i));
   const items = [...kept, ...recomputed].sort(listOrder);
   const pantryIds = Object.fromEntries(Object.entries(existing?.pantryIds ?? {}).filter(([k]) => keptKeys.has(k)));

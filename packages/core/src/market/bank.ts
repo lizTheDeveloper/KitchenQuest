@@ -102,21 +102,29 @@ export function stallBank(
 
 /**
  * The stall's tip for an item (the Protein Counter's own tips when that variant is in use), or null when there is
- * none, or when the item, or anything the tip's text names, is ⛔ or ❓ (checked with no substitutions).
+ * none, or when the item, anything the tip's text names, or anything its `contains` declares, is ⛔ or ❓ (no substitutions).
  */
 export function tipFor(stall: StallFile, ingredientId: string, ctx: MarketCtx): ItemTip | null {
   const tips = sideOf(stall, stallVariant(stall, ctx)).item_tips;
   const tip = Object.hasOwn(tips, ingredientId) ? tips[ingredientId] : undefined;
   if (tip === undefined) return null;
-  return namedStatus([ingredientId], [tip.pick, tip.store], ctx) === 'ok' ? tip : null;
+  // M7 Step 7 (M6 final M7): the tip's declared contains count as well as the scan.
+  return namedStatus([ingredientId, ...(tip.contains ?? [])], [tip.pick, tip.store], ctx) === 'ok' ? tip : null;
 }
 
-/** The stall's generic safety line: the Spice Merchant's `allergen_note`, else `medical`; the variant's, then the base's. */
-function safetyLine(stall: StallFile, side: { triggers: Record<string, StallTrigger> }): string | null {
+/**
+ * The stall's generic safety line, with the ids its trigger declares for it (line 0): the Spice Merchant's
+ * `allergen_note`, else `medical`; the variant's, then the base's.
+ */
+function safetyLine(stall: StallFile, side: { triggers: Record<string, StallTrigger> }): { text: string; contains: string[] } | null {
   for (const key of ['allergen_note', 'medical']) {
     for (const triggers of [side.triggers, stall.triggers]) {
-      const line = Object.hasOwn(triggers, key) ? triggers[key].lines[0] : undefined;
-      if (typeof line === 'string' && line !== '') return line;
+      const trigger = Object.hasOwn(triggers, key) ? triggers[key] : undefined;
+      const line = trigger?.lines[0];
+      if (typeof line === 'string' && line !== '') {
+        const contains = trigger?.contains !== undefined && Object.hasOwn(trigger.contains, '0') ? trigger.contains['0'] : [];
+        return { text: line, contains };
+      }
     }
   }
   return null;
@@ -124,20 +132,25 @@ function safetyLine(stall: StallFile, side: { triggers: Record<string, StallTrig
 
 /**
  * Ruling 21: each FAQ entry as its chip (`q[0]`) and the answer to show. An entry whose chip names anything ⛔ or ❓
- * (no substitutions) is left out (fix round 1, I1). When `a` names anything ⛔ or ❓, `a_if_blocked` (itself checked
- * the same way), else the stall's generic safety line (`medical`; the Spice Merchant's `allergen_note`). An entry
- * with nothing safe to say is left out.
+ * (no substitutions) is left out (fix round 1, I1). When `a` (its words or its `contains`) names anything ⛔ or ❓,
+ * `a_if_blocked` (itself checked the same way, with `contains_if_blocked`), else the stall's generic safety line
+ * (`medical`; the Spice Merchant's `allergen_note`) when that line is ✅ too (M7 Step 7). An entry with nothing safe
+ * to say is left out.
  */
 export function faqFor(stall: StallFile, ctx: MarketCtx): { q: string; a: string }[] {
   const side = sideOf(stall, stallVariant(stall, ctx));
-  const fallback = safetyLine(stall, side);
-  const ok = (text: string): boolean => namedStatus([], [text], ctx) === 'ok';
+  const ok = (text: string, declared: readonly string[] = []): boolean => namedStatus(declared, [text], ctx) === 'ok';
+  // M7 Step 7 (M6 final M2): the safety line is checked like any shown text, so it never stands in when it names
+  // something ⛔ or ❓ (its trigger's declared ids for line 0 count too). Then the entry has nothing safe to say.
+  const line = safetyLine(stall, side);
+  const fallback = line !== null && ok(line.text, line.contains) ? line.text : null;
   const out: { q: string; a: string }[] = [];
   for (const f of side.faq as readonly StallFaq[]) {
     const q = f.q[0];
     // The chip is shown text too (fix round 1, I1): a chip naming anything ⛔ or ❓ drops the whole entry.
     if (typeof q !== 'string' || q.trim() === '' || !ok(q)) continue;
-    const a = ok(f.a) ? f.a : f.a_if_blocked !== undefined && ok(f.a_if_blocked) ? f.a_if_blocked : fallback;
+    // M7 Step 7 (M6 final M7): each answer's declared contains count as well as the scan.
+    const a = ok(f.a, f.contains) ? f.a : f.a_if_blocked !== undefined && ok(f.a_if_blocked, f.contains_if_blocked) ? f.a_if_blocked : fallback;
     if (a !== null) out.push({ q, a });
   }
   return out;

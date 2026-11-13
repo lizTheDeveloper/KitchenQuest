@@ -52,6 +52,26 @@ describe('seasonRegionFor', () => {
     expect(seasonRegionFor(p('Mexico', 'michoacan'), accented)).toBe('test-mx');
   });
 
+  test('M7 Step 7 (M6 final M11): an exclude phrase in the region takes the player out of it; the validator checks the phrases', () => {
+    const t: SeasonTable = {
+      'test-or': region({ id: 'test-or', match: { countries: ['United States'], regions: ['oregon', 'portland oregon'], exclude: ['ohio', 'wi', 'eastern oregon'] } }),
+    };
+    expect(seasonRegionFor(p('USA', 'Portland, Oregon'), t)).toBe('test-or');
+    expect(seasonRegionFor(p('USA', 'Oregon'), t)).toBe('test-or');
+    for (const r of ['Oregon, Ohio', 'Oregon WI', 'Eastern Oregon', 'oregon (eastern oregon)']) expect(seasonRegionFor(p('USA', r), t), r).toBeNull();
+    // Whole words, normalised: "wisconsin" is not "wi", and "Ohio" matches "ohio".
+    expect(seasonRegionFor(p('USA', 'Oregon, Wisconsin'), t)).toBe('test-or');
+    // Validator: a list of non-empty phrases, and none that would cancel one of the region's own phrases.
+    expect(validateSeasonTable({ ...TABLE, 'test-vale': { ...TABLE['test-vale'], match: { ...TABLE['test-vale'].match, exclude: 'ohio' } } }, graph))
+      .toContain('seasonality.test-vale: match.exclude is not a list');
+    expect(validateSeasonTable({ ...TABLE, 'test-vale': { ...TABLE['test-vale'], match: { ...TABLE['test-vale'].match, exclude: ['  '] } } }, graph))
+      .toContain('seasonality.test-vale: match.exclude: phrase "  " is empty once normalised');
+    const own = TABLE['test-vale'].match.regions[0];
+    expect(validateSeasonTable({ ...TABLE, 'test-vale': { ...TABLE['test-vale'], match: { ...TABLE['test-vale'].match, exclude: [own] } } }, graph))
+      .toContain(`seasonality.test-vale: match.exclude: "${own}" would exclude the region's own phrase "${own}"`);
+    expect(validateSeasonTable({ ...TABLE, 'test-vale': { ...TABLE['test-vale'], match: { ...TABLE['test-vale'].match, exclude: ['far dale'] } } }, graph)).toEqual([]);
+  });
+
   test('seasonRegionFor: UK nations are distinct, with containment (Step 1 countryInScope)', () => {
     const uk: SeasonTable = { 'test-uk': region({ id: 'test-uk', match: { countries: ['United Kingdom'], regions: [] } }) };
     expect(seasonRegionFor(p('Scotland', null), uk)).toBe('test-uk');

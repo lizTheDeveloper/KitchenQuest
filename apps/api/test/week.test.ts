@@ -679,6 +679,31 @@ describe('M6 Step 6: amounts and stall swaps', () => {
     expect(stockAudits.map((a) => a.target).sort()).toEqual(['stock_rows:0', 'stock_rows:0', 'stock_rows:1']);
   });
 
+  it('M7 Step 7 (M6 final M14): a dish blocked and unblocked again comes back beside its stall swap as swapped (out of stock), and undo and take still work', async () => {
+    const p = await player();
+    await put(p.cookie, planOf(MONDAY, [dish(PARIPPU, 0)]));
+    const run = await open(p.cookie);
+    await stockOk(p.cookie, run.id, { key: 'moong_dal', action: 'take', toId: 'red_lentil' });
+    // A rule that blocks parippu drops its unticked rows, moong dal among them; the ticked stall-swap row stays.
+    const res = await call(p.cookie, { method: 'POST', url: '/rules', payload: { rule: COCONUT, confirmed: true } });
+    expect(res.statusCode, res.body).toBe(201);
+    const blocked = await open(p.cookie);
+    expect(byKey(blocked, 'moong_dal')).toBeUndefined();
+    expect(byKey(blocked, 'stock:red_lentil')).toMatchObject({ ticked: true, stockSwap: { from: 'moong_dal' } });
+    // The rule goes: moong dal is back, as swapped (out of stock, unticked), never a plain tickable row beside its swap.
+    expect((await call(p.cookie, { method: 'DELETE', url: `/rules/${res.json<{ rule: { id: string } }>().rule.id}` })).statusCode).toBe(204);
+    const back = await open(p.cookie);
+    expect(byKey(back, 'moong_dal')).toMatchObject({ outOfStock: true, ticked: false });
+    expect(byKey(back, 'stock:red_lentil')).toMatchObject({ ticked: true, stockSwap: { from: 'moong_dal' } });
+    expect((await tick(p.cookie, run.id, 'moong_dal', true)).json<{ error: { code: string } }>().error.code).toBe('stock_invalid');
+    // The swap's own undo is not stock_invalid, and a fresh take afterwards is offered and taken again.
+    const undone = await stockOk(p.cookie, run.id, { key: 'stock:red_lentil', action: 'undo' });
+    expect(byKey(undone, 'moong_dal')).not.toHaveProperty('outOfStock');
+    expect(byKey(undone, 'stock:red_lentil')).toBeUndefined();
+    const again = await stockOk(p.cookie, run.id, { key: 'moong_dal', action: 'take', toId: 'red_lentil' });
+    expect(byKey(again, 'stock:red_lentil')).toMatchObject({ ticked: true });
+  });
+
   it('take a swap core does not offer now (e.g. a rule added since) → 400 stock_invalid, nothing changed', async () => {
     const p = await player();
     await put(p.cookie, planOf(MONDAY, [dish(PARIPPU, 0)]));

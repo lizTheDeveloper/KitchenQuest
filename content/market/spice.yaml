@@ -382,6 +382,7 @@ item_tips:
   cumin:
     pick: "Whole seeds: greenish-brown, ridged, strongly earthy when crushed. Smell the jar before you pour; cumin and fennel look alike."
     store: "Airtight, dark, cool. Whole for years; ground for months."
+    contains: [fennel]
   coriander_seed:
     pick: "Round, pale brown, citrusy when crushed."
     store: "Airtight, dark. Grind just before using."
@@ -407,6 +408,7 @@ item_tips:
   dried_red_chili:
     pick: "Flexible, glossy, deep red, not brittle or dusty. Kashmiri chillies for colour; others for heat."
     store: "Airtight, dark, cool; they last months to a year."
+    contains: [chili]
   paprika:
     pick: "Bright red, not brown. Sweet, hot or smoked (pimentón) are different spices."
     store: "Fades fast once opened; buy small tins."
@@ -419,15 +421,18 @@ item_tips:
   nutmeg:
     pick: "Whole nuts, heavy and unbroken. Grate as needed."
     store: "Whole for years."
+    contains: [nut]
   asafoetida:
     pick: "A tiny pinch is enough. If you avoid gluten or wheat, buy one labelled gluten-free; most are cut with wheat flour."
     store: "Tightly sealed, ideally in a second container. It is very loud."
+    contains: [gluten, wheat]
   saffron:
     pick: "Deep red threads, slightly trumpet-shaped at one end. Buy from a trusted shop; cheap saffron usually isn't."
     store: "Airtight, dark, cool."
   bay_leaf:
     pick: "Green, not grey or brown; fragrant when crumbled."
     store: "Airtight; fish them out of the dish before serving."
+    contains: [fish]
   mexican_oregano:
     pick: "Whole dried leaves, grey-green, citrusy and grassy when rubbed."
     store: "Airtight, dark. Rub between your palms as you add it."
@@ -443,9 +448,11 @@ item_tips:
   sesame_seed:
     pick: "Even, unbroken seeds. Sesame is a major allergen in many countries; check your rules."
     store: "Seeds are oily and can go rancid; keep sealed, cool, or in the fridge."
+    contains: [sesame]
   furikake:
     pick: "A Japanese rice seasoning. Many contain sesame, fish (bonito) and soy; check the label against your rules."
     store: "Airtight, cool, dry."
+    contains: [fish, rice_grain, sesame, soy]
 
 faq:
   - q: ["how long do spices last", "do spices expire", "are old spices safe"]
@@ -456,19 +463,24 @@ faq:
     a: "Dry pan, medium heat, keep them moving. Thirty to sixty seconds for small seeds, until fragrant and a shade darker. Tip them onto a plate straight away so they stop cooking."
   - q: ["what is blooming spices", "what is tempering", "tadka", "bloom spices in oil"]
     a: "Frying spices in hot oil or ghee so their flavours move into the fat, which then carries them through the whole dish. Whole seeds first, until they pop or sizzle; ground spices last, for seconds. Ammachi Leela's parippu ends with exactly this."
+    contains: [ghee]
     a_if_blocked: "Frying spices in hot fat so their flavours move into it, and the fat carries them through the whole dish. Whole seeds first, until they pop or sizzle; ground spices last, for seconds."
   - q: ["what is garam masala", "garam masala vs curry powder"]
     a: "Garam masala is a warm spice blend used in many Indian kitchens; its recipe changes from region to region and family to family. 'Curry powder' is a blend that grew up mostly outside India. Neither is one fixed thing. Smell the bag; use what tastes right."
+    contains: [curry_powder, garam_masala]
     a_if_blocked: "A blend, and blends vary from kitchen to kitchen. Read the label every time, and choose single spices where you can."
     # REVIEW: confirm phrasing on curry powder's history is fair and not reductive.
   - q: ["spice blend allergens", "hidden allergens in spices", "are spice blends safe for allergies"]
     a: "Blends can hide things. Asafoetida usually has wheat flour; some blends contain mustard, celery, sesame or nut flours. Labelling rules differ by country, and some don't require every spice to be named. If you have an allergy, choose single spices and check every label."
+    contains: [asafoetida, celery, mustard, nut, sesame, wheat]
     a_if_blocked: "Blends can hide things that aren't obvious, and labelling rules differ by country. If you have an allergy, choose single spices where you can and check every label."
     tags: [safety]
     # REVIEW: country-specific labelling (US: major allergens incl. sesame must be declared, mustard/celery not; EU/UK: mustard, celery, sesame are declared allergens; Canada: mustard and sesame). Keep the line general unless region-aware.
   - q: ["how do i get turmeric stains out", "turmeric stain"]
     a: "Quickly, and with a little dish soap, then sunlight — sun fades turmeric stains on cloth and countertops remarkably well. Your fingers will forgive you in a day or two."
+    contains: [turmeric]
     a_if_blocked: "Quickly, with a little dish soap, then sunlight: the sun fades most spice stains on cloth and counters remarkably well."
   - q: ["whole or ground spices", "should i buy whole spices"]
     a: "Whole for the ones you toast or temper with (cumin, mustard, coriander, fennel, pepper). Ground for things you use in pinches and replace often (turmeric, paprika, chilli). Always small bags."
+    contains: [chili, coriander, cumin, fennel, mustard, paprika, turmeric]
     a_if_blocked: "Whole for the ones you toast or temper with; ground for the ones you use in pinches and replace often. Always small bags, and always the ones that fit your rules."

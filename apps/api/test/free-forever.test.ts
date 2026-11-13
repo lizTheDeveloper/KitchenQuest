@@ -406,6 +406,26 @@ describe('free forever (§16)', () => {
     }
   });
 
+  it('M7: zero entitlements + accessibility on: available after 10 h of speech in 30 days; the setting needs no entitlement', async () => {
+    await makeApp(null);
+    const cookie = await signIn(app, mailer, `access${++seq}@example.com`);
+    const userId = (await call(cookie, { method: 'GET', url: '/me' })).json<{ id: string }>().id;
+    expect((await grant(cookie, 'health_data')).statusCode).toBe(201);
+    expect((await call(cookie, { method: 'PUT', url: '/voice/accessibility', payload: { on: true } })).statusCode).toBe(204);
+    // 10 hours of the player's speech: an hour a day over ten days (under the 6 h a day abuse ceiling).
+    for (let d = 1; d <= 10; d++) {
+      await db.insert(usageEvents).values({ userId, feature: 'voice_stt', units: 3600, costMicroUsd: 0, createdAt: new Date(NOW.getTime() - d * 24 * HOUR) });
+    }
+    const [{ n }] = await sql<{ n: number }[]>`select count(*)::int as n from entitlements where user_id = ${userId}`;
+    expect(n).toBe(0);
+    const res = await call(cookie, { method: 'GET', url: '/voice/status?localDate=2026-11-10&localTime=18:00' });
+    expect(res.json()).toMatchObject({ state: { kind: 'available' }, accessibility: true });
+    expect(res.body).not.toMatch(SELLS);
+    // Positive control: the same speech without the setting is resting.
+    expect((await call(cookie, { method: 'PUT', url: '/voice/accessibility', payload: { on: false } })).statusCode).toBe(204);
+    expect((await call(cookie, { method: 'GET', url: '/voice/status?localDate=2026-11-10&localTime=18:00' })).json().state.kind).toBe('resting');
+  });
+
   it('no response body in this file sells (never rule 7), the export\'s processor register aside', () => {
     expect(allBodies.length).toBeGreaterThan(20);
     for (const { url, body } of allBodies) {

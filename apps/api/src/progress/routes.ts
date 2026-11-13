@@ -25,6 +25,12 @@ export interface ProgressRouteDeps {
   healthConsentFor: (tx: Tx, userId: string, at: Date) => Promise<boolean>;
   /** The app's M4 daily write cap on 'progress.record' (429 `rate_limited` with `retryAfterSeconds`). */
   writeCapFor: (tx: Tx, userId: string, at: Date) => Promise<void>;
+  /**
+   * M7 Step 7 (M6 fix review N1): the account's current erasure id (`users.health_erasure`, new on every `health_data`
+   * delete; null before the first). Both routes return it as `healthErasure`, so a signed-in device that sees a new one
+   * erases its own copy of the stall rounds and meal-log events (the game's `applyServerErasure`).
+   */
+  healthErasureFor: (tx: Tx, userId: string) => Promise<string | null>;
 }
 
 /**
@@ -61,30 +67,49 @@ export async function progressRoutes(app: FastifyInstance, deps: ProgressRouteDe
   app.get('/progress', { preHandler: [requireUser, limited] }, async (req) => {
     // One snapshot (M1): the events and the grants come from the same moment. The sealed progress snapshot (M6 Step 7)
     // and the events after it are read in that same transaction.
-    const view = await db.transaction(
-      async (tx: Tx) =>
-        progressViewOf(tx, config.keyring, req.user.id, catalogueFor(await deps.recipes.current(tx), deps.loop), {
+    const { view, healthErasure } = await db.transaction(
+      async (tx: Tx) => ({
+        view: await progressViewOf(tx, config.keyring, req.user.id, catalogueFor(await deps.recipes.current(tx), deps.loop), {
           rewards: deps.loop.rewards,
           thresholds: deps.loop.thresholds,
           log: req.log,
         }),
+        // N1: read in the same snapshot as the view, so a view without the erased rounds always comes with its id.
+        healthErasure: await deps.healthErasureFor(tx, req.user.id),
+      }),
       { isolationLevel: 'repeatable read' },
     );
     await countSelfRead(db, req.user.id, 'progress', now());
-    return { view };
+    return { view, healthErasure };
   });
 
   /**
-   * `{ events, upload?: true }`, at most 100 events (more → 400). 200 `{ accepted, duplicate, rejected, warnings, view }`,
+   * `{ events, upload?: true, erasure?: string | null }`, at most 100 events (more → 400). 200 `{ accepted, duplicate,
+   * rejected, warnings, view, healthErasure }`; a stall round from a device whose `erasure` is not the account's current
+   * one is rejected `erased` (M7 Step 7 fix round 1, I1; fix round 2, R1: stall rounds only),
    * also when some events are rejected (the daily event cap is a per-event problem, C14). `upload: true` marks the
    * sign-in upload of the device log (Ruling 8): older dates are accepted, and so are `imported` events.
    */
   app.post('/progress/events', { preHandler: [requireUser, limited] }, async (req) => {
     const at = now();
-    const { events, upload } = EventsBody.parse(req.body);
+    // M7 Step 7 fix round 1 (I1): `erasure`, the erasure id the posting device last acted on (null or absent if none),
+    // is read here and taken off before the body is parsed (EventsBody is strict).
+    const { erasure: seen, ...rest } = (typeof req.body === 'object' && req.body !== null ? req.body : {}) as Record<string, unknown>;
+    if (seen !== undefined && seen !== null && typeof seen !== 'string') throw new ApiError(400, 'bad_request', 'erasure must be a string or null');
+    const { events: posted, upload } = EventsBody.parse(rest);
     const userId = req.user.id;
     const today = at.toISOString().slice(0, 10);
     return db.transaction(async (tx: Tx) => {
+      // I1: a device that has not seen the account's current erasure id may still hold stall rounds recorded before that
+      // `health_data` delete. They are refused (`erased`, content-free) and never stored; the answer carries the current
+      // id, so the device erases its copy too (it keeps their grants, and re-posts a live round once under the new id).
+      // Fix round 2 (R1): meal-log events are not refused here: a pre-erasure one names a meal log the delete removed
+      // (`unknown_meal_log`), and one after a withdrawal needs consent. Other kinds go on as before.
+      const current = await deps.healthErasureFor(tx, userId);
+      const stale = current !== null && seen !== current;
+      const erased = (e: unknown): e is { id: unknown } => stale && typeof e === 'object' && e !== null && (e as { kind?: unknown }).kind === 'stall_round';
+      const refused = posted.filter(erased).flatMap((e) => (typeof e.id === 'string' ? [{ clientId: e.id, problems: ['erased'] }] : []));
+      const events = posted.filter((e) => !erased(e));
       const recipes = await deps.recipes.current(tx);
       const progressDeps = {
         keyring: config.keyring,
@@ -96,7 +121,8 @@ export async function progressRoutes(app: FastifyInstance, deps: ProgressRouteDe
         writeCap: () => deps.writeCapFor(tx, userId, at),
         log: req.log,
       };
-      return recordEventsIn(tx, progressDeps, userId, events, today, at, { upload: upload === true }, req.id);
+      const recorded = await recordEventsIn(tx, progressDeps, userId, events, today, at, { upload: upload === true }, req.id);
+      return { ...recorded, rejected: [...refused, ...recorded.rejected], healthErasure: current };
     });
   });
 }

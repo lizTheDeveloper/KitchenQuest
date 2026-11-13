@@ -114,6 +114,8 @@ async function wenRounds(page: Page, where: Where) {
   await page.getByRole('button', { name: 'Leave the stall' }).click();
   await page.waitForFunction(() => location.hash === '#/stalls');
   // The Pan's leave line on the hub; leaving costs nothing.
+  // Wait for the note to be written before reading it (read at once, it can still be empty under load).
+  await expect.poll(async () => ((await page.locator('.week-note').textContent()) ?? '').trim(), { timeout: 5_000 }).not.toBe('');
   const said = (await page.locator('.week-note').textContent()) ?? '';
   expect(lineOf('market.leave_round')).toContain(said);
   await expect.poll(async () => (await where.events(page)).filter((e) => e.kind === 'stall_round' && e.at === TODAY).length).toBe(1);

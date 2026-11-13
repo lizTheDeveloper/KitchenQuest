@@ -1,6 +1,8 @@
 /**
- * The Pan's permanent eval (spec §7.6b.9, spike §6.10): the spike's 41 cases, M5's P01–P04 and M6's M01–M07, REPS runs
- * each, through the real app and the real model on OpenRouter. Never part of `npm test`.
+ * The Pan's permanent eval (spec §7.6b.9, spike §6.10): the spike's 41 cases, M5's P01–P04, M6's M01–M07, M7's
+ * transcript cases V01–V05 and V02b (Ruling 18: a confirmed transcript carries its heard words, `turnInput`; each turn's
+ * model calls are counted, `countModelCalls`) and M7 Step 7's C01, REPS runs each, through the real app and the real
+ * model on OpenRouter. Never part of `npm test`.
  *
  *   OPENROUTER_API_KEY=… AI_PROVIDERS=tenstorrent TEST_DATABASE_URL=… npm run eval:mentor -w @kitchenquest/api
  *
@@ -30,9 +32,10 @@ import { MENTOR_TOOLS } from '../src/mentor/tools.js';
 import { RECIPES_DIR, syncCanon } from '../src/recipes/sync.js';
 import { loadRunById } from '../src/week/store.js';
 import { testDb, type Sql } from '../test/helpers/db.js';
-import { CASES, type EvalCase } from './cases.js';
+import { CASES, turnInput, type EvalCase } from './cases.js';
 import { judge, meetsBar, REPS, type EvalResult, type Observed } from './checks.js';
 import { evalHash } from './hash.js';
+import { countingProvider, countModelCalls } from './model-calls.js';
 import { changedRecords, recordsSnapshot } from './snapshot.js';
 
 export const LAST_PASS = new URL('./last-pass.json', import.meta.url);
@@ -84,7 +87,8 @@ const openRouter = createOpenRouterProvider(aiConfig, {
 });
 /** The model's raw tool calls per player text, printed beside a failed case (synthetic text only). */
 const rawCalls = new Map<string, string[]>();
-const ai: AiProvider = {
+// M7 Step 7 (Ruling 18): every model call is counted against the turn in flight (`countModelCalls` in runOnce).
+const ai: AiProvider = countingProvider({
   model: openRouter.model,
   async complete(req) {
     const result = await openRouter.complete(req);
@@ -92,7 +96,7 @@ const ai: AiProvider = {
     rawCalls.set(text, result.ok ? result.toolCalls.map((c) => `${c.name}${c.arguments}`) : [`failed: ${result.failure}`]);
     return result;
   },
-};
+});
 const mailer = new CaptureMailer();
 let app: FastifyInstance | undefined;
 
@@ -240,9 +244,17 @@ async function seedExpiredPlanCard(app: FastifyInstance, userId: string): Promis
   });
 }
 
-/** Seeds: an open, read-back severe peanut card in the conversation, saved peanut and lactose rules, an expired plan card, or an open market run. */
+/**
+ * Seeds: an open, read-back severe peanut card in the conversation, saved peanut and lactose rules, an expired plan card,
+ * an open market run, or (M7 Step 6, V04) milk in the pantry, so a spoken removal names a row the player has.
+ */
 async function seed(app: FastifyInstance, call: (o: InjectOptions) => Promise<{ statusCode: number; json: <T>() => T }>, userId: string, c: EvalCase): Promise<Seeded> {
   if (c.seed === 'plan_card_expired') return seedExpiredPlanCard(app, userId);
+  if (c.seed === 'pantry_milk') {
+    const res = await call({ method: 'POST', url: '/pantry/changes', payload: { add: [{ name: 'milk', ingredientId: 'milk' }], removeNames: [], removeIds: [], confirmed: true } });
+    if (res.statusCode !== 200) throw new Error(`seed pantry ${res.statusCode}`);
+    return { conversationId: null };
+  }
   if (c.seed === 'market_run_open') return seedMarketRun(call);
   if (c.seed === 'peanut_saved') {
     for (const [ids, severity] of [[['peanut'], 'anaphylactic'], [['milk'], 'intolerance']] as const) {
@@ -288,7 +300,7 @@ async function tickedRows(userId: string, runId: string | undefined): Promise<st
  * One turn from a fresh made-up player; its response and how many record kinds it changed, by content (I3). M6 Step 8:
  * which kinds, and the market rows the turn ticked.
  */
-async function runOnce(app: FastifyInstance, sql: Sql, c: EvalCase, n: number): Promise<{ r: TurnResponse; writes: number; observed: Observed }> {
+async function runOnce(app: FastifyInstance, sql: Sql, c: EvalCase, n: number): Promise<{ r: TurnResponse; writes: number; observed: Observed; modelCalls: number }> {
   const cookie = await signIn(app, n);
   const call = (o: InjectOptions) => app.inject({ ...o, cookies: { kq_session: cookie } });
   for (const purpose of ['health_data', 'ai_health'] as const) {
@@ -300,23 +312,26 @@ async function runOnce(app: FastifyInstance, sql: Sql, c: EvalCase, n: number): 
   const tickedBefore = await tickedRows(userId, runId);
   const before = await recordsSnapshot(sql, userId);
   const now = new Date();
-  const res = await call({
-    method: 'POST',
-    url: '/mentor/turn',
-    payload: {
-      conversationId,
-      input: { kind: 'text', text: c.text },
-      localDate: now.toISOString().slice(0, 10),
-      localTime: '18:30',
-      screen: null,
-      intakeStep: null,
-      ...(answering === undefined ? {} : { answering }),
-    },
-  });
+  // Only the turn itself is counted (Ruling 18): sign-in, consents and seeds never call the model.
+  const { result: res, modelCalls } = await countModelCalls(() =>
+    call({
+      method: 'POST',
+      url: '/mentor/turn',
+      payload: {
+        conversationId,
+        input: turnInput(c, catalog.graph, catalog.ruleTerms),
+        localDate: now.toISOString().slice(0, 10),
+        localTime: '18:30',
+        screen: null,
+        intakeStep: null,
+        ...(answering === undefined ? {} : { answering }),
+      },
+    }),
+  );
   if (res.statusCode !== 200) throw new Error(`turn ${res.statusCode}`);
   const changed = changedRecords(before, await recordsSnapshot(sql, userId));
   const ticked = (await tickedRows(userId, runId)).filter((name) => !tickedBefore.includes(name));
-  return { r: res.json<TurnResponse>(), writes: changed.length, observed: { changed, ticked } };
+  return { r: res.json<TurnResponse>(), writes: changed.length, observed: { changed, ticked }, modelCalls };
 }
 
 async function runCase(app: FastifyInstance, sql: Sql, c: EvalCase, rep: number, n: number): Promise<EvalResult> {
@@ -326,12 +341,12 @@ async function runCase(app: FastifyInstance, sql: Sql, c: EvalCase, rep: number,
       await pause(10_000 * attempt);
       turn = await runOnce(app, sql, c, n * ATTEMPTS + attempt);
     }
-    const { r, writes, observed } = turn;
-    const verdict = judge(c, r, writes, observed);
+    const { r, writes, observed, modelCalls } = turn;
+    const verdict = judge(c, r, writes, observed, modelCalls);
     if (!verdict.pass) {
       const reply = JSON.stringify({ parts: r.parts, cards: r.cards.map(({ card }) => (card.kind === 'rule' ? `rule: ${card.display.ingredient}, ${card.display.severity}` : `${card.kind}: ${card.summary}`)) });
       const calls = JSON.stringify(rawCalls.get(stripPageEvents(c.text).text.trim()) ?? 'no model call');
-      out(`  ${c.id}#${rep + 1}: ${verdict.problems.join('; ')}\n    reply ${reply}\n    model ${calls}`);
+      out(`  ${c.id}#${rep + 1}: ${verdict.problems.join('; ')}\n    reply ${reply}\n    model ${calls} (${modelCalls} call(s) counted)`);
     }
     return { id: c.id, category: c.category, rep, ...verdict };
   } catch (e) {

@@ -98,8 +98,17 @@ describe('outbound hosts (N-9)', () => {
     expect(dynamicUrls("new URL('data/x.json', import.meta.url)")).toEqual(['\'data/x.json\', import.meta.url']);
   });
 
-  it('builds no URL in src from a variable (every outbound address is a scanned literal)', () => {
-    for (const { rel, text } of files) expect(dynamicUrls(text), `${rel} builds a URL from a variable`).toEqual([]);
+  /**
+   * M7 Step 5: the one address read from the environment, the private voice service (VOICE_SERVICE_URL). It is no
+   * processor host (the service is ours, on the hosting provider's boxes), and config.ts gates it on that provider's
+   * DPA (`processorsNotReady(VOICE_PROCESSOR_IDS)`) and, in production, on wss:// or a private address.
+   */
+  const ENV_URLS: Record<string, string[]> = { 'config.ts': ['rawUrl'] };
+
+  it('builds no URL in src from a variable (every outbound address is a scanned literal), but the gated voice service URL', () => {
+    for (const { rel, text } of files) expect(dynamicUrls(text), `${rel} builds a URL from a variable`).toEqual(ENV_URLS[rel] ?? []);
+    const config = files.find((f) => f.rel === 'config.ts')!.text;
+    expect(config).toMatch(/processorsNotReady\(VOICE_PROCESSOR_IDS/);
   });
 
   it('maps every outbound host in src to a registered processor', () => {

@@ -1,4 +1,4 @@
-import { isValidDate, type TurnRequest } from '@kitchenquest/core';
+import { isValidDate, parseTurnInput, type TurnRequest } from '@kitchenquest/core';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { audit } from '../audit/audit.js';
@@ -16,17 +16,38 @@ import type { MemoryFlags, MemoryHistory } from './memory.js';
 import { loadPanPrompt } from './prompt.js';
 import { runTurn, type TurnDeps } from './turn.js';
 import { localToday } from '../week/local-date.js';
+import { recentReplies } from '../voice/recent-replies.js';
 import { confirmProposal, rejectProposalIn, undoWriteIn } from './writes.js';
 import type { WeekSource } from './plan-turn.js';
 
 const DAY_MS = 86_400_000;
 const INTAKE_STEPS = ['market_day', 'meals_per_week', 'region', 'allergies', 'pantry'] as const;
+/** M7 Step 6: a heard card confirms at most this many words, each at most HEARD_WORD_MAX characters. */
+const HEARD_WORDS_MAX = 12;
+const HEARD_WORD_MAX = 40;
+
+const turnText = z.string().trim().min(1).max(MAX_TEXT);
+/**
+ * What the player said (M7 Step 6): typed text, or a speech-to-text transcript with, after a tap on its heard card, the
+ * words that tap confirmed (Ruling 4, §7.6b.4: a structured field, never user text). Both strict: a text turn with a
+ * heard field is a 400. Core `parseTurnInput` checks it again (bounded, never truncated).
+ */
+const TurnInput = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('text'), text: turnText }).strict(),
+  z
+    .object({
+      kind: z.literal('transcript'),
+      text: turnText,
+      heard: z.object({ words: z.array(z.string().min(1).max(HEARD_WORD_MAX)).max(HEARD_WORDS_MAX) }).strict().optional(),
+    })
+    .strict(),
+]);
 
 /** The turn body (zod-strict). Text only in the POST body, never in a URL (P-5). */
 const TurnBody = z
   .object({
     conversationId: z.string().max(64).nullable(),
-    input: z.object({ kind: z.literal('text'), text: z.string().trim().min(1).max(MAX_TEXT) }).strict(),
+    input: TurnInput,
     localDate: z.string(),
     localTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'localTime must be HH:MM'),
     screen: z.object({ route: z.string().max(100), slug: z.string().max(200).optional() }).strict().nullable(),
@@ -102,9 +123,12 @@ export async function mentorRoutes(app: FastifyInstance, catalog: Catalog, state
     const utc = new Date(t).toISOString().slice(0, 10);
     const offDays = isValidDate(body.localDate) ? Math.abs(Date.parse(`${body.localDate}T00:00:00Z`) - Date.parse(`${utc}T00:00:00Z`)) / DAY_MS : Infinity;
     if (offDays > 1) throw new ApiError(400, 'bad_request', 'localDate must be a valid YYYY-MM-DD within a day of today');
+    // Core's own reading of the input (M7 carry): blank once invisible characters go, or over MAX_TEXT code points, is a 400.
+    const input = parseTurnInput(body.input);
+    if (input === null) throw new ApiError(400, 'bad_request', 'input is not a valid turn input');
     const turn: TurnRequest = {
       conversationId: body.conversationId,
-      input: body.input,
+      input,
       localDate: body.localDate,
       localTime: body.localTime,
       screen: body.screen === null ? null : { route: body.screen.route, ...(body.screen.slug === undefined ? {} : { slug: body.screen.slug }) },
@@ -145,6 +169,8 @@ export async function mentorRoutes(app: FastifyInstance, catalog: Catalog, state
       if (n > 0 || conversationId === undefined) {
         await audit(tx, { actorKind: 'user', actorId: userId, subjectUserId: userId, action: 'mentor.forget', target: 'conversations', requestId }, now());
       }
+      // M7 Step 6: the Pan's recent replies go too (all of the user's: they are not kept per conversation).
+      recentReplies.clear(userId, now().getTime());
       return n;
     });
 

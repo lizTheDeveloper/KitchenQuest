@@ -17,6 +17,8 @@ function replyForLog(reply: FastifyReply): { statusCode: number } {
 
 /** Paths pino censors even if something logs a raw request, headers or a body by mistake. */
 const REDACT_PATHS = [
+  // @fastify/websocket logs a raw `path` (query included) for an upgrade to a route with no socket handler.
+  'path',
   'req.headers.cookie',
   'req.headers.authorization',
   'req.headers["set-cookie"]',
@@ -46,4 +48,14 @@ export function loggerOptions(level: string): Exclude<FastifyServerOptions['logg
       error: scrubForLog,
     },
   };
+}
+
+/**
+ * M7 Step 5 (Review Focus 2): what the voice socket's error paths log. The error's class as its kind (an Error's own
+ * `name` is ignored: a custom name could carry anything) and the HTTP status or close code. Never its message, stack,
+ * cause or properties: on /voice an error may hold a transcript, a hint or audio.
+ */
+export function voiceErrorForLog(err: unknown, status: number): { kind: string; status: number } {
+  const ctor = err instanceof Error ? err.constructor.name : 'NonError';
+  return { kind: /^[A-Za-z][A-Za-z0-9_]{0,40}$/.test(ctor) ? ctor : 'Error', status };
 }

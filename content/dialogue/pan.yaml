@@ -1891,13 +1891,149 @@ triggers:
   # Game shell (Milestone 3)
   # ------------------------------------------------------------------
 
-  voice.not_yet:
+  # ------------------------------------------------------------------
+  # Live voice (Milestone 7). Every voice.* line is written, never the model's (`ai: never`), and plain on safety
+  # (voice §0.8). Step 5: the lines the API's voice route speaks itself (Ruling 15); Step 6: the rest.
+  # ------------------------------------------------------------------
+  # REVIEW: voice.check_screen is the fallback for anything the Pan won't say aloud; it must stay var-free (cacheable).
+  voice.check_screen:
     ai: never
-    when: The player uses hold-to-talk before live voice exists. Removed when the voice milestone ships.
+    when: A spoken item could not be said safely aloud (too long, a variable that failed the filter, or a line with variables the device holds). The screen has it.
     lines:
-      - "I can't hear you yet. The Bureau is still fitting my ears. Type to me instead, or tap a button."
-      - "Nothing came through. Voice arrives in a later delivery. The text box works now."
-      - "Hold-to-talk is fitted but not yet connected. I'm a pan; I'm good at waiting. Type in the meantime."
+      - "It's on the screen; read it there."
+      - "That one's on the screen. Have a look there."
+
+  # REVIEW: a canon step is read aloud only when the dish is ✅ with no swap (Ruling 11); otherwise this. Neutral on
+  # purpose (Step 5 fix round 1, m6): it is also said for a ⛔ or ❓ dish and a margin note, so it names no reason.
+  voice.step_on_screen:
+    ai: never
+    when: Cook mode asked for a step to be read, but the step is shown, not spoken (a swap, a rule finding, a margin note, or not cleared today).
+    lines:
+      - "This step's on the screen. Read it there."
+      - "Read this step on the screen, please. I'd rather you saw it."
+
+  # REVIEW: the heard card's spoken half. The words are as heard, never corrected; only a tap confirms them (Ruling 4).
+  voice.heard_check:
+    ai: never
+    when: The Pan heard food or rule words in a transcript and shows the heard card; no health wording, so no spelling.
+    vars:
+      terms: "the words as heard, e.g. 'rice and kiwi'"
+    lines:
+      - "I heard {terms}. Tap the card if that's right."
+      - "I think you said {terms}. Check the card and tap it if I got it right."
+
+  # REVIEW: spelled letter by letter from code (§7.6b.2), because mishearing an allergen is the worst failure mode.
+  voice.heard_check_spelled:
+    ai: never
+    when: As voice.heard_check, with health wording present, so the heard words are spelled out too.
+    vars:
+      terms: "the words as heard, e.g. 'sesame'"
+      spelled: "the same words spelled by code, e.g. 'S-E-S-A-M-E'"
+    lines:
+      - "I heard {terms}: {spelled}. Tap the card if that's right."
+      - "I think you said {terms}. That's {spelled}. Tap the card if I got it right."
+
+  voice.too_long:
+    ai: never
+    when: An utterance ran past the time limit, or its transcript is too long to check. Nothing was acted on.
+    lines:
+      - "That was too long for me to take in at once. Type it instead, or say it in shorter pieces."
+      - "I lost the thread there; it ran long. The text box will take the whole thing."
+
+  # REVIEW: the heard card's "Say it again" button. Nothing was kept of what was heard; the player just speaks again.
+  voice.heard_retry:
+    ai: never
+    when: The player tapped "Say it again" on the heard card. Nothing of the misheard words was kept or acted on.
+    lines:
+      - "Go on, say it again. I'm listening."
+      - "Right, once more. Nothing's been written down."
+      - "Say it again, a little slower if you can. I'll show you what I hear."
+
+  # REVIEW: the scripted filler while a turn runs (§7.6b.8). Var-free, so cacheable; it never says what the turn does.
+  voice.filler.thinking:
+    ai: never
+    when: Said while a spoken turn is still being answered (no write in its shape). Var-free and cacheable.
+    lines:
+      - "Hmm, let me think."
+      - "One moment."
+      - "Just a moment, I'm thinking."
+
+  # REVIEW: the spec's own filler (§7.6b.8). Var-free, so cacheable. Nothing is written until the player taps the card.
+  voice.filler.ledger:
+    ai: never
+    when: Said while a spoken turn shaped like a write (a meal, a pantry change, a rule, a check-off) is still being answered. Var-free and cacheable.
+    lines:
+      - "Let me write that in the ledger…"
+      - "One moment, I'm getting the ledger out…"
+      - "Let me find the right page in the ledger…"
+
+  # REVIEW: the allowance is a state, never a number (Ruling 5): no count, countdown or timer, no Guild, no upsell.
+  voice.resting:
+    ai: never
+    when: The player's free voice is resting until a later day (Ruling 5). Typing works as always. Names no number, countdown or plan.
+    vars:
+      until: "the day voice is back, e.g. 'Thursday 19 November'"
+    lines:
+      - "My voice is resting until {until}. Type to me in the meantime; everything else works."
+      - "I'm resting my voice until {until}. The text box works just the same."
+
+  # REVIEW: as voice.resting, for a rest that lifts later the same day (Ruling 5, B4). No hour, no countdown.
+  voice.resting_today:
+    ai: never
+    when: The player's free voice is resting for the rest of today (Ruling 5). Typing works as always.
+    lines:
+      - "My voice is resting for today. Type to me instead; everything else works."
+      - "I'm resting my voice for the rest of today. The text box works just the same."
+
+  # REVIEW: the voice service is down or slow (Review Focus 5). Plain, and the text box is named.
+  voice.unavailable:
+    ai: never
+    when: Voice can't be used right now (the voice service is down or slow, or the line dropped). Nothing was kept; the text box works.
+    lines:
+      - "I can't hear you right now. Type to me instead; the text box works."
+      - "Voice isn't working at the moment. Please type, and I'll answer as usual."
+      - "The line's gone quiet on my end. Type to me for now."
+
+  # REVIEW: voice needs the player's own say-so by tap (the voice consent card); never asked for by speech.
+  voice.consent_needed:
+    ai: never
+    when: The player tried to talk but hasn't turned on voice (the voice consent). The consent card is shown; nothing was heard.
+    lines:
+      - "Before I can listen, I need your say-so. Tap the card to turn on voice, or type to me instead."
+      - "Voice is off until you turn it on. Tap the card if you'd like to talk; typing works either way."
+
+  # REVIEW: an utterance that came back empty. Nothing was acted on.
+  voice.didnt_catch:
+    ai: never
+    when: The player spoke but nothing came through (an empty transcript). Nothing was acted on.
+    lines:
+      - "I didn't catch that. Say it again, or type it."
+      - "Sorry, nothing came through. Try again, or use the text box."
+      - "That one slipped past me. Once more, or type it if that's easier."
+
+  # REVIEW: hands-free is cook mode only, off by default (Ruling 7). Tapping talk always stops the Pan.
+  voice.hands_free_on:
+    ai: never
+    when: The player turned on hands-free in cook mode (Ruling 7). The Pan listens without the talk button.
+    lines:
+      - "Hands-free is on. Talk to me while you cook; tap the talk button to stop me."
+      - "I'm listening hands-free now. Say \"next step\" when you're ready."
+
+  # REVIEW: hands-free off. Hold-to-talk and the text box still work.
+  voice.hands_free_off:
+    ai: never
+    when: Hands-free was turned off (by the player, on leaving cook mode, or on hiding the page). Hold-to-talk still works.
+    lines:
+      - "Hands-free is off. Hold the talk button when you want me."
+      - "I've stopped listening. Hold to talk, or type, whenever you need me."
+
+  # REVIEW: hands-free turned itself off after a quiet spell (HANDS_FREE_IDLE_MS). No duration is named.
+  voice.hands_free_idle:
+    ai: never
+    when: Hands-free turned itself off after a quiet spell in cook mode (Ruling 7). No duration is named.
+    lines:
+      - "It's gone quiet, so I've stopped listening. Hold to talk when you need me."
+      - "I've turned hands-free off for now. Hold the talk button to wake me."
 
   toolkit.rusty_invite:
     ai: allowed

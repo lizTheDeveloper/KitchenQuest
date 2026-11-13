@@ -221,6 +221,18 @@ describe('everything the grammar does not claim goes to the health path (C30)', 
     expect(await ticked(p.cookie)).toEqual([]);
   });
 
+  test('M7 Step 7 (M6 final, the duplicate ask; eval C01): an AI health turn with a model check-off card asks rule.ask_what_else once, naming the allergen, never the row the card covers', async () => {
+    const ai = fakeAi([checkOff(['shallots'])]);
+    await makeApp(ai);
+    const p = await player(['health_data', 'ai_health']);
+    const r = await p.turn("got the shallots, I'm allergic to peanuts");
+    expect(r.route).toBe('ai');
+    expect(checkOffOf(r).card).toMatchObject({ source: 'model', got: [keyOf(p.run, 'shallots')] });
+    const asks = r.parts.flatMap((x) => (x.kind === 'line' && x.line.trigger === 'rule.ask_what_else' ? [x.line.vars] : []));
+    expect(asks).toEqual([{ term: 'peanut' }]);
+    expect(await ticked(p.cookie)).toEqual([]);
+  });
+
   test('emergency and child phrasing win: nothing ticks', async () => {
     await makeApp(null);
     const p = await player();

@@ -112,6 +112,9 @@ export function partsToItems(parts: readonly ReplyPart[], dialogue: Dialogue): P
       case 'text':
         if (import.meta.env.DEV) console.warn('mentor: a text part from the server was dropped (ruling R9)');
         return [];
+      // M7: the server sends a heard card only for a transcript turn, which this device sends from Step 9 on; it is
+      // drawn there (P7). Until then it is ignored, and nothing in it was acted on.
+      case 'heard': return [];
     }
   });
 }

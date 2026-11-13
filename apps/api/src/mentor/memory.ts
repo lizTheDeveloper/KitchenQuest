@@ -1,7 +1,10 @@
 import type { ReplyPart } from '@kitchenquest/core';
 
-/** One transcript message (C-12): what `messages.sealed` holds and what memory keeps. Re-exported by `conversations.ts`. */
-export type StoredMessage = { role: 'player'; text: string } | { role: 'pan'; parts: ReplyPart[]; proposalIds: string[] };
+/**
+ * One transcript message (C-12): what `messages.sealed` holds and what memory keeps. Re-exported by `conversations.ts`.
+ * M7 Step 6: `spoken` marks a player message that came as a speech-to-text transcript; it lives inside the seal only.
+ */
+export type StoredMessage = { role: 'player'; text: string; spoken?: true } | { role: 'pan'; parts: ReplyPart[]; proposalIds: string[] };
 
 /**
  * A conversation's recent messages held in API process memory only: the

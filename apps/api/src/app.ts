@@ -1,4 +1,5 @@
 import cookie from '@fastify/cookie';
+import websocket from '@fastify/websocket';
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 import { ZodError } from 'zod';
 import { accountRoutes } from './account/routes.js';
@@ -9,6 +10,7 @@ import { bookRoutes } from './book/routes.js';
 import { requireUser } from './auth/session.js';
 import { frameOptions } from '@kitchenquest/core';
 import { defaultCatalog, defaultLoopContent, type Catalog, type LoopContent } from './catalog.js';
+import { healthErasureOf } from './consent/health-data.js';
 import { consentHeldIn } from './consent/ledger.js';
 import { consentRoutes } from './consent/routes.js';
 import { mealRoutes } from './meals/routes.js';
@@ -25,9 +27,17 @@ import { rulesRoutes } from './rules/routes.js';
 import { loadRules } from './rules/store.js';
 import { loadPantry } from './pantry/store.js';
 import { assertUnderWriteCap } from './usage/write-cap.js';
+import { loadPanBank } from './mentor/lines.js';
+import { voiceFamilyRoutes } from './voice/family-routes.js';
+import { recentReplies } from './voice/recent-replies.js';
+import { voiceRegistry } from './voice/registry.js';
+import { MAX_CLIENT_PAYLOAD, voiceRoutes } from './voice/routes.js';
+import { voiceStatusRoutes } from './voice/status-routes.js';
+import { wsUpstream, type VoiceUpstream } from './voice/upstream.js';
 import { weekRoutes } from './week/routes.js';
 import type { Config } from './config.js';
 import { ApiError, loggableError } from './errors.js';
+import { voiceErrorForLog } from './logging/redact.js';
 import type { Db, Mailer } from './types.js';
 
 export interface Deps {
@@ -43,6 +53,15 @@ export interface Deps {
   catalog?: Catalog;
   /** The weekly loop's data and content (C10); defaults to `data/` and `content/`, checked against the catalog at boot. */
   loop?: LoopContent;
+  /**
+   * Whether this server offers live voice (M7): `GET /voice/status` reports it as `enabled`. buildApp sets it to
+   * `config.voice !== null` (pre-flight P6, M7 Step 5); a value passed in is replaced. Text always works either way.
+   */
+  voiceEnabled?: boolean;
+  /** The voice service (M7 Step 5); defaults to `wsUpstream` on `config.voice`. Tests pass a fake. */
+  voiceUpstream?: VoiceUpstream;
+  /** The voice socket's heartbeat interval in ms (tests only; VOICE_PING_MS by default). */
+  voicePingMs?: number;
 }
 
 function body(code: string, message: string, details?: unknown) {
@@ -60,7 +79,7 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
   // JSON bodies only. Fastify's default text/plain parser would let a cross-site
   // form or no-cors fetch (no preflight) reach the POST routes.
   app.removeContentTypeParser('text/plain');
-  app.decorate('deps', deps);
+  app.decorate('deps', { ...deps, voiceEnabled: deps.config.voice !== null });
 
   app.setNotFoundHandler((_req, reply) => {
     reply.status(404).send(body('not_found', 'Route not found'));
@@ -82,6 +101,11 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
     if (status && status >= 400 && status < 500) {
       return reply.status(status).send(body('bad_request', (err as Error).message));
     }
+    // Review Focus 2: on the voice socket, a kind and a status only; an error there may carry anything.
+    if (req.routeOptions.url === '/voice') {
+      req.log.error(voiceErrorForLog(err, 500), 'voice request failed');
+      return reply.status(500).send(body('internal', 'Internal server error'));
+    }
     // Not under `err`: pino's err serializer would copy every property back in.
     req.log.error({ error: loggableError(err) }, 'request failed');
     return reply.status(500).send(body('internal', 'Internal server error'));
@@ -95,7 +119,8 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
     budget: deps.config.ai ? new BudgetGuard(deps.db, deps.config.ai.dailyBudgetMicroUsd) : null,
   };
   app.decorate('mentor', mentor);
-  const stopSweeping = sweepPeriodically([mentor.memory, mentor.childFlags], () => deps.now().getTime());
+  // M7: the per-user voice block and recent replies are in memory too, swept with them.
+  const stopSweeping = sweepPeriodically([mentor.memory, mentor.childFlags, voiceRegistry, recentReplies], () => deps.now().getTime());
   app.addHook('onClose', (_app, done) => {
     stopSweeping();
     done();
@@ -133,6 +158,8 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
     healthConsentFor: (tx, userId, at) => consentHeldIn(tx, userId, 'health_data', at),
     // I4: the M4 daily write cap, the same for every player and plan; it counts recorded progress posts.
     writeCapFor: (tx, userId, at) => assertUnderWriteCap(tx, userId, ['progress.record'], at),
+    // M7 Step 7 (N1): the account's erasure id, so its other signed-in devices erase their stall rounds on the next sync.
+    healthErasureFor: (tx, userId) => healthErasureOf(tx, userId),
   };
   await progressRoutes(app, progress);
   // Step 6: plans and market runs, on the same recipe index and loop content.
@@ -140,6 +167,23 @@ export async function buildApp(deps: Deps): Promise<FastifyInstance> {
   // Step 7: margin notes and Cooked for Someone, on the same recipe index and loop content.
   await bookRoutes(app, { catalog, loop, recipes });
   await accountRoutes(app, progress);
+  // M7 Step 4: the voice allowance as a state, and the sealed accessibility need (C-19).
+  await voiceStatusRoutes(app);
+  // M7 Step 5: the voice socket and the Family Table report, only when this server offers voice.
+  const voice = deps.config.voice;
+  if (voice !== null) {
+    await app.register(websocket, {
+      options: { maxPayload: MAX_CLIENT_PAYLOAD, perMessageDeflate: false },
+      // A socket error is classified by kind only (Review Focus 2); the socket goes.
+      errorHandler: (err, socket, req) => {
+        req.log.warn(voiceErrorForLog(err, 1011), 'voice socket error');
+        socket.terminate();
+      },
+    });
+    const upstream = deps.voiceUpstream ?? wsUpstream(voice.serviceUrl, voice.token);
+    await voiceRoutes(app, { catalog, recipes, bank: loadPanBank(), upstream, pingMs: deps.voicePingMs });
+    await voiceFamilyRoutes(app);
+  }
 
   return app;
 }

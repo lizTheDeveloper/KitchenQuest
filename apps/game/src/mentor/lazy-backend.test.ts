@@ -36,8 +36,11 @@ describe('scriptedWhenUnavailable (the shipped fallback)', () => {
     expect(t[1]).toBe('mentor.ai_unavailable');
   });
 
-  test('voice gets the script alone', async () => {
-    expect(triggers(await fallback({ kind: 'voice' }, ctx))).toEqual(['voice.not_yet']);
+  test('M7 Step 6: a transcript gets the script and the notice, as text does; an emergency transcript the emergency line first', async () => {
+    const r = await fallback({ kind: 'transcript', text: "I'm allergic to sesame" }, ctx);
+    expect(triggers(r)[0]).toBe('mentor.ai_unavailable');
+    expect(triggers(r)).toContain('rule.readback');
+    expect(triggers(await fallback({ kind: 'transcript', text: emergency.text }, ctx))[0]).toBe('rule.emergency');
   });
 });
 
@@ -106,6 +109,8 @@ describe('lazyBackend', () => {
   });
 });
 
-test('createScriptedBackend is still the voice answer', async () => {
-  expect(triggers(await createScriptedBackend(engine, dialogue).reply({ kind: 'voice' }, ctx))).toEqual(['voice.not_yet']);
+test('createScriptedBackend answers a transcript from the script (no voice.not_yet any more)', async () => {
+  const t = triggers(await createScriptedBackend(engine).reply({ kind: 'transcript', text: 'thanks' }, ctx));
+  expect(t).toEqual(['thanks']);
+  expect(t).not.toContain('voice.not_yet');
 });

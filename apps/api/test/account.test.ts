@@ -141,6 +141,8 @@ async function fullPlayer(): Promise<Player> {
   const progress = await call(cookie, { method: 'POST', url: '/progress/events', payload: { events } });
   expect(progress.statusCode).toBe(200);
   expect(progress.json<{ accepted: unknown[] }>().accepted).toHaveLength(3);
+  // The sealed accessibility need (C-19, M7 Step 4).
+  expect((await call(cookie, { method: 'PUT', url: '/voice/accessibility', payload: { on: true } })).statusCode).toBe(204);
   expect((await call(cookie, { method: 'GET', url: '/rules' })).statusCode).toBe(200);
   await grant(db, id, 'founding', 'manual', new Date('2026-01-01T00:00:00Z'));
   await recordUsage(db, id, 'mentor_text', 3, 120);
@@ -262,6 +264,7 @@ describe('GET /me/export', () => {
       'notes.create',
       'shared_table.create',
       'progress.record',
+      'voice.settings',
       'account.export',
     ]);
     // Pan conversations with their messages, and proposals, decrypted (C-12).
@@ -307,6 +310,8 @@ describe('GET /me/export', () => {
     // Margin notes and the Shared Table (H-12, H-13), decrypted.
     expect(x.marginNotes).toEqual([{ ...NOTE, id: expect.any(String), createdAt: NOW.toISOString() }]);
     expect(x.sharedTable).toEqual([{ ...SHARED, id: expect.any(String), createdAt: NOW.toISOString() }]);
+    // The accessibility need, decrypted (C-19, M7 Step 4).
+    expect(x.voice).toEqual({ accessibility: true, updatedAt: NOW.toISOString() });
     // The C-45 subject columns are listed with each consent (always 'user' and null until M13).
     expect(x.consents.length).toBeGreaterThan(0);
     for (const c of x.consents) expect(c).toMatchObject({ subjectKind: 'user', subjectId: null });
@@ -506,6 +511,7 @@ describe('GET /me/export', () => {
       progress_events: 'progress',
       reward_grants: 'progress',
       progress_snapshots: 'progress',
+      voice_settings: 'voice',
       audit_events: 'auditEvents',
     };
     // Linked: a foreign key to users, or a column that holds a user id or an email.
@@ -594,7 +600,7 @@ describe('DELETE /me', () => {
     expect(await sql`select 1 from pantry_items where user_id = ${p.id}`).toHaveLength(0);
     // And every mentor row (P-14).
     // Both progress ledgers go with the account (U-5): events and grants alike.
-    for (const t of ['progress_events', 'reward_grants', 'meal_plans', 'market_runs', 'margin_notes', 'shared_table']) {
+    for (const t of ['progress_events', 'reward_grants', 'meal_plans', 'market_runs', 'margin_notes', 'shared_table', 'voice_settings']) {
       expect(await sql`select 1 from ${sql(t)} where user_id = ${p.id}`, t).toHaveLength(0);
     }
     for (const t of ['conversations', 'messages', 'mentor_proposals']) {

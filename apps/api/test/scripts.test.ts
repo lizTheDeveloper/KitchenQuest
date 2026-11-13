@@ -38,6 +38,17 @@ describe('admin scripts write audit events (C-5)', () => {
     expect(await t.sql`select 1 from entitlements where user_id = ${u.id}`).toHaveLength(1);
   }, 30_000);
 
+  it('grant.ts refuses accessibility_voice, a sealed setting now (C-19), and writes nothing', async () => {
+    const [u] = await t.db.insert(users).values({ email: 'retired@example.com', ageConfirmedAt: new Date() }).returning();
+    const err = await script('grant', ['retired@example.com', 'accessibility_voice'], {}).then(
+      () => null,
+      (e: { stderr: string }) => e,
+    );
+    expect(err?.stderr).toContain('accessibility_voice is a sealed setting (C-19)');
+    expect(await t.sql`select 1 from entitlements where user_id = ${u.id}`).toHaveLength(0);
+    expect(await t.sql`select 1 from audit_events where subject_user_id = ${u.id}`).toHaveLength(0);
+  }, 30_000);
+
   it('rekey.ts re-wraps every user key to the active key, reports counts and writes an audit event', async () => {
     const k1 = randomBytes(32);
     const k2 = randomBytes(32);

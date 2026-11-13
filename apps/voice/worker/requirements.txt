@@ -1,0 +1,43 @@
+# Kitchen Quest voice worker (apps/voice/worker/kq_voice_worker.py): the operator's Python environment, exact pins.
+# Operator only: CI never installs these (it runs the stdlib-only echo engine) and never downloads a model.
+# Python 3.13. These are the versions the M7 voice spike measured, and that Step 3's worker was run against end to end
+# (whisper, piper and kokoro), minus the spike's measuring tools (jiwer, rapidfuzz, scipy, soundfile, cffi, pycparser).
+# The worker refuses a phonemizer other than 3.6.0: its in-memory patch (no temporary files) is written against it.
+#
+#   python3.13 -m venv /opt/kitchenquest/voice-venv
+#   /opt/kitchenquest/voice-venv/bin/pip install --require-virtualenv -r apps/voice/worker/requirements.txt
+#
+# Licences: faster-whisper, ctranslate2, onnxruntime, kokoro-onnx MIT; phonemizer GPL-3.0; piper-tts and espeak-ng
+# GPL-3.0-or-later (Ruling 14: they run in the worker process, or as their own `piper` process, never in Node).
+faster-whisper==1.2.1
+ctranslate2==4.8.5
+onnxruntime==1.31.1
+kokoro-onnx==0.6.1
+phonemizer==3.6.0
+espeakng-loader==0.2.4
+piper-tts==1.8.0
+numpy==2.5.4
+av==19.0.2
+tokenizers==0.23.3
+huggingface_hub==2.4.0
+hf-xet==1.8.0
+anyio==4.16.0
+attrs==26.1.0
+click==8.5.1
+cloudpickle==3.1.2
+dlinfo==2.0.0
+filelock==4.2.10
+flatbuffers==25.12.19
+fsspec==2026.9.0
+h11==0.16.0
+httpcore2==2.16.0
+httpx2==2.16.0
+idna==3.20
+joblib==1.6.0
+packaging==26.3
+pathvalidate==3.3.1
+protobuf==7.36.2
+PyYAML==6.0.3
+tqdm==4.70.1
+truststore==0.10.5
+typing_extensions==4.16.0

@@ -172,7 +172,7 @@ describe('validateStallFile (never throws; each problem names the stall, the key
     });
     test('the prompt lists every board entry, in order, with the same numbers', () => {
       expect(with_((d) => { q(d, 'bram-value-braise').prompt = q(d, 'bram-value-braise').prompt.replace('22.50', '21.00'); }))
-        .toEqual([`${AT}: prompt does not list chalkboard[0] (22.50 for 6) in order`]);
+        .toEqual([`${AT}: prompt states 21.00, which is no chalkboard price, servings or price per serving`, `${AT}: prompt does not list chalkboard[0] (22.50 for 6) in order`]);
       expect(with_((d) => { q(d, 'bram-value-braise').prompt = q(d, 'bram-value-braise').prompt.replace('38 for 4', '38 for 5'); }))
         .toEqual([`${AT}: prompt does not list chalkboard[1] (38 for 4) in order`]);
       // An extra number between a price and its servings, or entries swapped, fails too.
@@ -186,6 +186,35 @@ describe('validateStallFile (never throws; each problem names the stall, the key
     test('the shipped wording passes: "60 ÷ 6 = 10" equals 10.00', () => {
       expect(with_((d) => { board(d)[2] = { price: 60, servings: 6 }; set(d, 2, '60 ÷ 6 = 10 a serving.'); q(d, 'bram-value-braise').prompt = 'Chuck 22.50 for 6 servings; short ribs 38 for 4; tenderloin 60 for 6.'; set(d, 1, 'Half bone: 38 ÷ 4 = 9.50 a serving. Chuck is 3.75.'); })).toEqual([]);
     });
+  });
+
+  test('M7 Step 7 (M6 Task 5 N3, core half): a figure in an option text or the prompt must be a board figure', () => {
+    const AT = 'bram: questions[6] (bram-value-braise)';
+    // An option's text may state its own price, servings or price per serving, and nothing else.
+    expect(with_((d) => { q(d, 'bram-value-braise').options[0].text = 'Chuck, 3.75 a serving'; })).toEqual([]);
+    expect(with_((d) => { q(d, 'bram-value-braise').options[0].text = 'Chuck, 4.80 a serving'; }))
+      .toEqual([`${AT}: options[0].text states 4.80, which is not its own chalkboard price, servings or price per serving`]);
+    // Every number in the prompt is some board price, servings or price per serving.
+    expect(with_((d) => { q(d, 'bram-value-braise').prompt += ' Serves 7.'; }))
+      .toEqual([`${AT}: prompt states 7, which is no chalkboard price, servings or price per serving`]);
+  });
+
+  test('M7 Step 7 (M6 final M7): an FAQ answer or a tip that names a graph food declares it in its contains', () => {
+    expect(with_((d) => { d.faq.push({ q: ['which cut for stew'], a: 'Chuck, every time.' }); }))
+      .toEqual(['bram: faq[3].a names "chuck" but its contains does not declare it (faq[3].contains)']);
+    expect(with_((d) => { d.faq.push({ q: ['which cut for stew'], a: 'Chuck, every time.', contains: ['chuck'] }); })).toEqual([]);
+    expect(with_((d) => { d.faq.push({ q: ['which cut for stew'], a: 'Ask Bram.', a_if_blocked: 'Try lentils.' }); }))
+      .toEqual(['bram: faq[3].a_if_blocked names "lentil" but its contains_if_blocked does not declare it (faq[3].contains_if_blocked)']);
+    expect(with_((d) => { d.faq.push({ q: ['which cut for stew'], a: 'Ask Bram.', a_if_blocked: 'Try lentils.', contains_if_blocked: ['lentil'] }); })).toEqual([]);
+    // A tip names its own item freely; any other food it names is declared.
+    expect(with_((d) => { d.item_tips.chuck = { pick: 'Chuck with good marbling.', store: 'Next to the lentils.' }; }))
+      .toEqual(['bram: item_tips.chuck names "lentil" but its contains does not declare it (item_tips.chuck.contains)']);
+    expect(with_((d) => { d.item_tips.chuck = { pick: 'Chuck with good marbling.', store: 'Next to the lentils.', contains: ['lentil'] }; })).toEqual([]);
+    // Declared ids are graph ids, in a list.
+    expect(with_((d) => { d.item_tips.chuck = { pick: 'Marbled.', store: 'Fridge.', contains: ['unobtainium'] }; }))
+      .toEqual(['bram: item_tips.chuck.contains "unobtainium" is not in the ingredient graph']);
+    expect(with_((d) => { d.faq[0] = { ...d.faq[0], contains: 'beef' as unknown as string[] }; }))
+      .toEqual(['bram: faq[0].contains is not a list of ingredient ids']);
   });
 
   test('fix round 1, M1: a currency symbol anywhere in a stall file fails the build, not only in a question', () => {

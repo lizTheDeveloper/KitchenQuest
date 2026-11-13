@@ -147,7 +147,7 @@ interface PantryUndo {
  * transaction. Throws 401 (account gone), 404 `not_found` (not theirs, or
  * gone: a purged card), 403 `consent_required` (rule and meal cards; the card
  * stays open, so a tap after granting works), 409 `proposal_closed` (decided
- * or expired), 400 `tap_required` (a severe card on any channel but a tap),
+ * or expired), 400 `tap_required` (a severe card on any channel but a tap: a typed or a spoken yes),
  * 400 `bad_request` (an edit on a card that is not a rule, or the service's
  * validation). Any throw rolls the transaction back, so the card stays open.
  * With `inConversation` given (the tap names the conversation the player is in
@@ -161,9 +161,10 @@ export async function confirmProposalIn(
   proposalId: string,
   /**
    * 'grammar' (M6 Step 8, C31): the turn applies a check-off card code built from the closed grammar at once, with an
-   * Undo (spec §7.0 "None (undoable)"). Only for such a card; the proposal records no channel.
+   * Undo (spec §7.0 "None (undoable)"). Only for such a card; the proposal records no channel. 'spoken_yes' (M7 Ruling
+   * 12): a transcript's strict yes, held to the typed yes's rule (never a severe card: `tap_required`).
    */
-  channel: 'tap' | 'typed_yes' | 'grammar',
+  channel: 'tap' | 'typed_yes' | 'spoken_yes' | 'grammar',
   edits: { severity?: Severity } | undefined,
   at: Date,
   requestId?: string,
@@ -273,7 +274,7 @@ export async function confirmProposal(
   deps: ConfirmDeps,
   userId: string,
   proposalId: string,
-  channel: 'tap' | 'typed_yes',
+  channel: 'tap' | 'typed_yes' | 'spoken_yes',
   edits: { severity?: Severity } | undefined,
   at: Date,
   requestId?: string,

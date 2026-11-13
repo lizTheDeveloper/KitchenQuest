@@ -2,6 +2,7 @@ import { and, eq, gt, isNull } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { audit } from '../audit/audit.js';
+import { voiceRegistry } from '../voice/registry.js';
 import { loginTokens, users } from '../db/schema.js';
 import { activeEntitlements } from '../entitlements/entitlements.js';
 import { ApiError } from '../errors.js';
@@ -137,12 +138,15 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.post('/auth/logout', async (req, reply) => {
-    await db.transaction(async (tx) => {
+    const signedOut = await db.transaction(async (tx) => {
       const userId = await deleteSession(tx, req.cookies[SESSION_COOKIE]);
       if (userId) {
         await audit(tx, { actorKind: 'user', actorId: userId, subjectUserId: userId, action: 'auth.sign_out', requestId: req.id }, now());
       }
+      return userId;
     });
+    // M7 Step 5 fix round 1 (I1): a sign-out closes every open voice socket of the player.
+    if (signedOut) voiceRegistry.closeUser(signedOut, 'signed_out');
     reply.clearCookie(SESSION_COOKIE, SESSION_COOKIE_OPTIONS);
     return reply.status(204).send();
   });

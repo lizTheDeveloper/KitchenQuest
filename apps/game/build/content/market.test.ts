@@ -123,7 +123,7 @@ describe('the strict stall checks on the real files (M6 Step 5)', () => {
     expectProblem(problemsOf(withEdit(BRAM, '      - "Price per pound lies;', '      - "Chuck is £4 today. Price per pound lies;')), BRAM, 'triggers.greet.lines[4] has a currency symbol (£)');
   });
 
-  test('final (Task 5 N3): a wrong figure in an option\'s text or a stray one in the prompt fails the build', () => {
+  test('final (Task 5 N3; core since M7 Step 7): a wrong figure in an option\'s text or a stray one in the prompt fails the build', () => {
     const chuck = '      - { price: 60, servings: 6 }\n    options:\n      - text: "Chuck"\n';
     const chuckAs = (t: string) => withEdit(BRAM, chuck, chuck.replace('"Chuck"', `"${t}"`));
     expectProblem(problemsOf(chuckAs('Chuck, the 3.50 one')), BRAM, '(bram-value-braise)', 'options[0].text states 3.50');

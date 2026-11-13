@@ -79,7 +79,7 @@ export function benchGate(cfg: VoiceConfig, latest: BenchRun | null, acceptMiss:
     - the service bound to the private interface only (C-38);
   - the browser echo/barge-in checklist (Chromium, Safari, Firefox; speakers, no headphones), recorded in `manual[]`.
 
-- [ ] **3.1 Write the failing tests.**
+- [x] **3.1 Write the failing tests.**
 ```ts
 // worker-contract.test.ts — spawns `python3 -I -S worker/kq_voice_worker.py --engine echo` (fails, not skips, without python3)
 test('ping → pong; stt echoes "echo <n samples>"; tts streams pcm then done; cancel stops a "__kq_long__" tts; an error carries a kind and no text', ...);
@@ -99,9 +99,9 @@ test('boot({ NODE_ENV: "production", … }) rejects with the gate\'s reason; dev
 // deploy.test.ts
 test('kq-voice.service sets LimitCORE=0 and HF_HUB_OFFLINE=1 and binds VOICE_PORT on a private address variable', ...);
 ```
-- [ ] **3.2 Run** `npm test -w @kitchenquest/voice -- worker-contract pins bench deploy config` → FAIL.
-- [ ] **3.3 Implement.** CI never downloads a model.
-- [ ] **3.4 Run** `npm test -w @kitchenquest/voice`, `npm run typecheck`, `npm run lint` → PASS. The repo's `npm test` → only `eval-gate.test.ts` fails.
-- [ ] **3.5 Commit** `feat(voice): Python worker engines, model pins, the operator latency benchmark and its production gate`
+- [x] **3.2 Run** `npm test -w @kitchenquest/voice -- worker-contract pins bench deploy config` → FAIL.
+- [x] **3.3 Implement.** CI never downloads a model.
+- [x] **3.4 Run** `npm test -w @kitchenquest/voice`, `npm run typecheck`, `npm run lint` → PASS. The repo's `npm test` → only `eval-gate.test.ts` fails.
+- [x] **3.5 Commit** `feat(voice): Python worker engines, model pins, the operator latency benchmark and its production gate`
 
 **Operator task (not CI):** after Step 7, fill the `files` pins, run `npm run bench -w @kitchenquest/voice` on the target box, commit the results and `latest.json`, and report the numbers to the founder.

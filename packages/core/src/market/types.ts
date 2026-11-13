@@ -44,6 +44,12 @@ export interface StallTrigger {
 export interface ItemTip {
   pick: string;
   store: string;
+  /**
+   * M7 Step 7 (M6 final M7): every graph food the tip names besides its own item, by id. The build fails a tip whose
+   * words name a graph food it doesn't declare; `tipFor` checks the declared ids and the scan, so a food named only
+   * indirectly ("the Kerala blend") is still checked.
+   */
+  contains?: string[];
 }
 
 /** Ruling 21: a tappable written question. `q[0]` is the chip; `a` is shown only after the rules check (`faqFor`). */
@@ -52,6 +58,10 @@ export interface StallFaq {
   a: string;
   /** Shown instead of `a` when `a` names something the player's rules block or can't verify. */
   a_if_blocked?: string;
+  /** M7 Step 7 (M6 final M7): the graph ids `a` names (required for every food its words name; `faqFor` checks them). */
+  contains?: string[];
+  /** The same for `a_if_blocked`. */
+  contains_if_blocked?: string[];
   tags?: string[];
 }
 

@@ -725,6 +725,11 @@
       "aliases": [
         "sunflower oil"
       ],
+      "unsafeFor": [
+        "mustard",
+        "mustard_seed",
+        "sunflower_seed"
+      ],
       "per100g": {
         "energy_kcal": 884,
         "protein_g": 0,
@@ -734,7 +739,17 @@
         "sugars_g": 0,
         "sodium_mg": 0
       },
-      "fdcId": 171017
+      "fdcId": 171017,
+      "source": "Generic vegetable oil values (FDC 171017). M7 Step 7 (M6 final M3): a bottle sold as neutral or vegetable oil may be rapeseed (canola) or sunflower oil, and the stall swap note says 'sunflower or canola oil'. # REVIEW: rapeseed is a Brassica, cross-reactive with mustard (an EU allergen), so neutral oil counts as mustard for a mustard rule (unsafeFor), never safe; a reviewer may only keep or raise this. # REVIEW: sunflower oil (this node's alias) is pressed from sunflower seed, so neutral oil counts as sunflower seed for a sunflower rule (unsafeFor). M10's graph pass may split rapeseed_oil and sunflower_oil into their own nodes."
+    },
+    {
+      "id": "sunflower_seed",
+      "name": "sunflower seed",
+      "aliases": [
+        "sunflower",
+        "sunflower kernel"
+      ],
+      "source": "No FDC values recorded: added in M7 Step 7 so a sunflower allergy can be stated (neutral oil counts as it). # REVIEW: values from FDC 170562 (sunflower seed kernels, dried) in M10's graph pass."
     },
     {
       "id": "shio_kombu",

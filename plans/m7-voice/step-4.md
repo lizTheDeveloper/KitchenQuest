@@ -41,9 +41,9 @@ export async function setAccessibility(db: Db, keyring: Keyring, userId: string,
 // voice/allowance.ts
 export async function voiceState(db: Db, keyring: Keyring, userId: string, now: Date): Promise<{ state: VoiceState; unmetered: boolean }>;
 //   1. everyone: voice_stt seconds in 24 h ≥ VOICE_ABUSE_SECONDS_PER_DAY → resting until (oldest counted row + 24 h):
-//      { kind: 'resting_today' } when that is the same UTC date as now, else { kind: 'resting', until } (B4)
+//      { kind: 'resting_today' } when that is the same player-local date as now (Step 4 fix round 1 ruling: local, not UTC), else { kind: 'resting', until } (B4)
 //   2. unmetered = accessibility || any GUILD_KINDS → available
-//   3. free: seconds in 30 days ≥ FREE_VOICE_SECONDS_PER_30_DAYS → resting until the UTC date enough old rows leave the window
+//   3. free: seconds in 30 days ≥ FREE_VOICE_SECONDS_PER_30_DAYS → resting until the player-local date enough old rows leave the window
 export async function recordVoice(db: Pick<Db, 'insert'>, userId: string, feature: 'voice_stt' | 'voice_tts', ms: number, now: Date): Promise<void>;
 //   units = ceil(ms / 1000); cost = units × VOICE_COST_MICROUSD_PER_SECOND; skipped at 0 ms
 // voice/status-routes.ts
@@ -60,7 +60,7 @@ export async function recordVoice(db: Pick<Db, 'insert'>, userId: string, featur
 
   It never says "HIPAA".
 
-- [ ] **4.1 Write the failing tests.**
+- [x] **4.1 Write the failing tests.**
 ```ts
 // voice-settings.test.ts (real Postgres)
 test('PUT {on:true} without health_data → 403 consent_required; with it → 204; the bytea holds neither "accessibility" nor "true"; a row copied to another user fails to open (AAD)', ...);
@@ -81,7 +81,7 @@ test('zero entitlements + accessibility on: available after 10 h of speech in 30
 test('GET /me/consents returns notices.voice at v1 from the file; a grant under 2026-11-09 is in needsReconsent', ...);
 // inventory.test.ts (N-8): voice_settings columns listed
 ```
-- [ ] **4.2 Run** `npm test -w @kitchenquest/api -- voice-settings voice-allowance free-forever consent inventory account entitlements` → FAIL.
-- [ ] **4.3 Implement.** Generate the migration with `drizzle-kit generate`. Then write the inventory rows and the business-doc line.
-- [ ] **4.4 Run** `npm test -w @kitchenquest/api` → only `eval-gate.test.ts` fails. `npm run typecheck` → PASS.
-- [ ] **4.5 Commit** `feat(api): voice consent v1, the sealed accessibility need (C-19), voice allowance and usage`
+- [x] **4.2 Run** `npm test -w @kitchenquest/api -- voice-settings voice-allowance free-forever consent inventory account entitlements` → FAIL.
+- [x] **4.3 Implement.** Generate the migration with `drizzle-kit generate`. Then write the inventory rows and the business-doc line.
+- [x] **4.4 Run** `npm test -w @kitchenquest/api` → only `eval-gate.test.ts` fails. `npm run typecheck` → PASS.
+- [x] **4.5 Commit** `feat(api): voice consent v1, the sealed accessibility need (C-19), voice allowance and usage`

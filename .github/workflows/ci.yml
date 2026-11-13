@@ -43,8 +43,13 @@ jobs:
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            tools/lint/package-lock.json
       - run: npm ci
       - run: npm audit --omit=dev --audit-level=high
+      # apps/voice's lint-guard test reads tools/lint's ESLint and fails under CI without it (M7 Step 2, F1).
+      - run: npm run lint:install
       - run: npm run typecheck
       - run: npm test
   game:
@@ -63,3 +68,22 @@ jobs:
       - run: npm test -w @kitchenquest/game
       - run: npm run build -w @kitchenquest/game
       - run: npm run test:e2e -w @kitchenquest/game
+  # M7: the voice service. Fake engines and the worker's stdlib-only echo engine (python3 -I -S): CI has no GPU, no
+  # microphone and no model weights, never installs worker/requirements.txt and never runs the benchmark.
+  voice:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            tools/lint/package-lock.json
+      - run: npm ci
+      # The lint-guard test reads the real ESLint config from tools/lint (fix round 2, N6).
+      - run: npm run lint:install
+      - run: python3 --version
+      - run: npm run typecheck -w @kitchenquest/voice
+      - run: npm test -w @kitchenquest/voice

@@ -20,10 +20,10 @@ export function withNotice(notice: PanItem, r: PanReply): PanReply {
 
 /** What answers a turn when the AI backend can't (its code won't load, or loads too slowly): the script, notice after any safety line. */
 export function scriptedWhenUnavailable(engine: ScriptedEngine, dialogue: Dialogue): (input: MentorInput, ctx: TurnContext) => Promise<PanReply> {
-  const scripted = createScriptedBackend(engine, dialogue);
+  const scripted = createScriptedBackend(engine);
   return async (input, ctx) => {
-    const r = await scripted.reply(input, ctx);
-    return input.kind === 'text' ? withNotice({ kind: 'said', said: dialogue.say('mentor.ai_unavailable') }, r) : r;
+    // A transcript is a turn like a typed one (M7 Step 6): the same notice.
+    return withNotice({ kind: 'said', said: dialogue.say('mentor.ai_unavailable') }, await scripted.reply(input, ctx));
   };
 }
 
@@ -68,7 +68,7 @@ export function createLocalSafety(deps: { dialogue: Dialogue; graph: IngredientG
   return {
     reset() { child.reset(); },
     reply(input) {
-      if (input.kind !== 'text') return null;
+      // M7 Step 6: a transcript gets the same answers first (§19: a child's speech never reaches the AI either).
       const raw = input.text;
       const intent = classifyTurn(stripPageEvents(raw).text.trim());
       let items: PanItem[];

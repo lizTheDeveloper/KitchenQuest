@@ -55,7 +55,8 @@ export interface Consents {
 export type { ConfirmRequest, ConfirmResponse, MealEntry, PantryItem, ReplyPart, TurnRequest, TurnResponse } from '@kitchenquest/core/engine';
 
 /** GET /progress (Step 5): the account's view, derived by the server from its two ledgers. */
-export interface ProgressResponse { view: ProgressView }
+/** GET /progress. M7 Step 7 (N1): `healthErasure`, the account's erasure id (null before its first `health_data` delete). */
+export interface ProgressResponse { view: ProgressView; healthErasure?: string | null }
 /**
  * POST /progress/events (Step 5). `accepted` grants are computed by the server with core (no `createdAt`: a grant
  * carries only its kind, amount and day). `duplicate`: ids already recorded (a replay). `rejected`: core's problems,
@@ -68,6 +69,8 @@ export interface ProgressPostResponse {
   rejected: { clientId: string; problems: string[] }[];
   warnings: { clientId: string; warnings: string[] }[];
   view: ProgressView;
+  /** M7 Step 7 (N1): as GET /progress's. */
+  healthErasure?: string | null;
 }
 
 /**

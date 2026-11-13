@@ -7,7 +7,10 @@ import { FREE_AI_TURNS_PER_DAY, GUILD_AI_TURNS_PER_DAY } from './constants.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** Entitlements that carry the Guild's larger chat allowance. `accessibility_voice` does not. */
+/**
+ * Entitlements that carry the Guild's larger chat allowance (and, M7 Step 4, unmetered voice in `voice/allowance.ts`).
+ * The retired `accessibility_voice` kind is not one: the accessibility need is the sealed `voice_settings` row (C-19).
+ */
 export const GUILD_KINDS: readonly EntitlementKind[] = ['guild', 'household_member', 'bursary', 'founding', 'seat_licence'];
 
 /**

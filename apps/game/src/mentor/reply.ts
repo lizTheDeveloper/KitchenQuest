@@ -34,8 +34,19 @@ export type PanItem =
   | { kind: 'rules_error'; message: string; href: string }
   /** A navigation chip (Ruling 15): a button carrying its `nav.offer` line. Only a tap navigates; nothing else does. */
   | { kind: 'go'; target: NavTarget; said: Said }
-  /** The AI failed twice on this text: a "Try again" button that sends it again. The text lives in memory only (N-4). */
-  | { kind: 'retry'; text: string };
+  /**
+   * The AI failed twice on this turn: a "Try again" button that sends the same input again, unchanged (M7 Step 6 fix
+   * round 1, I2: a transcript stays a transcript, with its heard words, so it meets the server's heard gate again and is
+   * stored as spoken). It lives in memory only (N-4).
+   */
+  | { kind: 'retry'; input: MentorInput };
+
+/**
+ * What the player said. M7 Step 6 (P9): typed text, or a speech-to-text transcript (untrusted user text, §7.6) with,
+ * after a tap on its heard card, the words that tap confirmed (Ruling 4). Step 9's `transcriptTurn` runs the device's
+ * heard check before any backend sees a transcript. A transcript is the spoken kind: the server stores it `spoken`.
+ */
+export type MentorInput = { kind: 'text'; text: string } | { kind: 'transcript'; text: string; heard?: { words: string[] } };
 
 /** A request from the engine to the panel's writer (pre-flight C10). CardAction stays the record of a write the SERVER completed. */
 export type LocalIntent = { kind: 'confirm' | 'reject'; localId: string } | { kind: 'undo' };

@@ -22,3 +22,4 @@ export { toGrams, unitFamily, unitOf } from './nutrition/units';
 export { nutritionPerServing } from './nutrition/compute';
 export type { NutritionResult } from './nutrition/compute';
 export * from './mentor';
+export * from './voice';

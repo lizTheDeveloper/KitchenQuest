@@ -536,3 +536,34 @@ describe('M6 Step 4: the market nodes carry their allergen edges, never fewer (C
     }
   });
 });
+
+describe('M7 Step 7 (M6 final M3, data half): neutral oil may be rapeseed (canola) or sunflower, so it is never ✅ for either', () => {
+  const MUSTARD = [avoid(['mustard'], 'allergy')];
+  const SUNFLOWER = [avoid(['sunflower_seed'], 'allergy')];
+  const line = (name: string) => check(dish(`Fry in @${name}{1%tbsp}.`), [...MUSTARD], graph, subs, '2026-11-12');
+
+  it('a mustard rule blocks neutral oil and sunflower oil (its alias): ⛔, never ✅', () => {
+    expect(line('neutral oil').status).toBe('blocked');
+    expect(line('sunflower oil').status).toBe('blocked');
+    expect(check(dish('Fry in @neutral oil{1%tbsp}.'), SUNFLOWER, graph, subs, '2026-11-12').status).toBe('blocked');
+    // No other rule changes: a peanut rule still has neutral oil ✅.
+    expect(check(dish('Fry in @neutral oil{1%tbsp}.'), [avoid(['peanut'])], graph, subs, '2026-11-12').status).toBe('ok');
+  });
+
+  it('under a mustard rule the "sunflower or canola oil" swap is never offered: coconut oil stays ⛔ or ❓, never 🔁 to neutral oil', () => {
+    const r = check(dish('Fry in @coconut oil{1%tbsp}.'), [avoid(['coconut'], 'allergy'), ...MUSTARD], graph, subs, '2026-11-12');
+    expect(['blocked', 'unverified']).toContain(r.status);
+    expect(r.findings.some((f) => f.swap?.toId === 'neutral_oil')).toBe(false);
+    // Without the mustard rule the swap is still there.
+    const plain = check(dish('Fry in @coconut oil{1%tbsp}.'), [avoid(['coconut'], 'allergy')], graph, subs, '2026-11-12');
+    expect(plain.findings.some((f) => f.swap?.toId === 'neutral_oil')).toBe(true);
+  });
+
+  it('the edges are flagged for review in the data, and a sunflower allergy is a term the graph knows', () => {
+    expect(graph.get('neutral_oil').unsafeFor).toEqual(expect.arrayContaining(['mustard', 'mustard_seed', 'sunflower_seed']));
+    expect(graph.get('neutral_oil').source).toMatch(/# REVIEW:.*rapeseed/);
+    expect(graph.get('neutral_oil').source).toMatch(/# REVIEW:.*sunflower/);
+    expect(graph.resolve('sunflower')).toBe('sunflower_seed');
+    expect(graph.resolve('sunflower oil')).toBe('neutral_oil');
+  });
+});

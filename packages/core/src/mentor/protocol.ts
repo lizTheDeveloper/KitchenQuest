@@ -1,4 +1,5 @@
 import type { Severity } from '../rules/types';
+import type { HeardCheck } from '../voice/heard-types';
 import type { LineRef, ProposalCard, ProposalKind } from './cards';
 
 /**
@@ -19,7 +20,12 @@ export const MENTOR_TURN_DEADLINE_MS = 15_000;
 
 export interface TurnRequest {
   conversationId: string | null;
-  input: { kind: 'text'; text: string }; // M7 adds { kind: 'transcript'; text: string }
+  /**
+   * What the player said. M7: a `transcript` is speech-to-text output, untrusted user text like any other (§7.6). Its
+   * `heard.words` are the heard card's words the player confirmed with a tap (Ruling 4, §7.6b.4: a structured field,
+   * never user text); a transcript whose heard check is not confirmed by exactly those words gets the heard card back.
+   */
+  input: { kind: 'text'; text: string } | { kind: 'transcript'; text: string; heard?: { words: string[] } };
   localDate: string; // the player's YYYY-MM-DD
   localTime: string; // the player's HH:MM
   screen: { route: string; slug?: string } | null;
@@ -59,7 +65,9 @@ export type ReplyPart =
   /** Show that consent card. */
   | { kind: 'consent'; purpose: 'health_data' | 'ai_health' }
   /** A navigation chip (Ruling 15): shown with its `nav.offer` line; nothing moves until the player taps it. */
-  | { kind: 'go'; target: NavTarget; line: LineRef };
+  | { kind: 'go'; target: NavTarget; line: LineRef }
+  /** M7 Ruling 4: a transcript's heard check; nothing in it has been acted on until a tap confirms its words. */
+  | { kind: 'heard'; check: HeardCheck };
 
 export interface ServerCard {
   proposalId: string;
@@ -97,6 +105,8 @@ export interface TurnResponse {
   notice: TurnNotice;
   /** For M7's filler line. */
   toolTurn: boolean;
+  /** M7 Ruling 15: this reply's id, so a `speak` can name one of its line parts (`{ kind: 'reply', replyId, part }`). */
+  replyId: string;
 }
 
 export interface ConfirmRequest {
