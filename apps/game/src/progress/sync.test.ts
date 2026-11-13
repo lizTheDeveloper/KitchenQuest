@@ -897,3 +897,28 @@ describe('M7 Step 8 (M6 fix review N2, N4): the moment of a health delete, and a
     sync.stop();
   });
 });
+
+// M7 Step 9 (M6 final fix review N3): M1 for every kind. A once-per-period grant (a lesson's stamp, the market run's
+// weekly stamp) earned first on another device is refused by the server; this device's copy of it must go too.
+describe('M7 Step 9 (M6 fix review N3): the server\'s grants for every accepted kind', () => {
+  test('a lesson the server accepted with no grants (earned on another device first) loses its device grants; one it granted keeps exactly the server\'s', async () => {
+    let online = false;
+    const server: Record<string, RewardGrant[]> = {};
+    const { store, sync } = setup({ online: () => online, answer: (p) => ok({ accepted: p.events.map((e) => ({ clientId: e.id, grants: server[e.id] ?? [] })) }) });
+    signIn(store);
+    const refused = lesson('2026-11-09');
+    const given = cooked('2026-11-10');
+    await sync.record([refused]);
+    await sync.record([given]);
+    const deviceOf = (id: string) => part(store, A).grants.filter((g) => g.eventId === id);
+    expect(deviceOf(refused.id).length).toBeGreaterThan(0); // the device judged it earned
+    expect(deviceOf(given.id).length).toBeGreaterThan(0);
+    server[given.id] = [{ id: `${given.id}#server`, eventId: given.id, isoDay: '2026-11-10', kind: 'xp', amount: 7, reason: 'cooked' } as RewardGrant];
+    online = true;
+    await sync.uploadDeviceLog();
+    expect(deviceOf(refused.id)).toEqual([]);
+    expect(deviceOf(given.id)).toEqual(server[given.id]);
+    expect(part(store, A).pendingUpload).toEqual([]);
+    sync.stop();
+  });
+});

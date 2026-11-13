@@ -204,18 +204,19 @@ export function createProgressSync(deps: ProgressSyncDeps): ProgressSync {
     // included); the server holds the record now, so it leaves the device at once (Task 9 minimisation).
     const meals = sent.filter((e) => e.kind === 'meal_logged').map((e) => e.id);
     if (from !== null && meals.length > 0) store.update((s) => dropEvents(s, from, meals));
-    // M6 final M1: a stall round's grants are the server's. The device judged first-correct from its own history only,
-    // so a question first answered right on another device earned XP here that the server refused: the server's
-    // grants replace the device's for each stall round it accepted (the shown view is the max with the server's).
-    if (from !== null && Array.isArray(r.accepted)) {
-      const rounds = new Set(sent.filter((e) => e.kind === 'stall_round').map((e) => e.id));
-      const server = r.accepted.filter((a) => rounds.has(a.clientId));
-      if (server.length > 0) store.update((s) => adoptGrants(s, from, server));
-    }
     // Every id sent was answered (accepted, duplicate or refused for good), so none is posted again.
     if (from !== null && liveKey() !== as) store.update((s) => dropEvents(s, from, ids));
     else markUploaded(store, from, ids);
     const kept = keepView(as, r.view, r.healthErasure, gen);
+    // M6 final M1, and M7 Step 9 (M6 fix review N3): every accepted event's grants are the server's. The device judged
+    // first-correct, a weekly stamp or a lesson stamp from its own history only, so one earned first on another device
+    // earned grants here that the server refused: the server's replace the device's for each event it accepted, of
+    // every kind. N5: after the view is kept, so the total shown never dips between the two updates.
+    if (from !== null && Array.isArray(r.accepted)) {
+      const sentIds = new Set(ids);
+      const server = r.accepted.filter((a) => sentIds.has(a.clientId));
+      if (server.length > 0) store.update((s) => adoptGrants(s, from, server));
+    }
     // M7 Step 8 (M6 fix review N4): a stall round answered `duplicate` is one the server already holds (a live post
     // whose answer was lost): its grants are the server's, in the view just kept, so the device's own go (as M1 does
     // for an accepted one). After the view, so the total shown never dips.
