@@ -87,7 +87,7 @@ export function kqHandsFree(): Plugin;   // VITE_HANDS_FREE=on fails `vite build
 export function kqVoiceProvider(): Plugin;   // command === 'build' with VITE_VOICE_PROVIDER=browser → fail, any mode
 ```
 
-- [ ] **8.1 Write the failing tests.**
+- [x] **8.1 Write the failing tests.**
 ```ts
 // vad.test.ts
 test('speech ≥ MIN_SPEECH_MS above the floor starts with PRE_ROLL_MS of pre-roll; end comes VAD_HANGOVER_MS after it falls', ...);
@@ -119,9 +119,9 @@ test('kqCsp: the built index.html has connect-src \'self\' wss://<KQ_APP_ORIGIN 
 // budget-plugin.test.ts
 test('no voice module is in the first-paint graph; first paint ≤ 359.6 KB (Step 7 baseline 357.6 KB + 2 KB, ruling round)', ...);
 ```
-- [ ] **8.2 Run** `npm test -w @kitchenquest/game -- voice build budget` → FAIL.
-- [ ] **8.3 Implement.**
+- [x] **8.2 Run** `npm test -w @kitchenquest/game -- voice build budget` → FAIL.
+- [x] **8.3 Implement.**
   - The worklet is a bundled module (`new URL('./capture-worklet.ts', import.meta.url)`), never a `blob:` URL.
   - The library is reached only by `import('../voice')`.
-- [ ] **8.4 Run** `npm test -w @kitchenquest/game`, `npm run typecheck`, `KQ_APP_ORIGIN=https://example.test npm run build -w @kitchenquest/game` (record first paint) → PASS. Then check that no `EVAL_FILES` path changed since Step 7: `git diff --stat <step-7 commit>`.
-- [ ] **8.5 Commit** `feat(game): the voice client — capture, VAD, socket, playback, providers, controller; CSP and build gates`
+- [x] **8.4 Run** `npm test -w @kitchenquest/game`, `npm run typecheck`, `KQ_APP_ORIGIN=https://example.test npm run build -w @kitchenquest/game` (record first paint) → PASS. Then check that no `EVAL_FILES` path changed since Step 7: `git diff --stat <step-7 commit>`.
+- [x] **8.5 Commit** `feat(game): the voice client — capture, VAD, socket, playback, providers, controller; CSP and build gates`
