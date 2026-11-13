@@ -6,10 +6,14 @@ interface WakeLockApi { request(type: 'screen'): Promise<Sentinel> }
 /**
  * Keeps the screen awake while cooking. The browser drops the lock when the tab is hidden, so it is
  * taken again when the tab becomes visible, for as long as it is enabled.
+ * M7 Step 10: hands-free cook mode also holds it (`hold`): the lock stays while either the player's toggle or a hold
+ * wants it, so turning "Keep screen awake" off mid hands-free keeps the screen on until hands-free ends.
  */
 export function createWakeLock(nav: Navigator, doc: Document, onChange?: (s: WakeState) => void) {
   let state: WakeState = 'off';
   let enabled = false;
+  let user = false;
+  let held = false;
   let sentinel: Sentinel | null = null;
   let pending = false;
   const set = (s: WakeState) => { if (s !== state) { state = s; onChange?.(s); } };
@@ -39,20 +43,27 @@ export function createWakeLock(nav: Navigator, doc: Document, onChange?: (s: Wak
     if (enabled && doc.visibilityState === 'visible' && !sentinel && !pending) void acquire();
   };
 
-  return {
-    async enable(): Promise<WakeState> {
+  async function apply(): Promise<WakeState> {
+    if (user || held) {
       enabled = true;
       doc.addEventListener('visibilitychange', onVisible);
       return acquire();
-    },
-    async disable(): Promise<void> {
-      enabled = false;
-      doc.removeEventListener('visibilitychange', onVisible);
-      const s = sentinel;
-      sentinel = null;
-      if (state !== 'unsupported') set('off');
-      try { await s?.release(); } catch { /* already released */ }
-    },
+    }
+    enabled = false;
+    doc.removeEventListener('visibilitychange', onVisible);
+    const s = sentinel;
+    sentinel = null;
+    if (state !== 'unsupported') set('off');
+    try { await s?.release(); } catch { /* already released */ }
+    return state;
+  }
+
+  return {
+    enable(): Promise<WakeState> { user = true; return apply(); },
+    async disable(): Promise<void> { user = false; await apply(); },
+    /** Hands-free is on (true) or off: held, the lock stays whatever the player's toggle says. */
+    hold(on: boolean): Promise<WakeState> { held = on; return apply(); },
+    get held(): boolean { return held; },
     get state(): WakeState { return state; },
   };
 }

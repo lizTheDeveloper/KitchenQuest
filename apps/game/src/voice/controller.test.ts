@@ -247,6 +247,28 @@ describe('createVoiceController', () => {
     expect(c.handsFree).toBe(false);
   });
 
+  test('M7 Step 10: onMic tells when the microphone opens and closes (the Listening pill), in hands-free and on a press; nothing before it opens', async () => {
+    const r = rig();
+    const c = r.make();
+    const seen: boolean[] = [];
+    c.onMic((open) => seen.push(open));
+    c.startHandsFree();
+    expect(seen).toEqual([]); // no hello answered, no microphone yet
+    await ready(r);
+    expect(seen).toEqual([true]);
+    expect(r.audio.tracks.some((t) => !t.stopped)).toBe(true);
+    frame(r, -60, 10);
+    expect(seen).toEqual([true]); // frames don't repeat it
+    c.stopHandsFree();
+    expect(seen).toEqual([true, false]);
+    expect(r.audio.tracks.every((t) => t.stopped)).toBe(true);
+    c.press();
+    await flush();
+    expect(seen).toEqual([true, false, true]);
+    c.close();
+    expect(seen).toEqual([true, false, true, false]);
+  });
+
   test('hands-free turns itself off when the page is hidden, and after HANDS_FREE_IDLE_MS with no speech', async () => {
     const r = rig();
     const c = r.make();

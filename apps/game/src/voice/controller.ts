@@ -59,6 +59,8 @@ export interface VoiceController {
   onMicReady(fn: () => void): () => void;
   /** Fix round 2 (Step 9, I-2): the API answered a hello (`ready`): voice is open for this account now. */
   onReady(fn: (state: VoiceState) => void): () => void;
+  /** M7 Step 10: the microphone opened (true) or closed (false): cook mode's Listening pill shows exactly meanwhile. */
+  onMic(fn: (open: boolean) => void): () => void;
   /**
    * Hands-free turned itself off: `idle` (HANDS_FREE_IDLE_MS without a transcript), `hidden` (the page), `noise`
    * (utterances ran to the cap back to back: a steady sound, fix round 1 I1; Step 10 says `voice.hands_free_off`),
@@ -118,6 +120,8 @@ export function createVoiceController(deps: {
   const readyFns = new Set<(s: VoiceState) => void>();
   const micReadyFns = new Set<() => void>();
   const handsOff = new Set<(w: HandsFreeOff) => void>();
+  const micFns = new Set<(open: boolean) => void>();
+  const micTold = (open: boolean) => { for (const fn of [...micFns]) fn(open); };
 
   let phase: VoicePhase = 'idle';
   let closed = false;
@@ -169,8 +173,10 @@ export function createVoiceController(deps: {
   let pendingStop: (() => void) | null = null;
   let pendingStopped = false;
   const closeMic = () => {
+    const was = mic;
     mic?.close();
     mic = null;
+    if (was !== null) micTold(false);
     if (pendingStop !== null) {
       pendingStop();
       pendingStop = null;
@@ -263,6 +269,7 @@ export function createVoiceController(deps: {
         }
         mic = m;
         m.onFrame(onFrame);
+        micTold(true);
         return m;
       },
       (e: unknown): Mic | null | Promise<Mic | null> => {
@@ -542,6 +549,7 @@ export function createVoiceController(deps: {
     onReady(fn) { readyFns.add(fn); return () => { readyFns.delete(fn); }; },
     onMicReady(fn) { micReadyFns.add(fn); return () => { micReadyFns.delete(fn); }; },
     onHandsFreeOff(fn) { handsOff.add(fn); return () => { handsOff.delete(fn); }; },
+    onMic(fn) { micFns.add(fn); return () => { micFns.delete(fn); }; },
 
     close(reason = 'off') {
       if (closed) return;
@@ -567,6 +575,7 @@ export function createVoiceController(deps: {
       readyFns.clear();
       micReadyFns.clear();
       handsOff.clear();
+      micFns.clear();
     },
   };
   return ctl;

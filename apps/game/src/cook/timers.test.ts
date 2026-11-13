@@ -1,5 +1,5 @@
-import { describe, expect, test } from 'vitest';
-import { formatClock, formatDuration, remainingMs, startTimer, tick } from './timers';
+import { describe, expect, test, vi } from 'vitest';
+import { ALARM_MAX_MS, createAlarm, formatClock, formatDuration, remainingMs, startTimer, tick } from './timers';
 
 const mk = (id: string, seconds: number, step = 1, now = 0) => startTimer({ id, label: id, step, seconds }, now);
 
@@ -51,5 +51,54 @@ describe('timers', () => {
     const t = mk('a', 10, 1, 5_000);
     expect(t.endsAt).toBe(15_000);
     expect(t.durationMs).toBe(10_000);
+  });
+});
+
+describe('M7 Step 10 (B9, carry 1): the alarm hook', () => {
+  test('onAlarm(true) comes before the sound starts and onAlarm(false) when it ends; overlapping alarms mark it once', () => {
+    const log: string[] = [];
+    const ends: (() => void)[] = [];
+    const alarm = createAlarm((ended) => { log.push('play'); ends.push(ended); return true; }, (on) => { log.push(`alarm:${on}`); });
+    alarm.sound();
+    expect(log).toEqual(['alarm:true', 'play']);
+    expect(alarm.sounding).toBe(true);
+    alarm.sound(); // a second timer finished in the same tick
+    expect(log).toEqual(['alarm:true', 'play', 'play']);
+    ends[0]();
+    expect(alarm.sounding).toBe(true);
+    ends[1]();
+    ends[1](); // an onended twice changes nothing
+    expect(log).toEqual(['alarm:true', 'play', 'play', 'alarm:false']);
+    expect(alarm.sounding).toBe(false);
+  });
+
+  test('a sound that cannot play (no AudioContext, or it throws) is marked off at once; one whose end never comes is marked off after ALARM_MAX_MS', () => {
+    const log: boolean[] = [];
+    createAlarm(() => false, (on) => log.push(on)).sound();
+    expect(log).toEqual([true, false]);
+    const thrown: boolean[] = [];
+    createAlarm(() => { throw new Error('no audio'); }, (on) => thrown.push(on)).sound();
+    expect(thrown).toEqual([true, false]);
+    vi.useFakeTimers();
+    try {
+      const hung: boolean[] = [];
+      const a = createAlarm(() => true, (on) => hung.push(on));
+      a.sound();
+      vi.advanceTimersByTime(ALARM_MAX_MS - 1);
+      expect(hung).toEqual([true]);
+      vi.advanceTimersByTime(1);
+      expect(hung).toEqual([true, false]);
+      expect(a.sounding).toBe(false);
+    } finally { vi.useRealTimers(); }
+  });
+
+  test('the hook can be set later (hands-free starts after cook mode): only the current hook hears it', () => {
+    const a = createAlarm(() => true, null);
+    a.sound(); // no hook: nothing to tell
+    const seen: boolean[] = [];
+    a.setHook((on) => seen.push(on));
+    expect(a.sounding).toBe(true);
+    expect(seen).toEqual([]);
+    a.setHook(null);
   });
 });

@@ -88,4 +88,31 @@ describe('wake lock', () => {
     expect(sentinels.length).toBeGreaterThan(0);
     expect(sentinels.every((x) => x.released)).toBe(true);
   });
+
+  test('M7 Step 10: held (hands-free on), the lock is taken and kept through a disable; released once neither holds it', async () => {
+    const { nav, calls, sentinels } = fakeNav();
+    const doc = fakeDoc();
+    const wl = createWakeLock(asNav(nav), asDoc(doc));
+    expect(await wl.hold(true)).toBe('on');
+    expect(wl.held).toBe(true);
+    expect(calls).toEqual(['screen']);
+    await wl.disable(); // the player's "Keep screen awake" off: hands-free still holds it
+    expect(wl.state).toBe('on');
+    expect(sentinels[0].released).toBe(false);
+    // Re-taken when the tab comes back, while held.
+    doc.fire('hidden');
+    sentinels[0].drop();
+    doc.fire('visible');
+    await Promise.resolve(); await Promise.resolve();
+    expect(calls).toHaveLength(2);
+    await wl.hold(false);
+    expect(wl.state).toBe('off');
+    expect(sentinels.every((x) => x.released)).toBe(true);
+    expect(doc.listenerCount()).toBe(0);
+    // The player's own enable outlives a hold.
+    await wl.enable();
+    await wl.hold(true);
+    await wl.hold(false);
+    expect(wl.state).toBe('on');
+  });
 });

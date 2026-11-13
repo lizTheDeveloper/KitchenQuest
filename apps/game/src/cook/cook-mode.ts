@@ -48,19 +48,23 @@ function amount(i: RecipeIngredient): string {
   return i.unit ? `${q} ${i.unit}` : q;
 }
 
-/** The cook timer's alarm (exported for the voice VAD test, M7 Step 8 fix round 1: B9 is pinned on this very sound). */
-export function beep(win: Window): void {
+/**
+ * The cook timer's alarm (exported for the voice VAD test, M7 Step 8 fix round 1: B9 is pinned on this very sound).
+ * M7 Step 10: `ended` is told when it stops, and false is returned when nothing played (timers.ts `createAlarm`).
+ */
+export function beep(win: Window, ended?: () => void): boolean {
   try {
     const Ctx = (win as unknown as { AudioContext?: typeof AudioContext }).AudioContext;
-    if (!Ctx) return;
+    if (!Ctx) return false;
     const ac = new Ctx();
     const osc = ac.createOscillator();
     osc.frequency.value = 880;
     osc.connect(ac.destination);
     osc.start();
     osc.stop(ac.currentTime + 0.3);
-    osc.onended = () => { void ac.close(); };
-  } catch { /* sound is a nicety */ }
+    osc.onended = () => { void ac.close(); ended?.(); };
+    return true;
+  } catch { return false; /* sound is a nicety */ }
 }
 
 const WAKE_NOTE = "This browser can't keep the screen awake. Tap the screen now and then.";

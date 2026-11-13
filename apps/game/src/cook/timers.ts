@@ -40,3 +40,36 @@ export function formatDuration(seconds: number): string {
   unit(total % 60, 'second');
   return parts.length > 0 ? parts.join(' ') : '0 seconds';
 }
+
+/** M7 Step 10: the longest an alarm is marked sounding when its sound never reports its end (the beep is 300 ms). */
+export const ALARM_MAX_MS = 2_000;
+
+/**
+ * The cook timer's alarm, marked sounding for exactly as long as it plays (B9, carry 1). `onAlarm(true)` is told before
+ * the sound starts, so hands-free's VAD threshold is already raised when it reaches the microphone, and `onAlarm(false)`
+ * once the last overlapping sound ends (the VAD's own TIMER_TAIL_MS then covers the room's echo). `play` starts one
+ * sound, calls `ended` when it stops and returns false when nothing could play. The hook can be set later (hands-free
+ * starts mid-cook: `sounding` says whether to raise it at once).
+ */
+export function createAlarm(play: (ended: () => void) => boolean, onAlarm: ((on: boolean) => void) | null) {
+  let hook = onAlarm;
+  let playing = 0;
+  return {
+    get sounding(): boolean { return playing > 0; },
+    setHook(fn: ((on: boolean) => void) | null): void { hook = fn; },
+    sound(): void {
+      if (++playing === 1) hook?.(true);
+      let done = false;
+      const end = () => {
+        if (done) return;
+        done = true;
+        clearTimeout(safety);
+        if (--playing === 0) hook?.(false);
+      };
+      const safety = setTimeout(end, ALARM_MAX_MS);
+      let started = false;
+      try { started = play(end); } catch { /* sound is a nicety */ }
+      if (!started) end();
+    },
+  };
+}
