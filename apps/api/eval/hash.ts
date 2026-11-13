@@ -25,6 +25,10 @@ import { readdirSync, readFileSync } from 'node:fs';
  *   (Ruling 15). `voice/routes.ts` is not in it (P3: the route and the turn share only the registry). The eval's own
  *   `model-calls.ts` (the runner's per-turn model-call counter, Ruling 18) is hashed with the runner. The cases now
  *   include M7 Step 6's V01–V05 and V02b and Step 7's C01, so the record's case count follows `cases.ts`.
+ * - M7 Step 11 (recomputed from the closure, unchanged as a list): core `voice/protocol.ts` gains the `too_long`
+ *   message's `safety` enum (F4-1, the emergency half: the API's whole-text scan of a transcript over the protocol cap),
+ *   so the hash moves and one eval run is recorded for it (controller ruling). The API's `voice/routes.ts`, which sends
+ *   it, stays out of the closure (P3).
  * - The data the turn decides with: `data/ingredients.json` (the graph: `mentionsHealthTerm`, `resolve`),
  *   `data/rule-terms.json` (rule terms and cards) and every file of the canon recipes directory (the exact dish
  *   names `planIntent` accepts).

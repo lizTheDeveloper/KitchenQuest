@@ -100,7 +100,7 @@ module.exports = {
     doNotFollow: { path: 'node_modules' },
     tsPreCompilationDeps: true,
     tsConfig: { fileName: 'tsconfig.eslint.json' },
-    exclude: { path: ['(^|/)dist/', '(^|/)\\.vite/', '^apps/api/migrations/', '^tools/'] },
+    exclude: { path: ['(^|/)dist/', '(^|/)dist-hands-free/', '(^|/)\\.vite/', '^apps/api/migrations/', '^tools/'] },
     enhancedResolveOptions: {
       exportsFields: ['exports'],
       conditionNames: ['import', 'require', 'node', 'default', 'types'],

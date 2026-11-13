@@ -254,7 +254,7 @@ describe('voice: §7.7, audio and transcripts are never stored (D1)', () => {
       for (const r of await c.keys()) { out.push(r.url); out.push(await (await c.match(r))!.text().catch(() => '')); }
     }
     for (const info of await indexedDB.databases()) {
-      const db = await new Promise<IDBDatabase>((res, rej) => { const q = indexedDB.open(info.name!); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); });
+      const db = await new Promise<IDBDatabase>((res, rej) => { const q = indexedDB.open(info.name!); q.onsuccess = () => res(q.result); q.onerror = () => rej(new Error(String(q.error))); });
       for (const store of [...db.objectStoreNames]) {
         const all = await new Promise<unknown[]>((res) => { const q = db.transaction(store).objectStore(store).getAll(); q.onsuccess = () => res(q.result); });
         out.push(JSON.stringify(all));
@@ -281,10 +281,9 @@ describe('voice: §7.7, audio and transcripts are never stored (D1)', () => {
 describe('voice: hands-free cook mode (the VITE_HANDS_FREE build, against the test fixture record)', () => {
   const COOK = '/#/cook/india/kerala/parippu';
   const stepItems = (fake: VoiceFake) => speaks(fake).flatMap((s) => s.items).filter((i) => i.kind === 'step');
-  const lineItems = (fake: VoiceFake, trigger: string) => speaks(fake).flatMap((s) => s.items).filter((i) => i.kind === 'line' && i.trigger === trigger);
 
   async function handsFree(fake: VoiceFake, seed: Partial<PlayerState> = {}) {
-    const page = await open(fake, { path: COOK, handsFreeBuild: true, voice: { handsFree: true }, seed: { v: 1, ...seed } as Partial<PlayerState> });
+    const page = await open(fake, { path: COOK, handsFreeBuild: true, voice: { handsFree: true }, seed: { v: 1, ...seed } });
     await page.locator('.cook-progress').waitFor();
     await page.locator('.hands-free-toggle').click();
     await expect.poll(() => fake.sent.some((m) => m.t === 'listen' && m.mode === 'handsFree'), { timeout: 15_000 }).toBe(true);
@@ -305,7 +304,7 @@ describe('voice: hands-free cook mode (the VITE_HANDS_FREE build, against the te
   // by cook-voice unit tests (M1), since a frame needs a stocked pantry to cook.
   it('with a 🔁 swap on screen the device still names only the step, with no text (the API decides, Ruling 11)', async () => {
     const fake = newVoiceFake({ transcripts: ['next'] });
-    const page = await handsFree(fake, { localRules: [{ id: 'p1', target: { kind: 'ingredient', ids: ['coconut_oil'] }, type: 'avoid', severity: 'preference' }] } as Partial<PlayerState>);
+    const page = await handsFree(fake, { localRules: [{ id: 'p1', target: { kind: 'ingredient', ids: ['coconut_oil'] }, type: 'avoid', severity: 'preference' }] });
     await expect.poll(() => page.locator('.cook-progress').textContent(), { timeout: 15_000 }).toBe('Step 2 of 7');
     await expect.poll(() => stepItems(fake).length).toBeGreaterThan(0);
     expect(Object.keys(stepItems(fake).at(-1)!).sort()).toEqual(['kind', 'localDate', 'slug', 'step']);

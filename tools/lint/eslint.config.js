@@ -21,6 +21,7 @@ export default tseslint.config(
     ignores: [
       '**/node_modules/**',
       '**/dist/**',
+      '**/dist-hands-free/**', // M7 Step 11: the e2e's test-only hands-free build
       '**/coverage/**',
       '**/.vite/**',
       '**/.data/**',

@@ -409,7 +409,7 @@ async function planCardApi(page: Page): Promise<void> {
  * screen drawn signed in, so: wait until the account is stored, then draw the screen afresh.
  */
 async function mountedSignedIn(page: Page, hash: string): Promise<void> {
-  await page.waitForFunction((k) => (JSON.parse(localStorage.getItem(k) ?? '{}') as { account?: unknown }).account != null, STORE_KEY);
+  await page.waitForFunction((k) => ((JSON.parse(localStorage.getItem(k) ?? '{}') as { account?: unknown }).account ?? null) !== null, STORE_KEY);
   await page.evaluate(() => { location.hash = '#/'; });
   await page.locator('h1').first().waitFor();
   await page.evaluate((h) => { location.hash = h; }, hash);
