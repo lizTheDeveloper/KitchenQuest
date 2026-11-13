@@ -296,10 +296,11 @@ describe('fix round 3 (review F2): a congested close ends the session at once', 
     c.send({ t: 'end', id: 2 });
     await new Promise((r) => setTimeout(r, CONGESTED_GRACE_MS + 300));
     expect(calls).toBe(0);
-    // Reading again: the server already dropped the socket (terminate), so its 1011 close frame never arrives.
+    // Reading again: the server already dropped the socket (terminate). Whether its 1011 close frame got into the
+    // kernel buffer before the terminate is timing, so the client sees 1011 or 1006; either way the socket is closed.
     socket.resume();
     const code = await Promise.race([c.closed, new Promise((r) => setTimeout(() => r('still open'), 3000))]);
-    expect(code).toBe(1006);
+    expect([1006, 1011]).toContain(code);
   });
 });
 

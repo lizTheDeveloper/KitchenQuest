@@ -317,7 +317,7 @@ describe('fix round 1 (review-task9)', async () => {
     }
     // Rules that can't be read: only a line naming no food at all.
     for (const k of keys.slice(0, 50)) expect(panLine('market.stall_wait', k, null)).not.toBeNull();
-  });
+  }, 20_000); // ~1,500 panLine + safeText checks: about 3 s alone, slower when every workspace's tests run at once
 
   test('M1: the keeper\'s correct and wrong lines are only those keeperLines keeps (a soy rule never hears the tofu lines)', async () => {
     const os = market.stalls['okafor-sato'];
