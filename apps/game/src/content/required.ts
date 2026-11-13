@@ -138,6 +138,8 @@ export const REQUIRED_PAN_TRIGGERS: readonly string[] = [
   'voice.hands_free_on',
   'voice.hands_free_off',
   'voice.hands_free_idle',
+  // Fix round 1 (I-2): the server's Family Table block.
+  'voice.family_table',
   'toolkit.rusty_invite',
   // M4: the mentor (server agent and scripted engine) emits these by id.
   'rule.unknown_term',
@@ -258,6 +260,9 @@ export const REQUIRED_PAN_TRIGGERS: readonly string[] = [
   // M7 Step 9: Settings → Voice (shipped in the lazy Settings module).
   'ui.settings.voice.signed_out',
   'ui.settings.voice.on_hint',
+  'ui.settings.voice.off_withdraws',
+  'ui.settings.voice.withdrawn',
+  'ui.settings.voice.withdraw_failed',
   'ui.settings.voice.accessibility_hint',
   'ui.settings.voice.accessibility_consent',
   'ui.settings.voice.ready',

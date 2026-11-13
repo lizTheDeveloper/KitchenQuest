@@ -1,7 +1,8 @@
 // M7 Step 9: Settings → Voice. Lazy with the Settings screen (first paint carries none of it).
 // - Signed out: voice needs an account (Ruling 8). Family Table: the section is absent (Ruling 9).
 // - "Talk out loud" (`settings.voice.on`): turning it on shows the voice consent card (Form 3-C/VOICE, tap only);
-//   "Not now" leaves it off. Turning it off withdraws that consent, one tap (P-4: as easy as granting).
+//   "Not now" leaves it off. Turning it off withdraws that consent, one tap (P-4: as easy as granting), as its copy
+//   says before the tap; done says so, and a failure ticks the box again and says the permission still stands (I-1).
 // - "Read the Pan's replies aloud" (`readAloud`); "Hands-free in cook mode" only in a build with VITE_HANDS_FREE=on (C9).
 // - "I need voice to use Kitchen Quest": the sealed accessibility need (Ruling 6), which needs health_data, so Form
 //   3-C/HEALTH is shown inline first. The copy names the daily fair-use ceiling that applies to everyone (C4).
@@ -13,6 +14,7 @@ import type { Consents, ConsentPurpose } from '../api/types';
 import { content } from '../content';
 import type { BureauForm } from '../content/types';
 import { renderConsentCard } from '../mentor/consent-card';
+import { takeFocus } from '../shell/focus-intent';
 import { restingUntil } from '../mentor/resting';
 import type { PlayerSettings, PlayerStore } from '../state/store';
 import { h } from '../ui/dom';
@@ -52,16 +54,25 @@ export function voiceSection(store: PlayerStore, client: ApiClient, opts: { now?
     const v = store.get().settings.voice;
 
     // 1. Talk out loud, behind the voice consent (a tap on its card, never by speech).
-    const on = h('input', { type: 'checkbox', id: 'set-voice-on', 'aria-describedby': 'set-voice-on-hint' });
+    const on = h('input', { type: 'checkbox', id: 'set-voice-on', 'aria-describedby': 'set-voice-on-hint set-voice-off-hint' });
     on.checked = v.on;
     const onSlot = h('div', { class: 'voice-consent' });
     on.addEventListener('change', () => {
       status.textContent = '';
       if (!on.checked) {
         onSlot.replaceChildren();
+        // P-4: withdrawing is one tap, as granting is, and the copy says so before the tap (fix round 1, I-1). Voice
+        // stops on this device at once; if the withdrawal can't be filed, voice is put back on and the box says so.
         set({ on: false });
-        // P-4: withdrawing is one tap, as granting is. Voice is off on this device whatever the answer.
-        void client.withdrawConsent('voice').then((r) => { if (live() && !(r.ok || r.status === 404)) offline(); });
+        on.disabled = true;
+        void client.withdrawConsent('voice').then((r) => {
+          if (!live()) return;
+          on.disabled = false;
+          if (r.ok || r.status === 404) { status.textContent = settingsCopy('ui.settings.voice.withdrawn'); return; }
+          on.checked = true;
+          set({ on: true });
+          status.textContent = settingsCopy('ui.settings.voice.withdraw_failed');
+        });
         return;
       }
       on.checked = false;
@@ -174,6 +185,7 @@ export function voiceSection(store: PlayerStore, client: ApiClient, opts: { now?
     return [
       h('div', { class: 'field' }, on, h('label', { for: 'set-voice-on' }, 'Talk out loud')),
       h('p', { class: 'field-hint', id: 'set-voice-on-hint' }, settingsCopy('ui.settings.voice.on_hint')),
+      h('p', { class: 'field-hint', id: 'set-voice-off-hint' }, settingsCopy('ui.settings.voice.off_withdraws')),
       onSlot,
       h('div', { class: 'field' }, read, h('label', { for: 'set-voice-read' }, "Read the Pan's replies aloud")),
       ...(handsFree ? [h('div', { class: 'field' }, handsFree, h('label', { for: 'set-voice-hands-free' }, 'Hands-free in cook mode'))] : []),
@@ -198,6 +210,17 @@ export function voiceSection(store: PlayerStore, client: ApiClient, opts: { now?
     // Family Table: absent (Ruling 9). Signed out: voice needs an account (Ruling 8).
     el.hidden = key === 'ft';
     body.replaceChildren(...(key === 'ft' ? [] : key === 'out' ? [h('p', null, settingsCopy('ui.settings.voice.signed_out'))] : signedIn()));
+    // Fix round 1 (M-3): opened from the Pan's talk control: after the screen's own heading focus, this section's.
+    if (key !== 'ft' && takeFocus('voice-settings')) {
+      setTimeout(() => {
+        const target = el.querySelector<HTMLElement>('#set-voice-on') ?? el.querySelector<HTMLElement>('h2');
+        if (target === null || !target.isConnected) return;
+        if (target.tagName === 'H2') target.tabIndex = -1;
+        // happy-dom and older engines may lack it.
+        (target as Partial<Pick<HTMLElement, 'scrollIntoView'>>).scrollIntoView?.({ block: 'center' });
+        target.focus();
+      }, 0);
+    }
   };
   render();
   const stop = store.subscribe(render);

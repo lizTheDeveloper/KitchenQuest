@@ -342,4 +342,121 @@ describe('talking to the Pan (M7 Step 9)', () => {
     // The tapped turn's reply is spoken too (its var-free line is said by the API; 'thanks' has no dot: check_screen).
     expect(speaks(ws).length).toBe(before + 1);
   });
+
+  test('fix round 1 (I-2): a server Family Table refusal puts the talk control away and says voice.family_table once; no retry loop', async () => {
+    const r = await rig();
+    r.press();
+    await flush();
+    const ws = r.sockets.at(-1)!;
+    ws.open();
+    ws.serverSend({ t: 'closed', reason: 'family_table' });
+    ws.serverClose(4409);
+    await flush();
+    r.release();
+    await flush();
+    const said = () => [...r.root.querySelectorAll('.bubble.pan')].map((b) => b.textContent);
+    expect(said().filter((t) => lines('voice.family_table').includes(t))).toHaveLength(1);
+    expect(r.row()!.hidden).toBe(true);
+    r.press();
+    await flush();
+    expect(r.sockets).toHaveLength(1);
+    expect(r.audio.getUserMedia.calls).toHaveLength(0);
+  });
+
+  test('fix round 1 (I-2): a server child refusal says child.grownup once and puts the control away; a cleared conversation behaves the same, never silently', async () => {
+    const r = await rig();
+    const refuse = async () => {
+      r.press();
+      await flush();
+      const ws = r.sockets.at(-1)!;
+      ws.open();
+      ws.serverSend({ t: 'closed', reason: 'child' });
+      ws.serverClose(4409);
+      await flush();
+      r.release();
+      await flush();
+    };
+    await refuse();
+    const grownup = () => [...r.root.querySelectorAll('.bubble.pan')].filter((b) => lines('child.grownup').includes(b.textContent)).length;
+    expect(grownup()).toBe(1);
+    expect(r.row()!.hidden).toBe(true);
+    // The conversation is cleared (the device's own child flag forgets): the control is back, and the same refusal
+    // gets the same line again (one per refusal, each needing a press).
+    r.child.reset();
+    expect(r.row()!.hidden).toBe(false);
+    await refuse();
+    expect(r.sockets).toHaveLength(2);
+    expect(grownup()).toBe(2);
+    expect(r.row()!.hidden).toBe(true);
+  });
+
+  test('fix round 1 (M-2): consents that cannot be read after consent_required say voice.unavailable, never the consent card', async () => {
+    const r = await rig();
+    r.client.consents.mockReturnValue(Promise.resolve({ ok: false, status: 0, error: { code: 'network', message: '' } }));
+    r.press();
+    const ws = await r.ready();
+    ws.serverSend({ t: 'closed', reason: 'consent_required' });
+    ws.serverClose(4403);
+    await flush(20);
+    expect(r.root.querySelector('.consent-card')).toBeNull();
+    expect([...r.root.querySelectorAll('.bubble.pan')].some((b) => lines('voice.unavailable').includes(b.textContent))).toBe(true);
+  });
+
+  test('fix round 1 (M-4): a drop between turns says so without taking focus from where the player is', async () => {
+    const r = await rig();
+    const ws = await utter(r, 'what should I cook');
+    await flush(20);
+    const other = document.createElement('input');
+    document.body.append(other);
+    other.focus();
+    ws.serverClose(1006);
+    await flush();
+    expect(document.activeElement).toBe(other);
+  });
+
+  test('fix round 1 (M-7): the status line follows the turn: answering, then speaking', async () => {
+    let answer!: (r: PanReply) => void;
+    const r = await rig({ answer: () => new Promise((res) => { answer = res; }) });
+    const ws = await utter(r, 'what should I cook');
+    const state = () => r.root.querySelector('.pan-talk-state')!.textContent;
+    expect(state()).toBe('The Pan is answering.');
+    answer(empty({ items: [{ kind: 'said', said: dialogue.say('thanks') }] }));
+    await flush(20);
+    expect(speaks(ws)).toHaveLength(1);
+    expect(state()).toBe('The Pan is speaking. Hold to interrupt.');
+  });
+
+  test('fix round 1 (M-1): a working session resets the unavailable backoff', async () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: T0 });
+    const r = await rig();
+    const drop = async () => {
+      const ws = r.sockets.at(-1)!;
+      ws.serverSend({ t: 'closed', reason: 'unavailable' });
+      ws.serverClose(1011);
+      await flush();
+      r.release();
+    };
+    r.press();
+    await r.ready();
+    await drop();
+    vi.setSystemTime(new Date(T0.getTime() + UNAVAILABLE_BACKOFF_MS + 1));
+    // A working session: a full utterance answered.
+    await utter(r, 'what should I cook');
+    await flush(20);
+    await drop();
+    // The backoff is the first one again, not doubled.
+    vi.setSystemTime(new Date(T0.getTime() + 2 * UNAVAILABLE_BACKOFF_MS + 2));
+    r.press();
+    await flush();
+    expect(r.sockets).toHaveLength(3);
+    r.release();
+  });
+
+  test('fix round 1 (M-3): with voice off the control asks Settings to focus its Voice section', async () => {
+    const { takeFocus } = await import('../shell/focus-intent');
+    const off = await rig({ voice: { on: false } });
+    off.btn()!.click();
+    expect(off.audio.win.location.hash).toBe('#/settings');
+    expect(takeFocus('voice-settings')).toBe(true);
+  });
 });

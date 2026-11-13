@@ -12,7 +12,7 @@ const ok = <T>(data: T, status = 200): Promise<ApiResult<T>> => Promise.resolve(
 const notices = { voice: { version: 'v1', text: 'The voice notice.' }, health_data: { version: 'h1', text: 'The health notice.' } };
 const grant = (purpose: string) => ({ purpose, withdrawnAt: null, current: true });
 
-function setup(opts: { patch?: Partial<PlayerState>; granted?: string[]; status?: unknown; access?: (on: boolean) => Promise<ApiResult<null>> } = {}) {
+function setup(opts: { patch?: Partial<PlayerState>; granted?: string[]; status?: unknown; access?: (on: boolean) => Promise<ApiResult<null>>; withdraw?: () => Promise<ApiResult<null>> } = {}) {
   document.body.replaceChildren();
   const store = createStore(null);
   store.update((s) => ({ ...s, account: { email: 'cook@example.com' }, ...opts.patch }));
@@ -21,7 +21,12 @@ function setup(opts: { patch?: Partial<PlayerState>; granted?: string[]; status?
   const client = {
     consents: vi.fn(() => ok({ consents: granted.map(grant), needsReconsent: [], notices })),
     grantConsent: vi.fn((p: string) => { calls.push(`grant ${p}`); granted.push(p); return ok({ consent: {} }, 201); }),
-    withdrawConsent: vi.fn((p: string) => { calls.push(`withdraw ${p}`); granted = granted.filter((g) => g !== p); return ok(null, 204); }),
+    withdrawConsent: vi.fn((p: string) => {
+      calls.push(`withdraw ${p}`);
+      if (opts.withdraw) return opts.withdraw();
+      granted = granted.filter((g) => g !== p);
+      return ok(null, 204);
+    }),
     voiceStatus: vi.fn((d: string, t: string) => { calls.push(`status ${d} ${t}`); return ok(opts.status ?? { state: { kind: 'available' }, accessibility: false, enabled: true }); }),
     setAccessibility: vi.fn((on: boolean) => { calls.push(`access ${String(on)}`); return opts.access?.(on) ?? ok(null, 204); }),
   } as unknown as ApiClient;
@@ -164,5 +169,47 @@ describe('Settings → Voice', () => {
     ft.store.update((s) => ({ ...s, settings: { ...s.settings, familyTable: true } }));
     expect(ft.s.el.hidden).toBe(true);
     expect(ft.s.el.querySelector('input')).toBeNull();
+  });
+
+  test('fix round 1 (I-1): before the tap the copy says turning it off withdraws the voice permission on every device; done says so; turning it on again asks again (M-10)', async () => {
+    const t = setup({ granted: ['voice'], patch: { settings: { ...createStore(null).get().settings, voice: { on: true, readAloud: true, handsFree: false } } } });
+    await flush();
+    const box = t.box('set-voice-on')!;
+    const said = (box.getAttribute('aria-describedby') ?? '').split(' ').map((id) => document.getElementById(id)?.textContent ?? '').join(' ');
+    expect(said).toContain(settingsCopy('ui.settings.voice.off_withdraws'));
+    expect(settingsCopy('ui.settings.voice.off_withdraws')).toMatch(/withdraws your voice permission, on every device/);
+    t.tick('set-voice-on', false);
+    await flush();
+    expect(t.calls).toContain('withdraw voice');
+    expect(t.s.el.querySelector('#voice-settings-status')!.textContent).toBe(settingsCopy('ui.settings.voice.withdrawn'));
+    // A fresh consent: ticking again shows the card, nothing is on until "I agree".
+    t.tick('set-voice-on', true);
+    await flush();
+    expect(t.s.el.querySelector('.consent-card')?.getAttribute('data-purpose')).toBe('voice');
+    expect(t.store.get().settings.voice.on).toBe(false);
+  });
+
+  test('fix round 1 (I-1): a withdrawal that fails ticks the box again, keeps voice on and says what did not happen (never "Nothing has changed" while off)', async () => {
+    const t = setup({ granted: ['voice'], withdraw: () => Promise.resolve({ ok: false, status: 0, error: { code: 'network', message: '' } }), patch: { settings: { ...createStore(null).get().settings, voice: { on: true, readAloud: true, handsFree: false } } } });
+    await flush();
+    t.tick('set-voice-on', false);
+    await flush();
+    expect(t.box('set-voice-on')!.checked).toBe(true);
+    expect(t.store.get().settings.voice.on).toBe(true);
+    const status = t.s.el.querySelector('#voice-settings-status')!.textContent;
+    expect(status).toBe(settingsCopy('ui.settings.voice.withdraw_failed'));
+    expect(status).not.toMatch(/Nothing has changed/);
+  });
+
+  test('fix round 1 (M-3): opened from the talk control, the section takes focus on "Talk out loud"', async () => {
+    const { requestFocus } = await import('../shell/focus-intent');
+    requestFocus('voice-settings');
+    const t = setup();
+    await flush();
+    expect(document.activeElement).toBe(t.box('set-voice-on'));
+    // Once: the next Settings visit does not move focus.
+    const again = setup();
+    await flush();
+    expect(document.activeElement).not.toBe(again.box('set-voice-on'));
   });
 });

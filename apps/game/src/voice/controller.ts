@@ -17,7 +17,7 @@ import {
   type VoiceState,
 } from '@kitchenquest/core/engine';
 import type { PlayerState, PlayerStore } from '../state/store';
-import { openMic, type Mic } from './capture';
+import { MicStartTimeout, openMic, type Mic } from './capture';
 import { sizzle } from './earcon';
 import { VoiceSocketClosed } from './socket';
 import type { ProviderEvent, Speech, Utterance, VoiceProvider } from './providers';
@@ -250,7 +250,7 @@ export function createVoiceController(deps: {
         m.onFrame(onFrame);
         return m;
       },
-      (): Mic | null | Promise<Mic | null> => {
+      (e: unknown): Mic | null | Promise<Mic | null> => {
         micOpening = null;
         pendingStop = null;
         const stopped = pendingStopped;
@@ -258,8 +258,9 @@ export function createVoiceController(deps: {
         if (closed) return null;
         // G1: stopped, then wanted again before it failed: try a fresh one.
         if (stopped && wantMic()) return ensureMic();
-        // Step 9 (G2): the player already let go: nothing to tell them.
-        if (!wantMic()) return null;
+        // Step 9 (G2), narrowed by fix round 1 (I-3): only a start that timed out after the player let go is stale. A
+        // permission refusal is always reported: on a first press the player lets go to answer the browser's prompt.
+        if (!wantMic() && e instanceof MicStartTimeout) return null;
         // G1: hands-free is never left on with no microphone.
         if (handsFree) stopHandsFree('stopped');
         problem('microphone');

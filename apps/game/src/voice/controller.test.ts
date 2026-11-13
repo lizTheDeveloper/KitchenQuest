@@ -706,4 +706,35 @@ describe('createVoiceController', () => {
     expect(c.closedReason).toBe('child');
     expect(r.sockets.at(-1)!.json().filter((m) => m.t === 'listen')).toHaveLength(0);
   });
+
+  test('fix round 1 (I-3): a permission refusal answered after the player let go is still reported; an allow after release opens nothing and reports nothing', async () => {
+    const r = rig();
+    const answer = r.audio.hold(); // the browser's permission prompt: the player lets go to answer it
+    const c = r.make();
+    const problems: string[] = [];
+    c.onProblem((p) => problems.push(p));
+    c.press();
+    await ready(r);
+    c.release();
+    r.audio.fail.gum = Object.assign(new Error('Permission denied'), { name: 'NotAllowedError' });
+    answer();
+    await flush();
+    expect(problems).toEqual(['microphone']);
+    expect(c.phase).toBe('idle');
+    // Allowed after release: the tracks are stopped as they arrive, and nothing is reported (no error).
+    const a = rig();
+    const allow = a.audio.hold();
+    const ac = a.make();
+    const ap: string[] = [];
+    ac.onProblem((p) => ap.push(p));
+    ac.press();
+    const ws = await ready(a);
+    ac.release();
+    allow();
+    await flush();
+    expect(ap).toEqual([]);
+    expect(a.audio.tracks.length).toBeGreaterThan(0);
+    expect(a.audio.tracks.every((t) => t.stopped)).toBe(true);
+    expect(ws.json().filter((m) => m.t === 'listen')).toHaveLength(0);
+  });
 });

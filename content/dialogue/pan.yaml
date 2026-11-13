@@ -2011,6 +2011,14 @@ triggers:
       - "Sorry, nothing came through. Try again, or use the text box."
       - "That one slipped past me. Once more, or type it if that's easier."
 
+  # REVIEW: fix round 1 (I-2): the server refused voice because Family Table is on for the account (Ruling 17), maybe
+  # on another device. Plain; typing is named.
+  voice.family_table:
+    ai: never
+    when: The server refused voice because Family Table mode is on for this account (on this or another device). The talk button is put away; typing works.
+    lines:
+      - "Voice is off while Family Table mode is on for your account. Type to me instead; everything else works."
+
   # REVIEW: hands-free is cook mode only, off by default (Ruling 7). Tapping talk always stops the Pan.
   voice.hands_free_on:
     ai: never
@@ -2297,6 +2305,24 @@ triggers:
     when: "Settings, Voice: under the 'Talk out loud' box."
     lines:
       - "Off until you turn it on. The Pan listens only while you hold the talk button. Typing always works."
+
+  ui.settings.voice.off_withdraws:
+    ai: never
+    when: "Settings, Voice: under 'Talk out loud', said before the tap (fix round 1, I-1: unticking withdraws the permission)."
+    lines:
+      - "Turning it off also withdraws your voice permission, on every device you use. Turning it on again asks for it again."
+
+  ui.settings.voice.withdrawn:
+    ai: never
+    when: "Settings, Voice: after 'Talk out loud' was turned off and the voice permission withdrawn."
+    lines:
+      - "Done. Voice is off and your voice permission is withdrawn."
+
+  ui.settings.voice.withdraw_failed:
+    ai: never
+    when: "Settings, Voice: turning voice off could not reach the Bureau, so the permission still stands and the box is ticked again."
+    lines:
+      - "That didn't go through, so your voice permission still stands and voice is still on. Untick the box to try again."
 
   ui.settings.voice.accessibility_hint:
     ai: never

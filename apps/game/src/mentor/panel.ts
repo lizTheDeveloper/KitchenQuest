@@ -130,7 +130,7 @@ export function mountMentorPanel(root: HTMLElement, opts: {
       store, client, dialogue, backend, ...(opts.child ? { child: opts.child } : {}), ...(opts.conversationId ? { conversationId: opts.conversationId } : {}),
       ...(opts.voice ? { voice: opts.voice } : {}),
       spoken: (text) => { addBubble('you', text, true); }, turn: turnWith, show: render, focusText: () => { (textBox ?? closeBtn).focus(); },
-      consent: (onAnswer) => { renderConsent('voice', onAnswer); }, setSpeaker: (fn) => { speaker = fn; },
+      consent: (onAnswer) => { renderConsent('voice', onAnswer); }, setSpeaker: (fn) => { speaker = fn; }, closePanel: () => { api.close(); },
     })), (err: unknown) => { console.error(err); talk = null; return null; });
   };
   let textBox: HTMLTextAreaElement | null = null;

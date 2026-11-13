@@ -14,6 +14,11 @@ type AudioWin = Window & { AudioContext: typeof AudioContext; AudioWorkletNode: 
 /** Fix round 2 (R1): a suspended context that does not start within this long (no user activation) is given up. */
 export const RESUME_TIMEOUT_MS = 2000;
 
+/** The audio context did not start in time (R1). Unlike a permission refusal, it is stale once the player let go. */
+export class MicStartTimeout extends Error {
+  constructor() { super('the microphone did not start (the audio context stayed suspended)'); this.name = 'MicStartTimeout'; }
+}
+
 /**
  * The microphone with the browser's echo cancellation, noise suppression and gain control on, mono.
  * Fix round 2 (R1): `onStream` gets a stop for the live tracks the moment they exist, before anything else is
@@ -38,7 +43,7 @@ export async function openMic(win: Window, opts: { onStream?: (stop: () => void)
       const late = new Promise<'late'>((resolve) => { timer = win.setTimeout(() => resolve('late'), RESUME_TIMEOUT_MS); });
       const r = await Promise.race([ctx.resume().then(() => 'ok' as const), late]);
       win.clearTimeout(timer);
-      if (r === 'late') throw new Error('the microphone did not start (the audio context stayed suspended)');
+      if (r === 'late') throw new MicStartTimeout();
     }
     await ctx.audioWorklet.addModule(workletUrl);
     const source = ctx.createMediaStreamSource(stream);

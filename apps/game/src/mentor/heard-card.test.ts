@@ -15,7 +15,10 @@ test('the spelling is shown with an aria-label spelling it; only the buttons con
   expect(el.querySelector('.heard-said')!.textContent).toBe('rice');
   const spelled = el.querySelector('.heard-spelled')!;
   expect(spelled.textContent).toBe('R-I-C-E');
-  expect(spelled.getAttribute('aria-label')).toBe('spelled R, I, C, E');
+  // Fix round 1 (M-5): no aria-label on a generic span (ARIA 1.2); the dashes are hidden and the letters are text.
+  expect(spelled.getAttribute('aria-hidden')).toBe('true');
+  expect(spelled.getAttribute('aria-label')).toBeNull();
+  expect(el.querySelector('.heard-spoken.visually-hidden')!.textContent).toBe('spelled R, I, C, E');
   expect(spokenSpelling('P-I-N-E N-U-T')).toBe('P, I, N, E, then N, U, T');
   // Named, with the tap-only note (Ruling 12: heard cards are tap-only, and the UI says so).
   const section = el.closest('section')!;
@@ -36,6 +39,11 @@ test('the spelling is shown with an aria-label spelling it; only the buttons con
   // After a tap the card's buttons are spent: a second tap sends nothing more.
   button(el, HEARD_YES).click();
   expect(on.yes).toHaveBeenCalledTimes(1);
+  // Fix round 1 (M-6): focus is not dropped to the page: it moves to the card's own status line.
+  const status = el.querySelector<HTMLElement>('.heard-status')!;
+  expect(document.activeElement).toBe(status);
+  expect(status.getAttribute('role')).toBe('status');
+  expect(status.textContent).not.toBe('');
 });
 
 test('the words as heard: yes with no chip is [null]; a chip tapped twice is cleared; again and type are their own taps', () => {

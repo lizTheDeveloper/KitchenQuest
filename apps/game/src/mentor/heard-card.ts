@@ -9,6 +9,7 @@ let seq = 0;
 export const HEARD_YES = "Yes, that's what I said";
 export const HEARD_AGAIN = 'Say it again';
 export const HEARD_TYPE = 'Type it instead';
+const HEARD_CONFIRMED = 'Confirmed. The Pan has it.';
 export const HEARD_TAP_ONLY = 'Only a tap on this card confirms it; saying "yes" doesn\'t.';
 
 /** "S-E-S-A-M-E" read letter by letter: "S, E, S, A, M, E"; words apart: "P, I, N, E, then N, U, T". */
@@ -32,20 +33,29 @@ export function renderHeardCard(check: HeardCheck, on: { yes(choice: (number | n
       h('p', { class: 'heard-words' },
         h('strong', { class: 'heard-said' }, t.heard),
         ' ',
-        h('span', { class: 'heard-spelled', 'aria-label': `spelled ${spokenSpelling(t.spelled)}` }, t.spelled)),
+        // Fix round 1 (M-5): the dashes are hidden; a screen reader reads the letters as text (no label on a span).
+        h('span', { class: 'heard-spelled', 'aria-hidden': 'true' }, t.spelled),
+        h('span', { class: 'heard-spoken visually-hidden' }, `spelled ${spokenSpelling(t.spelled)}`)),
       chips.length === 0 ? null : h('div', { class: 'button-row heard-alts', role: 'group', 'aria-label': `Or did you say` }, ...chips));
   });
   const yes = h('button', { type: 'button', class: 'btn btn-primary heard-yes' }, HEARD_YES);
   const again = h('button', { type: 'button', class: 'btn btn-secondary heard-again' }, HEARD_AGAIN);
   const type = h('button', { type: 'button', class: 'btn btn-secondary heard-type' }, HEARD_TYPE);
   const all = () => [yes, again, type];
+  // Fix round 1 (M-6): the card's status line holds focus once its buttons are spent (yes); again and type move it on.
+  const status = h('p', { class: 'heard-status', role: 'status', tabindex: -1 });
   const done = (fn: () => void) => () => { for (const b of all()) b.disabled = true; fn(); };
-  yes.addEventListener('click', done(() => { on.yes([...choice]); }));
+  yes.addEventListener('click', done(() => {
+    status.textContent = HEARD_CONFIRMED;
+    status.focus();
+    on.yes([...choice]);
+  }));
   again.addEventListener('click', done(() => { on.again(); }));
   type.addEventListener('click', done(() => { on.type(); }));
   return h('section', { class: 'pan-card heard-card', 'aria-labelledby': titleId },
     h('h3', { id: titleId, class: 'bureau-title' }, 'What I heard'),
     h('ul', { class: 'heard-terms' }, ...terms),
     h('p', { class: 'heard-note' }, HEARD_TAP_ONLY),
-    h('div', { class: 'button-row' }, yes, again, type));
+    h('div', { class: 'button-row' }, yes, again, type),
+    status);
 }

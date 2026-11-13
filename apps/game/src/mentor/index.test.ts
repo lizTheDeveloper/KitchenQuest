@@ -111,3 +111,65 @@ describe('M7 Ruling 17: the Family Table report', () => {
     expect(again).toEqual([true]);
   });
 });
+
+describe('fix round 1 (I-4): the Family Table report is confirmed only by a 2xx and retried until it is', () => {
+  const failed = { ok: false as const, status: 503, error: { code: 'http_503', message: '' } };
+  const done = { ok: true as const, status: 204, data: null };
+  function rig(answers: ('ok' | 'fail' | 'throw')[]) {
+    const store = createStore(null);
+    store.update((s) => ({ ...s, account: { email: 'a@b.c' }, settings: { ...s.settings, familyTable: true } }));
+    const sent: boolean[] = [];
+    const timers: { ms: number; fn: () => void }[] = [];
+    const events = new EventTarget();
+    const client = {
+      setFamilyTable: (on: boolean) => {
+        sent.push(on);
+        const a = answers.shift() ?? 'ok';
+        return a === 'throw' ? Promise.reject(new Error('x')) : Promise.resolve(a === 'ok' ? done : failed);
+      },
+    };
+    const opts = { setTimer: (fn: () => void, ms: number) => { const t = { ms, fn }; timers.push(t); return t; }, clearTimer: (t: unknown) => { const i = timers.indexOf(t as never); if (i >= 0) timers.splice(i, 1); }, events };
+    const fire = async () => { const t = timers.shift(); t?.fn(); await new Promise((r) => setTimeout(r, 0)); return t?.ms; };
+    return { store, sent, timers, events, client, opts, fire };
+  }
+
+  test('a failed {on:true} is sent again after a growing backoff, and on `online`, until a 2xx; then nothing more', async () => {
+    const { reportFamilyTable } = await import('./index');
+    const r = rig(['fail', 'throw', 'fail', 'ok']);
+    reportFamilyTable(r.store, r.client, r.opts);
+    await new Promise((res) => setTimeout(res, 0));
+    expect(r.sent).toEqual([true]);
+    const first = await r.fire();
+    const second = await r.fire();
+    expect(r.sent).toEqual([true, true, true]);
+    expect(second!).toBeGreaterThan(first!);
+    r.events.dispatchEvent(new Event('online'));
+    await new Promise((res) => setTimeout(res, 0));
+    expect(r.sent).toEqual([true, true, true, true]);
+    // Confirmed: no timer left, and an unrelated change sends nothing.
+    expect(r.timers).toEqual([]);
+    r.store.update((s) => ({ ...s, dialogueHistory: { x: [1] } }));
+    await new Promise((res) => setTimeout(res, 0));
+    expect(r.sent).toHaveLength(4);
+  });
+
+  test('retrying stops on sign-out; a change to Family Table off sends {on:false} instead', async () => {
+    const { reportFamilyTable } = await import('./index');
+    const r = rig(['fail', 'ok']);
+    reportFamilyTable(r.store, r.client, r.opts);
+    await new Promise((res) => setTimeout(res, 0));
+    r.store.update((s) => ({ ...s, settings: { ...s.settings, familyTable: false } }));
+    await new Promise((res) => setTimeout(res, 0));
+    expect(r.sent).toEqual([true, false]);
+    expect(r.timers).toEqual([]);
+    const o = rig(['fail']);
+    reportFamilyTable(o.store, o.client, o.opts);
+    await new Promise((res) => setTimeout(res, 0));
+    expect(o.timers).toHaveLength(1);
+    o.store.update((s) => ({ ...s, account: null }));
+    expect(o.timers).toEqual([]);
+    o.events.dispatchEvent(new Event('online'));
+    await new Promise((res) => setTimeout(res, 0));
+    expect(o.sent).toEqual([true]);
+  });
+});

@@ -28,6 +28,7 @@ import type { Dialogue } from './dialogue';
 import type { ConsentAnswer, PanReply, TurnContext } from './reply';
 import { restingUntil } from './resting';
 import { transcriptTurn } from './voice-turn';
+import { requestFocus } from '../shell/focus-intent';
 
 type VoiceLib = typeof VoiceModule;
 
@@ -50,6 +51,8 @@ export interface TalkHooks {
   consent(onAnswer: (a: ConsentAnswer) => void): void;
   /** The panel's own spoken-turn replies (a heard card's tap) are spoken through this. */
   setSpeaker(fn: ((r: PanReply) => void) | null): void;
+  /** Close the panel (the voice-off control opens Settings → Voice, M-3). */
+  closePanel?(): void;
   /** Test seams: the voice library and the window it runs in. */
   voice?: { load?: () => Promise<VoiceLib>; win?: Window };
 }
@@ -93,11 +96,23 @@ export function mountTalk(row: HTMLElement, hooks: TalkHooks): { stop(): void } 
   let held = false;
   /** One plain line per press, however many ways the same failure reports itself (Review Focus 5). */
   let told = false;
+  /**
+   * Fix round 1 (M-4): a press or its turn is under way (from the press until its reply is spoken). Only then may a
+   * problem line move focus to the text box; between turns it is said without taking focus from the player.
+   */
+  let engaged = false;
+  /**
+   * Fix round 1 (I-2): the server refused voice for this account (Ruling 17's block: a child flag in any conversation,
+   * or Family Table on another device). The control is put away for this conversation, with one line; clearing the
+   * conversation brings it back, and the same refusal gets the same line again (each needs a press: no loop).
+   */
+  let serverBlock: 'child' | 'family_table' | null = null;
+  let blockedFor: string | undefined;
 
   const voiceOn = () => store.get().settings.voice.on;
   const allowed = () => {
     const s = store.get();
-    return !stopped && s.account !== null && !s.settings.familyTable && child?.on !== true;
+    return !stopped && s.account !== null && !s.settings.familyTable && child?.on !== true && serverBlock === null;
   };
 
   const draw = (phase: VoicePhase = ctl?.phase ?? 'idle') => {
@@ -141,14 +156,16 @@ export function mountTalk(row: HTMLElement, hooks: TalkHooks): { stop(): void } 
     if (told) return;
     told = true;
     hooks.show(r);
-    if (focus) hooks.focusText();
+    if (focus && engaged) hooks.focusText();
   };
 
   /** n3: the consents are read again first; the card only when voice really isn't granted now. */
   const askConsent = () => {
     void client.consents().then((r) => {
       if (stopped || !allowed()) return;
-      const granted = r.ok && !r.data.needsReconsent.includes('voice') && r.data.consents.some((x) => x.purpose === 'voice' && x.withdrawnAt === null && x.current);
+      // M-2: consents that can't be read are not "not granted": say voice can't be used now, never ask again blind.
+      if (!r.ok) { hooks.show(lines(['voice.unavailable'])); if (engaged) hooks.focusText(); return; }
+      const granted = !r.data.needsReconsent.includes('voice') && r.data.consents.some((x) => x.purpose === 'voice' && x.withdrawnAt === null && x.current);
       if (granted) return; // it was something else: the next press opens a fresh socket
       hooks.show(lines(['voice.consent_needed']));
       hooks.consent(() => undefined);
@@ -173,7 +190,22 @@ export function mountTalk(row: HTMLElement, hooks: TalkHooks): { stop(): void } 
     draw(phase);
     if (phase === 'listening') state.textContent = 'Listening.';
     else if (phase === 'transcribing') state.textContent = 'Stopped listening.';
+    else if (phase === 'waiting') state.textContent = 'The Pan is answering.';
+    else if (phase === 'speaking') state.textContent = 'The Pan is speaking. Hold to interrupt.';
     else if (phase === 'off') state.textContent = '';
+    // I-2: a server-held child or Family Table close (the device's own rules drop the controller before it closes).
+    if (phase === 'off' && (c.closedReason === 'child' || c.closedReason === 'family_table') && allowed()) {
+      serverBlock = c.closedReason;
+      blockedFor = store.get().account?.email;
+      ctl = null;
+      hooks.setSpeaker(null);
+      held = false;
+      hooks.show(lines([serverBlock === 'child' ? 'child.grownup' : 'voice.family_table']));
+      draw('off');
+      if (engaged) hooks.focusText();
+      engaged = false;
+      return;
+    }
     if (phase === 'resting') {
       // Ruling 5: a state, never a number. A fresh controller on the next press asks again (the rest may lift).
       stale = true;
@@ -184,7 +216,9 @@ export function mountTalk(row: HTMLElement, hooks: TalkHooks): { stop(): void } 
 
   async function spokenTurn(c: VoiceController, text: string, tooLong: boolean, id: number): Promise<void> {
     if (c !== ctl) return;
-    if (tooLong) { say(lines(['voice.too_long'])); return; }
+    // M-1: a transcript came back, so voice works: an earlier outage's backoff starts over.
+    backoffMs = UNAVAILABLE_BACKOFF_MS;
+    if (tooLong) { say(lines(['voice.too_long'])); engaged = false; return; }
     const words = text.trim() !== '';
     if (words) hooks.spoken(text);
     let answered = false;
@@ -205,6 +239,7 @@ export function mountTalk(row: HTMLElement, hooks: TalkHooks): { stop(): void } 
       if (filler !== null) win.clearTimeout(filler);
     }
     if (c === ctl) speak(r);
+    engaged = false;
   }
 
   /** The controller, made afresh when there is none, it is stale, or it closed itself. */
@@ -234,6 +269,7 @@ export function mountTalk(row: HTMLElement, hooks: TalkHooks): { stop(): void } 
     if (!voiceOn()) return;
     held = true;
     told = false;
+    engaged = true;
     const now = ctl;
     // Fast path: a live controller hears the press in this same event (barge-in stops the Pan at once).
     if (now !== null && !stale && now.closedReason === null) { now.press(); return; }
@@ -272,18 +308,29 @@ export function mountTalk(row: HTMLElement, hooks: TalkHooks): { stop(): void } 
     release();
   });
   // Voice off: the control opens Settings → Voice (a tap, or Enter / Space: a click).
-  btn.addEventListener('click', () => { if (!voiceOn()) win.location.hash = routeHref({ name: 'settings' }); });
+  // M-3: Settings → Voice itself: the section takes focus once it is drawn.
+  btn.addEventListener('click', () => {
+    if (voiceOn()) return;
+    requestFocus('voice-settings');
+    hooks.closePanel?.();
+    win.location.hash = routeHref({ name: 'settings' });
+  });
 
   const sync = () => {
+    // I-2: the server's refusal was for this account; another account starts without it.
+    if (serverBlock !== null && store.get().account?.email !== blockedFor) serverBlock = null;
     if (!allowed() || !voiceOn()) {
       held = false;
-      if (ctl !== null) drop(child?.on === true ? 'child' : 'off');
+      // M-8: the reason it closed, as the controller names them.
+      const s = store.get();
+      if (ctl !== null) drop(s.settings.familyTable ? 'family_table' : child?.on === true ? 'child' : s.account === null ? 'signed_out' : 'off');
     } else if (lib === null) void load().catch((err: unknown) => { console.error(err); });
     draw();
   };
   const unStore = store.subscribe(sync);
   // G3: the moment the child flag is set, the controller and any microphone still starting close.
-  const unChild = child?.onChange(sync);
+  // I-2: a cleared conversation (its child flag reset) starts without the server's refusal: a press asks again.
+  const unChild = child?.onChange(() => { if (child.on !== true) serverBlock = null; sync(); });
   sync();
 
   return {

@@ -90,8 +90,11 @@ export function confirmHeard(
       if (again?.tooLong === true) return lines([say(deps.dialogue, 'voice.too_long')]);
       words = again === null ? [] : again.terms.map((t) => t.heard);
     }
+    // Fix round 1 (M-9): a changed text is no longer what the utterance said, so it names no utterance (the API would
+    // speak the original words while the screen shows the swapped ones).
+    const sameUtterance = utteranceId !== null && r.text === text;
     const input: Transcript = {
-      kind: 'transcript', text: r.text, ...(words.length > 0 ? { heard: { words } } : {}), ...(utteranceId === null ? {} : { utteranceId }),
+      kind: 'transcript', text: r.text, ...(words.length > 0 ? { heard: { words } } : {}), ...(sameUtterance ? { utteranceId } : {}),
     };
     return deps.backend.reply(input, ctx);
   });

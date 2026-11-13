@@ -53,7 +53,8 @@ describe('transcriptTurn', () => {
     const rye = heard.check.terms[0].alternatives.findIndex((a) => a.name === 'rye');
     expect(rye).toBeGreaterThanOrEqual(0);
     await heard.onPick([rye], ctx);
-    expect(inputs).toEqual([{ kind: 'transcript', text: "I'm allergic to rye", heard: { words: ['rye'] }, utteranceId: 3 }]);
+    // Fix round 1 (M-9): the text is no longer the utterance's, so it names no utterance (the API would say "rice").
+    expect(inputs).toEqual([{ kind: 'transcript', text: "I'm allergic to rye", heard: { words: ['rye'] } }]);
     // The words sent are exactly what the server's own check of the sent text confirms.
     expect(heardConfirmed(heardCheck("I'm allergic to rye", graph, content.ruleTerms)!, ['rye'])).toBe(true);
   });
