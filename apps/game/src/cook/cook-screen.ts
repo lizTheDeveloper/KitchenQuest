@@ -144,6 +144,8 @@ export function cookScreen(): Screen {
         // Step 11: the three after-cook questions, each skippable, then the kitchen (Family Table: straight there).
         after: () => { void afterCookThenKitchen(el, ctx, { slug, frame: null, recipe, at: localDate(ctx.now()) }); },
         inputsKey: cardInputsKey,
+        // Ruling 11: the canon steps by slug; a dish cooked with notes is not the canon's, so it is never read.
+        speakStep: notes === null ? { slug } : null,
         recheck: () => {
           const before = card;
           card = buildCard();

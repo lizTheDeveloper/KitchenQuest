@@ -269,7 +269,8 @@ input[type="email"] { width: min(100%, 22rem); }
 .safety-strip > p, .safety-strip .rules-error p { margin: 0; }
 .cook-progress { margin: 0; font-family: var(--display); font-size: 1.25rem; }
 .wake-note { padding: .5rem .75rem; background: var(--iron); box-shadow: 0 0 0 2px var(--sky); }
-.wake-toggle[aria-pressed="true"] { background: var(--ember); color: var(--iron); }
+.wake-toggle[aria-pressed="true"], .hands-free-toggle[aria-pressed="true"] { background: var(--ember); color: var(--iron); }
+.listening-pill { display: inline-block; padding: .125rem .5rem; box-shadow: 0 0 0 2px var(--sky); }
 .cook-step { margin: 1.5rem 0; }
 .cook-text { font-size: 1.75rem; line-height: 1.6; overflow-wrap: anywhere; margin: 0 0 1rem; }
 .cook-section { margin: 0 0 .5rem; }

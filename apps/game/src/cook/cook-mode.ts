@@ -7,9 +7,11 @@ import { announce } from '../ui/announce';
 import { showBureauForm } from '../ui/bureau-form';
 import type { BureauForm } from '../content/types';
 import { contentText, h } from '../ui/dom';
-import { watchLocalDate } from '../recipes/rules';
+import { localDate, watchLocalDate } from '../recipes/rules';
 import type { PlayerState } from '../state/store';
-import { formatClock, formatDuration, remainingMs, startTimer, tick, type RunningTimer } from './timers';
+import type { VoiceController } from '../voice';
+import type { CookVoice, CookVoiceHooks } from './cook-voice';
+import { createAlarm, formatClock, formatDuration, remainingMs, startTimer, tick, type RunningTimer } from './timers';
 import { createWakeLock, type WakeState } from './wake-lock';
 
 /**
@@ -38,6 +40,11 @@ export interface CookModeSource {
   after(): void;
   /** What the dish depends on in the player state (re-checked when it changes). */
   inputsKey(s: PlayerState): string;
+  /**
+   * M7 Step 10 (Ruling 11): hands-free reads a step aloud by the canon slug, and the API reads it only when the dish
+   * checks ✅ with no swap and no margin note. null: never read (a Pantry Frame, a dish cooked with notes).
+   */
+  speakStep: { slug: string } | null;
   /** Checked again on a change: the refusal to show, or what changed (a redrawn strip, swaps, an announcement). */
   recheck(): { refused: HTMLElement; text: string } | { strip: boolean; swaps: boolean; announce: string | null };
 }
@@ -68,6 +75,11 @@ export function beep(win: Window, ended?: () => void): boolean {
 }
 
 const WAKE_NOTE = "This browser can't keep the screen awake. Tap the screen now and then.";
+/** M7 Step 10: hands-free cook mode (Ruling 7). The button's name stays; its state is aria-pressed and the hint. */
+export const HANDS_FREE_LABEL = '🎙 Hands-free';
+export const HANDS_FREE_OFF_HINT = 'Hands-free is off. Turn it on to cook by voice: say "next step", "repeat", "start the timer" or "stop listening".';
+export const HANDS_FREE_ON_HINT = 'Hands-free is on. Say "next step", "go back", "repeat", "start the timer" or "stop listening". The screen stays awake meanwhile, and every button still works.';
+export const LISTENING_TEXT = 'Listening';
 
 /** Runs cook mode in `el` for `src`. Returns the teardown. */
 export function runCookMode(el: HTMLElement, ctx: AppContext, src: CookModeSource): () => void {
@@ -107,6 +119,11 @@ export function runCookMode(el: HTMLElement, ctx: AppContext, src: CookModeSourc
   const trayList = h('ul', { class: 'timer-list' });
   const tray = h('div', { class: 'timer-tray', role: 'group', 'aria-labelledby': 'timer-tray-title', hidden: true },
     h('h2', { id: 'timer-tray-title' }, 'Running timers'), trayList);
+  // M7 Step 10: shown only in a hands-free build, voice and hands-free on in Settings, signed in, standard mode and no
+  // child (Rulings 7–9). The pill shows exactly while the microphone is open, and is announced once (role=status).
+  const hfBtn = h('button', { type: 'button', class: 'btn btn-secondary hands-free-toggle', 'aria-pressed': 'false', 'aria-describedby': 'hands-free-hint', hidden: true }, HANDS_FREE_LABEL);
+  const hfHint = h('p', { id: 'hands-free-hint', class: 'field-hint hands-free-hint', hidden: true }, HANDS_FREE_OFF_HINT);
+  const listening = h('p', { class: 'listening-region', role: 'status' });
   const prev = h('button', { type: 'button', class: 'btn btn-secondary' }, '◀ Previous');
   const next = h('button', { type: 'button', class: 'btn btn-primary' }, 'Next step ▶');
   const leave = h('button', { type: 'button', class: 'btn btn-secondary' }, 'Leave cook mode');
@@ -119,8 +136,8 @@ export function runCookMode(el: HTMLElement, ctx: AppContext, src: CookModeSourc
       contentText('h1', src.title),
       src.draft ? h('span', { class: 'draft-badge' }, 'Draft recipe') : null,
       strip,
-      h('div', { class: 'cook-head-row' }, progress, wakeBtn),
-      wakeNote),
+      h('div', { class: 'cook-head-row' }, progress, wakeBtn, hfBtn),
+      wakeNote, hfHint, listening),
     stepBox, tray,
     h('div', { class: 'cook-controls button-row' }, prev, next),
     h('div', { class: 'button-row' }, leave));
@@ -205,11 +222,13 @@ export function runCookMode(el: HTMLElement, ctx: AppContext, src: CookModeSourc
     }
     for (const t of r.finished) {
       say('cook.timer_done', { step: `step ${t.step}` });
-      beep(win);
+      alarm.sound();
       try { win.navigator.vibrate?.(200); } catch { /* not supported */ }
     }
     renderTray();
   };
+  // B9 (carry 1): hands-free's VAD threshold is raised before the beep starts, and lowered when it ends.
+  const alarm = createAlarm((ended) => beep(win, ended), null);
   const interval = setInterval(tickNow, 250);
   doc.addEventListener('visibilitychange', tickNow);
 
@@ -226,6 +245,7 @@ export function runCookMode(el: HTMLElement, ctx: AppContext, src: CookModeSourc
   const finish = async () => {
     if (finished) return;
     finished = true;
+    hf?.voice.stop('left');
     clearInterval(interval);
     if (src.progressKey !== null) ctx.store.update((s) => ({ ...s, cookProgress: null }));
     // In the background (M7): the certificate shows at once, and the grants' lines follow when they're known.
@@ -293,8 +313,122 @@ export function runCookMode(el: HTMLElement, ctx: AppContext, src: CookModeSourc
   });
   const stopDate = watchLocalDate(doc, ctx.now, recheck);
 
+  // Hands-free (M7 Step 10). The voice client and cook-voice.ts load only when it is turned on (B8).
+  const hfBuild = import.meta.env.VITE_HANDS_FREE === 'on';
+  let hf: { voice: CookVoice; ctl: VoiceController } | null = null;
+  let hfLoading = false;
+  /** Rulings 7–9: which rule forbids the microphone now, or null; 'setting' when only the hands-free setting is off. */
+  const hfBlock = (): 'family_table' | 'child' | 'signed_out' | 'off' | 'setting' | null => {
+    const s = ctx.store.get();
+    if (s.settings.familyTable) return 'family_table';
+    if (s.account === null) return 'signed_out';
+    if (!s.settings.voice.on) return 'off';
+    if (mentor.cookVoice()?.childOn() !== false) return 'child';
+    return s.settings.voice.handsFree ? null : 'setting';
+  };
+  const hfAllowed = () => hfBuild && !stopped && !finished && hfBlock() === null;
+  const showPill = (open: boolean) => {
+    if (open && listening.firstChild === null) listening.append(h('span', { class: 'listening-pill' }, LISTENING_TEXT));
+    else if (!open) listening.replaceChildren();
+  };
+  const drawHf = () => {
+    const live = hf !== null || hfLoading;
+    hfBtn.hidden = hfHint.hidden = !live && !hfAllowed();
+    hfBtn.setAttribute('aria-pressed', String(live));
+    hfHint.textContent = live ? HANDS_FREE_ON_HINT : HANDS_FREE_OFF_HINT;
+  };
+  const voiceHooks: CookVoiceHooks = {
+    next: () => { if (finished) return; if (step === total - 1) void finish(); else go(step + 1); },
+    back: () => { if (!finished) go(step - 1); },
+    // The step's first timer that isn't running (as its button would).
+    timerStart: () => {
+      for (const item of recipe.steps[step].items) {
+        if (item.type !== 'timer') continue;
+        const id = `${step + 1}-${item.index}`;
+        if (timers.some((t) => t.id === id && !t.done)) continue;
+        const t = recipe.timers[item.index];
+        startTimerNow(id, t.name ?? `step ${step + 1}`, step + 1, timerSeconds(t));
+        return;
+      }
+    },
+    // This step's running timers, else the one started last.
+    timerStop: () => {
+      const running = timers.filter((t) => !t.done);
+      const here = running.filter((t) => t.step === step + 1);
+      const gone = here.length > 0 ? here : running.slice(-1);
+      if (gone.length === 0) return;
+      timers = timers.filter((t) => !gone.includes(t));
+      announce(announcer, gone.map((t) => `Timer stopped: ${formatDuration(t.durationMs / 1000)} for step ${t.step}`).join('. '));
+      renderTray();
+    },
+    currentStep: () => step,
+    speakStep: src.speakStep,
+  };
+  const startHf = async () => {
+    if (hf !== null || hfLoading || !hfAllowed()) return;
+    hfLoading = true;
+    drawHf();
+    try {
+      const [lib, cv] = await Promise.all([import('../voice'), import('./cook-voice')]);
+      if (!hfLoading || !hfAllowed()) return; // turned off, left, or a rule changed while it loaded
+      const port = mentor.cookVoice()!;
+      const provider = lib.providerKind() === 'browser' ? await lib.devBrowserProvider(win) : lib.serviceProvider(win, ctx.store);
+      if (!hfLoading || !hfAllowed()) { provider.close(); return; }
+      const ctl = lib.createVoiceController({ win, store: ctx.store, provider, conversationId: port.conversationId, childOn: port.childOn });
+      const unMic = ctl.onMic(showPill);
+      // §19: the moment a child speaks, the microphone closes (the controller also checks every frame).
+      const unChild = port.onChild(() => { if (port.childOn()) ctl.close('child'); });
+      if (alarm.sounding) ctl.timerSounding(true);
+      const voice = cv.startCookVoice({
+        controller: ctl, hooks: voiceHooks, localDate: () => localDate(ctx.now()), doc,
+        toPan: (text, id) => { if (!mentor.isOpen()) mentor.open(); return port.spoken(text, id); },
+        line: (t, v) => { say(t, v); },
+        readAloud: () => ctx.store.get().settings.voice.readAloud,
+        onStop: () => {
+          unMic();
+          unChild();
+          alarm.setHook(null);
+          ctl.close();
+          showPill(false);
+          if (hf?.ctl === ctl) hf = null;
+          void wake.hold(false).then(showWake);
+          drawHf();
+        },
+      });
+      if (!voice.on) return;
+      hf = { voice, ctl };
+      alarm.setHook((on) => { voice.timerSounding(on); });
+      void wake.hold(true).then(showWake);
+    } catch (err) {
+      console.error(err);
+      say('voice.unavailable');
+    } finally {
+      hfLoading = false;
+      drawHf();
+    }
+  };
+  hfBtn.addEventListener('click', () => {
+    if (hf !== null) hf.voice.stop('user');
+    else if (hfLoading) { hfLoading = false; drawHf(); }
+    else void startHf();
+  });
+  const unHf = ctx.store.subscribe(() => {
+    if (!hfBuild) return;
+    const block = hfBlock();
+    if (hf !== null && block !== null) {
+      // A rule that forbids the microphone closes it without a word (Rulings 8 and 9); the setting is the player's off.
+      if (block === 'setting') hf.voice.stop('user');
+      else hf.ctl.close(block);
+    }
+    drawHf();
+  });
+  drawHf();
+
   function teardown() {
     stopped = true;
+    hfLoading = false;
+    hf?.voice.stop('left');
+    unHf();
     leaving.abort();
     clearInterval(interval);
     doc.removeEventListener('visibilitychange', tickNow);

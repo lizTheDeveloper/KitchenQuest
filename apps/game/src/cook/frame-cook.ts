@@ -190,6 +190,8 @@ export function frameCook(el: HTMLElement, frame: Frame, deps: { ctx: AppContext
         // Step 11: the after-cook questions (who ate, the one-tap log; frames take no margin note), then the kitchen.
         after: () => { void afterCookThenKitchen(el, ctx, { slug: null, frame: frame.id, recipe: current.recipe, at: localDate(ctx.now()) }); },
         inputsKey: cardInputsKey,
+        // Ruling 11: a Pantry Frame's steps are never read aloud (they carry the player's own fillings).
+        speakStep: null,
         recheck: () => {
           const r = rulesOf(ctx.store.get());
           const before = current;

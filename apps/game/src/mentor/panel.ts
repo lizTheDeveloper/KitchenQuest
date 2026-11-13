@@ -16,6 +16,18 @@ import type { ScriptedEngine } from './scripted';
 import type { CardWriter, UndoOutcome, WriteOutcome } from './writer';
 import { navRoute } from './nav';
 import type { TalkHooks } from './talk';
+import { content, graph } from '../content';
+
+/** M7 Step 10: what hands-free cook mode reaches the Pan through (`MentorPanel.cookVoice`). */
+export interface CookVoicePort {
+  /** The AI conversation's server id, for the controller's hello. */
+  conversationId(): string | null;
+  /** The conversation's child flag (§19): the controller closes the moment it is set. */
+  childOn(): boolean;
+  onChild(fn: () => void): () => void;
+  /** The player's bubble (marked spoken), then Step 9's `transcriptTurn`, heard check first (Ruling 4), drawn. */
+  spoken(text: string, utteranceId: number): Promise<PanReply | null>;
+}
 
 /** The panel keeps the last this-many bubbles; older ones are removed so a long session can't grow without end. */
 export const MAX_BUBBLES = 50;
@@ -65,6 +77,8 @@ export interface MentorPanel {
    * health details are deleted, none of them stays on screen). The pinned disclosure stays until acknowledged.
    */
   clearConversation(): void;
+  /** M7 Step 10: hands-free cook mode's way to the Pan; null in Family Table (Ruling 9) and signed out (Ruling 8). */
+  cookVoice(): CookVoicePort | null;
 }
 
 /** `co`: a check-off card's place (M6 Step 10), drawn by its own lazy renderer (check-off-card.ts). */
@@ -756,6 +770,19 @@ export function mountMentorPanel(root: HTMLElement, opts: {
       opener?.focus();
     },
     isOpen: () => open,
+    cookVoice() {
+      if (!standard || store.get().account === null) return null;
+      return {
+        conversationId: () => opts.conversationId?.() ?? null,
+        childOn: childSpoke,
+        onChild: (fn) => opts.child?.onChange(fn) ?? (() => undefined),
+        async spoken(text, utteranceId) {
+          if (text.trim() !== '') addBubble('you', text, true);
+          const { transcriptTurn } = await import('./voice-turn');
+          return turnWith((ctx) => transcriptTurn(text, utteranceId, ctx, { backend, graph, ruleTerms: content.ruleTerms, dialogue, ...(opts.child ? { child: opts.child } : {}) }));
+        },
+      };
+    },
     say: sayLine,
     show: render,
     onOpen(fn) { openListeners.add(fn); return () => { openListeners.delete(fn); }; },

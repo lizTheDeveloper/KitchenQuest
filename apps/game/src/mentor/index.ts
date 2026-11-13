@@ -22,7 +22,7 @@ import { createCardWriter, type CardWriter } from './writer';
 import type { WeekTurn } from './week-turn';
 
 export { createDialogue } from './dialogue';
-export type { MentorPanel } from './panel';
+export type { CookVoicePort, MentorPanel } from './panel';
 
 let mentor: MentorPanel | null = null;
 
@@ -128,6 +128,7 @@ function stablePanel(cur: () => MentorPanel, onClear: () => void): MentorPanel {
     interceptText: (fn) => { cur().interceptText(fn); },
     destroy: () => { cur().destroy(); },
     clearConversation: () => { onClear(); cur().clearConversation(); },
+    cookVoice: () => cur().cookVoice(),
   };
 }
 

@@ -545,3 +545,32 @@ describe('talking to the Pan (M7 Step 9)', () => {
   });
 });
 
+
+describe('M7 Step 10: the panel\'s port for hands-free cook mode (cookVoice)', () => {
+  test('null in Family Table and signed out (Rulings 8 and 9); a spoken turn is the player\'s spoken bubble, then the heard check before any backend (Ruling 4); a food-free question reaches the backend as a transcript (D6)', async () => {
+    expect((await rig({ mode: 'familyTable' })).pan.cookVoice()).toBeNull();
+    expect((await rig({ patch: { account: null } })).pan.cookVoice()).toBeNull();
+    const r = await rig();
+    const port = r.pan.cookVoice()!;
+    expect(port.conversationId()).toBe('conv-1');
+    expect(port.childOn()).toBe(false);
+    const changes: boolean[] = [];
+    const un = port.onChild(() => changes.push(port.childOn()));
+    const heard = await port.spoken("I can't eat sesame", 7);
+    expect(r.inputs).toEqual([]); // nothing sent before the tap
+    expect(heard!.items.some((i) => i.kind === 'heard')).toBe(true);
+    await flush(20);
+    expect(r.root.querySelector('.heard-card')).not.toBeNull();
+    expect(bubbles(r)[0]).toBe("you(spoken): I can't eat sesame");
+    // A spoken yes is a turn of its own: it never taps the card.
+    await port.spoken('yes', 8);
+    await flush(20);
+    expect([...r.root.querySelector('.heard-card')!.querySelectorAll('button')].every((b) => !b.disabled)).toBe(true);
+    await port.spoken('how long do I keep stirring', 9);
+    expect(r.inputs.at(-1)).toEqual({ kind: 'transcript', text: 'how long do I keep stirring', utteranceId: 9 });
+    r.child.set();
+    expect(changes).toEqual([true]);
+    expect(port.childOn()).toBe(true);
+    un();
+  });
+});

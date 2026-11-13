@@ -53,7 +53,6 @@ function fakeController() {
   };
   return f;
 }
-type Fake = ReturnType<typeof fakeController>;
 
 const said = (text: string): PanReply => ({ items: [{ kind: 'said', said: { trigger: 'mentor.reply', text, ai: 'allowed', index: 0, part: 0 } }], cards: [], intents: [], actions: [], notice: null, replyId: 'r-1' });
 
