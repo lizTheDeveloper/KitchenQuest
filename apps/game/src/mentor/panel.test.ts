@@ -16,7 +16,7 @@ import type { CardWriter, UndoOutcome, WriteOutcome } from './writer';
 
 const T0 = new Date('2026-11-10T12:00:00Z');
 const reply = (texts: string[], extra: Partial<PanReply> = {}): PanReply => ({
-  items: texts.map((t) => ({ kind: 'said', said: { trigger: 'x', text: t, ai: 'allowed' } })), cards: [], intents: [], actions: [], notice: null, ...extra,
+  items: texts.map((t) => ({ kind: 'said', said: { trigger: 'x', text: t, ai: 'allowed', index: 0 } })), cards: [], intents: [], actions: [], notice: null, ...extra,
 });
 const dialogue = createDialogue(content.pan);
 const recipes = Object.entries(content.recipes).map(([slug, r]) => ({ slug, title: r.meta.title }));

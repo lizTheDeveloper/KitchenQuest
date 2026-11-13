@@ -3,8 +3,12 @@ import type { LineBank, LineTrigger } from '../content/types';
 
 // Line filling and trigger fallback live in core (the API's lines use them too).
 export { fillLine, resolveTrigger, type Vars };
-/** `trigger` is the resolved id actually used, which may be a parent of the one asked for. */
-export interface Said { trigger: string; text: string; ai: 'never' | 'allowed' }
+/**
+ * `trigger` is the resolved id actually used, which may be a parent of the one asked for. `index` is the line variant
+ * shown (M7: a var-free device line is spoken by trigger and index, never by its text, Ruling 15). `part`, set only
+ * when the line renders part `part` of a server reply, is spoken by the reply's id and that index.
+ */
+export interface Said { trigger: string; text: string; ai: 'never' | 'allowed'; index: number; part?: number }
 export class DialogueError extends Error {}
 
 /** The "Common variables" documented in the pan.yaml header. */
@@ -83,7 +87,7 @@ export function createDialogue(
 
       history[resolved] = [...used, index].slice(-3);
       opts.onHistory?.(structuredClone(history));
-      return { trigger: resolved, text, ai: trigger.ai };
+      return { trigger: resolved, text, ai: trigger.ai, index };
     },
   };
 }

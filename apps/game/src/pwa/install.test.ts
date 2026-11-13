@@ -21,7 +21,7 @@ describe('isStandalone', () => {
 });
 
 test('iosNoteVisible', () => {
-  const base: PlayerSettings = { showCalories: false, reducedMotion: 'system', familyTable: false, iosNoteDismissed: false, rescueNudges: true };
+  const base: PlayerSettings = { showCalories: false, reducedMotion: 'system', familyTable: false, iosNoteDismissed: false, rescueNudges: true, voice: { on: false, readAloud: true, handsFree: false } };
   for (const ios of [true, false]) {
     for (const standalone of [true, false]) {
       for (const dismissed of [true, false]) {

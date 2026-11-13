@@ -14,7 +14,7 @@ const ctx: TurnContext = { turn: 1, openCards: [], intakeStep: null, signedIn: t
 // The shipped pieces, not copies.
 const fallback = scriptedWhenUnavailable(engine, dialogue);
 const local = createLocalSafety({ dialogue, graph }).reply;
-const reply = (t: string): PanReply => ({ items: [{ kind: 'said', said: { trigger: t, text: t, ai: 'allowed' } }], cards: [], intents: [], actions: [], notice: null });
+const reply = (t: string): PanReply => ({ items: [{ kind: 'said', said: { trigger: t, text: t, ai: 'allowed', index: 0 } }], cards: [], intents: [], actions: [], notice: null });
 const triggers = (r: PanReply) => r.items.flatMap((i) => (i.kind === 'said' ? [i.said.trigger] : []));
 const EMERGENCY = "my son's lips are swelling, he ate peanuts";
 const hello = { kind: 'text' as const, text: 'hello' };
@@ -45,7 +45,7 @@ describe('scriptedWhenUnavailable (the shipped fallback)', () => {
 });
 
 describe('withNotice', () => {
-  const notice: PanItem = { kind: 'said', said: { trigger: 'n', text: 'n', ai: 'never' } };
+  const notice: PanItem = { kind: 'said', said: { trigger: 'n', text: 'n', ai: 'never', index: 0 } };
   test('goes first, except after an emergency, medical or child line', () => {
     expect(triggers(withNotice(notice, reply('x')))).toEqual(['n', 'x']);
     for (const lead of ['rule.emergency', 'rule.medical_deflect', 'child.grownup']) {

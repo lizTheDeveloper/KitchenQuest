@@ -71,6 +71,8 @@ describe('createStore', () => {
     ['settings is not an object', { settings: 3 }],
     ['a setting has the wrong type', { settings: { showCalories: 'yes' } }],
     ['reducedMotion is unknown', { settings: { reducedMotion: 'sometimes' } }],
+    ['voice is not an object (M7)', { settings: { voice: true } }],
+    ['a voice setting has the wrong type (M7)', { settings: { voice: { on: 'yes' } } }],
     ['accountRules is a string', { accountRules: 'x' }],
     ['signOutPending is not a boolean', { signOutPending: 'yes' }],
     ['cookProgress is malformed', { cookProgress: { slug: 1 } }],
@@ -290,11 +292,19 @@ describe('deleteDeviceData', () => {
 });
 
 describe('createStore (more)', () => {
+  it('M7: settings.voice defaults to off, read aloud, not hands-free; a partial stored copy keeps what it has', () => {
+    expect(createStore(memStorage()).get().settings.voice).toEqual({ on: false, readAloud: true, handsFree: false });
+    const st = memStorage({ [STORE_KEY]: JSON.stringify({ settings: { voice: { on: true } } }) });
+    const s = createStore(st);
+    expect(s.notice).toBeNull();
+    expect(s.get().settings.voice).toEqual({ on: true, readAloud: true, handsFree: false });
+  });
+
   it('merges a partial object over defaults', () => {
     const st = memStorage({ [STORE_KEY]: JSON.stringify({ settings: { showCalories: true } }) });
     const s = createStore(st);
     expect(s.notice).toBeNull();
-    expect(s.get().settings).toEqual({ showCalories: true, reducedMotion: 'system', familyTable: false, iosNoteDismissed: false, aiMentor: true, rescueNudges: true });
+    expect(s.get().settings).toEqual({ showCalories: true, reducedMotion: 'system', familyTable: false, iosNoteDismissed: false, aiMentor: true, rescueNudges: true, voice: { on: false, readAloud: true, handsFree: false } });
     expect(s.get().v).toBe(1);
     expect(s.get().toolkit).toEqual({ techniques: {} });
   });

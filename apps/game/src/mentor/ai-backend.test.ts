@@ -64,6 +64,22 @@ beforeEach(() => { vi.useFakeTimers(); });
 afterEach(() => { vi.useRealTimers(); });
 
 describe('AI backend', () => {
+  test('M7 Step 8: a server line or go part becomes an item whose said carries that part\'s index in res.parts; a scripted reply\'s carry none', async () => {
+    const parts: TurnResponse['parts'] = [
+      { kind: 'text', text: 'model words' },
+      line('didnt_understand'),
+      { kind: 'go', target: { to: 'plan' }, line: { trigger: 'nav.offer', vars: { place: 'the plan' } } },
+    ];
+    const { backend } = setup({ consents: BOTH, mentorTurn: () => ok(response({ parts })) });
+    const r = await backend.reply(text('hello there'), ctx());
+    const tagged = r.items.flatMap((i) => (i.kind === 'said' || i.kind === 'go' ? [[i.said.trigger, i.said.part]] : []));
+    expect(tagged).toEqual([['didnt_understand', 1], ['nav.offer', 2]]);
+    for (const i of r.items) if (i.kind === 'said' || i.kind === 'go') expect(Number.isInteger(i.said.index)).toBe(true);
+    const scripted = setup({ consents: BOTH, mentorTurn: () => ok(response({ route: 'scripted', notice: 'ai_unavailable' })) });
+    const s2 = await scripted.backend.reply(text('hello there'), ctx());
+    for (const i of s2.items) if (i.kind === 'said' || i.kind === 'go') expect(i.said.part).toBeUndefined();
+  });
+
   test('N2: an emergency text keeps the emergency line first when the server says the AI is unavailable, and when it is unreachable', async () => {
     const EMERGENCY = "my son's lips are swelling, he ate peanuts";
     const viaNotice = setup({ consents: BOTH, mentorTurn: () => ok(response({ route: 'scripted', notice: 'ai_unavailable' })) });

@@ -202,7 +202,15 @@ export interface PlayerSettings {
   showCalories: boolean; reducedMotion: 'system' | 'on' | 'off'; familyTable: boolean; iosNoteDismissed: boolean;
   /** Use-It-Up Rescue nudges in the kitchen (audit M-14: "can be turned off"). On by default. */
   rescueNudges: boolean;
+  /**
+   * M7 live voice. `on`: talk out loud (off until the player turns it on; text never goes away). `readAloud`: the
+   * Pan's replies are spoken. `handsFree`: cook mode listens without a press (only in a `VITE_HANDS_FREE=on` build).
+   * Settings only: no transcript, frame or audio is ever kept here (C-18).
+   */
+  voice: VoiceSettings;
 }
+export interface VoiceSettings { on: boolean; readAloud: boolean; handsFree: boolean }
+export const DEFAULT_VOICE_SETTINGS: Readonly<VoiceSettings> = Object.freeze({ on: false, readAloud: true, handsFree: false });
 /** A market run kept on this device (C40's shape) and the pantry row each tick added, by list key (Ruling 16). */
 export interface LocalRun extends MarketRunView { pantryIds: Record<string, string> }
 /**
@@ -274,7 +282,7 @@ function freshState(): PlayerState {
     v: 1, firstOpenedAt: null, lastOpenedAt: null,
     localRules: [], accountRules: null, account: null,
     toolkit: EMPTY_TOOLKIT, cookProgress: null, dialogueHistory: {}, progress: EMPTY_PROGRESS, accountProgress: {},
-    settings: { showCalories: false, reducedMotion: 'system', familyTable: false, iosNoteDismissed: false, aiMentor: true, rescueNudges: true },
+    settings: { showCalories: false, reducedMotion: 'system', familyTable: false, iosNoteDismissed: false, aiMentor: true, rescueNudges: true, voice: { ...DEFAULT_VOICE_SETTINGS } },
     rulesUnreadable: false, signOutPending: false,
     localProfile: null, localPantry: [], localWeek: { plans: [], runs: [] }, rescue: {}, intake: { step: null }, aiDisclosureSeen: false, aiHealthOffered: false,
   };
@@ -366,6 +374,12 @@ function merge(p: Record<string, unknown>): PlayerState | null {
     if (s[k] !== undefined && typeof s[k] !== 'boolean') return null;
   }
   if (s.reducedMotion !== undefined && s.reducedMotion !== 'system' && s.reducedMotion !== 'on' && s.reducedMotion !== 'off') return null;
+  // M7: a stored copy from before voice has none (the defaults); a field that is there must be a boolean.
+  if (s.voice !== undefined && !isObj(s.voice)) return null;
+  const sv: Record<string, unknown> = isObj(s.voice) ? s.voice : {};
+  for (const k of ['on', 'readAloud', 'handsFree'] as const) {
+    if (sv[k] !== undefined && typeof sv[k] !== 'boolean') return null;
+  }
   return {
     v: 1,
     firstOpenedAt: (has('firstOpenedAt') ? p.firstOpenedAt : d.firstOpenedAt) as string | null,
@@ -386,6 +400,11 @@ function merge(p: Record<string, unknown>): PlayerState | null {
       iosNoteDismissed: (s.iosNoteDismissed as boolean | undefined) ?? ds.iosNoteDismissed,
       aiMentor: (s.aiMentor as boolean | undefined) ?? ds.aiMentor,
       rescueNudges: (s.rescueNudges as boolean | undefined) ?? ds.rescueNudges,
+      voice: {
+        on: (sv.on as boolean | undefined) ?? ds.voice.on,
+        readAloud: (sv.readAloud as boolean | undefined) ?? ds.voice.readAloud,
+        handsFree: (sv.handsFree as boolean | undefined) ?? ds.voice.handsFree,
+      },
     },
     rulesUnreadable: (has('rulesUnreadable') ? p.rulesUnreadable : d.rulesUnreadable) as boolean,
     signOutPending: (has('signOutPending') ? p.signOutPending : d.signOutPending) as boolean,

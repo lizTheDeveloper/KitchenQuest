@@ -99,9 +99,11 @@ export function createAiBackend(deps: {
   }
 
   /** Lines, choices and consent from the server; a part that isn't one of ours (or names no line) is dropped. */
-  const itemsOf = (parts: readonly ReplyPart[]): PanItem[] => parts.flatMap((p) => {
+  const itemsOf = (parts: readonly ReplyPart[]): PanItem[] => parts.flatMap((p, part) => {
     try {
-      return partsToItems([p], dialogue);
+      // M7 Step 8: a line rendering a server part carries that part's index, so it is spoken by the reply's id and the
+      // index (a `reply` speak item), never by its text (Ruling 15).
+      return partsToItems([p], dialogue).map((i) => (i.kind === 'said' || i.kind === 'go' ? { ...i, said: { ...i.said, part } } : i));
     } catch (err) {
       console.error(err);
       return [];
