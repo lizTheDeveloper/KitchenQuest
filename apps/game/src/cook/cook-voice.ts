@@ -21,10 +21,15 @@
 //   open, and never taking focus.
 // - M1: every command is answered aloud: a frame's step is `voice.step_on_screen`, a timer command its cue.
 //
+// Fix round 2 (controller ruling): in hands-free a spoken yes confirms nothing, so a radio or another person in the
+// room can never confirm a card. A strict yes (core `classifyTurn`, as the API reads it) is never sent; with a card
+// waiting the Pan says `voice.cook.tap_card`, once per card. Device-only: the turn's wire input (core
+// mentor/protocol.ts, hashed) has no hands-free field, so the API cannot tell a hands-free transcript apart.
+//
 // Hands-free turns itself off after HANDS_FREE_IDLE_MS with no transcript (only a non-empty one re-arms it), when the
 // page is hidden, on leaving cook mode, for steady noise (the controller's 'noise'), and whenever the controller closes
 // (Family Table, a child, signed out, voice off: Rulings 8 and 9).
-import { cookCommand, HANDS_FREE_IDLE_MS, type SpeakItem } from '@kitchenquest/core/engine';
+import { classifyTurn, cookCommand, HANDS_FREE_IDLE_MS, stripPageEvents, type SpeakItem } from '@kitchenquest/core/engine';
 import type { Said } from '../mentor/dialogue';
 import { restingUntil } from '../mentor/resting';
 import type { PanItem, PanReply } from '../mentor/reply';
@@ -55,6 +60,8 @@ export interface CookVoice {
   stop(reason: 'user' | 'idle' | 'left' | 'hidden'): void;
   /** A cook timer's alarm is sounding (timers.ts `createAlarm`, B9): the controller raises its VAD threshold. */
   timerSounding(on: boolean): void;
+  /** Fix round 2 (concern 5): speak a reply drawn in the panel outside a spoken turn (a heard card's tap). */
+  speak(r: PanReply): void;
 }
 
 export interface CookVoiceDeps {
@@ -70,6 +77,8 @@ export interface CookVoiceDeps {
   show(r: PanReply): void;
   /** I5: the Pan answered (drawn in the panel, closed or not); `needsTap`: it holds a card or a heard card to tap. */
   answered(r: PanReply, needsTap: boolean): void;
+  /** Fix round 2: the keys of the cards open in the panel (each waits for its tap). */
+  openCards(): readonly string[];
   /** settings.voice.readAloud: the Pan's replies are spoken (a step asked for by voice is read either way). */
   readAloud(): boolean;
   /** Told once, when it stops (the caller closes the controller, drops the wake lock hold and redraws). */
@@ -84,6 +93,8 @@ const needsTap = (r: PanReply): boolean => r.cards.length > 0 || r.items.some((i
  * I4 (game-side narrowing): on the last step only a deliberate "next" ("next", "next step", "ok next please") counts;
  * chatter that cookCommand also reads as next ("what now", "what's next", "carry on", "and then") does not.
  */
+/** Fix round 2: a strict yes, read as the API reads a turn's text (stripped of page-event lookalikes first). */
+const isYes = (text: string): boolean => classifyTurn(stripPageEvents(text).text.trim()) === 'yes';
 const deliberateNext = (text: string): boolean => {
   const words = text.toLowerCase().replace(/[^a-z\s]/g, '').split(/\s+/);
   return words.includes('next') && !words.some((w) => w.startsWith('what'));
@@ -137,6 +148,12 @@ export function startCookVoice(deps: CookVoiceDeps): CookVoice {
     if (on) readStep();
   };
   const lastStep = () => hooks.currentStep() >= hooks.stepCount() - 1;
+  /** The cards already told "tap it" (once per card). */
+  const cued = new Set<string>();
+  const speakReply = (r: PanReply) => {
+    if (!deps.readAloud()) { c.say(END_WAIT); return; }
+    c.say(speakPlan(r.items, r.cards, { replyId: r.replyId ?? null }));
+  };
 
   const heard = (text: string, tooLong: boolean, utteranceId: number) => {
     if (!on) return;
@@ -159,11 +176,19 @@ export function startCookVoice(deps: CookVoiceDeps): CookVoice {
       case 'ingredients': // not a step command here: the Pan answers it (cook mode lists no ingredients)
       case null: break; // everything else: the Pan's (the heard check first)
     }
+    // Fix round 2: a spoken yes is never sent; a waiting card hears "tap it" once.
+    if (!tooLong && isYes(text)) {
+      const fresh = deps.openCards().filter((k) => !cued.has(k));
+      if (fresh.length === 0) { c.say(END_WAIT); return; }
+      for (const k of fresh) cued.add(k);
+      cue('voice.cook.tap_card');
+      return;
+    }
     void deps.toPan(text, utteranceId).then((r) => {
       if (!on || mine !== turn) return; // stopped, or the player spoke again meanwhile: drawn, never said over it
-      if (r !== null) deps.answered(r, needsTap(r));
-      if (r === null || !deps.readAloud()) { c.say(END_WAIT); return; }
-      c.say(speakPlan(r.items, r.cards, { replyId: r.replyId ?? null }));
+      if (r === null) { c.say(END_WAIT); return; }
+      deps.answered(r, needsTap(r));
+      speakReply(r);
     }, () => { if (on && mine === turn) c.say(END_WAIT); });
   };
 
@@ -209,5 +234,6 @@ export function startCookVoice(deps: CookVoiceDeps): CookVoice {
       end(reason, reason === 'left' ? null : reason === 'idle' ? 'voice.hands_free_idle' : 'voice.hands_free_off');
     },
     timerSounding(sounding) { if (on) c.timerSounding(sounding); },
+    speak(r) { if (on && deps.readAloud()) speakReply(r); },
   };
 }

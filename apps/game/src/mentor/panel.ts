@@ -27,6 +27,10 @@ interface CookVoicePort {
   onChild(fn: () => void): () => void;
   /** The player's bubble (marked spoken), then Step 9's `transcriptTurn`, heard check first (Ruling 4), drawn. */
   spoken(text: string, utteranceId: number): Promise<PanReply | null>;
+  /** Fix round 2: the open cards' keys (in hands-free a spoken yes confirms none of them). */
+  openCards(): string[];
+  /** Fix round 2 (concern 5): who speaks the panel's own spoken-turn replies (a heard card's tap); null for nobody. */
+  setSpeaker(fn: ((r: PanReply) => void) | null): void;
 }
 
 /** The panel keeps the last this-many bubbles; older ones are removed so a long session can't grow without end. */
@@ -778,6 +782,8 @@ export function mountMentorPanel(root: HTMLElement, opts: {
         conversationId: () => opts.conversationId?.() ?? null,
         childOn: childSpoke,
         onChild: (fn) => opts.child?.onChange(fn) ?? (() => undefined),
+        openCards: () => [...cards.keys()],
+        setSpeaker: (fn) => { speaker = fn; },
         async spoken(text, utteranceId) {
           if (text.trim() !== '') addBubble('you', text, true);
           const { transcriptTurn } = await import('./voice-turn');

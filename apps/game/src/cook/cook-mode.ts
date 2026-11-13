@@ -469,8 +469,10 @@ export function runCookMode(el: HTMLElement, ctx: AppContext, src: CookModeSourc
         say: (t, v) => mentor.say(t, v),
         show: (r) => { mentor.show(r); },
         answered: onAnswered,
+        openCards: () => port.openCards(),
         readAloud: () => ctx.store.get().settings.voice.readAloud,
         onStop: () => {
+          port.setSpeaker(null);
           unMic();
           unChild();
           alarm.setHook(null);
@@ -485,6 +487,8 @@ export function runCookMode(el: HTMLElement, ctx: AppContext, src: CookModeSourc
       });
       if (!voice.on) return;
       hf = { voice, ctl: c };
+      // Concern 5: a heard card's tap reply is spoken by cook mode's controller (the talk control is off meanwhile).
+      port.setSpeaker((r) => { voice.speak(r); });
       dock(true);
       alarm.setHook((on) => { voice.timerSounding(on); });
       void wake.hold(true).then(showWake);

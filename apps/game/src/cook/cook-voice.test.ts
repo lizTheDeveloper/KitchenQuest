@@ -61,12 +61,13 @@ const said = (text: string): PanReply => ({ items: [{ kind: 'said', said: { trig
 const quietDeps = {
   localDate: () => '2026-11-13', doc: document, toPan: () => Promise.resolve(null),
   say: (t: string): Said => ({ trigger: t, text: t, ai: 'never', index: 0 }), show: () => undefined, answered: () => undefined, readAloud: () => true,
+  openCards: () => [],
 };
 const noHooks: CookVoiceHooks = { next() {}, back() {}, timerStart: () => false, timerStop: () => 'which', currentStep: () => 0, stepCount: () => 3, speakStep: null };
 
 function rig(opts: {
   speakStep?: { slug: string } | null; toPan?: (text: string, id: number) => Promise<PanReply | null>; readAloud?: boolean;
-  step?: number; timerStart?: () => boolean; timerStop?: () => 'stopped' | 'which';
+  step?: number; timerStart?: () => boolean; timerStop?: () => 'stopped' | 'which'; cards?: () => string[];
 } = {}) {
   const c = fakeController();
   let step = opts.step ?? 0;
@@ -92,6 +93,7 @@ function rig(opts: {
     say: (t) => { lines.push(t); return { trigger: t, text: `[${t}]`, ai: 'never', index: 1 }; },
     show: (r) => { for (const i of r.items) if (i.kind === 'said') lines.push(i.said.trigger); },
     answered: (r, tap) => { answered.push({ r, tap }); },
+    openCards: opts.cards ?? (() => []),
     readAloud: () => opts.readAloud ?? true,
     onStop: (why) => { stops.push(why); },
   });
@@ -191,12 +193,12 @@ describe('startCookVoice (M7 Step 10)', () => {
     expect(t.toPan.map((x) => x.text)).toEqual(['next']);
   });
 
-  test('carry 6 (Rulings 10 and 12): a spoken "yes" or "confirm" is no cook command and never confirms anything here; it goes to the Pan, whose heard and severe cards are tap-only', () => {
+  test('carry 6 (Rulings 10 and 12): a spoken "yes" or "confirm" is no cook command and never confirms anything here; fix round 2: in hands-free it is not even sent to the Pan', () => {
     for (const yes of ['yes', 'yes please', 'confirm', 'that\'s right', 'yes that\'s what I said']) expect(cookCommand(yes)).toBeNull();
     const r = rig();
     r.c.hear('yes');
     expect(r.log).toEqual([]);
-    expect(r.toPan.map((x) => x.text)).toEqual(['yes']);
+    expect(r.toPan).toEqual([]);
   });
 
   test('carry 5 (Ruling 10): barge-in stops audio only. A turn already sent still shows its cards; only the newest turn\'s reply is spoken', async () => {
@@ -406,5 +408,47 @@ describe('M7 Step 10 fix round 1', () => {
     r.c.handsOff('stopped');
     await flush();
     expect(r.lines).toEqual(['voice.hands_free_on', 'voice.hands_free_off']);
+  });
+});
+
+describe('M7 Step 10 fix round 2 (controller ruling): in hands-free a spoken yes confirms nothing', () => {
+  test('"yes please", "yes", "confirm" and the like never reach the Pan; with a card open the cue voice.cook.tap_card is said once per card', () => {
+    let cards = ['server:p-1'];
+    const r = rig({ cards: () => cards });
+    r.c.hear('yes please');
+    r.c.hear('yes');
+    r.c.hear('yes it is');
+    expect(r.toPan).toEqual([]);
+    expect(spokenLines(r.c)).toEqual(['voice.cook.tap_card']); // once for this card
+    expect(r.lines.filter((l) => l === 'voice.cook.tap_card')).toHaveLength(1);
+    // A second card: once more, for it.
+    cards = ['server:p-1', 'local:l-2'];
+    r.c.hear('yep');
+    r.c.hear('confirm');
+    expect(spokenLines(r.c)).toEqual(['voice.cook.tap_card', 'voice.cook.tap_card']);
+    expect(r.toPan).toEqual([]);
+    // No card open: still never sent, and nothing to say.
+    const none = rig();
+    none.c.hear('yes please');
+    expect(none.toPan).toEqual([]);
+    expect(spokenLines(none.c)).toEqual([]);
+    expect(none.c.said.at(-1)).toEqual({ items: [], said: [] });
+    // A yes inside a sentence is no confirmation: it goes the Pan's way (the heard check first).
+    const q = rig({ cards: () => ['server:p-1'] });
+    q.c.hear('yes how long do I keep stirring');
+    expect(q.toPan.map((t) => t.text)).toEqual(['yes how long do I keep stirring']);
+  });
+
+  test('concern 5: a reply cook mode is handed to speak (a heard-card tap\'s) is spoken from speakPlan only, while on and read-aloud is on', () => {
+    const r = rig();
+    r.voice.speak(said('Saved.'));
+    expect(r.c.said.at(-1)).toEqual({ items: [{ kind: 'reply', replyId: 'r-1', part: 0 }], said: ['Saved.'] });
+    const quiet = rig({ readAloud: false });
+    quiet.voice.speak(said('Saved.'));
+    expect(quiet.c.said).toEqual([]);
+    r.voice.stop('user');
+    const n = r.c.said.length;
+    r.voice.speak(said('Saved.'));
+    expect(r.c.said).toHaveLength(n);
   });
 });

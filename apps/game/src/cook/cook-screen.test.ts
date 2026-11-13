@@ -11,7 +11,7 @@ import { cookWithNotes } from './with-notes';
 const runRead = vi.hoisted((): { run: unknown; calls: number; hang: boolean } => ({ run: null, calls: 0, hang: false }));
 // M7 Step 10: the panel's hands-free port and the lines said, when a test gives them.
 interface HfMock {
-  port: null | { conversationId(): string | null; childOn(): boolean; onChild(fn: () => void): () => void; spoken(text: string, id: number): Promise<unknown> };
+  port: null | { openCards(): string[]; setSpeaker(fn: unknown): void; conversationId(): string | null; childOn(): boolean; onChild(fn: () => void): () => void; spoken(text: string, id: number): Promise<unknown> };
   lines: string[];
   opened: number;
   /** Fix round 1 (I5): how the panel was opened each time, what was shown, and the Pan's next reply. */
@@ -240,7 +240,7 @@ describe('M7 Step 10: hands-free cook mode', () => {
   const childFns = new Set<() => void>();
   const spoken: string[] = [];
   const setUp = (voice: Partial<{ on: boolean; handsFree: boolean; readAloud: boolean }> = {}) => {
-    hfMock.port = {
+    hfMock.port = { openCards: () => [], setSpeaker: () => undefined,
       conversationId: () => null, childOn: () => child,
       onChild: (fn) => { childFns.add(fn); return () => { childFns.delete(fn); }; },
       spoken: (text) => { spoken.push(text); return Promise.resolve(null); },
@@ -425,7 +425,7 @@ describe('M7 Step 10: hands-free cook mode', () => {
     (window as unknown as { AudioContext: unknown }).AudioContext = RecordingContext;
     try {
       let now = new Date('2026-11-10T18:00:00').getTime();
-      hfMock.port = { conversationId: () => null, childOn: () => false, onChild: () => () => undefined, spoken: () => Promise.resolve(null) };
+      hfMock.port = { openCards: () => [], setSpeaker: () => undefined, conversationId: () => null, childOn: () => false, onChild: () => () => undefined, spoken: () => Promise.resolve(null) };
       const store = createStore(null);
       store.update((s) => ({ ...s, account: { email: EMAIL }, settings: { ...s.settings, voice: { ...s.settings.voice, on: true, handsFree: true } } }));
       const el = document.createElement('div');
@@ -511,7 +511,7 @@ describe('M7 Step 10 fix round 1', () => {
   /** A cook screen whose clock the test moves. */
   async function cooking(opts: { voice?: boolean } = {}) {
     let now = new Date('2026-11-10T18:00:00').getTime();
-    hfMock.port = { conversationId: () => null, childOn: () => false, onChild: () => () => undefined, spoken: () => Promise.resolve(hfMock.reply) };
+    hfMock.port = { openCards: () => [], setSpeaker: () => undefined, conversationId: () => null, childOn: () => false, onChild: () => () => undefined, spoken: () => Promise.resolve(hfMock.reply) };
     const store = createStore(null);
     store.update((s) => ({ ...s, account: { email: EMAIL }, settings: { ...s.settings, voice: { ...s.settings.voice, on: opts.voice ?? true, handsFree: true } } }));
     const el = document.createElement('div');

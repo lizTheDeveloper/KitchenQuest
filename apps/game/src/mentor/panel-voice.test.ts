@@ -588,7 +588,7 @@ describe('M7 Step 10 fix round 1 (I1): one voice controller at a time; hands-fre
       expect(r.btn()!.textContent).toBe(TALK_COOK_LABEL);
       expect(r.btn()!.getAttribute('aria-disabled')).toBe('true');
       const cookCtl = realVoice.createVoiceController({ win: r.audio.win, store: r.store, provider: realVoice.serviceProvider(r.audio.win, r.store, { player: r.player, now: () => T0 }), conversationId: () => null, childOn: () => false, earcon: () => undefined });
-      const cv = startCookVoice({ controller: cookCtl, hooks: { next() {}, back() {}, timerStart: () => false, timerStop: () => 'which', currentStep: () => 0, stepCount: () => 3, speakStep: null }, localDate: () => '2026-11-13', doc: document, toPan: () => Promise.resolve(null), say: (t) => dialogue.say(t), show: () => undefined, answered: () => undefined, readAloud: () => true });
+      const cv = startCookVoice({ controller: cookCtl, hooks: { next() {}, back() {}, timerStart: () => false, timerStop: () => 'which', currentStep: () => 0, stepCount: () => 3, speakStep: null }, localDate: () => '2026-11-13', doc: document, toPan: () => Promise.resolve(null), say: (t) => dialogue.say(t), show: () => undefined, answered: () => undefined, openCards: () => [], readAloud: () => true });
       await r.ready();
       expect(r.audio.getUserMedia.calls).toHaveLength(1);
       const socketsBefore = r.sockets.length;
@@ -618,5 +618,20 @@ describe('M7 Step 10 fix round 1 (I1): one voice controller at a time; hands-fre
     expect(r.audio.tracks.every((t) => t.stopped)).toBe(true);
     release();
     release(); // twice is harmless
+  });
+});
+
+describe('M7 Step 10 fix round 2: outside hands-free a spoken yes still goes the normal way (Rulings 10 and 12)', () => {
+  test('hold-to-talk "yes please" with a non-severe server card open is sent as a transcript, for the server\'s spoken_yes; no "tap the card" cue', async () => {
+    const view: CardView = { origin: 'server', proposalId: 'p-1', expiresAt: new Date(T0.getTime() + 3_600_000).toISOString(), card: buildProfileCard({ mealsPerWeek: 4 }), issuedTurn: 1 };
+    let n = 0;
+    const r = await rig({ answer: () => Promise.resolve(empty({ replyId: `r-${++n}`, items: [{ kind: 'said', said: { ...dialogue.say('thanks'), part: 0 } }], cards: n === 1 ? [view] : [] })) });
+    await utter(r, 'how many meals do I cook');
+    await flush(20);
+    expect(r.root.querySelector('.pan-card')).not.toBeNull();
+    await utter(r, 'yes please');
+    await flush(20);
+    expect(r.inputs.at(-1)).toEqual({ kind: 'transcript', text: 'yes please', utteranceId: expect.any(Number) as number });
+    expect(r.root.textContent).not.toContain('Tap the card to say yes.');
   });
 });

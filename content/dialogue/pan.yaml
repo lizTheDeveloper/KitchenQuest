@@ -2085,6 +2085,14 @@ triggers:
     lines:
       - "Which timer? Tap it to stop it."
 
+  # REVIEW: fix round 2 (controller ruling): in hands-free a spoken yes confirms nothing; a radio or another person in
+  # the room must never confirm a card. Said once per card that waits for its tap.
+  voice.cook.tap_card:
+    ai: never
+    when: Hands-free, a spoken yes (or "confirm", "that's right") while a card waits. It confirms nothing; the card needs a tap.
+    lines:
+      - "Tap the card to say yes."
+
   voice.cook.last_step:
     ai: never
     when: Hands-free, the player said "next" on the last step. Finishing the dish is a tap only, so nothing finished.

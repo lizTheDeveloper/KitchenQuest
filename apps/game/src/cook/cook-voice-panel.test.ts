@@ -13,6 +13,9 @@ import { createScriptedEngine } from '../mentor/scripted';
 import type { CardWriter } from '../mentor/writer';
 import { createStore } from '../state/store';
 import { cookScreen } from './cook-screen';
+import { buildProfileCard } from '@kitchenquest/core/engine';
+import type { CardView } from '../mentor/reply';
+import { HEARD_YES } from '../mentor/heard-card';
 
 const holder = vi.hoisted(() => ({ panel: null as MentorPanel | null }));
 vi.mock('../mentor', () => ({
@@ -21,7 +24,7 @@ vi.mock('../mentor', () => ({
 }));
 vi.mock('../progress', () => ({ progressService: () => Promise.reject(new Error('not in this test')) }));
 
-interface Ctl { hear(text: string): void }
+interface Ctl { hear(text: string): void; said: unknown[] }
 const made = vi.hoisted(() => ({ controllers: [] as Ctl[] }));
 vi.mock('../voice', () => ({
   providerKind: () => 'service',
@@ -32,7 +35,8 @@ vi.mock('../voice', () => ({
     let id = 0;
     const c = {
       handsFree: false, phase: 'idle', state: null, closedReason: null as string | null,
-      startHandsFree() { c.handsFree = true; }, stopHandsFree() { c.handsFree = false; }, timerSounding() {}, say() {},
+      said: [] as unknown[],
+      startHandsFree() { c.handsFree = true; }, stopHandsFree() { c.handsFree = false; }, timerSounding() {}, say(plan: unknown) { c.said.push(plan); },
       onTranscript(fn: (t: string, tooLong: boolean, id: number) => void) { transcripts.add(fn); return () => { transcripts.delete(fn); }; },
       onHandsFreeOff() { return () => undefined; }, onMic() { return () => undefined; }, onProblem() { return () => undefined; }, onPhase() { return () => undefined; },
       close(reason = 'off') { c.closedReason = reason; c.handsFree = false; },
@@ -98,6 +102,56 @@ describe('hands-free cook mode with the real panel (fix round 1, I5)', () => {
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     expect(panelShown()).toBe(false);
     expect(document.activeElement).toBe(nextBtn);
+    screen.unmount?.();
+  });
+});
+
+describe('fix round 2 (controller ruling): in hands-free a spoken yes never confirms a card; a heard-card tap\'s reply is spoken by cook mode', () => {
+  test('a non-severe card open, "yes please" spoken hands-free: nothing is sent, the card stays open, "Tap the card to say yes." once; the heard card\'s tap reply goes to cook mode\'s controller', async () => {
+    const store = createStore(null);
+    store.update((s) => ({ ...s, account: { email: 'cook@example.test' }, aiDisclosureSeen: true, settings: { ...s.settings, voice: { ...s.settings.voice, on: true, handsFree: true } } }));
+    const dialogue = createDialogue(content.pan);
+    const engine = createScriptedEngine({ dialogue, graph, ruleTerms: content.ruleTerms, recipes: [], now: () => T0 });
+    const inputs: MentorInput[] = [];
+    const view: CardView = { origin: 'server', proposalId: 'p-1', expiresAt: new Date(T0.getTime() + 3_600_000).toISOString(), card: buildProfileCard({ mealsPerWeek: 4 }), issuedTurn: 1 };
+    const backend: MentorBackend = {
+      kind: 'scripted',
+      reply: (i) => { inputs.push(i); return Promise.resolve<PanReply>({ items: [{ kind: 'said', said: { ...dialogue.say('thanks'), part: 0 } }], cards: inputs.length === 1 ? [view] : [], intents: [], actions: [], notice: null, replyId: `r-${inputs.length}` }); },
+    };
+    const writer = { confirm: vi.fn(), reject: vi.fn() } as unknown as CardWriter;
+    const root = document.createElement('div');
+    document.body.append(root);
+    holder.panel = mountMentorPanel(root, {
+      mode: 'standard', backend, dialogue, writer, engine, client: {} as ApiClient, forms: content.bureau.forms, store,
+      child: createChildFlag(), reducedMotion: () => true, now: () => T0, conversationId: () => null,
+    });
+    const el = document.createElement('div');
+    document.body.append(el);
+    const screen = cookScreen();
+    await screen.mount(el, { name: 'cook', slug: 'india/kerala/parippu' }, { store, now: () => T0, navigate: () => undefined });
+    el.querySelector<HTMLButtonElement>('.hands-free-toggle')!.click();
+    await vi.waitFor(() => { expect(made.controllers).toHaveLength(1); });
+    const c = made.controllers[0] as Ctl & { said: unknown[] };
+    c.hear('how many meals do I cook in a week');
+    await flush();
+    expect(document.querySelector('#pan-panel .pan-card')).not.toBeNull(); // the card, waiting for a tap
+    const tapLines = () => [...document.querySelectorAll('#pan-panel .bubble.pan .bubble-text')].filter((b) => b.textContent === 'Tap the card to say yes.').length;
+    c.hear('yes please');
+    c.hear('yes');
+    await flush();
+    expect(inputs).toHaveLength(1); // never sent: no spoken_yes can reach the server's card
+    expect(writer.confirm).not.toHaveBeenCalled();
+    expect([...document.querySelectorAll<HTMLButtonElement>('#pan-panel .pan-card button')].some((b) => !b.disabled)).toBe(true);
+    expect(tapLines()).toBe(1);
+    // Concern 5: a heard card's tap reply is spoken through cook mode's controller.
+    c.hear("I can't eat sesame");
+    await flush();
+    const before = c.said.length;
+    [...document.querySelectorAll<HTMLButtonElement>('#pan-panel .heard-card button')].find((b) => b.textContent === HEARD_YES)!.click();
+    await flush();
+    expect(inputs.at(-1)).toMatchObject({ kind: 'transcript', heard: { words: ['sesame'] } });
+    expect(c.said.length).toBeGreaterThan(before);
+    expect(JSON.stringify(c.said.at(-1))).toContain('"kind":"reply"');
     screen.unmount?.();
   });
 });
