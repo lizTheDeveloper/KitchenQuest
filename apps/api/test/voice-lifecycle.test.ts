@@ -186,8 +186,10 @@ describe('I2 / m3: speech that went upstream is charged once, before the next li
     await c.closed;
     await settle();
     g.release();
-    await settle();
-    expect(await sttRows(p.id)).toEqual([1, 1, 1, 1, 1]);
+    // M7 Step 11 (a full-suite load flake, root cause): the closed socket's charge is written when the server handles
+    // its close and the released answer, which under load came after one settle(). Wait for the rows themselves: a
+    // missing charge still fails (the poll's timeout), and an extra one fails the exact match.
+    await expect.poll(() => sttRows(p.id)).toEqual([1, 1, 1, 1, 1]);
   });
 
   test('m3: the next listen, sent at once, sees the last utterance\'s seconds (3599 s used + 2 s → resting), with no wait for the transcript', async () => {
