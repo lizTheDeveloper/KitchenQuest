@@ -8,15 +8,18 @@ const SPEECH = /webkitSpeechRecognition|SpeechRecognition/;
 
 afterEach(() => { vi.unstubAllEnvs(); });
 
-/** The voice library alone, built as `npm run build` would build it (NODE_ENV production), its code returned. */
-async function buildVoice(nodeEnv: 'production' | 'development'): Promise<string> {
+/** The voice library alone, built as `npm run build` builds the app (NODE_ENV production): its code, and its files. */
+async function buildVoice(nodeEnv: 'production' | 'development'): Promise<{ code: string; files: string[] }> {
   vi.stubEnv('NODE_ENV', nodeEnv);
   const out = await build({
     configFile: false, root, logLevel: 'silent', mode: nodeEnv,
-    build: { write: false, minify: false, lib: { entry: 'src/voice/index.ts', formats: ['es'], fileName: 'voice' } },
+    build: { write: false, minify: false, rollupOptions: { input: 'src/voice/index.ts', external: [/^virtual:/], preserveEntrySignatures: 'strict' } },
   });
-  const outputs = (Array.isArray(out) ? out : [out]) as Rollup.RollupOutput[];
-  return outputs.flatMap((o) => o.output).map((c) => (c.type === 'chunk' ? c.code : typeof c.source === 'string' ? c.source : '')).join('\n');
+  const all = ((Array.isArray(out) ? out : [out]) as Rollup.RollupOutput[]).flatMap((o) => o.output);
+  return {
+    code: all.map((c) => (c.type === 'chunk' ? c.code : typeof c.source === 'string' ? c.source : '')).join('\n'),
+    files: all.map((c) => c.fileName),
+  };
 }
 
 describe('kqVoiceProvider (Ruling 1, C6)', () => {
@@ -39,10 +42,14 @@ describe('kqVoiceProvider (Ruling 1, C6)', () => {
 
   test('the production bundle of the voice library holds no "webkitSpeechRecognition" or "SpeechRecognition"; a development build does (positive control)', async () => {
     const prod = await buildVoice('production');
-    expect(prod).toMatch(/kq-capture/); // the library was built
-    expect(prod).not.toMatch(SPEECH);
-    expect(prod).not.toMatch(/blob:/); // the worklet is a bundled module file, never a blob: URL
+    expect(prod.code).toMatch(/kq-capture/); // the library was built
+    expect(prod.code).not.toMatch(SPEECH);
+    // The worklet is a bundled module file of its own, never a blob: or data: URL.
+    const worklet = prod.files.find((f) => /^assets\/capture-worklet-[\w-]+\.js$/.test(f));
+    expect(worklet).toBeDefined();
+    expect(prod.code).toContain(`"/${worklet!}"`);
+    expect(prod.code).not.toMatch(/blob:|data:text\/javascript/);
     const dev = await buildVoice('development');
-    expect(dev).toMatch(SPEECH);
+    expect(dev.code).toMatch(SPEECH);
   }, 60_000);
 });
