@@ -21,8 +21,8 @@
 //   open, and never taking focus.
 // - M1: every command is answered aloud: a frame's step is `voice.step_on_screen`, a timer command its cue.
 //
-// Fix round 2 (controller ruling): in hands-free a spoken yes confirms nothing, so a radio or another person in the
-// room can never confirm a card. A strict yes (core `classifyTurn`, as the API reads it) is never sent; with a card
+// Fix rounds 2 and 3 (controller rulings): in hands-free a spoken yes or no answers nothing, so a radio or another
+// person in the room can never confirm or turn down a card; an over-long utterance is never sent at all (N1). A strict yes (core `classifyTurn`, as the API reads it) is never sent; with a card
 // waiting the Pan says `voice.cook.tap_card`, once per card. Device-only: the turn's wire input (core
 // mentor/protocol.ts, hashed) has no hands-free field, so the API cannot tell a hands-free transcript apart.
 //
@@ -93,8 +93,14 @@ const needsTap = (r: PanReply): boolean => r.cards.length > 0 || r.items.some((i
  * I4 (game-side narrowing): on the last step only a deliberate "next" ("next", "next step", "ok next please") counts;
  * chatter that cookCommand also reads as next ("what now", "what's next", "carry on", "and then") does not.
  */
-/** Fix round 2: a strict yes, read as the API reads a turn's text (stripped of page-event lookalikes first). */
-const isYes = (text: string): boolean => classifyTurn(stripPageEvents(text).text.trim()) === 'yes';
+/**
+ * Fix rounds 2 and 3: a strict yes or no, read as the API reads a turn's text (stripped of page-event lookalikes
+ * first). In hands-free neither is ever sent: a card waits for its tap.
+ */
+const isAnswer = (text: string): boolean => {
+  const intent = classifyTurn(stripPageEvents(text).text.trim());
+  return intent === 'yes' || intent === 'no';
+};
 const deliberateNext = (text: string): boolean => {
   const words = text.toLowerCase().replace(/[^a-z\s]/g, '').split(/\s+/);
   return words.includes('next') && !words.some((w) => w.startsWith('what'));
@@ -160,7 +166,20 @@ export function startCookVoice(deps: CookVoiceDeps): CookVoice {
     const mine = ++turn;
     // Carry 3 (Step 8 I1): only real words are speech; noise that ended empty never keeps hands-free awake.
     if (text.trim() !== '') armIdle();
-    let command = tooLong ? null : cookCommand(text);
+    // Fix rounds 2 and 3 (N1, N2): a spoken yes or no is never sent, whatever its length (a radio holding the VAD open
+    // for MAX_UTTERANCE_MS can still come back as "yes please"); a waiting card hears "tap it" once.
+    if (isAnswer(text)) {
+      const fresh = deps.openCards().filter((k) => !cued.has(k));
+      if (fresh.length > 0) {
+        for (const k of fresh) cued.add(k);
+        cue('voice.cook.tap_card');
+      } else if (deps.openCards().length === 0) cue('voice.cook.tap_answer'); // m3: never dropped without a word
+      else c.say(END_WAIT);
+      return;
+    }
+    // N1: an over-long utterance is never sent to the Pan (nor read as a command): tap or type it instead.
+    if (tooLong) { speakSaid(deps.say('voice.too_long')); return; }
+    let command = cookCommand(text);
     // I4: on the last step, chatter is no command (it goes to the Pan); a deliberate "next" is answered, never obeyed.
     if (command === 'next' && lastStep()) {
       if (deliberateNext(text)) return cue('voice.cook.last_step');
@@ -175,14 +194,6 @@ export function startCookVoice(deps: CookVoiceDeps): CookVoice {
       case 'stop_listening': return end('user', 'voice.hands_free_off');
       case 'ingredients': // not a step command here: the Pan answers it (cook mode lists no ingredients)
       case null: break; // everything else: the Pan's (the heard check first)
-    }
-    // Fix round 2: a spoken yes is never sent; a waiting card hears "tap it" once.
-    if (!tooLong && isYes(text)) {
-      const fresh = deps.openCards().filter((k) => !cued.has(k));
-      if (fresh.length === 0) { c.say(END_WAIT); return; }
-      for (const k of fresh) cued.add(k);
-      cue('voice.cook.tap_card');
-      return;
     }
     void deps.toPan(text, utteranceId).then((r) => {
       if (!on || mine !== turn) return; // stopped, or the player spoke again meanwhile: drawn, never said over it

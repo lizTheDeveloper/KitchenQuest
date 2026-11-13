@@ -286,11 +286,12 @@ export function mountTalk(row: HTMLElement, hooks: TalkHooks): { stop(): void } 
       return null;
     }
     const m = await load();
-    if (!allowed() || !voiceOn()) return null;
+    // Step 10 fix round 3 (m1): cook mode may have claimed voice while this loaded.
+    if (!allowed() || !voiceOn() || cookOwns()) return null;
     if (ctl !== null && !stale && ctl.closedReason === null) return ctl; // made meanwhile
     drop();
     const provider = m.providerKind() === 'browser' ? await m.devBrowserProvider(win) : m.serviceProvider(win, store);
-    if (!allowed() || !voiceOn()) { provider.close(); return null; }
+    if (!allowed() || !voiceOn() || cookOwns()) { provider.close(); return null; }
     const c = m.createVoiceController({ win, store, provider, conversationId: hooks.conversationId ?? (() => null), childOn: () => child?.on === true });
     ctl = c;
     c.onPhase((p, s) => { onPhase(c, p, s); });

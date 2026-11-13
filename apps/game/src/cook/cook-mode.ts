@@ -278,6 +278,7 @@ export function runCookMode(el: HTMLElement, ctx: AppContext, src: CookModeSourc
     const forward = to > step;
     step = to;
     finishWarning.hidden = true;
+    answered.replaceChildren(); // m2: "The Pan answered" was about the step before
     if (src.progressKey !== null) { const slug = src.progressKey; ctx.store.update((s) => ({ ...s, cookProgress: { slug, step } })); }
     renderStep();
     if (forward && ++forwardMoves % 3 === 0) say('cook.step_quip');
@@ -473,6 +474,7 @@ export function runCookMode(el: HTMLElement, ctx: AppContext, src: CookModeSourc
         readAloud: () => ctx.store.get().settings.voice.readAloud,
         onStop: () => {
           port.setSpeaker(null);
+          answered.replaceChildren(); // m2
           unMic();
           unChild();
           alarm.setHook(null);

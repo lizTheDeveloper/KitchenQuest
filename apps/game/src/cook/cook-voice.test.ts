@@ -186,11 +186,12 @@ describe('startCookVoice (M7 Step 10)', () => {
     quiet.c.hear('how long do I keep stirring');
     await flush();
     expect(quiet.c.said).toEqual([{ items: [], said: [] }]);
-    // A too-long or empty utterance is never a command: it goes the Pan's way (its own voice.too_long / didnt_catch).
+    // Fix round 3 (N1): a too-long utterance is never a command and is never sent: voice.too_long, said aloud.
     const t = rig();
     t.c.hear('next', true);
     expect(t.log).toEqual([]);
-    expect(t.toPan.map((x) => x.text)).toEqual(['next']);
+    expect(t.toPan).toEqual([]);
+    expect(spokenLines(t.c)).toEqual(['voice.too_long']);
   });
 
   test('carry 6 (Rulings 10 and 12): a spoken "yes" or "confirm" is no cook command and never confirms anything here; fix round 2: in hands-free it is not even sent to the Pan', () => {
@@ -427,12 +428,12 @@ describe('M7 Step 10 fix round 2 (controller ruling): in hands-free a spoken yes
     r.c.hear('confirm');
     expect(spokenLines(r.c)).toEqual(['voice.cook.tap_card', 'voice.cook.tap_card']);
     expect(r.toPan).toEqual([]);
-    // No card open: still never sent, and nothing to say.
+    // No card open: still never sent. Fix round 3 (m3): it says so, drawn and aloud (voice.cook.tap_answer).
     const none = rig();
     none.c.hear('yes please');
     expect(none.toPan).toEqual([]);
-    expect(spokenLines(none.c)).toEqual([]);
-    expect(none.c.said.at(-1)).toEqual({ items: [], said: [] });
+    expect(spokenLines(none.c)).toEqual(['voice.cook.tap_answer']);
+    expect(none.lines).toContain('voice.cook.tap_answer');
     // A yes inside a sentence is no confirmation: it goes the Pan's way (the heard check first).
     const q = rig({ cards: () => ['server:p-1'] });
     q.c.hear('yes how long do I keep stirring');
@@ -450,5 +451,35 @@ describe('M7 Step 10 fix round 2 (controller ruling): in hands-free a spoken yes
     const n = r.c.said.length;
     r.voice.speak(said('Saved.'));
     expect(r.c.said).toHaveLength(n);
+  });
+});
+
+describe('M7 Step 10 fix round 3', () => {
+  test('N1: "yes please" heard over 30 s of radio (too long) is never sent: the yes guard runs first, whatever the length', () => {
+    const r = rig({ cards: () => ['server:p-1'] });
+    r.c.hear('yes please', true);
+    r.c.hear('no', true);
+    expect(r.toPan).toEqual([]);
+    expect(spokenLines(r.c)).toEqual(['voice.cook.tap_card']);
+    // Any other too-long utterance: voice.too_long, and nothing sent.
+    r.c.hear('how long do I keep stirring', true);
+    expect(r.toPan).toEqual([]);
+    expect(spokenLines(r.c).at(-1)).toBe('voice.too_long');
+  });
+
+  test('N2: a strict "no" ("no", "nope", "not quite", "cancel") is never sent in hands-free; the same once-per-card cue answers it', () => {
+    let cards = ['server:p-1'];
+    const r = rig({ cards: () => cards });
+    for (const no of ['no', 'nope', 'not quite', 'cancel']) r.c.hear(no);
+    r.c.hear('yes');
+    expect(r.toPan).toEqual([]);
+    expect(spokenLines(r.c)).toEqual(['voice.cook.tap_card']); // once for this card, yes or no
+    cards = ['server:p-1', 'server:p-2'];
+    r.c.hear('no');
+    expect(spokenLines(r.c)).toEqual(['voice.cook.tap_card', 'voice.cook.tap_card']);
+    // A "no" inside a sentence is no answer: it goes the Pan's way.
+    const q = rig({ cards: () => ['server:p-1'] });
+    q.c.hear('no idea how long to stir this');
+    expect(q.toPan.map((t) => t.text)).toEqual(['no idea how long to stir this']);
   });
 });

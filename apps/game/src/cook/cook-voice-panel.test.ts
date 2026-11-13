@@ -135,12 +135,20 @@ describe('fix round 2 (controller ruling): in hands-free a spoken yes never conf
     c.hear('how many meals do I cook in a week');
     await flush();
     expect(document.querySelector('#pan-panel .pan-card')).not.toBeNull(); // the card, waiting for a tap
-    const tapLines = () => [...document.querySelectorAll('#pan-panel .bubble.pan .bubble-text')].filter((b) => b.textContent === 'Tap the card to say yes.').length;
+    const tapLines = () => [...document.querySelectorAll('#pan-panel .bubble.pan .bubble-text')].filter((b) => b.textContent === 'Tap the card to answer.').length;
     c.hear('yes please');
     c.hear('yes');
     await flush();
     expect(inputs).toHaveLength(1); // never sent: no spoken_yes can reach the server's card
     expect(writer.confirm).not.toHaveBeenCalled();
+    expect([...document.querySelectorAll<HTMLButtonElement>('#pan-panel .pan-card button')].some((b) => !b.disabled)).toBe(true);
+    expect(tapLines()).toBe(1);
+    // Fix round 3 (N2): a spoken "no" never turns it down either; the card already heard its cue.
+    c.hear('no');
+    c.hear('nope');
+    await flush();
+    expect(inputs).toHaveLength(1);
+    expect(writer.reject).not.toHaveBeenCalled();
     expect([...document.querySelectorAll<HTMLButtonElement>('#pan-panel .pan-card button')].some((b) => !b.disabled)).toBe(true);
     expect(tapLines()).toBe(1);
     // Concern 5: a heard card's tap reply is spoken through cook mode's controller.

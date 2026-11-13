@@ -667,6 +667,24 @@ describe('M7 Step 10 fix round 1', () => {
     t.screen.unmount?.();
   });
 
+  test('fix round 3 (m2): "The Pan answered." goes on the next step change, and when hands-free stops', async () => {
+    hfMock.reply = { items: [{ kind: 'said', said: { trigger: 'thanks', text: 'Two minutes.', ai: 'allowed', index: 0 } }], cards: [], intents: [], actions: [], notice: null };
+    const t = await cooking();
+    const c = await t.hf();
+    const status = () => t.el.querySelector('.pan-answered')!.textContent;
+    c.hear('how long do I keep stirring');
+    await flush();
+    expect(status()).toContain('The Pan answered.');
+    t.nextBtn().click();
+    expect(status()).toBe('');
+    c.hear('how long do I keep stirring');
+    await flush();
+    expect(status()).toContain('The Pan answered.');
+    t.el.querySelector<HTMLButtonElement>('.hands-free-toggle')!.click();
+    expect(status()).toBe('');
+    t.screen.unmount?.();
+  });
+
   test('I1: cook mode claims voice before its controller exists, and releases it when hands-free ends', async () => {
     const { voiceOwner } = await import('../mentor/voice-owner');
     const t = await cooking();

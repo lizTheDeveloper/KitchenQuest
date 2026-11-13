@@ -145,6 +145,7 @@ export const REQUIRED_PAN_TRIGGERS: readonly string[] = [
   'voice.cook.timer_which',
   'voice.cook.last_step',
   'voice.cook.tap_card',
+  'voice.cook.tap_answer',
   // Fix round 1 (I-2): the server's Family Table block.
   'voice.family_table',
   // Fix round 3 (N-1, N-2).

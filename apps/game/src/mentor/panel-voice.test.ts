@@ -53,7 +53,7 @@ interface Rig {
   pan: ReturnType<typeof mountMentorPanel>;
 }
 
-async function rig(opts: { mode?: MentorMode; patch?: Partial<PlayerState>; voice?: Partial<PlayerState['settings']['voice']>; answer?: (i: MentorInput) => Promise<PanReply>; consents?: unknown } = {}): Promise<Rig> {
+async function rig(opts: { mode?: MentorMode; patch?: Partial<PlayerState>; voice?: Partial<PlayerState['settings']['voice']>; answer?: (i: MentorInput) => Promise<PanReply>; consents?: unknown; onController?: () => void } = {}): Promise<Rig> {
   document.body.replaceChildren();
   const root = document.createElement('div');
   document.body.append(root);
@@ -74,7 +74,11 @@ async function rig(opts: { mode?: MentorMode; patch?: Partial<PlayerState>; voic
   const pan = mountMentorPanel(root, {
     week, mode: opts.mode ?? 'standard', backend, dialogue, writer, engine, client, forms: content.bureau.forms, store, child,
     reducedMotion: () => true, now: () => T0, conversationId: () => 'conv-1',
-    voice: { win: audio.win, load: () => Promise.resolve({ ...realVoice, serviceProvider: (w: Window, s: typeof store) => realVoice.serviceProvider(w, s, { player, now: () => T0 }) }) },
+    voice: { win: audio.win, load: () => Promise.resolve({
+      ...realVoice,
+      serviceProvider: (w: Window, s: typeof store) => realVoice.serviceProvider(w, s, { player, now: () => T0 }),
+      createVoiceController: (d: Parameters<typeof realVoice.createVoiceController>[0]) => { opts.onController?.(); return realVoice.createVoiceController(d); },
+    }) },
   });
   pan.open();
   await flush();
@@ -632,6 +636,33 @@ describe('M7 Step 10 fix round 2: outside hands-free a spoken yes still goes the
     await utter(r, 'yes please');
     await flush(20);
     expect(r.inputs.at(-1)).toEqual({ kind: 'transcript', text: 'yes please', utteranceId: expect.any(Number) as number });
-    expect(r.root.textContent).not.toContain('Tap the card to say yes.');
+    expect(r.root.textContent).not.toContain('Tap the card to answer.');
+  });
+
+  test('fix round 3 (N2) control: hold-to-talk "no" with a non-severe server card open is sent as a transcript (Ruling 10\'s turn-down); no cue', async () => {
+    const view: CardView = { origin: 'server', proposalId: 'p-1', expiresAt: new Date(T0.getTime() + 3_600_000).toISOString(), card: buildProfileCard({ mealsPerWeek: 4 }), issuedTurn: 1 };
+    let n = 0;
+    const r = await rig({ answer: () => Promise.resolve(empty({ replyId: `r-${++n}`, items: [{ kind: 'said', said: { ...dialogue.say('thanks'), part: 0 } }], cards: n === 1 ? [view] : [] })) });
+    await utter(r, 'how many meals do I cook');
+    await flush(20);
+    await utter(r, 'no');
+    await flush(20);
+    expect(r.inputs.at(-1)).toEqual({ kind: 'transcript', text: 'no', utteranceId: expect.any(Number) as number });
+    expect(r.root.textContent).not.toContain('Tap the card to answer.');
+  });
+});
+
+describe('M7 Step 10 fix round 3 (m1): a press just before cook mode claims voice makes no controller', () => {
+  test('press, then the claim in the same task: the talk control\'s load finishes after it and creates nothing', async () => {
+    let made = 0;
+    const r = await rig({ onController: () => { made++; } });
+    const { claimVoice } = await import('./voice-owner');
+    r.press();
+    const release = claimVoice('cook');
+    await flush(20);
+    expect(made).toBe(0);
+    expect(r.audio.getUserMedia.calls).toHaveLength(0);
+    release();
+    r.release();
   });
 });
