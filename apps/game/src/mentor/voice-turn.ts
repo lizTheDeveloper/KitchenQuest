@@ -9,9 +9,9 @@ import {
   CHILD_PATTERNS, classifyTurn, heardCheck, heardConfirmed, heardLine, isEmergency, normalizeText, stripPageEvents, stripPageEventsFull, tryHeardChoice,
   type HeardCheck, type IngredientGraph, type RuleTerm,
 } from '@kitchenquest/core/engine';
-import type { ChildFlag } from './child-flag';
+import { createChildFlag, type ChildFlag } from './child-flag';
 import type { Dialogue } from './dialogue';
-import { safetyReply } from './outage';
+import { safetyReply } from './safety-reply';
 import type { MentorInput, PanItem, PanReply, TurnContext } from './reply';
 
 export interface VoiceTurnDeps {
@@ -126,9 +126,10 @@ export function serverHeardItem(check: HeardCheck, input: Transcript, deps: Voic
  * then its asks); a child sets the conversation's child flag (which closes voice) and gets child.grownup. Otherwise
  * null: the caller says voice.too_long. Nothing is sent from here.
  */
-export function overLongSafety(text: string, deps: { dialogue: Dialogue; graph: IngredientGraph; child: ChildFlag }): PanReply | null {
+export function overLongSafety(text: string, deps: { dialogue: Dialogue; graph: IngredientGraph; child?: ChildFlag }): PanReply | null {
   const full = normalizeText(stripPageEventsFull(text).text);
-  if (isEmergency(full)) return safetyReply('emergency', text, deps);
-  if (CHILD_PATTERNS.some((p) => p.test(full))) return safetyReply('child', text, deps);
+  const d = { ...deps, child: deps.child ?? createChildFlag() };
+  if (isEmergency(full)) return safetyReply('emergency', text, d);
+  if (CHILD_PATTERNS.some((p) => p.test(full))) return safetyReply('child', text, d);
   return null;
 }

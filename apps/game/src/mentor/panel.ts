@@ -7,7 +7,7 @@ import type { PlayerStore } from '../state/store';
 import { typeInto } from '../ui/dialogue-box';
 import { h } from '../ui/dom';
 import type { MentorBackend, MentorInput } from './backend';
-import { createChildFlag, type ChildFlag } from './child-flag';
+import type { ChildFlag } from './child-flag';
 import { CLOSED_TEXT, closeCard, renderCard, renderTrail, setCardNote } from './cards-view';
 import { renderConsentCard } from './consent-card';
 import type { Dialogue, Said, Vars } from './dialogue';
@@ -789,13 +789,10 @@ export function mountMentorPanel(root: HTMLElement, opts: {
         setSpeaker: (fn) => { speaker = fn; },
         async spoken(text, utteranceId, tooLong) {
           const { transcriptTurn, overLongSafety } = await import('./voice-turn');
-          let safe: PanReply | null = null;
-          if (tooLong === true) {
-            safe = overLongSafety(text, { dialogue, graph, child: opts.child ?? createChildFlag() });
-            if (safe === null) return null;
-          }
+          const safe = tooLong === true ? overLongSafety(text, { dialogue, graph, child: opts.child }) : null;
+          if (tooLong === true && safe === null) return null;
           if (text.trim() !== '') addBubble('you', text, true);
-          if (safe !== null) { const r = safe; return turnWith(() => Promise.resolve(r)); }
+          if (safe !== null) return turnWith(() => Promise.resolve(safe));
           return turnWith((ctx) => transcriptTurn(text, utteranceId, ctx, { backend, graph, ruleTerms: content.ruleTerms, dialogue, ...(opts.child ? { child: opts.child } : {}) }));
         },
       };
