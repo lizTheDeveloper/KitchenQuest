@@ -20,6 +20,9 @@ describe('kqCsp (B8)', () => {
     expect(wsOriginFor('https://kitchenquest.example')).toBe('wss://kitchenquest.example');
     expect(wsOriginFor('https://kitchenquest.example:8443/some/path/')).toBe('wss://kitchenquest.example:8443');
     expect(wsOriginFor('http://localhost:4173')).toBe('ws://localhost:4173');
+    expect(wsOriginFor('http://127.0.0.1:4173')).toBe('ws://127.0.0.1:4173');
+    // Fix round 1 (M6): plaintext only for a local preview; never a public host.
+    expect(() => wsOriginFor('http://kitchenquest.example')).toThrow(/https/);
     expect(() => wsOriginFor('ftp://x.example')).toThrow(/https/);
     expect(() => wsOriginFor('not a url')).toThrow(/KQ_APP_ORIGIN/);
     const html = fillCsp(indexHtml, wsOriginFor('https://kitchenquest.example'));
@@ -45,6 +48,7 @@ describe('kqCsp (B8)', () => {
 
   test('a build without KQ_APP_ORIGIN fails (the real config)', async () => {
     vi.stubEnv('KQ_APP_ORIGIN', '');
+    vi.stubEnv('NODE_ENV', 'production');
     await expect(build({ root, logLevel: 'silent', configLoader: 'runner', build: { write: false } })).rejects.toThrow(/KQ_APP_ORIGIN/);
   });
 });

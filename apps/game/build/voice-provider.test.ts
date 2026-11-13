@@ -33,9 +33,19 @@ describe('kqVoiceProvider (Ruling 1, C6)', () => {
     expect(voiceProviderProblem('build', { VITE_VOICE_PROVIDER: 'webspeech' })).toMatch(/must be "service" or "browser"/);
   });
 
+  test('fix round 1 (M5): a build that is not a production build (NODE_ENV=development: import.meta.env.DEV true) is refused, so it can never hold browser speech', async () => {
+    expect(voiceProviderProblem('build', {}, false)).toMatch(/not a production build/);
+    expect(voiceProviderProblem('build', {}, true)).toBeNull();
+    expect(voiceProviderProblem('serve', {}, false)).toBeNull();
+    vi.stubEnv('NODE_ENV', 'development');
+    vi.stubEnv('KQ_APP_ORIGIN', 'https://example.test');
+    await expect(build({ root, logLevel: 'silent', configLoader: 'runner', build: { write: false } })).rejects.toThrow(/not a production build/);
+  });
+
   test('kqVoiceProvider: `vite build --mode staging` with VITE_VOICE_PROVIDER=browser fails (the real config)', async () => {
     vi.stubEnv('VITE_VOICE_PROVIDER', 'browser');
     vi.stubEnv('KQ_APP_ORIGIN', 'https://example.test');
+    vi.stubEnv('NODE_ENV', 'production');
     await expect(build({ root, mode: 'staging', logLevel: 'silent', configLoader: 'runner', build: { write: false } })).rejects.toThrow(/browser speech/);
     expect(kqVoiceProvider().name).toBe('kq-voice-provider');
   });

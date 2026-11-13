@@ -18,6 +18,8 @@ export interface FakeAudio {
   nodes: { port: FakePort; disconnected: boolean }[];
   /** Fails the next getUserMedia (the player said no) or addModule. */
   fail: { gum?: Error; addModule?: Error };
+  /** Contexts made from now on start suspended. */
+  startSuspended?: boolean;
   /** Holds getUserMedia until `release()`. */
   hold(): () => void;
 }
@@ -40,7 +42,8 @@ class FakeAudioContext {
   static instances: FakeAudioContext[] = [];
   currentTime = 0;
   sampleRate = 48_000;
-  state: 'running' | 'closed' = 'running';
+  state: 'running' | 'suspended' | 'closed' = 'running';
+  resumed = 0;
   destination = {};
   sources: FakeSource[] = [];
   modules: string[] = [];
@@ -54,7 +57,7 @@ class FakeAudioContext {
   }
   createBufferSource() { return new FakeSource(this); }
   createGain() { return { gain: { value: 1, setValueAtTime() {}, exponentialRampToValueAtTime() {} }, connect() {}, disconnect() {} }; }
-  resume() { return Promise.resolve(); }
+  resume() { this.resumed++; this.state = 'running'; return Promise.resolve(); }
   close() { this.state = 'closed'; return Promise.resolve(); }
 }
 
@@ -78,6 +81,7 @@ export function fakeAudio(extra: Record<string, unknown> = {}): FakeAudio {
     constructor() {
       super();
       out.contexts.push(this);
+      if (out.startSuspended) this.state = 'suspended';
       if (out.fail.addModule) this.failAddModule = out.fail.addModule;
     }
   }

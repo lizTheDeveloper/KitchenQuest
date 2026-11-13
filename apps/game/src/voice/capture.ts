@@ -22,6 +22,9 @@ export async function openMic(win: Window): Promise<Mic> {
   let ctx: AudioContext | null = null;
   try {
     ctx = new w.AudioContext();
+    // Fix round 1 (M4): made after the hello and the permission prompt, outside the gesture: WebKit may start it
+    // suspended, and then no frame would ever arrive.
+    if (ctx.state === 'suspended') await ctx.resume();
     await ctx.audioWorklet.addModule(workletUrl);
     const source = ctx.createMediaStreamSource(stream);
     const node = new w.AudioWorkletNode(ctx, CAPTURE_PROCESSOR, { numberOfInputs: 1, numberOfOutputs: 0, channelCount: 1 });

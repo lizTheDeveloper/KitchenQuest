@@ -5,7 +5,9 @@ import type { Plugin } from 'vite';
  * unreviewed processor that the CSP does not govern, so any `vite build` (keyed on the command, whatever the mode)
  * asking for it is refused. The module itself sits behind `import.meta.env.DEV`, so no build carries it either.
  */
-export function voiceProviderProblem(command: 'build' | 'serve', env: Readonly<Record<string, string | undefined>>): string | null {
+export function voiceProviderProblem(command: 'build' | 'serve', env: Readonly<Record<string, string | undefined>>, production = true): string | null {
+  // Fix round 1 (M5): NODE_ENV=development makes a build's import.meta.env.DEV true, which would ship browser speech.
+  if (command === 'build' && !production) return 'this is not a production build (NODE_ENV is not production): import.meta.env.DEV would be true and could ship browser speech (Ruling 1)';
   const v = env.VITE_VOICE_PROVIDER;
   if (v === undefined || v === '' || v === 'service') return null;
   if (v !== 'browser') return `VITE_VOICE_PROVIDER must be "service" or "browser", not "${v}"`;
@@ -16,7 +18,7 @@ export function kqVoiceProvider(): Plugin {
   return {
     name: 'kq-voice-provider',
     configResolved(config) {
-      const problem = voiceProviderProblem(config.command, config.env as Record<string, string | undefined>);
+      const problem = voiceProviderProblem(config.command, config.env as Record<string, string | undefined>, config.isProduction);
       if (problem !== null) throw new Error(problem);
     },
   };

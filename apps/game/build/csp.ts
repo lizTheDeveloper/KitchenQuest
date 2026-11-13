@@ -16,7 +16,9 @@ export function wsOriginFor(appOrigin: string): string {
   } catch {
     throw new Error(`KQ_APP_ORIGIN must be the game's origin (https://host), not "${appOrigin}"`);
   }
-  if (u.protocol !== 'https:' && u.protocol !== 'http:') throw new Error(`KQ_APP_ORIGIN must be an https:// origin, not "${appOrigin}"`);
+  // Fix round 1 (M6): plaintext (ws://) only for a local preview, never for a public host.
+  const local = u.hostname === 'localhost' || u.hostname === '127.0.0.1';
+  if (u.protocol !== 'https:' && !(u.protocol === 'http:' && local)) throw new Error(`KQ_APP_ORIGIN must be an https:// origin (http:// only for localhost), not "${appOrigin}"`);
   return `${u.protocol === 'https:' ? 'wss' : 'ws'}://${u.host}`;
 }
 

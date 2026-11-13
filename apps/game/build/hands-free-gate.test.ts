@@ -44,6 +44,7 @@ describe('kqHandsFree (Ruling 7, C9)', () => {
   test('the real config refuses `vite build` with VITE_HANDS_FREE=on and no recorded checklist (apps/voice/bench/latest.json)', async () => {
     vi.stubEnv('VITE_HANDS_FREE', 'on');
     vi.stubEnv('KQ_APP_ORIGIN', 'https://example.test');
+    vi.stubEnv('NODE_ENV', 'production');
     await expect(build({ root, logLevel: 'silent', configLoader: 'runner', build: { write: false } })).rejects.toThrow(/VITE_HANDS_FREE/);
     expect(kqHandsFree().name).toBe('kq-hands-free');
   });

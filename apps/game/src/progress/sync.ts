@@ -174,13 +174,14 @@ export function createProgressSync(deps: ProgressSyncDeps): ProgressSync {
    * server's erasure id (`healthErasure`): one this device has not acted on means a `health_data` delete happened, here
    * or on another device, so the partition's stall rounds and meal-log events go (`applyServerErasure`).
    */
-  function keepView(as: string, view: unknown, erasure: unknown, gen: number) {
+  function keepView(as: string, view: unknown, erasure: unknown, gen: number): boolean {
     // N2: an answer to a request that went out before a health delete asked here is stale: its view may still hold
     // the answered ids the delete erased, so neither it nor its erasure id is used (the next request's answer is).
-    if (liveKey() !== as || deletes(as) !== gen) return;
+    if (liveKey() !== as || deletes(as) !== gen) return false;
     if (typeof erasure === 'string' && erasure !== '') store.update((s) => (partitionKey(s) !== as ? s : applyServerErasure(s, as, erasure)));
-    if (!isProgressView(view)) return;
+    if (!isProgressView(view)) return false;
     store.update((s) => (partitionKey(s) !== as ? s : withPartition(s, as, partitionOf(s, as), view)));
+    return true;
   }
 
   /**
@@ -214,11 +215,12 @@ export function createProgressSync(deps: ProgressSyncDeps): ProgressSync {
     // Every id sent was answered (accepted, duplicate or refused for good), so none is posted again.
     if (from !== null && liveKey() !== as) store.update((s) => dropEvents(s, from, ids));
     else markUploaded(store, from, ids);
-    keepView(as, r.view, r.healthErasure, gen);
+    const kept = keepView(as, r.view, r.healthErasure, gen);
     // M7 Step 8 (M6 fix review N4): a stall round answered `duplicate` is one the server already holds (a live post
     // whose answer was lost): its grants are the server's, in the view just kept, so the device's own go (as M1 does
     // for an accepted one). After the view, so the total shown never dips.
-    if (from !== null && Array.isArray(r.duplicate) && deletes(as) === gen) {
+    // Fix round 1 (M8): only with the server's view kept, which holds those grants.
+    if (from !== null && kept && Array.isArray(r.duplicate)) {
       const rounds = new Set(sent.filter((e) => e.kind === 'stall_round').map((e) => e.id));
       const dup = r.duplicate.filter((id) => rounds.has(id)).map((clientId) => ({ clientId, grants: [] }));
       if (dup.length > 0) store.update((s) => adoptGrants(s, from, dup));

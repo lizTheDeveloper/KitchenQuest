@@ -877,4 +877,23 @@ describe('M7 Step 8 (M6 fix review N2, N4): the moment of a health delete, and a
     expect(currentProgress(store.get()).marketAnswered).toEqual(ANSWERED);
     sync.stop();
   });
+
+  test('fix round 1 (M8): a duplicate whose answer carries no usable view keeps the device\'s grants (adopted only with a view kept)', async () => {
+    let lost = true;
+    const { store, sync } = setup({
+      catalogue: catalogueOf(), context: () => rulesContextOf([], [], TODAY),
+      answer: (p) => (lost
+        ? { ok: false, status: 0, error: { code: 'network', message: '' } }
+        : ok({ duplicate: p.events.map((e) => e.id), view: { broken: true } as unknown as ProgressView })),
+    });
+    signIn(store);
+    const r = live();
+    await sync.record([r]);
+    const before = part(store, A).grants.filter((g) => g.eventId === r.id);
+    expect(before.length).toBeGreaterThan(0);
+    lost = false;
+    await sync.uploadDeviceLog();
+    expect(part(store, A).grants.filter((g) => g.eventId === r.id)).toEqual(before);
+    sync.stop();
+  });
 });
