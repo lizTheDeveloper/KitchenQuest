@@ -25,6 +25,7 @@ import type { MentorBackend } from './backend';
 import type { ChildFlag } from './child-flag';
 import type { Dialogue } from './dialogue';
 import type { ConsentAnswer, PanReply, TurnContext } from './reply';
+import { restingUntil } from './resting';
 import { transcriptTurn } from './voice-turn';
 
 export type VoiceLib = typeof import('../voice');
@@ -66,11 +67,6 @@ const UNAVAILABLE_BACKOFF_MAX_MS = 60_000;
 /** Closes after which nothing reopens until a fresh controller (controller.ts M2). */
 const TERMINAL: ReadonlySet<VoiceProblem> = new Set(['consent_required', 'signed_out', 'bad_origin', 'unavailable']);
 
-/** "2026-11-19" → "Thursday 19 November" (Ruling 5: a day and a date, never a number of anything). */
-export function restingUntil(until: string): string {
-  const [y, m, d] = until.split('-').map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
-}
 
 export function mountTalk(row: HTMLElement, hooks: TalkHooks): { stop(): void } {
   const { store, client, dialogue, child } = hooks;

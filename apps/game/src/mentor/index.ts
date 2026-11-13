@@ -57,6 +57,23 @@ export function historyOptions(store: PlayerStore): {
   return { history: dialogueHistory, onHistory: (h) => { store.update((s) => ({ ...s, dialogueHistory: h })); }, session };
 }
 
+/**
+ * M7 Ruling 17: the device's Family Table setting goes to the API's per-user voice block now (a signed-in start), on
+ * every change, and on signing in, so the server refuses voice even if a device bug opened a socket. Signed out there is
+ * no account to block. Returns the unsubscribe.
+ */
+export function reportFamilyTable(store: PlayerStore, client: Pick<ApiClient, 'setFamilyTable'>): () => void {
+  let sent: string | null = null;
+  const report = (s: PlayerState) => {
+    const key = s.account === null ? null : `${s.account.email}|${String(s.settings.familyTable)}`;
+    if (key === sent) return;
+    sent = key;
+    if (s.account !== null) void client.setFamilyTable(s.settings.familyTable).catch(() => undefined);
+  };
+  report(store.get());
+  return store.subscribe(report);
+}
+
 /** Which backend a player gets: Family Table → scripted (§19); signed in with the AI mentor on → AI; otherwise scripted. */
 export function backendKind(s: Pick<PlayerState, 'account' | 'settings'>): 'scripted' | 'ai' {
   if (s.settings.familyTable) return 'scripted';
@@ -185,7 +202,7 @@ export function mountMentor(
       }));
     });
     const panel = mountMentorPanel(root, {
-      week,
+      week, conversationId: () => conversation?.id ?? null,
       mode: familyTable ? 'familyTable' : 'standard',
       backend, dialogue, writer, engine, client, forms: content.bureau.forms, store, now, child,
       reducedMotion: () => reducedMotion(store.get().settings.reducedMotion, mql),
@@ -225,6 +242,7 @@ export function mountMentor(
     current = { panel, backend, familyTable, resetChild: () => { child.reset(); if (conversation) newConversation(conversation); } };
   };
   build();
+  reportFamilyTable(store, client);
   store.subscribe((s) => {
     if (current === null || s.settings.familyTable === current.familyTable) return;
     const wasOpen = current.panel.isOpen();

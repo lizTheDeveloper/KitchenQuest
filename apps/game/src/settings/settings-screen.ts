@@ -8,6 +8,7 @@ import { content } from '../content';
 import { accountSection } from './account-section';
 import { installSection } from './install-section';
 import { mentorSection } from './mentor-section';
+import { voiceSection } from './voice-section';
 
 /** At most this long for each network or browser step of "Delete everything", so the reload always happens. */
 const DELETE_STEP_MS = 3000;
@@ -88,6 +89,8 @@ export function settingsScreen(api: ApiClient): Screen {
       const install = installSection(el.ownerDocument.defaultView!, ctx.store);
       const account = accountSection(ctx.store, api);
       const pan = mentorSection(ctx.store, api, content.bureau.forms);
+      // M7 Step 9: Settings → Voice (absent in Family Table, Ruling 9).
+      const voice = voiceSection(ctx.store, api);
       const dataNote = h('p', null);
       const showDataNote = () => {
         dataNote.textContent = ctx.store.get().account
@@ -95,7 +98,7 @@ export function settingsScreen(api: ApiClient): Screen {
           : 'Everything Kitchen Quest saves stays on this device.';
       };
       showDataNote();
-      stops = [install.stop, account.stop, pan.stop, ctx.store.subscribe(showDataNote)];
+      stops = [install.stop, account.stop, pan.stop, voice.stop, ctx.store.subscribe(showDataNote)];
 
       el.append(
         h('h1', null, 'Settings'),
@@ -110,6 +113,7 @@ export function settingsScreen(api: ApiClient): Screen {
           dataBox),
         account.el,
         pan.el,
+        voice.el,
         install.el,
       );
     },

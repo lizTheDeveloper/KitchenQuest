@@ -86,3 +86,28 @@ test('N4: after a sign-out, the next Pan line leaves no earlier line history in 
   dialogue.say('g');
   expect((JSON.parse(storage.getItem('kq.player.v1')!) as { dialogueHistory: Record<string, number[]> }).dialogueHistory.g).toHaveLength(1);
 });
+
+describe('M7 Ruling 17: the Family Table report', () => {
+  test('a signed-in start reports it, then every change and every sign-in; signed out, or an unrelated change, sends nothing', async () => {
+    const { reportFamilyTable } = await import('./index');
+    const store = createStore(null);
+    const sent: boolean[] = [];
+    const client = { setFamilyTable: (on: boolean) => { sent.push(on); return Promise.resolve({ ok: true as const, status: 204, data: null }); } };
+    const stop = reportFamilyTable(store, client);
+    expect(sent).toEqual([]); // signed out
+    store.update((s) => ({ ...s, settings: { ...s.settings, familyTable: true } }));
+    expect(sent).toEqual([]);
+    store.update((s) => ({ ...s, account: { email: 'a@b.c' } }));
+    expect(sent).toEqual([true]); // signing in reports it
+    store.update((s) => ({ ...s, dialogueHistory: { x: [1] } }));
+    expect(sent).toEqual([true]);
+    store.update((s) => ({ ...s, settings: { ...s.settings, familyTable: false } }));
+    store.update((s) => ({ ...s, settings: { ...s.settings, familyTable: true } }));
+    expect(sent).toEqual([true, false, true]);
+    stop();
+    // At every signed-in start, whatever it was before.
+    const again: boolean[] = [];
+    reportFamilyTable(store, { setFamilyTable: (on) => { again.push(on); return Promise.resolve({ ok: true as const, status: 204, data: null }); } });
+    expect(again).toEqual([true]);
+  });
+});
