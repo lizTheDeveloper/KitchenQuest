@@ -2,10 +2,15 @@
 // them without an import cycle.
 import type { SpeakItem, VoiceCloseReason, VoiceMode, VoiceState } from '@kitchenquest/core/engine';
 
+export interface UtteranceResult { text: string; tooLong: boolean; emergency?: true }
 export interface Utterance {
   readonly id: number;
   push(pcm: Int16Array): void;
-  end(): Promise<{ text: string; tooLong: boolean }>;
+  /**
+   * `emergency` (M7 Step 11, F4-1): the transcript was over MAX_TEXT, so it never came, and the API's whole-text scan
+   * found an emergency in it (`too_long` with `safety: 'emergency'`). Present only when true.
+   */
+  end(): Promise<UtteranceResult>;
   cancel(): void;
 }
 export interface Speech { readonly done: Promise<void>; stop(): void }

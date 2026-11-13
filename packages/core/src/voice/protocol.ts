@@ -57,7 +57,14 @@ export type ServerMsg =
   | { t: 'ready'; state: VoiceState }
   | { t: 'state'; state: VoiceState }
   | { t: 'transcript'; id: number; text: string }
-  | { t: 'too_long'; id: number }
+  /**
+   * Past MAX_UTTERANCE_MS, or a transcript over MAX_TEXT. Without `safety` a transcript of what came follows. M7 Step 11
+   * (F4-1, emergency half; controller ruling): `safety` marks the utterance's final answer, sent when its transcript is
+   * over MAX_TEXT and so never reaches the device. It says whether that whole transcript, scanned uncapped and first
+   * (core `isEmergency`, the turn's safety order), held an emergency, so the device answers it with rule.emergency as
+   * it answers a typed one. An enum only: no text of the transcript.
+   */
+  | { t: 'too_long'; id: number; safety?: 'emergency' | 'none' }
   | { t: 'audio_start'; id: number; sampleRate: number }
   | { t: 'audio_end'; id: number }
   | { t: 'failed'; id: number; kind: 'stt' | 'tts' | 'upstream' }
@@ -200,6 +207,10 @@ export function parseServerMsg(x: unknown): ServerMsg | null {
       // Fix round 1 (I2): at most MAX_TEXT code points; a longer transcript is refused (`too_long`), never cut.
       return hasExactKeys(x, ['t', 'id', 'text']) && isU32(x.id) && isBoundedText(x.text, MAX_TEXT) ? { t: 'transcript', id: x.id, text: x.text } : null;
     case 'too_long':
+      if (hasExactKeys(x, ['t', 'id', 'safety'])) {
+        return isU32(x.id) && (x.safety === 'emergency' || x.safety === 'none') ? { t: 'too_long', id: x.id, safety: x.safety } : null;
+      }
+      return hasExactKeys(x, ['t', 'id']) && isU32(x.id) ? { t: 'too_long', id: x.id } : null;
     case 'audio_end':
       return hasExactKeys(x, ['t', 'id']) && isU32(x.id) ? { t: x.t, id: x.id } : null;
     case 'audio_start':

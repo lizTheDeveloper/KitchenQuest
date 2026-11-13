@@ -78,6 +78,22 @@ describe('serviceProvider', () => {
     ws.serverSend({ t: 'transcript', id: long.id, text: 'a very long story' });
     await expect(longEnd).resolves.toEqual({ text: 'a very long story', tooLong: true });
 
+    // M7 Step 11 (F4-1): a too_long with `safety` is the final answer (no transcript follows): it ends the utterance at
+    // once, empty, and an emergency is marked; before or after the frame-cap too_long, with or without end sent.
+    const over = provider.listen('hold');
+    const overEnd = over.end();
+    ws.serverSend({ t: 'too_long', id: over.id, safety: 'emergency' });
+    await expect(overEnd).resolves.toEqual({ text: '', tooLong: true, emergency: true });
+    const capped = provider.listen('handsFree');
+    ws.serverSend({ t: 'too_long', id: capped.id });
+    const cappedEnd = capped.end();
+    ws.serverSend({ t: 'too_long', id: capped.id, safety: 'emergency' });
+    await expect(cappedEnd).resolves.toEqual({ text: '', tooLong: true, emergency: true });
+    const plain = provider.listen('hold');
+    const plainEnd = plain.end();
+    ws.serverSend({ t: 'too_long', id: plain.id, safety: 'none' });
+    await expect(plainEnd).resolves.toEqual({ text: '', tooLong: true });
+
     // A failed STT: an empty transcript.
     const f = provider.listen('handsFree');
     const fEnd = f.end();

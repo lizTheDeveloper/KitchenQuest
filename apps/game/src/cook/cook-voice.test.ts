@@ -16,7 +16,7 @@ type Plan = { items: SpeakItem[]; said: string[] };
 
 /** A controller double: records what cook voice asks of it, and lets a test speak for the microphone. */
 function fakeController() {
-  const transcripts = new Set<(t: string, tooLong: boolean, id: number) => void>();
+  const transcripts = new Set<(t: string, tooLong: boolean, id: number, emergency: boolean) => void>();
   const off = new Set<(w: HandsFreeOff) => void>();
   const problems = new Set<(p: VoiceProblem) => void>();
   const phases = new Set<(p: VoicePhase, s: VoiceState | null) => void>();
@@ -37,7 +37,7 @@ function fakeController() {
     timerSounding(on: boolean) { f.timer.push(on); },
     say(plan: Plan) { f.said.push(plan); },
     press() {}, release() {},
-    onTranscript(fn: (t: string, tooLong: boolean, id: number) => void) { transcripts.add(fn); return () => { transcripts.delete(fn); }; },
+    onTranscript(fn: (t: string, tooLong: boolean, id: number, emergency: boolean) => void) { transcripts.add(fn); return () => { transcripts.delete(fn); }; },
     onPhase(fn: (p: VoicePhase, s: VoiceState | null) => void) { phases.add(fn); return () => { phases.delete(fn); }; },
     onProblem(fn: (p: VoiceProblem) => void) { problems.add(fn); return () => { problems.delete(fn); }; },
     onMicReady() { return () => undefined; },
@@ -46,7 +46,7 @@ function fakeController() {
     onHandsFreeOff(fn: (w: HandsFreeOff) => void) { off.add(fn); return () => { off.delete(fn); }; },
     close() { f.calls.push('close'); f.handsOff('closed'); },
     /** The microphone heard `text` (an utterance ended and its transcript came back). */
-    hear(text: string, tooLong = false): number { const id = nextId++; for (const fn of [...transcripts]) fn(text, tooLong, id); return id; },
+    hear(text: string, tooLong = false): number { const id = nextId++; for (const fn of [...transcripts]) fn(text, tooLong, id, false); return id; },
     handsOff(w: HandsFreeOff) { if (!handsFree) return; handsFree = false; for (const fn of [...off]) fn(w); },
     problem(p: VoiceProblem) { for (const fn of [...problems]) fn(p); },
     setPhase(p: VoicePhase, s: VoiceState | null = null) { f.phase = p; f.state = s; for (const fn of [...phases]) fn(p, s); },

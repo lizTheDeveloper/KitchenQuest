@@ -49,7 +49,11 @@ export interface VoiceController {
   timerSounding(on: boolean): void;
   /** Speak a plan (speak-plan.ts). An empty plan ends the wait after a transcript. */
   say(plan: { items: SpeakItem[]; said: string[] }): void;
-  onTranscript(fn: (text: string, tooLong: boolean, utteranceId: number) => void): () => void;
+  /**
+   * `emergency` (M7 Step 11, F4-1): an over-long utterance whose transcript never came (over MAX_TEXT) held an
+   * emergency, by the API's whole-text scan. `text` is then empty.
+   */
+  onTranscript(fn: (text: string, tooLong: boolean, utteranceId: number, emergency: boolean) => void): () => void;
   onPhase(fn: (p: VoicePhase, state: VoiceState | null) => void): () => void;
   onProblem(fn: (p: VoiceProblem) => void): () => void;
   /**
@@ -114,7 +118,7 @@ export function createVoiceController(deps: {
   const earcon = deps.earcon ?? sizzle;
   const now = deps.now ?? (() => new Date());
 
-  const transcripts = new Set<(text: string, tooLong: boolean, id: number) => void>();
+  const transcripts = new Set<(text: string, tooLong: boolean, id: number, emergency: boolean) => void>();
   const phaseFns = new Set<(p: VoicePhase, s: VoiceState | null) => void>();
   const problems = new Set<(p: VoiceProblem) => void>();
   const readyFns = new Set<(s: VoiceState) => void>();
@@ -321,7 +325,7 @@ export function createVoiceController(deps: {
       setPhase('waiting');
       // I1: only a real transcript is speech; noise ends empty and never keeps hands-free awake.
       if (l.mode === 'handsFree' && r.text !== '') armIdle();
-      for (const fn of [...transcripts]) fn(r.text, r.tooLong, l.u.id);
+      for (const fn of [...transcripts]) fn(r.text, r.tooLong, l.u.id, r.emergency === true);
       runDeferred();
     });
   };

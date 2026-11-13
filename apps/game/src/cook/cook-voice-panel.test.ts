@@ -25,23 +25,23 @@ vi.mock('../mentor', () => ({
 }));
 vi.mock('../progress', () => ({ progressService: () => Promise.reject(new Error('not in this test')) }));
 
-interface Ctl { hear(text: string, tooLong?: boolean): void; said: unknown[]; closedReason: string | null }
+interface Ctl { hear(text: string, tooLong?: boolean, emergency?: boolean): void; said: unknown[]; closedReason: string | null }
 const made = vi.hoisted(() => ({ controllers: [] as Ctl[] }));
 vi.mock('../voice', () => ({
   providerKind: () => 'service',
   serviceProvider: () => ({ close: () => undefined }),
   devBrowserProvider: () => { throw new Error('not in tests'); },
   createVoiceController: () => {
-    const transcripts = new Set<(t: string, tooLong: boolean, id: number) => void>();
+    const transcripts = new Set<(t: string, tooLong: boolean, id: number, emergency: boolean) => void>();
     let id = 0;
     const c = {
       handsFree: false, phase: 'idle', state: null, closedReason: null as string | null,
       said: [] as unknown[],
       startHandsFree() { c.handsFree = true; }, stopHandsFree() { c.handsFree = false; }, timerSounding() {}, say(plan: unknown) { c.said.push(plan); },
-      onTranscript(fn: (t: string, tooLong: boolean, id: number) => void) { transcripts.add(fn); return () => { transcripts.delete(fn); }; },
+      onTranscript(fn: (t: string, tooLong: boolean, id: number, emergency: boolean) => void) { transcripts.add(fn); return () => { transcripts.delete(fn); }; },
       onHandsFreeOff() { return () => undefined; }, onMic() { return () => undefined; }, onProblem() { return () => undefined; }, onPhase() { return () => undefined; },
       close(reason = 'off') { c.closedReason = reason; c.handsFree = false; },
-      hear(text: string, tooLong = false) { for (const fn of [...transcripts]) fn(text, tooLong, ++id); },
+      hear(text: string, tooLong = false, emergency = false) { for (const fn of [...transcripts]) fn(text, tooLong, ++id, emergency); },
     };
     made.controllers.push(c);
     return c;
@@ -268,6 +268,17 @@ describe('fix round 5 (F4-2): read-aloud off, an emergency or child reply in han
       made.controllers.length = 0;
       document.body.replaceChildren();
     }
+  });
+
+  test('Step 11 (F4-1): an over-cap transcript the API marked as an emergency (no text reaches the device): the panel opens docked, focus stays, rule.emergency drawn and spoken', async () => {
+    const t = await mountQuiet();
+    t.c.hear('', true, true);
+    await flush();
+    expect(t.shown()).toBe(true);
+    expect(document.activeElement).toBe(t.focused);
+    expect([...document.querySelectorAll('#pan-panel .bubble.pan .bubble-text')].some((b) => content.pan.triggers['rule.emergency'].lines.includes(b.textContent ?? ''))).toBe(true);
+    expect(JSON.stringify(t.c.said.at(-1))).toContain('rule.emergency');
+    t.screen.unmount?.();
   });
 
   test('a child (over-long): the child flag closes voice, and the panel opens without focus to show child.grownup', async () => {

@@ -347,7 +347,7 @@ describe('ids, timeouts and usage (carries 2, 5, 7)', () => {
       c.send({ t: 'end', id });
     };
     utter(1, 2);
-    expect(await c.next((m) => m.t !== 'ready')).toEqual({ t: 'too_long', id: 1 });
+    expect(await c.next((m) => m.t !== 'ready')).toEqual({ t: 'too_long', id: 1, safety: 'none' });
     utter(2, 3);
     expect(await c.next((m) => m.t !== 'ready')).toEqual({ t: 'failed', id: 2, kind: 'stt' });
     c.send({ t: 'speak', id: 3, items: [{ kind: 'heard', utteranceId: 1 }] });
@@ -373,7 +373,7 @@ describe('ids, timeouts and usage (carries 2, 5, 7)', () => {
     c.frame(1);
     c.frame(1);
     c.send({ t: 'end', id: 1 });
-    expect(await c.next((m) => m.t !== 'ready')).toEqual({ t: 'too_long', id: 1 });
+    expect(await c.next((m) => m.t !== 'ready')).toEqual({ t: 'too_long', id: 1, safety: 'none' });
     expect(await c.next((m) => m.t === 'closed')).toEqual({ t: 'closed', reason: 'child' });
     expect(voiceRegistry.blocked(p.id, clock)).toBe('child');
     // Control: 1100 characters of chatter, no child: too_long, the socket stays open, no block.
@@ -382,7 +382,7 @@ describe('ids, timeouts and usage (carries 2, 5, 7)', () => {
     d.send({ t: 'listen', id: 1, mode: 'hold' });
     d.frame(1);
     d.send({ t: 'end', id: 1 });
-    expect(await d.next((m) => m.t !== 'ready')).toEqual({ t: 'too_long', id: 1 });
+    expect(await d.next((m) => m.t !== 'ready')).toEqual({ t: 'too_long', id: 1, safety: 'none' });
     await settle();
     expect(d.msgs.some((m) => m.t === 'closed')).toBe(false);
     expect(voiceRegistry.blocked(q.id, clock)).toBeNull();
@@ -401,9 +401,76 @@ describe('ids, timeouts and usage (carries 2, 5, 7)', () => {
     expect(voiceRegistry.blocked(p.id, clock)).toBe('child');
   });
 
-  // F4-1, the emergency half: carried to M7 Step 11 by controller ruling (it needs a field in core voice/protocol.ts,
-  // which is hashed, so one eval run). The recorded case for Step 11 to pick up:
-  test.todo('Step 11 (F4-1, emergency half): a 600-character transcript ending "... I ate peanuts and my throat is closing, I can\'t breathe" → the device is told the over-long utterance held an emergency (e.g. too_long with safety: "emergency"), and shows and speaks rule.emergency; no text over MAX_TEXT ever reaches the device');
+  // M7 Step 11 (F4-1, emergency half; controller ruling): a transcript over MAX_TEXT never reaches the device, so the
+  // API scans it whole, uncapped, for an emergency first (core isEmergency, the turn's safety order) and says so in the
+  // final too_long's `safety` enum. No text of it reaches the device.
+  const EMERGENCY = `${RADIO}I ate peanuts and my throat is closing, I can't breathe`;
+  test('Step 11 (F4-1): an emergency at the end of a 600-character transcript → too_long with safety "emergency", no transcript, nothing over MAX_TEXT sent; over-long chatter → safety "none"', async () => {
+    expect([...EMERGENCY].length).toBeGreaterThanOrEqual(600);
+    await start({ transcribe: (u) => (u.frames === 2 ? EMERGENCY : RADIO + RADIO) });
+    const p = await player();
+    const { c } = await ready(p.cookie);
+    c.send({ t: 'listen', id: 1, mode: 'hold' });
+    c.frame(1);
+    c.frame(1);
+    c.send({ t: 'end', id: 1 });
+    expect(await c.next((m) => m.t !== 'ready')).toEqual({ t: 'too_long', id: 1, safety: 'emergency' });
+    c.send({ t: 'listen', id: 2, mode: 'handsFree' });
+    c.frame(2);
+    c.send({ t: 'end', id: 2 });
+    expect(await c.next((m) => m.t === 'too_long' && m.id === 2)).toEqual({ t: 'too_long', id: 2, safety: 'none' });
+    await settle();
+    // Nothing of either transcript reached the device; the socket is open and no block is set (no child).
+    expect(c.msgs.filter((m) => m.t !== 'ready')).toEqual([
+      { t: 'too_long', id: 1, safety: 'emergency' },
+      { t: 'too_long', id: 2, safety: 'none' },
+    ]);
+    expect(JSON.stringify(c.msgs)).not.toMatch(/breathe|travel/);
+    expect(voiceRegistry.blocked(p.id, clock)).toBeNull();
+  });
+
+  test('Step 11 (F4-1): the service refusing an over-cap transcript itself (VoiceUpstreamError too_long with its text) → safety "emergency"; without its text → "none"', async () => {
+    const { VoiceUpstreamError } = await import('../src/voice/upstream.js');
+    await start({
+      rawErrors: true,
+      transcribe: (u) => {
+        throw new VoiceUpstreamError('too_long', u.frames === 1 ? EMERGENCY : undefined);
+      },
+    });
+    const p = await player();
+    const { c } = await ready(p.cookie);
+    c.send({ t: 'listen', id: 1, mode: 'hold' });
+    c.frame(1);
+    c.send({ t: 'end', id: 1 });
+    expect(await c.next((m) => m.t !== 'ready')).toEqual({ t: 'too_long', id: 1, safety: 'emergency' });
+    c.send({ t: 'listen', id: 2, mode: 'hold' });
+    c.frame(2);
+    c.frame(2);
+    c.send({ t: 'end', id: 2 });
+    expect(await c.next((m) => m.t === 'too_long' && m.id === 2)).toEqual({ t: 'too_long', id: 2, safety: 'none' });
+  });
+
+  test('Step 11 (F4-1): past MAX_UTTERANCE_MS with an over-cap emergency transcript → the frame-cap too_long, then the final one with safety "emergency"', async () => {
+    await start({ transcribe: () => EMERGENCY });
+    const p = await player();
+    const { c } = await ready(p.cookie);
+    c.send({ t: 'listen', id: 1, mode: 'hold' });
+    for (let i = 0; i < MAX_UTTERANCE_MS / FRAME_MS + 2; i++) c.frame(1);
+    expect(await c.next((m) => m.t !== 'ready')).toEqual({ t: 'too_long', id: 1 });
+    expect(await c.next((m) => m.t === 'too_long' && 'safety' in m)).toEqual({ t: 'too_long', id: 1, safety: 'emergency' });
+  });
+
+  test('Step 11 (F4-1): an over-cap transcript naming an emergency and a child → the emergency answer first, then every socket closes with child', async () => {
+    await start({ transcribe: () => `${EMERGENCY} and I'm 9 years old` });
+    const p = await player();
+    const { c } = await ready(p.cookie);
+    c.send({ t: 'listen', id: 1, mode: 'hold' });
+    c.frame(1);
+    c.send({ t: 'end', id: 1 });
+    expect(await c.next((m) => m.t !== 'ready')).toEqual({ t: 'too_long', id: 1, safety: 'emergency' });
+    expect(await c.next((m) => m.t === 'closed')).toEqual({ t: 'closed', reason: 'child' });
+    expect(voiceRegistry.blocked(p.id, clock)).toBe('child');
+  });
 
   test(`a socket keeps its last ${TRANSCRIPTS_KEPT} transcripts for heard items, and none after close`, async () => {
     await start({ transcribe: () => 'peanut' });

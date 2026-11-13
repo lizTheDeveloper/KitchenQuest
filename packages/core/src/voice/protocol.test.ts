@@ -153,6 +153,22 @@ describe('parseServerMsg', () => {
     ];
     for (const m of bad) expect(parseServerMsg(m), JSON.stringify(m)).toBeNull();
   });
+
+  // M7 Step 11 (F4-1, emergency half; controller ruling): a transcript over MAX_TEXT never reaches the device, so the
+  // final `too_long` says whether its whole text held an emergency. The only values are the two enums.
+  test('too_long may carry safety "emergency" or "none" (its final answer, no transcript follows); any other value, or text, is refused', () => {
+    for (const safety of ['emergency', 'none'] as const) {
+      const m: ServerMsg = { t: 'too_long', id: 3, safety };
+      expect(parseServerMsg(JSON.parse(JSON.stringify(m)))).toEqual(m);
+    }
+    for (const bad of [
+      { t: 'too_long', id: 3, safety: 'child' },
+      { t: 'too_long', id: 3, safety: true },
+      { t: 'too_long', id: 3, safety: null },
+      { t: 'too_long', id: 3, safety: 'emergency', text: 'I cannot breathe' },
+      { t: 'audio_end', id: 3, safety: 'emergency' },
+    ]) expect(parseServerMsg(bad), JSON.stringify(bad)).toBeNull();
+  });
 });
 
 describe('the mentor protocol carries voice (M7)', () => {

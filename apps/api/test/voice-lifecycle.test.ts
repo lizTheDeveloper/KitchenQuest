@@ -233,7 +233,9 @@ describe('I2 / m3: speech that went upstream is charged once, before the next li
 });
 
 describe('Minors', () => {
-  test('m4: an utterance past MAX_UTTERANCE_MS whose transcript is also over MAX_TEXT gets one too_long, never two', async () => {
+  // Step 11 (F4-1): amended. The frame-cap too_long (a transcript may follow) is sent once, and the final answer, with
+  // its `safety` enum (no transcript follows), once.
+  test('m4: an utterance past MAX_UTTERANCE_MS whose transcript is also over MAX_TEXT gets the frame-cap too_long once and the final one (safety) once', async () => {
     await start({ transcribe: () => 'x'.repeat(MAX_TEXT + 1) });
     const p = await player();
     const c = await ready(p.cookie);
@@ -241,7 +243,7 @@ describe('Minors', () => {
     for (let i = 0; i < MAX_UTTERANCE_MS / FRAME_MS + 5; i++) c.frame(1);
     await settle();
     await settle();
-    expect(c.msgs.filter((m) => m.t !== 'ready')).toEqual([{ t: 'too_long', id: 1 }]);
+    expect(c.msgs.filter((m) => m.t !== 'ready')).toEqual([{ t: 'too_long', id: 1 }, { t: 'too_long', id: 1, safety: 'none' }]);
   });
 
   test("m5: a step item is checked on the socket's own date (hello's clock), not the date the item carries", async () => {

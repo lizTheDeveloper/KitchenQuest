@@ -44,7 +44,7 @@ vi.mock('../voice', () => ({
   devBrowserProvider: () => { throw new Error('not in tests'); },
   createVoiceController: () => {
     if (voiceMock.throwOnStart) { voiceMock.throwOnStart = false; throw new Error('test: no controller'); }
-    const transcripts = new Set<(t: string, tooLong: boolean, id: number) => void>();
+    const transcripts = new Set<(t: string, tooLong: boolean, id: number, emergency: boolean) => void>();
     const off = new Set<(w: string) => void>();
     const mics = new Set<(open: boolean) => void>();
     let id = 0;
@@ -54,7 +54,7 @@ vi.mock('../voice', () => ({
       stopHandsFree() { c.calls.push('stopHandsFree'); c.handsFree = false; c.mic(false); },
       timerSounding(on: boolean) { c.timer.push(on); },
       say(plan: unknown) { c.said.push(plan); },
-      onTranscript(fn: (t: string, tooLong: boolean, id: number) => void) { transcripts.add(fn); return () => { transcripts.delete(fn); }; },
+      onTranscript(fn: (t: string, tooLong: boolean, id: number, emergency: boolean) => void) { transcripts.add(fn); return () => { transcripts.delete(fn); }; },
       onHandsFreeOff(fn: (w: string) => void) { off.add(fn); return () => { off.delete(fn); }; },
       onMic(fn: (open: boolean) => void) { mics.add(fn); return () => { mics.delete(fn); }; },
       onProblem() { return () => undefined; },
@@ -66,7 +66,7 @@ vi.mock('../voice', () => ({
         c.mic(false);
         if (c.handsFree) { c.handsFree = false; for (const fn of [...off]) fn('closed'); }
       },
-      hear(text: string) { for (const fn of [...transcripts]) fn(text, false, ++id); },
+      hear(text: string) { for (const fn of [...transcripts]) fn(text, false, ++id, false); },
       mic(open: boolean) { for (const fn of [...mics]) fn(open); },
     };
     voiceMock.controllers.push(c);

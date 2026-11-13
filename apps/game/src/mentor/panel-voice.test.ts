@@ -705,4 +705,37 @@ describe('M7 Step 10 fix round 4 (controller ruling): hold-to-talk, an over-long
     expect(panTexts(u).some((x) => lines('voice.too_long').includes(x))).toBe(true);
     expect(u.child.on).toBe(false);
   });
+
+  // M7 Step 11 (F4-1, emergency half): a transcript over the protocol cap never reaches the device; the API's final
+  // too_long says it held an emergency. The device answers as it answers a typed emergency.
+  async function utterOverCap(r: Rig, safety: 'emergency' | 'none') {
+    r.press();
+    const ws = await r.ready();
+    r.frames();
+    r.release();
+    await flush();
+    ws.serverSend({ t: 'too_long', id: listenId(ws), safety });
+    await flush(20);
+    return ws;
+  }
+
+  test('Step 11 (F4-1): too_long with safety "emergency" → rule.emergency drawn and spoken, no empty bubble, nothing sent; "none" → voice.too_long at once', async () => {
+    const r = await rig();
+    const ws = await utterOverCap(r, 'emergency');
+    expect(r.inputs).toEqual([]);
+    expect(panTexts(r).some((x) => lines('rule.emergency').includes(x))).toBe(true);
+    expect([...r.root.querySelectorAll('.bubble.you .bubble-text')].map((b) => b.textContent)).toEqual([]);
+    expect(JSON.stringify(speaks(ws).at(-1))).toContain('rule.emergency');
+    const u = await rig();
+    await utterOverCap(u, 'none');
+    expect(u.inputs).toEqual([]);
+    expect(panTexts(u).some((x) => lines('voice.too_long').includes(x))).toBe(true);
+  });
+
+  test('Step 11 (F4-1): read-aloud off, hold-to-talk: the emergency is still drawn (the player is at the screen; ruling: spoken only with read-aloud on)', async () => {
+    const r = await rig({ voice: { readAloud: false } });
+    const ws = await utterOverCap(r, 'emergency');
+    expect(panTexts(r).some((x) => lines('rule.emergency').includes(x))).toBe(true);
+    expect(JSON.stringify(speaks(ws))).not.toContain('rule.emergency');
+  });
 });

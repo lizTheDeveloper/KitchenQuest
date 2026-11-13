@@ -4,7 +4,7 @@
 import { MAX_SPEAK_ITEMS, type ServerMsg, type VoiceState } from '@kitchenquest/core/engine';
 import type { PlayerStore } from '../state/store';
 import { createPlayer, type Player } from './playback';
-import type { ProviderEvent, VoiceProvider } from './provider-types';
+import type { ProviderEvent, UtteranceResult, VoiceProvider } from './provider-types';
 import { openVoiceSocket, VoiceSocketClosed, type VoiceSocket } from './socket';
 
 export type { ProviderEvent, Speech, Utterance, VoiceProvider } from './provider-types';
@@ -18,7 +18,7 @@ const EMPTY = { text: '', tooLong: false } as const;
 const pad = (n: number) => String(n).padStart(2, '0');
 const localTime = (d: Date) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 
-interface PendingUtterance { id: number; tooLong: boolean; serverEnded: boolean; ended: boolean; finish(r: { text: string; tooLong: boolean }): void }
+interface PendingUtterance { id: number; tooLong: boolean; serverEnded: boolean; ended: boolean; finish(r: UtteranceResult): void }
 interface PendingSpeech { id: number; rate: number | null; audioEnded: boolean; finish(): void }
 
 export function serviceProvider(
@@ -50,7 +50,13 @@ export function serviceProvider(
       case 'transcript': return utterances.get(m.id)?.finish({ text: m.text, tooLong: utterances.get(m.id)!.tooLong });
       case 'too_long': {
         const u = utterances.get(m.id);
-        if (u) { u.tooLong = true; u.serverEnded = true; }
+        if (!u) return;
+        u.tooLong = true;
+        u.serverEnded = true;
+        // M7 Step 11 (F4-1): with `safety` it is the final answer (the transcript was over MAX_TEXT and never comes):
+        // the utterance ends now, empty, and an emergency the API found in it is marked for the safety reply.
+        if (m.safety === 'emergency') u.finish({ text: '', tooLong: true, emergency: true });
+        else if (m.safety === 'none') u.finish({ text: '', tooLong: true });
         return;
       }
       case 'failed': {
@@ -123,8 +129,8 @@ export function serviceProvider(
     listen(mode) {
       const id = nextId++;
       const s = live();
-      let resolve!: (r: { text: string; tooLong: boolean }) => void;
-      const answer = new Promise<{ text: string; tooLong: boolean }>((r) => { resolve = r; });
+      let resolve!: (r: UtteranceResult) => void;
+      const answer = new Promise<UtteranceResult>((r) => { resolve = r; });
       let timer: ReturnType<typeof setTimeout> | null = null;
       const u: PendingUtterance = {
         id, tooLong: false, serverEnded: false, ended: false,

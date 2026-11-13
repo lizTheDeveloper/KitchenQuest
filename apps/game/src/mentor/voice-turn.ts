@@ -125,11 +125,14 @@ export function serverHeardItem(check: HeardCheck, input: Transcript, deps: Voic
  * emergency first, then child, in the API turn's order. An emergency gets the reply a typed one gets (rule.emergency,
  * then its asks); a child sets the conversation's child flag (which closes voice) and gets child.grownup. Otherwise
  * null: the caller says voice.too_long. Nothing is sent from here.
+ *
+ * M7 Step 11 (F4-1, emergency half): `emergency` is the API's own whole-text finding for a transcript over MAX_TEXT,
+ * which never reaches the device (`text` is then empty): the same emergency reply, first.
  */
-export function overLongSafety(text: string, deps: { dialogue: Dialogue; graph: IngredientGraph; child?: ChildFlag }): PanReply | null {
+export function overLongSafety(text: string, deps: { dialogue: Dialogue; graph: IngredientGraph; child?: ChildFlag }, emergency = false): PanReply | null {
   const full = normalizeText(stripPageEventsFull(text).text);
   const d = { ...deps, child: deps.child ?? createChildFlag() };
-  if (isEmergency(full)) return safetyReply('emergency', text, d);
+  if (emergency || isEmergency(full)) return safetyReply('emergency', text, d);
   if (CHILD_PATTERNS.some((p) => p.test(full))) return safetyReply('child', text, d);
   return null;
 }

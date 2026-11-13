@@ -250,16 +250,17 @@ export function mountTalk(row: HTMLElement, hooks: TalkHooks): { stop(): void } 
     }
   };
 
-  async function spokenTurn(c: VoiceController, text: string, tooLong: boolean, id: number): Promise<void> {
+  async function spokenTurn(c: VoiceController, text: string, tooLong: boolean, id: number, emergency = false): Promise<void> {
     if (c !== ctl) return;
     // M-1: a transcript came back, so voice works: an earlier outage's backoff starts over.
     backoffMs = UNAVAILABLE_BACKOFF_MS;
     if (tooLong) {
       // Step 10 fix round 4 (controller ruling): an emergency or a child in an over-long utterance is never missed. The
-      // whole text is scanned on the device and only its fixed reply is drawn (and spoken); nothing is sent.
-      const safe = overLongSafety(text, { dialogue, graph, ...(child ? { child } : {}) });
+      // whole text is scanned on the device and only its fixed reply is drawn (and spoken); nothing is sent. Step 11
+      // (F4-1): a transcript over MAX_TEXT never comes; the API's own scan marks an emergency in it.
+      const safe = overLongSafety(text, { dialogue, graph, ...(child ? { child } : {}) }, emergency);
       if (safe === null) { say(lines(['voice.too_long'])); engaged = false; return; }
-      hooks.spoken(text);
+      if (text.trim() !== '') hooks.spoken(text);
       const r = await hooks.turn(() => Promise.resolve(safe));
       if (c === ctl) speak(r);
       engaged = false;
@@ -310,7 +311,7 @@ export function mountTalk(row: HTMLElement, hooks: TalkHooks): { stop(): void } 
     c.onMicReady(() => { if (c === ctl) state.textContent = MIC_READY_TEXT; });
     // Fix round 2 (I-2): the API answered: any server block has lifted, and the next block is said again.
     c.onReady(() => { if (c !== ctl || serverBlock === null) return; serverBlock = null; blockSaid = false; draw(); });
-    c.onTranscript((text, tooLong, id) => { void spokenTurn(c, text, tooLong, id); });
+    c.onTranscript((text, tooLong, id, emergency) => { void spokenTurn(c, text, tooLong, id, emergency); });
     hooks.setSpeaker((r) => { if (c === ctl) speak(r); });
     return c;
   }

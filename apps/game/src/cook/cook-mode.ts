@@ -468,7 +468,7 @@ export function runCookMode(el: HTMLElement, ctx: AppContext, src: CookModeSourc
       const voice = cv.startCookVoice({
         controller: c, hooks: voiceHooks, localDate: () => localDate(ctx.now()), doc,
         // I5: the panel is not opened for a reply: it is spoken, and `answered` shows that it came.
-        toPan: (text, id, tooLong) => port.spoken(text, id, tooLong),
+        toPan: (text, id, tooLong, emergency) => port.spoken(text, id, tooLong, emergency),
         say: (t, v) => mentor.say(t, v),
         show: (r) => { mentor.show(r); },
         answered: onAnswered,

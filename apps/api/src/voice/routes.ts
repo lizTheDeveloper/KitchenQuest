@@ -19,6 +19,7 @@ import {
   CHILD_PATTERNS,
   decodeFrame,
   encodeFrame,
+  isEmergency,
   normalizeText,
   stripPageEventsFull,
   FRAME_MS,
@@ -125,7 +126,7 @@ interface Utterance {
   upId: number;
   frames: number;
   phase: 'listening' | 'ending';
-  /** `too_long` was sent for it (m4: never twice). */
+  /** `too_long` was sent for it (m4: the frame-cap one at most once; Step 11: the final one, with `safety`, once). */
   tooLongSent: boolean;
   /** I2: its one charge, once `end` went upstream; started once, awaited before the next listen passes (m3). */
   charge: Promise<void> | null;
@@ -472,7 +473,7 @@ class VoiceSocket {
   /**
    * The utterance ends and `end` goes upstream: from here it is charged once on any outcome but the service down or
    * slow (I2). The charge is written before the answer is sent and before the slot is given back (m3). Every utterance
-   * is answered once (`too_long` at most once, m4).
+   * is answered once (the frame-cap `too_long` at most once, m4; an over-cap transcript by the final `too_long` with `safety`, Step 11).
    */
   private finish(u: Utterance): void {
     u.phase = 'ending';
@@ -491,10 +492,7 @@ class VoiceSocket {
           const input = parseTurnInput({ kind: 'transcript', text });
           if (input === null) {
             if ([...text].length <= MAX_TEXT) this.send({ t: 'failed', id: u.clientId, kind: 'stt' });
-            else {
-              if (!u.tooLongSent) this.send({ t: 'too_long', id: u.clientId });
-              this.childCheck(text.slice(0, OVER_CAP_SCAN_UNITS));
-            }
+            else this.overCapAnswer(u, text.slice(0, OVER_CAP_SCAN_UNITS));
             return;
           }
           this.keepTranscript(u.clientId, input.text);
@@ -511,21 +509,36 @@ class VoiceSocket {
           }
           this.utter = null;
           this.release(u);
-          if (failure === 'too_long') {
-            if (!u.tooLongSent) this.send({ t: 'too_long', id: u.clientId });
-            if (e instanceof VoiceUpstreamError && e.overCap !== undefined) this.childCheck(e.overCap);
-          } else this.upstreamFailed(u.clientId, e, 'upstream');
+          if (failure === 'too_long') this.overCapAnswer(u, e instanceof VoiceUpstreamError ? e.overCap : undefined);
+          else this.upstreamFailed(u.clientId, e, 'upstream');
         },
       )
       .catch(() => logKind(this.log, 'voice_answer_failed'));
   }
 
   /**
+   * M7 Step 11 (F4-1, emergency half; controller ruling): the final answer to an utterance whose transcript is over
+   * MAX_TEXT, which never reaches the device. Its whole text (up to OVER_CAP_SCAN_UNITS) is scanned with core's
+   * emergency detection first, uncapped, in the turn's safety order, and the final `too_long` says what it found as an
+   * enum, so the device answers an emergency with rule.emergency as it answers a typed one. It is sent after any
+   * frame-cap `too_long` (that one promised a transcript; this one ends the utterance). The child scan follows, so a
+   * child's block closes the socket only after the emergency answer is out. No text is sent, kept or logged. Without
+   * the text (a malformed refusal) nothing can be found: `none`, and the device asks the player to type.
+   */
+  private overCapAnswer(u: Utterance, text: string | undefined): void {
+    u.tooLongSent = true;
+    if (text === undefined) return this.send({ t: 'too_long', id: u.clientId, safety: 'none' });
+    const full = normalizeText(stripPageEventsFull(text).text);
+    this.send({ t: 'too_long', id: u.clientId, safety: isEmergency(full) ? 'emergency' : 'none' });
+    this.childCheck(text);
+  }
+
+  /**
    * M7 Step 10 fix round 5 (F4-1 child half, m-1; controller ruling): a transcript the device will not send as a turn
    * (refused as too long, or after `too_long`) is scanned whole, uncapped, with core's child detection, as the
    * device's own over-long scan reads it. A child sets the per-user block and closes every socket of the user
-   * (Ruling 17), as a child flag set by a turn does. Nothing is kept or logged. The emergency half needs a protocol
-   * field (core, hashed): carried to Step 11.
+   * (Ruling 17), as a child flag set by a turn does. Nothing is kept or logged. The emergency half is `overCapAnswer`
+   * (Step 11).
    */
   private childCheck(text: string): void {
     const full = normalizeText(stripPageEventsFull(text).text);

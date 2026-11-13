@@ -76,7 +76,7 @@ export interface CookVoiceDeps {
    * null. Fix round 4: `tooLong` asks only for the over-long safety scan (an emergency or a child: their fixed reply,
    * drawn); null means none was found and nothing was drawn or sent.
    */
-  toPan(text: string, utteranceId: number, tooLong?: boolean): Promise<PanReply | null>;
+  toPan(text: string, utteranceId: number, tooLong?: boolean, emergency?: boolean): Promise<PanReply | null>;
   /** A scripted first-paint Pan line, drawn in the panel (`getMentor().say`): the line as said. */
   say(trigger: string, vars?: Record<string, string>): Said;
   /** A reply drawn in the panel (`getMentor().show`): the lazy cues. */
@@ -189,7 +189,7 @@ export function startCookVoice(deps: CookVoiceDeps): CookVoice {
     c.say(speakPlan(r.items, r.cards, { replyId: r.replyId ?? null }));
   };
 
-  const heard = (text: string, tooLong: boolean, utteranceId: number) => {
+  const heard = (text: string, tooLong: boolean, utteranceId: number, emergency = false) => {
     if (!on) return;
     const mine = ++turn;
     // Fix rounds 2 and 3 (N1, N2): a spoken yes or no is never sent, whatever its length (a radio holding the VAD open
@@ -213,7 +213,7 @@ export function startCookVoice(deps: CookVoiceDeps): CookVoice {
     // N1: an over-long utterance is never sent as a turn (nor read as a command). Fix round 4: its whole text is
     // scanned first for an emergency or a child (their fixed reply, drawn and spoken); otherwise voice.too_long.
     if (tooLong) {
-      void deps.toPan(text, utteranceId, true).then((r) => {
+      void deps.toPan(text, utteranceId, true, emergency).then((r) => {
         if (r !== null && safetyFirst(r)) return;
         if (!on || mine !== turn) return;
         if (r === null) { speakSaid(deps.say('voice.too_long')); return; }

@@ -29,7 +29,7 @@ interface CookVoicePort {
    * The player's bubble (marked spoken), then Step 9's `transcriptTurn`, heard check first (Ruling 4), drawn. Fix round
    * 4: `tooLong`: only the over-long safety scan; its reply drawn (with the bubble), else null and nothing drawn.
    */
-  spoken(text: string, utteranceId: number, tooLong?: boolean): Promise<PanReply | null>;
+  spoken(text: string, utteranceId: number, tooLong?: boolean, emergency?: boolean): Promise<PanReply | null>;
   /** Fix round 2: the open cards' keys (in hands-free a spoken yes confirms none of them). */
   openCards(): string[];
   /** Fix round 2 (concern 5): who speaks the panel's own spoken-turn replies (a heard card's tap); null for nobody. */
@@ -787,9 +787,9 @@ export function mountMentorPanel(root: HTMLElement, opts: {
         onChild: (fn) => opts.child?.onChange(fn) ?? (() => undefined),
         openCards: () => [...cards.keys()],
         setSpeaker: (fn) => { speaker = fn; },
-        async spoken(text, utteranceId, tooLong) {
+        async spoken(text, utteranceId, tooLong, emergency) {
           const { transcriptTurn, overLongSafety } = await import('./voice-turn');
-          const safe = tooLong === true ? overLongSafety(text, { dialogue, graph, child: opts.child }) : null;
+          const safe = tooLong === true ? overLongSafety(text, { dialogue, graph, child: opts.child }, emergency === true) : null;
           if (tooLong === true && safe === null) return null;
           if (text.trim() !== '') addBubble('you', text, true);
           if (safe !== null) return turnWith(() => Promise.resolve(safe));
