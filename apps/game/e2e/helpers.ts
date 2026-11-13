@@ -89,14 +89,21 @@ export async function expectNoA11yViolations(page: Page, label: string): Promise
 
 /**
  * M7 Ruling 17: what a Family Table session wrote to the API, besides the device's Family Table report
- * (`PUT /api/voice/family-table { on: true }`: the setting itself, so the server refuses voice too; never a record).
+ * (`PUT /api/voice/family-table { on: true, deviceId }`: the setting itself, so the server refuses voice too; never a record).
  * Asserts the report is sent, signed in, and only ever says on.
  */
 export function writesBesidesFamilyTableReport(sent: Request[]): string[] {
   const report = (r: Request) => r.method() === 'PUT' && new URL(r.url()).pathname === '/api/voice/family-table';
   const reports = sent.filter(report);
   expect(reports.length, 'the Family Table report (Ruling 17)').toBeGreaterThan(0);
-  for (const r of reports) expect(r.postDataJSON()).toEqual({ on: true });
+  // Fix round 2: with this install's random device id, the same one on every report (the server's block is per device).
+  const ids = new Set<unknown>();
+  for (const r of reports) {
+    const body = r.postDataJSON() as { on: unknown; deviceId: unknown };
+    expect(body).toEqual({ on: true, deviceId: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/) as unknown });
+    ids.add(body.deviceId);
+  }
+  expect(ids.size).toBe(1);
   return sent.filter((r) => r.method() !== 'GET' && !report(r)).map((r) => `${r.method()} ${new URL(r.url()).pathname}`);
 }
 
