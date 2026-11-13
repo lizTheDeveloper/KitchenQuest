@@ -146,7 +146,11 @@ describe('fix round 1 (review I1, I3)', () => {
     const { closedWithin, statuses } = await probe(port, 'Bearer wrong');
     const after = process.memoryUsage();
     expect(closedWithin).toBeLessThan(3000);
-    expect(statuses.get('401')).toBe(300);
+    // Every one is refused and none upgraded. A refused socket is destroyed with the probe's junk still unread, so the
+    // kernel can send RST before the client reads the 401 ('none'); the server-side count is the proof.
+    expect(statuses.get('101')).toBeUndefined();
+    expect((statuses.get('401') ?? 0) + (statuses.get('none') ?? 0)).toBe(300);
+    expect(statuses.get('401') ?? 0).toBeGreaterThan(0);
     expect(logs.filter(([k]) => k === 'auth_fail')).toHaveLength(300);
     expect(logs.some(([k]) => k === 'conn_open')).toBe(false);
     // The server never reads the 300 KB each socket sent (88 MB in all): it grows by far less than one socket's worth each.
