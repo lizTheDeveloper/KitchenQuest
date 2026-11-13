@@ -19,7 +19,7 @@
     "@fontsource/pixelify-sans": "^5.3.0",
     "@fontsource/vt323": "^5.3.0",
     "@kitchenquest/core": "*",
-    "phaser": "^3.90.0"
+    "phaser": "^4.2.1"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.14.0",
