@@ -8,7 +8,7 @@ import { getMentor } from '../mentor';
 import { createDialogue } from '../mentor/dialogue';
 import { renderConsentCard } from '../mentor/consent-card';
 import { progressService } from '../progress';
-import { eraseHealthEvents, partitionKey, type PlayerStore } from '../state/store';
+import { eraseHealthEvents, markHealthDelete, partitionKey, type PlayerStore } from '../state/store';
 import { contentText, h } from '../ui/dom';
 import { openModal } from '../ui/modal';
 
@@ -77,10 +77,12 @@ export function mentorSection(store: PlayerStore, client: ApiClient, forms: Reco
      * the cached account rules are dropped until a refresh loads them again (fail closed while offline). M6 final I1:
      * `as` (the account the delete was asked for) also loses its stall rounds and meal-log events on this device, and
      * the answered question ids its base and cached view hold; their grants stay. The server's view is then asked again.
+     * M7 Step 8 (M6 N2): the delete is counted again with the erase, so anything begun, recorded or asked for before
+     * it (a round open in another tab, a post or a view on its way) is never kept, put back or cached after it.
      */
     const afterDelete = async (as: string | null) => {
       try { getMentor().clearConversation(); } catch { /* the panel isn't mounted (tests) */ }
-      if (as !== null) store.update((st) => eraseHealthEvents(st, as));
+      if (as !== null) store.update((st) => markHealthDelete(eraseHealthEvents(st, as), as));
       // The cached copy is now stale: drop it first, so an offline or rate-limited refresh leaves checks failing closed.
       store.update((st) => (st.accountRules === null ? st : { ...st, accountRules: null }));
       if (as !== null) void progressService().then((svc) => svc.sync.refreshAccountView(), () => undefined);
@@ -121,6 +123,8 @@ export function mentorSection(store: PlayerStore, client: ApiClient, forms: Reco
           yes.addEventListener('click', () => {
             yes.disabled = true;
             const as = partitionKey(store.get());
+            // M6 N2: counted before the request goes, so an answer to anything already on its way is known stale.
+            if (as !== null) store.update((st) => markHealthDelete(st, as));
             void client.withdrawConsent('health_data', 'delete').then((r) => {
               close();
               if (!(r.ok || r.status === 404)) { status.textContent = copy('ui.settings.offline'); return; }

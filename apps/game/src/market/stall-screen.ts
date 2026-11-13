@@ -18,7 +18,7 @@ import { activeRules, cardInputsKey, localDate } from '../recipes/rules';
 import type { Screen } from '../shell/app';
 import { routeHref, type KeeperStall } from '../shell/router';
 import { SCREEN_TITLES } from '../shell/titles';
-import { partitionKey } from '../state/store';
+import { healthDeletesOf, partitionKey } from '../state/store';
 import { contentText, h } from '../ui/dom';
 import { askHealthConsent, statusLine } from '../week/screen-kit';
 import { loadMarket } from './content';
@@ -167,6 +167,9 @@ export function stallScreen(deps: StallScreenDeps): Screen {
        */
       let roundFamilyTable = false;
       let roundPartition: string | null = null;
+      /** M7 Step 8 (M6 N2): the health deletes asked for that partition when the round began (any tab). */
+      let roundDeletes = 0;
+      const deletesNow = () => (roundPartition === null ? 0 : healthDeletesOf(store.get(), roundPartition));
       /** A round dropped for an account switch: the next draw says so (M4: never silent). */
       let lost = false;
       let token = 0;
@@ -188,6 +191,9 @@ export function stallScreen(deps: StallScreenDeps): Screen {
         kept = r.answers().length;
         if (fresh.length === 0 || svc === null || roundFamilyTable) return false;
         if (partitionKey(store.get()) !== roundPartition) return true;
+        // N2: a health delete asked since the round began (here or in another tab): its answers predate the erasure, so
+        // they are never recorded; the next draw says so.
+        if (deletesNow() !== roundDeletes) return true;
         const c = ctxNow();
         const valid = fresh.filter((a) => stillAnswerable(stall, a.q, c));
         recordRound({ store, record: (events) => svc.record(events) }, id, valid, today(), { familyTableAtStart: roundFamilyTable });
@@ -249,6 +255,7 @@ export function stallScreen(deps: StallScreenDeps): Screen {
           }
           roundFamilyTable = store.get().settings.familyTable;
           roundPartition = partitionKey(store.get());
+          roundDeletes = deletesNow();
           round = renderRound(roundSlot, {
             questions: plan.round,
             keeper: name,

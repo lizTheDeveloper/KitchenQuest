@@ -4,7 +4,7 @@ import {
 import type { ApiClient } from '../api/client';
 import type { ApiResult, ProgressPostResponse } from '../api/types';
 import { content } from '../content';
-import { applyServerErasure, dropEvents, dropEventsKeepGrants, partitionKey, partitionOf, withPartition, type PlayerState, type PlayerStore } from '../state/store';
+import { applyServerErasure, dropEvents, dropEventsKeepGrants, healthDeletesOf, partitionKey, partitionOf, withPartition, type PlayerState, type PlayerStore } from '../state/store';
 import { catalogueOf } from './catalogue';
 import { appendEvents, historyOf, markUploaded } from './log';
 
@@ -86,6 +86,8 @@ function adoptGrants(s: PlayerState, key: string, accepted: { clientId: string; 
 }
 
 const isObj = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x);
+/** The kinds a health_data delete erases (store.ts `eraseHealthEvents`). */
+const isHealthKind = (e: ProgressEvent) => e.kind === 'stall_round' || e.kind === 'meal_logged';
 /** The shape of a view the server sent; anything else is not used (the device view stands alone). */
 function isProgressView(v: unknown): v is ProgressView {
   return isObj(v) && typeof v.xp === 'number' && typeof v.level === 'number' && typeof v.stamps === 'number' && isObj(v.trust) &&
@@ -122,6 +124,11 @@ export function createProgressSync(deps: ProgressSyncDeps): ProgressSync {
   /** The guest add in flight (N2): one at a time, and the offer is hidden meanwhile. */
   let adding: Promise<boolean> | null = null;
   const liveKey = () => partitionKey(store.get());
+  /**
+   * M7 Step 8 (M6 fix review N2): the health deletes asked on this device for `as` (any tab). Captured when an event is
+   * recorded or a request goes out; moved by the time it is used means a delete came in between.
+   */
+  const deletes = (as: string) => healthDeletesOf(store.get(), as);
 
   const wait = (ms: number) => new Promise<void>((resolve) => { setTimer(resolve, ms); });
 
@@ -130,12 +137,13 @@ export function createProgressSync(deps: ProgressSyncDeps): ProgressSync {
    * belong to: checked again right before the request goes, so nothing is ever posted under another account (C1).
    */
   let chain: Promise<unknown> = Promise.resolve();
-  const post = (as: string, events: ProgressEvent[], upload: boolean): Promise<ApiResult<ProgressPostResponse> | null> => {
+  const post = (as: string, events: ProgressEvent[], upload: boolean, gen: number): Promise<ApiResult<ProgressPostResponse> | null> => {
     const run = async () => {
       const at = Math.max(lastAt + gapMs, blockedUntil);
       const delay = at - now();
       if (delay > 0) await wait(delay);
-      if (stopped || liveKey() !== as || !deps.online()) return null;
+      // N2: a health delete asked while this waited: not sent now (what it held is read again, after the erase).
+      if (stopped || liveKey() !== as || !deps.online() || deletes(as) !== gen) return null;
       lastAt = now();
       // I2: a meal undone while its event waited is never posted.
       const send = events.filter((e) => e.kind !== 'meal_logged' || e.mealLogId === undefined || !forgotten.has(e.mealLogId));
@@ -165,8 +173,10 @@ export function createProgressSync(deps: ProgressSyncDeps): ProgressSync {
    * server's erasure id (`healthErasure`): one this device has not acted on means a `health_data` delete happened, here
    * or on another device, so the partition's stall rounds and meal-log events go (`applyServerErasure`).
    */
-  function keepView(as: string, view: unknown, erasure?: unknown) {
-    if (liveKey() !== as) return;
+  function keepView(as: string, view: unknown, erasure: unknown, gen: number) {
+    // N2: an answer to a request that went out before a health delete asked here is stale: its view may still hold
+    // the answered ids the delete erased, so neither it nor its erasure id is used (the next request's answer is).
+    if (liveKey() !== as || deletes(as) !== gen) return;
     if (typeof erasure === 'string' && erasure !== '') store.update((s) => (partitionKey(s) !== as ? s : applyServerErasure(s, as, erasure)));
     if (!isProgressView(view)) return;
     store.update((s) => (partitionKey(s) !== as ? s : withPartition(s, as, partitionOf(s, as), view)));
@@ -177,7 +187,7 @@ export function createProgressSync(deps: ProgressSyncDeps): ProgressSync {
    * An answer that lands after its account signed out (N1): the server holds those events now, so they leave the
    * hidden partition outright, as the sign-out prune would have removed them.
    */
-  function landed(as: string, from: string | null, sent: ProgressEvent[], r: ProgressPostResponse) {
+  function landed(as: string, from: string | null, sent: ProgressEvent[], r: ProgressPostResponse, gen: number) {
     const ids = sent.map((e) => e.id);
     // M6 Step 9 fix round 1 (M8): an event the server refused is never filed under the account; it and the device's
     // grants for it leave the partition (a refused Protein Counter round without consent, say).
@@ -203,12 +213,20 @@ export function createProgressSync(deps: ProgressSyncDeps): ProgressSync {
     // Every id sent was answered (accepted, duplicate or refused for good), so none is posted again.
     if (from !== null && liveKey() !== as) store.update((s) => dropEvents(s, from, ids));
     else markUploaded(store, from, ids);
-    keepView(as, r.view, r.healthErasure);
+    keepView(as, r.view, r.healthErasure, gen);
+    // M7 Step 8 (M6 fix review N4): a stall round answered `duplicate` is one the server already holds (a live post
+    // whose answer was lost): its grants are the server's, in the view just kept, so the device's own go (as M1 does
+    // for an accepted one). After the view, so the total shown never dips.
+    if (from !== null && Array.isArray(r.duplicate) && deletes(as) === gen) {
+      const rounds = new Set(sent.filter((e) => e.kind === 'stall_round').map((e) => e.id));
+      const dup = r.duplicate.filter((id) => rounds.has(id)).map((clientId) => ({ clientId, grants: [] }));
+      if (dup.length > 0) store.update((s) => adoptGrants(s, from, dup));
+    }
     if (Array.isArray(r.warnings) && r.warnings.length > 0) deps.onWarnings?.(r.warnings);
   }
 
   // Live events recorded while a request is waiting go together in the next one (N2: batched and paced).
-  let buffer: { as: string; events: ProgressEvent[]; done: (r: ApiResult<ProgressPostResponse> | null) => void }[] = [];
+  let buffer: { as: string; events: ProgressEvent[]; gen: number; done: (r: ApiResult<ProgressPostResponse> | null) => void }[] = [];
   let pumping = false;
   async function pump() {
     if (pumping) return;
@@ -223,11 +241,13 @@ export function createProgressSync(deps: ProgressSyncDeps): ProgressSync {
           take.push(next);
           n += next.events.length;
         }
-        const events = take.flatMap((t) => t.events);
+        // N2: a stall round or meal log recorded before a health delete asked since never goes (the erase removes it).
+        const gen = deletes(as);
+        const events = take.flatMap((t) => (t.gen === gen ? t.events : t.events.filter((e) => !isHealthKind(e))));
         let r: ApiResult<ProgressPostResponse> | null = null;
         try {
-          r = await post(as, events, false);
-          if (r?.ok) landed(as, as, events, r.data);
+          if (events.length > 0) r = await post(as, events, false, gen);
+          if (r?.ok) landed(as, as, events, r.data, gen);
         } finally {
           for (const t of take) t.done(r);
         }
@@ -236,8 +256,8 @@ export function createProgressSync(deps: ProgressSyncDeps): ProgressSync {
       pumping = false;
     }
   }
-  const postLive = (as: string, events: ProgressEvent[]) =>
-    new Promise<ApiResult<ProgressPostResponse> | null>((resolve) => { buffer.push({ as, events, done: resolve }); void pump(); });
+  const postLive = (as: string, events: ProgressEvent[], gen: number) =>
+    new Promise<ApiResult<ProgressPostResponse> | null>((resolve) => { buffer.push({ as, events, gen, done: resolve }); void pump(); });
 
   /**
    * M7 Step 7 fix round 1 (I1): before any upload (sign-in, the retry after a 429 or a reconnect, the guest add), the
@@ -245,15 +265,21 @@ export function createProgressSync(deps: ProgressSyncDeps): ProgressSync {
    * another device are erased here and never posted. False when the server can't be read: nothing is uploaded then.
    */
   async function learnErasure(as: string): Promise<boolean> {
-    if (stopped || liveKey() !== as || !deps.online()) return false;
-    const r = await client.getProgress();
-    if (!r.ok) {
-      // Fix round 2 (R3): the upload is retried later, with the post path's backoff (a 429's wait, else a minute).
-      scheduleRetry(retryAfterMs(r));
-      return false;
+    // N2: asked again (once) when a health delete came in while the read was out: that answer is stale.
+    for (let tries = 0; tries < 2; tries++) {
+      if (stopped || liveKey() !== as || !deps.online()) return false;
+      const gen = deletes(as);
+      const r = await client.getProgress();
+      if (!r.ok) {
+        // Fix round 2 (R3): the upload is retried later, with the post path's backoff (a 429's wait, else a minute).
+        scheduleRetry(retryAfterMs(r));
+        return false;
+      }
+      if (deletes(as) !== gen) continue;
+      keepView(as, r.data.view, r.data.healthErasure, gen);
+      return liveKey() === as;
     }
-    keepView(as, r.data.view, r.data.healthErasure);
-    return liveKey() === as;
+    return false;
   }
 
   /** Post partition `from`'s pending events as account `as`, in order, 100 at a time, as an upload. */
@@ -275,7 +301,8 @@ export function createProgressSync(deps: ProgressSyncDeps): ProgressSync {
       const pending = new Set(p.pendingUpload);
       const events = p.events.filter((e) => pending.has(e.id) && !held.has(e.id)).slice(0, EVENTS_PER_REQUEST);
       if (events.length === 0) return true;
-      const r = await post(as, events, true);
+      const gen = deletes(as);
+      const r = await post(as, events, true, gen);
       if (r === null || !r.ok) return false; // offline, switched account, 429 (a retry is scheduled) or a server error: kept
       if (from === null) {
         // N5: the guest's progress the player chose to add moves to the account: shown with it (while it is still
@@ -288,11 +315,11 @@ export function createProgressSync(deps: ProgressSyncDeps): ProgressSync {
         const ids = new Set([...sentIds].filter((id) => !refused.has(id)));
         const moved = events.filter((e) => ids.has(e.id));
         if (liveKey() === as) appendEvents(store, as, moved, g.grants.filter((x) => ids.has(x.eventId)), { pending: false, cat });
-        keepView(as, r.data.view, r.data.healthErasure);
+        keepView(as, r.data.view, r.data.healthErasure, gen);
         if (Array.isArray(r.data.warnings) && r.data.warnings.length > 0) deps.onWarnings?.(r.data.warnings);
         markUploaded(store, null, sentIds); // never posted again, even if the removal below were undone
         store.update((st) => dropEvents(st, null, ids));
-      } else landed(as, from, events, r.data);
+      } else landed(as, from, events, r.data, gen);
     }
     return false;
   }
@@ -303,6 +330,8 @@ export function createProgressSync(deps: ProgressSyncDeps): ProgressSync {
       const s = store.get();
       if (s.settings.familyTable) return []; // §19, Ruling 25: Family Table mode keeps nothing
       const key = partitionKey(s);
+      // N2: the health deletes asked so far: a round recorded now is never put back after one asked later.
+      const gen = key === null ? 0 : deletes(key);
       const results = grantsForBatch(events, historyOf(partitionOf(s, key)), cat, rewards, thresholds, deps.context?.());
       const ok = results.filter((r) => r.problems.length === 0);
       const warned = ok.filter((r) => r.warnings.length > 0).map((r) => ({ clientId: r.event.id, warnings: [...r.warnings] }));
@@ -331,7 +360,7 @@ export function createProgressSync(deps: ProgressSyncDeps): ProgressSync {
       if (send.length > EVENTS_PER_REQUEST) { void sync.uploadDeviceLog(); return said; } // too many for one live post
       const ids = new Set(send.map((e) => e.id));
       const timeout = new Promise<'late'>((resolve) => { setTimer(() => resolve('late'), liveWaitMs); });
-      const r = await Promise.race([postLive(key, send), timeout]);
+      const r = await Promise.race([postLive(key, send, gen), timeout]);
       if (r === 'late' || r === null || !r.ok) return said;
       const grants = r.data.accepted.filter((a) => ids.has(a.clientId)).flatMap((a) => a.grants);
       // M7 Step 7 fix round 2 (R1): rounds refused as `erased` were recorded just now, after the erasure this device had
@@ -341,9 +370,10 @@ export function createProgressSync(deps: ProgressSyncDeps): ProgressSync {
         ? new Set(r.data.rejected.filter((x) => ids.has(x.clientId) && Array.isArray(x.problems) && x.problems.includes('erased')).map((x) => x.clientId))
         : new Set<string>();
       const again = send.filter((e) => erased.has(e.id));
-      if (again.length === 0 || liveKey() !== key) return grants;
+      // N2: never when a health delete was asked here since it was recorded: then it predates the erasure for certain.
+      if (again.length === 0 || liveKey() !== key || deletes(key) !== gen) return grants;
       appendEvents(store, key, again, [], { cat });
-      const r2 = await Promise.race([postLive(key, again), new Promise<'late'>((resolve) => { setTimer(() => resolve('late'), liveWaitMs); })]);
+      const r2 = await Promise.race([postLive(key, again, gen), new Promise<'late'>((resolve) => { setTimer(() => resolve('late'), liveWaitMs); })]);
       if (r2 === 'late' || r2 === null || !r2.ok) return grants;
       return [...grants, ...r2.data.accepted.filter((a) => erased.has(a.clientId)).flatMap((a) => a.grants)];
     },
@@ -386,8 +416,9 @@ export function createProgressSync(deps: ProgressSyncDeps): ProgressSync {
     async refreshAccountView() {
       const as = liveKey();
       if (stopped || as === null || !deps.online()) return;
+      const gen = deletes(as);
       const r = await client.getProgress();
-      if (r.ok) keepView(as, r.data.view, r.data.healthErasure);
+      if (r.ok) keepView(as, r.data.view, r.data.healthErasure, gen);
     },
 
     stop() {

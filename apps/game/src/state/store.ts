@@ -63,6 +63,12 @@ interface AccountPartition {
    * partition's stall rounds and meal-log events are erased here too (`applyServerErasure`).
    */
   erasure?: string;
+  /**
+   * M7 Step 8 (M6 fix review N2): how many `health_data` deletes this device has asked for this account (counted when
+   * asked, and again once done). A count that moved since a round began, an event was recorded or a request went out
+   * means a delete came in between: that round is not kept, that event never posted or put back, that view not cached.
+   */
+  healthDeletes?: number;
 }
 
 const keyCache = new Map<string, string>();
@@ -96,7 +102,22 @@ export function prunePartition(s: PlayerState, key: string): PlayerState {
     events, grants: old.progress.grants.filter((g) => ids.has(g.eventId) || !held.has(g.eventId)), base: null, pendingUpload: events.map((e) => e.id),
     epoch: (old.progress.epoch ?? 0) + 1,
   };
-  return { ...s, accountProgress: { ...s.accountProgress, [key]: { progress, view: null, ...(old.erasure === undefined ? {} : { erasure: old.erasure }) } } };
+  return { ...s, accountProgress: { ...s.accountProgress, [key]: { progress, view: null, ...(old.erasure === undefined ? {} : { erasure: old.erasure }), ...countOf(old) } } };
+}
+
+/** The `healthDeletes` field to carry over, or none. */
+const countOf = (a: Pick<AccountPartition, 'healthDeletes'> | undefined): Pick<AccountPartition, 'healthDeletes'> =>
+  a?.healthDeletes === undefined || a.healthDeletes === 0 ? {} : { healthDeletes: a.healthDeletes };
+
+/** M6 fix review N2: the health deletes this device has asked for account `key` (0 when none, or no partition). */
+export function healthDeletesOf(s: Pick<PlayerState, 'accountProgress'>, key: string): number {
+  return Object.hasOwn(s.accountProgress, key) ? s.accountProgress[key].healthDeletes ?? 0 : 0;
+}
+
+/** Counts one more health delete for account `key` (its partition made if it has none). Nothing else changes. */
+export function markHealthDelete(s: PlayerState, key: string): PlayerState {
+  const old: AccountPartition = Object.hasOwn(s.accountProgress, key) ? s.accountProgress[key] : { progress: EMPTY_PROGRESS, view: null };
+  return { ...s, accountProgress: { ...s.accountProgress, [key]: { ...old, healthDeletes: (old.healthDeletes ?? 0) + 1 } } };
 }
 
 /** Remove events (and their grants) from partition `key` for good: they are the server's now (N1, N5). */
@@ -305,7 +326,8 @@ const isProgress = (x: unknown): boolean =>
   isStrArray(x.pendingUpload) &&
   (x.epoch === undefined || (typeof x.epoch === 'number' && Number.isInteger(x.epoch) && x.epoch >= 0));
 const isPartitions = (x: unknown): boolean =>
-  isObj(x) && Object.values(x).every((a) => isObj(a) && isProgress(a.progress) && (a.view === null || isObj(a.view)) && (a.erasure === undefined || typeof a.erasure === 'string'));
+  isObj(x) && Object.values(x).every((a) => isObj(a) && isProgress(a.progress) && (a.view === null || isObj(a.view)) && (a.erasure === undefined || typeof a.erasure === 'string') &&
+    (a.healthDeletes === undefined || (typeof a.healthDeletes === 'number' && Number.isSafeInteger(a.healthDeletes) && a.healthDeletes >= 0)));
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 /** Every core `IntakeStep`: a step core adds fails to compile here until it is listed. */
 const INTAKE_STEP_SET: Readonly<Record<IntakeStep, true>> = { market_day: true, meals_per_week: true, region: true, allergies: true, pantry: true };
@@ -505,13 +527,18 @@ export function mergePartitions(
     const pa = accounts.get(key);
     const ea = pa?.progress.epoch ?? 0, eb = pb.progress.epoch ?? 0;
     // A pruned partition (a higher epoch) replaces the older copy outright, view included: nothing removed comes back.
-    if (!pa || eb > ea) accounts.set(key, pb);
-    else if (ea > eb) accounts.set(key, pa);
+    let merged: AccountPartition;
+    if (!pa || eb > ea) merged = pb;
+    else if (ea > eb) merged = pa;
     else {
       // N1 (M7 Step 7): the erasure id goes with the copies; the newer write's when both have one.
       const erasure = pb.erasure ?? pa.erasure;
-      accounts.set(key, { progress: mergeProgress(pa.progress, pb.progress, opts), view: pb.view ?? pa.view, ...(erasure === undefined ? {} : { erasure }) });
+      merged = { progress: mergeProgress(pa.progress, pb.progress, opts), view: pb.view ?? pa.view, ...(erasure === undefined ? {} : { erasure }) };
     }
+    // M6 fix review N2: a health delete counted in either copy stays counted, whichever copy wins.
+    const count = Math.max(pa?.healthDeletes ?? 0, pb.healthDeletes ?? 0);
+    const { healthDeletes: _drop, ...rest } = merged;
+    accounts.set(key, { ...rest, ...countOf({ healthDeletes: count }) });
   }
   return { progress: mergeProgress(a.progress, b.progress, opts), accountProgress: Object.fromEntries(accounts) };
 }

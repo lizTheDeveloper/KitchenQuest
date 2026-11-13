@@ -8,7 +8,7 @@ import { createProgressSync } from '../progress/sync';
 import { localDate } from '../recipes/rules';
 import type { AppContext } from '../shell/app';
 import type { Route } from '../shell/router';
-import { createStore, type PlayerState, type PlayerStore } from '../state/store';
+import { accountKey, createStore, eraseHealthEvents, markHealthDelete, type PlayerState, type PlayerStore } from '../state/store';
 import { loadMarket } from './content';
 import { panLine, safeText, stallPlan, stallScreen } from './stall-screen';
 import { stallsScreen } from './stalls-screen';
@@ -394,6 +394,41 @@ describe('fix round 1 (review-task9)', async () => {
     b.screen.unmount?.();
     expect(b.sent).toHaveLength(1);
     expect(roundIds(b.sent)).toHaveLength(1);
+  });
+
+  test('M7 Step 8 (M6 N2): a round open when a health delete lands (here or in another tab) is never recorded, and the stall says so', async () => {
+    const key = accountKey('a@example.com');
+    const signedIn = () => store({ account: { email: 'a@example.com' }, accountRules: [] });
+    /** Settings' delete, as this or another tab's store sees it: counted when asked, then erased and counted again. */
+    const deleteLands = (x: PlayerStore) => {
+      x.update((st) => markHealthDelete(st, key));
+      x.update((st) => markHealthDelete(eraseHealthEvents(st, key), key));
+    };
+    // Left after the delete: nothing recorded. Positive control: the same leave with no delete records the answer.
+    const a = signedIn();
+    const left = await open(a, 'wen');
+    left.el.querySelector<HTMLButtonElement>('.stall-option')!.click();
+    deleteLands(a);
+    await flush();
+    left.screen.unmount?.();
+    expect(left.sent).toEqual([]);
+    const c = signedIn();
+    const control = await open(c, 'wen');
+    control.el.querySelector<HTMLButtonElement>('.stall-option')!.click();
+    control.screen.unmount?.();
+    expect(control.sent).toHaveLength(1);
+    // Ended by a redraw after the delete (a rules change): not recorded, and the stall says so; the next round is kept.
+    const b = signedIn();
+    const { el, sent, screen } = await open(b, 'wen');
+    el.querySelector<HTMLButtonElement>('.stall-option')!.click();
+    deleteLands(b);
+    b.update((x) => ({ ...x, accountRules: [avoid('ingredient', 'peanut')] }));
+    await flush();
+    expect(sent).toEqual([]);
+    expect(el.textContent).toContain("can't be kept just now");
+    el.querySelector<HTMLButtonElement>('.stall-option')!.click();
+    screen.unmount?.();
+    expect(sent).toHaveLength(1);
   });
 
   test('final M4: after an account switch the stall keeps the new account\'s rounds, and says the dropped one was not kept', async () => {

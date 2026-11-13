@@ -359,6 +359,9 @@ describe('Form 1-A intake by conversation (M4 Step 11)', () => {
     await expect.poll(() => page.locator('#pan-panel .bubble, #pan-panel .pan-card').count()).toBe(0);
     // The refresh couldn't reach the rules: no stale copy is trusted.
     await expect.poll(async () => (await stored(page)).accountRules).toBeNull();
+    // M7 Step 8 (M6 N2): the delete is counted on the account's partition when asked and again once done, so a round
+    // open in another tab, or a post or view on its way, is never kept after it.
+    await expect.poll(async () => Object.values((await stored(page)).accountProgress as Record<string, { healthDeletes?: number }>).map((p) => p.healthDeletes ?? 0)).toEqual([2]);
     expect(app.consoleErrors).toEqual([]);
   });
 });

@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 import { MAX_PROGRESS_EVENTS_PER_DAY, type Catalogue, type ProgressEvent, type ProgressView, type RewardGrant, type RulesContext } from '@kitchenquest/core/engine';
 import type { ApiClient } from '../api/client';
 import type { ApiResult, ProgressPostResponse } from '../api/types';
-import { accountKey, createStore, partitionOf, prunePartition, type PlayerStore } from '../state/store';
+import { accountKey, accountViewOf, createStore, eraseHealthEvents, markHealthDelete, partitionOf, prunePartition, type PlayerStore } from '../state/store';
 import { standInFixture } from './stand-in.fixture';
 import { grantLines } from './announce';
 import { currentProgress } from './view';
@@ -720,6 +720,160 @@ describe('fix round 2: the live path under a remote erasure, and the read retry'
     for (let i = 0; i < 20 && posts.length === 0; i++) await new Promise((r) => setTimeout(r, 0));
     expect(reads).toBe(2);
     expect(posts).toEqual([[les.id]]);
+    sync.stop();
+  });
+});
+
+describe('M7 Step 8 (M6 fix review N2, N4): the moment of a health delete, and a lost answer', async () => {
+  const { loadMarket } = await import('../market/content');
+  const { catalogueOf, rulesContextOf, withMarket } = await import('./catalogue');
+  const market = await loadMarket();
+  withMarket(market);
+  const E1 = '11111111-1111-4111-8111-111111111111';
+  const TODAY = '2026-11-12';
+  const q = market.stalls.wen.questions[0];
+  const live = (): ProgressEvent => ({ id: newEventId(), kind: 'stall_round', at: TODAY, stall: 'wen', answers: [{ q: q.id, pick: q.options.findIndex((o) => o.correct) }] });
+  const ANSWERED = { [q.id]: { correct: true, lastAt: TODAY } };
+  const key = accountKey(A);
+  /** Settings' delete (mentor-section.ts): counted before the request, then erased and counted again once it succeeded. */
+  const deleteHere = (store: PlayerStore) => {
+    store.update((st) => markHealthDelete(st, key));
+    store.update((st) => markHealthDelete(eraseHealthEvents(st, key), key));
+  };
+  const answeredNow = (store: PlayerStore) => accountViewOf(store.get(), key)?.marketAnswered ?? {};
+  const settle = async () => { for (let i = 0; i < 20; i++) await new Promise((r) => setTimeout(r, 0)); };
+
+  /** A server whose answers wait for `release()`; `erase()` is its health_data delete (a new erasure id, E1). */
+  function gated() {
+    let erasure: string | null = null;
+    const gates: (() => void)[] = [];
+    const posts: { kinds: string[]; ids: string[]; erasure: unknown }[] = [];
+    const client = {
+      getProgress: () => new Promise((resolve) => {
+        gates.push(() => resolve({ ok: true, status: 200, data: { view: { ...VIEW, marketAnswered: ANSWERED }, healthErasure: erasure } }));
+      }),
+      postProgressEvents: (events: ProgressEvent[], _upload?: true, seen?: string | null) => {
+        posts.push({ kinds: events.map((e) => e.kind), ids: events.map((e) => e.id), erasure: seen });
+        return new Promise((resolve) => {
+          gates.push(() => {
+            // Answered as the server would at release time: a round under a stale id is refused `erased`.
+            const rounds = events.filter((e) => e.kind === 'stall_round' && erasure !== null && seen !== erasure);
+            resolve(ok({
+              accepted: events.filter((e) => !rounds.includes(e)).map((e) => ({ clientId: e.id, grants: [] })),
+              rejected: rounds.map((e) => ({ clientId: e.id, problems: ['erased'] })),
+              view: { ...VIEW, marketAnswered: ANSWERED },
+              healthErasure: erasure,
+            }));
+          });
+        });
+      },
+    } as unknown as ApiClient;
+    return { client, posts, release: async () => { await settle(); gates.shift()?.(); await settle(); }, erase: () => { erasure = E1; } };
+  }
+  const syncOf = (store: PlayerStore, client: ApiClient) =>
+    createProgressSync({ store, client, online: () => true, gapMs: 0, catalogue: catalogueOf(), context: () => rulesContextOf([], [], TODAY) });
+
+  test('N2: a round posted before the delete and answered after it (refused `erased`) is never posted again or put back; its answer\'s view is not cached', async () => {
+    const store = createStore(null);
+    signIn(store);
+    const server = gated();
+    const sync = syncOf(store, server.client);
+    const r = live();
+    const recorded = sync.record([r]);
+    await settle();
+    deleteHere(store);
+    server.erase();
+    await server.release();
+    await recorded;
+    await server.release(); // nothing waits: no second post
+    expect(server.posts.map((p) => p.ids)).toEqual([[r.id]]);
+    expect(part(store, A).events.map((e) => e.id)).not.toContain(r.id);
+    expect(part(store, A).pendingUpload).not.toContain(r.id);
+    expect(answeredNow(store)).toEqual({});
+    sync.stop();
+
+    // Positive control: the same race without a delete asked here (another device's) re-posts it under the new id (R1).
+    const other = createStore(null);
+    signIn(other);
+    const s2 = gated();
+    const sync2 = syncOf(other, s2.client);
+    const r2 = live();
+    const rec2 = sync2.record([r2]);
+    await settle();
+    s2.erase();
+    await s2.release();
+    await s2.release();
+    await rec2;
+    expect(s2.posts.map((p) => p.ids)).toEqual([[r2.id], [r2.id]]);
+    expect(part(other, A).events.map((e) => e.id)).toContain(r2.id);
+    sync2.stop();
+  });
+
+  test('N2: a round still waiting in the live buffer when the delete is asked is never posted; a lesson with it still goes', async () => {
+    const store = createStore(null);
+    signIn(store);
+    const server = gated();
+    const sync = syncOf(store, server.client);
+    const first = live();
+    const p1 = sync.record([first]);
+    await settle();
+    const waiting = live();
+    const les = lesson(TODAY);
+    const p2 = sync.record([waiting, les]);
+    await settle();
+    expect(server.posts).toHaveLength(1); // the second batch waits behind the first
+    deleteHere(store);
+    server.erase();
+    await server.release();
+    await server.release();
+    await Promise.all([p1, p2]);
+    expect(server.posts.map((p) => p.kinds)).toEqual([['stall_round'], ['lesson']]);
+    expect(server.posts.flatMap((p) => p.ids)).not.toContain(waiting.id);
+    expect(part(store, A).events.map((e) => e.id)).not.toContain(waiting.id);
+    sync.stop();
+  });
+
+  test('N2: a view asked for before the delete and answered after it never re-caches the answered ids; asked after, it is kept', async () => {
+    const store = createStore(null);
+    signIn(store);
+    const server = gated();
+    const sync = syncOf(store, server.client);
+    const before = sync.refreshAccountView();
+    await settle();
+    deleteHere(store);
+    await server.release();
+    await before;
+    expect(answeredNow(store)).toEqual({});
+    // Positive control: a view asked after the delete is the server's own, and is kept.
+    const after = sync.refreshAccountView();
+    await server.release();
+    await after;
+    expect(answeredNow(store)).toEqual(ANSWERED);
+    sync.stop();
+  });
+
+  test('N4: a live post whose answer was lost comes back `duplicate`: the device\'s stall grants go and the server\'s view stands; a duplicate lesson keeps its own', async () => {
+    let lost = true;
+    const { store, sync } = setup({
+      catalogue: catalogueOf(), context: () => rulesContextOf([], [], TODAY),
+      answer: (p) => (lost
+        ? { ok: false, status: 0, error: { code: 'network', message: '' } }
+        : ok({ duplicate: p.events.map((e) => e.id), view: { ...VIEW, xp: 10, marketAnswered: ANSWERED } })),
+    });
+    signIn(store);
+    const r = live();
+    const les = lesson(TODAY);
+    await sync.record([r, les]);
+    // The server stored both, but the answer never came: the device judged them itself, meanwhile.
+    expect(part(store, A).grants.some((g) => g.eventId === r.id && g.kind === 'xp')).toBe(true);
+    const lessonGrants = part(store, A).grants.filter((g) => g.eventId === les.id);
+    expect(lessonGrants.length).toBeGreaterThan(0);
+    lost = false;
+    await sync.uploadDeviceLog();
+    expect(part(store, A).grants.filter((g) => g.eventId === r.id)).toEqual([]);
+    expect(part(store, A).grants.filter((g) => g.eventId === les.id)).toEqual(lessonGrants);
+    expect(accountViewOf(store.get(), key)?.xp).toBe(10);
+    expect(currentProgress(store.get()).marketAnswered).toEqual(ANSWERED);
     sync.stop();
   });
 });

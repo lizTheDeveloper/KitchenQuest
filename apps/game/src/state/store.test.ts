@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { recordTechnique } from '@kitchenquest/core/engine';
-import { accountKey, accountViewOf, applyServerErasure, createStore, eraseHealthEvents, prunePartition, deleteDeviceData, importM3Toolkit, mergePartitions, mergeProgress, partitionKey, partitionOf, STORE_KEY, withPartition } from './store';
+import { accountKey, accountViewOf, applyServerErasure, createStore, eraseHealthEvents, healthDeletesOf, markHealthDelete, prunePartition, deleteDeviceData, importM3Toolkit, mergePartitions, mergeProgress, partitionKey, partitionOf, STORE_KEY, withPartition } from './store';
 
 function memStorage(init: Record<string, string> = {}): Storage {
   const m = new Map(Object.entries(init));
@@ -730,5 +730,35 @@ describe('M7 Step 7 (M6 fix review N1): the server erase signal', () => {
     const t = applyServerErasure(s, key, E1);
     expect(t.accountProgress[key]).toMatchObject({ erasure: E1, view: null });
     expect(partitionOf(t, key).events).toEqual([]);
+  });
+});
+
+describe('M7 Step 8 (M6 fix review N2): a health delete asked on this device is counted on the partition', () => {
+  const key = accountKey('cook@example.test');
+  const at = '2026-11-09';
+  const round = { id: 'r1', kind: 'stall_round' as const, at, stall: 'bram', answers: [{ q: 'bram-pc-most-protein', pick: 2 }] };
+  const seeded = () => withPartition({ ...createStore(null).get(), account: { email: 'cook@example.test' } }, key, { events: [round], grants: [], pendingUpload: ['r1'], base: null }, null);
+  const E1 = '11111111-1111-4111-8111-111111111111';
+
+  it('markHealthDelete counts up and changes nothing else; it survives an erase, a server erasure, a prune, a merge either way and a reload', () => {
+    expect(healthDeletesOf(seeded(), key)).toBe(0);
+    expect(healthDeletesOf(createStore(null).get(), key)).toBe(0);
+    const once = markHealthDelete(seeded(), key);
+    expect(healthDeletesOf(once, key)).toBe(1);
+    expect(partitionOf(once, key)).toEqual(partitionOf(seeded(), key));
+    const twice = markHealthDelete(eraseHealthEvents(once, key), key);
+    expect(healthDeletesOf(twice, key)).toBe(2);
+    expect(healthDeletesOf(applyServerErasure(twice, key, E1), key)).toBe(2);
+    expect(healthDeletesOf(prunePartition(twice, key), key)).toBe(2);
+    // Merged with another tab's older copy, whichever side is newer (the erase bumped the epoch): the count is kept.
+    expect(healthDeletesOf({ ...seeded(), ...mergePartitions(seeded(), twice) }, key)).toBe(2);
+    expect(healthDeletesOf({ ...seeded(), ...mergePartitions(twice, seeded()) }, key)).toBe(2);
+    expect(healthDeletesOf({ ...seeded(), ...mergePartitions(once, seeded()) }, key)).toBe(1);
+    // An account with no partition yet gets one, so an answer on its way still sees the count.
+    expect(healthDeletesOf(markHealthDelete(createStore(null).get(), key), key)).toBe(1);
+    const storage = memStorage();
+    createStore(storage).update(() => twice);
+    expect(healthDeletesOf(createStore(storage).get(), key)).toBe(2);
+    expect(createStore(memStorage({ [STORE_KEY]: JSON.stringify({ v: 1, accountProgress: { [key]: { progress: { events: [], grants: [], base: null, pendingUpload: [] }, view: null, healthDeletes: -1 } } }) })).notice).toBe('corrupt');
   });
 });
