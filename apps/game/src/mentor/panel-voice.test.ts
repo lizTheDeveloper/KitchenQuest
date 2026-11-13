@@ -16,7 +16,7 @@ import { HEARD_YES } from './heard-card';
 import { mountMentorPanel, type MentorMode } from './panel';
 import type { CardView, PanReply } from './reply';
 import { createScriptedEngine } from './scripted';
-import { MIC_READY_TEXT, TALK_BLOCKED_LABEL, TALK_LABEL, TALK_OFF_LABEL, UNAVAILABLE_BACKOFF_MS } from './talk';
+import { MIC_READY_TEXT, TALK_BLOCKED_LABEL, TALK_COOK_LABEL, TALK_LABEL, TALK_OFF_LABEL, UNAVAILABLE_BACKOFF_MS } from './talk';
 import { createWeekTurn } from './week-turn';
 import type { CardWriter } from './writer';
 
@@ -572,5 +572,51 @@ describe('M7 Step 10: the panel\'s port for hands-free cook mode (cookVoice)', (
     expect(changes).toEqual([true]);
     expect(port.childOn()).toBe(true);
     un();
+  });
+});
+
+describe('M7 Step 10 fix round 1 (I1): one voice controller at a time; hands-free cook mode owns voice while it is on', () => {
+  test('hands-free on → the talk control reads "Hands-free is on", a press opens nothing, and the microphone was opened once in all', async () => {
+    vi.stubEnv('VITE_HANDS_FREE', 'on');
+    try {
+      const r = await rig();
+      const { claimVoice } = await import('./voice-owner');
+      const { startCookVoice } = await import('../cook/cook-voice');
+      // Cook mode's own controller, on the same browser: claimed first, then started.
+      const release = claimVoice('cook');
+      await flush();
+      expect(r.btn()!.textContent).toBe(TALK_COOK_LABEL);
+      expect(r.btn()!.getAttribute('aria-disabled')).toBe('true');
+      const cookCtl = realVoice.createVoiceController({ win: r.audio.win, store: r.store, provider: realVoice.serviceProvider(r.audio.win, r.store, { player: r.player, now: () => T0 }), conversationId: () => null, childOn: () => false, earcon: () => undefined });
+      const cv = startCookVoice({ controller: cookCtl, hooks: { next() {}, back() {}, timerStart: () => false, timerStop: () => 'which', currentStep: () => 0, stepCount: () => 3, speakStep: null }, localDate: () => '2026-11-13', doc: document, toPan: () => Promise.resolve(null), say: (t) => dialogue.say(t), show: () => undefined, answered: () => undefined, readAloud: () => true });
+      await r.ready();
+      expect(r.audio.getUserMedia.calls).toHaveLength(1);
+      const socketsBefore = r.sockets.length;
+      r.press();
+      await flush();
+      r.release();
+      await flush();
+      expect(r.audio.getUserMedia.calls).toHaveLength(1); // never a second microphone
+      expect(r.sockets).toHaveLength(socketsBefore); // nor a second socket
+      // Hands-free off: the talk control is back.
+      cv.stop('user');
+      release();
+      await flush();
+      expect(r.btn()!.textContent).toBe(TALK_LABEL);
+      expect(r.btn()!.hasAttribute('aria-disabled')).toBe(false);
+    } finally { vi.unstubAllEnvs(); }
+  });
+
+  test('a talk controller holding the microphone is closed the moment cook mode claims voice (its tracks stopped)', async () => {
+    const r = await rig();
+    const { claimVoice } = await import('./voice-owner');
+    r.press();
+    await r.ready();
+    await flush();
+    expect(r.audio.tracks.some((t) => !t.stopped)).toBe(true);
+    const release = claimVoice('cook');
+    expect(r.audio.tracks.every((t) => t.stopped)).toBe(true);
+    release();
+    release(); // twice is harmless
   });
 });

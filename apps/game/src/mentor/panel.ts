@@ -53,7 +53,8 @@ const STAMP_MS = 650;
 export type MentorMode = 'standard' | 'familyTable';
 export interface MentorPanel {
   readonly mode: MentorMode;
-  open(): void;
+  /** M7 Step 10 fix round 1 (I5): `focus: false` opens it without moving focus (hands-free cook mode, for a tap). */
+  open(opts?: { focus?: boolean }): void;
   close(): void;
   isOpen(): boolean;
   /** Add a scripted Pan bubble. Scenes call this in every mode. */
@@ -750,13 +751,13 @@ export function mountMentorPanel(root: HTMLElement, opts: {
   const api: MentorPanel = {
     mode,
     get turn() { return turn; },
-    open() {
+    open(o) {
       if (open) return;
       open = true;
       panel.hidden = false;
       opener?.setAttribute('aria-expanded', 'true');
       doc.addEventListener('keydown', onDocKey);
-      (textBox ?? closeBtn).focus();
+      if (o?.focus !== false) (textBox ?? closeBtn).focus();
       showDisclosure();
       loadTalk();
       for (const fn of [...openListeners]) fn();
@@ -767,7 +768,8 @@ export function mountMentorPanel(root: HTMLElement, opts: {
       panel.hidden = true;
       opener?.setAttribute('aria-expanded', 'false');
       doc.removeEventListener('keydown', onDocKey);
-      opener?.focus();
+      // Focus goes back to the opener only from inside the panel (an open without focus left it where it was).
+      if (panel.contains(doc.activeElement) || doc.activeElement === doc.body) opener?.focus();
     },
     isOpen: () => open,
     cookVoice() {

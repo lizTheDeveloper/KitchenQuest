@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { HANDS_FREE_IDLE_MS, cookCommand, type SpeakItem, type VoiceState } from '@kitchenquest/core/engine';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import type { Said } from '../mentor/dialogue';
 import type { PanReply } from '../mentor/reply';
 import type { HandsFreeOff, VoicePhase, VoiceProblem } from '../voice';
 import { startCookVoice, type CookVoiceHooks } from './cook-voice';
@@ -56,31 +57,48 @@ function fakeController() {
 
 const said = (text: string): PanReply => ({ items: [{ kind: 'said', said: { trigger: 'mentor.reply', text, ai: 'allowed', index: 0, part: 0 } }], cards: [], intents: [], actions: [], notice: null, replyId: 'r-1' });
 
-function rig(opts: { speakStep?: { slug: string } | null; toPan?: (text: string, id: number) => Promise<PanReply | null>; readAloud?: boolean } = {}) {
+/** The deps every test needs but doesn't look at. */
+const quietDeps = {
+  localDate: () => '2026-11-13', doc: document, toPan: () => Promise.resolve(null),
+  say: (t: string): Said => ({ trigger: t, text: t, ai: 'never', index: 0 }), show: () => undefined, answered: () => undefined, readAloud: () => true,
+};
+const noHooks: CookVoiceHooks = { next() {}, back() {}, timerStart: () => false, timerStop: () => 'which', currentStep: () => 0, stepCount: () => 3, speakStep: null };
+
+function rig(opts: {
+  speakStep?: { slug: string } | null; toPan?: (text: string, id: number) => Promise<PanReply | null>; readAloud?: boolean;
+  step?: number; timerStart?: () => boolean; timerStop?: () => 'stopped' | 'which';
+} = {}) {
   const c = fakeController();
-  let step = 0;
+  let step = opts.step ?? 0;
   const total = 4;
   const log: string[] = [];
+  /** Every Pan line drawn: the first-paint bank's (`say`) and the cues' (`show`). */
   const lines: string[] = [];
   const toPan: { text: string; id: number }[] = [];
   const stops: string[] = [];
+  const answered: { r: PanReply; tap: boolean }[] = [];
   const hooks: CookVoiceHooks = {
     next: () => { log.push('next'); if (step < total - 1) step++; },
     back: () => { log.push('back'); if (step > 0) step--; },
-    timerStart: () => { log.push('timerStart'); },
-    timerStop: () => { log.push('timerStop'); },
+    timerStart: () => { log.push('timerStart'); return opts.timerStart?.() ?? true; },
+    timerStop: () => { log.push('timerStop'); return opts.timerStop?.() ?? 'stopped'; },
     currentStep: () => step,
+    stepCount: () => total,
     speakStep: opts.speakStep === undefined ? { slug: 'india/kerala/parippu' } : opts.speakStep,
   };
   const voice = startCookVoice({
     controller: c, hooks, localDate: () => '2026-11-13', doc: document,
     toPan: (text, id) => { toPan.push({ text, id }); return opts.toPan ? opts.toPan(text, id) : Promise.resolve(said('Keep it moving.')); },
-    line: (t) => { lines.push(t); },
+    say: (t) => { lines.push(t); return { trigger: t, text: `[${t}]`, ai: 'never', index: 1 }; },
+    show: (r) => { for (const i of r.items) if (i.kind === 'said') lines.push(i.said.trigger); },
+    answered: (r, tap) => { answered.push({ r, tap }); },
     readAloud: () => opts.readAloud ?? true,
     onStop: (why) => { stops.push(why); },
   });
-  return { c, voice, log, lines, toPan, stops, step: () => step };
+  return { c, voice, log, lines, toPan, stops, answered, step: () => step };
 }
+/** The var-free lines a controller was asked to speak (Ruling 15: by trigger and index, never text). */
+const spokenLines = (c: ReturnType<typeof fakeController>) => c.said.flatMap((p) => p.items).flatMap((i) => (i.kind === 'line' ? [i.trigger] : []));
 const flush = async () => { for (let i = 0; i < 5; i++) await Promise.resolve(); };
 const setHidden = (hidden: boolean) => {
   Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => (hidden ? 'hidden' : 'visible') });
@@ -99,12 +117,12 @@ describe('startCookVoice (M7 Step 10)', () => {
     c.refuseStart = true;
     const stops: string[] = [];
     const lines: string[] = [];
-    startCookVoice({ controller: c, hooks: { next() {}, back() {}, timerStart() {}, timerStop() {}, currentStep: () => 0, speakStep: null }, localDate: () => '2026-11-13', doc: document, toPan: () => Promise.resolve(null), line: (t) => lines.push(t), readAloud: () => true, onStop: (w) => stops.push(w) });
+    startCookVoice({ ...quietDeps, controller: c, hooks: noHooks, say: (t) => { lines.push(t); return quietDeps.say(t); }, onStop: (w) => stops.push(w) });
     expect(lines).toEqual([]);
     expect(stops).toEqual(['refused']);
   });
 
-  test('"next" on step index 0 of a canon dish shows index 1 and says { kind: "step", slug, step: 1 }; a frame dish advances and says nothing', () => {
+  test('"next" on step index 0 of a canon dish shows index 1 and says { kind: "step", slug, step: 1 }; a frame dish advances and only ever says voice.step_on_screen (fix round 1, M1)', () => {
     const r = rig();
     r.c.hear('next step please');
     expect(r.log).toEqual(['next']);
@@ -115,16 +133,16 @@ describe('startCookVoice (M7 Step 10)', () => {
     r.c.hear('say that again');
     expect(r.c.said.slice(1).map((p) => (p.items[0] as { step: number }).step)).toEqual([0, 0]);
     expect(r.toPan).toEqual([]); // commands never reach the Pan
-    // Back on the first step: nothing moved, so nothing is read; the wait just ends.
+    // Back on the first step: it stays, and the step on screen is read again (never silence, M1).
     r.c.hear('back');
-    expect(r.c.said.at(-1)).toEqual({ items: [], said: [] });
-    // A Pantry Frame (Ruling 11): it advances, and nothing is ever read aloud.
+    expect(r.c.said.at(-1)).toEqual({ items: [{ kind: 'step', slug: 'india/kerala/parippu', step: 0, localDate: '2026-11-13' }], said: [] });
+    // A Pantry Frame (Ruling 11): it advances; its steps are never read, only the var-free voice.step_on_screen.
     const f = rig({ speakStep: null });
     f.c.hear('next');
     f.c.hear('repeat');
     expect(f.step()).toBe(1);
-    expect(f.c.said.every((p) => p.items.length === 0)).toBe(true);
     expect(f.c.said.flatMap((p) => p.items).some((i) => i.kind === 'step')).toBe(false);
+    expect(f.c.said).toEqual([0, 1].map(() => ({ items: [{ kind: 'line', trigger: 'voice.step_on_screen', index: 1 }], said: ['[voice.step_on_screen]'] })));
   });
 
   test('"start the timer" / "stop the timer" call the existing hooks; "stop listening" stops and says voice.hands_free_off', () => {
@@ -132,15 +150,24 @@ describe('startCookVoice (M7 Step 10)', () => {
     r.c.hear('start the timer');
     r.c.hear('ok stop the timer thanks');
     expect(r.log).toEqual(['timerStart', 'timerStop']);
-    expect(r.c.said).toEqual([{ items: [], said: [] }, { items: [], said: [] }]); // the wait ends, nothing spoken
+    // Fix round 1 (I3, M1): each says, aloud and in the panel, what happened (var-free cues, by index).
+    expect(spokenLines(r.c)).toEqual(['voice.cook.timer_started', 'voice.cook.timer_stopped']);
+    expect(r.c.said.every((p) => p.said.length === 1 && p.said[0] !== '')).toBe(true);
+    // No timer to start, or no single timer that just went off: said so, and the hook stopped nothing.
+    const none = rig({ timerStart: () => false, timerStop: () => 'which' });
+    none.c.hear('start the timer');
+    none.c.hear('stop the alarm');
+    expect(spokenLines(none.c)).toEqual(['voice.cook.no_timer', 'voice.cook.timer_which']);
+    expect(none.lines).toEqual(['voice.hands_free_on', 'voice.cook.no_timer', 'voice.cook.timer_which']);
     r.c.hear('stop listening');
     expect(r.c.calls).toEqual(['startHandsFree', 'stopHandsFree']);
-    expect(r.lines).toEqual(['voice.hands_free_on', 'voice.hands_free_off']);
+    expect(r.lines.filter((l) => l.startsWith('voice.hands_free'))).toEqual(['voice.hands_free_on', 'voice.hands_free_off']);
     expect(r.stops).toEqual(['user']);
     // Stopped: nothing more is heard, said, or told twice.
     expect(r.c.listeners()).toBe(0);
+    const before = r.lines.length;
     r.voice.stop('user');
-    expect(r.lines).toHaveLength(2);
+    expect(r.lines).toHaveLength(before);
     expect(r.stops).toEqual(['user']);
   });
 
@@ -220,7 +247,7 @@ describe('startCookVoice (M7 Step 10)', () => {
       const player = { play() {}, stop() {}, get speaking() { return false; }, onIdle: () => () => undefined };
       const provider = serviceProvider(audio.win, store, { player, now: () => new Date(2026, 10, 13, 18, 5) });
       const controller = createVoiceController({ win: audio.win, store, provider, conversationId: () => null, childOn: () => false, earcon: () => undefined });
-      const voice = startCookVoice({ controller, hooks: { next() {}, back() {}, timerStart() {}, timerStop() {}, currentStep: () => 0, speakStep: null }, localDate: () => '2026-11-13', doc: document, toPan: () => Promise.resolve(null), line: () => undefined, readAloud: () => true });
+      const voice = startCookVoice({ ...quietDeps, controller, hooks: noHooks });
       await tick();
       const ws = sw.sockets.at(-1)!;
       ws.open();
@@ -297,6 +324,7 @@ describe('startCookVoice (M7 Step 10)', () => {
     left.voice.stop('left');
     expect(left.stops).toEqual(['left']);
     expect(left.c.calls).toEqual(['startHandsFree', 'stopHandsFree']);
+    expect(left.lines).toEqual(['voice.hands_free_on']); // fix round 1 (M6): leaving says nothing, as a close doesn't
     // Family Table or a child: the controller closes itself (its store watch, or childOn() on every frame); cook voice
     // stops with it at once and says nothing in a child's hearing.
     for (const why of ['family_table', 'child'] as const) {
@@ -341,3 +369,42 @@ describe('startCookVoice (M7 Step 10)', () => {
 
 beforeEach(() => { vi.stubEnv('VITE_HANDS_FREE', 'on'); });
 afterEach(() => { vi.unstubAllEnvs(); });
+
+describe('M7 Step 10 fix round 1', () => {
+  test('I4: on the last step a spoken "next" never finishes: it says voice.cook.last_step; loose chatter ("what now", "carry on", "and then") is no command there and goes the Pan\'s way; elsewhere it still moves the step', () => {
+    const r = rig({ step: 3 });
+    r.c.hear('next step');
+    r.c.hear('ok next please');
+    expect(r.log).toEqual([]);
+    expect(r.step()).toBe(3);
+    expect(spokenLines(r.c)).toEqual(['voice.cook.last_step', 'voice.cook.last_step']);
+    for (const chatter of ['what now', 'carry on', 'and then', "what's next", 'go on']) r.c.hear(chatter);
+    expect(r.log).toEqual([]);
+    expect(r.toPan.map((t) => t.text)).toEqual(['what now', 'carry on', 'and then', "what's next", 'go on']);
+    // Not the last step: the same words are navigation.
+    const mid = rig({ step: 1 });
+    mid.c.hear('carry on');
+    expect(mid.log).toEqual(['next']);
+    expect(mid.toPan).toEqual([]);
+  });
+
+  test('I5: a reply is handed to cook mode with whether it needs a tap (a card or a heard card); a plain reply needs none', async () => {
+    const card = { ...said('Here.'), cards: [{ origin: 'local', localId: 'l1' } as unknown as PanReply['cards'][number]] };
+    const heard: PanReply = { ...said('I heard sesame.'), items: [{ kind: 'heard', check: { terms: [] } as never, utteranceId: 1, onPick: () => Promise.resolve(said('')) }] };
+    for (const [reply, tap] of [[said('Two minutes.'), false], [card, true], [heard, true]] as const) {
+      const r = rig({ toPan: () => Promise.resolve(reply) });
+      r.c.hear('how long do I keep stirring');
+      await flush();
+      expect(r.answered).toEqual([{ r: reply, tap }]);
+    }
+  });
+
+  test('M3: a problem that did not stop hands-free is never reused for a later plain stop', async () => {
+    const r = rig();
+    r.c.problem('network'); // reported while hands-free stayed on
+    await flush();
+    r.c.handsOff('stopped');
+    await flush();
+    expect(r.lines).toEqual(['voice.hands_free_on', 'voice.hands_free_off']);
+  });
+});

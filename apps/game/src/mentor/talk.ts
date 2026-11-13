@@ -29,6 +29,7 @@ import type { ConsentAnswer, PanReply, TurnContext } from './reply';
 import { restingUntil } from './resting';
 import { transcriptTurn } from './voice-turn';
 import { requestFocus } from '../shell/focus-intent';
+import { onVoiceOwner, voiceOwner } from './voice-owner';
 
 type VoiceLib = typeof VoiceModule;
 
@@ -61,6 +62,9 @@ export const TALK_LABEL = 'Hold to talk';
 export const TALK_OFF_LABEL = 'Talk out loud';
 /** Fix round 2 (I-2): the server holds a child or Family Table block for this account; a press asks again. */
 export const TALK_BLOCKED_LABEL = 'Voice is off for now';
+/** Step 10 fix round 1 (I1): hands-free cook mode owns voice meanwhile; this control opens nothing. */
+export const TALK_COOK_LABEL = 'Hands-free is on';
+const HINT_COOK = 'Cook mode is listening hands-free. Turn hands-free off there to hold to talk; typing always works.';
 /** Fix round 3 (I-A): the browser's "Allow" came after the player let go: nothing was heard, press again. */
 export const MIC_READY_TEXT = "The microphone's ready. Hold the button and speak.";
 const HINT_BLOCKED = 'Voice is off for your account right now. Press to check again; typing always works.';
@@ -122,8 +126,18 @@ export function mountTalk(row: HTMLElement, hooks: TalkHooks): { stop(): void } 
     return !stopped && s.account !== null && !s.settings.familyTable && child?.on !== true;
   };
 
+  const cookOwns = () => voiceOwner() === 'cook';
   const draw = (phase: VoicePhase = ctl?.phase ?? 'idle') => {
     row.hidden = !allowed();
+    btn.removeAttribute('aria-disabled');
+    if (voiceOn() && cookOwns()) {
+      btn.textContent = TALK_COOK_LABEL;
+      btn.setAttribute('aria-pressed', 'false');
+      btn.setAttribute('aria-disabled', 'true');
+      btn.dataset.phase = 'cook';
+      hint.textContent = HINT_COOK;
+      return;
+    }
     if (!voiceOn()) {
       btn.textContent = TALK_OFF_LABEL;
       btn.setAttribute('aria-pressed', 'false');
@@ -291,7 +305,7 @@ export function mountTalk(row: HTMLElement, hooks: TalkHooks): { stop(): void } 
   }
 
   const press = () => {
-    if (held || !allowed()) return;
+    if (held || !allowed() || cookOwns()) return;
     if (!voiceOn()) return;
     held = true;
     told = false;
@@ -356,6 +370,11 @@ export function mountTalk(row: HTMLElement, hooks: TalkHooks): { stop(): void } 
     draw();
   };
   const unStore = store.subscribe(sync);
+  // I1: cook mode claimed voice: this controller (and its microphone) closes now; released, the control comes back.
+  const unOwner = onVoiceOwner(() => {
+    if (cookOwns()) { held = false; engaged = false; drop(); }
+    draw();
+  });
   // G3: the moment the child flag is set, the controller and any microphone still starting close.
   // I-2: a cleared conversation (its child flag reset) starts without the server's refusal: a press asks again.
   const unChild = child?.onChange(() => { if (child.on !== true) { serverBlock = null; blockSaid = false; } sync(); });
@@ -365,6 +384,7 @@ export function mountTalk(row: HTMLElement, hooks: TalkHooks): { stop(): void } 
     stop() {
       stopped = true;
       unStore();
+      unOwner();
       unChild?.();
       drop();
       row.replaceChildren();

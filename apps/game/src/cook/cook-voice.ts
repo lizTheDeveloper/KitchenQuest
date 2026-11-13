@@ -11,22 +11,38 @@
 // A spoken command never confirms a card: only the Pan's own turn sees a "yes", and severe and heard cards stay
 // tap-only (Rulings 10 and 12). Barge-in (the controller) stops audio only: a turn already sent is still drawn.
 //
+// Fix round 1 (controller rulings):
+// - I3: "stop the timer" / "stop the alarm" never stops a running timer. Cook mode stops only the one timer that is
+//   sounding or just finished; none, or more than one, is `voice.cook.timer_which` and nothing stops.
+// - I4: a spoken "next" never finishes the dish. On the last step it says `voice.cook.last_step`; loose chatter that
+//   cookCommand reads as "next" ("what now", "carry on") is no command there at all (game-side narrowing: core's
+//   commands.ts is hashed and stays as it is).
+// - I5: the Pan's reply is spoken, and cook mode is told whether it needs a tap (`answered`): only then does the panel
+//   open, and never taking focus.
+// - M1: every command is answered aloud: a frame's step is `voice.step_on_screen`, a timer command its cue.
+//
 // Hands-free turns itself off after HANDS_FREE_IDLE_MS with no transcript (only a non-empty one re-arms it), when the
 // page is hidden, on leaving cook mode, for steady noise (the controller's 'noise'), and whenever the controller closes
 // (Family Table, a child, signed out, voice off: Rulings 8 and 9).
 import { cookCommand, HANDS_FREE_IDLE_MS, type SpeakItem } from '@kitchenquest/core/engine';
+import type { Said } from '../mentor/dialogue';
 import { restingUntil } from '../mentor/resting';
-import type { PanReply } from '../mentor/reply';
+import type { PanItem, PanReply } from '../mentor/reply';
+import { cookCue } from './cook-voice-copy';
 import type { HandsFreeOff, VoiceController, VoiceProblem } from '../voice';
 import { speakPlan } from '../voice/speak-plan';
 
 export interface CookVoiceHooks {
+  /** One step on; never finishes the dish (I4: finishing is a tap). */
   next(): void;
   back(): void;
-  timerStart(): void;
-  timerStop(): void;
+  /** This step's first timer that isn't running; false when there is none. */
+  timerStart(): boolean;
+  /** I3: the one timer sounding or just finished, stopped; 'which' when none or several (nothing stops). */
+  timerStop(): 'stopped' | 'which';
   /** 0-based, as SpeakItem.step (P12). */
   currentStep(): number;
+  stepCount(): number;
   /** null: Pantry Frames and dishes cooked with notes are never read (Ruling 11). */
   speakStep: { slug: string } | null;
 }
@@ -48,8 +64,12 @@ export interface CookVoiceDeps {
   doc: Document;
   /** The Pan's spoken turn: the player's bubble and the reply drawn in the panel (heard check first). The reply, or null. */
   toPan(text: string, utteranceId: number): Promise<PanReply | null>;
-  /** A scripted Pan line in the panel (`getMentor().say`). */
-  line(trigger: string, vars?: Record<string, string>): void;
+  /** A scripted first-paint Pan line, drawn in the panel (`getMentor().say`): the line as said. */
+  say(trigger: string, vars?: Record<string, string>): Said;
+  /** A reply drawn in the panel (`getMentor().show`): the lazy cues. */
+  show(r: PanReply): void;
+  /** I5: the Pan answered (drawn in the panel, closed or not); `needsTap`: it holds a card or a heard card to tap. */
+  answered(r: PanReply, needsTap: boolean): void;
   /** settings.voice.readAloud: the Pan's replies are spoken (a step asked for by voice is read either way). */
   readAloud(): boolean;
   /** Told once, when it stops (the caller closes the controller, drops the wake lock hold and redraws). */
@@ -57,6 +77,17 @@ export interface CookVoiceDeps {
 }
 
 const END_WAIT = { items: [] as SpeakItem[], said: [] as string[] };
+/** What a reply can hold that only a tap answers (I5). */
+const TAP_ITEMS: ReadonlySet<PanItem['kind']> = new Set(['heard', 'choices', 'quick', 'consent']);
+const needsTap = (r: PanReply): boolean => r.cards.length > 0 || r.items.some((i) => TAP_ITEMS.has(i.kind));
+/**
+ * I4 (game-side narrowing): on the last step only a deliberate "next" ("next", "next step", "ok next please") counts;
+ * chatter that cookCommand also reads as next ("what now", "what's next", "carry on", "and then") does not.
+ */
+const deliberateNext = (text: string): boolean => {
+  const words = text.toLowerCase().replace(/[^a-z\s]/g, '').split(/\s+/);
+  return words.includes('next') && !words.some((w) => w.startsWith('what'));
+};
 const problemLine = (p: VoiceProblem): string =>
   (p === 'microphone' ? 'voice.mic_blocked' : p === 'consent_required' ? 'voice.consent_needed' : 'voice.unavailable');
 
@@ -66,11 +97,19 @@ export function startCookVoice(deps: CookVoiceDeps): CookVoice {
   let idle: ReturnType<typeof setTimeout> | null = null;
   /** Bumped by every transcript: only the newest turn's reply is spoken (Ruling 10: the older one is drawn, not said). */
   let turn = 0;
-  /** A problem reported with a 'stopped': its line replaces the plain off line. */
+  /** A problem reported with a 'stopped' (in the same task): its line replaces the plain off line. M3: never later. */
   let told: string | null = null;
+  const line = (trigger: string, vars?: Record<string, string>) => { deps.say(trigger, vars); };
+  /** Say a var-free line aloud by index (Ruling 15), drawn too. */
+  const speakSaid = (said: Said) => { c.say({ items: [{ kind: 'line', trigger: said.trigger, index: said.index }], said: [said.text] }); };
+  const cue = (trigger: string) => {
+    const said = cookCue(trigger);
+    deps.show({ items: [{ kind: 'said', said }], cards: [], intents: [], actions: [], notice: null });
+    speakSaid(said);
+  };
   const unsubs: (() => void)[] = [];
 
-  const end = (why: CookVoiceStop, line: string | null, vars?: Record<string, string>) => {
+  const end = (why: CookVoiceStop, lineId: string | null, vars?: Record<string, string>) => {
     if (!on) return;
     on = false;
     if (idle !== null) clearTimeout(idle);
@@ -78,7 +117,7 @@ export function startCookVoice(deps: CookVoiceDeps): CookVoice {
     for (const u of unsubs.splice(0)) u();
     doc.removeEventListener('visibilitychange', onVisibility);
     if (c.handsFree) c.stopHandsFree();
-    if (line !== null) deps.line(line, vars);
+    if (lineId !== null) line(lineId, vars);
     deps.onStop?.(why);
   };
   const armIdle = () => {
@@ -87,36 +126,42 @@ export function startCookVoice(deps: CookVoiceDeps): CookVoice {
   };
   const onVisibility = () => { if (doc.visibilityState === 'hidden') end('hidden', 'voice.hands_free_off'); };
 
-  /** Read the step now on screen (a canon dish only), else just end the controller's wait. */
-  const readStep = (moved: boolean) => {
+  /** Read the step now on screen: a canon dish by slug (the API decides, Ruling 11), else `voice.step_on_screen` (M1). */
+  const readStep = () => {
     const s = hooks.speakStep;
-    if (!moved || s === null) { c.say(END_WAIT); return; }
+    if (s === null) { speakSaid(deps.say('voice.step_on_screen')); return; }
     c.say({ items: [{ kind: 'step', slug: s.slug, step: hooks.currentStep(), localDate: deps.localDate() }], said: [] });
   };
   const moving = (go: () => void) => {
-    const before = hooks.currentStep();
     go();
-    if (on) readStep(hooks.currentStep() !== before);
+    if (on) readStep();
   };
+  const lastStep = () => hooks.currentStep() >= hooks.stepCount() - 1;
 
   const heard = (text: string, tooLong: boolean, utteranceId: number) => {
     if (!on) return;
     const mine = ++turn;
     // Carry 3 (Step 8 I1): only real words are speech; noise that ended empty never keeps hands-free awake.
     if (text.trim() !== '') armIdle();
-    const command = tooLong ? null : cookCommand(text);
+    let command = tooLong ? null : cookCommand(text);
+    // I4: on the last step, chatter is no command (it goes to the Pan); a deliberate "next" is answered, never obeyed.
+    if (command === 'next' && lastStep()) {
+      if (deliberateNext(text)) return cue('voice.cook.last_step');
+      command = null;
+    }
     switch (command) {
       case 'next': return moving(() => { hooks.next(); });
       case 'back': return moving(() => { hooks.back(); });
-      case 'repeat': return readStep(true);
-      case 'timer_start': hooks.timerStart(); return c.say(END_WAIT);
-      case 'timer_stop': hooks.timerStop(); return c.say(END_WAIT);
+      case 'repeat': return readStep();
+      case 'timer_start': return cue(hooks.timerStart() ? 'voice.cook.timer_started' : 'voice.cook.no_timer');
+      case 'timer_stop': return cue(hooks.timerStop() === 'stopped' ? 'voice.cook.timer_stopped' : 'voice.cook.timer_which');
       case 'stop_listening': return end('user', 'voice.hands_free_off');
       case 'ingredients': // not a step command here: the Pan answers it (cook mode lists no ingredients)
       case null: break; // everything else: the Pan's (the heard check first)
     }
     void deps.toPan(text, utteranceId).then((r) => {
       if (!on || mine !== turn) return; // stopped, or the player spoke again meanwhile: drawn, never said over it
+      if (r !== null) deps.answered(r, needsTap(r));
       if (r === null || !deps.readAloud()) { c.say(END_WAIT); return; }
       c.say(speakPlan(r.items, r.cards, { replyId: r.replyId ?? null }));
     }, () => { if (on && mine === turn) c.say(END_WAIT); });
@@ -142,20 +187,26 @@ export function startCookVoice(deps: CookVoiceDeps): CookVoice {
   unsubs.push(
     c.onTranscript(heard),
     c.onHandsFreeOff(handsOff),
-    c.onProblem((p) => { if (p !== 'family_table' && p !== 'child') told ??= problemLine(p); }),
+    c.onProblem((p) => {
+      if (p === 'family_table' || p === 'child') return;
+      // M3: only for a 'stopped' in this same task (its microtask runs first); then it is forgotten.
+      told ??= problemLine(p);
+      queueMicrotask(() => { told = null; });
+    }),
   );
   doc.addEventListener('visibilitychange', onVisibility);
   c.startHandsFree();
   if (!c.handsFree) end('refused', null);
   else {
     armIdle();
-    deps.line('voice.hands_free_on');
+    line('voice.hands_free_on');
   }
 
   return {
     get on() { return on; },
     stop(reason) {
-      end(reason, reason === 'idle' ? 'voice.hands_free_idle' : 'voice.hands_free_off');
+      // M6: leaving says nothing (cook.done or the refusal follows); the others say why it went quiet.
+      end(reason, reason === 'left' ? null : reason === 'idle' ? 'voice.hands_free_idle' : 'voice.hands_free_off');
     },
     timerSounding(sounding) { if (on) c.timerSounding(sounding); },
   };

@@ -64,6 +64,8 @@ export function createWakeLock(nav: Navigator, doc: Document, onChange?: (s: Wak
     /** Hands-free is on (true) or off: held, the lock stays whatever the player's toggle says. */
     hold(on: boolean): Promise<WakeState> { held = on; return apply(); },
     get held(): boolean { return held; },
+    /** The player's own choice (the toggle), whatever a hold does meanwhile. */
+    get wanted(): boolean { return user; },
     get state(): WakeState { return state; },
   };
 }

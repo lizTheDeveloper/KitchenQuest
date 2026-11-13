@@ -117,7 +117,7 @@ function stablePanel(cur: () => MentorPanel, onClear: () => void): MentorPanel {
   return {
     get mode() { return cur().mode; },
     get turn() { return cur().turn; },
-    open: () => { cur().open(); },
+    open: (o) => { cur().open(o); },
     close: () => { cur().close(); },
     isOpen: () => cur().isOpen(),
     say: (id, vars) => cur().say(id, vars),

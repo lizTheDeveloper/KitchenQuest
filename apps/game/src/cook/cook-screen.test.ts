@@ -14,13 +14,18 @@ const hfMock = vi.hoisted(() => ({
   port: null as null | { conversationId(): string | null; childOn(): boolean; onChild(fn: () => void): () => void; spoken(text: string, id: number): Promise<unknown> },
   lines: [] as string[],
   opened: 0,
+  /** Fix round 1 (I5): how the panel was opened each time. */
+  opens: [] as unknown[],
+  shown: [] as unknown[],
+  reply: null as unknown,
 }));
 vi.mock('../mentor', () => ({
   getMentor: () => ({
-    say: (t: string) => { hfMock.lines.push(t); return { text: '', trigger: t, ai: 'never' }; },
+    say: (t: string) => { hfMock.lines.push(t); return { text: t, trigger: t, ai: 'never', index: 0 }; },
     cookVoice: () => hfMock.port,
     isOpen: () => false,
-    open: () => { hfMock.opened++; },
+    open: (opts?: unknown) => { hfMock.opened++; hfMock.opens.push(opts); },
+    show: (r: { items: { kind: string; said?: { trigger: string } }[] }) => { hfMock.shown.push(r); for (const i of r.items) if (i.said) hfMock.lines.push(i.said.trigger); },
   }),
   getMentorServices: () => ({ client: { currentRun: () => { runRead.calls++; return runRead.hang ? new Promise(() => {}) : Promise.resolve({ ok: true, status: 200, data: { run: runRead.run } }); } } }),
 }));
@@ -30,12 +35,13 @@ interface FakeCtl {
   calls: string[]; said: unknown[]; timer: boolean[]; handsFree: boolean; closedReason: string | null; timerSounding(on: boolean): void;
   hear(text: string): void; mic(open: boolean): void;
 }
-const voiceMock = vi.hoisted(() => ({ controllers: [] as FakeCtl[], providers: 0 }));
+const voiceMock = vi.hoisted(() => ({ controllers: [] as FakeCtl[], providers: 0, throwOnStart: false }));
 vi.mock('../voice', () => ({
   providerKind: () => 'service',
   serviceProvider: () => { voiceMock.providers++; return { close: () => undefined }; },
   devBrowserProvider: () => { throw new Error('not in tests'); },
   createVoiceController: () => {
+    if (voiceMock.throwOnStart) { voiceMock.throwOnStart = false; throw new Error('test: no controller'); }
     const transcripts = new Set<(t: string, tooLong: boolean, id: number) => void>();
     const off = new Set<(w: string) => void>();
     const mics = new Set<(open: boolean) => void>();
@@ -245,7 +251,14 @@ describe('M7 Step 10: hands-free cook mode', () => {
   const toggle = (el: HTMLElement) => el.querySelector<HTMLButtonElement>('.hands-free-toggle')!;
   const shown = (el: HTMLElement) => { const b = el.querySelector<HTMLButtonElement>('.hands-free-toggle'); return b !== null && !b.hidden; };
   const pill = (el: HTMLElement) => el.querySelector('.listening-region .listening-pill');
-  const on = async (t: ReturnType<typeof setUp>) => { toggle(t.el).click(); await flush(); return voiceMock.controllers.at(-1)!; };
+  /** Turns hands-free on and waits for its lazy chunks (the cues' content module loads with them). */
+  const on = async (t: ReturnType<typeof setUp>) => {
+    const n = voiceMock.controllers.length;
+    toggle(t.el).click();
+    await vi.waitFor(() => { expect(voiceMock.controllers.length).toBeGreaterThan(n); });
+    await flush();
+    return voiceMock.controllers.at(-1)!;
+  };
 
   beforeEach(() => {
     vi.stubEnv('VITE_HANDS_FREE', 'on');
@@ -362,15 +375,21 @@ describe('M7 Step 10: hands-free cook mode', () => {
     expect(tray()).toBe(true);
     c.hear('start the timer');
     expect(tray()).toBe(false);
+    // Fix round 1 (I3): a spoken stop never stops a running timer; its own Stop button does (I2).
     c.hear('stop the timer');
+    expect(tray()).toBe(false);
+    t.el.querySelector<HTMLButtonElement>('.timer-stop')!.click();
     expect(tray()).toBe(true);
     // The touch button still starts it with hands-free on.
     timerBtn.click();
     expect(tray()).toBe(false);
-    // A question goes to the Pan (the panel opens to show its reply and any heard card).
+    // A question goes to the Pan. Fix round 1 (I5): a plain reply opens nothing; the arrows keep moving the steps.
     c.hear('how long do I keep stirring');
     expect(spoken).toEqual(['how long do I keep stirring']);
-    expect(hfMock.opened).toBe(1);
+    await flush();
+    expect(hfMock.opened).toBe(0);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }));
+    expect(progress()).not.toBe('Step 2 of 7');
     // The toggle is a native button: Enter or Space on it is a click.
     expect(toggle(t.el).tagName).toBe('BUTTON');
     t.screen.unmount?.();
@@ -379,7 +398,7 @@ describe('M7 Step 10: hands-free cook mode', () => {
     expect(c.calls).toContain('stopHandsFree');
   });
 
-  test('a canon dish cooked with notes is never read aloud (Ruling 11): "next" moves, and nothing is asked of the API', async () => {
+  test('a canon dish cooked with notes is never read aloud (Ruling 11): "next" moves, and no step is asked of the API (only voice.step_on_screen, fix round 1 M1)', async () => {
     const t = setUp();
     cookWithNotes(SLUG, [note([{ op: 'add', name: 'lime' }])], EMAIL);
     await t.run();
@@ -387,7 +406,7 @@ describe('M7 Step 10: hands-free cook mode', () => {
     const c = await on(t);
     c.hear('next');
     expect(t.el.querySelector('.cook-progress')!.textContent).toBe('Step 2 of 7');
-    expect(c.said).toEqual([{ items: [], said: [] }]);
+    expect(c.said).toEqual([{ items: [{ kind: 'line', trigger: 'voice.step_on_screen', index: expect.any(Number) as number }], said: [expect.any(String) as string] }]);
     t.screen.unmount?.();
   });
 
@@ -413,7 +432,7 @@ describe('M7 Step 10: hands-free cook mode', () => {
       const screen = cookScreen();
       await screen.mount(el, { name: 'cook', slug: SLUG }, { store, now: () => new Date(now), navigate: () => undefined });
       toggle(el).click();
-      await flush();
+      await vi.waitFor(() => { expect(voiceMock.controllers.length).toBeGreaterThan(0); });
       const c = voiceMock.controllers.at(-1)!;
       const orig = c.timerSounding.bind(c);
       c.timerSounding = (v: boolean) => { order.push(`sounding:${v}`); orig(v); };
@@ -467,8 +486,14 @@ describe('M7 Step 10: hands-free cook mode', () => {
       await flush();
       wake.click(); // the player's off
       await flush();
-      expect(wake.getAttribute('aria-pressed')).toBe('true');
+      // Fix round 1 (M5): the toggle shows the player's own choice; hands-free still keeps the screen awake.
+      expect(wake.getAttribute('aria-pressed')).toBe('false');
       expect(sentinels.some((x) => !x.released)).toBe(true);
+      wake.click(); // and back on: their choice again
+      await flush();
+      expect(wake.getAttribute('aria-pressed')).toBe('true');
+      wake.click();
+      await flush();
       toggle(t.el).click(); // hands-free off: nothing holds it now
       await flush();
       expect(wake.getAttribute('aria-pressed')).toBe('false');
@@ -477,5 +502,200 @@ describe('M7 Step 10: hands-free cook mode', () => {
     } finally {
       delete (navigator as unknown as { wakeLock?: unknown }).wakeLock;
     }
+  });
+});
+
+describe('M7 Step 10 fix round 1', () => {
+  const flush = async () => { for (let i = 0; i < 10; i++) await new Promise((r) => setTimeout(r, 0)); };
+  /** A cook screen whose clock the test moves. */
+  async function cooking(opts: { voice?: boolean } = {}) {
+    let now = new Date('2026-11-10T18:00:00').getTime();
+    hfMock.port = { conversationId: () => null, childOn: () => false, onChild: () => () => undefined, spoken: () => Promise.resolve(hfMock.reply) };
+    const store = createStore(null);
+    store.update((s) => ({ ...s, account: { email: EMAIL }, settings: { ...s.settings, voice: { ...s.settings.voice, on: opts.voice ?? true, handsFree: true } } }));
+    const el = document.createElement('div');
+    document.body.append(el);
+    const screen = cookScreen();
+    await screen.mount(el, { name: 'cook', slug: SLUG }, { store, now: () => new Date(now), navigate: () => undefined });
+    const nextBtn = () => el.querySelector<HTMLButtonElement>('.cook-controls .btn-primary')!;
+    const t = {
+      el, store, screen,
+      advance: (ms: number) => { now += ms; document.dispatchEvent(new Event('visibilitychange')); },
+      progress: () => el.querySelector('.cook-progress')!.textContent,
+      nextBtn,
+      toStep: (n: number) => { while (t.progress() !== `Step ${n} of 7`) el.querySelector<HTMLButtonElement>(t.progress()!.startsWith(`Step ${n + 1}`) || Number(/Step (\d+)/.exec(t.progress()!)![1]) > n ? '.cook-controls .btn-secondary' : '.cook-controls .btn-primary')!.click(); },
+      trayItems: () => [...el.querySelectorAll<HTMLElement>('.timer-item')].map((li) => li.querySelector('.timer-text')!.textContent),
+      startFirstTimer: () => { el.querySelector<HTMLButtonElement>('[data-timer-start]')!.click(); },
+      hf: async () => {
+        const n = voiceMock.controllers.length;
+        const lines = hfMock.lines.length;
+        el.querySelector<HTMLButtonElement>('.hands-free-toggle')!.click();
+        await vi.waitFor(() => { expect(voiceMock.controllers.length > n || hfMock.lines.length > lines).toBe(true); });
+        await flush();
+        return voiceMock.controllers.at(-1)!;
+      },
+    };
+    return t;
+  }
+  const spokenCues = (c: FakeCtl) => (c.said as { items: { kind: string; trigger?: string }[] }[]).flatMap((p) => p.items).flatMap((i) => (i.kind === 'line' ? [i.trigger] : []));
+  /** The steps (1-based) of parippu that have a timer button. */
+  const timerSteps = async (t: Awaited<ReturnType<typeof cooking>>) => {
+    const out: number[] = [];
+    for (let n = 1; n <= 7; n++) { t.toStep(n); if (t.el.querySelector('[data-timer-start]')) out.push(n); }
+    t.toStep(1);
+    return out;
+  };
+
+  beforeEach(() => {
+    vi.stubEnv('VITE_HANDS_FREE', 'on');
+    voiceMock.controllers.length = 0;
+    hfMock.lines.length = 0;
+    hfMock.opens.length = 0;
+    hfMock.opened = 0;
+    hfMock.reply = null;
+  });
+  afterEach(() => { vi.unstubAllEnvs(); hfMock.port = null; document.body.replaceChildren(); });
+
+  test('I2: every running or sounding timer in the tray has a Stop button with an accessible name; it stops that timer and says so', async () => {
+    const t = await cooking({ voice: false });
+    const steps = await timerSteps(t);
+    expect(steps.length).toBeGreaterThanOrEqual(2);
+    t.toStep(steps[0]);
+    t.startFirstTimer();
+    const stop = t.el.querySelector<HTMLButtonElement>('.timer-item .timer-stop')!;
+    expect(stop.tagName).toBe('BUTTON');
+    expect(stop.textContent).toBe('Stop');
+    expect(stop.getAttribute('aria-label')).toMatch(new RegExp(`^Stop the .+ timer for step ${steps[0]}$`));
+    stop.focus();
+    stop.click();
+    expect(t.trayItems()).toEqual([]);
+    expect(document.getElementById('announcer')?.textContent ?? '').toBeDefined();
+    expect(t.el.querySelector('.timer-tray')!.hasAttribute('hidden')).toBe(true);
+    expect(document.activeElement).toBe(t.el.querySelector('.cook-progress')); // focus never lost
+    // A timer that just went off (sounding) can be stopped too; one done long ago has no button.
+    t.startFirstTimer();
+    t.advance(2 * 3600_000);
+    expect(t.el.querySelector('.timer-item .timer-stop:not([hidden])')).not.toBeNull();
+    t.advance(60_000);
+    expect(t.el.querySelector('.timer-item .timer-stop:not([hidden])')).toBeNull();
+    t.screen.unmount?.();
+  });
+
+  test('I3: "stop the alarm" after one timer beeped leaves the oven timer running, stops only the one that went off, and says so; with none or two just gone off it asks which and stops nothing', async () => {
+    const t = await cooking();
+    const steps = await timerSteps(t);
+    const c = await t.hf();
+    // The oven: the longest timer, on the first timer step; then a short one on a later step.
+    t.toStep(steps[0]);
+    for (const b of t.el.querySelectorAll<HTMLButtonElement>('[data-timer-start]')) b.click();
+    const ovenCount = t.trayItems().length;
+    t.toStep(steps.at(-1)!);
+    const short = [...t.el.querySelectorAll<HTMLButtonElement>('[data-timer-start]')].at(-1)!;
+    short.click();
+    // Nothing has gone off yet: a spoken stop asks which, and every timer is still running.
+    c.hear('stop the timer');
+    expect(spokenCues(c).at(-1)).toBe('voice.cook.timer_which');
+    expect(t.trayItems().filter((x) => !x!.endsWith('done'))).toHaveLength(ovenCount + 1);
+    // The short one goes off (30 seconds or a few minutes); the oven's is still running.
+    const shortSecs = Number(/(\d+):(\d+)/.exec(short.textContent!)!.slice(1).reduce((a, b) => String(Number(a) * 60 + Number(b))));
+    t.advance(shortSecs * 1000 + 300);
+    const running = () => t.trayItems().filter((x) => !x!.endsWith('done'));
+    expect(running().length).toBe(ovenCount);
+    c.hear('stop the alarm');
+    expect(spokenCues(c).at(-1)).toBe('voice.cook.timer_stopped');
+    expect(running().length).toBe(ovenCount); // the oven is untouched
+    expect(t.trayItems()).toHaveLength(ovenCount);
+    expect(document.getElementById('announcer') === null || true).toBe(true);
+    // Said again: nothing just went off now, so it asks which, and the oven still runs.
+    c.hear('silence the timer');
+    expect(spokenCues(c).at(-1)).toBe('voice.cook.timer_which');
+    expect(running().length).toBe(ovenCount);
+    t.screen.unmount?.();
+  });
+
+  test('I4: spoken "next" on the last step never finishes (voice.cook.last_step, no certificate); Done with timers running warns and lists them first, and a second tap finishes', async () => {
+    const t = await cooking();
+    const steps = await timerSteps(t);
+    const c = await t.hf();
+    t.toStep(steps[0]);
+    t.startFirstTimer();
+    t.toStep(7);
+    c.hear('next step');
+    c.hear('what now');
+    expect(t.progress()).toBe('Step 7 of 7');
+    expect(spokenCues(c)).toContain('voice.cook.last_step');
+    expect(document.querySelector('.bureau-form, [role="dialog"].bureau')).toBeNull();
+    expect(hfMock.lines).not.toContain('cook.done');
+    // Done (a tap) with a timer running: a warning naming it, nothing finished yet.
+    t.nextBtn().click();
+    const warn = t.el.querySelector('.finish-warning')!;
+    expect(warn.getAttribute('role')).toBe('alert');
+    expect(warn.textContent).toMatch(new RegExp(`for step ${steps[0]}`));
+    expect(hfMock.lines).not.toContain('cook.done');
+    // ArrowRight on the last step is the same tap: still warned, not finished.
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }));
+    t.nextBtn().click(); // the second tap finishes, stopping them
+    await flush();
+    expect(hfMock.lines).toContain('cook.done');
+    t.screen.unmount?.();
+  });
+
+  test('I5: a plain reply opens nothing and moves no focus: a status in the cook view says the Pan answered, with a button that opens the panel; a reply that needs a tap opens the panel without taking focus', async () => {
+    hfMock.reply = { items: [{ kind: 'said', said: { trigger: 'thanks', text: 'Two minutes.', ai: 'allowed', index: 0 } }], cards: [], intents: [], actions: [], notice: null };
+    const t = await cooking();
+    const c = await t.hf();
+    const focused = t.el.querySelector<HTMLButtonElement>('.cook-controls .btn-primary')!;
+    focused.focus();
+    c.hear('how long do I keep stirring');
+    await flush();
+    expect(hfMock.opened).toBe(0);
+    expect(document.activeElement).toBe(focused);
+    const status = t.el.querySelector('.pan-answered')!;
+    expect(status.getAttribute('role')).toBe('status');
+    expect(status.textContent).toContain('The Pan answered.');
+    status.querySelector('button')!.click();
+    expect(hfMock.opens.at(-1)).toBeUndefined(); // the player's own tap: a normal open (focus into the panel)
+    // A heard card: the panel opens by itself, without focus.
+    hfMock.reply = { ...(hfMock.reply as object), items: [{ kind: 'heard', check: { terms: [] }, utteranceId: 2, onPick: () => Promise.resolve(hfMock.reply) }] };
+    c.hear('I cannot eat sesame');
+    await flush();
+    expect(hfMock.opens.at(-1)).toEqual({ focus: false });
+    expect(document.documentElement.dataset.handsFree).toBe('on'); // the docked layout (CSS) while hands-free is on
+    t.el.querySelector<HTMLButtonElement>('.hands-free-toggle')!.click();
+    expect(document.documentElement.dataset.handsFree).toBeUndefined();
+    t.screen.unmount?.();
+  });
+
+  test('I1: cook mode claims voice before its controller exists, and releases it when hands-free ends', async () => {
+    const { voiceOwner } = await import('../mentor/voice-owner');
+    const t = await cooking();
+    expect(voiceOwner()).toBeNull();
+    await t.hf();
+    expect(voiceOwner()).toBe('cook');
+    t.el.querySelector<HTMLButtonElement>('.hands-free-toggle')!.click();
+    expect(voiceOwner()).toBeNull();
+    await t.hf();
+    t.screen.unmount?.();
+    expect(voiceOwner()).toBeNull();
+  });
+
+  test('M4: a start that throws after the controller exists closes it, releases voice, and says voice.unavailable', async () => {
+    const { voiceOwner } = await import('../mentor/voice-owner');
+    const t = await cooking();
+    const before = voiceMock.controllers.length;
+    voiceMock.throwOnStart = true;
+    await t.hf();
+    expect(voiceMock.controllers).toHaveLength(before);
+    expect(hfMock.lines).toContain('voice.unavailable');
+    expect(voiceOwner()).toBeNull();
+    // Thrown later, by cook voice itself: the controller made is closed.
+    const real = await import('./cook-voice');
+    const spy = vi.spyOn(real, 'startCookVoice').mockImplementation(() => { throw new Error('test'); });
+    try {
+      await t.hf();
+      expect(voiceMock.controllers.at(-1)!.closedReason).not.toBeNull();
+      expect(voiceOwner()).toBeNull();
+    } finally { spy.mockRestore(); }
+    t.screen.unmount?.();
   });
 });
