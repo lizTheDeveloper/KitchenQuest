@@ -1,7 +1,7 @@
 {
   "_comment": "Processor register (C-34). Feeds the export (C-7) and the DPIA. Facts marked [verify] are unconfirmed. dpa_status: unknown | needed | signed. Not legal advice. No processor receives user data until reviewed (P-11).",
   "version": 1,
-  "updated": "2026-11-11",
+  "updated": "2026-11-13",
   "processors": [
     {
       "id": "openrouter",
@@ -37,7 +37,7 @@
       "id": "hetzner",
       "name": "Hetzner (compute, Postgres host, Object Storage, backups, voice GPU)",
       "purpose": "Hosting for API, database, photo storage, voice service, backups",
-      "data_categories": ["all stored data: identifier, usage, technical in the clear; health as ciphertext", "photos (sealed [verify SSE])", "voice audio in memory only"],
+      "data_categories": ["all stored data: identifier, usage, technical in the clear; health as ciphertext", "photos (sealed [verify SSE])", "voice audio (memory only) and STT vocabulary hints (memory only; rule targets and pantry names only with health_data; no user id)"],
       "country": "DE/FI (EU) [verify datacentre chosen]",
       "contact": "[verify]",
       "dpa_status": "needed",
@@ -118,6 +118,13 @@
       "deletion_api": "TBD; partly retained by law",
       "status": "planned M12",
       "notes": "Added beyond the requested list; named in the compliance report §1.5. Kitchen Quest never stores card data. No health data is shared."
+    }
+  ],
+  "excluded": [
+    {
+      "id": "browser-speech",
+      "name": "Browser speech recognition (Web Speech API; in Chromium it sends audio to Google)",
+      "note": "Not usable in any build (M7 Ruling 1): the game's `browser` voice adapter exists only on the dev server (import.meta.env.DEV) and every `vite build` that asks for it fails; a test greps the built output for webkitSpeechRecognition. A processor review, a DPA (C-34) and a notice are needed before it could ever ship. Not a processor today, so not in the export."
     }
   ]
 }
