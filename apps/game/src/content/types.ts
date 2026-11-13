@@ -132,6 +132,15 @@ export interface GameContent {
  */
 export type ClientContent = Omit<GameContent, 'stalls' | 'seasonality'>;
 
+/**
+ * The lazy Settings module, `virtual:kq-settings` (M7 Step 9, first paint): the `ui.settings.*` screen copy (taken out
+ * of ClientContent's pan triggers) and, for Settings → Voice, every allowed voice model's credit.
+ */
+export interface SettingsContent {
+  copy: Record<string, LineTrigger>;
+  voiceCredits: { id: string; kind: 'stt' | 'tts'; licence: string; source: string; attribution: string | null }[];
+}
+
 /** A stall as shipped: `persona` and the writers' trigger `when`/`notes` dropped (no model reads them in M6, Ruling 21). */
 export type ClientStall = Omit<StallFile, 'persona' | 'variants'> & { variants?: { protein_counter?: Omit<StallVariantFile, 'persona'> } };
 

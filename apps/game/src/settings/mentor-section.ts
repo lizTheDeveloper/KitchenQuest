@@ -2,7 +2,6 @@ import { refreshAccount } from '../api/account';
 import type { ApiClient } from '../api/client';
 import type { Consents } from '../api/types';
 import { content } from '../content';
-import { copy } from '../content/copy';
 import type { BureauForm } from '../content/types';
 import { getMentor } from '../mentor';
 import { createDialogue } from '../mentor/dialogue';
@@ -12,6 +11,7 @@ import { markHealthDelete } from '../state/health-deletes';
 import { eraseHealthEvents, partitionKey, type PlayerStore } from '../state/store';
 import { contentText, h } from '../ui/dom';
 import { openModal } from '../ui/modal';
+import { settingsCopy } from './settings-copy';
 
 
 type Purpose = 'health_data' | 'ai_health';
@@ -19,11 +19,11 @@ type Grant = 'granted' | 'stale' | 'missing';
 
 /** Each permission's words: screen copy in content/dialogue/pan.yaml (`ui.settings.*`). `health_data` is the Bureau keeping them at all; `ai_health` is the AI seeing them (P-4: separate). */
 const permissionCopy = (purpose: Purpose): { label: string; on: string; off: string; stale: string; done: string } => ({
-  label: copy(`ui.settings.${purpose}.label`),
-  on: copy(`ui.settings.${purpose}.on`),
-  off: copy(`ui.settings.${purpose}.off`),
-  stale: copy('ui.settings.stale'),
-  done: copy('ui.settings.permission_done'),
+  label: settingsCopy(`ui.settings.${purpose}.label`),
+  on: settingsCopy(`ui.settings.${purpose}.on`),
+  off: settingsCopy(`ui.settings.${purpose}.off`),
+  stale: settingsCopy('ui.settings.stale'),
+  done: settingsCopy('ui.settings.permission_done'),
 });
 
 /** A current, unwithdrawn grant (a stale notice never counts: it asks again with the new notice). */
@@ -54,7 +54,7 @@ export function mentorSection(store: PlayerStore, client: ApiClient, forms: Reco
     h('h2', { id: 'set-pan' }, 'The Pan'),
     contentText('p', content.bureau.disclaimers.ai_characters, { class: 'pan-disclosure-text' }),
     h('div', { class: 'field' }, aiMentor, h('label', { for: 'set-ai-mentor' }, "Talk to the Pan's AI")),
-    h('p', { class: 'field-hint' }, copy('ui.settings.ai_mentor_hint')),
+    h('p', { class: 'field-hint' }, settingsCopy('ui.settings.ai_mentor_hint')),
     accountBox,
     status);
 
@@ -70,7 +70,7 @@ export function mentorSection(store: PlayerStore, client: ApiClient, forms: Reco
         t.box.disabled = !r.ok;
         if (r.ok) t.show(grantOf(r.data, t.purpose));
       }
-      if (!r.ok) status.textContent = copy('ui.settings.offline');
+      if (!r.ok) status.textContent = settingsCopy('ui.settings.offline');
     });
 
     /**
@@ -116,7 +116,7 @@ export function mentorSection(store: PlayerStore, client: ApiClient, forms: Reco
             className: 'confirm-modal',
             title: h('h2', null, 'Delete your saved health details?'),
             body: h('div', null,
-              h('p', null, copy('ui.settings.erase_body')),
+              h('p', null, settingsCopy('ui.settings.erase_body')),
               h('div', { class: 'button-row' }, yes)),
             opener: erase,
             onClose: () => undefined,
@@ -128,8 +128,8 @@ export function mentorSection(store: PlayerStore, client: ApiClient, forms: Reco
             if (as !== null) store.update((st) => markHealthDelete(st, as));
             void client.withdrawConsent('health_data', 'delete').then((r) => {
               close();
-              if (!(r.ok || r.status === 404)) { status.textContent = copy('ui.settings.offline'); return; }
-              status.textContent = copy('ui.settings.health_deleted');
+              if (!(r.ok || r.status === 404)) { status.textContent = settingsCopy('ui.settings.offline'); return; }
+              status.textContent = settingsCopy('ui.settings.health_deleted');
               void afterDelete(as);
               void load();
             });
@@ -150,12 +150,12 @@ export function mentorSection(store: PlayerStore, client: ApiClient, forms: Reco
         const as = partitionKey(store.get());
         void client.withdrawConsent(purpose, healthData).then((r) => {
           box.disabled = false;
-          if (!(r.ok || r.status === 404)) { show(grant); status.textContent = copy('ui.settings.offline'); return; }
+          if (!(r.ok || r.status === 404)) { show(grant); status.textContent = settingsCopy('ui.settings.offline'); return; }
           status.textContent = purpose === 'ai_health'
-            ? copy('ui.settings.ai_withdrawn')
+            ? settingsCopy('ui.settings.ai_withdrawn')
             : healthData === 'delete'
-              ? copy('ui.settings.health_deleted')
-              : copy('ui.settings.health_kept');
+              ? settingsCopy('ui.settings.health_deleted')
+              : settingsCopy('ui.settings.health_kept');
           // Deleted rules (or a withdraw that ended the AI permission too) show at once.
           if (healthData === 'delete') void afterDelete(as);
           else if (purpose === 'health_data') void refreshAccount(client, store);
@@ -178,7 +178,7 @@ export function mentorSection(store: PlayerStore, client: ApiClient, forms: Reco
           cancel.addEventListener('click', () => { slot.replaceChildren(); box.focus(); });
           slot.replaceChildren(h('div', { class: 'health-withdraw', role: 'group', 'aria-labelledby': 'health-withdraw-title' },
             h('h3', { id: 'health-withdraw-title' }, 'Stop keeping health details?'),
-            h('p', null, copy('ui.settings.withdraw_body')),
+            h('p', null, settingsCopy('ui.settings.withdraw_body')),
             h('div', { class: 'button-row' }, keep, del, cancel)));
           keep.focus();
           return;
@@ -190,12 +190,12 @@ export function mentorSection(store: PlayerStore, client: ApiClient, forms: Reco
           box.disabled = false;
           const notice = r.ok ? r.data.notices[purpose] : undefined;
           const form = forms[purpose === 'ai_health' ? 'consent_ai' : 'consent_health'] as BureauForm | undefined;
-          if (notice === undefined || form === undefined) { status.textContent = copy('ui.settings.offline'); return; }
+          if (notice === undefined || form === undefined) { status.textContent = settingsCopy('ui.settings.offline'); return; }
           const card = renderConsentCard(purpose, {
             form, notice,
             onAgree: async () => {
               const g = await client.grantConsent(purpose, notice.version);
-              if (!g.ok) { status.textContent = copy('ui.settings.offline'); return; }
+              if (!g.ok) { status.textContent = settingsCopy('ui.settings.offline'); return; }
               show('granted');
               slot.replaceChildren();
               status.textContent = words.done;
@@ -220,7 +220,7 @@ export function mentorSection(store: PlayerStore, client: ApiClient, forms: Reco
         className: 'confirm-modal',
         title: h('h2', null, 'Forget your conversations?'),
         body: h('div', null,
-          h('p', null, copy('ui.settings.forget_body')),
+          h('p', null, settingsCopy('ui.settings.forget_body')),
           h('div', { class: 'button-row' }, yes)),
         opener: forget,
         onClose: () => undefined,
@@ -230,7 +230,7 @@ export function mentorSection(store: PlayerStore, client: ApiClient, forms: Reco
         void client.forgetConversations().then((r) => {
           close();
           if (r.ok) status.replaceChildren(contentText('span', dialogue.say('forget.done').text));
-          else status.textContent = copy('ui.settings.offline');
+          else status.textContent = settingsCopy('ui.settings.offline');
         });
       });
     });

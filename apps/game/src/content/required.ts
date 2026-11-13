@@ -255,6 +255,16 @@ export const REQUIRED_PAN_TRIGGERS: readonly string[] = [
   'ui.settings.erase_body',
   'ui.settings.withdraw_body',
   'ui.settings.forget_body',
+  // M7 Step 9: Settings → Voice (shipped in the lazy Settings module).
+  'ui.settings.voice.signed_out',
+  'ui.settings.voice.on_hint',
+  'ui.settings.voice.accessibility_hint',
+  'ui.settings.voice.accessibility_consent',
+  'ui.settings.voice.ready',
+  'ui.settings.voice.resting',
+  'ui.settings.voice.resting_today',
+  'ui.settings.voice.not_offered',
+  'ui.settings.voice.credits',
 ];
 
 /** Bureau disclaimers the game shows. The build fails if forms.yaml lacks any of them. */

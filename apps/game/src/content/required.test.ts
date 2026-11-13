@@ -187,6 +187,8 @@ describe('M4 Bureau forms', () => {
   it.each([
     ['consent_health', '3-C/HEALTH', 'Permission to Keep Health Details'],
     ['consent_ai', '3-C/AI', 'Permission for the AI to See Your Rules and Meals'],
+    // M7 Step 9: the voice consent card (Settings → Voice, and the panel after a consent_required close).
+    ['consent_voice', '3-C/VOICE', 'Permission to Talk Out Loud'],
   ])('%s is a plain safety form whose only field is the notice', (id, number, title) => {
     const form = forms[id];
     expect(form).toMatchObject({ number, title, safety: true, stamp: 'confirmed_by_apprentice' });
@@ -517,5 +519,19 @@ describe('M6 Step 5: the market triggers', () => {
     for (const id of ['season.now', 'season.other']) {
       for (const line of lines(id)) expect(line, line).not.toMatch(/\b(only|left|hurry|soon|last|before|ends?|while|days?|weeks?)\b|!/i);
     }
+  });
+});
+
+describe('M7 Step 9: Settings copy and voice credits are lazy (first paint)', () => {
+  it('no ui.settings.* trigger ships in the first-paint content; each is in the lazy Settings module, as written', async () => {
+    const { settingsTriggers, voiceCredits } = await import('../settings/settings-copy');
+    expect(Object.keys(content.pan.triggers).filter((id) => id.startsWith('ui.settings.'))).toEqual([]);
+    const required = REQUIRED_PAN_TRIGGERS.filter((id) => id.startsWith('ui.settings.'));
+    expect(required.length).toBeGreaterThan(20);
+    for (const id of required) expect(settingsTriggers[id]?.lines.length, id).toBeGreaterThan(0);
+    // Every allowed model, and nothing else; the Piper voice's CC BY-SA attribution is shown.
+    expect(voiceCredits.map((m) => m.id)).toEqual(['faster-whisper-tiny.en', 'faster-whisper-base.en', 'faster-whisper-small.en', 'kokoro-82m-v1.0', 'piper-en_GB-northern_english_male-medium']);
+    expect(voiceCredits.find((m) => m.id.startsWith('piper-'))?.attribution).toMatch(/CC BY-SA 4\.0/);
+    expect(voiceCredits.some((m) => /ryan/.test(m.id))).toBe(false);
   });
 });

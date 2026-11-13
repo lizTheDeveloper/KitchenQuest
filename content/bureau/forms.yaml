@@ -141,6 +141,18 @@ forms:
     footnotes:
       - "*Saying no costs nothing. You can play every part of the game without it."
 
+  consent_voice:
+    number: "3-C/VOICE"
+    title: "Permission to Talk Out Loud"
+    purpose: "The consent card for voice (M7): shown when the player turns on 'Talk out loud' in Settings, or tries to talk without it. The notice field is the API's voice notice text, shown verbatim, never rewritten here. That text is DRAFT wording pending lawyer review (C-30)."
+    safety: true
+    fields:
+      - { key: notice, label: "What this covers" }
+    buttons: { confirm: "I agree", decline: "Not now" }
+    stamp: confirmed_by_apprentice
+    footnotes:
+      - "*Saying no costs nothing. You can play every part of the game without it."
+
   meal_log:
     number: "2-L"
     title: "Ledger Entry: a Meal"

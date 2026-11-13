@@ -2284,6 +2284,64 @@ triggers:
     lines:
       - "This deletes what you and the Pan have said to each other from the Bureau's files. Your saved rules, meals and pantry stay as they are."
 
+  # Settings → Voice (M7 Step 9). Screen copy, not Pan turns. The allowance is a state, never a number (Ruling 5): no
+  # count, countdown, meter or timer, no Guild, no upsell. These ship in the lazy Settings module, not first paint.
+  ui.settings.voice.signed_out:
+    ai: never
+    when: "Settings, Voice: signed out (Ruling 8: voice needs an account)."
+    lines:
+      - "Voice needs an account. Sign in to talk to the Pan out loud; typing works either way."
+
+  ui.settings.voice.on_hint:
+    ai: never
+    when: "Settings, Voice: under the 'Talk out loud' box."
+    lines:
+      - "Off until you turn it on. The Pan listens only while you hold the talk button. Typing always works."
+
+  ui.settings.voice.accessibility_hint:
+    ai: never
+    when: "Settings, Voice: under 'I need voice to use Kitchen Quest' (C4: the fair-use ceiling is named)."
+    lines:
+      - "Voice for players who need it is never limited by plan, and needs no proof. A daily fair-use ceiling applies to everyone, so the service stays up for all."
+
+  ui.settings.voice.accessibility_consent:
+    ai: never
+    when: "Settings, Voice: the accessibility need is a health detail, so Form 3-C is shown first (Ruling 6)."
+    lines:
+      - "Needing voice is a health detail, so the Bureau asks your permission to keep it."
+
+  ui.settings.voice.ready:
+    ai: never
+    when: "Settings, Voice: the state line, voice available."
+    lines:
+      - "Voice is ready."
+
+  ui.settings.voice.resting:
+    ai: never
+    when: "Settings, Voice: the state line, resting until a later day (Ruling 5). A day and date only, never a number of anything."
+    vars:
+      until: "the day voice is back, e.g. 'Thursday 19 November'"
+    lines:
+      - "Voice is resting until {until}."
+
+  ui.settings.voice.resting_today:
+    ai: never
+    when: "Settings, Voice: the state line, resting for the rest of today (Ruling 5, B4). No hour, no countdown."
+    lines:
+      - "Voice is resting for today."
+
+  ui.settings.voice.not_offered:
+    ai: never
+    when: "Settings, Voice: this server does not offer voice."
+    lines:
+      - "Voice isn't available here yet. Typing works as always."
+
+  ui.settings.voice.credits:
+    ai: never
+    when: "Settings, Voice: above the list of voice credits."
+    lines:
+      - "The speech models the Pan uses, and their licences:"
+
   ui.rules.undo_failed:
     ai: never
     when: "Your rules: an Undo on a raised rule that could not be sent (offline)."
