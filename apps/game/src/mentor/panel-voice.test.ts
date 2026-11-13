@@ -16,7 +16,7 @@ import { HEARD_YES } from './heard-card';
 import { mountMentorPanel, type MentorMode } from './panel';
 import type { CardView, PanReply } from './reply';
 import { createScriptedEngine } from './scripted';
-import { TALK_LABEL, TALK_OFF_LABEL, UNAVAILABLE_BACKOFF_MS } from './talk';
+import { TALK_BLOCKED_LABEL, TALK_LABEL, TALK_OFF_LABEL, UNAVAILABLE_BACKOFF_MS } from './talk';
 import { createWeekTurn } from './week-turn';
 import type { CardWriter } from './writer';
 
@@ -343,27 +343,43 @@ describe('talking to the Pan (M7 Step 9)', () => {
     expect(speaks(ws).length).toBe(before + 1);
   });
 
-  test('fix round 1 (I-2): a server Family Table refusal puts the talk control away and says voice.family_table once; no retry loop', async () => {
+  test('fix round 1 (I-2) and 2: a server Family Table refusal says voice.family_table once and marks the control off; each later press asks again (no loop), and the control comes back once the block lifts', async () => {
     const r = await rig();
+    const refuse = async () => {
+      r.press();
+      await flush();
+      const ws = r.sockets.at(-1)!;
+      ws.open();
+      ws.serverSend({ t: 'closed', reason: 'family_table' });
+      ws.serverClose(4452);
+      await flush();
+      r.release();
+      await flush();
+    };
+    const said = () => [...r.root.querySelectorAll('.bubble.pan')].filter((b) => lines('voice.family_table').includes(b.textContent)).length;
+    await refuse();
+    expect(said()).toBe(1);
+    expect(r.row()!.hidden).toBe(false);
+    expect(r.btn()!.dataset.phase).toBe('blocked');
+    expect(r.btn()!.textContent).toBe(TALK_BLOCKED_LABEL);
+    expect(r.audio.getUserMedia.calls).toHaveLength(0);
+    // Still blocked: the press is one hello, refused, and the line is not said again.
+    await refuse();
+    expect(r.sockets).toHaveLength(2);
+    expect(said()).toBe(1);
+    // The other device left Family Table: the next press's hello is answered, and the control is back.
     r.press();
-    await flush();
-    const ws = r.sockets.at(-1)!;
-    ws.open();
-    ws.serverSend({ t: 'closed', reason: 'family_table' });
-    ws.serverClose(4409);
-    await flush();
+    const ws = await r.ready();
+    expect(r.btn()!.dataset.phase).toBe('listening');
     r.release();
     await flush();
-    const said = () => [...r.root.querySelectorAll('.bubble.pan')].map((b) => b.textContent);
-    expect(said().filter((t) => lines('voice.family_table').includes(t))).toHaveLength(1);
-    expect(r.row()!.hidden).toBe(true);
-    r.press();
-    await flush();
-    expect(r.sockets).toHaveLength(1);
-    expect(r.audio.getUserMedia.calls).toHaveLength(0);
+    expect(ws.json().map((m) => m.t)).toContain('listen');
+    // A new block later is said again.
+    await refuse();
+    expect(said()).toBe(2);
   });
 
-  test('fix round 1 (I-2): a server child refusal says child.grownup once and puts the control away; a cleared conversation behaves the same, never silently', async () => {
+  test('fix round 1 (I-2): a server child refusal says child.grownup once; a cleared conversation behaves the same, never silently', async () => {
     const r = await rig();
     const refuse = async () => {
       r.press();
@@ -371,7 +387,7 @@ describe('talking to the Pan (M7 Step 9)', () => {
       const ws = r.sockets.at(-1)!;
       ws.open();
       ws.serverSend({ t: 'closed', reason: 'child' });
-      ws.serverClose(4409);
+      ws.serverClose(4451);
       await flush();
       r.release();
       await flush();
@@ -379,15 +395,14 @@ describe('talking to the Pan (M7 Step 9)', () => {
     await refuse();
     const grownup = () => [...r.root.querySelectorAll('.bubble.pan')].filter((b) => lines('child.grownup').includes(b.textContent)).length;
     expect(grownup()).toBe(1);
-    expect(r.row()!.hidden).toBe(true);
+    expect(r.btn()!.dataset.phase).toBe('blocked');
     // The conversation is cleared (the device's own child flag forgets): the control is back, and the same refusal
     // gets the same line again (one per refusal, each needing a press).
     r.child.reset();
-    expect(r.row()!.hidden).toBe(false);
+    expect(r.btn()!.dataset.phase).not.toBe('blocked');
     await refuse();
     expect(r.sockets).toHaveLength(2);
     expect(grownup()).toBe(2);
-    expect(r.row()!.hidden).toBe(true);
   });
 
   test('fix round 1 (M-2): consents that cannot be read after consent_required say voice.unavailable, never the consent card', async () => {

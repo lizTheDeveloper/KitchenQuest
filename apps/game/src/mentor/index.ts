@@ -7,6 +7,7 @@ import { reducedMotion } from '../shell/motion';
 import { parseRoute } from '../shell/router';
 import { createScriptedBackend, type MentorBackend } from './backend';
 import { createChildFlag } from './child-flag';
+import { deviceId } from '../state/device-id';
 import { lazyBackend } from './lazy-backend';
 import { createLocalSafety, newConversation, scriptedWhenUnavailable, type ConversationRef } from './outage';
 import { createDialogue, type Dialogue } from './dialogue';
@@ -67,12 +68,19 @@ const FAMILY_TABLE_RETRY_MAX_MS = 300_000;
  * no account to block. Fix round 1 (I-4): only a 2xx confirms a report; a failed one (offline, a 429, a 5xx, a throw) is
  * sent again with a growing backoff, and at once on `online`, until it lands, the setting changes or the player signs
  * out. Meanwhile the device itself refuses the microphone in Family Table (the controller throws; talk.ts hides), so
- * the guarantee never rests on the report alone. Returns the unsubscribe.
+ * the guarantee never rests on the report alone. Fix round 2: every report names this install (`deviceId`), and the
+ * server lifts the block only when the device that set it reports off, so a second device's start-up `{on:false}`
+ * clears nothing. Returns the unsubscribe.
  */
 export function reportFamilyTable(
   store: PlayerStore, client: Pick<ApiClient, 'setFamilyTable'>,
-  opts: { setTimer?: (fn: () => void, ms: number) => unknown; clearTimer?: (t: unknown) => void; events?: Pick<EventTarget, 'addEventListener' | 'removeEventListener'> } = {},
+  opts: {
+    setTimer?: (fn: () => void, ms: number) => unknown; clearTimer?: (t: unknown) => void; events?: Pick<EventTarget, 'addEventListener' | 'removeEventListener'>;
+    /** Fix round 2: this install's id (state/device-id.ts), so the server's block is per device. */
+    deviceId?: () => string;
+  } = {},
 ): () => void {
+  const device = opts.deviceId ?? (() => deviceId());
   const setTimer = opts.setTimer ?? ((fn: () => void, ms: number) => setTimeout(fn, ms));
   const clearTimer = opts.clearTimer ?? ((t: unknown) => { clearTimeout(t as ReturnType<typeof setTimeout>); });
   const keyOf = (s: PlayerState) => (s.account === null ? null : `${s.account.email}|${String(s.settings.familyTable)}`);
@@ -95,7 +103,7 @@ export function reportFamilyTable(
       timer = setTimer(() => { timer = null; attempt(); }, backoff);
       backoff = Math.min(backoff * 2, FAMILY_TABLE_RETRY_MAX_MS);
     };
-    client.setFamilyTable(s.settings.familyTable).then((r) => { settle(r.ok); }, () => { settle(false); });
+    client.setFamilyTable(s.settings.familyTable, device()).then((r) => { settle(r.ok); }, () => { settle(false); });
   };
   const onStore = (s: PlayerState) => {
     const key = keyOf(s);

@@ -305,16 +305,16 @@ describe('M5 Step 11: the Recipe Book routes', () => {
 
 describe('M7 Step 9: the voice routes', () => {
   const body = (i: number): unknown => JSON.parse(calls[i].init.body!);
-  test('GET /voice/status sends the player\'s localDate and localTime (required, carry 3); the two PUTs send exactly { on }', async () => {
+  test('GET /voice/status sends the player\'s localDate and localTime (required, carry 3); the two PUTs send exactly { on } (the Family Table report with this install device id, fix round 2)', async () => {
     for (let i = 0; i < 3; i++) script.push(json(200, {}));
     await client.voiceStatus('2026-11-13', '18:05');
     await client.setAccessibility(true);
-    await client.setFamilyTable(false);
+    await client.setFamilyTable(false, '0f1e2d3c-4b5a-4968-8776-655443322110');
     expect(calls.map((c) => `${c.init.method} ${c.url}`)).toEqual([
       'GET /api/voice/status?localDate=2026-11-13&localTime=18%3A05', 'PUT /api/voice/accessibility', 'PUT /api/voice/family-table',
     ]);
     expect(calls[0].init.body).toBeUndefined();
     expect(body(1)).toEqual({ on: true });
-    expect(body(2)).toEqual({ on: false });
+    expect(body(2)).toEqual({ on: false, deviceId: '0f1e2d3c-4b5a-4968-8776-655443322110' });
   });
 });

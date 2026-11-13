@@ -52,6 +52,8 @@ export interface VoiceController {
   onTranscript(fn: (text: string, tooLong: boolean, utteranceId: number) => void): () => void;
   onPhase(fn: (p: VoicePhase, state: VoiceState | null) => void): () => void;
   onProblem(fn: (p: VoiceProblem) => void): () => void;
+  /** Fix round 2 (Step 9, I-2): the API answered a hello (`ready`): voice is open for this account now. */
+  onReady(fn: (state: VoiceState) => void): () => void;
   /**
    * Hands-free turned itself off: `idle` (HANDS_FREE_IDLE_MS without a transcript), `hidden` (the page), `noise`
    * (utterances ran to the cap back to back: a steady sound, fix round 1 I1; Step 10 says `voice.hands_free_off`),
@@ -108,6 +110,7 @@ export function createVoiceController(deps: {
   const transcripts = new Set<(text: string, tooLong: boolean, id: number) => void>();
   const phaseFns = new Set<(p: VoicePhase, s: VoiceState | null) => void>();
   const problems = new Set<(p: VoiceProblem) => void>();
+  const readyFns = new Set<(s: VoiceState) => void>();
   const handsOff = new Set<(w: HandsFreeOff) => void>();
 
   let phase: VoicePhase = 'idle';
@@ -209,6 +212,7 @@ export function createVoiceController(deps: {
     hello ??= provider.hello(deps.conversationId(), localDate(now())).then(
       (s) => {
         state = s;
+        if (!closed) for (const fn of [...readyFns]) fn(s);
         return s;
       },
       (e: unknown) => {
@@ -524,6 +528,7 @@ export function createVoiceController(deps: {
     onTranscript(fn) { transcripts.add(fn); return () => { transcripts.delete(fn); }; },
     onPhase(fn) { phaseFns.add(fn); return () => { phaseFns.delete(fn); }; },
     onProblem(fn) { problems.add(fn); return () => { problems.delete(fn); }; },
+    onReady(fn) { readyFns.add(fn); return () => { readyFns.delete(fn); }; },
     onHandsFreeOff(fn) { handsOff.add(fn); return () => { handsOff.delete(fn); }; },
 
     close(reason = 'off') {
@@ -547,6 +552,7 @@ export function createVoiceController(deps: {
       transcripts.clear();
       phaseFns.clear();
       problems.clear();
+      readyFns.clear();
       handsOff.clear();
     },
   };

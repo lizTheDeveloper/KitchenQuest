@@ -173,3 +173,38 @@ describe('fix round 1 (I-4): the Family Table report is confirmed only by a 2xx 
     expect(o.sent).toEqual([true]);
   });
 });
+
+describe('fix round 2: the report names this install, so another device\'s start-up report clears nothing', () => {
+  test('A in Family Table and B not: B\'s start-up {on:false} leaves A\'s block; A\'s id is the same after a reload', async () => {
+    const { reportFamilyTable } = await import('./index');
+    const { deviceId } = await import('../state/device-id');
+    // A fake of the API's per-device set (apps/api voice/family-devices.ts and family-routes.ts).
+    const set = new Set<string>();
+    let blocked = false;
+    const server = {
+      setFamilyTable: (on: boolean, id: string) => {
+        if (on) { set.add(id); blocked = true; } else if (set.delete(id) && set.size === 0) blocked = false;
+        return Promise.resolve({ ok: true as const, status: 204, data: null });
+      },
+    };
+    const mem = () => { const m = new Map<string, string>(); return { get length() { return m.size; }, key: (i: number) => [...m.keys()][i] ?? null, getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => { m.set(k, v); }, removeItem: (k: string) => { m.delete(k); }, clear: () => { m.clear(); } } as Storage; };
+    const deviceA = mem();
+    const deviceB = mem();
+    const signed = (ft: boolean) => { const s = createStore(null); s.update((x) => ({ ...x, account: { email: 'a@b.c' }, settings: { ...x.settings, familyTable: ft } })); return s; };
+    const stopA = reportFamilyTable(signed(true), server, { deviceId: () => deviceId(deviceA) });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(blocked).toBe(true);
+    reportFamilyTable(signed(false), server, { deviceId: () => deviceId(deviceB) });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(blocked).toBe(true);
+    // A reloads: same id, reports on again; then turns Family Table off: the block lifts.
+    stopA();
+    const a2 = signed(true);
+    reportFamilyTable(a2, server, { deviceId: () => deviceId(deviceA) });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(set.size).toBe(1);
+    a2.update((x) => ({ ...x, settings: { ...x.settings, familyTable: false } }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(blocked).toBe(false);
+  });
+});

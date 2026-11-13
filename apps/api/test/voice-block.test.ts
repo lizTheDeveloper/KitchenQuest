@@ -61,7 +61,10 @@ async function hello(cookie: string, over: object = {}): Promise<VoiceClient> {
   await c.next();
   return c;
 }
-const familyTable = (cookie: string, on: unknown) => call(cookie, { method: 'PUT', url: '/voice/family-table', payload: { on } });
+/** Fix round 2: two installs of the game, each with its own random device id. */
+const DEVICE_A = '0f1e2d3c-4b5a-4968-8776-655443322110';
+const DEVICE_B = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
+const familyTable = (cookie: string, on: unknown, deviceId: string = DEVICE_A) => call(cookie, { method: 'PUT', url: '/voice/family-table', payload: { on, deviceId } });
 const isReady = (c: VoiceClient) => c.msgs[0]?.t === 'ready';
 
 describe('the registry (P3)', () => {
@@ -137,16 +140,20 @@ describe('Ruling 17: both flags close every socket of the user', () => {
     expect(isReady(open)).toBe(true);
     voiceRegistry.setFamilyTable(p.id, true);
     expect(await open.closed).toBe(VOICE_CLOSE_CODES.family_table);
-    expect((await familyTable(p.cookie, false)).statusCode).toBe(204);
   });
 
-  test('hello with familyTable:true sets the server flag; PUT {on:false} clears it and voice opens again', async () => {
+  test('hello with familyTable:true sets the server flag; a device that never reported on cannot clear it (fix round 2); a device\'s on→off does, and voice opens again', async () => {
     const p = await player();
     const c = await hello(p.cookie, { familyTable: true });
     expect(await c.closed).toBe(VOICE_CLOSE_CODES.family_table);
     expect(voiceRegistry.blocked(p.id, clock)).toBe('family_table');
     expect(await (await hello(p.cookie)).closed).toBe(VOICE_CLOSE_CODES.family_table);
-    expect((await familyTable(p.cookie, false)).statusCode).toBe(204);
+    // B's start-up {on:false}: B never reported on, so nothing changes (the hello-added block stands: fail-safe).
+    expect((await familyTable(p.cookie, false, DEVICE_B)).statusCode).toBe(204);
+    expect(voiceRegistry.blocked(p.id, clock)).toBe('family_table');
+    // A device that turns Family Table on, then off, lifts it.
+    expect((await familyTable(p.cookie, true, DEVICE_A)).statusCode).toBe(204);
+    expect((await familyTable(p.cookie, false, DEVICE_A)).statusCode).toBe(204);
     expect(voiceRegistry.blocked(p.id, clock)).toBeNull();
     const back = await hello(p.cookie);
     expect(isReady(back)).toBe(true);
@@ -174,10 +181,38 @@ describe('Ruling 17: both flags close every socket of the user', () => {
 
   test('PUT /voice/family-table: strict body, signed in only', async () => {
     const p = await player();
-    for (const bad of [{ on: 'yes' }, { on: true, extra: 1 }, {}]) {
+    for (const bad of [
+      { on: 'yes', deviceId: DEVICE_A }, { on: true, deviceId: DEVICE_A, extra: 1 }, {}, { on: true },
+      // Fix round 2: the device id is strictly a UUID's shape, nothing else.
+      { on: true, deviceId: 'not-a-uuid' }, { on: true, deviceId: DEVICE_A.toUpperCase() }, { on: true, deviceId: `${DEVICE_A}0` },
+      { on: true, deviceId: 7 }, { on: true, deviceId: 'cook@example.com' }, { on: false, deviceId: '' },
+    ]) {
       expect((await call(p.cookie, { method: 'PUT', url: '/voice/family-table', payload: bad })).statusCode, JSON.stringify(bad)).toBe(400);
     }
-    expect((await app.inject({ method: 'PUT', url: '/voice/family-table', payload: { on: true } })).statusCode).toBe(401);
+    expect((await app.inject({ method: 'PUT', url: '/voice/family-table', payload: { on: true, deviceId: DEVICE_A } })).statusCode).toBe(401);
     expect(voiceRegistry.blocked(p.id, clock)).toBeNull();
+  });
+
+  test('fix round 2: device B\'s {on:false} does not clear device A\'s block; A\'s own {on:false} does; with both on, the block lasts until both are off', async () => {
+    const p = await player();
+    expect((await familyTable(p.cookie, true, DEVICE_A)).statusCode).toBe(204);
+    expect(voiceRegistry.blocked(p.id, clock)).toBe('family_table');
+    // B starts up, not in Family Table, and reports so: A's block stands.
+    expect((await familyTable(p.cookie, false, DEVICE_B)).statusCode).toBe(204);
+    expect(voiceRegistry.blocked(p.id, clock)).toBe('family_table');
+    expect(await (await hello(p.cookie)).closed).toBe(VOICE_CLOSE_CODES.family_table);
+    // Both in Family Table: one leaving keeps the block.
+    expect((await familyTable(p.cookie, true, DEVICE_B)).statusCode).toBe(204);
+    expect((await familyTable(p.cookie, false, DEVICE_A)).statusCode).toBe(204);
+    expect(voiceRegistry.blocked(p.id, clock)).toBe('family_table');
+    expect((await familyTable(p.cookie, false, DEVICE_B)).statusCode).toBe(204);
+    expect(voiceRegistry.blocked(p.id, clock)).toBeNull();
+    expect(isReady(await hello(p.cookie))).toBe(true);
+    // A device id is the user's own: another user's report with the same id never touches this one.
+    const q = await player();
+    expect((await familyTable(p.cookie, true, DEVICE_A)).statusCode).toBe(204);
+    expect((await familyTable(q.cookie, false, DEVICE_A)).statusCode).toBe(204);
+    expect(voiceRegistry.blocked(p.id, clock)).toBe('family_table');
+    expect((await familyTable(p.cookie, false, DEVICE_A)).statusCode).toBe(204);
   });
 });

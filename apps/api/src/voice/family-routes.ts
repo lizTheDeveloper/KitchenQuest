@@ -3,17 +3,24 @@ import { z } from 'zod';
 import { SlidingWindowLimiter, sweepPeriodically } from '../auth/rate-limit.js';
 import { requireUser } from '../auth/session.js';
 import { ApiError } from '../errors.js';
+import { familyDevices } from './family-devices.js';
 import { voiceRegistry } from './registry.js';
 
 /** Family Table reports per player per minute: the game sends one per change and one per start (abuse only). */
 const FAMILY_TABLE_REQUESTS_PER_MINUTE = 30;
 
-const FamilyTableBody = z.object({ on: z.boolean() }).strict();
+/** A device id is a random UUID (the game's `crypto.randomUUID()`), strictly that shape: nothing else is accepted. */
+const DEVICE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const FamilyTableBody = z.object({ on: z.boolean(), deviceId: z.string().regex(DEVICE_ID) }).strict();
 
 /**
- * M7 Step 5, Ruling 17: `PUT /voice/family-table { on: boolean }` (strict, signed in) → 204. The game calls it whenever
- * the Family Table setting changes and at every signed-in start. `on` sets the server-held block, which closes every
- * voice socket of the player at once (`family_table`) and refuses `hello` and `listen` until `{ on: false }` clears it.
+ * M7 Step 5, Ruling 17: `PUT /voice/family-table { on: boolean, deviceId }` (strict, signed in) → 204. The game calls it
+ * whenever the Family Table setting changes and at every signed-in start. `on` sets the server-held block, which closes
+ * every voice socket of the player at once (`family_table`) and refuses `hello` and `listen`.
+ * Step 9 fix round 2 (controller ruling): the block is per device. `on` adds that device's id
+ * (`family-devices.ts`); `off` removes only that id, and lifts the block only when that removal emptied the user's
+ * set. A device that never reported `on` (a second device's start-up report) clears nothing, including a block a
+ * `hello.familyTable` added with no id, which lasts until some device's on→off or a restart (fail-safe).
  * In memory only: never stored, logged or audited (§19). Registered only when voice is enabled.
  */
 export async function voiceFamilyRoutes(app: FastifyInstance): Promise<void> {
@@ -36,8 +43,14 @@ export async function voiceFamilyRoutes(app: FastifyInstance): Promise<void> {
 
   app.put('/voice/family-table', { preHandler: [requireUser, limited] }, async (req, reply) => {
     const parsed = FamilyTableBody.safeParse(req.body);
-    if (!parsed.success) throw new ApiError(400, 'bad_request', 'Invalid request', { problems: ['body: expected exactly { on: boolean }'] });
-    voiceRegistry.setFamilyTable(req.user.id, parsed.data.on);
+    if (!parsed.success) throw new ApiError(400, 'bad_request', 'Invalid request', { problems: ['body: expected exactly { on: boolean, deviceId: uuid }'] });
+    const { on, deviceId } = parsed.data;
+    if (on) {
+      familyDevices.on(req.user.id, deviceId);
+      voiceRegistry.setFamilyTable(req.user.id, true);
+    } else if (familyDevices.off(req.user.id, deviceId)) {
+      voiceRegistry.setFamilyTable(req.user.id, false);
+    }
     return reply.status(204).send();
   });
 }

@@ -59,6 +59,9 @@ export interface TalkHooks {
 
 export const TALK_LABEL = 'Hold to talk';
 export const TALK_OFF_LABEL = 'Talk out loud';
+/** Fix round 2 (I-2): the server holds a child or Family Table block for this account; a press asks again. */
+export const TALK_BLOCKED_LABEL = 'Voice is off for now';
+const HINT_BLOCKED = 'Voice is off for your account right now. Press to check again; typing always works.';
 const HINT_ON = 'Hold the button, or hold Space or Enter on it, and speak. Let go to send.';
 const HINT_OFF = 'Voice is off. This opens Settings, where you can turn it on.';
 const PHASE_TEXT: Readonly<Record<VoicePhase, string>> = {
@@ -103,16 +106,18 @@ export function mountTalk(row: HTMLElement, hooks: TalkHooks): { stop(): void } 
   let engaged = false;
   /**
    * Fix round 1 (I-2): the server refused voice for this account (Ruling 17's block: a child flag in any conversation,
-   * or Family Table on another device). The control is put away for this conversation, with one line; clearing the
-   * conversation brings it back, and the same refusal gets the same line again (each needs a press: no loop).
+   * or Family Table on another device). Its line is said once per block, and the control reads as off. Fix round 2: it
+   * is not put away: each press is one hello (no loop), and the first one the API answers lifts it. Clearing the
+   * conversation or another account starts without it.
    */
   let serverBlock: 'child' | 'family_table' | null = null;
+  let blockSaid = false;
   let blockedFor: string | undefined;
 
   const voiceOn = () => store.get().settings.voice.on;
   const allowed = () => {
     const s = store.get();
-    return !stopped && s.account !== null && !s.settings.familyTable && child?.on !== true && serverBlock === null;
+    return !stopped && s.account !== null && !s.settings.familyTable && child?.on !== true;
   };
 
   const draw = (phase: VoicePhase = ctl?.phase ?? 'idle') => {
@@ -122,6 +127,13 @@ export function mountTalk(row: HTMLElement, hooks: TalkHooks): { stop(): void } 
       btn.setAttribute('aria-pressed', 'false');
       hint.textContent = HINT_OFF;
       btn.dataset.phase = 'off';
+      return;
+    }
+    if (serverBlock !== null && (phase === 'off' || phase === 'idle')) {
+      btn.textContent = TALK_BLOCKED_LABEL;
+      btn.setAttribute('aria-pressed', 'false');
+      btn.dataset.phase = 'blocked';
+      hint.textContent = HINT_BLOCKED;
       return;
     }
     btn.textContent = PHASE_TEXT[phase];
@@ -200,9 +212,12 @@ export function mountTalk(row: HTMLElement, hooks: TalkHooks): { stop(): void } 
       ctl = null;
       hooks.setSpeaker(null);
       held = false;
-      hooks.show(lines([serverBlock === 'child' ? 'child.grownup' : 'voice.family_table']));
+      if (!blockSaid) {
+        blockSaid = true;
+        hooks.show(lines([serverBlock === 'child' ? 'child.grownup' : 'voice.family_table']));
+        if (engaged) hooks.focusText();
+      }
       draw('off');
-      if (engaged) hooks.focusText();
       engaged = false;
       return;
     }
@@ -259,6 +274,8 @@ export function mountTalk(row: HTMLElement, hooks: TalkHooks): { stop(): void } 
     ctl = c;
     c.onPhase((p, s) => { onPhase(c, p, s); });
     c.onProblem((p) => { onProblem(c, p); });
+    // Fix round 2 (I-2): the API answered: any server block has lifted, and the next block is said again.
+    c.onReady(() => { if (c !== ctl || serverBlock === null) return; serverBlock = null; blockSaid = false; draw(); });
     c.onTranscript((text, tooLong, id) => { void spokenTurn(c, text, tooLong, id); });
     hooks.setSpeaker((r) => { if (c === ctl) speak(r); });
     return c;
@@ -318,7 +335,7 @@ export function mountTalk(row: HTMLElement, hooks: TalkHooks): { stop(): void } 
 
   const sync = () => {
     // I-2: the server's refusal was for this account; another account starts without it.
-    if (serverBlock !== null && store.get().account?.email !== blockedFor) serverBlock = null;
+    if (serverBlock !== null && store.get().account?.email !== blockedFor) { serverBlock = null; blockSaid = false; }
     if (!allowed() || !voiceOn()) {
       held = false;
       // M-8: the reason it closed, as the controller names them.
@@ -330,7 +347,7 @@ export function mountTalk(row: HTMLElement, hooks: TalkHooks): { stop(): void } 
   const unStore = store.subscribe(sync);
   // G3: the moment the child flag is set, the controller and any microphone still starting close.
   // I-2: a cleared conversation (its child flag reset) starts without the server's refusal: a press asks again.
-  const unChild = child?.onChange(() => { if (child.on !== true) serverBlock = null; sync(); });
+  const unChild = child?.onChange(() => { if (child.on !== true) { serverBlock = null; blockSaid = false; } sync(); });
   sync();
 
   return {

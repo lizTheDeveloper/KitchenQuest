@@ -92,8 +92,8 @@ export interface ApiClient {
   voiceStatus(localDate: string, localTime: string): Promise<ApiResult<VoiceStatus>>;                         // GET /voice/status
   /** M7 Ruling 6: the sealed accessibility need. 403 `consent_required` without health_data (Form 3-C). */
   setAccessibility(on: boolean): Promise<ApiResult<null>>;                                                      // PUT /voice/accessibility (204)
-  /** M7 Ruling 17: the device's Family Table setting, on every change and every signed-in start. */
-  setFamilyTable(on: boolean): Promise<ApiResult<null>>;                                                        // PUT /voice/family-table (204)
+  /** M7 Ruling 17: the device's Family Table setting, on every change and every signed-in start, with this install's id. */
+  setFamilyTable(on: boolean, deviceId: string): Promise<ApiResult<null>>;                                      // PUT /voice/family-table (204)
 }
 
 const isObj = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x);
@@ -213,7 +213,7 @@ export function createApiClient(opts: { baseUrl?: string; fetch?: typeof fetch; 
     deleteShared: (id) => call('DELETE', `/shared-table/${enc(id)}`),
     voiceStatus: (localDate, localTime) => call('GET', `/voice/status?localDate=${enc(localDate)}&localTime=${enc(localTime)}`),
     setAccessibility: (on) => call('PUT', '/voice/accessibility', { on }),
-    setFamilyTable: (on) => call('PUT', '/voice/family-table', { on }),
+    setFamilyTable: (on, deviceId) => call('PUT', '/voice/family-table', { on, deviceId }),
   };
 }
 
