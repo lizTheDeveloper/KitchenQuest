@@ -35,7 +35,7 @@ export function startCookVoice(deps: { controller: VoiceController; hooks: CookV
 //   + voice.hands_free_idle; visibilitychange hidden → stop('hidden'); teardown → stop('left'); non-command → toPan
 ```
 
-- [ ] **10.1 Write the failing tests.**
+- [x] **10.1 Write the failing tests.**
 ```ts
 // cook-voice.test.ts (fake controller, fake timers)
 test('"next" on step index 0 of a canon dish shows index 1 and says { kind: "step", slug, step: 1 }; a frame dish advances and says nothing', ...);
@@ -49,9 +49,9 @@ test('the Hands-free toggle shows only with VITE_HANDS_FREE on, voice on, handsF
 test('the Listening pill is visible exactly while the mic is open, is announced politely once, and has no timer or countdown', ...);
 test('keyboard and touch controls keep working while hands-free is on', ...);
 ```
-- [ ] **10.2 Run** `npm test -w @kitchenquest/game -- cook-voice cook-screen timers` → FAIL.
-- [ ] **10.3 Implement.**
-- [ ] **10.4 Run** `npm test -w @kitchenquest/game`, `npm run typecheck`, the game build → PASS.
+- [x] **10.2 Run** `npm test -w @kitchenquest/game -- cook-voice cook-screen timers` → FAIL.
+- [x] **10.3 Implement.**
+- [x] **10.4 Run** `npm test -w @kitchenquest/game`, `npm run typecheck`, the game build → PASS.
   - Run the README echo checklist by hand in each browser available, and record the results in `bench/latest.json` `manual[]` (operator). Without a browser that has a microphone, say so in the report; `VITE_HANDS_FREE` then stays off.
   - Check that no `EVAL_FILES` path changed since Step 7.
-- [ ] **10.5 Commit** `feat(cook): hands-free cook mode — commands, safe step reading, barge-in, idle off`
+- [x] **10.5 Commit** `feat(cook): hands-free cook mode — commands, safe step reading, barge-in, idle off`
