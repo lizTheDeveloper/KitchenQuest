@@ -78,7 +78,9 @@ async function ready(cookie: string): Promise<VoiceClient> {
 async function midUtterance(c: VoiceClient, id = 1): Promise<void> {
   c.send({ t: 'listen', id, mode: 'hold' });
   for (let i = 0; i < 5; i++) c.frame(id);
-  await new Promise((r) => setTimeout(r, 60));
+  // M7 Step 11 (load flake, root cause): the server takes the listen (database reads first) and its frames in order,
+  // which under load took longer than a fixed 60 ms. Wait for the upstream to hold all five frames.
+  await expect.poll(() => upstream.utterances.at(-1)?.frames).toBe(5);
   expect(upstream.utterances.at(-1)).toMatchObject({ frames: 5, cancelled: false });
 }
 const sttRows = async (userId: string) =>
@@ -181,14 +183,17 @@ describe('I2 / m3: speech that went upstream is charged once, before the next li
     c.send({ t: 'listen', id: 10, mode: 'hold' }); // replaces 9 while it is being transcribed
     for (let i = 0; i < 50; i++) c.frame(10);
     c.send({ t: 'end', id: 10 });
-    await settle();
+    // M7 Step 11 (a full-suite load flake, root cause): the server handles a socket's messages one at a time, and under
+    // load it had not reached the later utterances 80 ms after they were sent, so the terminate below dropped them
+    // unprocessed (never started, so never charged: 2 to 4 rows). Wait until the service has 10's end (all five
+    // utterances went upstream and ended), which is the state the test means to close in.
+    await expect.poll(() => upstream.utterances.length === 5 && upstream.utterances.every((u) => u.ended)).toBe(true);
     c.ws.terminate(); // 10 is in flight, after end
     await c.closed;
     await settle();
     g.release();
-    // M7 Step 11 (a full-suite load flake, root cause): the closed socket's charge is written when the server handles
-    // its close and the released answer, which under load came after one settle(). Wait for the rows themselves: a
-    // missing charge still fails (the poll's timeout), and an extra one fails the exact match.
+    // The closed socket's charge is written when the server handles the close: wait for the rows themselves (a missing
+    // charge still fails at the poll's timeout, and an extra one fails the exact match).
     await expect.poll(() => sttRows(p.id)).toEqual([1, 1, 1, 1, 1]);
   });
 
@@ -243,7 +248,8 @@ describe('Minors', () => {
     const c = await ready(p.cookie);
     c.send({ t: 'listen', id: 1, mode: 'hold' });
     for (let i = 0; i < MAX_UTTERANCE_MS / FRAME_MS + 5; i++) c.frame(1);
-    await settle();
+    // Wait for the final answer itself (under load it came after two fixed settles), then nothing more.
+    await expect.poll(() => c.msgs.some((m) => m.t === 'too_long' && 'safety' in m)).toBe(true);
     await settle();
     expect(c.msgs.filter((m) => m.t !== 'ready')).toEqual([{ t: 'too_long', id: 1 }, { t: 'too_long', id: 1, safety: 'none' }]);
   });
