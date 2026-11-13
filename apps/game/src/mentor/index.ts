@@ -22,7 +22,7 @@ import { createCardWriter, type CardWriter } from './writer';
 import type { WeekTurn } from './week-turn';
 
 export { createDialogue } from './dialogue';
-export type { CookVoicePort, MentorPanel } from './panel';
+export type { MentorPanel } from './panel';
 
 let mentor: MentorPanel | null = null;
 

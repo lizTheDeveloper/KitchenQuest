@@ -76,10 +76,10 @@ export function beep(win: Window, ended?: () => void): boolean {
 
 const WAKE_NOTE = "This browser can't keep the screen awake. Tap the screen now and then.";
 /** M7 Step 10: hands-free cook mode (Ruling 7). The button's name stays; its state is aria-pressed and the hint. */
-export const HANDS_FREE_LABEL = '🎙 Hands-free';
-export const HANDS_FREE_OFF_HINT = 'Hands-free is off. Turn it on to cook by voice: say "next step", "repeat", "start the timer" or "stop listening".';
-export const HANDS_FREE_ON_HINT = 'Hands-free is on. Say "next step", "go back", "repeat", "start the timer" or "stop listening". The screen stays awake meanwhile, and every button still works.';
-export const LISTENING_TEXT = 'Listening';
+const HANDS_FREE_LABEL = '🎙 Hands-free';
+const HANDS_FREE_OFF_HINT = 'Hands-free is off. Turn it on to cook by voice: say "next step", "repeat", "start the timer" or "stop listening".';
+const HANDS_FREE_ON_HINT = 'Hands-free is on. Say "next step", "go back", "repeat", "start the timer" or "stop listening". The screen stays awake meanwhile, and every button still works.';
+const LISTENING_TEXT = 'Listening';
 
 /** Runs cook mode in `el` for `src`. Returns the teardown. */
 export function runCookMode(el: HTMLElement, ctx: AppContext, src: CookModeSource): () => void {
@@ -317,6 +317,8 @@ export function runCookMode(el: HTMLElement, ctx: AppContext, src: CookModeSourc
   const hfBuild = import.meta.env.VITE_HANDS_FREE === 'on';
   let hf: { voice: CookVoice; ctl: VoiceController } | null = null;
   let hfLoading = false;
+  /** Bumped when a start in progress is called off (the toggle again, leaving): its late load does nothing. */
+  let hfGen = 0;
   /** Rulings 7–9: which rule forbids the microphone now, or null; 'setting' when only the hands-free setting is off. */
   const hfBlock = (): 'family_table' | 'child' | 'signed_out' | 'off' | 'setting' | null => {
     const s = ctx.store.get();
@@ -367,14 +369,16 @@ export function runCookMode(el: HTMLElement, ctx: AppContext, src: CookModeSourc
   const startHf = async () => {
     if (hf !== null || hfLoading || !hfAllowed()) return;
     hfLoading = true;
+    const gen = ++hfGen;
+    const calledOff = () => gen !== hfGen || !hfAllowed();
     drawHf();
     try {
       const [lib, cv] = await Promise.all([import('../voice'), import('./cook-voice')]);
-      if (!hfLoading || !hfAllowed()) return; // turned off, left, or a rule changed while it loaded
+      if (calledOff()) return; // turned off, left, or a rule changed while it loaded
       const port = mentor.cookVoice()!;
       const provider = lib.providerKind() === 'browser' ? await lib.devBrowserProvider(win) : lib.serviceProvider(win, ctx.store);
-      if (!hfLoading || !hfAllowed()) { provider.close(); return; }
-      const ctl = lib.createVoiceController({ win, store: ctx.store, provider, conversationId: port.conversationId, childOn: port.childOn });
+      if (calledOff()) { provider.close(); return; }
+      const ctl = lib.createVoiceController({ win, store: ctx.store, provider, conversationId: () => port.conversationId(), childOn: () => port.childOn() });
       const unMic = ctl.onMic(showPill);
       // §19: the moment a child speaks, the microphone closes (the controller also checks every frame).
       const unChild = port.onChild(() => { if (port.childOn()) ctl.close('child'); });
@@ -403,13 +407,13 @@ export function runCookMode(el: HTMLElement, ctx: AppContext, src: CookModeSourc
       console.error(err);
       say('voice.unavailable');
     } finally {
-      hfLoading = false;
+      if (gen === hfGen) hfLoading = false;
       drawHf();
     }
   };
   hfBtn.addEventListener('click', () => {
     if (hf !== null) hf.voice.stop('user');
-    else if (hfLoading) { hfLoading = false; drawHf(); }
+    else if (hfLoading) { hfGen++; hfLoading = false; drawHf(); }
     else void startHf();
   });
   const unHf = ctx.store.subscribe(() => {
@@ -426,6 +430,7 @@ export function runCookMode(el: HTMLElement, ctx: AppContext, src: CookModeSourc
 
   function teardown() {
     stopped = true;
+    hfGen++;
     hfLoading = false;
     hf?.voice.stop('left');
     unHf();

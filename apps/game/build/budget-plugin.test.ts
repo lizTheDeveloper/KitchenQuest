@@ -131,10 +131,11 @@ describe('checkFirstPaintBudget', () => {
 });
 
 /**
- * M7 Step 9's measured first paint after fix round 3 (KB, `KQ_APP_ORIGIN=https://example.test npm run build`): a record
- * for B8 only. The real gate is e2e/budget.e2e.test.ts, which asserts the built dist against the cap (M-11).
+ * M7's measured first paint (KB, `KQ_APP_ORIGIN=https://example.test npm run build`): Step 9 after fix round 3 was
+ * 358.3; Step 10 (the panel's cookVoice port; cook-mode voice itself is lazy) is 358.8. A record for B8 only. The real
+ * gate is e2e/budget.e2e.test.ts, which asserts the built dist against the cap (M-11).
  */
-const M7_STEP9_FIRST_PAINT_KB = 358.3;
+const M7_STEP9_FIRST_PAINT_KB = 358.8;
 
 // The real build's check (first paint ≤ 360 KB, no stall content in it, the market chunk lazy and precached) is
 // e2e/budget.e2e.test.ts: it reads the dist/ that e2e/setup.ts builds, instead of a second build here that would

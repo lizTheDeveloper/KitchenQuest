@@ -2,7 +2,7 @@
 import { HANDS_FREE_IDLE_MS, cookCommand, type SpeakItem, type VoiceState } from '@kitchenquest/core/engine';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import type { PanReply } from '../mentor/reply';
-import type { HandsFreeOff, VoiceController, VoicePhase, VoiceProblem } from '../voice';
+import type { HandsFreeOff, VoicePhase, VoiceProblem } from '../voice';
 import { startCookVoice, type CookVoiceHooks } from './cook-voice';
 import { createAlarm } from './timers';
 import { beep } from './cook-mode';
@@ -73,7 +73,7 @@ function rig(opts: { speakStep?: { slug: string } | null; toPan?: (text: string,
     speakStep: opts.speakStep === undefined ? { slug: 'india/kerala/parippu' } : opts.speakStep,
   };
   const voice = startCookVoice({
-    controller: c as unknown as VoiceController, hooks, localDate: () => '2026-11-13', doc: document,
+    controller: c, hooks, localDate: () => '2026-11-13', doc: document,
     toPan: (text, id) => { toPan.push({ text, id }); return opts.toPan ? opts.toPan(text, id) : Promise.resolve(said('Keep it moving.')); },
     line: (t) => { lines.push(t); },
     readAloud: () => opts.readAloud ?? true,
@@ -99,7 +99,7 @@ describe('startCookVoice (M7 Step 10)', () => {
     c.refuseStart = true;
     const stops: string[] = [];
     const lines: string[] = [];
-    startCookVoice({ controller: c as unknown as VoiceController, hooks: { next() {}, back() {}, timerStart() {}, timerStop() {}, currentStep: () => 0, speakStep: null }, localDate: () => '2026-11-13', doc: document, toPan: () => Promise.resolve(null), line: (t) => lines.push(t), readAloud: () => true, onStop: (w) => stops.push(w) });
+    startCookVoice({ controller: c, hooks: { next() {}, back() {}, timerStart() {}, timerStop() {}, currentStep: () => 0, speakStep: null }, localDate: () => '2026-11-13', doc: document, toPan: () => Promise.resolve(null), line: (t) => lines.push(t), readAloud: () => true, onStop: (w) => stops.push(w) });
     expect(lines).toEqual([]);
     expect(stops).toEqual(['refused']);
   });

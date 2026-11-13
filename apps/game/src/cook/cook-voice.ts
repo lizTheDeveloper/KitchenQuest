@@ -32,7 +32,7 @@ export interface CookVoiceHooks {
 }
 
 /** Why cook voice stopped: the caller's four, or the controller's (noise, a close, a problem), or it never started. */
-export type CookVoiceStop = 'user' | 'idle' | 'left' | 'hidden' | 'noise' | 'closed' | 'stopped' | 'refused';
+type CookVoiceStop = 'user' | 'idle' | 'left' | 'hidden' | 'noise' | 'closed' | 'stopped' | 'refused';
 
 export interface CookVoice {
   readonly on: boolean;
@@ -112,7 +112,8 @@ export function startCookVoice(deps: CookVoiceDeps): CookVoice {
       case 'timer_start': hooks.timerStart(); return c.say(END_WAIT);
       case 'timer_stop': hooks.timerStop(); return c.say(END_WAIT);
       case 'stop_listening': return end('user', 'voice.hands_free_off');
-      default: break; // 'ingredients' and everything else: the Pan's (the heard check first)
+      case 'ingredients': // not a step command here: the Pan answers it (cook mode lists no ingredients)
+      case null: break; // everything else: the Pan's (the heard check first)
     }
     void deps.toPan(text, utteranceId).then((r) => {
       if (!on || mine !== turn) return; // stopped, or the player spoke again meanwhile: drawn, never said over it

@@ -19,7 +19,7 @@ import type { TalkHooks } from './talk';
 import { content, graph } from '../content';
 
 /** M7 Step 10: what hands-free cook mode reaches the Pan through (`MentorPanel.cookVoice`). */
-export interface CookVoicePort {
+interface CookVoicePort {
   /** The AI conversation's server id, for the controller's hello. */
   conversationId(): string | null;
   /** The conversation's child flag (§19): the controller closes the moment it is set. */

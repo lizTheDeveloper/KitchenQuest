@@ -27,7 +27,7 @@ vi.mock('../mentor', () => ({
 
 // M7 Step 10: the voice client, faked: a controller double the test speaks for (never a microphone or a socket).
 interface FakeCtl {
-  calls: string[]; said: unknown[]; timer: boolean[]; handsFree: boolean; closedReason: string | null;
+  calls: string[]; said: unknown[]; timer: boolean[]; handsFree: boolean; closedReason: string | null; timerSounding(on: boolean): void;
   hear(text: string): void; mic(open: boolean): void;
 }
 const voiceMock = vi.hoisted(() => ({ controllers: [] as FakeCtl[], providers: 0 }));
