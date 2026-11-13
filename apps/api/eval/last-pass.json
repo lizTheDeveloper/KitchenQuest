@@ -1,11 +1,11 @@
 {
   "fingerprint": "24a575860b2895bf0fe9b786a15f319f4bd9d84c755021490d89a4410c643f9a",
-  "evalHash": "8f9e591bceef3b7883d5a3eed9fa793cae9b41ffa3237d82650c8d4da01278c3",
+  "evalHash": "0e8b7e882dd67290da99f884cfbfd2a252a6fd42c798aab1561b5555a040161a",
   "model": "qwen/qwen3.8-27b",
   "providers": [
     "tenstorrent"
   ],
-  "date": "2026-11-12",
+  "date": "2026-11-13",
   "results": [
     {
       "id": "T01",
@@ -1331,17 +1331,21 @@
       "id": "V03",
       "category": "tool",
       "rep": 0,
-      "pass": true,
+      "pass": false,
       "hard": false,
-      "problems": []
+      "problems": [
+        "missing /\"slot\":\"lunch\"/"
+      ]
     },
     {
       "id": "V03",
       "category": "tool",
       "rep": 1,
-      "pass": true,
+      "pass": false,
       "hard": false,
-      "problems": []
+      "problems": [
+        "missing /\"slot\":\"lunch\"/"
+      ]
     },
     {
       "id": "V03",
